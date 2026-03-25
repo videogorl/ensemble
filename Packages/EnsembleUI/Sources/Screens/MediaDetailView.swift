@@ -84,6 +84,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var nvmLastPlaylistTargetId: String?
     @Environment(\.dependencies) private var deps
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
@@ -121,94 +122,96 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     public var body: some View {
         contentWithOptionalFilter
-        .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if shouldShowStandaloneFilterButton {
-                    Button {
-                        showFilterSheet = true
-                    } label: {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: "line.3.horizontal.decrease.circle")
+        .if(!isViewportNowPlayingPresented) { content in
+            content.toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if shouldShowStandaloneFilterButton {
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
 
-                            if viewModel.filterOptions.hasActiveFilters {
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 8, height: 8)
-                                    .offset(x: 2, y: -2)
+                                if viewModel.filterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
                             }
                         }
                     }
                 }
-            }
-            #else
-            ToolbarItem(placement: .automatic) {
-                if shouldShowStandaloneFilterButton {
-                    Button {
-                        showFilterSheet = true
-                    } label: {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: "line.3.horizontal.decrease.circle")
+                #else
+                ToolbarItem(placement: .automatic) {
+                    if shouldShowStandaloneFilterButton {
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
 
-                            if viewModel.filterOptions.hasActiveFilters {
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 8, height: 8)
-                                    .offset(x: 2, y: -2)
+                                if viewModel.filterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
                             }
                         }
                     }
                 }
-            }
-            #endif
-            // Compact play/shuffle/radio icons appear when action buttons scroll out of view
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if showToolbarActions {
-                    HStack(spacing: 16) {
-                        Button {
-                            nowPlayingVM.play(tracks: viewModel.filteredTracks)
-                        } label: {
-                            Image(systemName: "play.fill")
-                        }
-                        .disabled(viewModel.filteredTracks.isEmpty)
-
-                        Button {
-                            nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
-                        } label: {
-                            Image(systemName: "shuffle")
-                        }
-                        .disabled(viewModel.filteredTracks.isEmpty)
-
-                        if hasRadioButton {
+                #endif
+                // Compact play/shuffle/radio icons appear when action buttons scroll out of view
+                #if os(iOS)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if showToolbarActions {
+                        HStack(spacing: 16) {
                             Button {
-                                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
+                                nowPlayingVM.play(tracks: viewModel.filteredTracks)
                             } label: {
-                                Image(systemName: "dot.radiowaves.left.and.right")
+                                Image(systemName: "play.fill")
                             }
                             .disabled(viewModel.filteredTracks.isEmpty)
+
+                            Button {
+                                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
+                            } label: {
+                                Image(systemName: "shuffle")
+                            }
+                            .disabled(viewModel.filteredTracks.isEmpty)
+
+                            if hasRadioButton {
+                                Button {
+                                    nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
+                                } label: {
+                                    Image(systemName: "dot.radiowaves.left.and.right")
+                                }
+                                .disabled(viewModel.filteredTracks.isEmpty)
+                            }
                         }
+                        .transition(.opacity)
                     }
-                    .transition(.opacity)
                 }
-            }
-            #endif
-            // "More" menu button — always rightmost in trailing toolbar
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if let mediaType = mediaType,
-                   let ratingKey = headerData.ratingKey {
-                    pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
+                #endif
+                // "More" menu button — always rightmost in trailing toolbar
+                #if os(iOS)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if let mediaType = mediaType,
+                       let ratingKey = headerData.ratingKey {
+                        pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
+                    }
                 }
-            }
-            #else
-            ToolbarItem(placement: .automatic) {
-                if let mediaType = mediaType,
-                   let ratingKey = headerData.ratingKey {
-                    pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
+                #else
+                ToolbarItem(placement: .automatic) {
+                    if let mediaType = mediaType,
+                       let ratingKey = headerData.ratingKey {
+                        pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
+                    }
                 }
+                #endif
             }
-            #endif
         }
         .collapsingToolbarTitle(
             navigationTitle,
@@ -716,6 +719,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
         .padding(.horizontal)
         .padding(.bottom)
+        .chromelessMediaControlButton()
         .disabled(viewModel.filteredTracks.isEmpty)
     }
 

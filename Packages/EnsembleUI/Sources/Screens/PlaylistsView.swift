@@ -26,7 +26,6 @@ public struct PlaylistsView: View {
     @State private var playlistPendingRename: Playlist?
     @State private var renamePlaylistTitle = ""
     @State private var playlistForEditSheet: Playlist?
-    @State private var showingManageSources = false
     // Cached filtered playlists — avoids recomputing .filter() on every body evaluation
     @State private var cachedDisplayedPlaylists: [Playlist] = []
     // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
@@ -34,6 +33,7 @@ public struct PlaylistsView: View {
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
+    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
 
     private var supportsStageFlow: Bool {
         #if os(iOS)
@@ -43,8 +43,10 @@ public struct PlaylistsView: View {
         #endif
     }
 
-    public init(nowPlayingVM: NowPlayingViewModel) {
-        self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
+    public init(nowPlayingVM: NowPlayingViewModel, viewModel: PlaylistViewModel? = nil) {
+        self._viewModel = StateObject(
+            wrappedValue: viewModel ?? DependencyContainer.shared.makePlaylistViewModel()
+        )
         self.nowPlayingVM = nowPlayingVM
     }
 
@@ -150,24 +152,6 @@ public struct PlaylistsView: View {
                     )
                 }
             }
-            .sheet(isPresented: $showingManageSources) {
-                NavigationView {
-                    SettingsView()
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") {
-                                    showingManageSources = false
-                                }
-                            }
-                        }
-                }
-                #if os(iOS)
-                .navigationViewStyle(.stack)
-                #endif
-                #if os(macOS)
-                    .frame(width: 720, height: 560)
-                #endif
-            }
             .hideTabBarIfAvailable(isHidden: isStageFlowActive)
             .stageFlowRotationSupport(isEnabled: supportsStageFlow)
             #if os(iOS)
@@ -235,77 +219,79 @@ public struct PlaylistsView: View {
             .refreshable {
                 await viewModel.refreshFromServer()
             }
-            .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !isStageFlowActive {
-                    HStack(spacing: 16) {
-                        // Extracted to scope syncCoordinator observation to just the button
-                        PlaylistsNewButton {
-                            showCreatePlaylistPrompt = true
-                        }
+            .if(!isViewportNowPlayingPresented) { content in
+                content.toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if !isStageFlowActive {
+                        HStack(spacing: 16) {
+                            // Extracted to scope syncCoordinator observation to just the button
+                            PlaylistsNewButton {
+                                showCreatePlaylistPrompt = true
+                            }
 
-                        Menu {
-                            ForEach(PlaylistSortOption.allCases, id: \.self) { option in
-                                Button {
-                                    if viewModel.playlistSortOption == option {
-                                        viewModel.filterOptions.sortDirection =
-                                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
-                                    } else {
-                                        viewModel.playlistSortOption = option
-                                        viewModel.filterOptions.sortDirection = option.defaultDirection
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(option.rawValue)
+                            Menu {
+                                ForEach(PlaylistSortOption.allCases, id: \.self) { option in
+                                    Button {
                                         if viewModel.playlistSortOption == option {
-                                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
-                                                  ? "chevron.up" : "chevron.down")
+                                            viewModel.filterOptions.sortDirection =
+                                                viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
+                                        } else {
+                                            viewModel.playlistSortOption = option
+                                            viewModel.filterOptions.sortDirection = option.defaultDirection
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if viewModel.playlistSortOption == option {
+                                                Image(systemName: viewModel.filterOptions.sortDirection == .ascending
+                                                      ? "chevron.up" : "chevron.down")
+                                            }
                                         }
                                     }
                                 }
+                            } label: {
+                                Label("Sort By", systemImage: "arrow.up.arrow.down")
                             }
-                        } label: {
-                            Label("Sort By", systemImage: "arrow.up.arrow.down")
                         }
                     }
                 }
-            }
-            #else
-            ToolbarItem(placement: .automatic) {
-                if !isStageFlowActive {
-                    HStack(spacing: 16) {
-                        PlaylistsNewButton {
-                            showCreatePlaylistPrompt = true
-                        }
+                #else
+                ToolbarItem(placement: .automatic) {
+                    if !isStageFlowActive {
+                        HStack(spacing: 16) {
+                            PlaylistsNewButton {
+                                showCreatePlaylistPrompt = true
+                            }
 
-                        Menu {
-                            ForEach(PlaylistSortOption.allCases, id: \.self) { option in
-                                Button {
-                                    if viewModel.playlistSortOption == option {
-                                        viewModel.filterOptions.sortDirection =
-                                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
-                                    } else {
-                                        viewModel.playlistSortOption = option
-                                        viewModel.filterOptions.sortDirection = option.defaultDirection
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(option.rawValue)
+                            Menu {
+                                ForEach(PlaylistSortOption.allCases, id: \.self) { option in
+                                    Button {
                                         if viewModel.playlistSortOption == option {
-                                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
-                                                  ? "chevron.up" : "chevron.down")
+                                            viewModel.filterOptions.sortDirection =
+                                                viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
+                                        } else {
+                                            viewModel.playlistSortOption = option
+                                            viewModel.filterOptions.sortDirection = option.defaultDirection
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if viewModel.playlistSortOption == option {
+                                                Image(systemName: viewModel.filterOptions.sortDirection == .ascending
+                                                      ? "chevron.up" : "chevron.down")
+                                            }
                                         }
                                     }
                                 }
+                            } label: {
+                                Label("Sort By", systemImage: "arrow.up.arrow.down")
                             }
-                        } label: {
-                            Label("Sort By", systemImage: "arrow.up.arrow.down")
                         }
                     }
                 }
-            }
-            #endif
+                #endif
+                }
             }
     }
 
@@ -367,7 +353,7 @@ public struct PlaylistsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    showingManageSources = true
+                    DependencyContainer.shared.navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)

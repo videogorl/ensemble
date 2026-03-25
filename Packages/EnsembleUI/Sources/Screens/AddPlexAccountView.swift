@@ -17,36 +17,45 @@ public struct AddPlexAccountView: View {
     }
 
     public var body: some View {
+        #if os(macOS)
+        macOSBody
+        #else
+        iOSBody
+        #endif
+    }
+
+    #if os(macOS)
+    private var macOSBody: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                contentStack
+            }
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+        }
+        .frame(minWidth: 720, minHeight: 560)
+        .onChange(of: viewModel.state) { newState in
+            if newState == .complete {
+                dismiss()
+            }
+        }
+    }
+    #endif
+
+    private var iOSBody: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing: 24) {
-                    // App icon
-                    VStack(spacing: 16) {
-                        Image(systemName: "music.note.house.fill")
-                            .font(.system(size: 60))
-                            .foregroundColor(.accentColor)
-
-                        Text("Add Plex Account")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                    }
-
-                    // Auth content
-                    authContent
-
-                    // Error message
-                    if let error = viewModel.error {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.red)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                    }
-                }
-                .frame(maxWidth: 620)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 24)
+                contentStack
             }
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -72,9 +81,37 @@ public struct AddPlexAccountView: View {
                 }
             }
         }
-        #if os(macOS)
-        .frame(minWidth: 720, minHeight: 560)
-        #endif
+    }
+
+    private var contentStack: some View {
+        VStack(spacing: 24) {
+            // App icon
+            VStack(spacing: 16) {
+                Image(systemName: "music.note.house.fill")
+                    .font(.system(size: 60))
+                    .foregroundColor(.accentColor)
+
+                Text("Add Plex Account")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+            }
+
+            // Auth content
+            authContent
+
+            // Error message
+            if let error = viewModel.error {
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+        }
+        .frame(maxWidth: 620)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 24)
     }
 
     @ViewBuilder

@@ -55,6 +55,8 @@ public struct MainTabView: View {
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dependencies) private var deps
+    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @Environment(\.presentViewportNowPlaying) private var presentViewportNowPlaying
     
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
@@ -63,7 +65,7 @@ public struct MainTabView: View {
     @StateObject private var keyboard = KeyboardObserver()
     #endif
 
-    @State private var showingNowPlaying = false
+    @State private var showingSheetNowPlaying = false
     @State private var didSetInitialTab = false
     @State private var isImmersiveMode = false
 
@@ -78,12 +80,26 @@ public struct MainTabView: View {
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
     }
 
+    private var usesViewportNowPlayingPresentation: Bool {
+        #if os(macOS)
+        return true
+        #elseif os(iOS)
+        return UIDevice.current.userInterfaceIdiom == .pad
+        #else
+        return false
+        #endif
+    }
+
     private var isKeyboardVisible: Bool {
         #if os(iOS)
         return keyboard.isVisible
         #else
         return false
         #endif
+    }
+
+    private var isShowingNowPlaying: Bool {
+        usesViewportNowPlayingPresentation ? isViewportNowPlayingPresented : showingSheetNowPlaying
     }
 
     public var body: some View {
@@ -125,7 +141,7 @@ public struct MainTabView: View {
                 // The 70pt covers the mini player height + spacing above the tab bar.
                 .miniPlayerContainerInset(
                     70,
-                    isVisible: !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode
+                    isVisible: !isShowingNowPlaying && !isKeyboardVisible && !isImmersiveMode
                 )
                 .zIndex(0)
 
@@ -135,7 +151,18 @@ public struct MainTabView: View {
                 // can efficiently skip diffing the content.
                 MainTabNowPlayingOverlay(
                     nowPlayingVM: nowPlayingVM,
-                    showingNowPlaying: $showingNowPlaying,
+                    showingNowPlaying: Binding(
+                        get: { isShowingNowPlaying },
+                        set: { newValue in
+                            if usesViewportNowPlayingPresentation {
+                                if newValue {
+                                    presentViewportNowPlaying(nowPlayingVM)
+                                }
+                            } else {
+                                showingSheetNowPlaying = newValue
+                            }
+                        }
+                    ),
                     isImmersiveMode: isImmersiveMode,
                     isKeyboardVisible: isKeyboardVisible,
                     namespace: playerNamespace,
@@ -158,7 +185,7 @@ public struct MainTabView: View {
                 }
                 await libraryVM.refresh()
             }
-            .onChange(of: showingNowPlaying) { isShowing in
+            .onChange(of: isShowingNowPlaying) { isShowing in
                 // Execute pending navigation after the sheet fully dismisses.
                 // The 0.35s delay lets the NavigationStack settle after the
                 // sheet animation completes so path mutations are not dropped.
@@ -170,17 +197,27 @@ public struct MainTabView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingNowPlaying) {
-                NowPlayingSheetView(
-                    viewModel: nowPlayingVM,
-                    namespace: playerNamespace,
-                    animationID: artworkAnimationID,
-                    dismissAction: {
-                        showingNowPlaying = false
-                    }
-                )
-                .accentColor(settingsManager.accentColor.color)
+            .if(!usesViewportNowPlayingPresentation) { view in
+                view.sheet(isPresented: $showingSheetNowPlaying) {
+                    NowPlayingSheetView(
+                        viewModel: nowPlayingVM,
+                        namespace: playerNamespace,
+                        animationID: artworkAnimationID,
+                        dismissAction: {
+                            showingSheetNowPlaying = false
+                        }
+                    )
+                    .accentColor(settingsManager.accentColor.color)
+                }
             }
+            #if os(iOS)
+            .sheet(item: $navigationCoordinator.activeAuxiliaryPresentation, onDismiss: {
+                navigationCoordinator.dismissAuxiliaryPresentation()
+            }) { destination in
+                AuxiliaryPresentationView(destination: destination)
+                    .accentColor(settingsManager.accentColor.color)
+            }
+            #endif
             // Add account sheet presented at root level so it survives
             // TabView content recreation on iOS 15 foreground transitions
             .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
@@ -223,7 +260,7 @@ public struct MainTabView: View {
         if #available(iOS 16.0, *) {
             content.onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
                 // Avoid iOS 15/16 transition re-entrancy while Now Playing is presenting.
-                guard !showingNowPlaying else { return }
+                guard !isShowingNowPlaying else { return }
 
                 if isImmersiveMode != isHidden {
                     isImmersiveMode = isHidden
@@ -242,7 +279,7 @@ public struct MainTabView: View {
         }
         #endif
     }
-    
+
     /// Whether to use .sidebarAdaptable TabView style (iPad only on iOS 18+).
     /// On iPhone, .sidebarAdaptable has a known bug (FB11710323) where
     /// NavigationStack doesn't observe programmatic state changes until
@@ -317,7 +354,7 @@ public struct MainTabView: View {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
                     accentColor: settingsManager.accentColor.color,
-                    isPaused: showingNowPlaying,
+                    isPaused: isShowingNowPlaying,
                     isLowPowerMode: powerStateMonitor.isLowPowerMode
                 )
                 .ignoresSafeArea(.all)
@@ -477,127 +514,258 @@ struct NestedNavigationLink<DestinationView: View>: View {
 // MARK: - iPad Sidebar View
 
 @available(iOS 16.0, macOS 13.0, *)
+private struct SidebarColumnWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 260
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+@available(iOS 16.0, macOS 13.0, *)
 public struct SidebarView: View {
+    /// Stable sidebar-only playlist row model so SwiftUI diffing does not depend on
+    /// the broader Playlist Hashable/Equatable semantics.
+    private struct SidebarPlaylistItem: Identifiable, Equatable {
+        let id: String
+        let playlistID: String
+        let sourceKey: String?
+        let title: String
+        let isSmart: Bool
+    }
+
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var pinnedVM: PinnedViewModel
+    @StateObject private var playlistsVM: PlaylistViewModel
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dependencies) private var deps
+    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @Environment(\.presentViewportNowPlaying) private var presentViewportNowPlaying
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
 
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
 
-    @State private var selection: SidebarSection? = .home
-    @State private var showingNowPlaying = false
+    @State private var selection: SidebarSelection = .library(.home)
+    @State private var showingSheetNowPlaying = false
+    @State private var sidebarColumnWidth: CGFloat = 260
+    @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
+    @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
+    @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
 
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self._nowPlayingVM = StateObject(wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel())
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
         self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
+        self._playlistsVM = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
+    }
+
+    private var usesViewportNowPlayingPresentation: Bool {
+        #if os(macOS)
+        return true
+        #elseif os(iOS)
+        return UIDevice.current.userInterfaceIdiom == .pad
+        #else
+        return false
+        #endif
+    }
+
+    private var isShowingNowPlaying: Bool {
+        usesViewportNowPlayingPresentation ? isViewportNowPlayingPresented : showingSheetNowPlaying
+    }
+
+    private var sidebarPlaylists: [SidebarPlaylistItem] {
+        var seenIDs = Set<String>()
+        let sortedPlaylists = sortedSidebarSourcePlaylists()
+
+        return sortedPlaylists.compactMap { playlist in
+            let resolvedTitle = resolvedSidebarPlaylistTitle(for: playlist)
+            let playlistIdentity = playlist.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            let keyIdentity = playlist.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            let stableID = [
+                playlistIdentity.isEmpty ? keyIdentity : playlistIdentity,
+                playlist.sourceCompositeKey ?? "",
+                keyIdentity,
+                resolvedTitle
+            ].joined(separator: "|")
+
+            guard !stableID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ SidebarView: skipping playlist row with no stable identity")
+                #endif
+                return nil
+            }
+
+            guard seenIDs.insert(stableID).inserted else {
+                return nil
+            }
+
+            return SidebarPlaylistItem(
+                id: stableID,
+                playlistID: playlist.id,
+                sourceKey: playlist.sourceCompositeKey,
+                title: resolvedTitle,
+                isSmart: playlist.isSmart
+            )
+        }
+    }
+
+    private var smartSidebarPlaylists: [SidebarPlaylistItem] {
+        sidebarPlaylists.filter(\.isSmart)
+    }
+
+    private var regularSidebarPlaylists: [SidebarPlaylistItem] {
+        sidebarPlaylists.filter { !$0.isSmart }
+    }
+
+    private var sidebarPlaylistAnimationKey: [String] {
+        sidebarPlaylists.map(\.id)
+    }
+
+    private func sortedSidebarSourcePlaylists() -> [Playlist] {
+        let ascending = playlistsVM.filterOptions.sortDirection == .ascending
+
+        switch playlistsVM.playlistSortOption {
+        case .title:
+            let keyed = playlistsVM.playlists.map { ($0, resolvedSidebarPlaylistTitle(for: $0).sortingKey) }
+            return keyed.sorted {
+                let result = $0.1.localizedStandardCompare($1.1)
+                if result == .orderedSame {
+                    return sidebarPlaylistTieBreakKey(for: $0.0) < sidebarPlaylistTieBreakKey(for: $1.0)
+                }
+                return ascending ? result == .orderedAscending : result == .orderedDescending
+            }
+            .map(\.0)
+        case .trackCount:
+            return playlistsVM.playlists.sorted {
+                compareSidebarPlaylists($0.trackCount, $1.trackCount, ascending: ascending, lhs: $0, rhs: $1)
+            }
+        case .duration:
+            return playlistsVM.playlists.sorted {
+                compareSidebarPlaylists($0.duration, $1.duration, ascending: ascending, lhs: $0, rhs: $1)
+            }
+        case .dateAdded:
+            return playlistsVM.playlists.sorted {
+                compareSidebarPlaylists($0.dateAdded ?? .distantPast, $1.dateAdded ?? .distantPast, ascending: ascending, lhs: $0, rhs: $1)
+            }
+        case .dateModified:
+            return playlistsVM.playlists.sorted {
+                compareSidebarPlaylists($0.dateModified ?? .distantPast, $1.dateModified ?? .distantPast, ascending: ascending, lhs: $0, rhs: $1)
+            }
+        case .lastPlayed:
+            return playlistsVM.playlists.sorted {
+                compareSidebarPlaylists($0.lastPlayed ?? .distantPast, $1.lastPlayed ?? .distantPast, ascending: ascending, lhs: $0, rhs: $1)
+            }
+        }
+    }
+
+    private func compareSidebarPlaylists<T: Comparable>(
+        _ lhsValue: T,
+        _ rhsValue: T,
+        ascending: Bool,
+        lhs: Playlist,
+        rhs: Playlist
+    ) -> Bool {
+        if lhsValue == rhsValue {
+            return sidebarPlaylistTieBreakKey(for: lhs) < sidebarPlaylistTieBreakKey(for: rhs)
+        }
+        return ascending ? lhsValue < rhsValue : lhsValue > rhsValue
+    }
+
+    private func sidebarPlaylistTieBreakKey(for playlist: Playlist) -> String {
+        [
+            playlist.id.trimmingCharacters(in: .whitespacesAndNewlines),
+            playlist.sourceCompositeKey ?? "",
+            playlist.key.trimmingCharacters(in: .whitespacesAndNewlines),
+            resolvedSidebarPlaylistTitle(for: playlist)
+        ].joined(separator: "|")
+    }
+
+    private func resolvedSidebarPlaylistTitle(for playlist: Playlist) -> String {
+        let trimmedTitle = playlist.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTitle.isEmpty {
+            return trimmedTitle
+        }
+
+        let keyFallback = playlist.key
+            .split(separator: "/")
+            .last
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let keyFallback, !keyFallback.isEmpty {
+            return keyFallback
+        }
+
+        return "Untitled Playlist"
     }
 
     public var body: some View {
-        ZStack(alignment: .bottom) {
-            // Main split view
-            NavigationSplitView {
-                List(selection: $selection) {
-                    Section(header: Text("Library").textCase(nil)) {
-                        Label("Home", systemImage: "house")
-                            .tag(SidebarSection.home)
-
-                        Label("Songs", systemImage: "music.note")
-                            .tag(SidebarSection.songs)
-
-                        Label("Artists", systemImage: "music.mic")
-                            .tag(SidebarSection.artists)
-
-                        Label("Albums", systemImage: "square.stack")
-                            .tag(SidebarSection.albums)
-
-                        Label("Genres", systemImage: "guitars")
-                            .tag(SidebarSection.genres)
-
-                        Label("Playlists", systemImage: "music.note.list")
-                            .tag(SidebarSection.playlists)
-
-                        Label("Favorites", systemImage: "heart.fill")
-                            .tag(SidebarSection.favorites)
-                    }
-
-                    // Pinned items section (hidden when empty)
-                    if !pinnedVM.resolvedPins.isEmpty {
-                        Section(header: Text("Pins").textCase(nil)) {
-                            ForEach(pinnedVM.resolvedPins) { pin in
-                                Label(pin.pinnedItem.title, systemImage: iconForPinType(pin.pinnedItem.type))
-                                    .tag(SidebarSection.pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type))
-                            }
-                            .onMove { source, destination in
-                                pinnedVM.move(fromOffsets: source, toOffset: destination)
-                            }
-                        }
-                    }
-
-                    Section(header: Text("Other").textCase(nil)) {
-                        Label("Search", systemImage: "magnifyingglass")
-                            .tag(SidebarSection.search)
-
-                        Label("Downloads", systemImage: "arrow.down.circle")
-                            .tag(SidebarSection.downloads)
-
-                        Label("Settings", systemImage: "gear")
-                            .tag(SidebarSection.settings)
-                    }
+        GeometryReader { proxy in
+            ZStack(alignment: .bottomLeading) {
+                NavigationSplitView {
+                    sidebarColumn
+                } detail: {
+                    detailContainerView
                 }
-                .listStyle(.sidebar)
-                .navigationTitle("Ensemble")
-            } detail: {
-                detailView
-            }
 
-            // Mini player overlay (always on top)
-            if !showingNowPlaying {
-                MiniPlayer(
-                    viewModel: nowPlayingVM,
-                    isFloating: true,
-                    namespace: playerNamespace,
-                    animationID: artworkAnimationID
-                ) {
-                    withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                        showingNowPlaying = true
-                    }
+                if !isShowingNowPlaying {
+                    detailColumnMiniPlayer(totalSize: proxy.size)
+                        .zIndex(2)
                 }
-                .accentColor(deps.settingsManager.accentColor.color)
-                .zIndex(2)
-                .transition(.identity) // Use identity to let matchedGeometry handle the morph
             }
-
         }
-        .onChange(of: showingNowPlaying) { isShowing in
+        .onPreferenceChange(SidebarColumnWidthPreferenceKey.self) { width in
+            guard abs(width - sidebarColumnWidth) > 1 else { return }
+            sidebarColumnWidth = width
+        }
+        #if os(iOS)
+        .sheet(item: $navigationCoordinator.activeAuxiliaryPresentation, onDismiss: {
+            navigationCoordinator.dismissAuxiliaryPresentation()
+        }) { destination in
+            AuxiliaryPresentationView(destination: destination)
+                .accentColor(settingsManager.accentColor.color)
+        }
+        #endif
+        .onChange(of: isShowingNowPlaying) { isShowing in
             // Execute pending navigation after sheet fully dismisses.
             if !isShowing, let pending = navigationCoordinator.pendingNavigation {
                 navigationCoordinator.pendingNavigation = nil
                 // Switch sidebar to the matching section
                 let targetTab = self.targetTab(for: pending.destination)
-                self.selection = self.sidebarSection(for: pending.destination)
+                self.selection = self.sidebarSelection(for: pending.destination)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                     navigationCoordinator.push(pending.destination, in: targetTab)
                 }
             }
         }
-        .sheet(isPresented: $showingNowPlaying) {
-            NowPlayingSheetView(
-                viewModel: nowPlayingVM,
-                namespace: playerNamespace,
-                animationID: artworkAnimationID,
-                dismissAction: {
-                    showingNowPlaying = false
-                }
-            )
-            .accentColor(deps.settingsManager.accentColor.color)
+        #if os(macOS)
+        .onChange(of: navigationCoordinator.auxiliaryWindowRequest?.id) { _ in
+            guard let request = navigationCoordinator.auxiliaryWindowRequest else { return }
+            openWindow(id: request.destination.windowID)
+            navigationCoordinator.consumeAuxiliaryWindowRequest()
+            navigationCoordinator.dismissAuxiliaryPresentation()
+        }
+        #endif
+        .if(!usesViewportNowPlayingPresentation) { view in
+            view.sheet(isPresented: $showingSheetNowPlaying) {
+                NowPlayingSheetView(
+                    viewModel: nowPlayingVM,
+                    namespace: playerNamespace,
+                    animationID: artworkAnimationID,
+                    dismissAction: {
+                        showingSheetNowPlaying = false
+                    }
+                )
+                .accentColor(deps.settingsManager.accentColor.color)
+            }
         }
         // Add account sheet presented at root level so it survives
         // view content recreation on foreground transitions
@@ -610,14 +778,111 @@ public struct SidebarView: View {
         .task {
             await libraryVM.refresh()
             await pinnedVM.loadPinnedItems()
+            await playlistsVM.loadPlaylists()
         }
         // Keep NavigationCoordinator.selectedTab in sync with sidebar selection
         // so navigate(to:) pushes onto the correct section's NavigationStack
         .onChange(of: selection) { newSelection in
-            if let tab = newSelection?.correspondingTab {
+            if let tab = newSelection.correspondingTab {
                 navigationCoordinator.selectedTab = tab
             }
         }
+    }
+
+    private var sidebarColumn: some View {
+        VStack(spacing: 0) {
+            Button {
+                selection = .library(.search)
+            } label: {
+                sidebarSelectableRow(
+                    title: "Search",
+                    systemImage: "magnifyingglass",
+                    isSelected: selection == .library(.search)
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            List {
+                Section(header: Text("Library").textCase(nil)) {
+                    sidebarLibrarySelectionButton("Home", systemImage: "house", tab: .home)
+                    sidebarLibrarySelectionButton("Songs", systemImage: "music.note", tab: .songs)
+                    sidebarLibrarySelectionButton("Artists", systemImage: "music.mic", tab: .artists)
+                    sidebarLibrarySelectionButton("Albums", systemImage: "square.stack", tab: .albums)
+                    sidebarLibrarySelectionButton("Genres", systemImage: "guitars", tab: .genres)
+                    sidebarActionListButton("Downloads", systemImage: "arrow.down.circle") {
+                        navigationCoordinator.openDownloads()
+                    }
+                    sidebarLibrarySelectionButton("Favorites", systemImage: "heart.fill", tab: .favorites)
+                }
+
+                if !pinnedVM.resolvedPins.isEmpty {
+                    Section(header: collapsibleSidebarHeader(title: "Pins", isExpanded: $isPinsExpanded)) {
+                        if isPinsExpanded {
+                            ForEach(pinnedVM.resolvedPins) { pin in
+                                Button {
+                                    selection = .pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type)
+                                } label: {
+                                    sidebarSelectableRow(
+                                        title: pin.pinnedItem.title,
+                                        systemImage: iconForPinType(pin.pinnedItem.type),
+                                        isSelected: selection == .pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .onMove { source, destination in
+                                pinnedVM.move(fromOffsets: source, toOffset: destination)
+                            }
+                        }
+                    }
+                }
+
+                if !smartSidebarPlaylists.isEmpty {
+                    Section(header: collapsibleSidebarHeader(title: "Smart Playlists", isExpanded: $isSmartPlaylistsExpanded)) {
+                        if isSmartPlaylistsExpanded {
+                            ForEach(smartSidebarPlaylists) { playlist in
+                                sidebarPlaylistButton(playlist)
+                            }
+                        }
+                    }
+                }
+
+                Section(header: collapsibleSidebarHeader(title: "Playlists", isExpanded: $isPlaylistsExpanded)) {
+                    if isPlaylistsExpanded {
+                        sidebarLibrarySelectionButton("All Playlists", systemImage: "music.note.list", tab: .playlists)
+
+                        ForEach(regularSidebarPlaylists) { playlist in
+                            sidebarPlaylistButton(playlist)
+                        }
+                    }
+                }
+            }
+            .listStyle(.sidebar)
+            .animation(nil, value: sidebarPlaylistAnimationKey)
+
+            Divider()
+
+            Button {
+                navigationCoordinator.openSettings()
+            } label: {
+                sidebarSelectableRow(title: "Settings", systemImage: "gear")
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+        }
+        .navigationSplitViewColumnWidth(min: 220, ideal: 260)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: SidebarColumnWidthPreferenceKey.self,
+                    value: proxy.size.width
+                )
+            }
+        )
     }
 
     /// SF Symbol for each pinned item type
@@ -630,24 +895,22 @@ public struct SidebarView: View {
     }
 
     /// Map a navigation destination to the sidebar section that should be selected
-    private func sidebarSection(for destination: NavigationCoordinator.Destination) -> SidebarSection {
+    private func sidebarSelection(for destination: NavigationCoordinator.Destination) -> SidebarSelection {
         switch destination {
-        case .artist: return .artists
-        case .album: return .albums
-        case .playlist: return .playlists
-        case .moodTracks: return .home
+        case .artist:
+            return .library(.artists)
+        case .album:
+            return .library(.albums)
+        case .playlist(let id, let sourceKey):
+            return .playlist(id: id, sourceKey: sourceKey)
+        case .moodTracks:
+            return .library(.home)
         case .view(let tab):
             switch tab {
-            case .home: return .home
-            case .songs: return .songs
-            case .artists: return .artists
-            case .albums: return .albums
-            case .genres: return .genres
-            case .playlists: return .playlists
-            case .favorites: return .favorites
-            case .search: return .search
-            case .downloads: return .downloads
-            case .settings: return .settings
+            case .home, .songs, .artists, .albums, .genres, .playlists, .favorites, .search:
+                return .library(tab)
+            case .downloads, .settings:
+                return selection
             }
         }
     }
@@ -668,46 +931,10 @@ public struct SidebarView: View {
     private var detailView: some View {
         Group {
             switch selection {
-            case .home:
-                NavigationStack(path: $navigationCoordinator.homePath) {
-                    sidebarContentView(for: .home)
-                }
-            case .songs:
-                NavigationStack {
-                    TabViewFactory.viewContent(for: .songs, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                }
-            case .artists:
-                NavigationStack(path: $navigationCoordinator.artistsPath) {
-                    sidebarContentView(for: .artists)
-                }
-            case .albums:
-                NavigationStack(path: $navigationCoordinator.albumsPath) {
-                    sidebarContentView(for: .albums)
-                }
-            case .genres:
-                NavigationStack {
-                    TabViewFactory.viewContent(for: .genres, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                }
-            case .playlists:
-                NavigationStack(path: $navigationCoordinator.playlistsPath) {
-                    sidebarContentView(for: .playlists)
-                }
-            case .favorites:
-                NavigationStack {
-                    TabViewFactory.viewContent(for: .favorites, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                }
-            case .search:
-                NavigationStack(path: $navigationCoordinator.searchPath) {
-                    sidebarContentView(for: .search)
-                }
-            case .downloads:
-                NavigationStack {
-                    TabViewFactory.viewContent(for: .downloads, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                }
-            case .settings:
-                NavigationStack {
-                    TabViewFactory.viewContent(for: .settings, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                }
+            case .library(let tab):
+                sidebarNavigationStack(for: tab)
+            case .playlist(let id, let sourceKey):
+                playlistDetailNavigationStack(playlistID: id, sourceKey: sourceKey)
             case .pin(let id, let type):
                 // Navigate directly to the pinned item's detail view
                 NavigationStack {
@@ -720,9 +947,6 @@ public struct SidebarView: View {
                         PlaylistDetailLoader(playlistId: id, playlistSourceKey: nil, nowPlayingVM: nowPlayingVM)
                     }
                 }
-            case .none:
-                Text("Select a section")
-                    .foregroundColor(.secondary)
             }
         }
         .auroraBackgroundSupport()
@@ -731,23 +955,179 @@ public struct SidebarView: View {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
                     accentColor: settingsManager.accentColor.color,
-                    isPaused: showingNowPlaying,
+                    isPaused: isShowingNowPlaying,
                     isLowPowerMode: powerStateMonitor.isLowPowerMode
                 )
                 .ignoresSafeArea(.all)
                 .allowsHitTesting(false)
             }
         }
-        .miniPlayerBottomSpacing(64)
+    }
+
+    private var detailContainerView: some View {
+        detailView
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private func playlistDetailNavigationStack(playlistID: String, sourceKey: String?) -> some View {
+        NavigationStack(path: sidebarPathBinding(for: .playlists)) {
+            PlaylistDetailLoader(
+                playlistId: playlistID,
+                playlistSourceKey: sourceKey,
+                nowPlayingVM: nowPlayingVM
+            )
+            .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                destinationView(for: destination)
+            }
+        }
+        .id("playlist-detail-\(playlistID)-\(sourceKey ?? "none")")
+    }
+
+    /// Keep the detail column's navigation container shape consistent across sidebar sections.
+    /// Mixing typed and untyped NavigationStacks can trip SwiftUI's AnyNavigationPath
+    /// comparison logic when the selected section changes.
+    @ViewBuilder
+    private func sidebarNavigationStack(for tab: TabItem) -> some View {
+        NavigationStack(path: sidebarPathBinding(for: tab)) {
+            sidebarContentView(for: tab)
+        }
+    }
+
+    private func sidebarPathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
+        switch tab {
+        case .home: return $navigationCoordinator.homePath
+        case .songs: return $navigationCoordinator.songsPath
+        case .artists: return $navigationCoordinator.artistsPath
+        case .albums: return $navigationCoordinator.albumsPath
+        case .genres: return $navigationCoordinator.genresPath
+        case .playlists: return $navigationCoordinator.playlistsPath
+        case .favorites: return $navigationCoordinator.favoritesPath
+        case .search: return $navigationCoordinator.searchPath
+        case .downloads: return $navigationCoordinator.downloadsPath
+        case .settings: return $navigationCoordinator.settingsPath
+        }
+    }
+
+    private func detailColumnMiniPlayer(totalSize: CGSize) -> some View {
+        let horizontalPadding: CGFloat = 24
+        let bottomPadding: CGFloat = 20
+        let clampedSidebarWidth = min(max(sidebarColumnWidth, 0), totalSize.width)
+        let detailWidth = max(totalSize.width - clampedSidebarWidth, 0)
+        let availableWidth = max(detailWidth - (horizontalPadding * 2), 0)
+        let miniPlayerWidth = min(540, availableWidth)
+
+        return VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            HStack {
+                Spacer(minLength: 0)
+                MiniPlayer(
+                    viewModel: nowPlayingVM,
+                    isFloating: true,
+                    namespace: playerNamespace,
+                    animationID: artworkAnimationID
+                ) {
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                        if usesViewportNowPlayingPresentation {
+                            presentViewportNowPlaying(nowPlayingVM)
+                        } else {
+                            showingSheetNowPlaying = true
+                        }
+                    }
+                }
+                .frame(width: miniPlayerWidth)
+                .accentColor(deps.settingsManager.accentColor.color)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, horizontalPadding)
+            .frame(width: detailWidth, alignment: .center)
+            .padding(.leading, clampedSidebarWidth)
+            .padding(.bottom, bottomPadding)
+        }
+        .frame(width: totalSize.width, height: totalSize.height, alignment: .bottomLeading)
+        .transition(.identity)
     }
     
     /// Sidebar section content with navigation destinations registered for path-based push
     @ViewBuilder
     private func sidebarContentView(for tab: TabItem) -> some View {
-        TabViewFactory.viewContent(for: tab, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
+        Group {
+            if tab == .playlists {
+                PlaylistsView(nowPlayingVM: nowPlayingVM, viewModel: playlistsVM)
+            } else {
+                TabViewFactory.viewContent(for: tab, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
+            }
+        }
             .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                 destinationView(for: destination)
             }
+    }
+
+    @ViewBuilder
+    private func sidebarLibrarySelectionButton(_ title: String, systemImage: String, tab: TabItem) -> some View {
+        Button {
+            selection = .library(tab)
+        } label: {
+            sidebarSelectableRow(
+                title: title,
+                systemImage: systemImage,
+                isSelected: selection == .library(tab)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func collapsibleSidebarHeader(title: String, isExpanded: Binding<Bool>) -> some View {
+        Button {
+            isExpanded.wrappedValue.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Text(title)
+                    .textCase(nil)
+                Spacer(minLength: 0)
+                Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func sidebarPlaylistButton(_ playlist: SidebarPlaylistItem) -> some View {
+        Button {
+            selection = .playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey)
+        } label: {
+            sidebarSelectableRow(
+                title: playlist.title,
+                systemImage: "music.note",
+                isSelected: selection == .playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func sidebarActionListButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            sidebarSelectableRow(title: title, systemImage: systemImage)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func sidebarSelectableRow(title: String, systemImage: String, isSelected: Bool = false) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.callout)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .foregroundColor(isSelected ? .white : .primary)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isSelected ? Color.accentColor : Color.clear)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     @ViewBuilder
@@ -772,34 +1152,21 @@ public struct SidebarView: View {
     }
 }
 
-public enum SidebarSection: Hashable {
-    case home
-    case songs
-    case artists
-    case albums
-    case genres
-    case playlists
-    case favorites
-    case search
-    case downloads
-    case settings
+public enum SidebarSelection: Hashable {
+    case library(TabItem)
+    case playlist(id: String, sourceKey: String?)
     case pin(id: String, type: PinnedItemType)
 
     /// Map sidebar section to the corresponding TabItem for NavigationCoordinator sync.
     /// Returns nil for pinned items which don't map to a standard tab.
     var correspondingTab: TabItem? {
         switch self {
-        case .home: return .home
-        case .songs: return .songs
-        case .artists: return .artists
-        case .albums: return .albums
-        case .genres: return .genres
-        case .playlists: return .playlists
-        case .favorites: return .favorites
-        case .search: return .search
-        case .downloads: return .downloads
-        case .settings: return .settings
-        case .pin: return nil
+        case .library(let tab):
+            return tab
+        case .playlist:
+            return .playlists
+        case .pin:
+            return nil
         }
     }
 }

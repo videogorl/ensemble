@@ -17,6 +17,8 @@ public final class PlaylistViewModel: ObservableObject {
     @Published public var filterOptions: FilterOptions
     /// Cached sorted + filtered playlists, updated via Combine pipeline instead of re-computed on every body access
     @Published public private(set) var filteredPlaylists: [Playlist] = []
+    /// Sorted playlist list used by large-screen sidebar navigation.
+    @Published public private(set) var sortedPlaylists: [Playlist] = []
 
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
@@ -49,6 +51,7 @@ public final class PlaylistViewModel: ObservableObject {
 
         // Cache sorted+filtered playlists so they aren't recomputed on every SwiftUI body access
         setupFilteredPlaylistsPipeline()
+        setupSortedPlaylistsPipeline()
 
         // Auto-reload when sync completes
         syncCoordinator.$isSyncing
@@ -265,6 +268,21 @@ public final class PlaylistViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.filteredPlaylists = $0 }
             .store(in: &cancellables)
+    }
+
+    private func setupSortedPlaylistsPipeline() {
+        Publishers.CombineLatest3(
+            $playlists,
+            $playlistSortOption,
+            $filterOptions.map(\.sortDirection).removeDuplicates()
+        )
+        .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
+        .map { playlists, sortOption, sortDirection -> [Playlist] in
+            Self.sortPlaylists(playlists, by: sortOption, ascending: sortDirection == .ascending)
+        }
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] in self?.sortedPlaylists = $0 }
+        .store(in: &cancellables)
     }
 
     private func reloadPlaylists(showLoading: Bool) async {

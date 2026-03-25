@@ -6,6 +6,60 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Large-Screen Mini Player Hit-Testing Simplification (Mar 25, 2026)
+
+The large-screen mini player no longer uses a split-view-root geometry host on macOS. `SidebarView` now mounts the floating mini player directly on the detail-column container, while `miniPlayerBottomSpacing` is a no-op on macOS so detail content scrolls behind the player instead of reserving a dead gutter. This removes the oversized hit-blocking band that could sit above the floating pill and keeps the mini player centered relative to the detail pane without reintroducing detail-route disappearance.
+
+**Key files:** `MainTabView.swift`, `View+Extensions.swift`, `ui-conventions` skill
+
+### Large-Screen Now Playing Root Presentation Refactor (Mar 25, 2026)
+
+Large-screen Now Playing is no longer implemented as a phone sheet or a titlebar-masking workaround. `NowPlayingViewportRoot` now owns the iPad/macOS viewport layout, while `NowPlayingSheetView` is narrowed back down to the iPhone sheet path. Root containers present the viewport root directly, and screens suppress their own toolbar content while viewport Now Playing is active so opening the presentation no longer rebuilds the split view or shifts the traffic lights.
+
+Final macOS fix: instead of replacing the toolbar or hiding the titlebar, `NowPlayingViewportRoot` hosts a narrow AppKit bridge that hides only live sidebar-related toolbar items on the existing window toolbar. This removed the lingering split-view toggle button without reintroducing titlebar movement or layout churn.
+
+**Key files:** `NowPlayingViewportRoot.swift`, `NowPlayingSheetView.swift`, `MainTabView.swift`, `ui-conventions` skill, `project-structure` skill
+
+### Large-Screen Now Playing Window-Control Clearance (Mar 25, 2026)
+
+Large-screen Now Playing now reserves explicit top-left system-chrome clearance instead of only adding vertical padding. On macOS this keeps the traffic lights visible and unobstructed; on iPadOS 26 and later it mirrors that behavior for the new desktop-style window controls in the top-left corner.
+
+**Key files:** `NowPlayingSheetView.swift`, `ui-conventions` skill
+
+### Large-Screen Navigation + Auxiliary Presentation Polish (Mar 24, 2026)
+
+The iPad/macOS sidebar now uses a three-part layout instead of a single all-in-one `List`: Search is a standalone top action, the middle list contains `Library`, `Playlists`, and `Pins`, and Settings is a standalone bottom action. Downloads moved into `Library`, Playlists gained their own section with `All Playlists` plus individually selectable playlist rows, and sidebar playlist ordering now mirrors `PlaylistViewModel` sort order via a shared injected playlist view model.
+
+Follow-up stability fix: sidebar playlist rows now derive from the primary `playlists` collection using the current sort settings, then map into explicit sidebar row items with stable IDs and normalized fallback titles. This avoids transient “playlists appear then disappear” behavior caused by feeding raw `Playlist` structs and secondary cached sorted state directly into sidebar `ForEach` diffing.
+
+Another follow-up pass split smart playlists into a dedicated sidebar section above regular playlists and made the non-library large-screen sidebar sections collapsible with persisted expansion state.
+
+Large-screen Settings and Downloads no longer live as inline sidebar detail destinations. `NavigationCoordinator` now owns shared `openSettings()` / `openDownloads()` presentation APIs plus auxiliary presentation state. macOS uses dedicated singleton `Window` scenes declared in `EnsembleApp`, while iOS large-screen roots present the same flows modally through `AuxiliaryPresentationContainer`.
+
+The same pass also moved the sidebar mini player into the detail column so it centers against content with a 540pt max width, removed one-off per-screen Manage Sources sheets in favor of the shared presentation path, restored toolbar sort controls on non-phone Songs/Albums/Artists, disabled collapsing-toolbar principal-title pills on non-iPhone layouts, restored the Info panel to viewport Now Playing, and enabled large-screen space-bar/swipe interaction improvements.
+
+Follow-up correction: the large-screen mini player host must live on a dedicated detail-column container sized by the split-view detail pane itself. Mounting it on individual `NavigationStack` safe-area insets can make it inherit pushed-screen widths and disappear or clip on detail routes.
+
+**Key files:** `EnsembleApp.swift`, `NavigationCoordinator.swift`, `PlaylistViewModel.swift`, `MainTabView.swift`, `AuxiliaryPresentationContainer.swift`, `PlaylistsView.swift`, `CollapsingToolbar.swift`, `NowPlayingSheetView.swift`, `SongsView.swift`, `AlbumsView.swift`, `ArtistsView.swift`, `TrackSwipeContainer.swift`, `StandardSwipeActions.swift`, `ui-conventions` skill, `architecture` skill, `project-structure` skill
+
+### Sidebar NavigationStack Consistency Fix (Mar 24, 2026)
+
+`SidebarView` now uses typed `NavigationStack(path:)` containers for all standard sections, including Settings, instead of mixing typed and untyped stacks. This avoids a SwiftUI `AnyNavigationPath.Error.comparisonTypeMismatch` crash that could occur when switching detail sections in the iPad/macOS sidebar.
+
+**Key files:** `MainTabView.swift`, `ui-conventions` skill
+
+### macOS Media Controls Drop Default Button Chrome (Mar 24, 2026)
+
+Added shared `chromelessMediaControlButton()` and `chromelessMediaControlMenu()` helpers for self-styled playback/action controls on macOS. Coverage now includes Now Playing controls, queue/history controls, lyrics transport, the mini player transport, and the common detail/favorites/mood/download play-shuffle-radio rows so macOS no longer adds bordered button chrome on top of the iOS/iPadOS visual treatment.
+
+**Key files:** `View+Extensions.swift`, `ControlsCard.swift`, `QueueCard.swift`, `LyricsCard.swift`, `MiniPlayer.swift`, `MediaDetailView.swift`, `ArtistsView.swift`, `FavoritesView.swift`, `MoodTracksView.swift`, `DownloadTargetDetailView.swift`, `LibraryDownloadDetailView.swift`, `ui-conventions` skill
+
+### Desktop Sheet Scaffold + Viewport Now Playing (Mar 24, 2026)
+
+macOS modal cleanup now uses a reusable `DesktopSheetScaffold` instead of repeating iOS-style `NavigationView` sheet shells. `HubOrderingSheet` was migrated to the scaffold with desktop footer actions, and `NowPlayingSheetView` now uses a viewport-filling presentation on iPad and macOS with a desktop/tablet header and direct Queue/Lyrics switching rather than a floating phone sheet. `MainTabView` and `SidebarView` present Now Playing as an in-app overlay on large platforms while keeping the existing sheet path on iPhone. Follow-up passes moved the desktop/tablet header safely below toolbar chrome, bound Escape to dismiss the overlay, and hide the host screen's navigation/window chrome while Now Playing is active so titles/search bars do not bleed through.
+
+**Key files:** `DesktopSheetScaffold.swift`, `HubOrderingSheet.swift`, `NowPlayingSheetView.swift`, `MainTabView.swift`, `ui-conventions` skill, `project-structure` skill
+
 ### StageFlow Landed (Mar 24, 2026)
 
 Replaced the old immersive carousel implementation with `StageFlow` across iPhone landscape Songs, Albums, and Playlists. StageFlow keeps one item center stage, clamps side-item transforms by proximity, snaps drags to the nearest centered item, opens a trailing track panel from the centered card, and uses the already-filtered source data from each host screen. Songs now build stage items from `filteredTracks` grouped by album instead of the raw album collection. Aurora is also suppressed while immersive StageFlow is active so decorative layers never render above the carousel.

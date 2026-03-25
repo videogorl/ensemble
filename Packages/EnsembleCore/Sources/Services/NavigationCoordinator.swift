@@ -4,6 +4,31 @@ import Combine
 /// Centralized navigation coordinator for handling deep links and cross-tab navigation
 @MainActor
 public final class NavigationCoordinator: ObservableObject {
+    public enum AuxiliaryPresentation: String, Identifiable {
+        case settings
+        case downloads
+
+        public var id: String { rawValue }
+
+        public var windowID: String {
+            switch self {
+            case .settings:
+                return "settings-window"
+            case .downloads:
+                return "downloads-window"
+            }
+        }
+    }
+
+    public struct AuxiliaryWindowRequest: Identifiable, Equatable {
+        public let id = UUID()
+        public let destination: AuxiliaryPresentation
+
+        public init(destination: AuxiliaryPresentation) {
+            self.destination = destination
+        }
+    }
+
     /// Represents a navigation destination using IDs for hashability and deep linking
     public enum Destination: Hashable {
         case artist(id: String)
@@ -34,6 +59,8 @@ public final class NavigationCoordinator: ObservableObject {
     /// Drives the "Add Plex Account" sheet from a stable root-level view
     /// (MainTabView / SidebarView) so it survives TabView content recreation.
     @Published public var showingAddAccount = false
+    @Published public var activeAuxiliaryPresentation: AuxiliaryPresentation?
+    @Published public var auxiliaryWindowRequest: AuxiliaryWindowRequest?
 
     /// For NowPlaying flow: pending navigation to execute after sheet dismissal
     public struct PendingNavigation {
@@ -145,8 +172,29 @@ public final class NavigationCoordinator: ObservableObject {
         
         return true
     }
+
+    public func openSettings() {
+        requestAuxiliaryPresentation(.settings)
+    }
+
+    public func openDownloads() {
+        requestAuxiliaryPresentation(.downloads)
+    }
+
+    public func dismissAuxiliaryPresentation() {
+        activeAuxiliaryPresentation = nil
+    }
+
+    public func consumeAuxiliaryWindowRequest() {
+        auxiliaryWindowRequest = nil
+    }
     
     // MARK: - Helper Methods
+
+    private func requestAuxiliaryPresentation(_ destination: AuxiliaryPresentation) {
+        activeAuxiliaryPresentation = destination
+        auxiliaryWindowRequest = AuxiliaryWindowRequest(destination: destination)
+    }
 
     private func path(for tab: TabItem) -> [Destination] {
         switch tab {

@@ -220,6 +220,7 @@ Sources/
 |   +-- CollapsingToolbar.swift      # Shared collapsing toolbar title with nav bar appearance toggle
 |   +-- ChromeVisibilityPreferenceKey.swift # SwiftUI preference key for hiding tab bar in immersive views
 |   +-- CompactSearchRows.swift       # Compact row layouts for search results
+|   +-- DesktopSheetScaffold.swift    # Shared macOS sheet scaffold with title bar and footer actions
 |   +-- OfflineIndicatorOverlay.swift  # Device-aware offline connectivity indicator (DI/notch/classic)
 |   +-- SongsStageFlowAlbum.swift     # Builds StageFlow album cards from filtered song results
 |   +-- StageFlowView.swift           # Center-stage carousel with snapping and transport overlay
@@ -235,6 +236,7 @@ Sources/
 |   +-- MarqueeText.swift             # Auto-scrolling text component for long titles
 |   +-- MediaTrackList.swift          # Reusable track list with context menu
 |   +-- MiniPlayer.swift              # Compact persistent player overlay
+|   +-- NowPlayingViewportRoot.swift  # Dedicated iPad/macOS Now Playing root + macOS window chrome bridge
 |   +-- PendingChangesRow.swift        # Shared row for pending mutations (used in Downloads + Source Detail)
 |   +-- PlaylistActionSheets.swift    # Shared add-to-playlist and create-playlist UI sheets
 |   +-- ShareSheet.swift              # iOS 15-compatible UIActivityViewController / NSSharingServicePicker wrapper
@@ -245,13 +247,14 @@ Sources/
 |   +-- ScrollIndex.swift             # A-Z index for fast scrolling
 |   +-- ToastView.swift               # Toast notification overlay component
 |   +-- TrackRow.swift                # Single track row with artwork
-|   +-- TrackSwipeContainer.swift     # iOS/iPadOS swipe gesture container for track row actions
+|   +-- TrackSwipeContainer.swift     # Shared swipe gesture container for track row actions on large-screen + iOS
 |   +-- View+Extensions.swift         # SwiftUI view extensions and helpers
 |   +-- WaveformView.swift            # Audio waveform visualization
 +-- Screens/
 |   +-- AddPlexAccountView.swift      # Account setup flow
 |   +-- AlbumsView.swift              # Album grid
 |   +-- ArtistsView.swift             # Artist grid
+|   +-- AuxiliaryPresentationContainer.swift # Shared Settings/Downloads modal+window root wrappers
 |   +-- DownloadsView.swift           # Offline downloads
 |   +-- FavoritesView.swift           # Tracks rated 4+ stars
 |   +-- GenresView.swift              # Genre browsing

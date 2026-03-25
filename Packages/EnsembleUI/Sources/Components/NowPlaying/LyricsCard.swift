@@ -361,6 +361,7 @@ public struct LyricsCard: View {
                     .foregroundColor(.primary.opacity(0.7))
             }
         }
+        .chromelessMediaControlButton()
         .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
     }
 

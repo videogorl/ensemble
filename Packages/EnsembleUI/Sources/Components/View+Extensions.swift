@@ -4,6 +4,35 @@ import SwiftUI
 import UIKit
 #endif
 
+private struct ViewportNowPlayingPresentedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+private struct PresentViewportNowPlayingKey: EnvironmentKey {
+    static let defaultValue: (NowPlayingViewModel) -> Void = { _ in }
+}
+
+private struct DismissViewportNowPlayingKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
+public extension EnvironmentValues {
+    var isViewportNowPlayingPresented: Bool {
+        get { self[ViewportNowPlayingPresentedKey.self] }
+        set { self[ViewportNowPlayingPresentedKey.self] = newValue }
+    }
+
+    var presentViewportNowPlaying: (NowPlayingViewModel) -> Void {
+        get { self[PresentViewportNowPlayingKey.self] }
+        set { self[PresentViewportNowPlayingKey.self] = newValue }
+    }
+
+    var dismissViewportNowPlaying: () -> Void {
+        get { self[DismissViewportNowPlayingKey.self] }
+        set { self[DismissViewportNowPlayingKey.self] = newValue }
+    }
+}
+
 /// Applies aurora background transparency in dark mode only.
 /// In light mode the system grouped background is preserved so list row
 /// backgrounds remain visible against the near-white aurora backdrop.
@@ -71,11 +100,12 @@ public extension View {
         #endif
     }
 
-    /// Adds bottom spacing for the mini player/tab bar area.
-    /// iOS 16+ uses safeAreaInset for scroll-behind-chrome behavior.
-    /// iOS 15 is a no-op here — the inset is applied once at the container
-    /// level via `miniPlayerContainerInset()` in MainTabView, which sets
-    /// additionalSafeAreaInsets on the TabView's hosting controller.
+    /// Adds bottom spacing for the mini player/tab bar area on iPhone/iPad layouts
+    /// that reserve content space for the player. macOS uses a floating overlay in
+    /// the detail column, so content should scroll behind it instead of reserving a gutter.
+    /// iOS 15 is a no-op here — the inset is applied once at the container level via
+    /// `miniPlayerContainerInset()` in MainTabView, which sets additionalSafeAreaInsets
+    /// on the TabView's hosting controller.
     @ViewBuilder
     func miniPlayerBottomSpacing(_ height: CGFloat = 140) -> some View {
         #if os(iOS)
@@ -89,9 +119,7 @@ public extension View {
             self
         }
         #else
-        self.safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: height)
-        }
+        self
         #endif
     }
 
@@ -126,6 +154,27 @@ public extension View {
     /// is near-white and hiding it would make list row backgrounds invisible.
     func auroraBackgroundSupport() -> some View {
         self.modifier(AuroraBackgroundSupportModifier())
+    }
+
+    /// Removes default macOS button bezel chrome when the control already draws
+    /// its own capsule/circle/background styling.
+    @ViewBuilder
+    func chromelessMediaControlButton() -> some View {
+        #if os(macOS)
+        self.buttonStyle(.plain)
+        #else
+        self
+        #endif
+    }
+
+    /// Keeps custom menu labels from picking up bordered macOS pull-down styling.
+    @ViewBuilder
+    func chromelessMediaControlMenu() -> some View {
+        #if os(macOS)
+        self.menuStyle(BorderlessButtonMenuStyle())
+        #else
+        self
+        #endif
     }
 }
 

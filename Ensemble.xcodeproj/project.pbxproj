@@ -16,7 +16,7 @@
 		E0001017 /* UpdateMediaAffinityIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001020 /* UpdateMediaAffinityIntentHandler.swift */; };
 		E0001018 /* AddMediaIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001021 /* AddMediaIntentHandler.swift */; };
 		E0001019 /* SiriMatchingHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001022 /* SiriMatchingHelpers.swift */; };
-		E0001009 /* EnsembleSiriIntentsExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = E0000003 /* EnsembleSiriIntentsExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E0001009 /* EnsembleSiriIntentsExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = E0000003 /* EnsembleSiriIntentsExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E0001016 /* EnsembleAppShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001015 /* EnsembleAppShortcuts.swift */; };
 		E0002001 /* EnsembleWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002000 /* EnsembleWatchApp.swift */; };
 		E0002003 /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002002 /* WatchRootView.swift */; };
@@ -440,6 +440,7 @@
 /* Begin PBXTargetDependency section */
 		E0710001 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
+			platformFilter = ios;
 			target = E0200003 /* EnsembleSiriIntentsExtension */;
 			targetProxy = E0700001 /* PBXContainerItemProxy */;
 		};

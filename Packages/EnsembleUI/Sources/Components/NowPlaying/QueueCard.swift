@@ -148,6 +148,8 @@ public struct QueueCard: View {
                         .foregroundColor(.primary.opacity(0.7))
                 }
             }
+            .chromelessMediaControlButton()
+            .chromelessMediaControlMenu()
         }
         .padding(.horizontal, 40)
     }
@@ -277,6 +279,7 @@ public struct QueueCard: View {
             .disabled(!deps.networkMonitor.isConnected)
             .opacity(!deps.networkMonitor.isConnected ? 0.25 : 1.0)
         }
+        .chromelessMediaControlButton()
         .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
     }
     

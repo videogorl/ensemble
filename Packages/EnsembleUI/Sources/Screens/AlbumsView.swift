@@ -5,9 +5,9 @@ public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
+    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
-    @State private var showingManageSources = false
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedAlbumSections: [AlbumSection] = []
     // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
@@ -71,7 +71,8 @@ public struct AlbumsView: View {
             .refreshable {
                 await libraryVM.refreshFromServer()
             }
-            .toolbar {
+        .if(!isViewportNowPlayingPresented) { content in
+            content.toolbar {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if !libraryVM.albums.isEmpty && !isStageFlowActive {
@@ -81,7 +82,7 @@ public struct AlbumsView: View {
                             } label: {
                                 ZStack(alignment: .topTrailing) {
                                     Image(systemName: "line.3.horizontal.decrease.circle")
-                                    
+
                                     // Badge indicator when filters are active
                                     if libraryVM.albumsFilterOptions.hasActiveFilters {
                                         Circle()
@@ -135,11 +136,36 @@ public struct AlbumsView: View {
                                     }
                                 }
                             }
+
+                            Menu {
+                                ForEach(AlbumSortOption.allCases, id: \.self) { option in
+                                    Button {
+                                        if libraryVM.albumSortOption == option {
+                                            libraryVM.albumsFilterOptions.sortDirection =
+                                                libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                                        } else {
+                                            libraryVM.albumSortOption = option
+                                            libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if libraryVM.albumSortOption == option {
+                                                Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
+                                                      ? "chevron.up" : "chevron.down")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Label("Sort By", systemImage: "arrow.up.arrow.down")
+                            }
                         }
                     }
                 }
                 #endif
             }
+        }
             .onReceive(libraryVM.$filteredAlbums) { albums in
                 // Compute sections off main thread to avoid blocking UI during search
                 let sortOption = libraryVM.albumSortOption
@@ -173,24 +199,6 @@ public struct AlbumsView: View {
                     showGenreFilter: true,
                     showHideSingles: true
                 )
-            }
-            .sheet(isPresented: $showingManageSources) {
-                NavigationView {
-                    SettingsView()
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") {
-                                    showingManageSources = false
-                                }
-                            }
-                        }
-                }
-                #if os(iOS)
-                .navigationViewStyle(.stack)
-                #endif
-                #if os(macOS)
-                    .frame(width: 720, height: 560)
-                #endif
             }
     }
 
@@ -252,7 +260,7 @@ public struct AlbumsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    showingManageSources = true
+                    DependencyContainer.shared.navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)

@@ -47,32 +47,51 @@ struct CollapsingToolbarTitleModifier: ViewModifier {
     let threshold: CGFloat  // maxY value below which toolbar title appears
     @Binding var showToolbarTitle: Bool
 
+    private var shouldEnableCollapsingToolbarTitle: Bool {
+        #if os(macOS)
+        return false
+        #elseif os(iOS)
+        return UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        return true
+        #endif
+    }
+
     func body(content: Content) -> some View {
-        content
-            .onPreferenceChange(TitleOffsetPreferenceKey.self) { maxY in
-                let shouldShow = maxY < threshold
-                if shouldShow != showToolbarTitle {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showToolbarTitle = shouldShow
+        Group {
+            if shouldEnableCollapsingToolbarTitle {
+                content
+                    .onPreferenceChange(TitleOffsetPreferenceKey.self) { maxY in
+                        let shouldShow = maxY < threshold
+                        if shouldShow != showToolbarTitle {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showToolbarTitle = shouldShow
+                            }
+                        }
                     }
-                }
+                    .toolbar {
+                        ToolbarItem(placement: .principal) {
+                            Text(title)
+                                .font(.headline)
+                                .lineLimit(1)
+                                .opacity(showToolbarTitle ? 1 : 0)
+                        }
+                    }
+                    #if os(iOS)
+                    // iOS 16+: use SwiftUI toolbarBackground (respects iOS 26 Liquid Glass)
+                    .modifier(ToolbarBackgroundModifier(isTransparent: !showToolbarTitle))
+                    // iOS 15 fallback: UIKit appearance configurator
+                    .background(
+                        NavigationBarAppearanceConfigurator(isTransparent: !showToolbarTitle)
+                    )
+                    #endif
+            } else {
+                content
+                    .onAppear {
+                        showToolbarTitle = false
+                    }
             }
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .opacity(showToolbarTitle ? 1 : 0)
-                }
-            }
-            #if os(iOS)
-            // iOS 16+: use SwiftUI toolbarBackground (respects iOS 26 Liquid Glass)
-            .modifier(ToolbarBackgroundModifier(isTransparent: !showToolbarTitle))
-            // iOS 15 fallback: UIKit appearance configurator
-            .background(
-                NavigationBarAppearanceConfigurator(isTransparent: !showToolbarTitle)
-            )
-            #endif
+        }
     }
 }
 

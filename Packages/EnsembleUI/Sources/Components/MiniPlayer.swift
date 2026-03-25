@@ -343,6 +343,7 @@ private struct MiniPlayerControls: View {
             }
         }
         .foregroundColor(.primary)
+        .chromelessMediaControlButton()
     }
 }
 
@@ -459,4 +460,3 @@ public struct MiniPlayerContainer<Content: View>: View {
         }
     }
 }
-

@@ -5,6 +5,7 @@ public struct DownloadsView: View {
     @StateObject private var viewModel: DownloadsViewModel
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
+    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @State private var isRefreshingDownloadQuality = false
     @AppStorage("downloadQuality") private var downloadQuality = "high"
 
@@ -22,32 +23,34 @@ public struct DownloadsView: View {
             }
         }
         .navigationTitle("Downloads")
-        .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                NavigationLink {
-                    DownloadManagerSettingsView()
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
+        .if(!isViewportNowPlayingPresented) { content in
+            content.toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    NavigationLink {
+                        DownloadManagerSettingsView()
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                    }
                 }
-            }
 
-            ToolbarItem(placement: .navigationBarTrailing) {
-                queueControlButton
-            }
-            #else
-            ToolbarItem(placement: .automatic) {
-                NavigationLink {
-                    DownloadManagerSettingsView()
-                } label: {
-                    Label("Settings", systemImage: "slider.horizontal.3")
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    queueControlButton
                 }
-            }
+                #else
+                ToolbarItem(placement: .automatic) {
+                    NavigationLink {
+                        DownloadManagerSettingsView()
+                    } label: {
+                        Label("Settings", systemImage: "slider.horizontal.3")
+                    }
+                }
 
-            ToolbarItem(placement: .automatic) {
-                queueControlButton
+                ToolbarItem(placement: .automatic) {
+                    queueControlButton
+                }
+                #endif
             }
-            #endif
         }
         .task {
             await viewModel.refresh()

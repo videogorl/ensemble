@@ -6,11 +6,11 @@ import SwiftUI
 public struct HomeView: View {
     @StateObject private var viewModel: HomeViewModel
     let nowPlayingVM: NowPlayingViewModel
-    @State private var showingManageSources = false
     // Targeted singleton observation: only fires when sync state changes (for empty state)
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var playlistPickerTracks: [Track]?
     @Environment(\.dependencies) private var deps
+    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
@@ -28,36 +28,20 @@ public struct HomeView: View {
             }
         }
         .navigationTitle("Feed")
-        .toolbar {
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                Button("Edit") {
-                    viewModel.enterEditMode()
-                    viewModel.isEditingOrder = true
+        .if(!isViewportNowPlayingPresented) { content in
+            content.toolbar {
+                ToolbarItem(placement: .primaryActionIfAvailable) {
+                    Button("Edit") {
+                        viewModel.enterEditMode()
+                        viewModel.isEditingOrder = true
+                    }
+                    .disabled(!viewModel.hasEnabledLibraries || viewModel.hubs.isEmpty)
+                    .opacity(viewModel.hasEnabledLibraries && !viewModel.hubs.isEmpty ? 1 : 0)
                 }
-                .disabled(!viewModel.hasEnabledLibraries || viewModel.hubs.isEmpty)
-                .opacity(viewModel.hasEnabledLibraries && !viewModel.hubs.isEmpty ? 1 : 0)
             }
         }
         .sheet(isPresented: $viewModel.isEditingOrder) {
             HubOrderingSheet(viewModel: viewModel)
-        }
-        .sheet(isPresented: $showingManageSources) {
-            NavigationView {
-                SettingsView()
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") {
-                                showingManageSources = false
-                            }
-                        }
-                    }
-            }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
-            #if os(macOS)
-                .frame(width: 720, height: 560)
-            #endif
         }
         .sheet(isPresented: Binding(
             get: { playlistPickerTracks != nil },
@@ -146,7 +130,7 @@ public struct HomeView: View {
                             .multilineTextAlignment(.center)
 
                         Button {
-                            showingManageSources = true
+                            DependencyContainer.shared.navigationCoordinator.openSettings()
                         } label: {
                             Label("Manage Sources", systemImage: "slider.horizontal.3")
                                 .padding(.horizontal, 20)

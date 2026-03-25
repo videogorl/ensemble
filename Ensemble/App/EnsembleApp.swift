@@ -4,6 +4,9 @@ import Intents
 import os
 import OSLog
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 #if os(iOS)
 import BackgroundTasks
 #endif
@@ -26,6 +29,10 @@ struct EnsembleApp: App {
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var hasPerformedStartupSync = false
+    #if os(macOS)
+    @State private var hasStartedPlaybackRestore = false
+    @State private var hasCompletedPlaybackRestore = false
+    #endif
     #if os(iOS)
     @State private var hasScheduledBackgroundRefresh = false
     #endif
@@ -67,10 +74,37 @@ struct EnsembleApp: App {
                     activity.title = "Ensemble Active"
                 }
         }
+        #if os(macOS)
+        .windowStyle(.hiddenTitleBar)
+        #endif
         .applyBackgroundRefresh()
         .onChange(of: scenePhase) { newPhase in
             handleScenePhaseChange(newPhase)
         }
+        #if os(macOS)
+        .commands {
+            CommandMenu("Playback") {
+                Button("Play/Pause") {
+                    MacPlaybackShortcut.togglePlaybackIfAllowed()
+                }
+                .keyboardShortcut(.space, modifiers: [])
+            }
+        }
+        #endif
+        #if os(macOS)
+        if #available(macOS 13.0, *) {
+            Window("Settings", id: NavigationCoordinator.AuxiliaryPresentation.settings.windowID) {
+                SettingsPresentationContainer()
+                    .environment(\.dependencies, DependencyContainer.shared)
+                    .frame(minWidth: 720, minHeight: 560)
+            }
+            Window("Downloads", id: NavigationCoordinator.AuxiliaryPresentation.downloads.windowID) {
+                DownloadsPresentationContainer()
+                    .environment(\.dependencies, DependencyContainer.shared)
+                    .frame(minWidth: 900, minHeight: 640)
+            }
+        }
+        #endif
     }
 
     private func handleScenePhaseChange(_ phase: ScenePhase) {
@@ -130,12 +164,59 @@ struct EnsembleApp: App {
                 // Start periodic sync timer
                 DependencyContainer.shared.syncCoordinator.startPeriodicSync()
 
+                // macOS does not go through UIApplication/AppDelegate startup,
+                // so we need to mirror the iPhone launch sequence here once:
+                // load accounts/providers, run health checks, then restore the
+                // persisted queue/current track before the first startup sync.
+                if !hasStartedPlaybackRestore {
+                    hasStartedPlaybackRestore = true
+
+                    Task.detached(priority: .utility) {
+                        defer {
+                            Task { @MainActor in
+                                hasCompletedPlaybackRestore = true
+                            }
+                        }
+
+                        let dependencyContainer = await MainActor.run { DependencyContainer.shared }
+
+                        await MainActor.run {
+                            dependencyContainer.accountManager.loadAccounts()
+                            dependencyContainer.serverHealthChecker.prepopulateUnknownStates()
+                            dependencyContainer.syncCoordinator.refreshProviders()
+                        }
+
+                        let networkMonitor = await MainActor.run { dependencyContainer.networkMonitor }
+                        if await MainActor.run(body: { networkMonitor.networkState == .unknown }) {
+                            for _ in 0..<10 {
+                                try? await Task.sleep(nanoseconds: 100_000_000)
+                                if await MainActor.run(body: { networkMonitor.networkState != .unknown }) {
+                                    break
+                                }
+                            }
+                        }
+
+                        AppLogger.debug("💻 macOS: Running startup health checks before playback restore...")
+                        let syncCoordinator = await MainActor.run { dependencyContainer.syncCoordinator }
+                        await syncCoordinator.performStartupHealthChecks()
+
+                        AppLogger.debug("💻 macOS: Restoring persisted playback state...")
+                        let playbackService = await MainActor.run { dependencyContainer.playbackService }
+                        await playbackService.restorePlaybackState()
+                        AppLogger.debug("💻 macOS: Playback state restoration complete")
+                    }
+                }
+
                 // Perform startup sync on first activation (macOS only)
                 if !hasPerformedStartupSync {
                     hasPerformedStartupSync = true
                     Task.detached(priority: .utility) {
-                        // Wait for network monitor to stabilize
-                        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                        // Let the one-time playback restoration run first so the
+                        // queue/current track hydrate before cold-start sync churn.
+                        while await MainActor.run(body: { !hasCompletedPlaybackRestore }) {
+                            try? await Task.sleep(nanoseconds: 50_000_000)
+                        }
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
 
                         AppLogger.debug("💻 macOS: Starting startup sync...")
                         let syncCoordinator = await MainActor.run {
@@ -279,6 +360,38 @@ struct EnsembleApp: App {
         }
     }
 }
+
+#if os(macOS)
+private enum MacPlaybackShortcut {
+    static func togglePlaybackIfAllowed() {
+        guard !isTextInputActive else { return }
+
+        let service = DependencyContainer.shared.playbackService
+        switch service.playbackState {
+        case .playing:
+            service.pause()
+        case .paused:
+            service.resume()
+        default:
+            break
+        }
+    }
+
+    private static var isTextInputActive: Bool {
+        guard let responder = NSApp.keyWindow?.firstResponder else { return false }
+
+        if responder is NSTextView {
+            return true
+        }
+
+        if let control = responder as? NSControl {
+            return control.currentEditor() != nil
+        }
+
+        return false
+    }
+}
+#endif
 
 // MARK: - Background Refresh Extension
 
