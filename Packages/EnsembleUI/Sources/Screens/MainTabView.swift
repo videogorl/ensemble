@@ -514,17 +514,8 @@ struct NestedNavigationLink<DestinationView: View>: View {
 // MARK: - iPad Sidebar View
 
 @available(iOS 16.0, macOS 13.0, *)
-private struct SidebarColumnWidthPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 260
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-@available(iOS 16.0, macOS 13.0, *)
-private struct MiniPlayerHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 64
+private struct DetailColumnWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
@@ -563,8 +554,7 @@ public struct SidebarView: View {
 
     @State private var selection: SidebarSelection = .library(.home)
     @State private var showingSheetNowPlaying = false
-    @State private var sidebarColumnWidth: CGFloat = 260
-    @State private var miniPlayerHeight: CGFloat = 64
+    @State private var detailColumnWidth: CGFloat = 0
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
@@ -718,28 +708,14 @@ public struct SidebarView: View {
     }
 
     public var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .bottomLeading) {
-                // Main split view
-                NavigationSplitView {
-                    sidebarColumn
-                } detail: {
-                    detailContainerView
-                }
-
-                if !isShowingNowPlaying {
-                    detailColumnMiniPlayer(totalSize: proxy.size)
-                        .zIndex(2)
-                }
-            }
+        NavigationSplitView {
+            sidebarColumn
+        } detail: {
+            detailContainerView
         }
-        .onPreferenceChange(SidebarColumnWidthPreferenceKey.self) { width in
-            guard abs(width - sidebarColumnWidth) > 1 else { return }
-            sidebarColumnWidth = width
-        }
-        .onPreferenceChange(MiniPlayerHeightPreferenceKey.self) { height in
-            guard abs(height - miniPlayerHeight) > 1 else { return }
-            miniPlayerHeight = height
+        .onPreferenceChange(DetailColumnWidthPreferenceKey.self) { width in
+            guard abs(width - detailColumnWidth) > 1 else { return }
+            detailColumnWidth = width
         }
         #if os(iOS)
         .sheet(item: $navigationCoordinator.activeAuxiliaryPresentation, onDismiss: {
@@ -890,14 +866,6 @@ public struct SidebarView: View {
             .padding(.vertical, 8)
         }
         .navigationSplitViewColumnWidth(min: 220, ideal: 260)
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: SidebarColumnWidthPreferenceKey.self,
-                    value: proxy.size.width
-                )
-            }
-        )
     }
 
     /// SF Symbol for each pinned item type
@@ -977,12 +945,25 @@ public struct SidebarView: View {
                 .allowsHitTesting(false)
             }
         }
-        .miniPlayerBottomSpacing(64)
     }
 
     private var detailContainerView: some View {
         detailView
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: DetailColumnWidthPreferenceKey.self,
+                        value: proxy.size.width
+                    )
+                }
+            )
+            .overlay(alignment: .bottom) {
+                if !isShowingNowPlaying {
+                    detailColumnMiniPlayer
+                        .padding(.bottom, 20)
+                }
+            }
     }
 
     @ViewBuilder
@@ -1025,15 +1006,10 @@ public struct SidebarView: View {
         }
     }
 
-    private func detailColumnMiniPlayer(totalSize: CGSize) -> some View {
+    private var detailColumnMiniPlayer: some View {
         let horizontalPadding: CGFloat = 24
-        let bottomPadding: CGFloat = 20
-        let clampedSidebarWidth = min(max(sidebarColumnWidth, 0), totalSize.width)
-        let detailWidth = max(totalSize.width - clampedSidebarWidth, 0)
-        let availableWidth = max(detailWidth - (horizontalPadding * 2), 0)
+        let availableWidth = max(detailColumnWidth - (horizontalPadding * 2), 0)
         let miniPlayerWidth = min(540, availableWidth)
-        let xPosition = clampedSidebarWidth + (detailWidth / 2)
-        let yPosition = max(miniPlayerHeight / 2, totalSize.height - bottomPadding - (miniPlayerHeight / 2))
 
         return MiniPlayer(
             viewModel: nowPlayingVM,
@@ -1050,16 +1026,7 @@ public struct SidebarView: View {
             }
         }
         .frame(width: miniPlayerWidth)
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: MiniPlayerHeightPreferenceKey.self,
-                    value: proxy.size.height
-                )
-            }
-        )
         .accentColor(deps.settingsManager.accentColor.color)
-        .position(x: xPosition, y: yPosition)
         .transition(.identity)
     }
     

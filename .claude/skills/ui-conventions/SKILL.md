@@ -112,7 +112,9 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - If Playlists appear in the sidebar, include both `All Playlists` and individual playlist rows, and drive ordering from shared `PlaylistViewModel` sort state rather than a duplicated sidebar-only sort.
 - Keep `Library` as the always-expanded anchor section. `Pins`, `Smart Playlists`, and `Playlists` may be collapsible on large screens, and their expanded state should persist across redraws.
 - Separate smart playlists into their own section above regular playlists instead of mixing them into the main playlist list.
-- Keep the large-screen mini player mounted on a dedicated detail-column host that spans the full split-view detail pane. Do not attach it directly to individual pushed `NavigationStack` screens or safe-area insets, or it can inherit the wrong width and disappear on detail routes.
+- Keep the large-screen mini player mounted on the detail-column container itself, outside the per-screen `NavigationStack`s but inside the split-view detail pane.
+- Do not host the large-screen mini player at the split-view root with manual `.position(...)` geometry; that creates oversized hit regions and dead tap zones above the pill.
+- On macOS, `.miniPlayerBottomSpacing(...)` should be a no-op because the mini player floats above the detail content and the content must scroll behind it.
 
 ### Auxiliary Settings / Downloads Presentation
 - Large-screen Settings and Downloads should route through `NavigationCoordinator.openSettings()` / `openDownloads()` instead of per-screen local sheet booleans.

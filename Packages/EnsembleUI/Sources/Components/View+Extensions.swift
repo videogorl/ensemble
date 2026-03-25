@@ -100,11 +100,12 @@ public extension View {
         #endif
     }
 
-    /// Adds bottom spacing for the mini player/tab bar area.
-    /// iOS 16+ uses safeAreaInset for scroll-behind-chrome behavior.
-    /// iOS 15 is a no-op here — the inset is applied once at the container
-    /// level via `miniPlayerContainerInset()` in MainTabView, which sets
-    /// additionalSafeAreaInsets on the TabView's hosting controller.
+    /// Adds bottom spacing for the mini player/tab bar area on iPhone/iPad layouts
+    /// that reserve content space for the player. macOS uses a floating overlay in
+    /// the detail column, so content should scroll behind it instead of reserving a gutter.
+    /// iOS 15 is a no-op here — the inset is applied once at the container level via
+    /// `miniPlayerContainerInset()` in MainTabView, which sets additionalSafeAreaInsets
+    /// on the TabView's hosting controller.
     @ViewBuilder
     func miniPlayerBottomSpacing(_ height: CGFloat = 140) -> some View {
         #if os(iOS)
@@ -118,9 +119,7 @@ public extension View {
             self
         }
         #else
-        self.safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: height)
-        }
+        self
         #endif
     }
 

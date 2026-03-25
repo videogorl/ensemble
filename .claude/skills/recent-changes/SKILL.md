@@ -6,6 +6,12 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Large-Screen Mini Player Hit-Testing Simplification (Mar 25, 2026)
+
+The large-screen mini player no longer uses a split-view-root geometry host on macOS. `SidebarView` now mounts the floating mini player directly on the detail-column container, while `miniPlayerBottomSpacing` is a no-op on macOS so detail content scrolls behind the player instead of reserving a dead gutter. This removes the oversized hit-blocking band that could sit above the floating pill and keeps the mini player centered relative to the detail pane without reintroducing detail-route disappearance.
+
+**Key files:** `MainTabView.swift`, `View+Extensions.swift`, `ui-conventions` skill
+
 ### Large-Screen Now Playing Root Presentation Refactor (Mar 25, 2026)
 
 Large-screen Now Playing is no longer implemented as a phone sheet or a titlebar-masking workaround. `NowPlayingViewportRoot` now owns the iPad/macOS viewport layout, while `NowPlayingSheetView` is narrowed back down to the iPhone sheet path. Root containers present the viewport root directly, and screens suppress their own toolbar content while viewport Now Playing is active so opening the presentation no longer rebuilds the split view or shifts the traffic lights.
