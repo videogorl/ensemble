@@ -37,12 +37,13 @@ struct NowPlayingViewportRoot: View {
 
                     HStack(spacing: 20) {
                         ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .frame(width: panelWidth(for: geometry))
+                            .frame(maxHeight: .infinity)
 
                         detailPanel
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .frame(width: panelWidth(for: geometry))
+                            .frame(maxHeight: .infinity)
                     }
-                    .frame(maxWidth: 1120, maxHeight: .infinity)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, topInset(for: geometry))
@@ -155,6 +156,14 @@ struct NowPlayingViewportRoot: View {
         } else {
             QueueCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
         }
+    }
+
+    /// Equal panel width for the two-column layout (controls + detail).
+    /// Computed from geometry so both sides are always exactly the same width.
+    private func panelWidth(for geometry: GeometryProxy) -> CGFloat {
+        // 48pt = horizontal padding (24 * 2), 20pt = HStack spacing
+        let available = min(geometry.size.width - 48, 1120)
+        return max((available - 20) / 2, 0)
     }
 
     private func topInset(for geometry: GeometryProxy) -> CGFloat {
