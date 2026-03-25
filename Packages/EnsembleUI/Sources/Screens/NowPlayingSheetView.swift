@@ -6,6 +6,7 @@ import SwiftUI
 public struct NowPlayingSheetView: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     private let namespace: Namespace.ID?
     private let animationID: String?
@@ -42,12 +43,31 @@ public struct NowPlayingSheetView: View {
     }
 
     private var backgroundView: some View {
-        ZStack {
-            BlurredArtworkBackground(image: viewModel.artworkImage)
-                .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
+        // Adaptive overlay: light mode uses system background tint, dark mode uses black
+        let lightOverlayColor: Color = {
+            #if os(iOS)
+            return Color(uiColor: .systemBackground)
+            #elseif os(macOS)
+            return Color(nsColor: .windowBackgroundColor)
+            #else
+            return .white
+            #endif
+        }()
 
-            Color.black.opacity(0.4)
-                .allowsHitTesting(false)
+        return ZStack {
+            BlurredArtworkBackground(
+                image: viewModel.artworkImage,
+                overlayColor: colorScheme == .dark ? .black : lightOverlayColor
+            )
+            .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
+
+            if colorScheme == .dark {
+                Color.black.opacity(0.45)
+                    .allowsHitTesting(false)
+            } else {
+                lightOverlayColor.opacity(0.7)
+                    .allowsHitTesting(false)
+            }
         }
         .ignoresSafeArea()
     }
