@@ -1176,7 +1176,7 @@ public struct SidebarView: View {
                     .fill(isSelected ? Color.accentColor : Color.clear)
             )
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
+            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
     }
 
     @ViewBuilder
