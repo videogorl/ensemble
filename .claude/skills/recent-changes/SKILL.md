@@ -10,6 +10,8 @@ user-invocable: true
 
 The iPad/macOS sidebar now uses a three-part layout instead of a single all-in-one `List`: Search is a standalone top action, the middle list contains `Library`, `Playlists`, and `Pins`, and Settings is a standalone bottom action. Downloads moved into `Library`, Playlists gained their own section with `All Playlists` plus individually selectable playlist rows, and sidebar playlist ordering now mirrors `PlaylistViewModel` sort order via a shared injected playlist view model.
 
+Follow-up stability fix: sidebar playlist rows now derive from the primary `playlists` collection using the current sort settings, then map into explicit sidebar row items with stable IDs and normalized fallback titles. This avoids transient “playlists appear then disappear” behavior caused by feeding raw `Playlist` structs and secondary cached sorted state directly into sidebar `ForEach` diffing.
+
 Large-screen Settings and Downloads no longer live as inline sidebar detail destinations. `NavigationCoordinator` now owns shared `openSettings()` / `openDownloads()` presentation APIs plus auxiliary presentation state. macOS uses dedicated singleton `Window` scenes declared in `EnsembleApp`, while iOS large-screen roots present the same flows modally through `AuxiliaryPresentationContainer`.
 
 The same pass also moved the sidebar mini player into the detail column so it centers against content with a 540pt max width, removed one-off per-screen Manage Sources sheets in favor of the shared presentation path, restored toolbar sort controls on non-phone Songs/Albums/Artists, disabled collapsing-toolbar principal-title pills on non-iPhone layouts, restored the Info panel to viewport Now Playing, and enabled large-screen space-bar/swipe interaction improvements.

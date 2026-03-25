@@ -540,6 +540,15 @@ struct NestedNavigationLink<DestinationView: View>: View {
 
 @available(iOS 16.0, macOS 13.0, *)
 public struct SidebarView: View {
+    /// Stable sidebar-only playlist row model so SwiftUI diffing does not depend on
+    /// the broader Playlist Hashable/Equatable semantics.
+    private struct SidebarPlaylistItem: Identifiable, Equatable {
+        let id: String
+        let playlistID: String
+        let sourceKey: String?
+        let title: String
+    }
+
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
@@ -577,17 +586,123 @@ public struct SidebarView: View {
         #endif
     }
 
-    private var sidebarPlaylists: [Playlist] {
-        var seenKeys = Set<String>()
-        return playlistsVM.sortedPlaylists.filter { playlist in
-            let dedupeKey = [
-                playlist.id.isEmpty ? playlist.key : playlist.id,
+    private var sidebarPlaylists: [SidebarPlaylistItem] {
+        var seenIDs = Set<String>()
+        let sortedPlaylists = sortedSidebarSourcePlaylists()
+
+        return sortedPlaylists.compactMap { playlist in
+            let resolvedTitle = resolvedSidebarPlaylistTitle(for: playlist)
+            let playlistIdentity = playlist.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            let keyIdentity = playlist.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            let stableID = [
+                playlistIdentity.isEmpty ? keyIdentity : playlistIdentity,
                 playlist.sourceCompositeKey ?? "",
-                playlist.title
+                keyIdentity,
+                resolvedTitle
             ].joined(separator: "|")
 
-            return seenKeys.insert(dedupeKey).inserted
+            guard !stableID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ SidebarView: skipping playlist row with no stable identity")
+                #endif
+                return nil
+            }
+
+            guard seenIDs.insert(stableID).inserted else {
+                return nil
+            }
+
+            return SidebarPlaylistItem(
+                id: stableID,
+                playlistID: playlist.id,
+                sourceKey: playlist.sourceCompositeKey,
+                title: resolvedTitle
+            )
         }
+    }
+
+    private func sortedSidebarSourcePlaylists() -> [Playlist] {
+        let ascending = playlistsVM.filterOptions.sortDirection == .ascending
+
+        switch playlistsVM.playlistSortOption {
+        case .title:
+            let keyed = playlistsVM.playlists.map { ($0, resolvedSidebarPlaylistTitle(for: $0).sortingKey) }
+            return keyed.sorted {
+                let result = $0.1.localizedStandardCompare($1.1)
+                if result == .orderedSame {
+                    return sidebarPlaylistTieBreakKey(for: $0.0) < sidebarPlaylistTieBreakKey(for: $1.0)
+                }
+                return ascending ? result == .orderedAscending : result == .orderedDescending
+            }
+            .map(\.0)
+        case .trackCount:
+            return playlistsVM.playlists.sorted {
+                compareSidebarPlaylists($0.trackCount, $1.trackCount, ascending: ascending, lhs: $0, rhs: $1)
+            }
+        case .duration:
+            return playlistsVM.playlists.sorted {
+                compareSidebarPlaylists($0.duration, $1.duration, ascending: ascending, lhs: $0, rhs: $1)
+            }
+        case .dateAdded:
+            return playlistsVM.playlists.sorted {
+                compareSidebarPlaylists($0.dateAdded ?? .distantPast, $1.dateAdded ?? .distantPast, ascending: ascending, lhs: $0, rhs: $1)
+            }
+        case .dateModified:
+            return playlistsVM.playlists.sorted {
+                compareSidebarPlaylists($0.dateModified ?? .distantPast, $1.dateModified ?? .distantPast, ascending: ascending, lhs: $0, rhs: $1)
+            }
+        case .lastPlayed:
+            return playlistsVM.playlists.sorted {
+                compareSidebarPlaylists($0.lastPlayed ?? .distantPast, $1.lastPlayed ?? .distantPast, ascending: ascending, lhs: $0, rhs: $1)
+            }
+        }
+    }
+
+    private func compareSidebarPlaylists<T: Comparable>(
+        _ lhsValue: T,
+        _ rhsValue: T,
+        ascending: Bool,
+        lhs: Playlist,
+        rhs: Playlist
+    ) -> Bool {
+        if lhsValue == rhsValue {
+            return sidebarPlaylistTieBreakKey(for: lhs) < sidebarPlaylistTieBreakKey(for: rhs)
+        }
+        return ascending ? lhsValue < rhsValue : lhsValue > rhsValue
+    }
+
+    private func sidebarPlaylistTieBreakKey(for playlist: Playlist) -> String {
+        [
+            playlist.id.trimmingCharacters(in: .whitespacesAndNewlines),
+            playlist.sourceCompositeKey ?? "",
+            playlist.key.trimmingCharacters(in: .whitespacesAndNewlines),
+            resolvedSidebarPlaylistTitle(for: playlist)
+        ].joined(separator: "|")
+    }
+
+    private func resolvedSidebarPlaylistTitle(for playlist: Playlist) -> String {
+        let trimmedTitle = playlist.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTitle.isEmpty {
+            return trimmedTitle
+        }
+
+        let keyFallback = playlist.key
+            .split(separator: "/")
+            .last
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let keyFallback, !keyFallback.isEmpty {
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ SidebarView: using key fallback title for playlist \(playlist.id)")
+            #endif
+            return keyFallback
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("⚠️ SidebarView: using untitled fallback for playlist \(playlist.id)")
+        #endif
+        return "Untitled Playlist"
     }
 
     public var body: some View {
@@ -735,7 +850,7 @@ public struct SidebarView: View {
                 Section(header: Text("Playlists").textCase(nil)) {
                     sidebarLibrarySelectionButton("All Playlists", systemImage: "music.note.list", tab: .playlists)
 
-                    ForEach(sidebarPlaylists, id: \.self) { playlist in
+                    ForEach(sidebarPlaylists) { playlist in
                         sidebarPlaylistButton(playlist)
                     }
                 }
@@ -945,14 +1060,14 @@ public struct SidebarView: View {
     }
 
     @ViewBuilder
-    private func sidebarPlaylistButton(_ playlist: Playlist) -> some View {
+    private func sidebarPlaylistButton(_ playlist: SidebarPlaylistItem) -> some View {
         Button {
-            selection = .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
+            selection = .playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey)
         } label: {
             sidebarSelectableRow(
                 title: playlist.title,
                 systemImage: "music.note",
-                isSelected: selection == .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
+                isSelected: selection == .playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey)
             )
         }
         .buttonStyle(.plain)
