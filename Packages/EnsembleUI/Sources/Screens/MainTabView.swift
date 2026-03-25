@@ -1168,14 +1168,15 @@ public struct SidebarView: View {
         Label(title, systemImage: systemImage)
             .font(.callout)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .foregroundColor(isSelected ? .white : .primary)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(isSelected ? Color.accentColor : Color.clear)
             )
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
     }
 
     @ViewBuilder
