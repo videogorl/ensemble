@@ -297,7 +297,19 @@ public final class PlaylistViewModel: ObservableObject {
                 serverPlaylists.contains(where: { matchesPlaylistIdentity($0, optimistic) })
             }
             let renamedApplied = applyOptimisticRenames(to: serverPlaylists)
-            playlists = mergeWithOptimisticCreatingPlaylists(renamedApplied)
+            let merged = mergeWithOptimisticCreatingPlaylists(renamedApplied)
+
+            // Don't replace populated playlists with empty results from background
+            // auto-reloads (sync completion, status changes). CoreData can return
+            // empty mid-sync while records are being rebuilt. Only allow clearing
+            // on explicit user-initiated loads (showLoading: true).
+            if merged.isEmpty && !playlists.isEmpty && !showLoading {
+                #if DEBUG
+                EnsembleLogger.debug("📋 PlaylistViewModel: skipping empty auto-reload result (preserving \(self.playlists.count) existing playlists)")
+                #endif
+            } else {
+                playlists = merged
+            }
         } catch {
             self.error = error.localizedDescription
         }

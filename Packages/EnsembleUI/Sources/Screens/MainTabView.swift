@@ -865,8 +865,10 @@ public struct SidebarView: View {
 
             Divider()
 
-            // Icon-only Downloads + Settings buttons
+            // Icon-only Downloads + Settings buttons, right-aligned
             HStack(spacing: 12) {
+                Spacer()
+
                 Button {
                     navigationCoordinator.openDownloads()
                 } label: {
@@ -886,8 +888,6 @@ public struct SidebarView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Settings")
-
-                Spacer()
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
