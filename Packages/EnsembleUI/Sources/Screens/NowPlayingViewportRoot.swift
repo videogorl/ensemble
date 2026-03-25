@@ -37,10 +37,10 @@ struct NowPlayingViewportRoot: View {
 
                     HStack(spacing: 20) {
                         ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
-                            .frame(maxWidth: 520, maxHeight: .infinity)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                         detailPanel
-                            .frame(maxWidth: 520, maxHeight: .infinity)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .frame(maxWidth: 1120, maxHeight: .infinity)
                 }
