@@ -3416,9 +3416,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 if isVisualizerEnabled {
                     let throttle = isInstrumentalModeActive
                     let priority: TaskPriority = throttle ? .background : .userInitiated
+                    #if DEBUG
+                    EnsembleLogger.debug("[Visualizer] Dispatching loadTimeline for '\(track.title)', url=\(fileURL.lastPathComponent), isFile=\(fileURL.isFileURL)")
+                    #endif
                     Task.detached { [audioAnalyzer] in
                         await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: priority, throttled: throttle)
                     }
+                } else {
+                    #if DEBUG
+                    EnsembleLogger.debug("[Visualizer] Skipped: isVisualizerEnabled=false")
+                    #endif
                 }
 
                 // Load and play the file through the audio engine
