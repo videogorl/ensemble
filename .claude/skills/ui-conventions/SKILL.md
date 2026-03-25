@@ -133,8 +133,9 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - For side-by-side layouts, prefer a desktop/tablet header with explicit close affordance and simple panel switching over page indicators or dismiss pills.
 - On macOS, keep the Now Playing header below the titlebar/toolbar region and bind Escape to dismiss so close controls never compete with window chrome.
 - On macOS, reserve explicit leading clearance for the traffic-light cluster. On iPadOS 26 and later, reserve matching top-left clearance for the new window controls before placing large-screen Now Playing header content.
-- On macOS, coordinate toolbar suppression at the window layer via a dedicated bridge/controller; do not try to hide the host toolbar from inside the SwiftUI Now Playing layout with masks or content overlays.
-- Keep the macOS titlebar alive while Now Playing is active so the traffic lights stay stable; only toolbar content should swap.
+- On macOS, keep the titlebar alive while Now Playing is active so the traffic lights stay stable.
+- Suppress only the specific split-view/sidebar toolbar items that bleed into viewport Now Playing. Use a narrow AppKit bridge on the existing window toolbar rather than swapping toolbars or hiding the titlebar.
+- Do not try to hide the host toolbar with masks, titlebar overlays, or full toolbar visibility toggles; those approaches tend to reintroduce traffic-light movement or split-view layout churn.
 - On iPadOS, it is fine to hide the underlying navigation chrome while viewport Now Playing is active, but avoid content-level hacks that try to fake titlebar behavior on macOS.
 
 ### Toast Presentation

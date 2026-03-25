@@ -5,7 +5,8 @@ import AppKit
 #endif
 
 /// Dedicated large-screen Now Playing presentation surface used by macOS and iPadOS.
-/// This owns the viewport layout only; window chrome coordination lives outside the layout.
+/// This owns the viewport layout and hosts the narrow macOS toolbar suppression bridge
+/// needed to keep split-view chrome out of the presentation.
 struct NowPlayingViewportRoot: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
@@ -250,6 +251,8 @@ private struct SidebarToggleToolbarSuppressionBridge: NSViewRepresentable {
                 return true
             }
 
+            // SwiftUI/AppKit can emit different sidebar-related identifiers depending on the
+            // current split-view configuration, so match the stable "sidebar" substring too.
             let identifier = item.itemIdentifier.rawValue.lowercased()
             if identifier.contains("sidebar") {
                 return true

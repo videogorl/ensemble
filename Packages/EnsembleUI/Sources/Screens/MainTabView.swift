@@ -721,7 +721,11 @@ public struct SidebarView: View {
         GeometryReader { proxy in
             ZStack(alignment: .bottomLeading) {
                 // Main split view
-                splitViewContent
+                NavigationSplitView {
+                    sidebarColumn
+                } detail: {
+                    detailContainerView
+                }
 
                 if !isShowingNowPlaying {
                     detailColumnMiniPlayer(totalSize: proxy.size)
@@ -894,15 +898,6 @@ public struct SidebarView: View {
                 )
             }
         )
-    }
-
-    @ViewBuilder
-    private var splitViewContent: some View {
-        NavigationSplitView {
-            sidebarColumn
-        } detail: {
-            detailContainerView
-        }
     }
 
     /// SF Symbol for each pinned item type

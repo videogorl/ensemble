@@ -8,9 +8,9 @@ user-invocable: true
 
 ### Large-Screen Now Playing Root Presentation Refactor (Mar 25, 2026)
 
-Large-screen Now Playing is no longer implemented as a phone sheet or a titlebar-masking workaround. `NowPlayingViewportRoot` now owns the iPad/macOS viewport layout, while `NowPlayingSheetView` is narrowed back down to the iPhone sheet path. Root containers (`MainTabView`, `SidebarView`) present the viewport root directly, and macOS uses a dedicated `WindowChromeBridge` to swap the toolbar into an empty Now Playing configuration while preserving the titlebar and traffic-light geometry.
+Large-screen Now Playing is no longer implemented as a phone sheet or a titlebar-masking workaround. `NowPlayingViewportRoot` now owns the iPad/macOS viewport layout, while `NowPlayingSheetView` is narrowed back down to the iPhone sheet path. Root containers present the viewport root directly, and screens suppress their own toolbar content while viewport Now Playing is active so opening the presentation no longer rebuilds the split view or shifts the traffic lights.
 
-This replaces the earlier titlebar masking / toolbar hiding experiments with a cleaner split: content layout stays in SwiftUI, but macOS window chrome is coordinated at the window layer instead of from inside the Now Playing layout itself.
+Final macOS fix: instead of replacing the toolbar or hiding the titlebar, `NowPlayingViewportRoot` hosts a narrow AppKit bridge that hides only live sidebar-related toolbar items on the existing window toolbar. This removed the lingering split-view toggle button without reintroducing titlebar movement or layout churn.
 
 **Key files:** `NowPlayingViewportRoot.swift`, `NowPlayingSheetView.swift`, `MainTabView.swift`, `ui-conventions` skill, `project-structure` skill
 
