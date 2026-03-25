@@ -1137,7 +1137,7 @@ public final class HomeViewModel: ObservableObject {
     /// Start periodic hub refresh (every 10 minutes while app is active)
     public func startPeriodicRefresh() {
         guard isViewVisible else { return }
-        stopPeriodicRefresh()  // Stop any existing timer
+        guard hubRefreshTimer == nil else { return }
         
         #if DEBUG
         EnsembleLogger.debug("⏰ Starting periodic hub refresh (every 10 minutes)")
@@ -1167,6 +1167,7 @@ public final class HomeViewModel: ObservableObject {
     
     /// Stop periodic hub refresh
     public func stopPeriodicRefresh() {
+        guard hubRefreshTimer != nil else { return }
         hubRefreshTimer?.invalidate()
         hubRefreshTimer = nil
         #if DEBUG

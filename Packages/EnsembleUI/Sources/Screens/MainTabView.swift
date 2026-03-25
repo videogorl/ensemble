@@ -730,15 +730,9 @@ public struct SidebarView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         if let keyFallback, !keyFallback.isEmpty {
-            #if DEBUG
-            EnsembleLogger.debug("⚠️ SidebarView: using key fallback title for playlist \(playlist.id)")
-            #endif
             return keyFallback
         }
 
-        #if DEBUG
-        EnsembleLogger.debug("⚠️ SidebarView: using untitled fallback for playlist \(playlist.id)")
-        #endif
         return "Untitled Playlist"
     }
 
