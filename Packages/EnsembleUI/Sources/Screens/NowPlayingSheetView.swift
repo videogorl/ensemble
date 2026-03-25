@@ -104,7 +104,7 @@ public struct NowPlayingSheetView: View {
 
     private func viewportLayout(for geometry: GeometryProxy) -> some View {
         VStack(spacing: 20) {
-            viewportHeader
+            viewportHeader(for: geometry)
 
             HStack(spacing: 20) {
                 ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
@@ -120,7 +120,7 @@ public struct NowPlayingSheetView: View {
         .padding(.bottom, 24)
     }
 
-    private var viewportHeader: some View {
+    private func viewportHeader(for geometry: GeometryProxy) -> some View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(viewModel.currentTrack?.title ?? "Now Playing")
@@ -159,7 +159,8 @@ public struct NowPlayingSheetView: View {
             .keyboardShortcut(.cancelAction)
         }
         .frame(maxWidth: 1120)
-        .padding(.horizontal, 8)
+        .padding(.leading, viewportLeadingSystemChromeInset(for: geometry))
+        .padding(.trailing, 8)
     }
 
     private var viewportPanelSelection: Binding<Int> {
@@ -209,7 +210,28 @@ public struct NowPlayingSheetView: View {
         // tappable instead of ending up under toolbar items.
         return max(geometry.safeAreaInsets.top + 16, 60)
         #else
+        if #available(iOS 26.0, *) {
+            // iPadOS 26 places desktop-style window controls in the top-left
+            // corner, so keep the header content below that control group.
+            return max(geometry.safeAreaInsets.top + 18, 30)
+        }
         return max(geometry.safeAreaInsets.top + 12, 20)
+        #endif
+    }
+
+    private func viewportLeadingSystemChromeInset(for geometry: GeometryProxy) -> CGFloat {
+        #if os(macOS)
+        // Reserve the traffic-light cluster plus a little breathing room so
+        // Now Playing content never competes with the window controls.
+        return max(geometry.safeAreaInsets.leading + 88, 88)
+        #else
+        if #available(iOS 26.0, *) {
+            // iPadOS 26 adopts top-left window controls for multiwindow apps.
+            // Mirror the macOS clearance so the header stays visually centered
+            // while leaving the control cluster unobstructed.
+            return max(geometry.safeAreaInsets.leading + 92, 92)
+        }
+        return 8
         #endif
     }
     

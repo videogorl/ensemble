@@ -6,6 +6,12 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Large-Screen Now Playing Window-Control Clearance (Mar 25, 2026)
+
+Large-screen Now Playing now reserves explicit top-left system-chrome clearance instead of only adding vertical padding. On macOS this keeps the traffic lights visible and unobstructed; on iPadOS 26 and later it mirrors that behavior for the new desktop-style window controls in the top-left corner.
+
+**Key files:** `NowPlayingSheetView.swift`, `ui-conventions` skill
+
 ### Large-Screen Navigation + Auxiliary Presentation Polish (Mar 24, 2026)
 
 The iPad/macOS sidebar now uses a three-part layout instead of a single all-in-one `List`: Search is a standalone top action, the middle list contains `Library`, `Playlists`, and `Pins`, and Settings is a standalone bottom action. Downloads moved into `Library`, Playlists gained their own section with `All Playlists` plus individually selectable playlist rows, and sidebar playlist ordering now mirrors `PlaylistViewModel` sort order via a shared injected playlist view model.
