@@ -88,12 +88,6 @@ public struct MainTabView: View {
         #endif
     }
 
-    #if os(macOS)
-    private var windowChromeMode: WindowChromeMode {
-        usesViewportNowPlayingPresentation && showingNowPlaying ? .nowPlaying : .normal
-    }
-    #endif
-
     private var isKeyboardVisible: Bool {
         #if os(iOS)
         return keyboard.isVisible
@@ -234,12 +228,6 @@ public struct MainTabView: View {
 
             applyChromeVisibilityObservation(
                 to: rootView
-                    #if os(macOS)
-                    .background(
-                        WindowChromeBridge(mode: windowChromeMode)
-                            .allowsHitTesting(false)
-                    )
-                    #endif
                     .overlay(alignment: .top) {
                         if !isImmersiveMode {
                             OfflineIndicatorOverlay(
@@ -297,7 +285,17 @@ public struct MainTabView: View {
     @ViewBuilder
     private func applyViewportNowPlayingChromeVisibility<Content: View>(to content: Content) -> some View {
         #if os(macOS)
-        content
+        if #available(macOS 15.0, *) {
+            content
+                .toolbar(.hidden, for: .automatic)
+                .toolbar(removing: .title)
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        } else if #available(macOS 14.0, *) {
+            content
+                .toolbar(.hidden, for: .automatic)
+        } else {
+            content
+        }
         #elseif os(iOS)
         if #available(iOS 16.0, *) {
             content
@@ -616,12 +614,6 @@ public struct SidebarView: View {
         #endif
     }
 
-    #if os(macOS)
-    private var windowChromeMode: WindowChromeMode {
-        usesViewportNowPlayingPresentation && showingNowPlaying ? .nowPlaying : .normal
-    }
-    #endif
-
     private var sidebarPlaylists: [SidebarPlaylistItem] {
         var seenIDs = Set<String>()
         let sortedPlaylists = sortedSidebarSourcePlaylists()
@@ -787,12 +779,6 @@ public struct SidebarView: View {
             guard abs(height - miniPlayerHeight) > 1 else { return }
             miniPlayerHeight = height
         }
-        #if os(macOS)
-        .background(
-            WindowChromeBridge(mode: windowChromeMode)
-                .allowsHitTesting(false)
-        )
-        #endif
         .if(usesViewportNowPlayingPresentation && showingNowPlaying) { view in
             applyViewportNowPlayingChromeVisibility(to: view)
         }
@@ -958,7 +944,17 @@ public struct SidebarView: View {
     @ViewBuilder
     private func applyViewportNowPlayingChromeVisibility<Content: View>(to content: Content) -> some View {
         #if os(macOS)
-        content
+        if #available(macOS 15.0, *) {
+            content
+                .toolbar(.hidden, for: .automatic)
+                .toolbar(removing: .title)
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        } else if #available(macOS 14.0, *) {
+            content
+                .toolbar(.hidden, for: .automatic)
+        } else {
+            content
+        }
         #elseif os(iOS)
         if #available(iOS 16.0, *) {
             content.toolbar(.hidden, for: .navigationBar)
