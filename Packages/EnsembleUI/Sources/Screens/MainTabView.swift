@@ -999,31 +999,31 @@ public struct SidebarView: View {
     }
 
     private var detailContainerView: some View {
-        ZStack(alignment: .bottom) {
-            detailView
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            if !showingNowPlaying {
-                MiniPlayer(
-                    viewModel: nowPlayingVM,
-                    isFloating: true,
-                    namespace: playerNamespace,
-                    animationID: artworkAnimationID
-                ) {
-                    withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                        showingNowPlaying = true
+        detailView
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if !showingNowPlaying {
+                    MiniPlayer(
+                        viewModel: nowPlayingVM,
+                        isFloating: true,
+                        namespace: playerNamespace,
+                        animationID: artworkAnimationID
+                    ) {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                            showingNowPlaying = true
+                        }
                     }
+                    .frame(maxWidth: 540)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+                    .padding(.bottom, 20)
+                    .accentColor(deps.settingsManager.accentColor.color)
+                    .transition(.identity)
+                } else {
+                    Color.clear.frame(height: 0)
                 }
-                .frame(maxWidth: 540)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 20)
-                .accentColor(deps.settingsManager.accentColor.color)
-                .transition(.identity)
-                .zIndex(2)
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder

@@ -112,6 +112,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - If Playlists appear in the sidebar, include both `All Playlists` and individual playlist rows, and drive ordering from shared `PlaylistViewModel` sort state rather than a duplicated sidebar-only sort.
 - Keep `Library` as the always-expanded anchor section. `Pins`, `Smart Playlists`, and `Playlists` may be collapsible on large screens, and their expanded state should persist across redraws.
 - Separate smart playlists into their own section above regular playlists instead of mixing them into the main playlist list.
+- Keep the large-screen mini player mounted via the detail column's bottom safe-area container rather than an outer overlay if it needs to persist across pushed `NavigationStack` detail routes.
 
 ### Auxiliary Settings / Downloads Presentation
 - Large-screen Settings and Downloads should route through `NavigationCoordinator.openSettings()` / `openDownloads()` instead of per-screen local sheet booleans.
