@@ -559,6 +559,11 @@ public struct SidebarView: View {
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
 
+    // Cached sidebar playlist items driven by .onReceive — avoids computed property
+    // re-evaluation issues on macOS where NavigationSplitView can swallow updates.
+    @State private var cachedSmartPlaylists: [SidebarPlaylistItem] = []
+    @State private var cachedRegularPlaylists: [SidebarPlaylistItem] = []
+
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self._nowPlayingVM = StateObject(wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel())
@@ -581,7 +586,33 @@ public struct SidebarView: View {
         usesViewportNowPlayingPresentation ? isViewportNowPlayingPresented : showingSheetNowPlaying
     }
 
-    private var sidebarPlaylists: [SidebarPlaylistItem] {
+    /// Rebuild the cached sidebar playlist @State from the VM's current data.
+    /// Uses @State instead of computed properties to survive NavigationSplitView
+    /// re-layouts on macOS that can drop computed property changes.
+    private func rebuildCachedSidebarPlaylists() {
+        let items = buildSidebarPlaylistItems()
+        let newSmart = items.filter(\.isSmart)
+        let newRegular = items.filter { !$0.isSmart }
+
+        // Never replace a populated cache with empty data. The shared
+        // PlaylistViewModel is also used by PlaylistsView — its .task
+        // reloads with showLoading:true, which briefly sets playlists=[]
+        // and fires this handler. Allowing the clear would wipe the sidebar.
+        if !newSmart.isEmpty || cachedSmartPlaylists.isEmpty {
+            if newSmart.map(\.id) != cachedSmartPlaylists.map(\.id) {
+                cachedSmartPlaylists = newSmart
+            }
+        }
+        if !newRegular.isEmpty || cachedRegularPlaylists.isEmpty {
+            if newRegular.map(\.id) != cachedRegularPlaylists.map(\.id) {
+                cachedRegularPlaylists = newRegular
+            }
+        }
+    }
+
+    /// Build sidebar playlist items from the VM's current playlists.
+    /// Called from rebuildCachedSidebarPlaylists to update @State caches.
+    private func buildSidebarPlaylistItems() -> [SidebarPlaylistItem] {
         var seenIDs = Set<String>()
         let sortedPlaylists = sortedSidebarSourcePlaylists()
 
@@ -615,18 +646,6 @@ public struct SidebarView: View {
                 isSmart: playlist.isSmart
             )
         }
-    }
-
-    private var smartSidebarPlaylists: [SidebarPlaylistItem] {
-        sidebarPlaylists.filter(\.isSmart)
-    }
-
-    private var regularSidebarPlaylists: [SidebarPlaylistItem] {
-        sidebarPlaylists.filter { !$0.isSmart }
-    }
-
-    private var sidebarPlaylistAnimationKey: [String] {
-        sidebarPlaylists.map(\.id)
     }
 
     private func sortedSidebarSourcePlaylists() -> [Playlist] {
@@ -776,9 +795,12 @@ public struct SidebarView: View {
             #endif
         }
         .task {
-            await libraryVM.refresh()
-            await pinnedVM.loadPinnedItems()
-            await playlistsVM.loadPlaylists()
+            // Load all sidebar data concurrently so playlists appear
+            // immediately rather than waiting for library refresh to finish.
+            async let libRefresh: () = libraryVM.refresh()
+            async let pinsLoad: () = pinnedVM.loadPinnedItems()
+            async let playlistsLoad: () = playlistsVM.loadPlaylists()
+            _ = await (libRefresh, pinsLoad, playlistsLoad)
         }
         // Keep NavigationCoordinator.selectedTab in sync with sidebar selection
         // so navigate(to:) pushes onto the correct section's NavigationStack
@@ -805,73 +827,98 @@ public struct SidebarView: View {
             .padding(.top, 8)
             .padding(.bottom, 4)
 
-            List {
-                Section(header: Text("Library").textCase(nil)) {
-                    sidebarLibrarySelectionButton("Home", systemImage: "house", tab: .home)
-                    sidebarLibrarySelectionButton("Songs", systemImage: "music.note", tab: .songs)
-                    sidebarLibrarySelectionButton("Artists", systemImage: "music.mic", tab: .artists)
-                    sidebarLibrarySelectionButton("Albums", systemImage: "square.stack", tab: .albums)
-                    sidebarLibrarySelectionButton("Genres", systemImage: "guitars", tab: .genres)
-                    sidebarActionListButton("Downloads", systemImage: "arrow.down.circle") {
-                        navigationCoordinator.openDownloads()
+            ScrollView {
+                VStack(spacing: 2) {
+                    sidebarSection(header: "Library") {
+                        sidebarLibrarySelectionButton("Home", systemImage: "house", tab: .home)
+                        sidebarLibrarySelectionButton("Songs", systemImage: "music.note", tab: .songs)
+                        sidebarLibrarySelectionButton("Artists", systemImage: "music.mic", tab: .artists)
+                        sidebarLibrarySelectionButton("Albums", systemImage: "square.stack", tab: .albums)
+                        sidebarLibrarySelectionButton("Genres", systemImage: "guitars", tab: .genres)
+                        sidebarLibrarySelectionButton("Favorites", systemImage: "heart.fill", tab: .favorites)
                     }
-                    sidebarLibrarySelectionButton("Favorites", systemImage: "heart.fill", tab: .favorites)
-                }
 
-                if !pinnedVM.resolvedPins.isEmpty {
-                    Section(header: collapsibleSidebarHeader(title: "Pins", isExpanded: $isPinsExpanded)) {
-                        if isPinsExpanded {
-                            ForEach(pinnedVM.resolvedPins) { pin in
-                                Button {
-                                    selection = .pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type)
-                                } label: {
-                                    sidebarSelectableRow(
-                                        title: pin.pinnedItem.title,
-                                        systemImage: iconForPinType(pin.pinnedItem.type),
-                                        isSelected: selection == .pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type)
-                                    )
+                    if !pinnedVM.resolvedPins.isEmpty {
+                        sidebarSection(header: "Pins", isExpanded: $isPinsExpanded) {
+                            if isPinsExpanded {
+                                ForEach(pinnedVM.resolvedPins) { pin in
+                                    Button {
+                                        selection = .pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type)
+                                    } label: {
+                                        sidebarSelectableRow(
+                                            title: pin.pinnedItem.title,
+                                            systemImage: iconForPinType(pin.pinnedItem.type),
+                                            isSelected: selection == .pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
-                            }
-                            .onMove { source, destination in
-                                pinnedVM.move(fromOffsets: source, toOffset: destination)
                             }
                         }
                     }
-                }
 
-                if !smartSidebarPlaylists.isEmpty {
-                    Section(header: collapsibleSidebarHeader(title: "Smart Playlists", isExpanded: $isSmartPlaylistsExpanded)) {
-                        if isSmartPlaylistsExpanded {
-                            ForEach(smartSidebarPlaylists) { playlist in
+                    if !cachedSmartPlaylists.isEmpty {
+                        sidebarSection(header: "Smart Playlists", isExpanded: $isSmartPlaylistsExpanded) {
+                            if isSmartPlaylistsExpanded {
+                                ForEach(cachedSmartPlaylists) { playlist in
+                                    sidebarPlaylistButton(playlist)
+                                }
+                            }
+                        }
+                    }
+
+                    sidebarSection(header: "Playlists", isExpanded: $isPlaylistsExpanded) {
+                        if isPlaylistsExpanded {
+                            sidebarLibrarySelectionButton("All Playlists", systemImage: "music.note.list", tab: .playlists)
+
+                            ForEach(cachedRegularPlaylists) { playlist in
                                 sidebarPlaylistButton(playlist)
                             }
                         }
                     }
                 }
-
-                Section(header: collapsibleSidebarHeader(title: "Playlists", isExpanded: $isPlaylistsExpanded)) {
-                    if isPlaylistsExpanded {
-                        sidebarLibrarySelectionButton("All Playlists", systemImage: "music.note.list", tab: .playlists)
-
-                        ForEach(regularSidebarPlaylists) { playlist in
-                            sidebarPlaylistButton(playlist)
-                        }
-                    }
-                }
+                .padding(.horizontal, 8)
             }
-            .listStyle(.sidebar)
-            .animation(nil, value: sidebarPlaylistAnimationKey)
+            // Sync cached sidebar playlists from VM publisher. Using @State + .onReceive
+            // instead of computed properties ensures updates survive NavigationSplitView
+            // re-layouts on macOS that can swallow computed property changes.
+            .onReceive(playlistsVM.$playlists) { _ in
+                rebuildCachedSidebarPlaylists()
+            }
+            .onReceive(playlistsVM.$playlistSortOption) { _ in
+                rebuildCachedSidebarPlaylists()
+            }
+            .onReceive(playlistsVM.$filterOptions) { _ in
+                rebuildCachedSidebarPlaylists()
+            }
 
             Divider()
 
-            Button {
-                navigationCoordinator.openSettings()
-            } label: {
-                sidebarSelectableRow(title: "Settings", systemImage: "gear")
+            // Icon-only Downloads + Settings buttons, right-aligned
+            HStack(spacing: 12) {
+                Spacer()
+
+                Button {
+                    navigationCoordinator.openDownloads()
+                } label: {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 16))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Downloads")
+
+                Button {
+                    navigationCoordinator.openSettings()
+                } label: {
+                    Image(systemName: "gear")
+                        .font(.system(size: 16))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Settings")
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
         .navigationSplitViewColumnWidth(min: 220, ideal: 260)
@@ -1117,17 +1164,47 @@ public struct SidebarView: View {
     }
 
     private func sidebarSelectableRow(title: String, systemImage: String, isSelected: Bool = false) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(.callout)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .foregroundColor(isSelected ? .white : .primary)
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.callout)
+                .frame(width: 20, alignment: .center)
+            Text(title)
+                .font(.callout)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .foregroundColor(isSelected ? .white : .primary)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(isSelected ? Color.accentColor : Color.clear)
             )
-            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    /// Section wrapper for the ScrollView-based sidebar. Replaces List Section
+    /// so we control inter-row spacing directly.
+    @ViewBuilder
+    private func sidebarSection<Content: View>(
+        header: String,
+        isExpanded: Binding<Bool>? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let isExpanded {
+                collapsibleSidebarHeader(title: header, isExpanded: isExpanded)
+                    .padding(.top, 12)
+                    .padding(.horizontal, 4)
+            } else {
+                Text(header)
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 12)
+                    .padding(.horizontal, 4)
+            }
+            content()
+        }
     }
 
     @ViewBuilder

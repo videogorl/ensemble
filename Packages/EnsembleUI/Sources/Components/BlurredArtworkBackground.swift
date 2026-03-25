@@ -56,6 +56,12 @@ public struct BlurredArtworkBackground: View {
                 // to avoid QuartzCore "Failed to create WxH image slot" errors.
                 if let image = image, geometry.size.width > 0, geometry.size.height > 0 {
                     #if os(macOS)
+                    // Opaque fill behind the blur — macOS .blur() doesn't support
+                    // the opaque: parameter, so edges become semi-transparent.
+                    // This prevents the window background from showing through.
+                    overlayColor
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+
                     Image(nsImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
