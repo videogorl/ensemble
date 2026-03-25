@@ -970,14 +970,16 @@ public struct SidebarView: View {
                 playlistDetailNavigationStack(playlistID: id, sourceKey: sourceKey)
             case .pin(let id, let type):
                 // Navigate directly to the pinned item's detail view
-                NavigationStack {
-                    switch type {
-                    case .album:
-                        AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
-                    case .artist:
-                        ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
-                    case .playlist:
-                        PlaylistDetailLoader(playlistId: id, playlistSourceKey: nil, nowPlayingVM: nowPlayingVM)
+                detailNavigationStack {
+                    NavigationStack {
+                        switch type {
+                        case .album:
+                            AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
+                        case .artist:
+                            ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
+                        case .playlist:
+                            PlaylistDetailLoader(playlistId: id, playlistSourceKey: nil, nowPlayingVM: nowPlayingVM)
+                        }
                     }
                 }
             }
@@ -1001,6 +1003,39 @@ public struct SidebarView: View {
     private var detailContainerView: some View {
         detailView
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private func playlistDetailNavigationStack(playlistID: String, sourceKey: String?) -> some View {
+        detailNavigationStack {
+            NavigationStack(path: sidebarPathBinding(for: .playlists)) {
+                PlaylistDetailLoader(
+                    playlistId: playlistID,
+                    playlistSourceKey: sourceKey,
+                    nowPlayingVM: nowPlayingVM
+                )
+                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                    destinationView(for: destination)
+                }
+            }
+        }
+        .id("playlist-detail-\(playlistID)-\(sourceKey ?? "none")")
+    }
+
+    /// Keep the detail column's navigation container shape consistent across sidebar sections.
+    /// Mixing typed and untyped NavigationStacks can trip SwiftUI's AnyNavigationPath
+    /// comparison logic when the selected section changes.
+    @ViewBuilder
+    private func sidebarNavigationStack(for tab: TabItem) -> some View {
+        detailNavigationStack {
+            NavigationStack(path: sidebarPathBinding(for: tab)) {
+                sidebarContentView(for: tab)
+            }
+        }
+    }
+
+    private func detailNavigationStack<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !showingNowPlaying {
                     MiniPlayer(
@@ -1024,31 +1059,6 @@ public struct SidebarView: View {
                     Color.clear.frame(height: 0)
                 }
             }
-    }
-
-    @ViewBuilder
-    private func playlistDetailNavigationStack(playlistID: String, sourceKey: String?) -> some View {
-        NavigationStack(path: sidebarPathBinding(for: .playlists)) {
-            PlaylistDetailLoader(
-                playlistId: playlistID,
-                playlistSourceKey: sourceKey,
-                nowPlayingVM: nowPlayingVM
-            )
-            .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                destinationView(for: destination)
-            }
-        }
-        .id("playlist-detail-\(playlistID)-\(sourceKey ?? "none")")
-    }
-
-    /// Keep the detail column's navigation container shape consistent across sidebar sections.
-    /// Mixing typed and untyped NavigationStacks can trip SwiftUI's AnyNavigationPath
-    /// comparison logic when the selected section changes.
-    @ViewBuilder
-    private func sidebarNavigationStack(for tab: TabItem) -> some View {
-        NavigationStack(path: sidebarPathBinding(for: tab)) {
-            sidebarContentView(for: tab)
-        }
     }
 
     private func sidebarPathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
