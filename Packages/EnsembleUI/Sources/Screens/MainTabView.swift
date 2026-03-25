@@ -539,6 +539,24 @@ struct NestedNavigationLink<DestinationView: View>: View {
 // MARK: - iPad Sidebar View
 
 @available(iOS 16.0, macOS 13.0, *)
+private struct SidebarColumnWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 260
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+@available(iOS 16.0, macOS 13.0, *)
+private struct MiniPlayerHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 64
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+@available(iOS 16.0, macOS 13.0, *)
 public struct SidebarView: View {
     /// Stable sidebar-only playlist row model so SwiftUI diffing does not depend on
     /// the broader Playlist Hashable/Equatable semantics.
@@ -568,6 +586,8 @@ public struct SidebarView: View {
 
     @State private var selection: SidebarSelection = .library(.home)
     @State private var showingNowPlaying = false
+    @State private var sidebarColumnWidth: CGFloat = 260
+    @State private var miniPlayerHeight: CGFloat = 64
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
@@ -723,31 +743,45 @@ public struct SidebarView: View {
     }
 
     public var body: some View {
-        ZStack {
-            // Main split view
-            NavigationSplitView {
-                sidebarColumn
-            } detail: {
-                detailContainerView
-            }
+        GeometryReader { proxy in
+            ZStack(alignment: .bottomLeading) {
+                // Main split view
+                NavigationSplitView {
+                    sidebarColumn
+                } detail: {
+                    detailContainerView
+                }
 
-            if usesViewportNowPlayingPresentation && showingNowPlaying {
-                NowPlayingSheetView(
-                    viewModel: nowPlayingVM,
-                    namespace: playerNamespace,
-                    animationID: artworkAnimationID,
-                    dismissAction: {
-                        withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
-                            showingNowPlaying = false
+                if !showingNowPlaying {
+                    detailColumnMiniPlayer(totalSize: proxy.size)
+                        .zIndex(2)
+                }
+
+                if usesViewportNowPlayingPresentation && showingNowPlaying {
+                    NowPlayingSheetView(
+                        viewModel: nowPlayingVM,
+                        namespace: playerNamespace,
+                        animationID: artworkAnimationID,
+                        dismissAction: {
+                            withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
+                                showingNowPlaying = false
+                            }
                         }
-                    }
-                )
-                .accentColor(deps.settingsManager.accentColor.color)
-                .ignoresSafeArea()
-                .transition(.opacity)
-                .zIndex(3)
+                    )
+                    .accentColor(deps.settingsManager.accentColor.color)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .zIndex(3)
+                }
             }
-
+        }
+        .onPreferenceChange(SidebarColumnWidthPreferenceKey.self) { width in
+            guard abs(width - sidebarColumnWidth) > 1 else { return }
+            sidebarColumnWidth = width
+        }
+        .onPreferenceChange(MiniPlayerHeightPreferenceKey.self) { height in
+            guard abs(height - miniPlayerHeight) > 1 else { return }
+            miniPlayerHeight = height
         }
         .if(usesViewportNowPlayingPresentation && showingNowPlaying) { view in
             applyViewportNowPlayingChromeVisibility(to: view)
@@ -901,6 +935,14 @@ public struct SidebarView: View {
             .padding(.vertical, 8)
         }
         .navigationSplitViewColumnWidth(min: 220, ideal: 260)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: SidebarColumnWidthPreferenceKey.self,
+                    value: proxy.size.width
+                )
+            }
+        )
     }
 
     @ViewBuilder
@@ -999,33 +1041,8 @@ public struct SidebarView: View {
     }
 
     private var detailContainerView: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .bottom) {
-                detailView
-                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
-
-                if !showingNowPlaying {
-                    MiniPlayer(
-                        viewModel: nowPlayingVM,
-                        isFloating: true,
-                        namespace: playerNamespace,
-                        animationID: artworkAnimationID
-                    ) {
-                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                            showingNowPlaying = true
-                        }
-                    }
-                    .frame(maxWidth: 540)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 20)
-                    .accentColor(deps.settingsManager.accentColor.color)
-                    .transition(.identity)
-                    .zIndex(2)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
+        detailView
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
@@ -1066,6 +1083,40 @@ public struct SidebarView: View {
         case .downloads: return $navigationCoordinator.downloadsPath
         case .settings: return $navigationCoordinator.settingsPath
         }
+    }
+
+    private func detailColumnMiniPlayer(totalSize: CGSize) -> some View {
+        let horizontalPadding: CGFloat = 24
+        let bottomPadding: CGFloat = 20
+        let clampedSidebarWidth = min(max(sidebarColumnWidth, 0), totalSize.width)
+        let detailWidth = max(totalSize.width - clampedSidebarWidth, 0)
+        let availableWidth = max(detailWidth - (horizontalPadding * 2), 0)
+        let miniPlayerWidth = min(540, availableWidth)
+        let xPosition = clampedSidebarWidth + (detailWidth / 2)
+        let yPosition = max(miniPlayerHeight / 2, totalSize.height - bottomPadding - (miniPlayerHeight / 2))
+
+        return MiniPlayer(
+            viewModel: nowPlayingVM,
+            isFloating: true,
+            namespace: playerNamespace,
+            animationID: artworkAnimationID
+        ) {
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                showingNowPlaying = true
+            }
+        }
+        .frame(width: miniPlayerWidth)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: MiniPlayerHeightPreferenceKey.self,
+                    value: proxy.size.height
+                )
+            }
+        )
+        .accentColor(deps.settingsManager.accentColor.color)
+        .position(x: xPosition, y: yPosition)
+        .transition(.identity)
     }
     
     /// Sidebar section content with navigation destinations registered for path-based push
