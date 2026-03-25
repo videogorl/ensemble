@@ -190,8 +190,9 @@ struct NowPlayingViewportRoot: View {
 }
 
 #if os(macOS)
-/// Hides the split-view sidebar toggle on the live window toolbar while viewport Now Playing is active.
-/// This avoids mutating titlebar visibility or replacing SwiftUI's managed toolbar instance.
+/// Hides live host toolbar items on the existing macOS window toolbar while viewport
+/// Now Playing is active. This avoids mutating titlebar visibility or replacing
+/// SwiftUI's managed toolbar instance.
 private struct SidebarToggleToolbarSuppressionBridge: NSViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -226,10 +227,8 @@ private struct SidebarToggleToolbarSuppressionBridge: NSViewRepresentable {
 
             guard #available(macOS 15.0, *), let toolbar = window.toolbar else { return }
 
-            let toggleSidebarSelector = #selector(NSSplitViewController.toggleSidebar(_:))
-
             for item in toolbar.items {
-                guard shouldHideSidebarToggleItem(item, toggleSidebarSelector: toggleSidebarSelector) else {
+                guard shouldHideToolbarItem(item) else {
                     continue
                 }
 
@@ -243,30 +242,15 @@ private struct SidebarToggleToolbarSuppressionBridge: NSViewRepresentable {
             }
         }
 
-        private func shouldHideSidebarToggleItem(
-            _ item: NSToolbarItem,
-            toggleSidebarSelector: Selector
-        ) -> Bool {
-            if item.itemIdentifier == .toggleSidebar {
+        private func shouldHideToolbarItem(_ item: NSToolbarItem) -> Bool {
+            let identifier = item.itemIdentifier
+
+            switch identifier {
+            case .flexibleSpace, .space:
+                return false
+            default:
                 return true
             }
-
-            // SwiftUI/AppKit can emit different sidebar-related identifiers depending on the
-            // current split-view configuration, so match the stable "sidebar" substring too.
-            let identifier = item.itemIdentifier.rawValue.lowercased()
-            if identifier.contains("sidebar") {
-                return true
-            }
-
-            if item.action == toggleSidebarSelector {
-                return true
-            }
-
-            if let control = item.view as? NSControl, control.action == toggleSidebarSelector {
-                return true
-            }
-
-            return false
         }
 
         func restore() {
