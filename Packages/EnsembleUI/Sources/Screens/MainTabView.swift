@@ -1019,34 +1019,29 @@ public struct SidebarView: View {
 
         return VStack(spacing: 0) {
             Spacer(minLength: 0)
-            HStack(spacing: 0) {
-                Color.clear
-                    .frame(width: clampedSidebarWidth)
-
-                HStack {
-                    Spacer(minLength: 0)
-                    MiniPlayer(
-                        viewModel: nowPlayingVM,
-                        isFloating: true,
-                        namespace: playerNamespace,
-                        animationID: artworkAnimationID
-                    ) {
-                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                            if usesViewportNowPlayingPresentation {
-                                presentViewportNowPlaying(nowPlayingVM)
-                            } else {
-                                showingSheetNowPlaying = true
-                            }
+            HStack {
+                Spacer(minLength: 0)
+                MiniPlayer(
+                    viewModel: nowPlayingVM,
+                    isFloating: true,
+                    namespace: playerNamespace,
+                    animationID: artworkAnimationID
+                ) {
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                        if usesViewportNowPlayingPresentation {
+                            presentViewportNowPlaying(nowPlayingVM)
+                        } else {
+                            showingSheetNowPlaying = true
                         }
                     }
-                    .frame(width: miniPlayerWidth)
-                    .accentColor(deps.settingsManager.accentColor.color)
-                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, horizontalPadding)
-                .frame(width: detailWidth, alignment: .center)
+                .frame(width: miniPlayerWidth)
+                .accentColor(deps.settingsManager.accentColor.color)
+                Spacer(minLength: 0)
             }
-            .frame(width: totalSize.width, alignment: .leading)
+            .padding(.horizontal, horizontalPadding)
+            .frame(width: detailWidth, alignment: .center)
+            .padding(.leading, clampedSidebarWidth)
             .padding(.bottom, bottomPadding)
         }
         .frame(width: totalSize.width, height: totalSize.height, alignment: .bottomLeading)
