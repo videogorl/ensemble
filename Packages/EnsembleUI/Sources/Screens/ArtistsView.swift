@@ -6,6 +6,7 @@ public struct ArtistsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
+    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedArtistSections: [ArtistSection] = []
 
@@ -32,98 +33,100 @@ public struct ArtistsView: View {
         .refreshable {
             await libraryVM.refreshFromServer()
         }
-        .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !libraryVM.artists.isEmpty {
-                    HStack(spacing: 16) {
-                        Button {
-                            showFilterSheet = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
-                                
-                                // Badge indicator when filters are active
-                                if libraryVM.artistsFilterOptions.hasActiveFilters {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
+        .if(!isViewportNowPlayingPresented) { content in
+            content.toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if !libraryVM.artists.isEmpty {
+                        HStack(spacing: 16) {
+                            Button {
+                                showFilterSheet = true
+                            } label: {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: "line.3.horizontal.decrease.circle")
+
+                                    // Badge indicator when filters are active
+                                    if libraryVM.artistsFilterOptions.hasActiveFilters {
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 8, height: 8)
+                                            .offset(x: 2, y: -2)
+                                    }
                                 }
                             }
-                        }
 
-                        Menu {
-                            ForEach(ArtistSortOption.allCases, id: \.self) { option in
-                                Button {
-                                    if libraryVM.artistSortOption == option {
-                                        libraryVM.artistsFilterOptions.sortDirection =
-                                            libraryVM.artistsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                                    } else {
-                                        libraryVM.artistSortOption = option
-                                        libraryVM.artistsFilterOptions.sortDirection = option.defaultDirection
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(option.rawValue)
+                            Menu {
+                                ForEach(ArtistSortOption.allCases, id: \.self) { option in
+                                    Button {
                                         if libraryVM.artistSortOption == option {
-                                            Image(systemName: libraryVM.artistsFilterOptions.sortDirection == .ascending
-                                                  ? "chevron.up" : "chevron.down")
+                                            libraryVM.artistsFilterOptions.sortDirection =
+                                                libraryVM.artistsFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                                        } else {
+                                            libraryVM.artistSortOption = option
+                                            libraryVM.artistsFilterOptions.sortDirection = option.defaultDirection
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if libraryVM.artistSortOption == option {
+                                                Image(systemName: libraryVM.artistsFilterOptions.sortDirection == .ascending
+                                                      ? "chevron.up" : "chevron.down")
+                                            }
                                         }
                                     }
                                 }
+                            } label: {
+                                Label("Sort By", systemImage: "arrow.up.arrow.down")
                             }
-                        } label: {
-                            Label("Sort By", systemImage: "arrow.up.arrow.down")
                         }
                     }
                 }
-            }
-            #else
-            ToolbarItem(placement: .automatic) {
-                if !libraryVM.artists.isEmpty {
-                    HStack(spacing: 16) {
-                        Button {
-                            showFilterSheet = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
-                                if libraryVM.artistsFilterOptions.hasActiveFilters {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
+                #else
+                ToolbarItem(placement: .automatic) {
+                    if !libraryVM.artists.isEmpty {
+                        HStack(spacing: 16) {
+                            Button {
+                                showFilterSheet = true
+                            } label: {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: "line.3.horizontal.decrease.circle")
+                                    if libraryVM.artistsFilterOptions.hasActiveFilters {
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 8, height: 8)
+                                            .offset(x: 2, y: -2)
+                                    }
                                 }
                             }
-                        }
 
-                        Menu {
-                            ForEach(ArtistSortOption.allCases, id: \.self) { option in
-                                Button {
-                                    if libraryVM.artistSortOption == option {
-                                        libraryVM.artistsFilterOptions.sortDirection =
-                                            libraryVM.artistsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                                    } else {
-                                        libraryVM.artistSortOption = option
-                                        libraryVM.artistsFilterOptions.sortDirection = option.defaultDirection
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(option.rawValue)
+                            Menu {
+                                ForEach(ArtistSortOption.allCases, id: \.self) { option in
+                                    Button {
                                         if libraryVM.artistSortOption == option {
-                                            Image(systemName: libraryVM.artistsFilterOptions.sortDirection == .ascending
-                                                  ? "chevron.up" : "chevron.down")
+                                            libraryVM.artistsFilterOptions.sortDirection =
+                                                libraryVM.artistsFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                                        } else {
+                                            libraryVM.artistSortOption = option
+                                            libraryVM.artistsFilterOptions.sortDirection = option.defaultDirection
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if libraryVM.artistSortOption == option {
+                                                Image(systemName: libraryVM.artistsFilterOptions.sortDirection == .ascending
+                                                      ? "chevron.up" : "chevron.down")
+                                            }
                                         }
                                     }
                                 }
+                            } label: {
+                                Label("Sort By", systemImage: "arrow.up.arrow.down")
                             }
-                        } label: {
-                            Label("Sort By", systemImage: "arrow.up.arrow.down")
                         }
                     }
                 }
+                #endif
             }
-            #endif
         }
         .onReceive(libraryVM.$filteredArtists) { artists in
             // Compute sections off main thread to avoid blocking UI during search

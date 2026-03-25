@@ -4,6 +4,35 @@ import SwiftUI
 import UIKit
 #endif
 
+private struct ViewportNowPlayingPresentedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+private struct PresentViewportNowPlayingKey: EnvironmentKey {
+    static let defaultValue: (NowPlayingViewModel) -> Void = { _ in }
+}
+
+private struct DismissViewportNowPlayingKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
+public extension EnvironmentValues {
+    var isViewportNowPlayingPresented: Bool {
+        get { self[ViewportNowPlayingPresentedKey.self] }
+        set { self[ViewportNowPlayingPresentedKey.self] = newValue }
+    }
+
+    var presentViewportNowPlaying: (NowPlayingViewModel) -> Void {
+        get { self[PresentViewportNowPlayingKey.self] }
+        set { self[PresentViewportNowPlayingKey.self] = newValue }
+    }
+
+    var dismissViewportNowPlaying: () -> Void {
+        get { self[DismissViewportNowPlayingKey.self] }
+        set { self[DismissViewportNowPlayingKey.self] = newValue }
+    }
+}
+
 /// Applies aurora background transparency in dark mode only.
 /// In light mode the system grouped background is preserved so list row
 /// backgrounds remain visible against the near-white aurora backdrop.

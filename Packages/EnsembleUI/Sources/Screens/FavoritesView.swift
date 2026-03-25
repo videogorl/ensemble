@@ -31,6 +31,7 @@ public struct FavoritesView: View {
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     @Environment(\.dependencies) private var deps
+    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
 
     private var backgroundColor: Color {
         #if os(macOS)
@@ -55,61 +56,59 @@ public struct FavoritesView: View {
         }
         .navigationTitle("Favorites")
         .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter favorites")
-        .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !viewModel.tracks.isEmpty {
-                    HStack(spacing: 16) {
-                        // Sort menu
-                        sortMenu
+        .if(!isViewportNowPlayingPresented) { content in
+            content.toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if !viewModel.tracks.isEmpty {
+                        HStack(spacing: 16) {
+                            sortMenu
 
-                        // Filter button
-                        Button {
-                            showFilterSheet = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
+                            Button {
+                                showFilterSheet = true
+                            } label: {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: "line.3.horizontal.decrease.circle")
 
-                                // Badge indicator when filters are active
-                                if viewModel.filterOptions.hasActiveFilters {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
+                                    if viewModel.filterOptions.hasActiveFilters {
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 8, height: 8)
+                                            .offset(x: 2, y: -2)
+                                    }
                                 }
                             }
-                        }
 
-                        // More menu (download toggle)
-                        moreMenu
+                            moreMenu
+                        }
                     }
                 }
-            }
-            #else
-            ToolbarItem(placement: .automatic) {
-                if !viewModel.tracks.isEmpty {
-                    HStack(spacing: 16) {
-                        sortMenu
+                #else
+                ToolbarItem(placement: .automatic) {
+                    if !viewModel.tracks.isEmpty {
+                        HStack(spacing: 16) {
+                            sortMenu
 
-                        Button {
-                            showFilterSheet = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
-                                if viewModel.filterOptions.hasActiveFilters {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
+                            Button {
+                                showFilterSheet = true
+                            } label: {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: "line.3.horizontal.decrease.circle")
+                                    if viewModel.filterOptions.hasActiveFilters {
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 8, height: 8)
+                                            .offset(x: 2, y: -2)
+                                    }
                                 }
                             }
-                        }
 
-                        moreMenu
+                            moreMenu
+                        }
                     }
                 }
+                #endif
             }
-            #endif
         }
         .onReceive(nowPlayingVM.$currentTrack) { track in
             let id = track?.id

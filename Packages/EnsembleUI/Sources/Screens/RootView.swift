@@ -5,11 +5,31 @@ import SwiftUI
 @available(iOS 15.0, macOS 12.0, watchOS 8.0, *)
 public struct RootView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @State private var isViewportNowPlayingPresented = false
+    @State private var activeViewportNowPlayingViewModel: NowPlayingViewModel?
 
     public init() {}
 
     public var body: some View {
-        mainContentView
+        ZStack {
+            mainContentView
+
+            if supportsViewportNowPlayingPresentation,
+               isViewportNowPlayingPresented,
+               let activeViewportNowPlayingViewModel {
+                NowPlayingViewportRoot(
+                    viewModel: activeViewportNowPlayingViewModel,
+                    dismissAction: dismissViewportNowPlaying
+                )
+                .accentColor(settingsManager.accentColor.color)
+                .ignoresSafeArea()
+                .transition(.opacity)
+                .zIndex(10)
+            }
+        }
+        .environment(\.isViewportNowPlayingPresented, supportsViewportNowPlayingPresentation && isViewportNowPlayingPresented)
+        .environment(\.presentViewportNowPlaying, presentViewportNowPlaying(with:))
+        .environment(\.dismissViewportNowPlaying, dismissViewportNowPlaying)
         .accentColor(settingsManager.accentColor.color)
         .onAppear {
             updateAppearance()
@@ -97,5 +117,31 @@ public struct RootView: View {
         #else
         MainTabView()
         #endif
+    }
+
+    private var supportsViewportNowPlayingPresentation: Bool {
+        #if os(macOS)
+        return true
+        #elseif os(iOS)
+        if #available(iOS 16.0, *) {
+            return UIDevice.current.userInterfaceIdiom == .pad
+        }
+        return false
+        #else
+        return false
+        #endif
+    }
+
+    private func presentViewportNowPlaying(with viewModel: NowPlayingViewModel) {
+        activeViewportNowPlayingViewModel = viewModel
+        withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
+            isViewportNowPlayingPresented = true
+        }
+    }
+
+    private func dismissViewportNowPlaying() {
+        withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
+            isViewportNowPlayingPresented = false
+        }
     }
 }

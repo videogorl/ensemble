@@ -55,6 +55,8 @@ public struct MainTabView: View {
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dependencies) private var deps
+    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @Environment(\.presentViewportNowPlaying) private var presentViewportNowPlaying
     
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
@@ -63,7 +65,7 @@ public struct MainTabView: View {
     @StateObject private var keyboard = KeyboardObserver()
     #endif
 
-    @State private var showingNowPlaying = false
+    @State private var showingSheetNowPlaying = false
     @State private var didSetInitialTab = false
     @State private var isImmersiveMode = false
 
@@ -94,6 +96,10 @@ public struct MainTabView: View {
         #else
         return false
         #endif
+    }
+
+    private var isShowingNowPlaying: Bool {
+        usesViewportNowPlayingPresentation ? isViewportNowPlayingPresented : showingSheetNowPlaying
     }
 
     public var body: some View {
@@ -135,7 +141,7 @@ public struct MainTabView: View {
                 // The 70pt covers the mini player height + spacing above the tab bar.
                 .miniPlayerContainerInset(
                     70,
-                    isVisible: !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode
+                    isVisible: !isShowingNowPlaying && !isKeyboardVisible && !isImmersiveMode
                 )
                 .zIndex(0)
 
@@ -145,7 +151,18 @@ public struct MainTabView: View {
                 // can efficiently skip diffing the content.
                 MainTabNowPlayingOverlay(
                     nowPlayingVM: nowPlayingVM,
-                    showingNowPlaying: $showingNowPlaying,
+                    showingNowPlaying: Binding(
+                        get: { isShowingNowPlaying },
+                        set: { newValue in
+                            if usesViewportNowPlayingPresentation {
+                                if newValue {
+                                    presentViewportNowPlaying(nowPlayingVM)
+                                }
+                            } else {
+                                showingSheetNowPlaying = newValue
+                            }
+                        }
+                    ),
                     isImmersiveMode: isImmersiveMode,
                     isKeyboardVisible: isKeyboardVisible,
                     namespace: playerNamespace,
@@ -168,7 +185,7 @@ public struct MainTabView: View {
                 }
                 await libraryVM.refresh()
             }
-            .onChange(of: showingNowPlaying) { isShowing in
+            .onChange(of: isShowingNowPlaying) { isShowing in
                 // Execute pending navigation after the sheet fully dismisses.
                 // The 0.35s delay lets the NavigationStack settle after the
                 // sheet animation completes so path mutations are not dropped.
@@ -180,30 +197,14 @@ public struct MainTabView: View {
                     }
                 }
             }
-            .overlay {
-                if usesViewportNowPlayingPresentation && showingNowPlaying {
-                    NowPlayingViewportRoot(
-                        viewModel: nowPlayingVM,
-                        dismissAction: {
-                            withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
-                                showingNowPlaying = false
-                            }
-                        }
-                    )
-                    .accentColor(settingsManager.accentColor.color)
-                    .ignoresSafeArea()
-                    .transition(.opacity)
-                    .zIndex(3)
-                }
-            }
             .if(!usesViewportNowPlayingPresentation) { view in
-                view.sheet(isPresented: $showingNowPlaying) {
+                view.sheet(isPresented: $showingSheetNowPlaying) {
                     NowPlayingSheetView(
                         viewModel: nowPlayingVM,
                         namespace: playerNamespace,
                         animationID: artworkAnimationID,
                         dismissAction: {
-                            showingNowPlaying = false
+                            showingSheetNowPlaying = false
                         }
                     )
                     .accentColor(settingsManager.accentColor.color)
@@ -237,9 +238,6 @@ public struct MainTabView: View {
                         }
                     }
             )
-            .if(usesViewportNowPlayingPresentation && showingNowPlaying) { view in
-                applyViewportNowPlayingChromeVisibility(to: view)
-            }
         }
     }
 
@@ -262,7 +260,7 @@ public struct MainTabView: View {
         if #available(iOS 16.0, *) {
             content.onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
                 // Avoid iOS 15/16 transition re-entrancy while Now Playing is presenting.
-                guard !showingNowPlaying else { return }
+                guard !isShowingNowPlaying else { return }
 
                 if isImmersiveMode != isHidden {
                     isImmersiveMode = isHidden
@@ -282,33 +280,6 @@ public struct MainTabView: View {
         #endif
     }
 
-    @ViewBuilder
-    private func applyViewportNowPlayingChromeVisibility<Content: View>(to content: Content) -> some View {
-        #if os(macOS)
-        if #available(macOS 15.0, *) {
-            content
-                .toolbar(.hidden, for: .automatic)
-                .toolbar(removing: .title)
-                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-        } else if #available(macOS 14.0, *) {
-            content
-                .toolbar(.hidden, for: .automatic)
-        } else {
-            content
-        }
-        #elseif os(iOS)
-        if #available(iOS 16.0, *) {
-            content
-                .toolbar(.hidden, for: .navigationBar)
-                .toolbar(.hidden, for: .tabBar)
-        } else {
-            content
-        }
-        #else
-        content
-        #endif
-    }
-    
     /// Whether to use .sidebarAdaptable TabView style (iPad only on iOS 18+).
     /// On iPhone, .sidebarAdaptable has a known bug (FB11710323) where
     /// NavigationStack doesn't observe programmatic state changes until
@@ -383,7 +354,7 @@ public struct MainTabView: View {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
                     accentColor: settingsManager.accentColor.color,
-                    isPaused: showingNowPlaying,
+                    isPaused: isShowingNowPlaying,
                     isLowPowerMode: powerStateMonitor.isLowPowerMode
                 )
                 .ignoresSafeArea(.all)
@@ -581,6 +552,8 @@ public struct SidebarView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dependencies) private var deps
+    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @Environment(\.presentViewportNowPlaying) private var presentViewportNowPlaying
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
     #endif
@@ -589,7 +562,7 @@ public struct SidebarView: View {
     private let artworkAnimationID = "nowPlayingArtwork"
 
     @State private var selection: SidebarSelection = .library(.home)
-    @State private var showingNowPlaying = false
+    @State private var showingSheetNowPlaying = false
     @State private var sidebarColumnWidth: CGFloat = 260
     @State private var miniPlayerHeight: CGFloat = 64
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
@@ -612,6 +585,10 @@ public struct SidebarView: View {
         #else
         return false
         #endif
+    }
+
+    private var isShowingNowPlaying: Bool {
+        usesViewportNowPlayingPresentation ? isViewportNowPlayingPresented : showingSheetNowPlaying
     }
 
     private var sidebarPlaylists: [SidebarPlaylistItem] {
@@ -750,24 +727,9 @@ public struct SidebarView: View {
                     detailContainerView
                 }
 
-                if !showingNowPlaying {
+                if !isShowingNowPlaying {
                     detailColumnMiniPlayer(totalSize: proxy.size)
                         .zIndex(2)
-                }
-
-                if usesViewportNowPlayingPresentation && showingNowPlaying {
-                    NowPlayingViewportRoot(
-                        viewModel: nowPlayingVM,
-                        dismissAction: {
-                            withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
-                                showingNowPlaying = false
-                            }
-                        }
-                    )
-                    .accentColor(deps.settingsManager.accentColor.color)
-                    .ignoresSafeArea()
-                    .transition(.opacity)
-                    .zIndex(3)
                 }
             }
         }
@@ -779,9 +741,6 @@ public struct SidebarView: View {
             guard abs(height - miniPlayerHeight) > 1 else { return }
             miniPlayerHeight = height
         }
-        .if(usesViewportNowPlayingPresentation && showingNowPlaying) { view in
-            applyViewportNowPlayingChromeVisibility(to: view)
-        }
         #if os(iOS)
         .sheet(item: $navigationCoordinator.activeAuxiliaryPresentation, onDismiss: {
             navigationCoordinator.dismissAuxiliaryPresentation()
@@ -790,7 +749,7 @@ public struct SidebarView: View {
                 .accentColor(settingsManager.accentColor.color)
         }
         #endif
-        .onChange(of: showingNowPlaying) { isShowing in
+        .onChange(of: isShowingNowPlaying) { isShowing in
             // Execute pending navigation after sheet fully dismisses.
             if !isShowing, let pending = navigationCoordinator.pendingNavigation {
                 navigationCoordinator.pendingNavigation = nil
@@ -811,13 +770,13 @@ public struct SidebarView: View {
         }
         #endif
         .if(!usesViewportNowPlayingPresentation) { view in
-            view.sheet(isPresented: $showingNowPlaying) {
+            view.sheet(isPresented: $showingSheetNowPlaying) {
                 NowPlayingSheetView(
                     viewModel: nowPlayingVM,
                     namespace: playerNamespace,
                     animationID: artworkAnimationID,
                     dismissAction: {
-                        showingNowPlaying = false
+                        showingSheetNowPlaying = false
                     }
                 )
                 .accentColor(deps.settingsManager.accentColor.color)
@@ -941,31 +900,6 @@ public struct SidebarView: View {
         )
     }
 
-    @ViewBuilder
-    private func applyViewportNowPlayingChromeVisibility<Content: View>(to content: Content) -> some View {
-        #if os(macOS)
-        if #available(macOS 15.0, *) {
-            content
-                .toolbar(.hidden, for: .automatic)
-                .toolbar(removing: .title)
-                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-        } else if #available(macOS 14.0, *) {
-            content
-                .toolbar(.hidden, for: .automatic)
-        } else {
-            content
-        }
-        #elseif os(iOS)
-        if #available(iOS 16.0, *) {
-            content.toolbar(.hidden, for: .navigationBar)
-        } else {
-            content
-        }
-        #else
-        content
-        #endif
-    }
-
     /// SF Symbol for each pinned item type
     private func iconForPinType(_ type: PinnedItemType) -> String {
         switch type {
@@ -1036,7 +970,7 @@ public struct SidebarView: View {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
                     accentColor: settingsManager.accentColor.color,
-                    isPaused: showingNowPlaying,
+                    isPaused: isShowingNowPlaying,
                     isLowPowerMode: powerStateMonitor.isLowPowerMode
                 )
                 .ignoresSafeArea(.all)
@@ -1108,7 +1042,11 @@ public struct SidebarView: View {
             animationID: artworkAnimationID
         ) {
             withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                showingNowPlaying = true
+                if usesViewportNowPlayingPresentation {
+                    presentViewportNowPlaying(nowPlayingVM)
+                } else {
+                    showingSheetNowPlaying = true
+                }
             }
         }
         .frame(width: miniPlayerWidth)

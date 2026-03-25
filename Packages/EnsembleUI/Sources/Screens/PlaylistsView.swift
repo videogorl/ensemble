@@ -33,6 +33,7 @@ public struct PlaylistsView: View {
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
+    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
 
     private var supportsStageFlow: Bool {
         #if os(iOS)
@@ -218,77 +219,79 @@ public struct PlaylistsView: View {
             .refreshable {
                 await viewModel.refreshFromServer()
             }
-            .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !isStageFlowActive {
-                    HStack(spacing: 16) {
-                        // Extracted to scope syncCoordinator observation to just the button
-                        PlaylistsNewButton {
-                            showCreatePlaylistPrompt = true
-                        }
+            .if(!isViewportNowPlayingPresented) { content in
+                content.toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if !isStageFlowActive {
+                        HStack(spacing: 16) {
+                            // Extracted to scope syncCoordinator observation to just the button
+                            PlaylistsNewButton {
+                                showCreatePlaylistPrompt = true
+                            }
 
-                        Menu {
-                            ForEach(PlaylistSortOption.allCases, id: \.self) { option in
-                                Button {
-                                    if viewModel.playlistSortOption == option {
-                                        viewModel.filterOptions.sortDirection =
-                                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
-                                    } else {
-                                        viewModel.playlistSortOption = option
-                                        viewModel.filterOptions.sortDirection = option.defaultDirection
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(option.rawValue)
+                            Menu {
+                                ForEach(PlaylistSortOption.allCases, id: \.self) { option in
+                                    Button {
                                         if viewModel.playlistSortOption == option {
-                                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
-                                                  ? "chevron.up" : "chevron.down")
+                                            viewModel.filterOptions.sortDirection =
+                                                viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
+                                        } else {
+                                            viewModel.playlistSortOption = option
+                                            viewModel.filterOptions.sortDirection = option.defaultDirection
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if viewModel.playlistSortOption == option {
+                                                Image(systemName: viewModel.filterOptions.sortDirection == .ascending
+                                                      ? "chevron.up" : "chevron.down")
+                                            }
                                         }
                                     }
                                 }
+                            } label: {
+                                Label("Sort By", systemImage: "arrow.up.arrow.down")
                             }
-                        } label: {
-                            Label("Sort By", systemImage: "arrow.up.arrow.down")
                         }
                     }
                 }
-            }
-            #else
-            ToolbarItem(placement: .automatic) {
-                if !isStageFlowActive {
-                    HStack(spacing: 16) {
-                        PlaylistsNewButton {
-                            showCreatePlaylistPrompt = true
-                        }
+                #else
+                ToolbarItem(placement: .automatic) {
+                    if !isStageFlowActive {
+                        HStack(spacing: 16) {
+                            PlaylistsNewButton {
+                                showCreatePlaylistPrompt = true
+                            }
 
-                        Menu {
-                            ForEach(PlaylistSortOption.allCases, id: \.self) { option in
-                                Button {
-                                    if viewModel.playlistSortOption == option {
-                                        viewModel.filterOptions.sortDirection =
-                                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
-                                    } else {
-                                        viewModel.playlistSortOption = option
-                                        viewModel.filterOptions.sortDirection = option.defaultDirection
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(option.rawValue)
+                            Menu {
+                                ForEach(PlaylistSortOption.allCases, id: \.self) { option in
+                                    Button {
                                         if viewModel.playlistSortOption == option {
-                                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
-                                                  ? "chevron.up" : "chevron.down")
+                                            viewModel.filterOptions.sortDirection =
+                                                viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
+                                        } else {
+                                            viewModel.playlistSortOption = option
+                                            viewModel.filterOptions.sortDirection = option.defaultDirection
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if viewModel.playlistSortOption == option {
+                                                Image(systemName: viewModel.filterOptions.sortDirection == .ascending
+                                                      ? "chevron.up" : "chevron.down")
+                                            }
                                         }
                                     }
                                 }
+                            } label: {
+                                Label("Sort By", systemImage: "arrow.up.arrow.down")
                             }
-                        } label: {
-                            Label("Sort By", systemImage: "arrow.up.arrow.down")
                         }
                     }
                 }
-            }
-            #endif
+                #endif
+                }
             }
     }
 

@@ -10,6 +10,7 @@ public struct HomeView: View {
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var playlistPickerTracks: [Track]?
     @Environment(\.dependencies) private var deps
+    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
@@ -27,14 +28,16 @@ public struct HomeView: View {
             }
         }
         .navigationTitle("Feed")
-        .toolbar {
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                Button("Edit") {
-                    viewModel.enterEditMode()
-                    viewModel.isEditingOrder = true
+        .if(!isViewportNowPlayingPresented) { content in
+            content.toolbar {
+                ToolbarItem(placement: .primaryActionIfAvailable) {
+                    Button("Edit") {
+                        viewModel.enterEditMode()
+                        viewModel.isEditingOrder = true
+                    }
+                    .disabled(!viewModel.hasEnabledLibraries || viewModel.hubs.isEmpty)
+                    .opacity(viewModel.hasEnabledLibraries && !viewModel.hubs.isEmpty ? 1 : 0)
                 }
-                .disabled(!viewModel.hasEnabledLibraries || viewModel.hubs.isEmpty)
-                .opacity(viewModel.hasEnabledLibraries && !viewModel.hubs.isEmpty ? 1 : 0)
             }
         }
         .sheet(isPresented: $viewModel.isEditingOrder) {

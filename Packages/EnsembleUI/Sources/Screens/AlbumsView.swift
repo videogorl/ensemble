@@ -5,6 +5,7 @@ public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
+    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
@@ -70,7 +71,8 @@ public struct AlbumsView: View {
             .refreshable {
                 await libraryVM.refreshFromServer()
             }
-            .toolbar {
+        .if(!isViewportNowPlayingPresented) { content in
+            content.toolbar {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if !libraryVM.albums.isEmpty && !isStageFlowActive {
@@ -80,7 +82,7 @@ public struct AlbumsView: View {
                             } label: {
                                 ZStack(alignment: .topTrailing) {
                                     Image(systemName: "line.3.horizontal.decrease.circle")
-                                    
+
                                     // Badge indicator when filters are active
                                     if libraryVM.albumsFilterOptions.hasActiveFilters {
                                         Circle()
@@ -163,6 +165,7 @@ public struct AlbumsView: View {
                 }
                 #endif
             }
+        }
             .onReceive(libraryVM.$filteredAlbums) { albums in
                 // Compute sections off main thread to avoid blocking UI during search
                 let sortOption = libraryVM.albumSortOption

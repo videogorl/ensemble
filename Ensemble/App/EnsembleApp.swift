@@ -70,6 +70,9 @@ struct EnsembleApp: App {
                     activity.title = "Ensemble Active"
                 }
         }
+        #if os(macOS)
+        .windowStyle(.hiddenTitleBar)
+        #endif
         .applyBackgroundRefresh()
         .onChange(of: scenePhase) { newPhase in
             handleScenePhaseChange(newPhase)
