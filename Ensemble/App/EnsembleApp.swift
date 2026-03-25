@@ -29,6 +29,10 @@ struct EnsembleApp: App {
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var hasPerformedStartupSync = false
+    #if os(macOS)
+    @State private var hasStartedPlaybackRestore = false
+    @State private var hasCompletedPlaybackRestore = false
+    #endif
     #if os(iOS)
     @State private var hasScheduledBackgroundRefresh = false
     #endif
@@ -160,12 +164,59 @@ struct EnsembleApp: App {
                 // Start periodic sync timer
                 DependencyContainer.shared.syncCoordinator.startPeriodicSync()
 
+                // macOS does not go through UIApplication/AppDelegate startup,
+                // so we need to mirror the iPhone launch sequence here once:
+                // load accounts/providers, run health checks, then restore the
+                // persisted queue/current track before the first startup sync.
+                if !hasStartedPlaybackRestore {
+                    hasStartedPlaybackRestore = true
+
+                    Task.detached(priority: .utility) {
+                        defer {
+                            Task { @MainActor in
+                                hasCompletedPlaybackRestore = true
+                            }
+                        }
+
+                        let dependencyContainer = await MainActor.run { DependencyContainer.shared }
+
+                        await MainActor.run {
+                            dependencyContainer.accountManager.loadAccounts()
+                            dependencyContainer.serverHealthChecker.prepopulateUnknownStates()
+                            dependencyContainer.syncCoordinator.refreshProviders()
+                        }
+
+                        let networkMonitor = await MainActor.run { dependencyContainer.networkMonitor }
+                        if await MainActor.run(body: { networkMonitor.networkState == .unknown }) {
+                            for _ in 0..<10 {
+                                try? await Task.sleep(nanoseconds: 100_000_000)
+                                if await MainActor.run(body: { networkMonitor.networkState != .unknown }) {
+                                    break
+                                }
+                            }
+                        }
+
+                        AppLogger.debug("💻 macOS: Running startup health checks before playback restore...")
+                        let syncCoordinator = await MainActor.run { dependencyContainer.syncCoordinator }
+                        await syncCoordinator.performStartupHealthChecks()
+
+                        AppLogger.debug("💻 macOS: Restoring persisted playback state...")
+                        let playbackService = await MainActor.run { dependencyContainer.playbackService }
+                        await playbackService.restorePlaybackState()
+                        AppLogger.debug("💻 macOS: Playback state restoration complete")
+                    }
+                }
+
                 // Perform startup sync on first activation (macOS only)
                 if !hasPerformedStartupSync {
                     hasPerformedStartupSync = true
                     Task.detached(priority: .utility) {
-                        // Wait for network monitor to stabilize
-                        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                        // Let the one-time playback restoration run first so the
+                        // queue/current track hydrate before cold-start sync churn.
+                        while await MainActor.run(body: { !hasCompletedPlaybackRestore }) {
+                            try? await Task.sleep(nanoseconds: 50_000_000)
+                        }
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
 
                         AppLogger.debug("💻 macOS: Starting startup sync...")
                         let syncCoordinator = await MainActor.run {
