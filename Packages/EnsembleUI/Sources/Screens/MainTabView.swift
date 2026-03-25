@@ -812,9 +812,6 @@ public struct SidebarView: View {
                     sidebarLibrarySelectionButton("Artists", systemImage: "music.mic", tab: .artists)
                     sidebarLibrarySelectionButton("Albums", systemImage: "square.stack", tab: .albums)
                     sidebarLibrarySelectionButton("Genres", systemImage: "guitars", tab: .genres)
-                    sidebarActionListButton("Downloads", systemImage: "arrow.down.circle") {
-                        navigationCoordinator.openDownloads()
-                    }
                     sidebarLibrarySelectionButton("Favorites", systemImage: "heart.fill", tab: .favorites)
                 }
 
@@ -865,13 +862,31 @@ public struct SidebarView: View {
 
             Divider()
 
-            Button {
-                navigationCoordinator.openSettings()
-            } label: {
-                sidebarSelectableRow(title: "Settings", systemImage: "gear")
+            // Icon-only Downloads + Settings buttons
+            HStack(spacing: 12) {
+                Button {
+                    navigationCoordinator.openDownloads()
+                } label: {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 16))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Downloads")
+
+                Button {
+                    navigationCoordinator.openSettings()
+                } label: {
+                    Image(systemName: "gear")
+                        .font(.system(size: 16))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Settings")
+
+                Spacer()
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
         .navigationSplitViewColumnWidth(min: 220, ideal: 260)
