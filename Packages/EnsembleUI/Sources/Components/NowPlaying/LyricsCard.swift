@@ -74,7 +74,7 @@ public struct LyricsCard: View {
                     : "Enable instrumental mode")
             }
         }
-        .padding(.horizontal, 48)
+        .padding(.horizontal, 40)
     }
 
     // MARK: - Content
@@ -224,7 +224,7 @@ public struct LyricsCard: View {
                     Spacer()
                         .frame(height: 200)
                 }
-                .padding(.horizontal, 48)
+                .padding(.horizontal, 40)
             }
             // Detect vertical scrolls to suppress auto-scroll temporarily.
             // Uses a UIKit gesture recognizer that only activates for vertical pans,
