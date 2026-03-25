@@ -593,21 +593,20 @@ public struct SidebarView: View {
         let items = buildSidebarPlaylistItems()
         let newSmart = items.filter(\.isSmart)
         let newRegular = items.filter { !$0.isSmart }
-        // Guard against replacing populated lists with empty (mid-sync race)
-        if newSmart.isEmpty && !cachedSmartPlaylists.isEmpty && !playlistsVM.playlists.isEmpty {
-            // Playlists exist but none are smart — that's valid, update
-            if !playlistsVM.playlists.contains(where: { $0.isSmart }) {
+
+        // Never replace a populated cache with empty data. The shared
+        // PlaylistViewModel is also used by PlaylistsView — its .task
+        // reloads with showLoading:true, which briefly sets playlists=[]
+        // and fires this handler. Allowing the clear would wipe the sidebar.
+        if !newSmart.isEmpty || cachedSmartPlaylists.isEmpty {
+            if newSmart.map(\.id) != cachedSmartPlaylists.map(\.id) {
                 cachedSmartPlaylists = newSmart
             }
-        } else if newSmart.map(\.id) != cachedSmartPlaylists.map(\.id) {
-            cachedSmartPlaylists = newSmart
         }
-        if newRegular.isEmpty && !cachedRegularPlaylists.isEmpty && !playlistsVM.playlists.isEmpty {
-            if !playlistsVM.playlists.contains(where: { !$0.isSmart }) {
+        if !newRegular.isEmpty || cachedRegularPlaylists.isEmpty {
+            if newRegular.map(\.id) != cachedRegularPlaylists.map(\.id) {
                 cachedRegularPlaylists = newRegular
             }
-        } else if newRegular.map(\.id) != cachedRegularPlaylists.map(\.id) {
-            cachedRegularPlaylists = newRegular
         }
     }
 
