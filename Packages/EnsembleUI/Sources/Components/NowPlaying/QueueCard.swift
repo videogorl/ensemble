@@ -264,17 +264,20 @@ public struct QueueCard: View {
             List {
                 ForEach(Array(viewModel.playbackHistory.enumerated()), id: \.element.id) { index, item in
                     macOSQueueRow(item: item, isAutoplay: false)
+                        .listRowBackground(Color.clear)
                         .contentShape(Rectangle())
                         .onTapGesture { viewModel.playFromHistory(at: index) }
                         .contextMenu { historyContextMenu(for: item) }
                 }
             }
             .listStyle(.plain)
+            .modifier(ClearScrollContentBackgroundModifier())
         } else {
             // Queue list with drag-to-reorder
             List {
                 ForEach(Array(queueItemsToShow.enumerated()), id: \.element.id) { index, item in
                     macOSQueueRow(item: item, isAutoplay: item.source == .autoplay)
+                        .listRowBackground(Color.clear)
                         .contentShape(Rectangle())
                         .onTapGesture { viewModel.playFromQueue(at: capturedCurrentIndex + 1 + index) }
                         .contextMenu { queueContextMenu(for: item, at: capturedCurrentIndex + 1 + index) }
@@ -287,6 +290,7 @@ public struct QueueCard: View {
                 }
             }
             .listStyle(.plain)
+            .modifier(ClearScrollContentBackgroundModifier())
 
             // Recommendations exhausted indicator
             if viewModel.recommendationsExhausted && viewModel.isAutoplayEnabled {
@@ -482,5 +486,17 @@ public struct QueueCard: View {
             return
         }
         playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+    }
+}
+
+/// Removes the default opaque background from List/ScrollView on macOS 13+ / iOS 16+.
+/// Falls through on older OS versions where scrollContentBackground is unavailable.
+private struct ClearScrollContentBackgroundModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 13.0, iOS 16.0, *) {
+            content.scrollContentBackground(.hidden)
+        } else {
+            content
+        }
     }
 }
