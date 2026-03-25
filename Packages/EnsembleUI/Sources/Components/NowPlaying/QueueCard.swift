@@ -231,9 +231,8 @@ public struct QueueCard: View {
                     }
                 }
                 #else
-                Text("Queue view not available on macOS")
-                    .foregroundColor(.secondary)
-                    .padding(.vertical, 40)
+                // macOS: SwiftUI-based queue list
+                macOSQueueListView
                 #endif
             } else {
                 // Empty state
@@ -252,6 +251,173 @@ public struct QueueCard: View {
         }
     }
     
+    // MARK: - macOS Queue List (SwiftUI-native, no UIKit dependency)
+
+    #if os(macOS)
+    @ViewBuilder
+    private var macOSQueueListView: some View {
+        let queueItemsToShow = Array(viewModel.queue.dropFirst(viewModel.currentQueueIndex + 1))
+        let capturedCurrentIndex = viewModel.currentQueueIndex
+
+        if viewModel.showHistory {
+            // History list
+            List {
+                ForEach(Array(viewModel.playbackHistory.enumerated()), id: \.element.id) { index, item in
+                    macOSQueueRow(item: item, isAutoplay: false)
+                        .contentShape(Rectangle())
+                        .onTapGesture { viewModel.playFromHistory(at: index) }
+                        .contextMenu { historyContextMenu(for: item) }
+                }
+            }
+            .listStyle(.plain)
+        } else {
+            // Queue list with drag-to-reorder
+            List {
+                ForEach(Array(queueItemsToShow.enumerated()), id: \.element.id) { index, item in
+                    macOSQueueRow(item: item, isAutoplay: item.source == .autoplay)
+                        .contentShape(Rectangle())
+                        .onTapGesture { viewModel.playFromQueue(at: capturedCurrentIndex + 1 + index) }
+                        .contextMenu { queueContextMenu(for: item, at: capturedCurrentIndex + 1 + index) }
+                }
+                .onMove { source, destination in
+                    guard let fromOffset = source.first else { return }
+                    let absoluteFrom = capturedCurrentIndex + 1 + fromOffset
+                    let absoluteTo = capturedCurrentIndex + 1 + destination
+                    viewModel.moveQueueItem(from: absoluteFrom, to: absoluteTo)
+                }
+            }
+            .listStyle(.plain)
+
+            // Recommendations exhausted indicator
+            if viewModel.recommendationsExhausted && viewModel.isAutoplayEnabled {
+                HStack(spacing: 6) {
+                    Image(systemName: "music.note.list")
+                        .font(.system(size: 14))
+                    Text("End of recommendations")
+                        .font(.subheadline)
+                }
+                .foregroundColor(.secondary)
+                .padding(.vertical, 12)
+            }
+        }
+    }
+
+    /// Single row for the macOS queue/history list
+    private func macOSQueueRow(item: QueueItem, isAutoplay: Bool) -> some View {
+        HStack(spacing: 12) {
+            // Artwork thumbnail
+            ArtworkView(track: item.track, size: .tiny, cornerRadius: 4)
+
+            // Track info
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    if isAutoplay {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 11))
+                            .foregroundColor(.purple)
+                    }
+                    Text(item.track.title)
+                        .font(.callout)
+                        .foregroundColor(isAutoplay ? .purple : .primary)
+                        .lineLimit(1)
+                }
+                if let artist = item.track.artistName, !artist.isEmpty {
+                    Text(artist)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            Text(item.track.formattedDuration)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .monospacedDigit()
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// Context menu for queue items
+    @ViewBuilder
+    private func queueContextMenu(for item: QueueItem, at absoluteIndex: Int) -> some View {
+        Button { viewModel.playNext(item.track) } label: {
+            Label("Play Next", systemImage: "text.insert")
+        }
+        Button { viewModel.playLast(item.track) } label: {
+            Label("Play Last", systemImage: "text.append")
+        }
+        Divider()
+        Button { presentPlaylistPicker(with: [item.track], title: "Add to Playlist") } label: {
+            Label("Add to Playlist...", systemImage: "music.note.list")
+        }
+        if let lastPlaylistQuickTarget,
+           viewModel.compatibleTrackCount([item.track], for: lastPlaylistQuickTarget) > 0 {
+            Button {
+                Task {
+                    _ = try? await viewModel.addTracks([item.track], to: lastPlaylistQuickTarget)
+                }
+            } label: {
+                Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: "plus.circle")
+            }
+        }
+        Divider()
+        if let albumId = item.track.albumRatingKey {
+            Button {
+                DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
+                dismiss()
+            } label: {
+                Label("Go to Album", systemImage: "square.stack")
+            }
+        }
+        if let artistId = item.track.artistRatingKey {
+            Button {
+                DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
+                dismiss()
+            } label: {
+                Label("Go to Artist", systemImage: "music.mic")
+            }
+        }
+        Divider()
+        Button(role: .destructive) { viewModel.removeFromQueue(at: absoluteIndex) } label: {
+            Label("Remove from Queue", systemImage: "minus.circle")
+        }
+    }
+
+    /// Context menu for history items
+    @ViewBuilder
+    private func historyContextMenu(for item: QueueItem) -> some View {
+        Button { viewModel.playNext(item.track) } label: {
+            Label("Play Next", systemImage: "text.insert")
+        }
+        Button { viewModel.playLast(item.track) } label: {
+            Label("Play Last", systemImage: "text.append")
+        }
+        Divider()
+        Button { presentPlaylistPicker(with: [item.track], title: "Add to Playlist") } label: {
+            Label("Add to Playlist...", systemImage: "music.note.list")
+        }
+        Divider()
+        if let albumId = item.track.albumRatingKey {
+            Button {
+                DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
+                dismiss()
+            } label: {
+                Label("Go to Album", systemImage: "square.stack")
+            }
+        }
+        if let artistId = item.track.artistRatingKey {
+            Button {
+                DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
+                dismiss()
+            } label: {
+                Label("Go to Artist", systemImage: "music.mic")
+            }
+        }
+    }
+    #endif
+
     // MARK: - Secondary Controls (Relocated from Controls Card)
     
     private var secondaryControlsView: some View {
