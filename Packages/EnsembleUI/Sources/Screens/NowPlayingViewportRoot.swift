@@ -1,5 +1,8 @@
 import EnsembleCore
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// Dedicated large-screen Now Playing presentation surface used by macOS and iPadOS.
 /// This owns the viewport layout only; window chrome coordination lives outside the layout.
@@ -22,6 +25,11 @@ struct NowPlayingViewportRoot: View {
         GeometryReader { geometry in
             ZStack {
                 backgroundView
+
+                #if os(macOS)
+                SidebarToggleToolbarSuppressionBridge()
+                    .frame(width: 0, height: 0)
+                #endif
 
                 VStack(spacing: 20) {
                     header(for: geometry)
@@ -179,3 +187,79 @@ struct NowPlayingViewportRoot: View {
         #endif
     }
 }
+
+#if os(macOS)
+/// Hides the split-view sidebar toggle on the live window toolbar while viewport Now Playing is active.
+/// This avoids mutating titlebar visibility or replacing SwiftUI's managed toolbar instance.
+private struct SidebarToggleToolbarSuppressionBridge: NSViewRepresentable {
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> WindowObservationView {
+        let view = WindowObservationView()
+        view.coordinator = context.coordinator
+        return view
+    }
+
+    func updateNSView(_ nsView: WindowObservationView, context: Context) {
+        nsView.coordinator = context.coordinator
+        context.coordinator.apply(to: nsView.window)
+    }
+
+    static func dismantleNSView(_ nsView: WindowObservationView, coordinator: Coordinator) {
+        coordinator.restore()
+    }
+
+    final class Coordinator {
+        private weak var window: NSWindow?
+        private var previousHiddenStates: [(item: NSToolbarItem, hidden: Bool)] = []
+
+        func apply(to window: NSWindow?) {
+            guard let window else { return }
+
+            if self.window !== window {
+                restore()
+                self.window = window
+            }
+
+            guard previousHiddenStates.isEmpty else { return }
+            guard #available(macOS 15.0, *), let toolbar = window.toolbar else { return }
+
+            previousHiddenStates = toolbar.items.compactMap { item in
+                guard item.itemIdentifier == .toggleSidebar else {
+                    return nil
+                }
+
+                let previousHidden = item.isHidden
+                item.isHidden = true
+                return (item, previousHidden)
+            }
+        }
+
+        func restore() {
+            guard #available(macOS 15.0, *) else {
+                previousHiddenStates.removeAll()
+                window = nil
+                return
+            }
+
+            for entry in previousHiddenStates {
+                entry.item.isHidden = entry.hidden
+            }
+
+            previousHiddenStates.removeAll()
+            window = nil
+        }
+    }
+
+    final class WindowObservationView: NSView {
+        weak var coordinator: Coordinator?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            coordinator?.apply(to: window)
+        }
+    }
+}
+#endif
