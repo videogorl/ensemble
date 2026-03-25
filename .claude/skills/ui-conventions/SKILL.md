@@ -21,7 +21,6 @@ These are core design decisions that must be maintained throughout the app.
 - **NavigationCoordinator.Destination:** Use typed destinations (artist, album, playlist, view) for all deep links
 - **Pending navigation:** From sheets (like Now Playing), set `pendingNavigation` to defer until sheet dismisses
 - **Tab fallback:** If navigating from Search tab (or hidden tab), fall back via `visibleTabs.first ?? .home`
-- **Sidebar consistency:** In `SidebarView`, keep each standard section inside a typed `NavigationStack(path:)` backed by `NavigationCoordinator` rather than mixing typed and untyped stacks; mixed stack shapes can crash SwiftUI when switching sections.
 
 ### iOS 15 Compatibility
 - **iOS 16+:** `NavigationStack` with `NavigationLink(value:)` and typed paths
@@ -66,14 +65,14 @@ if #available(iOS 16.0, macOS 13.0, *) {
 
 ### Tab Bar
 - **Stay native:** Use SwiftUI's native `TabView` unless there's a compelling reason
-- **Immersive mode:** Tab bar hidden via `ChromeVisibilityPreferenceKey` (StageFlow, full-screen)
+- **Immersive mode:** Tab bar hidden via `ChromeVisibilityPreferenceKey` (CoverFlow, full-screen)
 - **iOS 18+:** Uses `.sidebarAdaptable` tab view style when available
 - **Mini player offset:** MiniPlayer sits 56pt above tab bar on iPhone
 
-### StageFlow + Rotation Policy
-- StageFlow is **iPhone-only** (`UIDevice.current.userInterfaceIdiom == .phone`), even though iPad shares `os(iOS)`.
+### CoverFlow + Rotation Policy
+- CoverFlow is **iPhone-only** (`UIDevice.current.userInterfaceIdiom == .phone`), even though iPad shares `os(iOS)`.
 - iPadOS and macOS always use their standard list/grid layouts for Songs, Albums, and Playlists.
-- iOS orientation is portrait-locked by default and only unlocks landscape while a StageFlow-capable root view is active.
+- iOS orientation is portrait-locked by default and only unlocks landscape while a CoverFlow-capable root view is active.
 
 ### Button Labels
 
@@ -97,48 +96,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 ### System Integration
 - Leverage native SwiftUI components and iOS system features (e.g., `AVRoutePickerView` for AirPlay, `MPRemoteCommandCenter` for lock screen)
 - Views should adapt to platform idioms (tab bar on iPhone, sidebar on iPad/macOS)
-- Respect safe areas unless deliberately edge-to-edge (like StageFlow)
-
-### Desktop Sheets (macOS)
-- Avoid reusing iOS-style `NavigationView` + `Form` modal shells on macOS for complex sheets; they tend to collapse into split/sidebar or table-like layouts.
-- Prefer `DesktopSheetScaffold` for macOS modal chrome: title/subtitle header, flexible content region, and footer action bar.
-- Keep desktop sheet sizing consistent with scaffold defaults unless a flow genuinely needs a different footprint.
-- When a desktop flow needs drill-in selection (artists/genres, etc.), prefer a secondary focused sheet over embedding navigation chrome into the primary sheet.
-
-### Large-Screen Sidebar Layout
-- On iPad/macOS sidebar roots, do not treat Search/Settings/Downloads as generic detail tabs by default.
-- Prefer the three-part sidebar pattern: standalone Search action at the top, scrolling middle list for `Library`/`Playlists`/`Pins`, and standalone Settings action at the bottom.
-- Downloads belongs in the `Library` section as an auxiliary presentation action, not its own sidebar section.
-- If Playlists appear in the sidebar, include both `All Playlists` and individual playlist rows, and drive ordering from shared `PlaylistViewModel` sort state rather than a duplicated sidebar-only sort.
-- Keep `Library` as the always-expanded anchor section. `Pins`, `Smart Playlists`, and `Playlists` may be collapsible on large screens, and their expanded state should persist across redraws.
-- Separate smart playlists into their own section above regular playlists instead of mixing them into the main playlist list.
-- Keep the large-screen mini player mounted on the detail-column container itself, outside the per-screen `NavigationStack`s but inside the split-view detail pane.
-- Do not host the large-screen mini player at the split-view root with manual `.position(...)` geometry; that creates oversized hit regions and dead tap zones above the pill.
-- On macOS, `.miniPlayerBottomSpacing(...)` should be a no-op because the mini player floats above the detail content and the content must scroll behind it.
-
-### Auxiliary Settings / Downloads Presentation
-- Large-screen Settings and Downloads should route through `NavigationCoordinator.openSettings()` / `openDownloads()` instead of per-screen local sheet booleans.
-- macOS uses dedicated singleton windows declared in `EnsembleApp`.
-- iPadOS uses root-level modal presentation through the shared auxiliary presentation container.
-- If a screen offers “Manage Sources”, it should call the shared coordinator API rather than presenting its own embedded `SettingsView` sheet.
-
-### Self-Styled Controls on macOS
-- If a playback/action control already draws its own capsule, tile, or circular background, opt out of the default macOS bordered button chrome.
-- Use `chromelessMediaControlButton()` for custom-styled buttons and `chromelessMediaControlMenu()` for custom menu triggers so detail pages and Now Playing keep the same visual language as iOS/iPadOS.
-- Limit these helpers to in-content controls; standard toolbar and dialog buttons should keep native platform styling.
-
-### Now Playing on iPad/macOS
-- iPad and macOS Now Playing should present as an in-app viewport-filling overlay, not a floating phone-style sheet.
-- Large-screen Now Playing should use a dedicated viewport root (`NowPlayingViewportRoot`) instead of sharing a mixed phone+desktop container with the iPhone sheet path.
-- Keep `NowPlayingSheetView` focused on the iPhone sheet presentation; large-screen viewport semantics and phone-sheet semantics should not be mixed in one outer shell.
-- Reuse the existing Now Playing cards (`ControlsCard`, `QueueCard`, `LyricsCard`, `InfoCard`) and change the outer shell first before considering card-specific rewrites.
-- For side-by-side layouts, prefer a desktop/tablet header with explicit close affordance and simple panel switching over page indicators or dismiss pills.
-- On macOS, keep the Now Playing header below the titlebar/toolbar region and bind Escape to dismiss so close controls never compete with window chrome.
-- On macOS, reserve explicit leading clearance for the traffic-light cluster. On iPadOS 26 and later, reserve matching top-left clearance for the new window controls before placing large-screen Now Playing header content.
-- On macOS, keep the titlebar alive while Now Playing is active so the traffic lights stay stable.
-- Suppress only the specific split-view/sidebar toolbar items that bleed into viewport Now Playing. Use a narrow AppKit bridge on the existing window toolbar rather than swapping toolbars or hiding the titlebar.
-- Do not try to hide the host toolbar with masks, titlebar overlays, or full toolbar visibility toggles; those approaches tend to reintroduce traffic-light movement or split-view layout churn.
-- On iPadOS, it is fine to hide the underlying navigation chrome while viewport Now Playing is active, but avoid content-level hacks that try to fake titlebar behavior on macOS.
+- Respect safe areas unless deliberately edge-to-edge (like CoverFlow)
 
 ### Toast Presentation
 - iOS/iPadOS toasts are mounted once at app root via `installGlobalToastWindow(toastCenter:)` in `EnsembleApp`
@@ -151,7 +109,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Supported swipe action catalog in v1: `Play Next`, `Play Last`, `Add to Playlist…`, favorite toggle
 - Keep primary tap behavior unchanged (tap still plays/navigates as before)
 - Use `TrackSwipeContainer` for SwiftUI rows and `MediaTrackList` swipe delegates for UIKit-backed track lists
-- On macOS, keep using the shared `TrackSwipeContainer` / `standardTrailingSwipeActions` entry points so two-finger horizontal swipes reveal the same configured actions on large-screen track rows.
+- macOS keeps existing interaction model (no custom swipe gesture layer in v1)
 
 ### Long-Press Menus
 - Prefer `contextMenu` on album/artist/playlist cards/rows to mirror detail-view actions
@@ -239,45 +197,6 @@ struct AlbumDetailLoader: View {
 - **Network monitor:** 1s to reduce unnecessary UI updates
 - **Home screen loading:** 2s to prevent rapid reloads
 - **App launch:** Network monitor starts with 500ms delay
-
-### GeometryReader: Background, Not Wrapper
-Never wrap large view trees in `GeometryReader`. Use `.background(GeometryReader { ... })` to capture geometry into `@State`, then branch on the state value in body. Wrapping causes the entire subtree to re-layout on every geometry change.
-
-### Context Menu Extraction
-If a grid/list holds `@ObservedObject` only for context menu content (e.g., pinManager), extract the context menu into a separate View struct that owns the observation. This prevents the entire grid from re-evaluating when pin state changes.
-
-### Scoped Sub-View Observation (MiniPlayer Pattern)
-When a view needs multiple fields from a frequently-publishing ViewModel, extract observation into small sub-views:
-- **Parent:** `let viewModel` (no observation) — handles layout, gestures, context menu
-- **Sub-views:** `@ObservedObject var viewModel` — each reads only its relevant fields (track info, controls, background)
-
-This prevents the entire parent tree from re-evaluating on every publish.
-
-### `.searchable()` in Nested Sheets
-`.searchable()` has version-specific bugs in nested presentation contexts (sheet-on-fullScreenCover). iOS 15 can freeze keyboard input.
-
-**iOS 26 crash:** `NavigationView` + `.searchable()` triggers 997+ "Observation tracking feedback loop detected!" errors from `ScrollPocketCollectorModel`, freezing/crashing the app. **Fix:** Use `NavigationStack` on iOS 16+ (which is already the default in `MainTabView.tabRootView`). For sheets that create their own navigation container (like `PlaylistPickerSheet`), use `if #available(iOS 16.0, ...) { NavigationStack } else { NavigationView }`.
-
-Tab-level views are already inside `NavigationStack` on iOS 16+ and are not affected. The crash was specific to `NavigationView` in sheet contexts.
-
-## Genre Chip Bar
-
-### GenreChipBar Pattern
-- **Component:** `GenreChipBar` — horizontal scrollable chip bar for inline genre filtering
-- **Behavior:** OR multi-select (selecting multiple genres shows items matching any selected genre)
-- **Visibility:** Only renders when 2+ genres are available; hidden otherwise
-- **Chip style:** Capsule shape — accent border when unselected, accent fill + white text when selected
-- **Layout:** Fixed 36pt height, placed above content inside ScrollView
-- **Clear button:** An xmark chip appears when any genres are selected, clearing the selection on tap
-- **Usage:** Integrated into AlbumsView, SongsView, ArtistsView, PlaylistDetailView, and wired into FilterSheet
-
-## Informational Badges
-
-### Feature / Capability Badges
-- **Pattern:** `ServerFeatureBadges` (private view in `MusicSourceAccountDetailView.swift`) displays small icon+label badges for server-level capabilities (e.g., Plex Pass, hardware transcoding).
-- **Style:** Compact horizontal badges with SF Symbol + short label, secondary foreground color.
-- **Per-library indicators:** Download permission badge (arrow.down.circle.fill) shown inline on library rows when `allowSync` is true.
-- **Data source:** Badges are driven by `PlexServerCapabilities` and `PlexSubscription` populated during discovery -- no additional API calls at display time.
 
 ## Feature Philosophy
 
