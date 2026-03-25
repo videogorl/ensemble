@@ -287,11 +287,7 @@ public struct MainTabView: View {
     @ViewBuilder
     private func applyViewportNowPlayingChromeVisibility<Content: View>(to content: Content) -> some View {
         #if os(macOS)
-        if #available(macOS 13.0, *) {
-            content.toolbar(.hidden, for: .windowToolbar)
-        } else {
-            content
-        }
+        content
         #elseif os(iOS)
         if #available(iOS 16.0, *) {
             content
@@ -942,7 +938,7 @@ public struct SidebarView: View {
     @ViewBuilder
     private func applyViewportNowPlayingChromeVisibility<Content: View>(to content: Content) -> some View {
         #if os(macOS)
-        content.toolbar(.hidden, for: .windowToolbar)
+        content
         #elseif os(iOS)
         if #available(iOS 16.0, *) {
             content.toolbar(.hidden, for: .navigationBar)

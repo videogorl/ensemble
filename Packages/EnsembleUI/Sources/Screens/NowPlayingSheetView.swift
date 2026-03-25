@@ -1,5 +1,8 @@
 import EnsembleCore
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// Main sheet container for Now Playing interface
 /// Uses native .sheet presentation with carousel layout
@@ -33,6 +36,13 @@ public struct NowPlayingSheetView: View {
             ZStack {
                 // Blurred artwork background with legibility overlay
                 backgroundView
+
+                #if os(macOS)
+                WindowToolbarVisibilityBridge(isToolbarVisible: false)
+                    .allowsHitTesting(false)
+                #endif
+
+                topToolbarItemMask(for: geometry)
                 
                 VStack(spacing: 0) {
                     if shouldUseSideBySideLayout(geometry: geometry) {
@@ -76,6 +86,32 @@ public struct NowPlayingSheetView: View {
             }
         }
         .ignoresSafeArea()
+    }
+
+    @ViewBuilder
+    private func topToolbarItemMask(for geometry: GeometryProxy) -> some View {
+        #if os(macOS)
+        EmptyView()
+        #else
+        if shouldUseSideBySideLayout(geometry: geometry) {
+            let lightOverlayColor: Color = {
+                return Color(uiColor: .systemBackground)
+            }()
+
+            HStack(spacing: 0) {
+                Color.clear
+                    .frame(width: viewportLeadingTrafficLightClearance)
+
+                Rectangle()
+                    .fill(colorScheme == .dark ? Color.black.opacity(0.35) : lightOverlayColor.opacity(0.82))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(height: viewportToolbarMaskHeight(for: geometry))
+            .frame(maxHeight: .infinity, alignment: .top)
+            .allowsHitTesting(true)
+            .ignoresSafeArea(edges: .top)
+        }
+        #endif
     }
     
     // MARK: - Dismiss Pill
@@ -223,15 +259,37 @@ public struct NowPlayingSheetView: View {
         #if os(macOS)
         // Reserve the traffic-light cluster plus a little breathing room so
         // Now Playing content never competes with the window controls.
-        return max(geometry.safeAreaInsets.leading + 88, 88)
+        return max(geometry.safeAreaInsets.leading + viewportLeadingTrafficLightClearance, viewportLeadingTrafficLightClearance)
         #else
         if #available(iOS 26.0, *) {
             // iPadOS 26 adopts top-left window controls for multiwindow apps.
             // Mirror the macOS clearance so the header stays visually centered
             // while leaving the control cluster unobstructed.
-            return max(geometry.safeAreaInsets.leading + 92, 92)
+            return max(geometry.safeAreaInsets.leading + viewportLeadingTrafficLightClearance, viewportLeadingTrafficLightClearance)
         }
         return 8
+        #endif
+    }
+
+    private var viewportLeadingTrafficLightClearance: CGFloat {
+        #if os(macOS)
+        return 88
+        #else
+        if #available(iOS 26.0, *) {
+            return 92
+        }
+        return 8
+        #endif
+    }
+
+    private func viewportToolbarMaskHeight(for geometry: GeometryProxy) -> CGFloat {
+        #if os(macOS)
+        return max(geometry.safeAreaInsets.top + 20, 58)
+        #else
+        if #available(iOS 26.0, *) {
+            return max(geometry.safeAreaInsets.top + 18, 54)
+        }
+        return 0
         #endif
     }
     
@@ -246,3 +304,51 @@ public struct NowPlayingSheetView: View {
         #endif
     }
 }
+
+#if os(macOS)
+/// Keeps the macOS titlebar visible while hiding the active window's toolbar items.
+private struct WindowToolbarVisibilityBridge: NSViewRepresentable {
+    let isToolbarVisible: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            context.coordinator.apply(to: nsView.window, isToolbarVisible: isToolbarVisible)
+        }
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.restore()
+    }
+
+    final class Coordinator {
+        private weak var window: NSWindow?
+        private var originalToolbarVisibility: Bool?
+
+        func apply(to window: NSWindow?, isToolbarVisible: Bool) {
+            guard let window else { return }
+
+            if self.window !== window {
+                restore()
+                self.window = window
+                originalToolbarVisibility = window.toolbar?.isVisible ?? true
+            }
+
+            guard window.toolbar?.isVisible != isToolbarVisible else { return }
+            window.toolbar?.isVisible = isToolbarVisible
+        }
+
+        func restore() {
+            guard let window, let originalToolbarVisibility else { return }
+            window.toolbar?.isVisible = originalToolbarVisibility
+        }
+    }
+}
+#endif
