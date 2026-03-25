@@ -152,8 +152,9 @@ public struct QueueCard: View {
             .chromelessMediaControlMenu()
         }
         .padding(.horizontal, 40)
+        .frame(minHeight: 36) // Consistent height across all NPV card headers
     }
-    
+
     // MARK: - Queue List
     
     private var queueListView: some View {
