@@ -85,6 +85,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @Environment(\.dependencies) private var deps
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
@@ -270,6 +273,16 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// Whether the radio button should be shown (artist or album detail views)
     private var hasRadioButton: Bool {
         viewModel is ArtistDetailViewModel || viewModel is AlbumDetailViewModel
+    }
+
+    /// Whether to use horizontal layout (artwork left, metadata + buttons right).
+    /// Active on iPad (regular horizontal size class) and macOS.
+    private var isWideLayout: Bool {
+        #if os(macOS)
+        return true
+        #else
+        return horizontalSizeClass == .regular
+        #endif
     }
 
     private var shouldShowStandaloneFilterButton: Bool {
@@ -524,8 +537,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             #else
             ScrollView {
                 VStack(spacing: 0) {
-                    headerView
-                    actionButtons
+                    // macOS always uses the wide (horizontal) header layout
+                    wideHeaderView
                     if let genreChipContent {
                         genreChipContent
                     }
@@ -625,6 +638,40 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
     }
 
+    /// Renders the subtitle text (artist name), optionally as a navigation link to the artist.
+    @ViewBuilder
+    private func subtitleView(alignment: TextAlignment) -> some View {
+        if let subtitle = headerData.subtitle {
+            if let artistId = headerData.artistRatingKey {
+                Group {
+                    if #available(iOS 16.0, macOS 13.0, *) {
+                        NavigationLink(value: NavigationCoordinator.Destination.artist(id: artistId)) {
+                            Text(subtitle)
+                                .font(.title3)
+                                .multilineTextAlignment(alignment)
+                                .lineLimit(2)
+                        }
+                    } else {
+                        NavigationLink {
+                            ArtistDetailLoader(artistId: artistId, nowPlayingVM: nowPlayingVM)
+                        } label: {
+                            Text(subtitle)
+                                .font(.title3)
+                                .multilineTextAlignment(alignment)
+                                .lineLimit(2)
+                        }
+                    }
+                }
+            } else {
+                Text(subtitle)
+                    .font(.title3)
+                    .multilineTextAlignment(alignment)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    /// Compact (vertical) header layout for iPhone — artwork centered above text.
     private var headerView: some View {
         VStack(spacing: 16) {
             ArtworkView(
@@ -643,39 +690,49 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     .multilineTextAlignment(.center)
                     .background(TitleOffsetTracker(coordinateSpace: "mediaDetailScroll"))
 
-                if let subtitle = headerData.subtitle {
-                    if let artistId = headerData.artistRatingKey {
-                        Group {
-                            if #available(iOS 16.0, macOS 13.0, *) {
-                                NavigationLink(value: NavigationCoordinator.Destination.artist(id: artistId)) {
-                                    Text(subtitle)
-                                        .font(.title3)
-                                        .multilineTextAlignment(.center)
-                                        .lineLimit(2)
-                                }
-                            } else {
-                                NavigationLink {
-                                    ArtistDetailLoader(artistId: artistId, nowPlayingVM: nowPlayingVM)
-                                } label: {
-                                    Text(subtitle)
-                                        .font(.title3)
-                                        .multilineTextAlignment(.center)
-                                        .lineLimit(2)
-                                }
-                            }
-                        }
-                    } else {
-                        Text(subtitle)
-                            .font(.title3)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
-                    }
-                }
+                subtitleView(alignment: .center)
 
                 Text(headerData.metadataLine)
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
+        }
+        .padding()
+    }
+
+    /// Wide (horizontal) header layout for iPad and macOS —
+    /// artwork on the left, metadata and action buttons on the right.
+    private var wideHeaderView: some View {
+        HStack(alignment: .top, spacing: 24) {
+            // Artwork on the left
+            ArtworkView(
+                path: headerData.artworkPath,
+                sourceKey: headerData.sourceKey,
+                ratingKey: headerData.ratingKey,
+                size: .medium,
+                cornerRadius: 12
+            )
+            .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
+
+            // Metadata and action buttons on the right
+            VStack(alignment: .leading, spacing: 8) {
+                Text(headerData.title)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .multilineTextAlignment(.leading)
+                    .background(TitleOffsetTracker(coordinateSpace: "mediaDetailScroll"))
+
+                subtitleView(alignment: .leading)
+
+                Text(headerData.metadataLine)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                // Action buttons below metadata
+                wideActionButtons
+                    .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding()
     }
@@ -719,6 +776,48 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
         .padding(.horizontal)
         .padding(.bottom)
+        .chromelessMediaControlButton()
+        .disabled(viewModel.filteredTracks.isEmpty)
+    }
+
+    /// Compact action buttons for the wide header layout — don't stretch to fill width.
+    private var wideActionButtons: some View {
+        HStack(spacing: 12) {
+            // Play button
+            Button {
+                nowPlayingVM.play(tracks: viewModel.filteredTracks)
+            } label: {
+                HStack {
+                    Image(systemName: "play.fill")
+                    Text("Play")
+                }
+                .font(.headline)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 12)
+                .background(Color.accentColor)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+            }
+
+            // Shuffle button
+            Button {
+                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
+            } label: {
+                HStack {
+                    Image(systemName: "shuffle")
+                    Text("Shuffle")
+                }
+                .font(.headline)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 12)
+                .background(Color.gray.opacity(0.2))
+                .foregroundColor(.primary)
+                .cornerRadius(10)
+            }
+
+            // Radio button (for Artist or Album views)
+            radioButton
+        }
         .chromelessMediaControlButton()
         .disabled(viewModel.filteredTracks.isEmpty)
     }
@@ -917,8 +1016,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             if let genreChipContent {
                 genreChipContent
             }
-            headerView
-            actionButtons
+            // Use horizontal layout on iPad, vertical on iPhone
+            if isWideLayout {
+                wideHeaderView
+            } else {
+                headerView
+                actionButtons
+            }
         }
     }
 }
