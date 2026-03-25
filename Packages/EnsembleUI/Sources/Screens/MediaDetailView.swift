@@ -703,7 +703,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// Wide (horizontal) header layout for iPad and macOS —
     /// artwork on the left, metadata and action buttons on the right.
     private var wideHeaderView: some View {
-        HStack(alignment: .top, spacing: 24) {
+        HStack(alignment: .center, spacing: 24) {
             // Artwork on the left
             ArtworkView(
                 path: headerData.artworkPath,
