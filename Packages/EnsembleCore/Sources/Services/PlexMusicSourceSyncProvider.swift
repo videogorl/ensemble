@@ -624,6 +624,62 @@ public func getStreamURL(
         return .directStream(url)
     }
 
+    // MARK: - Two-Phase Stream Resolution
+
+    /// Phase 1: Make a streaming decision without embedding the server endpoint URL.
+    /// Applies the same fallback logic as `getStreamURL()` (directStreamFailedKeys, etc.).
+    /// The returned decision can be cached across network transitions.
+    public func makeStreamDecision(
+        for trackRatingKey: String,
+        trackStreamKey: String?,
+        quality: StreamingQuality,
+        metadataDurationSeconds: Double? = nil
+    ) async throws -> StreamDecision {
+        EnsembleLogger.debug("[PlexProvider] makeStreamDecision: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
+
+        // Try smart routing through the API client's decision endpoint
+        if !directStreamFailedKeys.contains(trackRatingKey) {
+            do {
+                let decision = try await apiClient.makeStreamDecision(
+                    ratingKey: trackRatingKey,
+                    trackStreamKey: trackStreamKey,
+                    quality: quality,
+                    metadataDurationSeconds: metadataDurationSeconds
+                )
+                switch decision {
+                case .directStream:
+                    EnsembleLogger.debug("[PlexProvider] Decision: directStream (quality=\(quality.rawValue))")
+                case .progressiveTranscode:
+                    EnsembleLogger.debug("[PlexProvider] Decision: progressiveTranscode (quality=\(quality.rawValue))")
+                }
+                return decision
+            } catch {
+                EnsembleLogger.debug("[PlexProvider] makeStreamDecision failed: \(error). Falling back to direct stream decision.")
+            }
+        } else {
+            EnsembleLogger.debug("[PlexProvider] ratingKey \(trackRatingKey) in directStreamFailedKeys, using direct stream decision")
+        }
+
+        // Fallback: direct stream decision with the stream key
+        if let streamKey = trackStreamKey, !streamKey.isEmpty {
+            return .directStream(partKey: streamKey)
+        }
+
+        // Last resort: fetch track metadata for stream key
+        guard let track = try await apiClient.getTrack(trackKey: trackRatingKey),
+              let streamKey = track.streamURL else {
+            EnsembleLogger.debug("[PlexProvider] Could not get stream key from track metadata for decision")
+            throw PlexAPIError.invalidURL
+        }
+        return .directStream(partKey: streamKey)
+    }
+
+    /// Phase 2: Assemble a StreamResolution from a cached StreamDecision.
+    /// Reads the freshest endpoint from the registry before building the URL.
+    public func assembleStreamResolution(from decision: StreamDecision) async throws -> StreamResolution {
+        return try await apiClient.assembleStreamResolution(from: decision)
+    }
+
     /// Get a download URL for offline use. Skips the transcode decision endpoint
     /// since URLSession downloads don't need session warmup.
     /// Falls back to the direct file URL if universal URL construction fails.
