@@ -70,10 +70,8 @@ public final class PlaylistViewModel: ObservableObject {
         NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
             .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
             .sink { [weak self] notification in
-                #if DEBUG
                 let serverKey = notification.userInfo?["serverSourceKey"] as? String ?? "unknown"
                 EnsembleLogger.debug("📋 PlaylistViewModel: playlistsDidRefresh notification from \(serverKey)")
-                #endif
                 Task { @MainActor in
                     await self?.loadPlaylists()
                 }
@@ -87,9 +85,7 @@ public final class PlaylistViewModel: ObservableObject {
             .dropFirst()
             .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
             .sink { [weak self] statuses in
-                #if DEBUG
                 EnsembleLogger.debug("📋 PlaylistViewModel: sourceStatuses changed — \(statuses.map { "\($0.key.compositeKey): \($0.value.syncStatus)" })")
-                #endif
                 Task { @MainActor in
                     await self?.loadPlaylists()
                 }
@@ -112,18 +108,14 @@ public final class PlaylistViewModel: ObservableObject {
     public func refreshFromServer() async {
         // Check if offline
         if syncCoordinator.isOffline {
-            #if DEBUG
             EnsembleLogger.debug("📴 Offline - loading playlists from cache only")
-            #endif
             await loadPlaylists()
             return
         }
 
         // Check if sync is already in progress
         if syncCoordinator.isSyncing {
-            #if DEBUG
             EnsembleLogger.debug("⏳ Sync already in progress - loading playlists from cache")
-            #endif
             toastCenter.show(
                 ToastPayload(
                     style: .info,
@@ -140,18 +132,14 @@ public final class PlaylistViewModel: ObservableObject {
         error = nil
 
         // Run sync in a detached task to avoid SwiftUI's .refreshable cancellation
-        #if DEBUG
         EnsembleLogger.debug("🔄 Starting playlist sync (detached)...")
-        #endif
         await withCheckedContinuation { continuation in
             Task.detached { [syncCoordinator] in
                 await syncCoordinator.syncPlaylistsOnly()
                 continuation.resume()
             }
         }
-        #if DEBUG
         EnsembleLogger.debug("✅ Playlist sync complete")
-        #endif
 
         // Reload from updated cache
         await loadPlaylists()
@@ -303,9 +291,7 @@ public final class PlaylistViewModel: ObservableObject {
             // can return empty mid-sync while records are being rebuilt, and
             // PlaylistsView's .task re-calls loadPlaylists on the shared VM.
             if merged.isEmpty && !playlists.isEmpty {
-                #if DEBUG
                 EnsembleLogger.debug("📋 PlaylistViewModel: skipping empty reload result (preserving \(self.playlists.count) existing playlists)")
-                #endif
             } else {
                 playlists = merged
             }
@@ -511,9 +497,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
             .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
-                #if DEBUG
                 EnsembleLogger.debug("📋 PlaylistDetailViewModel: playlistsDidRefresh — reloading tracks")
-                #endif
                 Task { @MainActor [weak self] in
                     await self?.loadTracks()
                 }
@@ -552,10 +536,8 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
                 playlist = Playlist(from: cachedPlaylist)
                 let loadedTracks = cachedPlaylist.tracksArray
                 tracks = loadedTracks.map { Track(from: $0) }
-                #if DEBUG
                 let ptCount = (cachedPlaylist.playlistTracks as? Set<AnyHashable>)?.count ?? -1
                 EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': trackCount=\(cachedPlaylist.trackCount), playlistTracks=\(ptCount), tracksArray=\(loadedTracks.count), tracks=\(tracks.count)")
-                #endif
             } else {
                 tracks = []
             }

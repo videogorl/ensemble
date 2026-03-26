@@ -328,52 +328,40 @@ public final class LyricsService: ObservableObject {
     // MARK: - Fetch Pipeline
 
     private func fetchLyrics(for track: Track) async -> (LyricsState, LyricsSource) {
-        #if DEBUG
         EnsembleLogger.debug("Lyrics: starting fetch for track \(track.id) (\(track.title))")
-        #endif
 
         // 1. Check persistent file cache (survives PMS LyricFind cache expiration)
         if let cachedContent = loadFromPersistentCache(for: track) {
             let parsed = Self.parseContent(cachedContent, codec: nil)
             if let parsed {
-                #if DEBUG
                 EnsembleLogger.debug("Lyrics: loaded from persistent cache (\(parsed.lines.count) lines)")
-                #endif
                 return (.available(parsed), .persistentCache)
             }
         }
 
         // 2. Fetch track metadata to discover lyrics streams
         guard let apiClient = syncCoordinator.apiClient(for: track.sourceCompositeKey) else {
-            #if DEBUG
             EnsembleLogger.debug("Lyrics: no API client for source \(track.sourceCompositeKey ?? "nil")")
-            #endif
             return (.notAvailable, .noApiClient)
         }
 
         do {
             // Fetch full track metadata (includes Stream objects)
             guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else {
-                #if DEBUG
                 EnsembleLogger.debug("Lyrics: getTrack returned nil for \(track.id)")
-                #endif
                 return (.notAvailable, .trackMetadataFailed)
             }
 
-            #if DEBUG
             let streamCount = plexTrack.media?.first?.part?.first?.stream?.count ?? 0
             let lyricsStreams = plexTrack.media?.first?.part?.first?.stream?.filter { $0.streamType == 4 } ?? []
             EnsembleLogger.debug("Lyrics: track has \(streamCount) streams, \(lyricsStreams.count) lyrics streams")
             for ls in lyricsStreams {
                 EnsembleLogger.debug("Lyrics:   stream id=\(ls.id) codec=\(ls.codec ?? "nil") timed=\(ls.timed.map(String.init) ?? "nil") key=\(ls.key ?? "nil") provider=\(ls.provider ?? "nil")")
             }
-            #endif
 
             guard let lyricsStream = plexTrack.lyricsStream,
                   let streamKey = lyricsStream.key else {
-                #if DEBUG
                 EnsembleLogger.debug("Lyrics: no lyrics stream found on track metadata")
-                #endif
                 return (.notAvailable, .noLyricsStream)
             }
 
@@ -382,9 +370,7 @@ public final class LyricsService: ObservableObject {
             if let fetched = try await apiClient.getLyricsContent(streamKey: streamKey) {
                 content = fetched
             } else {
-                #if DEBUG
                 EnsembleLogger.debug("Lyrics: content fetch returned nil for \(streamKey) — scheduling background retry in 10s")
-                #endif
                 // Schedule a lazy background retry after 10s (don't block UI).
                 // PMS may need time to re-fetch from LyricFind, especially on iOS 15.
                 let codec = lyricsStream.codec
@@ -393,14 +379,10 @@ public final class LyricsService: ObservableObject {
                     try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s
                     guard !Task.isCancelled else { return }
                     guard let retryContent = try? await apiClient.getLyricsContent(streamKey: streamKey) else {
-                        #if DEBUG
                         EnsembleLogger.debug("Lyrics: background retry also failed for \(streamKey)")
-                        #endif
                         return
                     }
-                    #if DEBUG
                     EnsembleLogger.debug("Lyrics: background retry succeeded for \(streamKey) (\(retryContent.count) chars)")
-                    #endif
                     let parsed = Self.parseContent(retryContent, codec: codec)
                     guard let parsed, !parsed.lines.isEmpty else { return }
                     // Save to persistent cache and update state on main actor
@@ -421,17 +403,13 @@ public final class LyricsService: ObservableObject {
 
             guard !Task.isCancelled else { return (.notAvailable, .cancelled) }
 
-            #if DEBUG
             let preview = String(content.prefix(300))
             EnsembleLogger.debug("Lyrics: content preview (\(content.count) chars): \(preview)")
-            #endif
 
             // 4. Parse based on codec/format, with fallback to plain text
             let parsed = Self.parseContent(content, codec: lyricsStream.codec)
 
-            #if DEBUG
             EnsembleLogger.debug("Lyrics: parsed \(parsed?.lines.count ?? 0) lines (timed=\(parsed?.isTimed ?? false))")
-            #endif
 
             guard let parsed, !parsed.lines.isEmpty else {
                 return (.notAvailable, .parseFailed)
@@ -443,9 +421,7 @@ public final class LyricsService: ObservableObject {
             return (.available(parsed), .server)
         } catch {
             if Task.isCancelled { return (.notAvailable, .cancelled) }
-            #if DEBUG
             EnsembleLogger.debug("Lyrics: fetch failed for track \(track.id): \(error.localizedDescription)")
-            #endif
             return (.notAvailable, .trackMetadataFailed)
         }
     }

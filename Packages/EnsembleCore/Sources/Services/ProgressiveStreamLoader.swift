@@ -122,9 +122,7 @@ final class ProgressiveStreamLoader: NSObject, @unchecked Sendable {
         self.dataTask = session?.dataTask(with: request)
         dataTask?.resume()
 
-        #if DEBUG
         EnsembleLogger.debug("📡 ProgressiveStreamLoader: started download for \(ratingKey) (est. \(estimatedContentLength) bytes)")
-        #endif
     }
 
     /// Cancel the in-flight download and fail any pending AVPlayer requests.
@@ -152,9 +150,7 @@ final class ProgressiveStreamLoader: NSObject, @unchecked Sendable {
         writeHandle?.closeFile()
         writeHandle = nil
 
-        #if DEBUG
         EnsembleLogger.debug("📡 ProgressiveStreamLoader: cancelled for \(ratingKey)")
-        #endif
     }
 
     deinit {
@@ -320,9 +316,7 @@ extension ProgressiveStreamLoader: URLSessionDataDelegate {
             // Don't log cancellation as an error
             if (error as NSError).code != NSURLErrorCancelled {
                 downloadError = error
-                #if DEBUG
                 EnsembleLogger.debug("📡 ProgressiveStreamLoader: download failed for \(ratingKey): \(error.localizedDescription)")
-                #endif
             }
         }
 
@@ -338,9 +332,7 @@ extension ProgressiveStreamLoader: URLSessionDataDelegate {
 
         // Notify caller for post-download processing (XING injection, frequency analysis)
         if error == nil {
-            #if DEBUG
             EnsembleLogger.debug("📡 ProgressiveStreamLoader: download complete for \(ratingKey) (\(written) bytes)")
-            #endif
             onDownloadComplete?(fileURL, metadataDuration)
         }
     }

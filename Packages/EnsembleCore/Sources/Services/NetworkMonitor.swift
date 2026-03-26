@@ -71,9 +71,7 @@ public final class NetworkMonitor: ObservableObject {
         if cached != .unknown {
             networkState = cached
             isConnected = cached.isConnected
-            #if DEBUG
             EnsembleLogger.debug("📡 NetworkMonitor: Restored cached state: \(cached.description)")
-            #endif
         }
     }
 
@@ -148,9 +146,7 @@ public final class NetworkMonitor: ObservableObject {
         debounceTask?.cancel()
         debounceTask = nil
 
-        #if DEBUG
         EnsembleLogger.debug("📡 NetworkMonitor: Stopped monitoring")
-        #endif
     }
 
     // MARK: - Testing Helpers
@@ -211,9 +207,7 @@ public final class NetworkMonitor: ObservableObject {
         let newIsConnected = newState.isConnected
         guard newState != networkState || newIsConnected != isConnected else { return }
 
-        #if DEBUG
         EnsembleLogger.debug("📡 NetworkMonitor: State changed to \(newState.description)")
-        #endif
 
         networkState = newState
         isConnected = newIsConnected
@@ -244,13 +238,11 @@ public final class NetworkMonitor: ObservableObject {
     ///
     /// `NWPath.isConstrained` indicates Low Data Mode and should not be treated as offline.
     internal static func stateForSatisfiedPath(networkType: NetworkType, isConstrained: Bool) -> NetworkState {
-        #if DEBUG
         if isConstrained {
             EnsembleLogger.debug(
                 "📡 NetworkMonitor: Path is constrained (Low Data Mode) - treating as online \(networkType.description)"
             )
         }
-        #endif
 
         return .online(networkType)
     }

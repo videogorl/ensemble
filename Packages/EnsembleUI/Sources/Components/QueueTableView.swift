@@ -766,9 +766,7 @@ public struct QueueTableView: UIViewRepresentable {
                 destinationAbsoluteIndex = queueItems.count
             }
             
-            #if DEBUG
-            EnsembleLogger.debug("🎯 Drag-drop: source '\(sourceItem.track.title)' from \(sourceAbsoluteIndex) to \(destinationAbsoluteIndex)")
-            #endif
+            EnsembleLogger.debug("Drag-drop: source '\(sourceItem.track.title)' from \(sourceAbsoluteIndex) to \(destinationAbsoluteIndex)")
             
             // Pass item ID + both absolute indices
             onMoveItem(sourceItem.id, sourceAbsoluteIndex, destinationAbsoluteIndex)

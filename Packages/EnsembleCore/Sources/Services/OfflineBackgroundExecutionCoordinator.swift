@@ -64,18 +64,14 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecu
         }
 
         didRegister = registered
-        #if DEBUG
         EnsembleLogger.debug("📦 Offline BG registration \(registered ? "succeeded" : "failed")")
-        #endif
     }
 
     public func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {
         guard #available(iOS 26.0, *) else { return }
         guard pendingTrackCount > 0 else { return }
         guard didRegister else {
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Skipping BG continued processing submit: handler not registered")
-            #endif
             return
         }
 
@@ -92,13 +88,9 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecu
 
         do {
             try BGTaskScheduler.shared.submit(request)
-            #if DEBUG
             EnsembleLogger.debug("📦 Submitted BG continued processing request for \(pendingTrackCount) tracks")
-            #endif
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("⚠️ BG continued processing request rejected: \(error.localizedDescription)")
-            #endif
         }
     }
 

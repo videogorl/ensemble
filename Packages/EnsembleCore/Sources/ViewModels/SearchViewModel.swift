@@ -478,9 +478,7 @@ public final class SearchViewModel: ObservableObject {
             unfilteredRecommendedItems = Array(results.recommendedItems.prefix(6))
             applyVisibilityToExploreContent()
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("ℹ️ No cached explore content available")
-            #endif
         }
 
         // Load cached moods immediately while fresh network fetch runs.
@@ -554,9 +552,7 @@ public final class SearchViewModel: ObservableObject {
                     }
                 }
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ Failed to fetch hubs: \(error)")
-                #endif
             }
         }
 
@@ -565,13 +561,9 @@ public final class SearchViewModel: ObservableObject {
         if !freshHubs.isEmpty {
             do {
                 try await hubRepository.saveHubs(freshHubs)
-                #if DEBUG
                 EnsembleLogger.debug("✅ Cached \(freshHubs.count) hubs for offline use")
-                #endif
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ Failed to cache hubs: \(error)")
-                #endif
             }
         }
 
@@ -596,9 +588,7 @@ public final class SearchViewModel: ObservableObject {
                     )
                 }
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ Failed to fetch moods: \(error)")
-                #endif
             }
         }
 
@@ -611,9 +601,7 @@ public final class SearchViewModel: ObservableObject {
             do {
                 try await moodRepository.saveMoods(moodsToPublish)
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ Failed to cache moods: \(error)")
-                #endif
             }
             unfilteredMoods = moodsToPublish
             applyVisibilityToExploreContent()

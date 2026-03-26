@@ -21,18 +21,14 @@ public final class HubOrderManager {
     /// Save the current hub order for a specific source
     public func saveOrder(_ hubIds: [String], for sourceKey: String) {
         let key = orderKey(for: sourceKey)
-        #if DEBUG
         EnsembleLogger.debug("[HubOrder] Save order key=\(key) count=\(hubIds.count)")
-        #endif
         userDefaults.set(hubIds, forKey: key)
     }
 
     /// Save the default (server) order for a specific source
     public func saveDefaultOrder(_ hubIds: [String], for sourceKey: String) {
         let key = defaultOrderKey(for: sourceKey)
-        #if DEBUG
         EnsembleLogger.debug("[HubOrder] Save default order key=\(key) count=\(hubIds.count)")
-        #endif
         userDefaults.set(hubIds, forKey: key)
     }
     
@@ -40,18 +36,14 @@ public final class HubOrderManager {
     public func loadOrder(for sourceKey: String) -> [String]? {
         let key = orderKey(for: sourceKey)
         let order = userDefaults.array(forKey: key) as? [String]
-        #if DEBUG
         EnsembleLogger.debug("[HubOrder] Load order key=\(key) count=\(order?.count ?? 0)")
-        #endif
         return order
     }
 
     private func loadDefaultOrder(for sourceKey: String) -> [String]? {
         let key = defaultOrderKey(for: sourceKey)
         let order = userDefaults.array(forKey: key) as? [String]
-        #if DEBUG
         EnsembleLogger.debug("[HubOrder] Load default order key=\(key) count=\(order?.count ?? 0)")
-        #endif
         return order
     }
     
@@ -63,9 +55,7 @@ public final class HubOrderManager {
             return hubs
         }
 
-        #if DEBUG
         EnsembleLogger.debug("[HubOrder] Apply order sourceKey=\(sourceKey) hubs=\(hubs.count)")
-        #endif
         
         // Create a map of hub IDs to hubs for quick lookup.
         // Use uniquingKeysWith to safely handle any duplicate IDs that may have
@@ -100,9 +90,7 @@ public final class HubOrderManager {
             return hubs
         }
 
-        #if DEBUG
         EnsembleLogger.debug("[HubOrder] Apply default order sourceKey=\(sourceKey) hubs=\(hubs.count)")
-        #endif
 
         let hubMap = Dictionary(hubs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var reorderedHubs: [Hub] = []
@@ -142,9 +130,7 @@ public final class HubOrderManager {
             }
         }
 
-        #if DEBUG
         EnsembleLogger.debug("[HubOrder] Migrated order for \(sourceKey): \(savedOrder.count) saved -> \(remapped.count) remapped")
-        #endif
 
         saveOrder(remapped, for: sourceKey)
     }
@@ -152,9 +138,7 @@ public final class HubOrderManager {
     /// Reset the saved order for a specific source
     public func resetOrder(for sourceKey: String) {
         let key = orderKey(for: sourceKey)
-        #if DEBUG
         EnsembleLogger.debug("[HubOrder] Reset order key=\(key)")
-        #endif
         userDefaults.removeObject(forKey: key)
     }
 }

@@ -84,9 +84,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         guard !isActive else { return }
         isActive = true
 
-        #if DEBUG
         EnsembleLogger.debug("🔌 WebSocketCoordinator: Starting — accounts=\(accountManager.plexAccounts.count)")
-        #endif
 
         // Connect to current servers
         refreshConnections()
@@ -108,9 +106,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         guard isActive else { return }
         isActive = false
 
-        #if DEBUG
         EnsembleLogger.debug("🔌 WebSocketCoordinator: Stopping")
-        #endif
 
         accountObserver?.cancel()
         accountObserver = nil
@@ -216,9 +212,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         }
         eventTasks[serverKey] = eventTask
 
-        #if DEBUG
         EnsembleLogger.debug("🔌 WebSocketCoordinator: Connected manager for \(serverKey) (\(name)) url=\(url)")
-        #endif
     }
 
     private func removeManager(for serverKey: String) {
@@ -282,9 +276,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
                     }
                 case "ended":
                     serverScanProgress.removeValue(forKey: serverKey)
-                    #if DEBUG
                     EnsembleLogger.debug("🔌 WebSocketCoordinator: Library scan completed for \(serverKey)")
-                    #endif
                     // Find enabled libraries for this server and trigger incremental sync
                     triggerSyncForServer(serverKey: serverKey)
                 default:
@@ -295,16 +287,12 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             // PMS download queue item finished — notify the download service
             // so it can restart its queue if workers have exited.
             if type.contains("media.download") && event == "ended" {
-                #if DEBUG
                 EnsembleLogger.debug("🔌 WebSocketCoordinator: Download queue completed for \(serverKey) (progress=\(progress))")
-                #endif
                 await onDownloadQueueCompleted?()
             }
 
         case .serverShutdown:
-            #if DEBUG
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Server shutdown for \(serverKey)")
-            #endif
             // Mark server offline immediately
             await connectionRegistry.removeEndpoint(for: serverKey)
             await onServerOffline?(serverKey)
@@ -330,9 +318,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64((self?.libraryUpdateDebounce ?? 3.0) * 1_000_000_000))
             guard !Task.isCancelled else { return }
 
-            #if DEBUG
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Triggering incremental sync for section \(sectionKey)")
-            #endif
 
             if let onLibraryUpdate = await self?.onLibraryUpdate {
                 await onLibraryUpdate(sectionKey)
@@ -352,9 +338,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64((self?.playlistUpdateDebounce ?? 5.0) * 1_000_000_000))
             guard !Task.isCancelled else { return }
 
-            #if DEBUG
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Triggering playlist sync for server \(serverKey)")
-            #endif
 
             if let onPlaylistUpdate = await self?.onPlaylistUpdate {
                 await onPlaylistUpdate(serverKey)
@@ -371,9 +355,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64((self?.settingsUpdateDebounce ?? 5.0) * 1_000_000_000))
             guard !Task.isCancelled else { return }
 
-            #if DEBUG
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Settings changed for \(serverKey) (debounced)")
-            #endif
         }
     }
 

@@ -142,9 +142,7 @@ public final class LibraryViewModel: ObservableObject {
             .dropFirst()
             .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
             .sink { [weak self] statuses in
-                #if DEBUG
                 EnsembleLogger.debug("📚 LibraryViewModel: sourceStatuses changed — \(statuses.map { "\($0.key.compositeKey): \($0.value.syncStatus)" })")
-                #endif
                 Task { @MainActor in
                     await self?.loadLibrary()
                 }
@@ -439,24 +437,18 @@ public final class LibraryViewModel: ObservableObject {
     
     /// Refresh from server (incremental sync) if online, otherwise load from cache
     public func refreshFromServer() async {
-        #if DEBUG
         EnsembleLogger.debug("🔄 LibraryViewModel.refreshFromServer() called")
-        #endif
 
         // Check if offline
         if syncCoordinator.isOffline {
-            #if DEBUG
             EnsembleLogger.debug("📴 Offline - loading from cache only")
-            #endif
             await loadLibrary()
             return
         }
 
         // Check if sync is already in progress
         if syncCoordinator.isSyncing {
-            #if DEBUG
             EnsembleLogger.debug("⏳ Sync already in progress - waiting for it to complete")
-            #endif
             toastCenter.show(
                 ToastPayload(
                     style: .info,
@@ -475,18 +467,14 @@ public final class LibraryViewModel: ObservableObject {
         // Run sync in a detached task to avoid SwiftUI's .refreshable cancellation
         // SwiftUI can cancel the refreshable task when the view updates, but we want
         // the sync to complete regardless
-        #if DEBUG
         EnsembleLogger.debug("🔄 Starting incremental sync (detached)...")
-        #endif
         await withCheckedContinuation { continuation in
             Task.detached { [syncCoordinator] in
                 await syncCoordinator.syncAllIncremental()
                 continuation.resume()
             }
         }
-        #if DEBUG
         EnsembleLogger.debug("✅ Incremental sync complete")
-        #endif
 
         // Reload from updated cache
         await loadLibrary()

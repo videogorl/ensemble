@@ -143,9 +143,7 @@ public final class AudioPlaybackEngine {
 
         isSetUp = true
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Graph built (playerNode -> mixer -> output)")
-        #endif
     }
 
     // MARK: - Graph Building
@@ -181,9 +179,7 @@ public final class AudioPlaybackEngine {
         let position = currentTime()
         let wasActive = wasPlaying
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Configuration change detected at \(String(format: "%.1f", position))s, wasPlaying=\(wasActive)")
-        #endif
 
         // Rebuild the graph with current file's format
         buildGraph(format: currentFile?.processingFormat)
@@ -240,9 +236,7 @@ public final class AudioPlaybackEngine {
                 startTimeUpdates(from: position)
             }
 
-            #if DEBUG
             EnsembleLogger.debug("[AudioEngine] Route change recovery complete")
-            #endif
         } catch {
             EnsembleLogger.error("[AudioEngine] Route change recovery failed: \(error.localizedDescription)")
             onError?(error)
@@ -324,9 +318,7 @@ public final class AudioPlaybackEngine {
         AudioUnitSetProperty(au, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0,
                              &maxFrames, UInt32(MemoryLayout<UInt32>.size))
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] AU format configured: \(format)")
-        #endif
     }
 
     /// Load the v0 neural network model into the AUSoundIsolation unit.
@@ -389,10 +381,8 @@ public final class AudioPlaybackEngine {
         }
 
         guard let plistPath = loadedPlistPath, let basePath = loadedBasePath else {
-            #if DEBUG
             let checkedPaths = modelSearchPaths.map { $0.plist }
             EnsembleLogger.debug("[AudioEngine] No v0 model found — AU will use default (poor quality). Checked: \(checkedPaths)")
-            #endif
             return
         }
 
@@ -408,9 +398,7 @@ public final class AudioPlaybackEngine {
 
         musicModelLoaded = true
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] v0 model loaded from: \(plistPath), base: \(basePath)")
-        #endif
     }
 
     /// Set a CFString property on an AudioUnit, avoiding the UnsafeRawPointer warning.
@@ -441,9 +429,7 @@ public final class AudioPlaybackEngine {
         isIsolationActive = enabled
         applyIsolationParameters()
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Isolation \(enabled ? "enabled" : "disabled")")
-        #endif
     }
 
     /// Wire the isolation effect into the audio graph for the first time.
@@ -570,16 +556,13 @@ public final class AudioPlaybackEngine {
         }
         AudioUnitSetParameter(au, 0, kAudioUnitScope_Global, 0, wetDryValue, 0)
 
-        #if DEBUG
         var wetDry: AudioUnitParameterValue = -999
         var isolate: AudioUnitParameterValue = -999
         AudioUnitGetParameter(au, 0, kAudioUnitScope_Global, 0, &wetDry)
         AudioUnitGetParameter(au, 1, kAudioUnitScope_Global, 0, &isolate)
         EnsembleLogger.debug("[AudioEngine] Isolation params: wetDry=\(wetDry), soundToIsolate=\(isolate), active=\(isIsolationActive), bypass=\(bypass), modelLoaded=\(musicModelLoaded)")
-        #endif
     }
 
-    #if DEBUG
     /// Dump all parameters exposed by the AU via both the C API and the AUParameterTree.
     private func dumpAUParameters(au: AudioUnit, label: String) {
         EnsembleLogger.debug("[AudioEngine] === Parameter dump (\(label)) ===")
@@ -604,7 +587,6 @@ public final class AudioPlaybackEngine {
         }
         EnsembleLogger.debug("[AudioEngine] === End parameter dump ===")
     }
-    #endif
 
     // MARK: - File Loading
 
@@ -646,9 +628,7 @@ public final class AudioPlaybackEngine {
             }
         }
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Loaded: \(fileURL.lastPathComponent), rate=\(sampleRate), frames=\(file.length), duration=\(String(format: "%.1f", fileDuration))s, trackId=\(trackId)")
-        #endif
     }
 
     // MARK: - Gapless Scheduling
@@ -685,9 +665,7 @@ public final class AudioPlaybackEngine {
 
         scheduledFiles.append((file: file, trackId: trackId, generation: myGeneration))
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Scheduled next: \(fileURL.lastPathComponent), trackId=\(trackId), queueDepth=\(scheduledFiles.count)")
-        #endif
     }
 
     /// Remove all pending gapless files from the schedule.
@@ -697,9 +675,7 @@ public final class AudioPlaybackEngine {
         scheduleGeneration &+= 1
         scheduledFiles.removeAll()
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Cleared scheduled files")
-        #endif
     }
 
     // MARK: - Playback Control
@@ -748,9 +724,7 @@ public final class AudioPlaybackEngine {
         wasPlaying = true
         startTimeUpdates(from: time)
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Playing from \(String(format: "%.1f", time))s (frame \(startFrame)/\(totalFrames))")
-        #endif
     }
 
     /// Pause playback and stop the engine.
@@ -769,9 +743,7 @@ public final class AudioPlaybackEngine {
         if engine.isRunning {
             engine.stop()
         }
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Paused (engine stopped)")
-        #endif
     }
 
     /// Resume playback after pause.
@@ -787,9 +759,7 @@ public final class AudioPlaybackEngine {
         playerNode.play()
         wasPlaying = true
         startTimeUpdates()
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Resumed")
-        #endif
     }
 
     /// Stop playback, reset position, and stop the engine.
@@ -805,9 +775,7 @@ public final class AudioPlaybackEngine {
         playerTimeBaseOffset = 0
         scheduledFiles.removeAll()
         currentTimeSubject.send(0)
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Stopped")
-        #endif
     }
 
     /// Seek to a new position within the current file.
@@ -871,9 +839,7 @@ public final class AudioPlaybackEngine {
 
         // Update time immediately for responsive UI
         currentTimeSubject.send(time)
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Seeked to \(String(format: "%.1f", time))s")
-        #endif
     }
 
     // MARK: - Time Tracking
@@ -937,9 +903,7 @@ public final class AudioPlaybackEngine {
     /// If no files remain, fire onPlaybackComplete.
     private func handleSegmentComplete(generation: UInt64) {
         guard generation == scheduleGeneration else {
-            #if DEBUG
             EnsembleLogger.debug("[AudioEngine] Ignoring stale completion (gen \(generation) vs current \(scheduleGeneration))")
-            #endif
             return
         }
         guard wasPlaying else { return }
@@ -963,18 +927,14 @@ public final class AudioPlaybackEngine {
             // Re-anchor wall-clock estimation for the new track (position ≈ 0)
             captureWallTimeBase(position: 0)
 
-            #if DEBUG
             EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
-            #endif
 
             onTrackAdvance?(next.trackId)
         } else {
             // Queue exhausted
             wasPlaying = false
             stopTimeUpdates()
-            #if DEBUG
             EnsembleLogger.debug("[AudioEngine] All segments complete -- queue exhausted")
-            #endif
             onPlaybackComplete?()
         }
     }
@@ -1004,18 +964,14 @@ public final class AudioPlaybackEngine {
             // Re-anchor wall-clock estimation for the new track (position ≈ 0)
             captureWallTimeBase(position: 0)
 
-            #if DEBUG
             EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
-            #endif
 
             onTrackAdvance?(next.trackId)
         } else {
             // No more files
             wasPlaying = false
             stopTimeUpdates()
-            #if DEBUG
             EnsembleLogger.debug("[AudioEngine] All segments complete -- queue exhausted")
-            #endif
             onPlaybackComplete?()
         }
     }
