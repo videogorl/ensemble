@@ -495,6 +495,17 @@ public final class DependencyContainer: @unchecked Sendable {
     }
 
     @MainActor
+    public func makeMergedPlaylistDetailViewModel(displayPlaylist: DisplayPlaylist) -> MergedPlaylistDetailViewModel {
+        MergedPlaylistDetailViewModel(
+            displayPlaylist: displayPlaylist,
+            playlistRepository: playlistRepository,
+            accountManager: accountManager,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: mutationCoordinator
+        )
+    }
+
+    @MainActor
     public func makeSearchViewModel() -> SearchViewModel {
         SearchViewModel(
             libraryRepository: libraryRepository,

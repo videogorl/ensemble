@@ -20,6 +20,21 @@ public final class PlaylistViewModel: ObservableObject {
     /// Sorted playlist list used by large-screen sidebar navigation.
     @Published public private(set) var sortedPlaylists: [Playlist] = []
 
+    // MARK: - Merge Support
+
+    /// Whether cross-server playlist merging is enabled (persisted via SettingsManager)
+    @Published public var isMergeEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(isMergeEnabled, forKey: "playlistMergeEnabled")
+        }
+    }
+    /// Merge-aware playlist list for the UI — groups same-named playlists when merge is on
+    @Published public private(set) var displayPlaylists: [DisplayPlaylist] = []
+    /// Merge-aware sorted list for the macOS sidebar
+    @Published public private(set) var sortedDisplayPlaylists: [DisplayPlaylist] = []
+    /// Titles that appear on 2+ servers (used for showing server name chips when merge is off)
+    public private(set) var nameCollisionTitles: Set<String> = []
+
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let mutationCoordinator: MutationCoordinator
@@ -38,6 +53,7 @@ public final class PlaylistViewModel: ObservableObject {
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
         self.toastCenter = toastCenter
+        self.isMergeEnabled = UserDefaults.standard.bool(forKey: "playlistMergeEnabled")
         let savedFilters = FilterPersistence.load(for: "Playlists")
         self.filterOptions = savedFilters
 
@@ -52,6 +68,10 @@ public final class PlaylistViewModel: ObservableObject {
         // Cache sorted+filtered playlists so they aren't recomputed on every SwiftUI body access
         setupFilteredPlaylistsPipeline()
         setupSortedPlaylistsPipeline()
+
+        // Merge-aware pipelines that group playlists into DisplayPlaylist entries
+        setupDisplayPlaylistsPipeline()
+        setupSortedDisplayPlaylistsPipeline()
 
         // Auto-reload when sync completes
         syncCoordinator.$isSyncing
@@ -273,6 +293,66 @@ public final class PlaylistViewModel: ObservableObject {
         .store(in: &cancellables)
     }
 
+    // MARK: - Merge Pipelines
+
+    /// Downstream pipeline: groups filteredPlaylists into DisplayPlaylist entries based on merge toggle
+    private func setupDisplayPlaylistsPipeline() {
+        Publishers.CombineLatest($filteredPlaylists, $isMergeEnabled)
+            .debounce(for: .milliseconds(50), scheduler: Self.computeQueue)
+            .map { playlists, merge -> [DisplayPlaylist] in
+                DisplayPlaylist.group(playlists, merge: merge)
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.displayPlaylists = $0 }
+            .store(in: &cancellables)
+    }
+
+    /// Downstream pipeline: groups sortedPlaylists for the macOS sidebar
+    private func setupSortedDisplayPlaylistsPipeline() {
+        Publishers.CombineLatest($sortedPlaylists, $isMergeEnabled)
+            .debounce(for: .milliseconds(50), scheduler: Self.computeQueue)
+            .map { playlists, merge -> [DisplayPlaylist] in
+                DisplayPlaylist.group(playlists, merge: merge)
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.sortedDisplayPlaylists = $0 }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - Merge Helpers
+
+    /// Toggles the cross-server merge setting
+    public func toggleMerge() {
+        isMergeEnabled.toggle()
+    }
+
+    /// Whether a playlist title has name collisions across servers (for showing server chips)
+    public func hasNameCollision(_ title: String) -> Bool {
+        nameCollisionTitles.contains(title)
+    }
+
+    /// Checks if a DisplayPlaylist contains any pending-creation playlists
+    public func isDisplayPlaylistPendingCreation(_ dp: DisplayPlaylist) -> Bool {
+        dp.playlists.contains { Self.isOptimisticCreatingPlaylistID($0.id) }
+    }
+
+    /// Deletes all constituent playlists in a merged DisplayPlaylist
+    public func deleteMergedPlaylist(_ dp: DisplayPlaylist) async -> Bool {
+        var allSucceeded = true
+        for playlist in dp.playlists {
+            let success = await deletePlaylist(playlist)
+            if !success { allSucceeded = false }
+        }
+        return allSucceeded
+    }
+
+    /// Applies optimistic rename to all constituents of a merged DisplayPlaylist
+    public func applyOptimisticRenameForMerged(_ dp: DisplayPlaylist, newTitle: String) {
+        for playlist in dp.playlists {
+            applyOptimisticRename(forPlaylistID: playlist.id, newTitle: newTitle)
+        }
+    }
+
     private func reloadPlaylists(showLoading: Bool) async {
         if showLoading {
             isLoading = true
@@ -294,6 +374,7 @@ public final class PlaylistViewModel: ObservableObject {
                 EnsembleLogger.debug("📋 PlaylistViewModel: skipping empty reload result (preserving \(self.playlists.count) existing playlists)")
             } else {
                 playlists = merged
+                nameCollisionTitles = DisplayPlaylist.detectNameCollisions(merged)
             }
         } catch {
             self.error = error.localizedDescription
