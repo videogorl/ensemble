@@ -1105,7 +1105,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             EnsembleLogger.debug("[AudioEngine] Track advance: trackId \(trackId) not found in queue")
             return
         }
-        guard currentQueueIndex != index else { return }
+        guard currentQueueIndex != index else {
+            EnsembleLogger.debug("[AudioEngine] Track advance: already at index \(index) for trackId \(trackId)")
+            return
+        }
+        let prevTrack = currentTrack?.title ?? "nil"
+        EnsembleLogger.playback("GAPLESS_ADVANCE: '\(prevTrack)' (idx \(currentQueueIndex)) → '\(queue[index].track.title)' (idx \(index))")
 
         // Record previous track to history
         if !isNavigatingBackward, currentQueueIndex >= 0, currentQueueIndex < queue.count {
