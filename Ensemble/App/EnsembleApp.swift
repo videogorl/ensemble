@@ -170,8 +170,9 @@ struct EnsembleApp: App {
                 await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
 
             case .background:
-                // End persistent log session (flushes + closes the file)
-                DependencyContainer.shared.persistentLogService.endSession()
+                // Flush log session to disk but keep the file handle open so
+                // logs continue capturing during background audio playback.
+                DependencyContainer.shared.persistentLogService.flushSession()
 
                 // Stop network monitoring and WebSocket connections to save battery.
                 // Without this, WebSocket reconnect loops burn ~30% network while idle.
@@ -270,8 +271,9 @@ struct EnsembleApp: App {
                     }
                 }
             case .background:
-                // End persistent log session (flushes + closes the file)
-                DependencyContainer.shared.persistentLogService.endSession()
+                // Flush log session to disk but keep the file handle open so
+                // logs continue capturing during background activity.
+                DependencyContainer.shared.persistentLogService.flushSession()
 
                 // Stop monitoring when app goes to background (macOS)
                 DependencyContainer.shared.networkMonitor.stopMonitoring()

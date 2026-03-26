@@ -42,6 +42,9 @@ public final class PersistentLogService: ObservableObject {
     /// UserDefaults key for the logging toggle.
     private static let enabledKey = "persistentLoggingEnabled"
 
+    /// URL of the current session's log file (survives close/reopen cycles).
+    private var currentSessionURL: URL?
+
     // MARK: - File Writer (thread-safe, owns file handle)
 
     /// Encapsulates all file I/O on a serial queue. This is the only
@@ -80,6 +83,7 @@ public final class PersistentLogService: ObservableObject {
             UserDefaults.standard.set(newValue, forKey: Self.enabledKey)
             if !newValue {
                 writer.close()
+                currentSessionURL = nil
             }
         }
     }
@@ -102,6 +106,7 @@ public final class PersistentLogService: ObservableObject {
         let now = Date()
         let filename = "session-\(Self.filenameDateFormatter.string(from: now)).log"
         let fileURL = Self.logsDirectory.appendingPathComponent(filename)
+        currentSessionURL = fileURL
 
         // Build session header
         let header = buildSessionHeader(startDate: now)
@@ -113,11 +118,19 @@ public final class PersistentLogService: ObservableObject {
         loadSessions()
     }
 
-    /// End the current session. Called when the app goes to background.
+    /// End the current session. Called when logging is disabled or sessions are deleted.
     /// Flushes and closes the file handle.
     public func endSession() {
         writer.close()
+        currentSessionURL = nil
         loadSessions()
+    }
+
+    /// Flush the current session to disk without closing the file handle.
+    /// Called when the app goes to background so logs continue capturing
+    /// during background audio playback and other background activity.
+    public func flushSession() {
+        writer.flush()
     }
 
     // MARK: - Session Management
@@ -317,6 +330,15 @@ private final class LogFileWriter: @unchecked Sendable {
             fileHandle = nil
             currentURL = nil
             writeCount = 0
+        }
+    }
+
+    /// Flush pending writes to disk without closing the handle.
+    /// Keeps the file open so logging continues during background activity.
+    func flush() {
+        queue.async { [weak self] in
+            self?.fileHandle?.synchronizeFile()
+            self?.writeCount = 0
         }
     }
 

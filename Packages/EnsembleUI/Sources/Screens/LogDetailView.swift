@@ -2,7 +2,8 @@ import EnsembleCore
 import SwiftUI
 
 /// Displays the full text content of a log session file.
-/// Provides a share button to export the log via the system share sheet.
+/// Provides share and refresh buttons. The refresh button reloads
+/// the file from disk so you can watch a live session grow.
 public struct LogDetailView: View {
     let session: LogSession
 
@@ -45,18 +46,32 @@ public struct LogDetailView: View {
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    ShareSheetPresenter.present(items: [session.fileURL])
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
+                HStack(spacing: 12) {
+                    Button {
+                        loadLogContent()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    Button {
+                        ShareSheetPresenter.present(items: [session.fileURL])
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
                 }
             }
             #else
             ToolbarItem(placement: .automatic) {
-                Button {
-                    ShareSheetPresenter.present(items: [session.fileURL])
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
+                HStack(spacing: 12) {
+                    Button {
+                        loadLogContent()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    Button {
+                        ShareSheetPresenter.present(items: [session.fileURL])
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
                 }
             }
             #endif
