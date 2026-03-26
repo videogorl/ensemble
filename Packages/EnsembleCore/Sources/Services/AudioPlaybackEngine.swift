@@ -638,6 +638,11 @@ public final class AudioPlaybackEngine {
         scheduledFiles.contains { $0.trackId == trackId }
     }
 
+    /// IDs of all tracks currently in the gapless schedule queue.
+    var scheduledTrackIds: Set<String> {
+        Set(scheduledFiles.map(\.trackId))
+    }
+
     /// Schedule the next file for gapless playback. Uses AVAudioPlayerNode's FIFO queue --
     /// the segment plays immediately after the current segment finishes, with zero gap.
     /// Call this during prefetch to ensure seamless transitions.
@@ -670,12 +675,72 @@ public final class AudioPlaybackEngine {
 
     /// Remove all pending gapless files from the schedule.
     /// Called when the queue changes (skip, shuffle, etc.) to prevent stale transitions.
+    ///
+    /// This flushes the playerNode's actual FIFO queue (via stop + re-schedule) so
+    /// that orphaned audio segments don't play after our tracking array is cleared.
+    /// Without the flush, a desync between the FIFO and `scheduledFiles` causes the
+    /// primary segment's completion handler to be silently ignored (stale generation),
+    /// leaving the UI one track behind the audio.
     func clearScheduledFiles() {
-        // Bump generation so pending completion handlers are ignored
-        scheduleGeneration &+= 1
+        let hadScheduledFiles = !scheduledFiles.isEmpty
         scheduledFiles.removeAll()
 
-        EnsembleLogger.debug("[AudioEngine] Cleared scheduled files")
+        // If nothing was scheduled, just bump generation and return — no FIFO to flush
+        guard hadScheduledFiles, let file = currentFile else {
+            scheduleGeneration &+= 1
+            EnsembleLogger.debug("[AudioEngine] Cleared scheduled files (nothing queued)")
+            return
+        }
+
+        // Capture position before stopping so we can re-anchor seamlessly
+        let position = currentTime()
+        let wasActive = wasPlaying || playerNode.isPlaying
+
+        // Bump generation AFTER capturing position — this invalidates all pending
+        // completion handlers (both primary segment and gapless entries)
+        scheduleGeneration &+= 1
+        let myGeneration = scheduleGeneration
+
+        // Flush the playerNode's entire FIFO (removes orphaned audio segments)
+        playerNode.stop()
+        playerTimeBaseOffset = 0
+
+        // Re-schedule only the current track from the current position
+        let startFrame = AVAudioFramePosition(position * sampleRate)
+        let totalFrames = file.length
+        guard startFrame < totalFrames else {
+            // Current track already at/past end — let natural completion handle it
+            EnsembleLogger.debug("[AudioEngine] Cleared scheduled files (track at end)")
+            onPlaybackComplete?()
+            return
+        }
+
+        seekFrameOffset = startFrame
+        let frameCount = AVAudioFrameCount(totalFrames - startFrame)
+
+        playerNode.scheduleSegment(
+            file,
+            startingFrame: startFrame,
+            frameCount: frameCount,
+            at: nil
+        ) { [weak self] in
+            DispatchQueue.main.async {
+                self?.handleSegmentComplete(generation: myGeneration)
+            }
+        }
+
+        // Resume playback if it was active — the gap is imperceptible (microseconds)
+        if wasActive {
+            if !engine.isRunning {
+                try? engine.start()
+                applyIsolationParameters()
+            }
+            playerNode.play()
+            wasPlaying = true
+            startTimeUpdates(from: position)
+        }
+
+        EnsembleLogger.debug("[AudioEngine] Cleared scheduled files (flushed FIFO, re-anchored at \(String(format: "%.1f", position))s)")
     }
 
     // MARK: - Playback Control
@@ -903,10 +968,13 @@ public final class AudioPlaybackEngine {
     /// If no files remain, fire onPlaybackComplete.
     private func handleSegmentComplete(generation: UInt64) {
         guard generation == scheduleGeneration else {
-            EnsembleLogger.debug("[AudioEngine] Ignoring stale completion (gen \(generation) vs current \(scheduleGeneration))")
+            EnsembleLogger.debug("[AudioEngine] Ignoring stale segment completion (gen \(generation) vs current \(scheduleGeneration))")
             return
         }
-        guard wasPlaying else { return }
+        guard wasPlaying else {
+            EnsembleLogger.debug("[AudioEngine] Segment complete ignored — wasPlaying=false")
+            return
+        }
 
         if let next = scheduledFiles.first {
             // Gapless advance: capture the current playerTime as the new base.
@@ -944,8 +1012,14 @@ public final class AudioPlaybackEngine {
     /// to by handleSegmentComplete). Used for chaining further gapless transitions.
     private func handleScheduledFileComplete(trackId: String, generation: UInt64) {
         // Stale check -- if generation doesn't match, this was from a cleared schedule
-        guard generation == scheduleGeneration else { return }
-        guard wasPlaying else { return }
+        guard generation == scheduleGeneration else {
+            EnsembleLogger.debug("[AudioEngine] Ignoring stale gapless completion for trackId=\(trackId) (gen \(generation) vs current \(scheduleGeneration))")
+            return
+        }
+        guard wasPlaying else {
+            EnsembleLogger.debug("[AudioEngine] Gapless completion ignored — wasPlaying=false, trackId=\(trackId)")
+            return
+        }
 
         if let next = scheduledFiles.first {
             // Capture playerTime base for the next segment

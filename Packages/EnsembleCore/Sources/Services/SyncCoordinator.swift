@@ -1194,6 +1194,49 @@ public final class SyncCoordinator: ObservableObject {
         throw PlexAPIError.noServerSelected
     }
 
+    // MARK: - Two-Phase Stream Resolution
+
+    /// Phase 1: Make a streaming decision for a track without embedding the server endpoint URL.
+    /// The returned `StreamDecision` can be cached across network transitions — it captures
+    /// codec, quality, and session parameters that don't change when the endpoint changes.
+    public func makeStreamDecision(for track: Track, quality: StreamingQuality = .original) async throws -> StreamDecision {
+        if let sourceKey = await resolvedTrackSourceCompositeKey(for: track),
+           let provider = syncProviders[sourceKey] as? PlexMusicSourceSyncProvider {
+            return try await provider.makeStreamDecision(
+                for: track.id, trackStreamKey: track.streamKey,
+                quality: quality, metadataDurationSeconds: track.duration
+            )
+        }
+
+        // Fallback: try any available provider
+        if let provider = syncProviders.values.first as? PlexMusicSourceSyncProvider {
+            return try await provider.makeStreamDecision(
+                for: track.id, trackStreamKey: track.streamKey,
+                quality: quality, metadataDurationSeconds: track.duration
+            )
+        }
+
+        throw PlexAPIError.noServerSelected
+    }
+
+    /// Phase 2: Assemble a `StreamResolution` from a cached `StreamDecision` using the
+    /// current server endpoint. Call this at download start time for a fresh URL.
+    /// This is a lightweight operation (no network calls) — the endpoint is read from
+    /// `ServerConnectionRegistry` at assembly time.
+    public func assembleStreamResolution(for track: Track, from decision: StreamDecision) async throws -> StreamResolution {
+        if let sourceKey = await resolvedTrackSourceCompositeKey(for: track),
+           let provider = syncProviders[sourceKey] as? PlexMusicSourceSyncProvider {
+            return try await provider.assembleStreamResolution(from: decision)
+        }
+
+        // Fallback: try any available provider
+        if let provider = syncProviders.values.first as? PlexMusicSourceSyncProvider {
+            return try await provider.assembleStreamResolution(from: decision)
+        }
+
+        throw PlexAPIError.noServerSelected
+    }
+
     /// Get a download URL for offline use, skipping the transcode decision endpoint.
     /// Routes through the provider's dedicated download path which avoids the unnecessary
     /// HTTP roundtrip that the streaming path requires for AVPlayer session warmup.

@@ -2,6 +2,24 @@ import AVFoundation
 import EnsembleAPI
 import Foundation
 
+// MARK: - Stream Download Errors
+
+/// Errors detected during progressive stream download (HTTP status, payload validation).
+/// Surfaced to PlaybackService via `onDownloadFailed` for user-facing error mapping.
+enum ProgressiveStreamError: Error, LocalizedError {
+    case httpError(statusCode: Int, bodySnippet: String?)
+    case invalidPayload(bytesReceived: Int64)
+
+    var errorDescription: String? {
+        switch self {
+        case .httpError(let code, let snippet):
+            return "Server returned HTTP \(code)" + (snippet.map { ": \($0)" } ?? "")
+        case .invalidPayload(let bytes):
+            return "Server returned invalid audio data (\(bytes) bytes)"
+        }
+    }
+}
+
 /// Bridges PMS's chunked transcode stream (`Transfer-Encoding: chunked`, no `Content-Length`)
 /// to AVPlayer via `AVAssetResourceLoaderDelegate`. Data is written to a growing temp file
 /// and served to AVPlayer as it arrives, giving ~1-2s startup instead of waiting for the
@@ -36,6 +54,10 @@ final class ProgressiveStreamLoader: NSObject, @unchecked Sendable {
     /// Use this for XING header injection and frequency analysis.
     var onDownloadComplete: ((URL, Double?) -> Void)?
 
+    /// Called when the download fails (HTTP error, invalid payload, etc.).
+    /// Parallel to `onDownloadComplete` — exactly one of the two fires.
+    var onDownloadFailed: ((Error) -> Void)?
+
     // MARK: - Properties
 
     /// Serial queue shared by both AVAssetResourceLoader and URLSession delegate callbacks.
@@ -51,7 +73,13 @@ final class ProgressiveStreamLoader: NSObject, @unchecked Sendable {
     private var _bytesWritten: Int64 = 0
     private var _isComplete = false
     private var _error: Error?
+    private var _httpStatusCode: Int?
     private var pendingRequests: [AVAssetResourceLoadingRequest] = []
+
+    /// Buffer for capturing HTTP error response body (up to 1KB) for diagnostics.
+    /// Only used when server returns non-2xx — prevents writing HTML to the audio temp file.
+    private var _errorBodyBuffer = Data()
+    private let maxErrorBodySize = 1024
 
     private let contentType: String
     private let estimatedContentLength: Int64
@@ -76,11 +104,26 @@ final class ProgressiveStreamLoader: NSObject, @unchecked Sendable {
         set { lock.lock(); defer { lock.unlock() }; _error = newValue }
     }
 
+    private var httpStatusCode: Int? {
+        get { lock.lock(); defer { lock.unlock() }; return _httpStatusCode }
+        set { lock.lock(); defer { lock.unlock() }; _httpStatusCode = newValue }
+    }
+
+    /// Whether the server returned a non-2xx HTTP status (thread-safe)
+    private var isHTTPError: Bool {
+        guard let code = httpStatusCode else { return false }
+        return !(200...299).contains(code)
+    }
+
     /// Current downloaded file size in bytes (thread-safe)
     var currentFileSize: Int64 { bytesWritten }
 
-    /// Whether the download has completed successfully (thread-safe)
+    /// Whether the download has finished (success or failure) (thread-safe)
     var isDownloadComplete: Bool { isComplete }
+
+    /// The error that caused the download to fail, if any (thread-safe).
+    /// Non-nil when the server returned a non-2xx HTTP status or the payload was invalid.
+    var completionError: Error? { downloadError }
 
     /// The local temp file URL where the stream is being written
     var localFileURL: URL { fileURL }
@@ -292,8 +335,48 @@ extension ProgressiveStreamLoader: AVAssetResourceLoaderDelegate {
 
 extension ProgressiveStreamLoader: URLSessionDataDelegate {
 
+    /// Capture HTTP status code before data arrives.
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        if let httpResponse = response as? HTTPURLResponse {
+            httpStatusCode = httpResponse.statusCode
+
+            if !(200...299).contains(httpResponse.statusCode) {
+                // Non-2xx: allow data to flow so we can capture body for diagnostics,
+                // but pre-set the error. Body snippet gets populated in didReceive data.
+                downloadError = ProgressiveStreamError.httpError(
+                    statusCode: httpResponse.statusCode,
+                    bodySnippet: nil
+                )
+                EnsembleLogger.debug("📡 ProgressiveStreamLoader: HTTP \(httpResponse.statusCode) for \(ratingKey)")
+            }
+        }
+        completionHandler(.allow)
+    }
+
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        // Append to temp file
+        // If server returned an error, capture body for diagnostics instead of writing to audio file
+        if isHTTPError {
+            lock.lock()
+            let currentSize = _errorBodyBuffer.count
+            lock.unlock()
+
+            if currentSize < maxErrorBodySize {
+                let bytesToCapture = min(data.count, maxErrorBodySize - currentSize)
+                lock.lock()
+                _errorBodyBuffer.append(data.prefix(bytesToCapture))
+                lock.unlock()
+            }
+            // Cancel the task — we have enough diagnostic data
+            self.dataTask?.cancel()
+            return
+        }
+
+        // Normal path: append to temp file
         writeHandle?.write(data)
 
         lock.lock()
@@ -312,8 +395,35 @@ extension ProgressiveStreamLoader: URLSessionDataDelegate {
         writeHandle?.closeFile()
         writeHandle = nil
 
+        // Check if we pre-set an HTTP error (non-2xx status)
+        let presetError = downloadError
+
+        if let presetError = presetError {
+            // HTTP error path — update the error with the captured body snippet
+            lock.lock()
+            let bodyData = _errorBodyBuffer
+            _isComplete = true
+            lock.unlock()
+
+            let bodySnippet = String(data: bodyData.prefix(200), encoding: .utf8)
+            if case .httpError(let code, _) = presetError as? ProgressiveStreamError {
+                downloadError = ProgressiveStreamError.httpError(statusCode: code, bodySnippet: bodySnippet)
+                #if DEBUG
+                EnsembleLogger.debug("📡 ProgressiveStreamLoader: HTTP \(code) body for \(ratingKey): \(bodySnippet ?? "<binary>")")
+                #endif
+            }
+
+            // Fail pending AVPlayer requests
+            delegateQueue.async { [weak self] in
+                self?.failPendingRequests()
+            }
+
+            onDownloadFailed?(downloadError!)
+            return
+        }
+
         if let error = error {
-            // Don't log cancellation as an error
+            // Transport error (not from our cancellation of an HTTP error)
             if (error as NSError).code != NSURLErrorCancelled {
                 downloadError = error
                 EnsembleLogger.debug("📡 ProgressiveStreamLoader: download failed for \(ratingKey): \(error.localizedDescription)")
@@ -330,10 +440,37 @@ extension ProgressiveStreamLoader: URLSessionDataDelegate {
             self?.processPendingRequests()
         }
 
-        // Notify caller for post-download processing (XING injection, frequency analysis)
+        // Validate payload before reporting success
         if error == nil {
+            // Check for suspiciously small files (likely error pages, not audio)
+            if written < 256 {
+                let validationError = ProgressiveStreamError.invalidPayload(bytesReceived: written)
+                downloadError = validationError
+                EnsembleLogger.debug("📡 ProgressiveStreamLoader: invalid payload for \(ratingKey) — only \(written) bytes")
+                onDownloadFailed?(validationError)
+                return
+            }
+
             EnsembleLogger.debug("📡 ProgressiveStreamLoader: download complete for \(ratingKey) (\(written) bytes)")
             onDownloadComplete?(fileURL, metadataDuration)
+        } else if downloadError != nil {
+            // Transport error — notify failure
+            onDownloadFailed?(downloadError!)
+        }
+    }
+
+    /// Fail all pending AVPlayer loading requests with the current download error.
+    private func failPendingRequests() {
+        lock.lock()
+        let pending = pendingRequests
+        pendingRequests.removeAll()
+        lock.unlock()
+
+        let error = downloadError ?? NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
+        for request in pending {
+            if !request.isFinished && !request.isCancelled {
+                request.finishLoading(with: error)
+            }
         }
     }
 }
