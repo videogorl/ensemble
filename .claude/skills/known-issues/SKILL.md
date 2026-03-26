@@ -20,6 +20,20 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Resolved Issues
 
+### Playback Stutter During Bulk Downloads (Mar 26, 2026)
+- **Location:** `PlaybackService.swift` (`refreshQueueDownloadState`)
+- **Issue:** Every download completion posted `downloadsDidChange` → `refreshQueueDownloadState()` detected localFilePath changes → called `audioEngine.clearScheduledFiles()` unconditionally → `playerNode.stop()` flushed the entire FIFO including currently-playing audio buffer → audible stutter every 3-8 seconds during bulk downloads.
+- **Root cause:** `clearScheduledFiles()` was called whenever ANY queue item's download state changed, not just gaplessly-scheduled items. During bulk downloads with 20+ tracks, nearly every completion triggered a FIFO flush even though only the next gapless track needed re-scheduling.
+- **Fix:** Collect changed track IDs during the queue scan and check intersection with `audioEngine.scheduledTrackIds`. Only flush FIFO + re-prefetch when a gaplessly-scheduled track actually changed. Non-scheduled track changes update metadata silently.
+- **Key files:** `PlaybackService.swift`
+
+### Download Worker Context Invalidation (Mar 26, 2026)
+- **Location:** `OfflineDownloadService.swift` (`process(download:)`)
+- **Issue:** Download workers held references to `CDTrack`/`CDDownload` managed objects across async boundaries. When `viewContext.reset()` ran during incremental sync, these references became invalidated — property access returned default/empty values, causing files to be stored as `_unknown_medium.mp3` and `completeDownload()` to throw "object not found".
+- **Root cause:** `viewContext.reset()` invalidates ALL registered managed objects. Download workers captured managed objects before async download work but accessed their properties after the reset.
+- **Fix:** Added `DownloadContext` value-type struct that snapshots all needed CDTrack/CDDownload properties before any async work begins. All downstream code uses `ctx.*` instead of managed object properties. Added `completeDownloadWithRecovery()` that recreates CDDownload if the primary objectID path fails due to cascade deletion.
+- **Key files:** `OfflineDownloadService.swift`
+
 ### 89-Byte Transcode Error → Cryptic CoreAudio Error (Mar 26, 2026)
 - **Location:** `ProgressiveStreamLoader.swift`, `PlaybackService.swift`
 - **Issue:** When Plex server storage is unavailable (NAS disconnected, drives sleeping), the `/decision` endpoint succeeds (metadata is cached in PMS), but `/start.mp3` returns an HTML error page (~89 bytes, HTTP 503). `ProgressiveStreamLoader` wrote these bytes to a temp file and reported success. AVAudioEngine rejected the file with cryptic error `com.apple.coreaudio.avfaudio error 1685348671`.
