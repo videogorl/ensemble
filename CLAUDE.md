@@ -20,7 +20,6 @@ Detailed reference material lives in `.claude/skills/`. **Always load the releva
 | `common-tasks` | Adding a ViewModel, view, CoreData entity, hub, music source, playlist mutation, or sync trigger |
 | `testing` | Writing tests, implementing a major feature, or verifying nothing is broken after a refactor |
 | `plex-api` | Implementing or debugging Plex API calls — library sync, playback tracking, playlists, hubs, search, transcoding |
-| `recent-changes` | Debugging, investigating prior work, understanding how a feature was implemented, or before touching a recently modified area |
 | `simulator-test` | Verifying runtime behavior, measuring timing, or diagnosing issues by building and launching on the iOS simulator with debug log capture |
 
 **When in doubt, load all of them.** They are small and the cost of reading them is far lower than making a wrong decision.
@@ -84,11 +83,6 @@ Right now, this app is in beta testing. We should account for edge cases as we'r
 The goal of this app is to provide a beautiful, information-dense, and customizable native experience for the Plex server.
 
 
-## Recent Major Changes
-
-Moved to the `recent-changes` skill to keep CLAUDE.md lean. Load it when debugging, investigating prior work, or before touching a recently modified area.
-
-
 This project is connected to Xcode's MCP server: please use it to inform you of how best to operate.
 
 Please comment code so that it's understandable. Don't over comment, just comment on what each "piece" does. Do not use emojis (except in debugging).
@@ -97,9 +91,7 @@ As you make changes, keep the following documents in sync:
 
 | What changed | What to update |
 |---|---|
-| New service, subsystem, or major pattern | `architecture` skill + `recent-changes` skill |
-| Any feature or major change completed | `recent-changes` skill (add entry at top with date, summary, key files) |
-| New file added anywhere | `project-structure` skill |
+| New service, subsystem, or major pattern | `architecture` skill || New file added anywhere | `project-structure` skill |
 | New recipe, pattern, or call convention | `common-tasks` skill |
 | New UI component, navigation pattern, or visual rule | `ui-conventions` skill |
 | New coding rule, naming convention, or mandatory practice | `code-style` skill |
