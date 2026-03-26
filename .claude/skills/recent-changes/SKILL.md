@@ -6,6 +6,14 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Download Worker Context Invalidation Fix (Mar 26, 2026)
+
+The download worker held CDTrack/CDDownload managed object references from the viewContext throughout async downloads. When `SyncCoordinator` called `refreshViewContext()` → `viewContext.reset()` mid-download, property access on these objects returned empty/default values (e.g., `track.ratingKey` → `""`, `track.sourceCompositeKey` → `nil`). Symptoms: files saved with wrong names like `_unknown_medium.mp3`, and `completeDownload(objectID)` threw "object not found in store" because CDTrack→CDDownload cascade delete rule removed the CDDownload when sync deleted the CDTrack.
+
+Fix: `process(download:)` now captures ALL needed CDTrack/CDDownload properties into a value-type `DownloadContext` struct before any async work begins. All subsequent methods (`completeViaDownloadQueue`, `localFileURL`, `cacheArtworkForDownloadedTrack`) use captured values instead of managed object references. A new `completeDownloadWithRecovery` method handles the cascade-delete case by recreating the CDDownload record if the primary objectID-based completion fails.
+
+**Key files:** `OfflineDownloadService.swift`
+
 ### Offline Download Orphaned Target Self-Healing (Mar 25, 2026)
 
 When CDOfflineDownloadMembership records are lost (e.g., after iOS update or data corruption), download targets could show "0 tracks" even though the target itself survived. Recovery previously required waiting for sync-triggered reconciliation (~15 min). Now: (1) `refreshTargetProgress` preserves stale total counts and sets status to `.pending` so the UI shows useful info while healing. (2) `refreshAllTargetProgresses` calls `reconcileOrphanedTargets()` to rebuild memberships from existing library data immediately. (3) Startup and pull-to-refresh both run download file self-healing before computing progress. Pull-to-refresh on the Downloads view now also triggers the healing path.

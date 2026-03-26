@@ -20,6 +20,17 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Resolved Issues
 
+### Download Worker Context Invalidation (Mar 26, 2026)
+- **Location:** `OfflineDownloadService.swift` (`process(download:)`, `completeViaDownloadQueue`)
+- **Issue:** Download worker held CDTrack/CDDownload managed object references from the viewContext throughout async downloads (several seconds). When `SyncCoordinator` ran `refreshViewContext()` → `viewContext.reset()` mid-download, property access returned empty/default values (`track.ratingKey` → `""`, `track.sourceCompositeKey` → `nil`). Additionally, CDTrack→CDDownload cascade delete (deletionRule="Cascade") removed the CDDownload when sync's `removeOrphanedTracks()` deleted the CDTrack. Symptoms: files saved as `_unknown_medium.mp3`, `completeDownload(objectID)` threw "object not found in store", downloads silently failed.
+- **Fix:** `process(download:)` now captures ALL CDTrack/CDDownload properties into a value-type `DownloadContext` struct BEFORE async work begins. All downstream methods (`completeViaDownloadQueue`, `localFileURL`, `cacheArtworkForDownloadedTrack`) use captured values. `completeDownloadWithRecovery()` recreates the CDDownload record if the primary objectID-based completion fails due to cascade delete.
+- **Key files:** `OfflineDownloadService.swift`
+
+### Download Target Shows '0 Tracks' After Data Loss (Mar 25, 2026)
+- **Location:** `OfflineDownloadService.swift`, `DownloadsViewModel.swift`
+- **Issue:** When CDOfflineDownloadMembership records were lost (iOS update, corruption), `refreshTargetProgress()` found 0 references → aggressively wrote totalTrackCount=0 → UI showed "0 tracks". Recovery required waiting ~15min for sync-triggered reconciliation.
+- **Fix:** Three-part self-healing: preserve stale counts for orphaned targets, immediate reconciliation via `reconcileOrphanedTargets()`, startup + pull-to-refresh file existence checks via `refreshStateWithHealing()`.
+
 ### Queue Skipping Cascade (Mar 18, 2026)
 - **Location:** `PlaybackService.swift`
 - **Issue:** Rapid previous()/next() taps caused a cascade: AVPlayer XPC errors (`err=-17221`) → old AVPlayerItem fails asynchronously → `handleQueueExhausted()` fires phantom auto-advance → queue never recovers, even starting a new queue fails.

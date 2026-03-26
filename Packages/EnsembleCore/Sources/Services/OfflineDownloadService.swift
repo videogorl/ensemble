@@ -74,6 +74,24 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
+    /// Value-type snapshot of CDDownload + CDTrack properties captured before async download begins.
+    /// Prevents issues when viewContext.reset() invalidates managed objects mid-download
+    /// or when cascade deletes remove the CDDownload from the store during sync.
+    private struct DownloadContext {
+        let downloadObjectID: NSManagedObjectID
+        let trackRatingKey: String
+        let sourceCompositeKey: String
+        let trackDuration: Int64
+        let downloadQuality: String?
+        let domainTrack: Track
+        /// sourceCompositeKey with colons replaced for safe file naming
+        let safeSourceKey: String
+        // For artwork caching
+        let trackThumbPath: String?
+        let albumRatingKey: String?
+        let albumThumbPath: String?
+    }
+
     @Published public private(set) var targets: [OfflineDownloadTargetSnapshot] = []
     @Published public private(set) var isQueueRunning = false
     /// Current reason the queue is idle/paused — observed by detail views for status banners
@@ -991,6 +1009,10 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func process(download: CDDownload) async {
+        // ── Capture all managed-object properties into value types BEFORE any async work. ──
+        // viewContext.reset() during sync can invalidate CDTrack/CDDownload at any time,
+        // and cascade deletes (CDTrack deletion removes CDDownload) can remove the store
+        // record entirely. After this block, we never access the managed objects again.
         guard let track = download.track,
               let sourceCompositeKey = track.sourceCompositeKey else {
             try? await downloadManager.failDownload(download.objectID, error: "Missing track context")
@@ -998,10 +1020,22 @@ public final class OfflineDownloadService: ObservableObject {
             return
         }
 
-        let trackRatingKey = track.ratingKey
+        let ctx = DownloadContext(
+            downloadObjectID: download.objectID,
+            trackRatingKey: track.ratingKey,
+            sourceCompositeKey: sourceCompositeKey,
+            trackDuration: track.duration,
+            downloadQuality: download.quality,
+            domainTrack: Track(from: track),
+            safeSourceKey: sourceCompositeKey.replacingOccurrences(of: ":", with: "_"),
+            trackThumbPath: track.thumbPath,
+            albumRatingKey: track.album?.ratingKey,
+            albumThumbPath: track.album?.thumbPath
+        )
+
         let reference = OfflineTrackReference(
-            trackRatingKey: trackRatingKey,
-            trackSourceCompositeKey: sourceCompositeKey
+            trackRatingKey: ctx.trackRatingKey,
+            trackSourceCompositeKey: ctx.sourceCompositeKey
         )
 
         do {
@@ -1012,16 +1046,15 @@ public final class OfflineDownloadService: ObservableObject {
                     forTrackRatingKey: reference.trackRatingKey,
                     sourceCompositeKey: reference.trackSourceCompositeKey
                 )
-                await refreshTargetsForTrack(ratingKey: trackRatingKey, sourceCompositeKey: sourceCompositeKey)
+                await refreshTargetsForTrack(ratingKey: ctx.trackRatingKey, sourceCompositeKey: ctx.sourceCompositeKey)
                 return
             }
 
-            try await downloadManager.updateDownloadStatus(download.objectID, status: .downloading, quality: nil)
+            try await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .downloading, quality: nil)
 
-            let requestedQuality = streamingQuality(from: download.quality)
+            let requestedQuality = streamingQuality(from: ctx.downloadQuality)
             var effectiveQuality = requestedQuality
-            let domainTrack = Track(from: track)
-            let sizeEstimate = estimatedFileSize(durationMs: track.duration, quality: requestedQuality)
+            let sizeEstimate = estimatedFileSize(durationMs: ctx.trackDuration, quality: requestedQuality)
 
             // Strategy for non-original quality downloads:
             // 1. Use the Plex download queue API (server transcodes, we download the result)
@@ -1039,13 +1072,11 @@ public final class OfflineDownloadService: ObservableObject {
                 do {
                     #if DEBUG
                     EnsembleLogger.debug(
-                        "⬇️ Offline download attempt: track=\(track.ratingKey) stage=download-queue quality=\(requestedQuality.rawValue)"
+                        "⬇️ Offline download attempt: track=\(ctx.trackRatingKey) stage=download-queue quality=\(requestedQuality.rawValue)"
                     )
                     #endif
                     let completed = try await completeViaDownloadQueue(
-                        download: download,
-                        track: track,
-                        domainTrack: domainTrack,
+                        ctx: ctx,
                         quality: requestedQuality,
                         mode: "download-queue"
                     )
@@ -1056,16 +1087,16 @@ public final class OfflineDownloadService: ObservableObject {
                     let updatedQuality = currentDownloadQuality()
                     #if DEBUG
                     EnsembleLogger.debug(
-                        "⏸️ Download queue cancelled for track=\(track.ratingKey); resetting to pending at quality=\(updatedQuality)"
+                        "⏸️ Download queue cancelled for track=\(ctx.trackRatingKey); resetting to pending at quality=\(updatedQuality)"
                     )
                     #endif
-                    try? await downloadManager.updateDownloadStatus(download.objectID, status: .pending, quality: updatedQuality)
+                    try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: updatedQuality)
                     return
                 } catch {
                     // Download queue failed — fall through to direct original download.
                     #if DEBUG
                     EnsembleLogger.debug(
-                        "⚠️ Download queue failed for track=\(track.ratingKey): \(error.localizedDescription); falling back to direct original"
+                        "⚠️ Download queue failed for track=\(ctx.trackRatingKey): \(error.localizedDescription); falling back to direct original"
                     )
                     #endif
                     effectiveQuality = .original
@@ -1073,21 +1104,21 @@ public final class OfflineDownloadService: ObservableObject {
             }
 
             // Original quality or download queue failed — download the original file directly.
-            selectedURL = try await syncCoordinator.getDownloadURL(for: domainTrack, quality: .original)
+            selectedURL = try await syncCoordinator.getDownloadURL(for: ctx.domainTrack, quality: .original)
             selectedMode = requestedQuality == .original ? "direct-original" : "direct-original-fallback"
             effectiveQuality = .original
 
             #if DEBUG
             EnsembleLogger.debug(
-                "⬇️ Offline download attempt: track=\(track.ratingKey) stage=\(selectedMode) url=\(selectedURL)"
+                "⬇️ Offline download attempt: track=\(ctx.trackRatingKey) stage=\(selectedMode) url=\(selectedURL)"
             )
             #endif
-            let (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: download.objectID, estimatedSize: sizeEstimate)
+            let (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: ctx.downloadObjectID, estimatedSize: sizeEstimate)
 
             if let httpResponse = response as? HTTPURLResponse {
                 #if DEBUG
                 EnsembleLogger.debug(
-                    "⬇️ Offline download response: track=\(track.ratingKey) status=\(httpResponse.statusCode) quality=\(requestedQuality.rawValue) effectiveQuality=\(effectiveQuality.rawValue) mode=\(selectedMode)"
+                    "⬇️ Offline download response: track=\(ctx.trackRatingKey) status=\(httpResponse.statusCode) quality=\(requestedQuality.rawValue) effectiveQuality=\(effectiveQuality.rawValue) mode=\(selectedMode)"
                 )
                 if let plexError = httpResponse.value(forHTTPHeaderField: "X-Plex-Error"), !plexError.isEmpty {
                     EnsembleLogger.debug("⬇️ Offline download X-Plex-Error: \(plexError)")
@@ -1112,7 +1143,12 @@ public final class OfflineDownloadService: ObservableObject {
                 throw DownloadProcessingError.emptyPayload(selectedURL.absoluteString)
             }
 
-            let destinationURL = localFileURL(for: track, quality: effectiveQuality, response: response)
+            let destinationURL = localFileURL(
+                ratingKey: ctx.trackRatingKey,
+                safeSourceKey: ctx.safeSourceKey,
+                quality: effectiveQuality,
+                response: response
+            )
             if FileManager.default.fileExists(atPath: destinationURL.path) {
                 try? FileManager.default.removeItem(at: destinationURL)
             }
@@ -1135,20 +1171,20 @@ public final class OfflineDownloadService: ObservableObject {
                 try? handle.close()
             }
             EnsembleLogger.debug(
-                "✅ Offline download stored: track=\(track.ratingKey) path=\(destinationURL.lastPathComponent) size=\(persistedFileSize) mode=\(selectedMode) contentType=\(contentType) requestedQuality=\(requestedQuality.rawValue) effectiveQuality=\(effectiveQuality.rawValue) magic=\(magicBytesHex)"
+                "✅ Offline download stored: track=\(ctx.trackRatingKey) path=\(destinationURL.lastPathComponent) size=\(persistedFileSize) mode=\(selectedMode) contentType=\(contentType) requestedQuality=\(requestedQuality.rawValue) effectiveQuality=\(effectiveQuality.rawValue) magic=\(magicBytesHex)"
             )
             #endif
 
-            // Store filename only (not absolute path) — sandbox-stable across reinstalls.
-            try await downloadManager.completeDownload(
-                download.objectID,
+            // Persist completion to CoreData with recovery for cascade-deleted records.
+            try await completeDownloadWithRecovery(
+                ctx: ctx,
                 filePath: destinationURL.lastPathComponent,
                 fileSize: persistedFileSize,
-                quality: effectiveQuality.rawValue
+                quality: effectiveQuality
             )
-            await cacheArtworkForDownloadedTrack(track)
+            await cacheArtworkForDownloadedTrack(ctx: ctx)
             // Targeted refresh: only update targets that own this track (not all targets)
-            await refreshTargetsForTrack(ratingKey: trackRatingKey, sourceCompositeKey: sourceCompositeKey)
+            await refreshTargetsForTrack(ratingKey: ctx.trackRatingKey, sourceCompositeKey: ctx.sourceCompositeKey)
 
             // Pre-compute frequency analysis sidecar for the visualizer
             let sidecarURL = destinationURL.appendingPathExtension("freq")
@@ -1159,8 +1195,8 @@ public final class OfflineDownloadService: ObservableObject {
             }
 
             // Pre-cache lyrics for offline playback
-            let lyricsRatingKey = track.ratingKey
-            let lyricsSCK = sourceCompositeKey
+            let lyricsRatingKey = ctx.trackRatingKey
+            let lyricsSCK = ctx.sourceCompositeKey
             let lyricsServiceRef = self.lyricsService
             Task.detached(priority: .utility) {
                 await lyricsServiceRef.fetchAndCacheLyrics(
@@ -1179,26 +1215,26 @@ public final class OfflineDownloadService: ObservableObject {
                 // Quality changes cancel in-flight downloads and re-queue at the
                 // new quality; .paused would leave the old-quality download stuck.
                 let updatedQuality = currentDownloadQuality()
-                try? await downloadManager.updateDownloadStatus(download.objectID, status: .pending, quality: updatedQuality)
+                try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: updatedQuality)
             } else if isNetworkLossError(error) {
                 // Network dropped mid-transfer — pause so the download auto-resumes
                 // when connectivity returns, instead of marking as permanently failed
-                try? await downloadManager.updateDownloadStatus(download.objectID, status: .paused, quality: nil)
+                try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .paused, quality: nil)
                 #if DEBUG
                 EnsembleLogger.debug(
-                    "⏸️ Offline download paused (network lost): track=\(track.ratingKey) source=\(sourceCompositeKey)"
+                    "⏸️ Offline download paused (network lost): track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey)"
                 )
                 #endif
             } else {
-                try? await downloadManager.failDownload(download.objectID, error: error.localizedDescription)
+                try? await downloadManager.failDownload(ctx.downloadObjectID, error: error.localizedDescription)
                 #if DEBUG
                 EnsembleLogger.debug(
-                    "❌ Offline download failed: track=\(track.ratingKey) source=\(sourceCompositeKey) reason=\(error.localizedDescription)"
+                    "❌ Offline download failed: track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey) reason=\(error.localizedDescription)"
                 )
                 #endif
             }
             // Targeted refresh: only update targets that own this track
-            await refreshTargetsForTrack(ratingKey: trackRatingKey, sourceCompositeKey: sourceCompositeKey)
+            await refreshTargetsForTrack(ratingKey: ctx.trackRatingKey, sourceCompositeKey: ctx.sourceCompositeKey)
         }
     }
 
@@ -1299,15 +1335,14 @@ public final class OfflineDownloadService: ObservableObject {
 
     /// Download a transcoded track via the Plex download queue API.
     /// Returns `true` if the download completed successfully, `false` if the payload was empty.
+    /// Uses captured DownloadContext values to avoid accessing invalidated managed objects.
     private func completeViaDownloadQueue(
-        download: CDDownload,
-        track: CDTrack,
-        domainTrack: Track,
+        ctx: DownloadContext,
         quality: StreamingQuality,
         mode: String
     ) async throws -> Bool {
         let queuePayload = try await syncCoordinator.getOfflineDownloadQueueMedia(
-            for: domainTrack,
+            for: ctx.domainTrack,
             quality: quality
         )
         guard !queuePayload.data.isEmpty else {
@@ -1315,7 +1350,8 @@ public final class OfflineDownloadService: ObservableObject {
         }
 
         let destinationURL = localFileURL(
-            for: track,
+            ratingKey: ctx.trackRatingKey,
+            safeSourceKey: ctx.safeSourceKey,
             quality: quality,
             suggestedFilename: queuePayload.suggestedFilename,
             mimeType: queuePayload.mimeType,
@@ -1341,20 +1377,20 @@ public final class OfflineDownloadService: ObservableObject {
             try? handle.close()
         }
         EnsembleLogger.debug(
-            "✅ Offline download stored: track=\(track.ratingKey) path=\(destinationURL.lastPathComponent) size=\(queueFileSize) mode=\(mode) contentType=\(queuePayload.mimeType ?? "unknown") magic=\(magicBytesHex)"
+            "✅ Offline download stored: track=\(ctx.trackRatingKey) path=\(destinationURL.lastPathComponent) size=\(queueFileSize) mode=\(mode) contentType=\(queuePayload.mimeType ?? "unknown") magic=\(magicBytesHex)"
         )
         #endif
 
-        // Store filename only (not absolute path) — sandbox-stable across reinstalls.
-        try await downloadManager.completeDownload(
-            download.objectID,
+        // Persist completion to CoreData with recovery for cascade-deleted records.
+        try await completeDownloadWithRecovery(
+            ctx: ctx,
             filePath: destinationURL.lastPathComponent,
             fileSize: queueFileSize,
-            quality: quality.rawValue
+            quality: quality
         )
-        await cacheArtworkForDownloadedTrack(track)
+        await cacheArtworkForDownloadedTrack(ctx: ctx)
         // Targeted refresh: only update targets that own this track
-        await refreshTargetsForTrack(ratingKey: track.ratingKey, sourceCompositeKey: track.sourceCompositeKey ?? "")
+        await refreshTargetsForTrack(ratingKey: ctx.trackRatingKey, sourceCompositeKey: ctx.sourceCompositeKey)
 
         // Pre-compute frequency analysis sidecar for the visualizer
         let sidecarURL2 = destinationURL.appendingPathExtension("freq")
@@ -1368,28 +1404,24 @@ public final class OfflineDownloadService: ObservableObject {
         return true
     }
 
-    private func localFileURL(for track: CDTrack, quality: StreamingQuality, response: URLResponse) -> URL {
-        let safeSource = (track.sourceCompositeKey ?? "unknown")
-            .replacingOccurrences(of: ":", with: "_")
+    /// Build local file URL for a direct download using captured value-type properties.
+    private func localFileURL(ratingKey: String, safeSourceKey: String, quality: StreamingQuality, response: URLResponse) -> URL {
         let responseExtension = response.suggestedFilename.flatMap { URL(fileURLWithPath: $0).pathExtension }
         let ext = responseExtension?.isEmpty == false
             ? responseExtension!
             : inferredFileExtension(mimeType: (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type"), payload: nil)
-        let fileName = "\(track.ratingKey)_\(safeSource)_\(quality.rawValue).\(ext)"
+        let fileName = "\(ratingKey)_\(safeSourceKey)_\(quality.rawValue).\(ext)"
         return DownloadManager.downloadsDirectory.appendingPathComponent(fileName, isDirectory: false)
     }
 
     /// Best-effort artwork caching for newly downloaded tracks so offline lists/details keep artwork.
-    private func cacheArtworkForDownloadedTrack(_ track: CDTrack) async {
-        let sourceKey = track.sourceCompositeKey
-        let albumRatingKey = track.album?.ratingKey
-        let albumThumbPath = track.album?.thumbPath
-
+    /// Uses captured value-type properties from DownloadContext to avoid accessing invalidated managed objects.
+    private func cacheArtworkForDownloadedTrack(ctx: DownloadContext) async {
         var candidates: [(ratingKey: String, path: String)] = []
-        if let path = track.thumbPath, !path.isEmpty {
-            candidates.append((track.ratingKey, path))
+        if let path = ctx.trackThumbPath, !path.isEmpty {
+            candidates.append((ctx.trackRatingKey, path))
         }
-        if let albumRatingKey, let albumThumbPath, !albumThumbPath.isEmpty {
+        if let albumRatingKey = ctx.albumRatingKey, let albumThumbPath = ctx.albumThumbPath, !albumThumbPath.isEmpty {
             candidates.append((albumRatingKey, albumThumbPath))
         }
 
@@ -1410,7 +1442,7 @@ public final class OfflineDownloadService: ObservableObject {
             do {
                 guard let artworkURL = try await syncCoordinator.getArtworkURL(
                     path: candidate.path,
-                    sourceKey: sourceKey,
+                    sourceKey: ctx.sourceCompositeKey,
                     size: 500
                 ) else {
                     continue
@@ -1424,16 +1456,58 @@ public final class OfflineDownloadService: ObservableObject {
 
                 #if DEBUG
                 EnsembleLogger.debug(
-                    "🖼️ Cached artwork for downloaded track: track=\(track.ratingKey) artworkKey=\(candidate.ratingKey)"
+                    "🖼️ Cached artwork for downloaded track: track=\(ctx.trackRatingKey) artworkKey=\(candidate.ratingKey)"
                 )
                 #endif
             } catch {
                 #if DEBUG
                 EnsembleLogger.debug(
-                    "⚠️ Failed caching artwork for downloaded track \(track.ratingKey): \(error.localizedDescription)"
+                    "⚠️ Failed caching artwork for downloaded track \(ctx.trackRatingKey): \(error.localizedDescription)"
                 )
                 #endif
             }
+        }
+    }
+
+    /// Complete a download in CoreData with recovery for cascade-deleted CDDownload records.
+    /// When sync deletes a CDTrack during an active download, the CDTrack→CDDownload cascade
+    /// delete rule removes the CDDownload from the store. This method tries the primary
+    /// objectID path first, then falls back to recreating the download record by ratingKey.
+    private func completeDownloadWithRecovery(
+        ctx: DownloadContext,
+        filePath: String,
+        fileSize: Int64,
+        quality: StreamingQuality
+    ) async throws {
+        do {
+            try await downloadManager.completeDownload(
+                ctx.downloadObjectID,
+                filePath: filePath,
+                fileSize: fileSize,
+                quality: quality.rawValue
+            )
+        } catch {
+            // CDDownload was likely cascade-deleted when sync removed its CDTrack.
+            // Try to recreate the download record and mark it complete.
+            #if DEBUG
+            EnsembleLogger.debug(
+                "⚠️ completeDownload(\(ctx.trackRatingKey)) objectID not found: \(error.localizedDescription); attempting recovery"
+            )
+            #endif
+            let recovered = try await downloadManager.createDownload(
+                forTrackRatingKey: ctx.trackRatingKey,
+                sourceCompositeKey: ctx.sourceCompositeKey,
+                quality: quality.rawValue
+            )
+            try await downloadManager.completeDownload(
+                recovered.objectID,
+                filePath: filePath,
+                fileSize: fileSize,
+                quality: quality.rawValue
+            )
+            #if DEBUG
+            EnsembleLogger.debug("✅ Download recovery successful for track=\(ctx.trackRatingKey)")
+            #endif
         }
     }
 
@@ -1480,21 +1554,21 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
+    /// Build local file URL for a download queue result using captured value-type properties.
     private func localFileURL(
-        for track: CDTrack,
+        ratingKey: String,
+        safeSourceKey: String,
         quality: StreamingQuality,
         suggestedFilename: String?,
         mimeType: String?,
         payload: Data?
     ) -> URL {
-        let safeSource = (track.sourceCompositeKey ?? "unknown")
-            .replacingOccurrences(of: ":", with: "_")
         let suggestedExtension = suggestedFilename
             .flatMap { URL(fileURLWithPath: $0).pathExtension }
         let ext = suggestedExtension?.isEmpty == false
             ? suggestedExtension!
             : inferredFileExtension(mimeType: mimeType, payload: payload)
-        let fileName = "\(track.ratingKey)_\(safeSource)_\(quality.rawValue).\(ext)"
+        let fileName = "\(ratingKey)_\(safeSourceKey)_\(quality.rawValue).\(ext)"
         return DownloadManager.downloadsDirectory.appendingPathComponent(fileName, isDirectory: false)
     }
 
