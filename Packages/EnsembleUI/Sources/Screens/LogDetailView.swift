@@ -2,13 +2,16 @@ import EnsembleCore
 import SwiftUI
 
 /// Displays the full text content of a log session file.
-/// Provides share and refresh buttons. The refresh button reloads
-/// the file from disk so you can watch a live session grow.
+/// Provides share and refresh buttons. The refresh button flushes
+/// the log writer then reloads the file from disk so you can watch
+/// a live session grow.
 public struct LogDetailView: View {
     let session: LogSession
 
     @State private var logContent: String = ""
     @State private var isLoading = true
+
+    private let logService = DependencyContainer.shared.persistentLogService
 
     public init(session: LogSession) {
         self.session = session
@@ -48,7 +51,7 @@ public struct LogDetailView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 12) {
                     Button {
-                        loadLogContent()
+                        refreshLogContent()
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
@@ -63,7 +66,7 @@ public struct LogDetailView: View {
             ToolbarItem(placement: .automatic) {
                 HStack(spacing: 12) {
                     Button {
-                        loadLogContent()
+                        refreshLogContent()
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
@@ -77,6 +80,17 @@ public struct LogDetailView: View {
             #endif
         }
         .task {
+            loadLogContent()
+        }
+    }
+
+    /// Flush buffered writes then reload the file, showing a brief spinner.
+    private func refreshLogContent() {
+        isLoading = true
+        // Flush the writer so any buffered lines hit disk before we read
+        logService.flushSession()
+        // Small delay lets the async flush complete before the synchronous read
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             loadLogContent()
         }
     }
