@@ -100,9 +100,7 @@ public final class ServerHealthChecker: ObservableObject {
                 let serverKey = makeServerKey(accountId: account.id, serverId: server.id)
                 if serverStates[serverKey] == nil {
                     serverStates[serverKey] = .unknown
-                    #if DEBUG
                     EnsembleLogger.debug("🏥 ServerHealthChecker: Pre-populated \(serverKey) as .unknown")
-                    #endif
                 }
             }
         }
@@ -117,11 +115,9 @@ public final class ServerHealthChecker: ObservableObject {
         forceRefresh: Bool,
         eligibleServerKeys: Set<String>?
     ) async -> CheckSummary {
-        #if DEBUG
         EnsembleLogger.debug(
             "🏥 ServerHealthChecker: Checking servers force=\(forceRefresh), filtered=\(eligibleServerKeys != nil)"
         )
-        #endif
 
         var skippedCount = 0
         var checkedCount = 0
@@ -133,9 +129,7 @@ public final class ServerHealthChecker: ObservableObject {
 
                     if let eligibleServerKeys, !eligibleServerKeys.contains(serverKey) {
                         skippedCount += 1
-                        #if DEBUG
                         EnsembleLogger.debug("🏥 ServerHealthChecker: Skipping \(serverKey) (no enabled libraries)")
-                        #endif
                         continue
                     }
 
@@ -156,11 +150,9 @@ public final class ServerHealthChecker: ObservableObject {
             }
         }
 
-        #if DEBUG
         EnsembleLogger.debug(
             "🏥 ServerHealthChecker: Completed run checked=\(checkedCount), skipped=\(skippedCount)"
         )
-        #endif
 
         return CheckSummary(checkedCount: checkedCount, skippedCount: skippedCount)
     }
@@ -178,9 +170,7 @@ public final class ServerHealthChecker: ObservableObject {
     public func invalidateConnectionHealth() async {
         recentChecks.removeAll()
         await failoverManager.resetHealthTracking()
-        #if DEBUG
         EnsembleLogger.debug("🔄 ServerHealthChecker: Invalidated connection health caches for network transition")
-        #endif
     }
 
     func checkServer(
@@ -200,9 +190,7 @@ public final class ServerHealthChecker: ObservableObject {
         
         // If there's an ongoing check for this server, wait for it
         if let ongoingTask = ongoingServerChecks[serverKey] {
-            #if DEBUG
             EnsembleLogger.debug("⏳ ServerHealthChecker: Waiting for ongoing check of server \(serverKey)")
-            #endif
             return await ongoingTask.value
         }
 
@@ -217,20 +205,16 @@ public final class ServerHealthChecker: ObservableObject {
             let ttl = cacheTTL(for: cached.state)
 
             if age < ttl {
-                #if DEBUG
                 EnsembleLogger.debug(
                     "🏥 ServerHealthChecker: Using cached state for \(serverKey) (\(String(format: "%.1f", age))s old, ttl=\(String(format: "%.1f", ttl))s)"
                 )
-                #endif
                 serverStates[serverKey] = cached.state
                 return ServerCheckResult(state: cached.state, usedCachedResult: true)
             }
 
-            #if DEBUG
             EnsembleLogger.debug(
                 "🏥 ServerHealthChecker: Cached state expired for \(serverKey) (\(String(format: "%.1f", age))s old, ttl=\(String(format: "%.1f", ttl))s)"
             )
-            #endif
         }
 
         // Create a task for this check (off MainActor to avoid blocking during background playback)
@@ -312,19 +296,13 @@ public final class ServerHealthChecker: ObservableObject {
         let connectionURLs = endpoints.map(\.url)
 
         guard !connectionURLs.isEmpty else {
-            #if DEBUG
             EnsembleLogger.debug("⚠️ ServerHealthChecker: No connection URLs for server \(server.name)")
-            #endif
             return .offline
         }
 
-        #if DEBUG
         EnsembleLogger.debug("🔍 ServerHealthChecker: Testing \(connectionURLs.count) URLs for server \(server.name):")
-        #endif
         for (index, url) in connectionURLs.enumerated() {
-            #if DEBUG
             EnsembleLogger.debug("  [\(index + 1)] \(url)")
-            #endif
         }
 
         // Try to find the best policy-compliant endpoint.
@@ -337,11 +315,9 @@ public final class ServerHealthChecker: ObservableObject {
             networkContext: networkContext
         )
         if let workingEndpoint = selection.selected {
-            #if DEBUG
             EnsembleLogger.debug(
                 "✅ ServerHealthChecker: Server \(server.name) is online at \(workingEndpoint.url) class=\(workingEndpoint.endpointClass.rawValue) probes=\(selection.probes.count) skippedInsecure=\(selection.skippedInsecureCount)"
             )
-            #endif
 
             // Write working endpoint to the centralized registry
             if let registry = connectionRegistry {
@@ -368,11 +344,9 @@ public final class ServerHealthChecker: ObservableObject {
                         secure: connection.protocol == "https"
                     )
                 }
-                #if DEBUG
                 EnsembleLogger.debug(
                     "🔄 ServerHealthChecker: Retrying with refreshed resources (\(refreshedEndpoints.count) URLs)"
                 )
-                #endif
 
                 let refreshedSelection = await failoverManager.findBestConnection(
                     endpoints: refreshedEndpoints,
@@ -382,11 +356,9 @@ public final class ServerHealthChecker: ObservableObject {
                     networkContext: networkContext
                 )
                 if let refreshedWorkingEndpoint = refreshedSelection.selected {
-                    #if DEBUG
                     EnsembleLogger.debug(
                         "✅ ServerHealthChecker: Server \(server.name) recovered after resources refresh at \(refreshedWorkingEndpoint.url) probes=\(refreshedSelection.probes.count)"
                     )
-                    #endif
 
                     // Write recovered endpoint to the centralized registry
                     if let registry = connectionRegistry {
@@ -404,11 +376,9 @@ public final class ServerHealthChecker: ObservableObject {
             await MainActor.run {
                 serverFailureReasons[serverKey] = failureReason
             }
-            #if DEBUG
             EnsembleLogger.debug(
                 "❌ ServerHealthChecker: Server \(server.name) is offline - all \(connectionURLs.count) URLs failed (reason=\(failureReason.rawValue))"
             )
-            #endif
             return .offline
         }
     }
@@ -488,11 +458,9 @@ public final class ServerHealthChecker: ObservableObject {
         if !ignoreCooldown,
            let lastRefreshAt = lastResourceRefreshAt[serverKey],
            nowProvider().timeIntervalSince(lastRefreshAt) < resourceRefreshCooldown {
-            #if DEBUG
             EnsembleLogger.debug(
                 "🔄 ServerHealthChecker: Skipping resources refresh for \(serverKey) (cooldown)"
             )
-            #endif
             return nil
         }
         lastResourceRefreshAt[serverKey] = nowProvider()
@@ -506,11 +474,9 @@ public final class ServerHealthChecker: ObservableObject {
         do {
             let devices = try await apiClient.getResources(token: account.authToken)
             guard let matchedDevice = devices.first(where: { $0.clientIdentifier == serverId }) else {
-                #if DEBUG
                 EnsembleLogger.debug(
                     "🔄 ServerHealthChecker: No matching device found in refreshed resources for \(serverKey)"
                 )
-                #endif
                 return nil
             }
 
@@ -554,20 +520,16 @@ public final class ServerHealthChecker: ObservableObject {
             )
             accountManager.updatePlexAccount(updatedAccount)
 
-            #if DEBUG
             let relayCount = refreshedConnections.filter { $0.relay ?? false }.count
             EnsembleLogger.debug(
                 "🔄 ServerHealthChecker: Refreshed resources for \(serverKey): urls=\(refreshedConnections.count), relay=\(relayCount)"
             )
-            #endif
 
             return refreshedServer
         } catch {
-            #if DEBUG
             EnsembleLogger.debug(
                 "⚠️ ServerHealthChecker: Failed to refresh resources for \(serverKey): \(error.localizedDescription)"
             )
-            #endif
             return nil
         }
     }

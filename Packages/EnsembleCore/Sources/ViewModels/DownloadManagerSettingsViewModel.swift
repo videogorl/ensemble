@@ -112,9 +112,7 @@ public final class DownloadManagerSettingsViewModel: ObservableObject {
                 lowBytes: Int64(durationSeconds * 128_000 / 8)
             )
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed to load size estimates: \(error.localizedDescription)")
-            #endif
         }
     }
 

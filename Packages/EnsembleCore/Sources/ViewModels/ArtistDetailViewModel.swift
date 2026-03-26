@@ -55,16 +55,12 @@ public final class ArtistDetailViewModel: ObservableObject {
             if !cachedAlbums.isEmpty {
                 albums = cachedAlbums.map { Album(from: $0) }
             } else if let sourceKey = artist.sourceCompositeKey {
-                #if DEBUG
                 EnsembleLogger.debug("ArtistDetailViewModel: Albums not found locally, fetching from API for source: \(sourceKey)")
-                #endif
                 let apiAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
                 albums = apiAlbums
             }
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("ArtistDetailViewModel.loadAlbums error: \(error.localizedDescription)")
-            #endif
             self.error = error.localizedDescription
         }
 
@@ -77,16 +73,12 @@ public final class ArtistDetailViewModel: ObservableObject {
             if !cachedTracks.isEmpty {
                 tracks = cachedTracks.map { Track(from: $0) }
             } else if let sourceKey = artist.sourceCompositeKey {
-                #if DEBUG
                 EnsembleLogger.debug("ArtistDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
-                #endif
                 let apiTracks = try await syncCoordinator.getArtistTracks(artistId: artist.id, sourceKey: sourceKey)
                 tracks = apiTracks
             }
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("ArtistDetailViewModel.loadTracks error: \(error.localizedDescription)")
-            #endif
             self.error = error.localizedDescription
         }
     }
@@ -105,9 +97,7 @@ public final class ArtistDetailViewModel: ObservableObject {
                 await resolveSimilarArtists(names: similarNames)
             }
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("ArtistDetailViewModel.loadArtistDetail error: \(error.localizedDescription)")
-            #endif
         }
 
         isLoadingDetail = false
@@ -140,9 +130,7 @@ public final class ArtistDetailViewModel: ObservableObject {
                     resolved.append(Artist(from: exact))
                 }
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug("ArtistDetailViewModel: Failed to resolve similar artist '\(name)': \(error.localizedDescription)")
-                #endif
             }
         }
         resolvedSimilarArtists = resolved

@@ -327,9 +327,7 @@ public final class MutationCoordinator: ObservableObject {
             return .queued
         } catch {
             // Non-retryable error (semantic) — log and drop
-            #if DEBUG
             EnsembleLogger.debug("⚠️ MutationCoordinator: Scrobble failed with non-retryable error: \(error)")
-            #endif
             return .completed
         }
     }
@@ -346,9 +344,7 @@ public final class MutationCoordinator: ObservableObject {
             let mutations = try await repository.fetchPendingMutations()
             guard !mutations.isEmpty else { return }
 
-            #if DEBUG
             EnsembleLogger.debug("📬 MutationCoordinator: Draining \(mutations.count) mutations")
-            #endif
 
             var consecutiveFailures = 0
 
@@ -356,18 +352,14 @@ public final class MutationCoordinator: ObservableObject {
                 // If too many consecutive failures, stop draining — server is likely down.
                 // Queue will re-drain on next connectivity event.
                 if consecutiveFailures >= 5 {
-                    #if DEBUG
                     EnsembleLogger.debug("⚠️ MutationCoordinator: Stopping drain after \(consecutiveFailures) consecutive failures")
-                    #endif
                     break
                 }
 
                 // Progressive backoff after 2+ consecutive failures
                 if consecutiveFailures >= 2 {
                     let delaySeconds = min(Double(1 << consecutiveFailures), 30.0)
-                    #if DEBUG
                     EnsembleLogger.debug("⏳ MutationCoordinator: Backoff \(delaySeconds)s before next drain attempt")
-                    #endif
                     try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
                 }
 
@@ -380,18 +372,14 @@ public final class MutationCoordinator: ObservableObject {
                     try? await repository.incrementRetryCount(id: mutation.id)
                     if mutation.retryCount + 1 >= Self.maxRetries {
                         try? await repository.markFailed(id: mutation.id)
-                        #if DEBUG
                         EnsembleLogger.debug("⚠️ MutationCoordinator: Mutation \(mutation.id) failed after \(Self.maxRetries) retries")
-                        #endif
                     }
                 }
             }
 
             await refreshCount()
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ MutationCoordinator: Error draining queue: \(error)")
-            #endif
         }
     }
 
@@ -427,13 +415,9 @@ public final class MutationCoordinator: ObservableObject {
                 sourceCompositeKey: sourceCompositeKey
             )
             await refreshCount()
-            #if DEBUG
             EnsembleLogger.debug("📬 MutationCoordinator: Enqueued \(type.rawValue)")
-            #endif
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ MutationCoordinator: Failed to enqueue \(type.rawValue): \(error)")
-            #endif
         }
     }
 
@@ -451,15 +435,11 @@ public final class MutationCoordinator: ObservableObject {
                 // Check if this mutation targets the playlist being deleted
                 if matchesPlaylist(mutation: mutation, playlistRatingKey: playlistRatingKey) {
                     try? await repository.deleteMutation(id: mutation.id)
-                    #if DEBUG
                     EnsembleLogger.debug("🗑️ MutationCoordinator: Purged \(mutation.type) for deleted playlist \(playlistRatingKey)")
-                    #endif
                 }
             }
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ MutationCoordinator: Error purging playlist mutations: \(error)")
-            #endif
         }
     }
 
@@ -515,14 +495,10 @@ public final class MutationCoordinator: ObservableObject {
         )
         do {
             try await syncCoordinator.rateTrack(track: track, rating: payload.rating)
-            #if DEBUG
             EnsembleLogger.debug("✅ MutationCoordinator: Replayed trackRating for \(payload.trackRatingKey)")
-            #endif
             return true
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ MutationCoordinator: Failed replaying trackRating: \(error)")
-            #endif
             return false
         }
     }
@@ -557,14 +533,10 @@ public final class MutationCoordinator: ObservableObject {
 
         do {
             _ = try await syncCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
-            #if DEBUG
             EnsembleLogger.debug("✅ MutationCoordinator: Replayed playlistAdd for playlist \(payload.playlistRatingKey)")
-            #endif
             return true
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ MutationCoordinator: Failed replaying playlistAdd: \(error)")
-            #endif
             return false
         }
     }
@@ -592,14 +564,10 @@ public final class MutationCoordinator: ObservableObject {
 
         do {
             try await syncCoordinator.renamePlaylist(playlist, to: payload.newTitle)
-            #if DEBUG
             EnsembleLogger.debug("✅ MutationCoordinator: Replayed playlistRename for \(payload.playlistRatingKey)")
-            #endif
             return true
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ MutationCoordinator: Failed replaying playlistRename: \(error)")
-            #endif
             return false
         }
     }
@@ -627,14 +595,10 @@ public final class MutationCoordinator: ObservableObject {
 
         do {
             try await syncCoordinator.deletePlaylist(playlist)
-            #if DEBUG
             EnsembleLogger.debug("✅ MutationCoordinator: Replayed playlistDelete for \(payload.playlistRatingKey)")
-            #endif
             return true
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ MutationCoordinator: Failed replaying playlistDelete: \(error)")
-            #endif
             return false
         }
     }
@@ -652,14 +616,10 @@ public final class MutationCoordinator: ObservableObject {
         )
         do {
             try await syncCoordinator.scrobbleTrackThrowing(track)
-            #if DEBUG
             EnsembleLogger.debug("✅ MutationCoordinator: Replayed scrobble for \(payload.trackRatingKey)")
-            #endif
             return true
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ MutationCoordinator: Failed replaying scrobble: \(error)")
-            #endif
             return false
         }
     }

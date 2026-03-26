@@ -249,9 +249,7 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
                 return $0.trackNumber < $1.trackNumber
             }
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ DownloadTargetDetailViewModel: Failed to load tracks: \(error)")
-            #endif
         }
     }
 

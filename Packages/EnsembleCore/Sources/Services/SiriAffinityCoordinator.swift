@@ -29,9 +29,7 @@ public final class SiriAffinityCoordinator {
             try await execute(payload: payload)
             return true
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("Siri affinity handling failed: \(error.localizedDescription)")
-            #endif
             return false
         }
     }

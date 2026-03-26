@@ -138,11 +138,9 @@ public final class TrackAvailabilityResolver: ObservableObject {
             try? await Task.sleep(nanoseconds: 100_000_000) // 100ms debounce
             guard !Task.isCancelled else { return }
             self?.availabilityGeneration &+= 1
-            #if DEBUG
             if let self {
                 EnsembleLogger.debug("🔄 TrackAvailabilityResolver: generation bumped to \(self.availabilityGeneration), serverStates=\(self.serverHealthChecker.serverStates.mapValues { $0.description })")
             }
-            #endif
         }
     }
 

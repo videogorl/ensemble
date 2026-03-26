@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, frequency visualizer, hubs, filtering, network resilience, playback tracking, playlist mutations, incremental sync, Siri media intents, pinned content)"
+description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, frequency visualizer, hubs, filtering, network resilience, playback tracking, playlist mutations, incremental sync, Siri media intents, pinned content, persistent session logging)"
 ---
 
 # Ensemble Architecture
@@ -578,6 +578,13 @@ Karaoke-style time-synced lyrics fetched from Plex and displayed in the Lyrics C
 - `Packages/EnsembleUI/Sources/Components/NowPlaying/LyricsCard.swift` - three-state lyrics display
 
 **Known limitation:** The `/library/streams/` endpoint occasionally returns 404 for tracks that report a valid `lyricsStream`. See Known Issues.
+
+## Subsystem: Persistent Session Logging
+
+Real-time dual-write logging for TestFlight diagnostics. Each `EnsembleLogger` method writes to both `os.log` (existing) and a session file (new) via a static `fileLogHandler` closure. `PersistentLogService` (in EnsembleCore) owns the `LogFileWriter` which serializes file I/O on a private `DispatchQueue`. Session files are stored at `Library/Application Support/Ensemble/Logs/`. Handlers for Core/API/Persistence loggers are wired in `DependencyContainer`; UI and App loggers are wired in `EnsembleApp` on first activation. The logger API uses `@autoclosure` for zero-cost in release when file logging is disabled.
+
+- **Key types:** `PersistentLogService`, `LogFileWriter` (private), `LogSession`
+- **Key files:** `PersistentLogService.swift`, all `EnsembleLogger.swift` files, `DependencyContainer.swift`, `EnsembleApp.swift`
 
 ## Multi-Source Architecture
 
