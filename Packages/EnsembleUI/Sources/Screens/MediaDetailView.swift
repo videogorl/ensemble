@@ -535,26 +535,42 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             tracksSection
                 .ignoresSafeArea(.container, edges: [.top, .bottom])
             #else
-            ScrollView {
-                VStack(spacing: 0) {
-                    // macOS always uses the wide (horizontal) header layout
+            // macOS: List with header section + track rows with native swipe actions
+            List {
+                // Header section: artwork, metadata, genre chips
+                Section {
                     wideHeaderView
                     if let genreChipContent {
                         genreChipContent
                     }
+                }
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
 
-                    if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
+                if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
+                    Section {
                         ProgressView()
                             .padding(.top, 40)
-                    } else if viewModel.filteredTracks.isEmpty {
+                            .frame(maxWidth: .infinity)
+                    }
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                } else if viewModel.filteredTracks.isEmpty {
+                    Section {
                         Text("No tracks")
                             .foregroundColor(.secondary)
                             .padding(.top, 40)
-                    } else {
-                        tracksSection
+                            .frame(maxWidth: .infinity)
                     }
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                } else {
+                    tracksSection
                 }
             }
+            .listStyle(.plain)
+            .modifier(ClearScrollContentBackgroundModifier())
             #endif
         }
         .navigationTitle("")
@@ -947,62 +963,64 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
         #else
-        // Basic List fallback for macOS
-        VStack(spacing: 0) {
-            ForEach(Array(viewModel.filteredTracks.enumerated()), id: \.element.id) { index, track in
-                TrackRow(
-                    track: track,
-                    showArtwork: showArtwork,
-                    isPlaying: track.id == currentTrackId,
-                    onPlayNext: { nowPlayingVM.playNext(track) },
-                    onPlayLast: { nowPlayingVM.playLast(track) },
-                    onAddToPlaylist: {
-                        presentPlaylistPicker(with: [track], title: "Add to Playlist")
-                    },
-                    onAddToRecentPlaylist: {
-                        guard let lastPlaylistQuickTarget,
-                              nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return }
-                        Task {
-                            _ = try? await nowPlayingVM.addTracks([track], to: lastPlaylistQuickTarget)
-                        }
-                    },
-                    onToggleFavorite: {
-                        Task {
-                            await nowPlayingVM.toggleTrackFavorite(track)
-                        }
-                    },
-                    onGoToAlbum: (viewModel is AlbumDetailViewModel) ? nil : {
-                        if let albumId = track.albumRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                        }
-                    },
-                    onGoToArtist: {
-                        if let artistId = track.artistRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                        }
-                    },
-                    onShareLink: {
-                        ShareActions.shareTrackLink(track, deps: deps)
-                    },
-                    onShareFile: {
-                        ShareActions.shareTrackFile(track, deps: deps)
-                    },
-                    isFavorited: nowPlayingVM.isTrackFavorited(track),
-                    recentPlaylistTitle: {
-                        guard let lastPlaylistQuickTarget,
-                              nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return nil }
-                        return lastPlaylistQuickTarget.title
-                    }()
-                ) {
-                    nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                
-                if index < viewModel.filteredTracks.count - 1 {
-                    Divider().padding(.leading, showArtwork ? 68 : 16)
-                }
+        // macOS: List with native .swipeActions for trackpad two-finger swipe support
+        ForEach(Array(viewModel.filteredTracks.enumerated()), id: \.element.id) { index, track in
+            TrackRow(
+                track: track,
+                showArtwork: showArtwork,
+                isPlaying: track.id == currentTrackId,
+                onPlayNext: { nowPlayingVM.playNext(track) },
+                onPlayLast: { nowPlayingVM.playLast(track) },
+                onAddToPlaylist: {
+                    presentPlaylistPicker(with: [track], title: "Add to Playlist")
+                },
+                onAddToRecentPlaylist: {
+                    guard let lastPlaylistQuickTarget,
+                          nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return }
+                    Task {
+                        _ = try? await nowPlayingVM.addTracks([track], to: lastPlaylistQuickTarget)
+                    }
+                },
+                onToggleFavorite: {
+                    Task {
+                        await nowPlayingVM.toggleTrackFavorite(track)
+                    }
+                },
+                onGoToAlbum: (viewModel is AlbumDetailViewModel) ? nil : {
+                    if let albumId = track.albumRatingKey {
+                        DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                    }
+                },
+                onGoToArtist: {
+                    if let artistId = track.artistRatingKey {
+                        DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                    }
+                },
+                onShareLink: {
+                    ShareActions.shareTrackLink(track, deps: deps)
+                },
+                onShareFile: {
+                    ShareActions.shareTrackFile(track, deps: deps)
+                },
+                isFavorited: nowPlayingVM.isTrackFavorited(track),
+                recentPlaylistTitle: {
+                    guard let lastPlaylistQuickTarget,
+                          nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return nil }
+                    return lastPlaylistQuickTarget.title
+                }()
+            ) {
+                nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
             }
+            .trackSwipeActions(
+                track: track,
+                nowPlayingVM: nowPlayingVM,
+                onPlayNext: { nowPlayingVM.playNext(track) },
+                onPlayLast: { nowPlayingVM.playLast(track) },
+                onAddToPlaylist: { presentPlaylistPicker(with: [track], title: "Add to Playlist") }
+            )
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         }
         #endif
     }
