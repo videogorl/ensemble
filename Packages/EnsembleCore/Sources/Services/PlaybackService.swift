@@ -4395,8 +4395,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Check each queue item for newly downloaded (or removed) tracks and
     /// update localFilePath + streamingQuality accordingly.
+    ///
+    /// Only flushes the AudioEngine FIFO when a gaplessly-scheduled track's
+    /// download state changed. Non-scheduled track changes update metadata
+    /// silently so bulk downloads don't stutter playback.
     private func refreshQueueDownloadState() async {
         var changed = false
+        var changedTrackIds = Set<String>()
         for i in queue.indices {
             let track = queue[i].track
             let ratingKey = track.id
@@ -4409,9 +4414,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             )
 
             if track.localFilePath != currentPath {
-                let wasNotDownloaded = track.localFilePath == nil
-                let isNowDownloaded = currentPath != nil
-
                 // Rebuild the Track with the updated localFilePath
                 let updatedTrack = Track(
                     id: track.id,
@@ -4450,6 +4452,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     streamingQuality: quality
                 )
                 changed = true
+                changedTrackIds.insert(ratingKey)
 
                 // Evict cached player item when download state changes for non-current tracks.
                 // Covers both download completion (re-resolve to local file) and removal
@@ -4468,13 +4471,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if changed {
             savePlaybackState()
 
-            // Clear stale prefetched items from AVQueuePlayer and re-prefetch.
-            // Without this, AVPlayer's internal queue still holds items referencing
-            // deleted local files, which corrupts gapless transitions.
-            await MainActor.run {
-                audioEngine?.clearScheduledFiles()
+            // Only flush the AudioEngine FIFO when a gaplessly-scheduled track's
+            // source changed. During bulk downloads, most completions are for tracks
+            // further out in the queue — flushing the FIFO for those would stutter
+            // playback via playerNode.stop() + re-anchor every few seconds.
+            let scheduledIds = await MainActor.run { audioEngine?.scheduledTrackIds ?? [] }
+            let scheduledChanged = !scheduledIds.isDisjoint(with: changedTrackIds)
+
+            if scheduledChanged {
+                await MainActor.run {
+                    audioEngine?.clearScheduledFiles()
+                }
+                await prefetchUpcomingItems(depth: 2)
             }
-            await prefetchUpcomingItems(depth: 2)
         }
     }
 
