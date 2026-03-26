@@ -30,10 +30,11 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `PlexAPIClient` (actor) -- Thread-safe API requests with automatic failover
   - Server capabilities: `getServerCapabilities()` (fetches root endpoint for subscription & feature info)
   - Core methods: `fetchLibraries()`, `fetchTracks()`, `fetchAlbums()`, `fetchArtists()`, etc.
-  - Stream routing: `resolveStreamURL()` → `StreamResolution` (.directStream / .downloadedFile)
+  - Stream routing (two-phase): `makeStreamDecision()` → `StreamDecision` (endpoint-independent), `assembleStreamResolution()` → `StreamResolution` (uses fresh endpoint from registry). Legacy `resolveStreamURL()` chains both.
   - Decision parsing: `callTranscodeDecision()` → `TranscodeDecisionResult` (directplay/copy/transcode)
   - Playback tracking: `reportTimeline()`, `scrobble()`
   - Waveform data: `getLoudnessTimeline(forStreamId:subsample:)`
+- `StreamDecision` / `TranscodeStreamDecision` -- Endpoint-independent streaming decisions (cached across network transitions)
 - `PlexConnectionPolicy` types -- Endpoint descriptors, ordering policies, probe classifications, and structured refresh outcomes
 - `PlexErrorClassification` -- Unified error taxonomy (transport vs. semantic) for failover and retry decisions
 - `ServerConnectionRegistry` (actor) -- Single source of truth for per-server active endpoints
@@ -370,6 +371,13 @@ Multi-layered network resilience spanning endpoint management, push-based update
 - `TrackRow`, `CompactSearchRows`, and `MediaTrackList` use the resolver instead of inline offline checks for consistent dimming/blocking behavior.
 - Exposed via `DependencyContainer.trackAvailabilityResolver`.
 
+### Two-Phase Stream Resolution
+- **`StreamDecision`** / **`TranscodeStreamDecision`** (`EnsembleAPI`) -- Endpoint-independent streaming decisions that survive network transitions. Capture codec, quality, session params without the server base URL.
+- **`PlexAPIClient.makeStreamDecision()`** -- Phase 1: Calls PMS `/decision` endpoint, returns `StreamDecision` (cacheable).
+- **`PlexAPIClient.assembleStreamResolution()`** -- Phase 2: Reads freshest endpoint from `ServerConnectionRegistry`, builds `StreamResolution` with current URL. No network calls.
+- **`PlaybackService.cachedStreamDecisions`** -- Decision cache keyed by trackId. On network transition, decisions persist while resolved URLs are evicted. Re-prefetch skips `/decision` call and only re-assembles URL.
+- `resolveStreamURL()` remains as convenience that chains both phases (backward compat).
+
 ### Queue Resilience (PlaybackService)
 - Circuit breaker scans for downloaded alternatives when server is unreachable.
 - `retryCurrentTrack()` falls back to local download if available.
@@ -415,6 +423,11 @@ PlexAPIClient ──failover──> ServerConnectionRegistry <──writes──
                                         |
                                         v
                              TrackRow / CompactSearchRows / MediaTrackList (UI dimming/blocking)
+
+PlaybackService ──makeStreamDecision──> SyncCoordinator ──> PlexMusicSourceSyncProvider ──> PlexAPIClient.makeStreamDecision()
+PlaybackService ──assembleStream──> SyncCoordinator ──> PlexMusicSourceSyncProvider ──> PlexAPIClient.assembleStreamResolution()
+                                                                                              └──> ServerConnectionRegistry (reads fresh endpoint)
+PlaybackService.cachedStreamDecisions ── survives ──> network transitions (decisions are endpoint-independent)
 
 PlaybackService ──scrobble──> MutationCoordinator ──(on failure)──> CDPendingMutation (.scrobble)
 PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (transport vs. semantic)
