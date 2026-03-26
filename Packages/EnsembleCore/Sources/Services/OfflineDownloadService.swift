@@ -1056,7 +1056,7 @@ public final class OfflineDownloadService: ObservableObject {
                     EnsembleLogger.debug(
                         "⏸️ Download queue cancelled for track=\(ctx.trackRatingKey); resetting to pending at quality=\(updatedQuality)"
                     )
-                    try? await downloadManager.updateDownloadStatus(download.objectID, status: .pending, quality: updatedQuality)
+                    try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: updatedQuality)
                     return
                 } catch {
                     // Download queue failed — fall through to direct original download.
@@ -1075,7 +1075,7 @@ public final class OfflineDownloadService: ObservableObject {
             EnsembleLogger.debug(
                 "⬇️ Offline download attempt: track=\(ctx.trackRatingKey) stage=\(selectedMode) url=\(selectedURL)"
             )
-            let (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: download.objectID, estimatedSize: sizeEstimate)
+            let (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: ctx.downloadObjectID, estimatedSize: sizeEstimate)
 
             if let httpResponse = response as? HTTPURLResponse {
                 EnsembleLogger.debug(
@@ -1175,12 +1175,12 @@ public final class OfflineDownloadService: ObservableObject {
             } else if isNetworkLossError(error) {
                 // Network dropped mid-transfer — pause so the download auto-resumes
                 // when connectivity returns, instead of marking as permanently failed
-                try? await downloadManager.updateDownloadStatus(download.objectID, status: .paused, quality: nil)
+                try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .paused, quality: nil)
                 EnsembleLogger.debug(
                     "⏸️ Offline download paused (network lost): track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey)"
                 )
             } else {
-                try? await downloadManager.failDownload(download.objectID, error: error.localizedDescription)
+                try? await downloadManager.failDownload(ctx.downloadObjectID, error: error.localizedDescription)
                 EnsembleLogger.debug(
                     "❌ Offline download failed: track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey) reason=\(error.localizedDescription)"
                 )
