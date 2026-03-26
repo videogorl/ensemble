@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, frequency visualizer, hubs, filtering, network resilience, playback tracking, playlist mutations, incremental sync, Siri media intents, pinned content)"
+description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, frequency visualizer, hubs, filtering, network resilience, playback tracking, playlist mutations, incremental sync, Siri media intents, pinned content, persistent session logging)"
 ---
 
 # Ensemble Architecture
@@ -30,10 +30,11 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `PlexAPIClient` (actor) -- Thread-safe API requests with automatic failover
   - Server capabilities: `getServerCapabilities()` (fetches root endpoint for subscription & feature info)
   - Core methods: `fetchLibraries()`, `fetchTracks()`, `fetchAlbums()`, `fetchArtists()`, etc.
-  - Stream routing: `resolveStreamURL()` → `StreamResolution` (.directStream / .downloadedFile)
+  - Stream routing (two-phase): `makeStreamDecision()` → `StreamDecision` (endpoint-independent), `assembleStreamResolution()` → `StreamResolution` (uses fresh endpoint from registry). Legacy `resolveStreamURL()` chains both.
   - Decision parsing: `callTranscodeDecision()` → `TranscodeDecisionResult` (directplay/copy/transcode)
   - Playback tracking: `reportTimeline()`, `scrobble()`
   - Waveform data: `getLoudnessTimeline(forStreamId:subsample:)`
+- `StreamDecision` / `TranscodeStreamDecision` -- Endpoint-independent streaming decisions (cached across network transitions)
 - `PlexConnectionPolicy` types -- Endpoint descriptors, ordering policies, probe classifications, and structured refresh outcomes
 - `PlexErrorClassification` -- Unified error taxonomy (transport vs. semantic) for failover and retry decisions
 - `ServerConnectionRegistry` (actor) -- Single source of truth for per-server active endpoints
@@ -73,7 +74,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - `activeAuxiliaryPresentation` / `auxiliaryWindowRequest` -- Root-level modal/window routing state; screens should request presentation through the coordinator instead of owning duplicated sheet state
 - Large-screen Now Playing presentation is split at the UI layer: `NowPlayingSheetView` remains the phone sheet container, `NowPlayingViewportRoot` owns the iPad/macOS viewport layout, and macOS window chrome is coordinated separately through `WindowChromeBridge` so toolbar content can swap without moving the titlebar/traffic lights
 - `PlaybackService` -- AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion). Publishes both raw transport time (`currentTime`) and presentation-adjusted time (`presentationTime`) so lyrics/Aurora can compensate for AirPlay/Bluetooth output delay without affecting seek/reporting semantics. `frequencyBands` uses `CurrentValueSubject` (not `@Published`) to avoid firing `objectWillChange` at 30Hz. Uses `ProgressiveStreamLoader` for transcode streams and `streamLoaders` dict for lifecycle management
-- `ProgressiveStreamLoader` -- AVAssetResourceLoaderDelegate + URLSessionDataDelegate bridge. Proxies PMS's chunked transcode stream (via custom `ensemble-transcode://` scheme) to AVPlayer progressively, writing to a growing temp file. Post-download callback for XING injection + frequency analysis
+- `ProgressiveStreamLoader` -- AVAssetResourceLoaderDelegate + URLSessionDataDelegate bridge. Proxies PMS's chunked transcode stream (via custom `ensemble-transcode://` scheme) to AVPlayer progressively, writing to a growing temp file. Post-download callbacks: `onDownloadComplete` for frequency analysis, `onDownloadFailed` for HTTP errors and invalid payloads. Validates HTTP status (non-2xx → `ProgressiveStreamError.httpError`) and payload size (< 256 bytes → `.invalidPayload`). Error body captured to diagnostic buffer (not written to audio file)
+- `ProgressiveStreamError` -- Error type for stream download failures: `.httpError(statusCode:bodySnippet:)` and `.invalidPayload(bytesReceived:)`. Mapped to `PlaybackError` in `PlaybackService.mapToPlaybackError`
 - `HubRepository` -- Repository for hub data persistence (implements `HubRepositoryProtocol`); manages CDHub/CDHubItem entities
 - `HubOrderManager` -- Manages user-customizable hub section ordering per music source
   - Persists custom order to UserDefaults with per-source keys
@@ -370,6 +372,13 @@ Multi-layered network resilience spanning endpoint management, push-based update
 - `TrackRow`, `CompactSearchRows`, and `MediaTrackList` use the resolver instead of inline offline checks for consistent dimming/blocking behavior.
 - Exposed via `DependencyContainer.trackAvailabilityResolver`.
 
+### Two-Phase Stream Resolution
+- **`StreamDecision`** / **`TranscodeStreamDecision`** (`EnsembleAPI`) -- Endpoint-independent streaming decisions that survive network transitions. Capture codec, quality, session params without the server base URL.
+- **`PlexAPIClient.makeStreamDecision()`** -- Phase 1: Calls PMS `/decision` endpoint, returns `StreamDecision` (cacheable).
+- **`PlexAPIClient.assembleStreamResolution()`** -- Phase 2: Reads freshest endpoint from `ServerConnectionRegistry`, builds `StreamResolution` with current URL. No network calls.
+- **`PlaybackService.cachedStreamDecisions`** -- Decision cache keyed by trackId. On network transition, decisions persist while resolved URLs are evicted. Re-prefetch skips `/decision` call and only re-assembles URL.
+- `resolveStreamURL()` remains as convenience that chains both phases (backward compat).
+
 ### Queue Resilience (PlaybackService)
 - Circuit breaker scans for downloaded alternatives when server is unreachable.
 - `retryCurrentTrack()` falls back to local download if available.
@@ -415,6 +424,11 @@ PlexAPIClient ──failover──> ServerConnectionRegistry <──writes──
                                         |
                                         v
                              TrackRow / CompactSearchRows / MediaTrackList (UI dimming/blocking)
+
+PlaybackService ──makeStreamDecision──> SyncCoordinator ──> PlexMusicSourceSyncProvider ──> PlexAPIClient.makeStreamDecision()
+PlaybackService ──assembleStream──> SyncCoordinator ──> PlexMusicSourceSyncProvider ──> PlexAPIClient.assembleStreamResolution()
+                                                                                              └──> ServerConnectionRegistry (reads fresh endpoint)
+PlaybackService.cachedStreamDecisions ── survives ──> network transitions (decisions are endpoint-independent)
 
 PlaybackService ──scrobble──> MutationCoordinator ──(on failure)──> CDPendingMutation (.scrobble)
 PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (transport vs. semantic)
@@ -578,6 +592,13 @@ Karaoke-style time-synced lyrics fetched from Plex and displayed in the Lyrics C
 - `Packages/EnsembleUI/Sources/Components/NowPlaying/LyricsCard.swift` - three-state lyrics display
 
 **Known limitation:** The `/library/streams/` endpoint occasionally returns 404 for tracks that report a valid `lyricsStream`. See Known Issues.
+
+## Subsystem: Persistent Session Logging
+
+Real-time dual-write logging for TestFlight diagnostics. Each `EnsembleLogger` method writes to both `os.log` (existing) and a session file (new) via a static `fileLogHandler` closure. `PersistentLogService` (in EnsembleCore) owns the `LogFileWriter` which serializes file I/O on a private `DispatchQueue`. Session files are stored at `Library/Application Support/Ensemble/Logs/`. Handlers for Core/API/Persistence loggers are wired in `DependencyContainer`; UI and App loggers are wired in `EnsembleApp` on first activation. The logger API uses `@autoclosure` for zero-cost in release when file logging is disabled.
+
+- **Key types:** `PersistentLogService`, `LogFileWriter` (private), `LogSession`
+- **Key files:** `PersistentLogService.swift`, all `EnsembleLogger.swift` files, `DependencyContainer.swift`, `EnsembleApp.swift`
 
 ## Multi-Source Architecture
 

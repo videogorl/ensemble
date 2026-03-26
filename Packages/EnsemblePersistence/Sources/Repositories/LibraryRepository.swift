@@ -896,9 +896,9 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDTrack.fetchRequest()
-                request.predicate = NSPredicate(
-                    format: "title CONTAINS[cd] %@ OR artistName CONTAINS[cd] %@ OR albumName CONTAINS[cd] %@",
-                    query, query, query
+                 request.predicate = Self.tokenizedSearchPredicate(
+                    query: query,
+                    fieldNames: ["title", "artistName", "albumName"]
                 )
                 request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
                 do {
@@ -937,7 +937,10 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDArtist.fetchRequest()
-                request.predicate = NSPredicate(format: "name CONTAINS[cd] %@", query)
+                request.predicate = Self.tokenizedSearchPredicate(
+                    query: query,
+                    fieldNames: ["name"]
+                )
                 request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
                 do {
                     let artists = try context.fetch(request)
@@ -975,7 +978,10 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDAlbum.fetchRequest()
-                request.predicate = NSPredicate(format: "title CONTAINS[cd] %@ OR artistName CONTAINS[cd] %@", query, query)
+                request.predicate = Self.tokenizedSearchPredicate(
+                    query: query,
+                    fieldNames: ["title", "artistName"]
+                )
                 request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
                 do {
                     let albums = try context.fetch(request)
@@ -1006,6 +1012,34 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                 }
             }
         }
+    }
+
+    /// Builds a search predicate that requires all whitespace-separated tokens
+    /// to appear (in any order) across the given fields.
+    private static func tokenizedSearchPredicate(
+        query: String,
+        fieldNames: [String]
+    ) -> NSPredicate {
+        let tokens = query
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .whitespaces)
+            .filter { !$0.isEmpty }
+
+        guard !tokens.isEmpty else {
+            return NSPredicate(value: false)
+        }
+
+        // For each token, require it to appear in at least one searchable field
+        let tokenPredicates = tokens.map { token in
+            NSCompoundPredicate(orPredicateWithSubpredicates:
+                fieldNames.map { field in
+                    NSPredicate(format: "%K CONTAINS[cd] %@", field, token)
+                }
+            )
+        }
+
+        // All tokens must match
+        return NSCompoundPredicate(andPredicateWithSubpredicates: tokenPredicates)
     }
 
     private static func scopedNameSearchPredicate(

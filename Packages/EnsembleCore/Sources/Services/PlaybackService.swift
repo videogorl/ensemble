@@ -799,6 +799,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var resolvedFileURLs: [String: URL] = [:]
     private var resolvedFileURLsLRU: [String] = []
     private let maxCachedFileURLs = 10
+    /// Cached stream decisions keyed by trackId. Decisions are endpoint-independent and
+    /// survive network transitions — only the assembly step uses the current endpoint.
+    private var cachedStreamDecisions: [String: StreamDecision] = [:]
     /// In-flight file resolution tasks keyed by trackId
     private var fileResolutionTasks: [String: Task<URL, Error>] = [:]
     /// Combine subscription for engine time updates
@@ -874,9 +877,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// default to true even when the user disabled the visualizer.
     private var isVisualizerEnabled: Bool {
         let enabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
-        #if DEBUG
         EnsembleLogger.debug("[FrequencyAnalysis] isVisualizerEnabled check: \(enabled)")
-        #endif
         return enabled
     }
     private var mutationCoordinator: MutationCoordinator?
@@ -1104,12 +1105,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Handle gapless track advance from AudioPlaybackEngine
     private func handleEngineTrackAdvance(trackId: String) {
         guard let index = queue.firstIndex(where: { $0.track.id == trackId }) else {
-            #if DEBUG
             EnsembleLogger.debug("[AudioEngine] Track advance: trackId \(trackId) not found in queue")
-            #endif
             return
         }
-        guard currentQueueIndex != index else { return }
+        guard currentQueueIndex != index else {
+            EnsembleLogger.debug("[AudioEngine] Track advance: already at index \(index) for trackId \(trackId)")
+            return
+        }
+        let prevTrack = currentTrack?.title ?? "nil"
+        EnsembleLogger.playback("GAPLESS_ADVANCE: '\(prevTrack)' (idx \(currentQueueIndex)) → '\(queue[index].track.title)' (idx \(index))")
 
         // Record previous track to history
         if !isNavigatingBackward, currentQueueIndex >= 0, currentQueueIndex < queue.count {
@@ -1143,9 +1147,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         Task { await prefetchNextItem() }
         Task { await checkAndRefreshAutoplayQueue() }
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Gapless advance to '\(newTrack.title)' (index \(index))")
-        #endif
     }
 
     /// Handles natural playback completion when AVQueuePlayer has no current item left.
@@ -1156,9 +1158,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // If a TLS connection refresh is in progress, wait for it to finish
         // so the retry completes before we try to advance the queue.
         if isHandlingTLSFailure {
-            #if DEBUG
             EnsembleLogger.debug("⏭️ Queue exhaustion deferred — waiting for TLS failure handler")
-            #endif
             for _ in 0..<100 {
                 await Task.yield()
                 if !isHandlingTLSFailure { break }
@@ -1168,9 +1168,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // If a server-unreachable health check is in progress, wait for it to finish
         // so the circuit breaker is properly armed before we decide what to do next.
         if isHandlingServerUnreachable {
-            #if DEBUG
             EnsembleLogger.debug("⏭️ Queue exhaustion deferred — waiting for server unreachable handler")
-            #endif
             // Yield repeatedly until the handler finishes (it's on MainActor too)
             for _ in 0..<100 {
                 await Task.yield()
@@ -1186,9 +1184,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         guard !isHandlingQueueExhaustion else {
-            #if DEBUG
             EnsembleLogger.debug("⏭️ Queue exhaustion handling already in progress - ignoring duplicate event")
-            #endif
             return
         }
         isHandlingQueueExhaustion = true
@@ -1205,10 +1201,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        #if DEBUG
         let throttleActive = (prefetchThrottleUntil?.timeIntervalSince(Date()) ?? 0) > 0
         EnsembleLogger.debug("GAPLESS_DIAG: handleQueueExhausted — NOT gapless. depth=\(2), throttle=\(throttleActive), idx=\(currentQueueIndex)/\(queue.count)")
-        #endif
 
         guard !queue.isEmpty else {
             stop()
@@ -1219,9 +1213,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // The user tapped *this* track — they want to see the error, not a different song.
         // They can manually retry, skip, or pick a new track.
         if case .failed = playbackState {
-            #if DEBUG
             EnsembleLogger.debug("⏭️ Track is in failed state — staying on current track (no auto-advance)")
-            #endif
             return
         }
 
@@ -1259,32 +1251,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 savePlaybackState()
                 await checkAndRefreshAutoplayQueue()
             } else {
-                #if DEBUG
                 EnsembleLogger.debug("⏹️ Queue ended with no autoplay recommendations - stopping playback")
-                #endif
                 stop()
             }
             return
         }
 
-        #if DEBUG
         EnsembleLogger.debug("⏹️ Queue ended - stopping playback")
-        #endif
         stop()
     }
     
     private func generateWaveform(for ratingKey: String) {
-        #if DEBUG
         EnsembleLogger.debug("🎵 Generating waveform for track: \(ratingKey)")
-        #endif
 
         // Generate fallback waveform immediately for instant feedback
         let fallbackWaveform = self.generateFallbackWaveform(for: ratingKey)
         Task { @MainActor in
             self.waveformHeights = fallbackWaveform
-            #if DEBUG
             EnsembleLogger.debug("🎵 Using fallback waveform (\(fallbackWaveform.count) samples)")
-            #endif
         }
 
         // Try to fetch real waveform data from Plex server asynchronously (if sonic analysis has been performed)
@@ -1314,15 +1298,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                                 // Normalize loudness values to 0.0-1.0 range for visualization
                                 let normalizedHeights = self.normalizeLoudnessData(loudness)
                                 self.waveformHeights = normalizedHeights
-                                #if DEBUG
                                 EnsembleLogger.debug("✅ Replaced fallback with real waveform data from Plex (\(normalizedHeights.count) samples)")
-                                #endif
                                 return
                             }
                         } catch {
-                            #if DEBUG
                             EnsembleLogger.debug("ℹ️ Could not fetch Plex waveform data (using fallback): \(error.localizedDescription)")
-                            #endif
                         }
                     }
                 }
@@ -1410,9 +1390,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Expiration handler — clean up if iOS is about to suspend
             self?.endTrackTransitionBackgroundTask()
         }
-        #if DEBUG
         EnsembleLogger.debug("🔒 Background task started for track transition")
-        #endif
         #endif
     }
 
@@ -1420,9 +1398,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func endTrackTransitionBackgroundTask() {
         #if canImport(UIKit)
         guard trackTransitionBackgroundTask != .invalid else { return }
-        #if DEBUG
         EnsembleLogger.debug("🔓 Background task ended for track transition")
-        #endif
         UIApplication.shared.endBackgroundTask(trackTransitionBackgroundTask)
         trackTransitionBackgroundTask = .invalid
         #endif
@@ -1492,17 +1468,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             )
             isAudioSessionConfigured = true
             refreshPresentationLatencyEstimate()
-            #if DEBUG
             EnsembleLogger.debug("🔊 Audio session category configured (deferred from launch)")
-            #endif
             return true
         } catch {
             // iOS 26: setCategory can fail with Code=-50 early in the app lifecycle.
             // AVPlayer auto-activates the session on playback, so this is non-fatal.
             // Flag stays false so the next call will retry.
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Audio session setCategory failed (will retry on next call): \(error)")
-            #endif
             return false
         }
         #else
@@ -1550,14 +1522,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             ioBufferDuration: session.ioBufferDuration
         )
         refreshPresentationTime()
-        #if DEBUG
         EnsembleLogger.debug(
             "[Playback] presentation route=\(String(describing: presentationRouteKind)) "
                 + "latency=\(String(format: "%.3f", effectivePresentationLatency))s "
                 + "reported=\(String(format: "%.3f", session.outputLatency))s "
                 + "ioBuffer=\(String(format: "%.3f", session.ioBufferDuration))s"
         )
-        #endif
         #else
         presentationRouteKind = .builtInOrWired
         effectivePresentationLatency = 0
@@ -1577,9 +1547,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         switch type {
         case .began:
-            #if DEBUG
             EnsembleLogger.debug("🔇 Audio session interruption BEGAN")
-            #endif
             isInterrupted = true
             // When interruption begins, the system pauses audio.
             // Update internal state so we know to resume when interruption ends.
@@ -1588,17 +1556,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
             
         case .ended:
-            #if DEBUG
             EnsembleLogger.debug("🔊 Audio session interruption ENDED")
-            #endif
             isInterrupted = false
             
             guard let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
             if options.contains(.shouldResume) {
-                #if DEBUG
                 EnsembleLogger.debug("▶️ Interruption options specify SHOULD RESUME")
-                #endif
                 if playbackState == .buffering {
                     resume()
                 }
@@ -1623,9 +1587,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         isRouteChangeInProgress = true
         refreshPresentationLatencyEstimate()
 
-        #if DEBUG
         EnsembleLogger.debug("🎧 Audio route change detected: \(reason.rawValue)")
-        #endif
 
         switch reason {
         case .newDeviceAvailable:
@@ -1634,9 +1596,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let newOutputs = AVAudioSession.sharedInstance().currentRoute.outputs
             let isAirPlay = newOutputs.contains { $0.portType == .airPlay }
             let settleNanoseconds: UInt64 = isAirPlay ? 4_000_000_000 : 2_000_000_000
-            #if DEBUG
             EnsembleLogger.debug("🎧 New audio device available — isAirPlay=\(isAirPlay), settle=\(settleNanoseconds / 1_000_000_000)s")
-            #endif
             // Give the system time to settle the new route before allowing
             // the unexpected-pause counter to start accumulating again.
             Task { @MainActor in
@@ -1648,18 +1608,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     // negotiation after the settle window doesn't trip the backoff.
                     self.unexpectedPauseCount = 0
                     self.lastUnexpectedPauseAt = nil
-                    #if DEBUG
                     EnsembleLogger.debug("🎧 Route handover settle window finished; pause counters reset")
-                    #endif
                     if self.playbackState == .buffering {
                         self.resume()
                     }
                 }
             }
         case .oldDeviceUnavailable:
-            #if DEBUG
             EnsembleLogger.debug("🎧 Audio device unavailable (e.g. disconnected)")
-            #endif
             isRouteChangeInProgress = false
             // Default system behavior is to pause; we should stay paused if the user disconnected.
         default:
@@ -1772,9 +1728,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 self.applyTrackRatingLocally(trackId: track.id, rating: previousRating)
                 self.updateNowPlayingInfo()
                 try? await self.storeTrackRating(trackId: track.id, rating: previousRating)
-                #if DEBUG
                 EnsembleLogger.debug("Failed to update rating from system UI: \(error)")
-                #endif
             }
         }
         return .success
@@ -1888,13 +1842,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             UserDefaults.standard.set(false, forKey: "isShuffleEnabled")
         }
 
-        #if DEBUG
         if playableQueue.skippedCount > 0 {
             EnsembleLogger.debug(
                 "🎵 Offline queue filter applied: requested=\(tracks.count), playable=\(queueTracks.count), skipped=\(playableQueue.skippedCount)"
             )
         }
-        #endif
 
         queue = queueTracks.map { makeQueueItem(track: $0, source: .continuePlaying) }
         originalQueue = queue
@@ -1946,13 +1898,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             UserDefaults.standard.set(true, forKey: "isShuffleEnabled")
         }
 
-        #if DEBUG
         if playableQueue.skippedCount > 0 {
             EnsembleLogger.debug(
                 "🎵 Offline shuffle filter applied: requested=\(tracks.count), playable=\(queueTracks.count), skipped=\(playableQueue.skippedCount)"
             )
         }
-        #endif
 
         let items = queueTracks.map { makeQueueItem(track: $0, source: .continuePlaying) }
         originalQueue = items
@@ -2071,11 +2021,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 return trackWithLocalFilePath(track, localFilePath: persistedPath)
             }
         } catch {
-            #if DEBUG
             EnsembleLogger.debug(
                 "⚠️ Failed resolving offline playable track \(track.id): \(error.localizedDescription)"
             )
-            #endif
         }
 
         return nil
@@ -2127,16 +2075,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let historyItem = playbackHistory[historyIndex]
         let trackId = historyItem.track.id
 
-        #if DEBUG
         EnsembleLogger.debug("🔙 Playing from history: \(historyItem.track.title)")
-        #endif
 
         // Check if this track already exists in the queue
         if let existingIndex = queue.firstIndex(where: { $0.track.id == trackId }) {
             // Track exists in queue - just navigate to it
-            #if DEBUG
             EnsembleLogger.debug("   Found in queue at index \(existingIndex)")
-            #endif
 
             // Remove tapped item and everything after from history
             playbackHistory.removeSubrange(historyIndex...)
@@ -2149,9 +2093,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             savePlaybackState()
         } else {
             // Track not in queue - insert it at current position
-            #if DEBUG
             EnsembleLogger.debug("   Not in queue, inserting at current position")
-            #endif
 
             // Remove from history
             playbackHistory.remove(at: historyIndex)
@@ -2295,17 +2237,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// new route without interrupting the user-visible state.
     public func nudgeForAirPlayRoute() {
         guard currentTrack != nil, audioEngine?.currentTrackId != nil else {
-            #if DEBUG
             EnsembleLogger.debug("🎧 nudgeForAirPlayRoute: no active track, skipping")
-            #endif
             return
         }
         // Reset pause loop counters for the new route
         unexpectedPauseCount = 0
         lastUnexpectedPauseAt = nil
-        #if DEBUG
         EnsembleLogger.debug("🎧 nudgeForAirPlayRoute: state=\(playbackState) — re-asserting playback on new route")
-        #endif
         // AudioPlaybackEngine handles route changes via AVAudioEngineConfigurationChange
         // notification internally. For paused state, resume normally.
         if playbackState == .paused || playbackState == .buffering {
@@ -2358,11 +2296,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func next() {
         guard !queue.isEmpty else { return }
 
-        #if DEBUG
         let currentTrackTitle = currentTrack?.title ?? "nil"
         let currentState = playbackState
         EnsembleLogger.debug("[next] called — track='\(currentTrackTitle)', state=\(currentState), idx=\(currentQueueIndex)/\(queue.count)")
-        #endif
 
         // Cancel any in-progress skip transition
         skipTransitionTask?.cancel()
@@ -2414,9 +2350,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         self.stop()
                     }
                 } else if self.isAutoplayEnabled {
-                    #if DEBUG
                     EnsembleLogger.debug("[next] Queue ended, autoplay enabled, refreshing...")
-                    #endif
                     await self.refreshAutoplayQueue()
                 } else {
                     self.stop()
@@ -2747,9 +2681,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Flatten autoplay items that now appear before the moved item
         flattenAutoplayItemsBeforeIndex(adjustedDest)
         
-        #if DEBUG
         EnsembleLogger.debug("🔄 Moved queue item '\(item.track.title)' (ID: \(sourceId)) from \(sourceIndex) to \(adjustedDest)")
-        #endif
         
         // Force @Published update by reassigning the queue array
         // (Required because in-place mutations don't trigger Combine notifications)
@@ -2896,9 +2828,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         
         let remainingTracksInQueue = queue.count - currentQueueIndex - 1
         if remainingTracksInQueue < 5 {
-            #if DEBUG
             EnsembleLogger.debug("🎙️ Running low on queued tracks (\(max(0, remainingTracksInQueue)) remaining), refreshing...")
-            #endif
             await refreshAutoplayQueue()
         }
     }
@@ -2913,31 +2843,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let tracksToRemove = futureTracksCount - maxQueueLookahead
             let removeStartIndex = queue.count - tracksToRemove
             
-            #if DEBUG
             EnsembleLogger.debug("🔪 Trimming \(tracksToRemove) excess auto-generated tracks from queue")
             EnsembleLogger.debug("   Future tracks: \(futureTracksCount) → \(maxQueueLookahead)")
-            #endif
             
             // Remove excess tracks from end of queue and update tracking
             for i in (removeStartIndex..<queue.count).reversed() {
                 let removedTrack = queue[i].track
                 if autoGeneratedTrackIds.contains(removedTrack.id) {
-                    #if DEBUG
                     EnsembleLogger.debug("   Removing: \(removedTrack.title)")
-                    #endif
                     autoGeneratedTrackIds.remove(removedTrack.id)
                 }
                 queue.remove(at: i)
             }
             
-            #if DEBUG
             EnsembleLogger.debug("✅ Queue trimmed to \(queue.count) total tracks")
-            #endif
         }
     }
 
     public func refreshAutoplayQueue() async {
-        #if DEBUG
         EnsembleLogger.debug("\n🔄 ═══════════════════════════════════════════════════════════")
         EnsembleLogger.debug("🔄 PlaybackService.refreshAutoplayQueue() called")
         EnsembleLogger.debug("📊 State:")
@@ -2945,13 +2868,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.debug("  - Queue size: \(queue.count)")
         EnsembleLogger.debug("  - Current index: \(currentQueueIndex)")
         EnsembleLogger.debug("  - Current autoplayTracks: \(autoplayTracks.count)")
-        #endif
         
         guard isAutoplayEnabled else {
-            #if DEBUG
             EnsembleLogger.debug("❌ Early return: autoplay not enabled")
             EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
-            #endif
             return
         }
         
@@ -2961,94 +2881,68 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Check if we already have enough upcoming tracks queued
         let futureTracksCount = max(0, queue.count - currentQueueIndex - 1)
         if futureTracksCount >= maxQueueLookahead {
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Queue already has \(futureTracksCount) future tracks (max: \(maxQueueLookahead))")
             EnsembleLogger.debug("   Skipping refresh to maintain queue limit")
             EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
-            #endif
             return
         }
-        #if DEBUG
         EnsembleLogger.debug("   Future tracks: \(futureTracksCount)/\(maxQueueLookahead)")
-        #endif
 
         // Determine the seed track: use last non-autoplay track in queue
         // This ensures autoplay generates from the last "real" track
         let seedTrack: Track?
         if let lastRealIdx = lastRealTrackIndex {
             seedTrack = queue[lastRealIdx].track
-            #if DEBUG
             EnsembleLogger.debug("\n🎵 Seed track selection:")
             EnsembleLogger.debug("  - Method: Last non-autoplay track in queue")
             EnsembleLogger.debug("  - Title: \(seedTrack?.title ?? "nil")")
             EnsembleLogger.debug("  - ID: \(seedTrack?.id ?? "nil")")
             EnsembleLogger.debug("  - sourceCompositeKey: \(seedTrack?.sourceCompositeKey ?? "nil")")
-            #endif
         } else if let currentTrack = currentTrack {
             seedTrack = currentTrack
-            #if DEBUG
             EnsembleLogger.debug("\n🎵 Seed track selection:")
             EnsembleLogger.debug("  - Method: Current track (no non-autoplay tracks in queue)")
             EnsembleLogger.debug("  - Title: \(seedTrack?.title ?? "nil")")
             EnsembleLogger.debug("  - sourceCompositeKey: \(seedTrack?.sourceCompositeKey ?? "nil")")
-            #endif
         } else {
             seedTrack = nil
-            #if DEBUG
             EnsembleLogger.debug("\n🎵 Seed track selection: FAILED - no queue or current track")
-            #endif
         }
         
         guard let seedTrack = seedTrack else {
-            #if DEBUG
             EnsembleLogger.debug("\n❌ Early return: no seed track available")
             EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
-            #endif
             return
         }
 
         // Get radio provider for seed track's source
         guard let sourceKey = seedTrack.sourceCompositeKey else {
-            #if DEBUG
             EnsembleLogger.debug("\n❌ Early return: Seed track has NO sourceCompositeKey")
             EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
-            #endif
             return
         }
-        #if DEBUG
         EnsembleLogger.debug("\n✅ Seed track has sourceCompositeKey: \(sourceKey)")
-        #endif
 
-        #if DEBUG
         EnsembleLogger.debug("\n🔄 Creating radio provider...")
-        #endif
         // sourceCompositeKey is already in format: sourceType:accountId:serverId:libraryId
         guard let provider = await MainActor.run(body: {
             syncCoordinator.makeRadioProvider(for: sourceKey)
         }) else {
-            #if DEBUG
             EnsembleLogger.debug("❌ Early return: makeRadioProvider returned nil for key: \(sourceKey)")
             EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
-            #endif
             return
         }
-        #if DEBUG
         EnsembleLogger.debug("✅ Radio provider created successfully")
-        #endif
 
         // Always use sonically similar for continuous radio (like Plexamp)
-        #if DEBUG
         EnsembleLogger.debug("\n🔄 Calling provider.getRecommendedTracks()...")
         EnsembleLogger.debug("  - Seed: \(seedTrack.title) (id: \(seedTrack.id))")
         EnsembleLogger.debug("  - Limit: 10 (fetching extra to filter duplicates)")
-        #endif
         // Ask for more than we need since we'll filter out any already in queue
         let recommendations = await provider.getRecommendedTracks(basedOn: seedTrack, limit: 10)
         
         if let tracks = recommendations {
-            #if DEBUG
             EnsembleLogger.debug("\n✅ Got recommendations: \(tracks.count) tracks")
-            #endif
             
             // Filter out tracks already in queue
             let existingQueueIds = Set(queue.map { $0.track.id })
@@ -3057,34 +2951,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
 
             if uniqueNewTracks.isEmpty {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ All recommended tracks already in queue")
-                #endif
                 recommendationsExhausted = true
             } else {
                 for track in uniqueNewTracks.prefix(3) {
-                    #if DEBUG
                     EnsembleLogger.debug("  ✅ Adding to queue: \(track.title) by \(track.artistName ?? "Unknown")")
-                    #endif
                 }
                 if uniqueNewTracks.count > 3 {
-                    #if DEBUG
                     EnsembleLogger.debug("  ... and \(uniqueNewTracks.count - 3) more tracks")
-                    #endif
                 }
 
                 // Add as autoplay items (appended to end of queue)
-                #if DEBUG
                 EnsembleLogger.debug("\n🔄 Adding \(uniqueNewTracks.count) autoplay tracks to queue...")
-                #endif
                 for track in uniqueNewTracks {
                     let item = makeQueueItem(track: track, source: .autoplay)
                     queue.append(item)
                     autoGeneratedTrackIds.insert(track.id)
                 }
-                #if DEBUG
                 EnsembleLogger.debug("✅ Queue now has \(queue.count) total tracks")
-                #endif
 
                 // Trim if we exceeded the limit
                 trimAutoplayQueue()
@@ -3093,48 +2977,34 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             
             // Also keep autoplayTracks as a buffer for continuous playback
             autoplayTracks = tracks
-            #if DEBUG
             EnsembleLogger.debug("\n✅ SUCCESS - \(uniqueNewTracks.count) new auto-generated tracks added to queue")
-            #endif
         } else {
-            #if DEBUG
             EnsembleLogger.debug("\n❌ provider.getRecommendedTracks() returned nil")
             EnsembleLogger.debug("   This could mean:")
             EnsembleLogger.debug("   1. getSimilarTracks API call failed")
             EnsembleLogger.debug("   2. The server has no sonic analysis for this track")
             EnsembleLogger.debug("   3. Network error or permission issue")
-            #endif
             autoplayTracks = []
             // Mark recommendations as exhausted if API returns nothing
             recommendationsExhausted = true
         }
-        #if DEBUG
         EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
-        #endif
     }
 
     public func enableRadio(tracks: [Track]) async {
-        #if DEBUG
         EnsembleLogger.debug("🎙️ PlaybackService.enableRadio() called")
         EnsembleLogger.debug("  - Input tracks: \(tracks.count)")
-        #endif
         
         guard !tracks.isEmpty else {
-            #if DEBUG
             EnsembleLogger.debug("❌ No tracks to queue for radio")
-            #endif
             return
         }
 
         // Create queue items as continuePlaying and shuffle
-        #if DEBUG
         EnsembleLogger.debug("🔄 Creating and shuffling queue...")
-        #endif
         var items = tracks.map { makeQueueItem(track: $0, source: .continuePlaying) }
         items.shuffle()
-        #if DEBUG
         EnsembleLogger.debug("✅ Queue shuffled")
-        #endif
 
         // Set queue and start from beginning
         queue = items
@@ -3148,41 +3018,29 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         await MainActor.run { evictPlayerItemsNotIn(newTrackIds) }
 
         // Enable radio mode for continuous playback
-        #if DEBUG
         EnsembleLogger.debug("🔄 Enabling radio mode (autoplay with sonically similar)")
-        #endif
         isAutoplayEnabled = true
         radioMode = .trackRadio  // Will use sonically similar tracks
         UserDefaults.standard.set(true, forKey: "isAutoplayEnabled")
 
         // Start playing first track
-        #if DEBUG
         EnsembleLogger.debug("🔄 Starting playback...")
-        #endif
         await playCurrentQueueItem(caller: "beginRadio")
         savePlaybackState()
         
         // Populate autoplay queue with sonically similar tracks
-        #if DEBUG
         EnsembleLogger.debug("🔄 Refreshing autoplay queue for continuous playback...")
-        #endif
         await refreshAutoplayQueue()
         
-        #if DEBUG
         EnsembleLogger.debug("✅ Radio enabled: \(tracks.count) tracks shuffled, autoplay starting")
-        #endif
     }
 
     public func playArtistRadio(for artist: Artist) async {
-        #if DEBUG
         EnsembleLogger.debug("⚠️ playArtistRadio() deprecated - use enableRadio(tracks:) instead")
-        #endif
     }
 
     public func playAlbumRadio(for album: Album) async {
-        #if DEBUG
         EnsembleLogger.debug("⚠️ playAlbumRadio() deprecated - use enableRadio(tracks:) instead")
-        #endif
     }
 
     public func isTrackAutoGenerated(trackId: String) -> Bool {
@@ -3234,9 +3092,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         for loader in streamLoaders.values { loader.cancel() }
         streamLoaders.removeAll()
         cleanupStreamCacheFiles()
-        #if DEBUG
         EnsembleLogger.debug("[Cache] Cleared file URL cache")
-        #endif
     }
 
     /// Evict cached file URLs for tracks NOT in the given set.
@@ -3245,20 +3101,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func evictPlayerItemsNotIn(_ keepTrackIds: Set<String>) {
         let evictIds = Set(resolvedFileURLs.keys).subtracting(keepTrackIds)
         guard !evictIds.isEmpty else {
-            #if DEBUG
             EnsembleLogger.debug("[Cache] Fully overlaps new queue — nothing to evict")
-            #endif
             return
         }
         for id in evictIds {
             resolvedFileURLs.removeValue(forKey: id)
             streamLoaders.removeValue(forKey: id)?.cancel()
+            cachedStreamDecisions.removeValue(forKey: id)
         }
         resolvedFileURLsLRU.removeAll { evictIds.contains($0) }
         cleanupStreamCacheFiles()
-        #if DEBUG
-        EnsembleLogger.debug("[Cache] Evicted \(evictIds.count) cached URLs, kept \(resolvedFileURLs.count)")
-        #endif
+        EnsembleLogger.debug("[Cache] Evicted \(evictIds.count) cached URLs + decisions, kept \(resolvedFileURLs.count)")
     }
 
     /// Remove temporary stream cache files created by downloadUniversalStreamToFile.
@@ -3304,11 +3157,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
-        #if DEBUG
         if removedCount > 0 {
             EnsembleLogger.debug("🗑️ Stream cache cleanup: removed \(removedCount), kept \(files.count - removedCount)")
         }
-        #endif
     }
 
     @MainActor
@@ -3385,9 +3236,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         for attempt in 0..<maxRetries {
             do {
                 if attempt > 0 {
-                    #if DEBUG
                     EnsembleLogger.debug("[playCurrentQueueItem] Retrying resolveAudioFile (attempt \(attempt + 1)/\(maxRetries))")
-                    #endif
                     try? await Task.sleep(nanoseconds: 500_000_000)
                 }
 
@@ -3403,9 +3252,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                 // Check if this playback request has been superseded
                 guard myGeneration == playbackGenerationCounter else {
-                    #if DEBUG
                     EnsembleLogger.debug("[playCurrentQueueItem] Discarding stale result for \(track.title)")
-                    #endif
                     endTrackTransitionBackgroundTask()
                     return
                 }
@@ -3416,16 +3263,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 if isVisualizerEnabled {
                     let throttle = isInstrumentalModeActive
                     let priority: TaskPriority = throttle ? .background : .userInitiated
-                    #if DEBUG
                     EnsembleLogger.debug("[Visualizer] Dispatching loadTimeline for '\(track.title)', url=\(fileURL.lastPathComponent), isFile=\(fileURL.isFileURL)")
-                    #endif
                     Task.detached { [audioAnalyzer] in
                         await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: priority, throttled: throttle)
                     }
                 } else {
-                    #if DEBUG
                     EnsembleLogger.debug("[Visualizer] Skipped: isVisualizerEnabled=false")
-                    #endif
                 }
 
                 // Load and play the file through the audio engine
@@ -3438,9 +3281,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     await MainActor.run {
                         self.seek(to: recoverySeekTime)
                     }
-                    #if DEBUG
                     EnsembleLogger.debug("[playCurrentQueueItem] Recovered position at \(recoverySeekTime)s")
-                    #endif
                 }
 
                 // Prefetch next for gapless
@@ -3448,9 +3289,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 return
             } catch {
                 lastError = error
-                #if DEBUG
                 EnsembleLogger.debug("[playCurrentQueueItem] Failed (attempt \(attempt + 1)): \(error)")
-                #endif
 
                 let nsError = error as NSError
                 let isRetryable = nsError.domain == NSURLErrorDomain &&
@@ -3521,9 +3360,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if track.localFilePath == nil {
             let resolved = await resolveTrackForPlaybackIfNeeded(track)
             if resolved.localFilePath != nil {
-                #if DEBUG
                 EnsembleLogger.debug("💾 Download fallback: swapping to local file for '\(track.title)' (\(reason))")
-                #endif
                 // Evict stale cached player item so it re-creates from local file
                 await MainActor.run { removeCachedPlayerItem(for: track.id) }
                 await playCurrentQueueItem(forcingFreshItem: true, seekTo: recoveryTime, caller: "retryCurrentTrack-downloadFallback(\(reason))")
@@ -3535,9 +3372,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             do {
                 try await syncCoordinator.refreshConnection()
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ Failed to refresh connection before retry (\(reason)): \(error.localizedDescription)")
-                #endif
             }
         }
 
@@ -3567,24 +3402,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // just burns CPU and network while the UI flickers.
         consecutivePlaybackFailures += 1
         if consecutivePlaybackFailures >= maxConsecutiveFailuresBeforeStop {
-            #if DEBUG
             EnsembleLogger.debug("🔒 TLS retry limit reached (\(consecutivePlaybackFailures) failures) — stopping")
-            #endif
             playbackState = .failed("Unable to establish secure connection to server")
             return
         }
 
-        #if DEBUG
         EnsembleLogger.debug("🔒 Handling TLS playback failure (\(consecutivePlaybackFailures)/\(maxConsecutiveFailuresBeforeStop)) - refreshing connection and rebuilding queue")
-        #endif
 
         // Force a connection refresh to find a working endpoint
         do {
             try await syncCoordinator.refreshConnection()
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Failed to refresh connection after TLS error: \(error.localizedDescription)")
-            #endif
             playbackState = .failed("TLS connection error - no working server found")
             return
         }
@@ -3593,9 +3422,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         await rebuildUpcomingQueueForNetworkTransition()
 
         // Retry the current track with fresh connection
-        #if DEBUG
         EnsembleLogger.debug("🔄 Retrying current track with refreshed connection")
-        #endif
         await playCurrentQueueItem(forcingFreshItem: true, seekTo: nil, caller: "handleTLSPlaybackFailure")
     }
 
@@ -3625,9 +3452,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Fast-track circuit breaker if server is confirmed offline
         if !syncCoordinator.isServerAvailable(sourceKey: sourceKey) {
             consecutivePlaybackFailures = maxConsecutiveFailuresBeforeStop
-            #if DEBUG
             EnsembleLogger.debug("⛔ Server confirmed offline via AVPlayer failure — fast-tracking circuit breaker")
-            #endif
         } else {
             consecutivePlaybackFailures += 1
         }
@@ -3695,8 +3520,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             throw PlaybackError.offline
         }
 
-        // 2. Check if stream loader already completed
+        // 2. Check if stream loader already completed — but validate it didn't fail
         if let loader = streamLoaders[track.id], loader.isDownloadComplete {
+            if let error = loader.completionError { throw error }
             return loader.localFileURL
         }
 
@@ -3708,33 +3534,71 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             throw PlaybackError.serverUnavailable(message: failureMessage)
         }
 
-        // 4. Get stream resolution from server
-        let resolution: StreamResolution
-        do {
-            resolution = try await syncCoordinator.getStreamURL(for: track, quality: quality)
-        } catch {
-            if shouldRetryStreamURLRequest(after: error) {
-                do {
-                    try await syncCoordinator.refreshConnection()
-                    resolution = try await syncCoordinator.getStreamURL(for: track, quality: quality)
-                } catch {
+        // 4. Get stream decision (cached or fresh).
+        // Decisions are endpoint-independent — they capture codec/quality/session params
+        // but NOT the server URL. Caching them avoids redundant /decision calls on
+        // network transitions.
+        let decision: StreamDecision
+        if let cached = cachedStreamDecisions[track.id] {
+            decision = cached
+            #if DEBUG
+            EnsembleLogger.debug("[resolveAudio] Using cached stream decision for '\(track.title)'")
+            #endif
+        } else {
+            do {
+                decision = try await syncCoordinator.makeStreamDecision(for: track, quality: quality)
+                cachedStreamDecisions[track.id] = decision
+            } catch {
+                if shouldRetryStreamURLRequest(after: error) {
+                    do {
+                        try await syncCoordinator.refreshConnection()
+                        let retried = try await syncCoordinator.makeStreamDecision(for: track, quality: quality)
+                        cachedStreamDecisions[track.id] = retried
+                        decision = retried
+                    } catch {
+                        throw mapToPlaybackError(error)
+                    }
+                } else {
                     throw mapToPlaybackError(error)
                 }
-            } else {
-                throw mapToPlaybackError(error)
             }
         }
 
-        // 5. Handle resolution
+        // 5. Assemble resolution with current endpoint (reads fresh URL from registry)
+        let resolution: StreamResolution
+        do {
+            resolution = try await syncCoordinator.assembleStreamResolution(for: track, from: decision)
+        } catch {
+            throw mapToPlaybackError(error)
+        }
+
+        // 6. Handle resolution — download with stale-endpoint retry.
+        // If the download fails due to a network/endpoint error, refresh the connection
+        // and re-assemble the URL from the cached decision (which gets the fresh endpoint).
+        // This avoids redoing the /decision network call on transient endpoint failures.
+        do {
+            return try await handleStreamResolution(resolution, for: track, quality: quality)
+        } catch {
+            guard shouldRetryStreamURLRequest(after: error) else {
+                throw mapToPlaybackError(error)
+            }
+            #if DEBUG
+            EnsembleLogger.debug("[resolveAudio] Download failed (\(error)), retrying with fresh endpoint")
+            #endif
+            try await syncCoordinator.refreshConnection()
+            let freshResolution = try await syncCoordinator.assembleStreamResolution(for: track, from: decision)
+            return try await handleStreamResolution(freshResolution, for: track, quality: quality)
+        }
+    }
+
+    /// Route a StreamResolution to the appropriate download/return path.
+    private func handleStreamResolution(_ resolution: StreamResolution, for track: Track, quality: StreamingQuality) async throws -> URL {
         switch resolution {
         case .downloadedFile(let url):
             return url
-
         case .directStream(let url):
             if url.isFileURL { return url }
-            // For remote direct streams, download to temp file
             return try await downloadStreamToTempFile(url: url, trackId: track.id)
-
         case .progressiveTranscode(let config):
             return try await startProgressiveDownload(for: track, config: config, quality: quality)
         }
@@ -3745,6 +3609,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Check if loader already exists
         if let loader = streamLoaders[track.id] {
             if loader.isDownloadComplete {
+                if let error = loader.completionError { throw error }
                 return loader.localFileURL
             }
             return try await waitForDownload(loader: loader, trackId: track.id, quality: quality)
@@ -3766,13 +3631,39 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     /// Wait for a ProgressiveStreamLoader to complete and return the file URL.
+    /// Wires both success and failure callbacks to prevent the continuation from hanging
+    /// if the download fails (e.g. HTTP 503 from unavailable storage).
     private func waitForDownload(loader: ProgressiveStreamLoader, trackId: String, quality: StreamingQuality) async throws -> URL {
+        // If already finished before we start waiting, handle synchronously
+        if loader.isDownloadComplete {
+            if let error = loader.completionError { throw error }
+            return loader.localFileURL
+        }
+
         return try await withCheckedThrowingContinuation { continuation in
-            let previousCallback = loader.onDownloadComplete
+            var hasResumed = false
+            let resumeOnce: (Result<URL, Error>) -> Void = { result in
+                guard !hasResumed else { return }
+                hasResumed = true
+                continuation.resume(with: result)
+            }
+
+            let prevComplete = loader.onDownloadComplete
             loader.onDownloadComplete = { fileURL, duration in
-                previousCallback?(fileURL, duration)
-                // XING injection removed -- AVAudioFile handles encoder delay natively
-                continuation.resume(returning: fileURL)
+                prevComplete?(fileURL, duration)
+                resumeOnce(.success(fileURL))
+            }
+            loader.onDownloadFailed = { error in
+                resumeOnce(.failure(error))
+            }
+
+            // Re-check: download may have completed between our check and callback wiring
+            if loader.isDownloadComplete {
+                if let error = loader.completionError {
+                    resumeOnce(.failure(error))
+                } else {
+                    resumeOnce(.success(loader.localFileURL))
+                }
             }
         }
     }
@@ -3789,7 +3680,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let ext = url.pathExtension.isEmpty ? "mp3" : url.pathExtension
         let destURL = cacheDir.appendingPathComponent("\(trackId)_\(UUID().uuidString.prefix(8)).\(ext)")
 
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        // Check for HTTP errors (e.g. 503 from unavailable storage)
+        if let httpResponse = response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
+            let snippet = String(data: data.prefix(200), encoding: .utf8)
+            throw ProgressiveStreamError.httpError(statusCode: httpResponse.statusCode, bodySnippet: snippet)
+        }
+
         try data.write(to: destURL)
         return destURL
     }
@@ -3809,6 +3707,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func mapToPlaybackError(_ error: Error) -> PlaybackError {
+        // Progressive stream errors (HTTP status, payload validation)
+        if let streamError = error as? ProgressiveStreamError {
+            switch streamError {
+            case .httpError(503, _):
+                return .serverUnavailable(message: "Server storage unavailable")
+            case .httpError(let code, _):
+                return .serverUnavailable(message: "Server returned HTTP \(code)")
+            case .invalidPayload:
+                return .corruptLocalFile
+            }
+        }
+
         if let plexError = error as? PlexAPIError {
             switch plexError {
             case .noServerSelected:
@@ -3909,9 +3819,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 try FileManager.default.copyItem(at: originalURL, to: mp3URL)
                 return isClearlyInvalidLocalPayload(mp3URL) ? originalURL : mp3URL
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ Failed creating mp3 alias for local playback: \(error.localizedDescription)")
-                #endif
                 return originalURL
             }
         }
@@ -3960,7 +3868,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             || leadingText.hasPrefix("<!doctype html")
             || leadingText.hasPrefix("<?xml")
             || leadingText.contains("<h1>400 bad request</h1>")
-            || leadingText.contains("<h1>404 not found</h1>") {
+            || leadingText.contains("<h1>404 not found</h1>")
+            || leadingText.contains("<h1>503 ") {
             return true
         }
 
@@ -4063,9 +3972,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             }
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("[prefetch] Failed for '\(track.title)': \(error)")
-            #endif
         }
     }
 
@@ -4107,9 +4014,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // CRITICAL: If the audio session is currently interrupted or a route change
         // is in progress, do NOT attempt to play yet.
         if isInterrupted || isRouteChangeInProgress {
-            #if DEBUG
             EnsembleLogger.debug("[loadAndPlayFile] deferred: interrupted=\(isInterrupted), routeChange=\(isRouteChangeInProgress)")
-            #endif
             do {
                 try engine.load(fileURL: fileURL, trackId: track.id)
             } catch {
@@ -4264,9 +4169,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // If the user taps play before the timer fires, resume() handles it
         // directly and clears pendingPreBufferTime, so the deferred task no-ops.
         if pendingPreBufferTime != nil {
-            #if DEBUG
             EnsembleLogger.debug("🏥 Health check complete — deferring pre-buffer by 3s")
-            #endif
             preBufferTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 // preBufferRestoredTrack guards on pendingPreBufferTime != nil,
@@ -4282,9 +4185,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // health check just passed, retry the current track automatically.
         if case .failed = playbackState,
            currentTrack?.localFilePath == nil {
-            #if DEBUG
             EnsembleLogger.debug("🏥 Health check complete while in failed state — attempting auto-resume")
-            #endif
             await retryCurrentTrack(forceConnectionRefresh: false, reason: "health-check-recovery")
             return
         }
@@ -4305,9 +4206,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         pendingPreBufferTime = nil
 
-        #if DEBUG
         EnsembleLogger.debug("[preBuffer] Pre-buffering restored track: \(track.title)")
-        #endif
 
         do {
             let fileURL = try await resolveAudioFile(for: track)
@@ -4336,13 +4235,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
             audioAnalyzer.activateTimeline(for: track.id)
 
-            #if DEBUG
             EnsembleLogger.debug("[preBuffer] Complete for \(track.title)")
-            #endif
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("[preBuffer] Failed (will retry on play): \(error)")
-            #endif
         }
     }
 
@@ -4434,9 +4329,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         let seekPosition = currentTime
 
-        #if DEBUG
         EnsembleLogger.debug("🔄 Reloading current track at new streaming quality, seeking to \(seekPosition)s (wasPaused: \(wasPaused))")
-        #endif
 
         // Evict the cached player item so a fresh one is created with the new quality
         await MainActor.run {
@@ -4454,9 +4347,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 playbackState = .paused
                 updateNowPlayingInfo()
             }
-            #if DEBUG
             EnsembleLogger.debug("🔄 Restored paused state after quality change reload")
-            #endif
         }
     }
 
@@ -4729,12 +4620,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let decision = Self.evaluateNetworkTransition(from: previous, to: current)
         // Adaptive buffering removed — engine plays from local files
 
-        #if DEBUG
         EnsembleLogger.debug("🌐 Playback network transition: \(previous?.description ?? "nil") -> \(current.description)")
         if decision.isInterfaceSwitch {
             EnsembleLogger.debug("🌐 Detected interface switch while online")
         }
-        #endif
 
         // Note: Connection refresh is handled by SyncCoordinator's health checks which
         // also observe network transitions. This avoids duplicate refresh calls.
@@ -4745,32 +4634,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         if decision.shouldHandleReconnect {
-            #if DEBUG
             EnsembleLogger.debug("✅ Network reconnected")
-            #endif
 
             // If playback failed due to network, try to recover.
             if case .failed = playbackState {
                 if true /* engine always plays from local files */ {
-                    #if DEBUG
                     EnsembleLogger.debug("ℹ️ Skipping reconnect retry for local playback failure")
-                    #endif
                     return
                 }
-                #if DEBUG
                 EnsembleLogger.debug("🔄 Network back - attempting to resume playback")
-                #endif
                 await retryCurrentTrack(forceConnectionRefresh: false, reason: "network-reconnect")
             } else if playbackState == .buffering {
-                #if DEBUG
                 EnsembleLogger.debug("🔄 Network back - attempting to resume buffering")
-                #endif
                 try? audioEngine?.resume()
             }
         } else if decision.shouldHandleDisconnect {
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Network disconnected during playback")
-            #endif
 
             // If we're truly streaming (not playing from any local file, including
             // cached stream files), move to failed state. true /* engine always plays from local files */
@@ -4778,34 +4657,43 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             if currentTrack != nil,
                !true /* engine always plays from local files */,
                playbackState == .playing || playbackState == .buffering {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ No network and streaming - switching to failed state")
-                #endif
                 playbackState = .failed("Lost network connection")
             }
         }
     }
 
     /// Rebuilds only upcoming queue items so prefetched entries don't keep stale endpoint URLs.
-        @MainActor
+    /// Already-downloaded gapless files are left alone — the audio engine plays from local files,
+    /// so a network transition doesn't invalidate them. Only tracks still being downloaded
+    /// (or not yet started) need their URLs evicted and re-resolved.
+    ///
+    /// Stream decisions (`cachedStreamDecisions`) are intentionally preserved — they're
+    /// endpoint-independent (codec, quality, session params) and survive network transitions.
+    /// When `prefetchUpcomingItems()` re-resolves, it finds the cached decision and skips
+    /// the `/decision` network call, assembling a fresh URL from the updated endpoint.
+    @MainActor
     private func rebuildUpcomingQueueForNetworkTransition() async {
-        // With AudioPlaybackEngine, upcoming items are file-based.
-        // Clear scheduled gapless files and re-prefetch with fresh URLs.
-        audioEngine?.clearScheduledFiles()
-
-        // Evict cached file URLs for upcoming tracks so they re-resolve
         let upcomingTrackIDs: [String] = upcomingQueueIndices(depth: 2).map { queue[$0].track.id }
-        for id in upcomingTrackIDs {
+
+        // Skip tracks already scheduled in the engine — their audio is downloaded and loaded
+        let alreadyScheduled = audioEngine?.scheduledTrackIds ?? []
+        let staleTrackIDs = upcomingTrackIDs.filter { !alreadyScheduled.contains($0) }
+
+        // Evict cached file URLs and cancel in-flight downloads for tracks that need re-resolution.
+        // Stream decisions are kept — they're endpoint-independent.
+        for id in staleTrackIDs {
             resolvedFileURLs.removeValue(forKey: id)
             resolvedFileURLsLRU.removeAll { $0 == id }
             streamLoaders.removeValue(forKey: id)?.cancel()
         }
 
-        #if DEBUG
-        EnsembleLogger.debug("[rebuildQueue] Evicted \(upcomingTrackIDs.count) cached URLs for network transition")
-        #endif
-
-        await prefetchUpcomingItems(depth: 2)
+        if staleTrackIDs.isEmpty {
+            EnsembleLogger.debug("[rebuildQueue] Network transition — all upcoming tracks already scheduled, nothing to rebuild")
+        } else {
+            EnsembleLogger.debug("[rebuildQueue] Evicted \(staleTrackIDs.count) stale URLs, kept \(alreadyScheduled.count) scheduled + \(cachedStreamDecisions.count) decisions")
+            await prefetchUpcomingItems(depth: 2)
+        }
     }
 
     private func cleanup() {
@@ -4823,6 +4711,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Clear caches
         resolvedFileURLs.removeAll()
         resolvedFileURLsLRU.removeAll()
+        cachedStreamDecisions.removeAll()
 
         // Cancel network observations
         networkStateObservation?.cancel()
@@ -5081,9 +4970,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     
     /// Restore playback state from UserDefaults
     public func restorePlaybackState() async {
-        #if DEBUG
         EnsembleLogger.debug("🔄 restorePlaybackState() called")
-        #endif
 
         // Load History
         if let historyData = UserDefaults.standard.data(forKey: historyKey),
@@ -5091,54 +4978,38 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             await MainActor.run {
                 playbackHistory = historyItems
             }
-            #if DEBUG
             EnsembleLogger.debug("🔄 Restored \(historyItems.count) history items")
-            #endif
         }
 
         guard let data = UserDefaults.standard.data(forKey: queueKey) else {
-            #if DEBUG
             EnsembleLogger.debug("🔄 No queue data found in UserDefaults")
-            #endif
             return
         }
 
-        #if DEBUG
         EnsembleLogger.debug("🔄 Found queue data, size: \(data.count) bytes")
-        #endif
 
         let index = UserDefaults.standard.integer(forKey: currentIndexKey)
         let time = UserDefaults.standard.double(forKey: currentTimeKey)
 
         // Try new format first (QueueItem array with source tags)
         if let items = try? JSONDecoder().decode([QueueItem].self, from: data), !items.isEmpty {
-            #if DEBUG
             EnsembleLogger.debug("🔄 Decoded \(items.count) queue items (new format)")
             EnsembleLogger.debug("🔄 Restoring: index \(index), time \(time)s")
-            #endif
             await restoreQueueFromItems(items, index: index, time: time)
-            #if DEBUG
             EnsembleLogger.debug("🔄 Restoration complete - paused at \(time)s")
-            #endif
             return
         }
 
         // Fallback: old format (Track array) for migration
         if let tracks = try? JSONDecoder().decode([Track].self, from: data), !tracks.isEmpty {
-            #if DEBUG
             EnsembleLogger.debug("🔄 Decoded \(tracks.count) tracks (legacy format, migrating)")
-            #endif
             let items = tracks.map { QueueItem(track: $0, source: .continuePlaying) }
             await restoreQueueFromItems(items, index: index, time: time)
-            #if DEBUG
             EnsembleLogger.debug("🔄 Restoration complete (migrated) - paused at \(time)s")
-            #endif
             return
         }
 
-        #if DEBUG
         EnsembleLogger.debug("⚠️ [PlaybackService] Queue data unreadable in both formats; starting fresh")
-        #endif
     }
 
     /// Restore queue from QueueItem array without starting playback.
@@ -5154,9 +5025,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // If playback has already been initiated (e.g. by a Siri intent that raced
             // ahead of restoration), don't overwrite the active queue.
             if playbackState == .playing || playbackState == .loading || !queue.isEmpty {
-                #if DEBUG
                 EnsembleLogger.debug("🔄 restoreQueueFromItems: skipping — playback already active (state=\(playbackState), queue=\(queue.count))")
-                #endif
                 return
             }
 
@@ -5198,9 +5067,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // the pre-buffer directly with a 3s delay.
             let serverReady = await MainActor.run { syncCoordinator.lastHealthCheckCompletion != nil }
             if serverReady {
-                #if DEBUG
                 EnsembleLogger.debug("🔄 Scheduling deferred pre-buffer (3s delay, server already reachable)")
-                #endif
                 preBufferTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
                     await self?.preBufferRestoredTrack()
@@ -5233,27 +5100,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     let resolvedTrack = trackWithLocalFilePath(track, localFilePath: persistedPath)
                     applyTrackRefresh(resolvedTrack, replacing: track)
 
-                    #if DEBUG
                     EnsembleLogger.debug(
                         "💾 Resolved local download for playback: track=\(track.id) source=\(track.sourceCompositeKey ?? "none")"
                     )
-                    #endif
 
                     return resolvedTrack
                 }
 
-                #if DEBUG
                 EnsembleLogger.debug(
                     "⚠️ Persisted download path missing on disk during playback resolve: \(persistedPath)"
                 )
-                #endif
             }
         } catch {
-            #if DEBUG
             EnsembleLogger.debug(
                 "⚠️ Failed to resolve persisted download path for playback: track=\(track.id) source=\(track.sourceCompositeKey ?? "none") error=\(error.localizedDescription)"
             )
-            #endif
         }
 
         guard track.localFilePath != nil else { return track }

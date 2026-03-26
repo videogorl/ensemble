@@ -310,9 +310,7 @@ public final class NowPlayingViewModel: ObservableObject {
                 self.instrumentalProgress = nil
                 // Pre-compute gap positions for persistent instrumental indicators
                 if case .available(let lyrics) = state {
-                    #if DEBUG
                     EnsembleLogger.debug("Lyrics: typicalVocalDuration=\(String(format: "%.2f", lyrics.typicalVocalDuration))s, instrumentalGapThreshold=\(String(format: "%.1f", lyrics.instrumentalGapThreshold))s")
-                    #endif
                     self.computeInstrumentalGapPositions(lyrics: lyrics)
 
                     // If we're already mid-track (e.g. app restored from background),
@@ -461,9 +459,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
         instrumentalGapAfterIndices = gapIndices
 
-        #if DEBUG
         EnsembleLogger.debug("Lyrics: gaps after indices=\(gapIndices.sorted()), intro=\(hasIntroInstrumentalGap), outro=\(hasOutroInstrumentalGap)")
-        #endif
     }
 
     /// Compute progress through an instrumental gap (0.0–1.0).
@@ -660,9 +656,7 @@ public final class NowPlayingViewModel: ObservableObject {
                 return Album(from: cdAlbum)
             }
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("Failed to fetch album for current track: \(error)")
-            #endif
         }
         return nil
     }
@@ -680,9 +674,7 @@ public final class NowPlayingViewModel: ObservableObject {
             guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else { return nil }
             return AudioFileInfo(from: plexTrack)
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("Failed to fetch audio file info: \(error)")
-            #endif
             return nil
         }
     }
@@ -1107,35 +1099,25 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func playArtistRadio(for artist: Artist) {
-        #if DEBUG
         EnsembleLogger.debug("🎙️ NowPlayingViewModel.playArtistRadio() called for: \(artist.name)")
-        #endif
         Task {
             // This will be handled by the view passing filteredTracks from the detail view
             // For now this is a placeholder for backwards compatibility
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Use enableRadio(tracks:) instead")
-            #endif
         }
     }
 
     public func playAlbumRadio(for album: Album) {
-        #if DEBUG
         EnsembleLogger.debug("🎙️ NowPlayingViewModel.playAlbumRadio() called for: \(album.title)")
-        #endif
         Task {
             // This will be handled by the view passing filteredTracks from the detail view
             // For now this is a placeholder for backwards compatibility
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Use enableRadio(tracks:) instead")
-            #endif
         }
     }
 
     public func enableRadio(tracks: [Track]) {
-        #if DEBUG
         EnsembleLogger.debug("🎙️ NowPlayingViewModel.enableRadio() called with \(tracks.count) tracks")
-        #endif
         Task {
             await playbackService.enableRadio(tracks: tracks)
         }
@@ -1223,9 +1205,7 @@ public final class NowPlayingViewModel: ObservableObject {
                     dedupeKey: "favorite-toggle-error-\(track.id)"
                 )
             )
-            #if DEBUG
             EnsembleLogger.debug("Failed to set favorite state: \(error)")
-            #endif
         }
     }
 
@@ -1305,9 +1285,7 @@ public final class NowPlayingViewModel: ObservableObject {
                     self.isUpdatingRating = false
                 }
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug("Failed to update rating: \(error)")
-                #endif
                 // Revert on error
                 await MainActor.run {
                     self.optimisticTrackRatings[track.id] = previousRating

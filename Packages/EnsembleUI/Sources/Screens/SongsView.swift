@@ -329,6 +329,7 @@ public struct SongsView: View {
     private var trackListView: some View {
         Group {
             if libraryVM.trackSortOption == .title {
+                #if os(iOS)
                 // Indexed mode: ScrollView + LazyVStack for section headers + scroll index
                 ScrollViewReader { proxy in
                     ZStack(alignment: .trailing) {
@@ -355,7 +356,91 @@ public struct SongsView: View {
                         }
                     }
                 }
+                #else
+                // macOS indexed mode: List with Section headers + native swipe actions
+                ScrollViewReader { proxy in
+                    ZStack(alignment: .trailing) {
+                        List {
+                            // Genre chip bar as a non-interactive header section
+                            Section {
+                                GenreChipBar(
+                                    availableGenres: libraryVM.availableTrackGenres,
+                                    selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
+                                    excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
+                                )
+                            }
+                            .hideListRowSeparator()
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+
+                            ForEach(libraryVM.trackSections) { section in
+                                Section(header: sectionHeader(section.letter)) {
+                                    ForEach(Array(section.tracks.enumerated()), id: \.element.id) { _, track in
+                                        TrackRow(
+                                            track: track,
+                                            showArtwork: true,
+                                            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                                            onPlayNext: { nowPlayingVM.playNext(track) },
+                                            onPlayLast: { nowPlayingVM.playLast(track) },
+                                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                                            onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                                            onGoToAlbum: {
+                                                if let albumId = track.albumRatingKey {
+                                                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                                }
+                                            },
+                                            onGoToArtist: {
+                                                if let artistId = track.artistRatingKey {
+                                                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                                }
+                                            },
+                                            onShareLink: {
+                                                ShareActions.shareTrackLink(track, deps: deps)
+                                            },
+                                            onShareFile: {
+                                                ShareActions.shareTrackFile(track, deps: deps)
+                                            },
+                                            recentPlaylistTitle: recentPlaylistTitle(for: track)
+                                        ) {
+                                            if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+                                                nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
+                                            }
+                                        }
+                                        .trackSwipeActions(
+                                            track: track,
+                                            nowPlayingVM: nowPlayingVM,
+                                            onPlayNext: { nowPlayingVM.playNext(track) },
+                                            onPlayLast: { nowPlayingVM.playLast(track) },
+                                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
+                                        )
+                                        .listRowBackground(Color.clear)
+                                        .hideListRowSeparator()
+                                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                    }
+                                }
+                                .id(section.letter)
+                            }
+                        }
+                        .listStyle(.plain)
+                        .modifier(ClearScrollContentBackgroundModifier())
+                        .miniPlayerBottomSpacing(140)
+
+                        if !libraryVM.filteredTracks.isEmpty {
+                            ScrollIndex(
+                                letters: libraryVM.trackSections.map { $0.letter },
+                                currentLetter: .constant(nil),
+                                onLetterTap: { letter in
+                                    proxy.scrollTo(letter, anchor: .top)
+                                }
+                            )
+                            .frame(maxHeight: .infinity)
+                            .ignoresSafeArea(.container, edges: .top)
+                        }
+                    }
+                }
+                #endif
             } else {
+                #if os(iOS)
                 // Non-indexed mode: UITableView manages its own scrolling directly.
                 // No SwiftUI ScrollView wrapper — avoids the fixed-frame height hack
                 // that was forcing all 1500+ rows to be laid out simultaneously.
@@ -367,6 +452,16 @@ public struct SongsView: View {
                     )
                     unsortedTrackListContent
                 }
+                #else
+                VStack(spacing: 0) {
+                    GenreChipBar(
+                        availableGenres: libraryVM.availableTrackGenres,
+                        selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
+                        excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
+                    )
+                    unsortedTrackListContent
+                }
+                #endif
             }
         }
         .sheet(item: $playlistPickerPayload) { payload in
@@ -445,41 +540,48 @@ public struct SongsView: View {
             .frame(height: height)
             .padding(.horizontal)
             #else
-            VStack(spacing: 0) {
-                ForEach(Array(section.tracks.enumerated()), id: \.element.id) { _, track in
-                    TrackRow(
-                        track: track,
-                        showArtwork: true,
-                        isPlaying: track.id == nowPlayingVM.currentTrack?.id,
-                        onPlayNext: { nowPlayingVM.playNext(track) },
-                        onPlayLast: { nowPlayingVM.playLast(track) },
-                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
-                        onAddToRecentPlaylist: { addToRecentPlaylist(track) },
-                        onGoToAlbum: {
-                            if let albumId = track.albumRatingKey {
-                                DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                            }
-                        },
-                        onGoToArtist: {
-                            if let artistId = track.artistRatingKey {
-                                DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                            }
-                        },
-                        onShareLink: {
-                            ShareActions.shareTrackLink(track, deps: deps)
-                        },
-                        onShareFile: {
-                            ShareActions.shareTrackFile(track, deps: deps)
-                        },
-                        recentPlaylistTitle: recentPlaylistTitle(for: track)
-                    ) {
-                        if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
-                            nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
+            // macOS: uses List rows with native .swipeActions (applied in the wrapping List)
+            ForEach(Array(section.tracks.enumerated()), id: \.element.id) { _, track in
+                TrackRow(
+                    track: track,
+                    showArtwork: true,
+                    isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                    onPlayNext: { nowPlayingVM.playNext(track) },
+                    onPlayLast: { nowPlayingVM.playLast(track) },
+                    onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                    onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                    onGoToAlbum: {
+                        if let albumId = track.albumRatingKey {
+                            DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
                         }
+                    },
+                    onGoToArtist: {
+                        if let artistId = track.artistRatingKey {
+                            DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                        }
+                    },
+                    onShareLink: {
+                        ShareActions.shareTrackLink(track, deps: deps)
+                    },
+                    onShareFile: {
+                        ShareActions.shareTrackFile(track, deps: deps)
+                    },
+                    recentPlaylistTitle: recentPlaylistTitle(for: track)
+                ) {
+                    if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+                        nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
                     }
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
                 }
+                .trackSwipeActions(
+                    track: track,
+                    nowPlayingVM: nowPlayingVM,
+                    onPlayNext: { nowPlayingVM.playNext(track) },
+                    onPlayLast: { nowPlayingVM.playLast(track) },
+                    onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
+                )
+                .listRowBackground(Color.clear)
+                .hideListRowSeparator()
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             }
             #endif
         }
@@ -544,42 +646,51 @@ public struct SongsView: View {
         }
         .padding(.horizontal)
         #else
-        ScrollView {
-            VStack(spacing: 0) {
-                ForEach(Array(libraryVM.filteredTracks.enumerated()), id: \.element.id) { index, track in
-                    TrackRow(
-                        track: track,
-                        showArtwork: true,
-                        isPlaying: track.id == nowPlayingVM.currentTrack?.id,
-                        onPlayNext: { nowPlayingVM.playNext(track) },
-                        onPlayLast: { nowPlayingVM.playLast(track) },
-                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
-                        onAddToRecentPlaylist: { addToRecentPlaylist(track) },
-                        onGoToAlbum: {
-                            if let albumId = track.albumRatingKey {
-                                DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                            }
-                        },
-                        onGoToArtist: {
-                            if let artistId = track.artistRatingKey {
-                                DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                            }
-                        },
-                        onShareLink: {
-                            ShareActions.shareTrackLink(track, deps: deps)
-                        },
-                        onShareFile: {
-                            ShareActions.shareTrackFile(track, deps: deps)
-                        },
-                        recentPlaylistTitle: recentPlaylistTitle(for: track)
-                    ) {
-                        nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
-                    }
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
+        // macOS: List with native .swipeActions for trackpad two-finger swipe support
+        List {
+            ForEach(Array(libraryVM.filteredTracks.enumerated()), id: \.element.id) { index, track in
+                TrackRow(
+                    track: track,
+                    showArtwork: true,
+                    isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                    onPlayNext: { nowPlayingVM.playNext(track) },
+                    onPlayLast: { nowPlayingVM.playLast(track) },
+                    onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                    onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                    onGoToAlbum: {
+                        if let albumId = track.albumRatingKey {
+                            DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                        }
+                    },
+                    onGoToArtist: {
+                        if let artistId = track.artistRatingKey {
+                            DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                        }
+                    },
+                    onShareLink: {
+                        ShareActions.shareTrackLink(track, deps: deps)
+                    },
+                    onShareFile: {
+                        ShareActions.shareTrackFile(track, deps: deps)
+                    },
+                    recentPlaylistTitle: recentPlaylistTitle(for: track)
+                ) {
+                    nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
                 }
+                .trackSwipeActions(
+                    track: track,
+                    nowPlayingVM: nowPlayingVM,
+                    onPlayNext: { nowPlayingVM.playNext(track) },
+                    onPlayLast: { nowPlayingVM.playLast(track) },
+                    onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
+                )
+                .listRowBackground(Color.clear)
+                .hideListRowSeparator()
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             }
         }
+        .listStyle(.plain)
+        .modifier(ClearScrollContentBackgroundModifier())
         #endif
     }
 

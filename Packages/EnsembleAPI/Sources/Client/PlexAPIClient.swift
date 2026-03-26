@@ -80,6 +80,44 @@ public struct TranscodeDecisionResult: Sendable {
     public let directStreamPartKey: String?
 }
 
+/// Endpoint-independent streaming decision.
+///
+/// Captures what to stream (codec, quality, session) without baking in the server base URL.
+/// Decisions survive network transitions and can be cached in PlaybackService; the server
+/// endpoint is resolved fresh from ServerConnectionRegistry at assembly/download time.
+///
+/// Created by `makeStreamDecision()`, consumed by `assembleStreamResolution()`.
+public enum StreamDecision: Sendable {
+    /// Direct file stream — server says no transcoding needed.
+    /// Part key (e.g., "/library/parts/8955/...") is resolved against the current endpoint at assembly time.
+    case directStream(partKey: String)
+
+    /// Progressive transcode — server will transcode on-the-fly.
+    /// Query items contain session ID, quality, codec params. Assembled into a URLRequest at download time.
+    case progressiveTranscode(TranscodeStreamDecision)
+}
+
+/// Parameters for a progressive transcode stream, without the base server URL.
+/// Created by `makeStreamDecision()`, consumed by `assembleStreamResolution()`.
+public struct TranscodeStreamDecision: Sendable {
+    /// Transcode start path (e.g., "/music/:/transcode/universal/start.mp3")
+    public let path: String
+    /// All query params for the transcode request (session, quality, codec, auth, etc.)
+    public let queryItems: [URLQueryItem]
+    public let ratingKey: String
+    public let estimatedContentLength: Int64
+    public let metadataDuration: Double?
+
+    public init(path: String, queryItems: [URLQueryItem], ratingKey: String,
+                estimatedContentLength: Int64, metadataDuration: Double?) {
+        self.path = path
+        self.queryItems = queryItems
+        self.ratingKey = ratingKey
+        self.estimatedContentLength = estimatedContentLength
+        self.metadataDuration = metadataDuration
+    }
+}
+
 public struct PlexServerConnection: Sendable {
     public let url: String
     public let alternativeURLs: [String]  // Additional connection URLs for failover
@@ -1469,28 +1507,46 @@ public actor PlexAPIClient {
 
     /// Resolve the best streaming approach for a track.
     ///
-    /// Tries direct stream first (instant playback) and falls back to full transcode
-    /// download when PMS says transcoding is needed.
-    ///
-    /// - `original` quality with a stream key: direct stream URL, no decision call needed.
-    /// - Non-original quality: calls the decision endpoint. If PMS says `directplay` or `copy`,
-    ///   uses the direct stream URL. If `transcode` or `unknown`, downloads the full file.
-    /// - No stream key available: always downloads via the transcode pipeline.
+    /// Convenience method that chains `makeStreamDecision()` → `assembleStreamResolution()`.
+    /// For callers that want to cache decisions across network transitions, use the
+    /// two-phase API directly.
     public func resolveStreamURL(
         ratingKey: String,
         trackStreamKey: String?,
         quality: StreamingQuality,
         metadataDurationSeconds: Double?
     ) async throws -> StreamResolution {
-        // Original quality with a known stream key — skip the decision call entirely
-        // and stream the file directly. PMS serves these with Accept-Ranges: bytes
-        // and Content-Length, which AVPlayer handles natively.
+        let decision = try await makeStreamDecision(
+            ratingKey: ratingKey,
+            trackStreamKey: trackStreamKey,
+            quality: quality,
+            metadataDurationSeconds: metadataDurationSeconds
+        )
+        return try await assembleStreamResolution(from: decision)
+    }
+
+    // MARK: - Two-Phase Stream Resolution
+
+    /// Phase 1: Make a streaming decision without embedding the server endpoint URL.
+    ///
+    /// Calls the PMS decision endpoint when needed (for non-original quality) and returns
+    /// a `StreamDecision` that captures codec, quality, and session parameters. The decision
+    /// is independent of the server base URL and can be cached across network transitions.
+    ///
+    /// - Note: For transcode decisions, this warms up a server-side session via `/decision`.
+    ///   The session is reused when `assembleStreamResolution()` builds the final URL.
+    public func makeStreamDecision(
+        ratingKey: String,
+        trackStreamKey: String?,
+        quality: StreamingQuality,
+        metadataDurationSeconds: Double?
+    ) async throws -> StreamDecision {
+        // Original quality with a known stream key — direct stream, no decision call needed
         if quality == .original, let streamKey = trackStreamKey, !streamKey.isEmpty {
-            let url = try getStreamURL(trackKey: streamKey)
             #if DEBUG
-            EnsembleLogger.debug("🎵 resolveStreamURL: original quality → direct stream")
+            EnsembleLogger.debug("[makeStreamDecision] original quality → directStream(partKey)")
             #endif
-            return .directStream(url)
+            return .directStream(partKey: streamKey)
         }
 
         // Non-original quality — ask PMS what it would do
@@ -1506,52 +1562,98 @@ public actor PlexAPIClient {
 
             switch decision.decision {
             case .directplay, .copy:
-                // PMS says no transcoding needed — use direct file stream.
-                // Prefer the part key from the decision response if available,
-                // otherwise fall back to the track's stored stream key.
+                // PMS says no transcoding needed — use part key from decision or stored key
                 let partKey = decision.directStreamPartKey ?? streamKey
-                let url = try getStreamURL(trackKey: partKey)
                 #if DEBUG
-                EnsembleLogger.debug("🎵 resolveStreamURL: decision=\(decision.decision.rawValue) → direct stream")
+                EnsembleLogger.debug("[makeStreamDecision] decision=\(decision.decision.rawValue) → directStream(partKey)")
                 #endif
-                return .directStream(url)
+                return .directStream(partKey: partKey)
 
             case .transcode, .unknown:
-                // Transcoding required — return progressive stream config so the caller
-                // can feed chunks to AVPlayer via AVAssetResourceLoaderDelegate.
-                // Reuse the same session ID so PMS recognizes the warmed-up session.
+                // Transcoding required — capture session params without baking in endpoint
+                let estimated = estimateTranscodeSize(quality: quality, durationSeconds: metadataDurationSeconds)
                 #if DEBUG
-                EnsembleLogger.debug("🎵 resolveStreamURL: decision=\(decision.decision.rawValue) → progressive transcode")
+                EnsembleLogger.debug("[makeStreamDecision] decision=\(decision.decision.rawValue) → progressiveTranscode")
                 #endif
-                let config = try buildProgressiveStreamConfig(
-                    ratingKey: ratingKey,
-                    quality: quality,
+                return .progressiveTranscode(TranscodeStreamDecision(
+                    path: "/music/:/transcode/universal/start.mp3",
                     queryItems: queryItems,
+                    ratingKey: ratingKey,
+                    estimatedContentLength: estimated,
                     metadataDuration: metadataDurationSeconds
-                )
-                return .progressiveTranscode(config)
+                ))
             }
         }
 
-        // No stream key — build progressive transcode config with a fresh session
-        #if DEBUG
-        EnsembleLogger.debug("🎵 resolveStreamURL: no stream key → progressive transcode")
-        #endif
+        // No stream key — progressive transcode with fresh session
         let sessionId = UUID().uuidString
         let queryItems = buildUniversalStreamQueryItems(
             ratingKey: ratingKey,
             quality: quality,
             sessionId: sessionId
         )
-        // Warm up the session — PMS returns 400 on start.mp3 without a prior decision call
+        // Warm up session — PMS returns 400 on start.mp3 without prior decision
         try await callTranscodeDecision(queryItems: queryItems)
-        let config = try buildProgressiveStreamConfig(
-            ratingKey: ratingKey,
-            quality: quality,
+        let estimated = estimateTranscodeSize(quality: quality, durationSeconds: metadataDurationSeconds)
+        #if DEBUG
+        EnsembleLogger.debug("[makeStreamDecision] no stream key → progressiveTranscode")
+        #endif
+        return .progressiveTranscode(TranscodeStreamDecision(
+            path: "/music/:/transcode/universal/start.mp3",
             queryItems: queryItems,
+            ratingKey: ratingKey,
+            estimatedContentLength: estimated,
             metadataDuration: metadataDurationSeconds
-        )
-        return .progressiveTranscode(config)
+        ))
+    }
+
+    /// Phase 2: Assemble a `StreamResolution` from a `StreamDecision` using the current server endpoint.
+    ///
+    /// Reads the freshest endpoint from `ServerConnectionRegistry` (if available) before building
+    /// the final URL. This ensures network transitions don't produce stale URLs — the decision
+    /// was cached, but the endpoint is resolved right now.
+    ///
+    /// - Note: This is a lightweight operation (no network calls). All server communication
+    ///   happened during `makeStreamDecision()`.
+    public func assembleStreamResolution(from decision: StreamDecision) async throws -> StreamResolution {
+        // Sync endpoint from registry to ensure freshest URL
+        if let registry = connectionRegistry, let key = serverKey,
+           let freshURL = await registry.currentURL(for: key) {
+            if freshURL != currentServerURL {
+                #if DEBUG
+                EnsembleLogger.debug("[assembleStream] Endpoint synced from registry: \(currentServerURL) → \(freshURL)")
+                #endif
+                currentServerURL = freshURL
+            }
+        }
+
+        switch decision {
+        case .directStream(let partKey):
+            let url = try getStreamURL(trackKey: partKey)
+            #if DEBUG
+            EnsembleLogger.debug("[assembleStream] directStream → \(url)")
+            #endif
+            return .directStream(url)
+
+        case .progressiveTranscode(let transcode):
+            // Build URLRequest with current endpoint
+            let url = try buildTranscodeURL(path: transcode.path, queryItems: transcode.queryItems)
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            addPlexHeaders(to: &request, token: serverConnection.token)
+
+            let config = ProgressiveStreamConfig(
+                streamRequest: request,
+                ratingKey: transcode.ratingKey,
+                estimatedContentLength: transcode.estimatedContentLength,
+                metadataDuration: transcode.metadataDuration
+            )
+            #if DEBUG
+            EnsembleLogger.debug("[assembleStream] progressiveTranscode → \(url)")
+            #endif
+            return .progressiveTranscode(config)
+        }
     }
 
     /// Download universal stream with a pre-warmed session.

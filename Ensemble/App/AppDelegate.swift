@@ -153,15 +153,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             let indexStore = DependencyContainer.shared.siriMediaIndexStore
             if indexStore.loadIndex(maxAge: 3600) == nil {
                 let rebuilt = await indexStore.rebuildIndex()
-                #if DEBUG
-                AppLogger.debug("📱 AppDelegate: Siri media index rebuilt at launch (items: \(rebuilt?.items.count ?? 0))")
-                #endif
+                AppLogger.debug("AppDelegate: Siri media index rebuilt at launch (items: \(rebuilt?.items.count ?? 0))")
             }
             if #available(iOS 16.0, *) {
                 EnsembleAppShortcutsProvider.updateAppShortcutParameters()
-                #if DEBUG
                 AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
-                #endif
             }
 
             // Update Siri media user context with current library statistics
@@ -221,18 +217,14 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     private func configureSiriAuthorization() {
         let status = INPreferences.siriAuthorizationStatus()
-        #if DEBUG
-        AppLogger.debug("📱 AppDelegate: Siri authorization status at launch: \(status.rawValue)")
-        #endif
+        AppLogger.debug("AppDelegate: Siri authorization status at launch: \(status.rawValue)")
 
         guard status == .notDetermined else {
             return
         }
 
         INPreferences.requestSiriAuthorization { newStatus in
-            #if DEBUG
-            AppLogger.debug("📱 AppDelegate: Siri authorization prompt result: \(newStatus.rawValue)")
-            #endif
+            AppLogger.debug("AppDelegate: Siri authorization prompt result: \(newStatus.rawValue)")
         }
     }
 
@@ -582,9 +574,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             let sanitizedQuery = normalizedSiriQuery(query)
 
             let kind = siriMediaKind(from: intent)
-            #if DEBUG
-            AppLogger.debug("📱 AppDelegate: Siri fallback payload for query='\(sanitizedQuery)' kind=\(kind.rawValue)")
-            #endif
+            AppLogger.debug("AppDelegate: Siri fallback payload for query='\(sanitizedQuery)' kind=\(kind.rawValue)")
 
             return SiriPlaybackRequestPayload(
                 kind: kind,
@@ -598,9 +588,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
         if let rawIdentifier {
             let kind = siriMediaKind(from: intent)
-            #if DEBUG
-            AppLogger.debug("📱 AppDelegate: Siri fallback payload using raw identifier kind=\(kind.rawValue)")
-            #endif
+            AppLogger.debug("AppDelegate: Siri fallback payload using raw identifier kind=\(kind.rawValue)")
             return SiriPlaybackRequestPayload(
                 kind: kind,
                 entityID: rawIdentifier,

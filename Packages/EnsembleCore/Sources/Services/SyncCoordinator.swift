@@ -451,16 +451,12 @@ public final class SyncCoordinator: ObservableObject {
     /// Sync all enabled sources incrementally (only fetch changes since last sync)
     public func syncAllIncremental() async {
         guard !isSyncing else {
-            #if DEBUG
             EnsembleLogger.debug("⏳ syncAllIncremental: Already syncing, skipping")
-            #endif
             return
         }
         isSyncing = true
         defer { isSyncing = false }
-        #if DEBUG
         EnsembleLogger.debug("🔄 syncAllIncremental: Starting...")
-        #endif
         
         // Track which servers have had their playlists synced
         var syncedServerKeys = Set<String>()
@@ -472,9 +468,7 @@ public final class SyncCoordinator: ObservableObject {
             // Get last sync timestamp
             guard let lastSyncDate = await loadLastSyncDate(for: sourceId) else {
                 // No previous sync - fall back to full sync
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ No previous sync found for \(sourceId.compositeKey), performing full sync")
-                #endif
                 sourceStatuses[sourceId] = MusicSourceStatus(
                     syncStatus: .syncing(progress: 0),
                     connectionState: currentConnectionState
@@ -593,9 +587,7 @@ public final class SyncCoordinator: ObservableObject {
         // Get last sync timestamp
         guard let lastSyncDate = await loadLastSyncDate(for: source) else {
             // No previous sync - fall back to full sync
-            #if DEBUG
             EnsembleLogger.debug("⚠️ No previous sync found for \(source.compositeKey), performing full sync")
-            #endif
             await sync(source: source)
             return
         }
@@ -641,9 +633,7 @@ public final class SyncCoordinator: ObservableObject {
                 }
             )
 
-            #if DEBUG
             EnsembleLogger.debug("⏱️ SyncCoordinator: playlist phase took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistPhaseStart))s")
-            #endif
 
             // Cache all artwork so it's always available offline.
             // Each helper skips items already cached, so this is fast on repeat runs.
@@ -660,9 +650,7 @@ public final class SyncCoordinator: ObservableObject {
                 userInfo: ["serverSourceKey": serverSourceKey]
             )
 
-            #if DEBUG
             EnsembleLogger.debug("⏱️ SyncCoordinator: incremental sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - overallStart))s for \(source.compositeKey)")
-            #endif
 
             let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
                 for: source,
@@ -708,9 +696,7 @@ public final class SyncCoordinator: ObservableObject {
                 await cachePlaylistArtwork(sourceId: sourceId, provider: provider)
                 onPlaylistRefreshCompleted?("plex:\(sourceId.accountId):\(sourceId.serverId)")
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ Failed to sync playlists for server \(serverKey): \(error.localizedDescription)")
-                #endif
             }
         }
     }
@@ -765,9 +751,7 @@ public final class SyncCoordinator: ObservableObject {
                 throw error
             }
 
-            #if DEBUG
             EnsembleLogger.debug("ℹ️ Empty playlist create returned 400; retrying with seed track fallback")
-            #endif
             try await apiClient.createPlaylist(
                 title: trimmed,
                 trackRatingKeys: [seedTrackID],
@@ -948,31 +932,23 @@ public final class SyncCoordinator: ObservableObject {
     /// - If last sync > 1 hour: incremental sync
     /// - Otherwise: skip (data is fresh enough)
     public func performStartupSync() async {
-        #if DEBUG
         EnsembleLogger.debug("🚀 Performing startup sync...")
-        #endif
 
         // Don't sync if offline
         guard !isOffline else {
-            #if DEBUG
             EnsembleLogger.debug("📴 Offline - skipping startup sync")
-            #endif
             return
         }
 
         // Don't sync if already syncing
         guard !isSyncing else {
-            #if DEBUG
             EnsembleLogger.debug("⏳ Sync already in progress - skipping startup sync")
-            #endif
             return
         }
 
         // Check if we have any sources configured
         guard !syncProviders.isEmpty else {
-            #if DEBUG
             EnsembleLogger.debug("ℹ️ No sync providers configured - skipping startup sync")
-            #endif
             return
         }
 
@@ -988,9 +964,7 @@ public final class SyncCoordinator: ObservableObject {
             // (which may fire concurrently from AppDelegate) skips immediately.
             startupHealthChecksInitiated = true
 
-            #if DEBUG
             EnsembleLogger.debug("🏥 Running startup health checks for \(eligibleServers.count) server(s)...")
-            #endif
             let preCheckStates = serverHealthChecker.serverStates
             let summary = await runHealthChecks(forceServerRefresh: false, eligibleServerKeys: eligibleServers)
             updateSourceConnectionStates()
@@ -1006,13 +980,9 @@ public final class SyncCoordinator: ObservableObject {
                 NotificationCenter.default.post(name: ArtworkLoader.serversBecameAvailable, object: nil)
             }
 
-            #if DEBUG
             EnsembleLogger.debug("🏥 Startup health checks complete: checked=\(summary.checkedCount), skipped=\(summary.skippedCount)")
-            #endif
         } else if healthChecksAlreadyDone {
-            #if DEBUG
             EnsembleLogger.debug("🏥 Skipping startup sync health checks — already done by earlyHealthCheckTask")
-            #endif
             // Still update source states in case they weren't synced
             updateSourceConnectionStates()
         }
@@ -1029,30 +999,22 @@ public final class SyncCoordinator: ObservableObject {
                 let hoursSinceSync = Date().timeIntervalSince(lastSyncDate) / 3600
 
                 if hoursSinceSync > 24 {
-                    #if DEBUG
                     EnsembleLogger.debug("⏰ Source \(sourceId.compositeKey) last synced \(Int(hoursSinceSync)) hours ago - needs full sync")
-                    #endif
                     needsFullSync = true
                     break
                 }
             } else {
-                #if DEBUG
                 EnsembleLogger.debug("⏰ Source \(sourceId.compositeKey) has never been synced - needs full sync")
-                #endif
                 needsFullSync = true
                 break
             }
         }
 
         if needsFullSync {
-            #if DEBUG
             EnsembleLogger.debug("🔄 Starting full sync on startup...")
-            #endif
             await syncAll()
         } else {
-            #if DEBUG
             EnsembleLogger.debug("🔄 Starting incremental sync on startup...")
-            #endif
             await syncAllIncremental()
         }
     }
@@ -1076,9 +1038,7 @@ public final class SyncCoordinator: ObservableObject {
         // Check if we already have a connected state
         let currentState = serverHealthChecker.getServerState(accountId: accountId, serverId: serverId)
 
-        #if DEBUG
         EnsembleLogger.debug("🎵 ensureServerConnection[v2]: current state for \(accountId):\(serverId) = \(currentState.description)")
-        #endif
         
         // If already connected or degraded, we're good
         if case .connected = currentState {
@@ -1089,9 +1049,7 @@ public final class SyncCoordinator: ObservableObject {
         }
         
         // Need to check server health
-        #if DEBUG
         EnsembleLogger.debug("🔍 Checking server connection before playback")
-        #endif
         let newState = await serverHealthChecker.checkServer(
             accountId: accountId,
             serverId: serverId,
@@ -1103,17 +1061,12 @@ public final class SyncCoordinator: ObservableObject {
         case .connected(let url), .degraded(let url):
             if let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) {
                 await apiClient.updateCurrentServerURL(url)
-                #if DEBUG
                 EnsembleLogger.debug("✅ Server connection ready for playback: \(url)")
-                #endif
             }
         case .offline:
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Server health check reported offline for playback; attempting optimistic failover refresh")
-            #endif
             if let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) {
                 let refreshResult = try? await apiClient.refreshConnection()
-                #if DEBUG
                 let refreshedURL = await apiClient.getCurrentServerURL()
                 EnsembleLogger.debug(
                     "⚠️ ensureServerConnection[v2]: proceeding after refresh with URL host=\(hostForDebugURL(refreshedURL))"
@@ -1123,15 +1076,12 @@ public final class SyncCoordinator: ObservableObject {
                         "⚠️ ensureServerConnection[v2]: refresh outcome=\(refreshResult.outcome.rawValue) probes=\(refreshResult.probeCount)"
                     )
                 }
-                #endif
             }
             // Do not fail fast on health-check offline. Stream URL retrieval/playback
             // performs its own network path and can still succeed on slower paths.
             return
         case .connecting, .unknown:
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Server state uncertain, attempting playback anyway")
-            #endif
         }
     }
 
@@ -1168,16 +1118,12 @@ public final class SyncCoordinator: ObservableObject {
                 do {
                     let result = try await apiClient.refreshConnection()
                     refreshedAnyConnection = true
-                    #if DEBUG
                     EnsembleLogger.debug(
                         "🔄 SyncCoordinator: Refreshed \(server.name) outcome=\(result.outcome.rawValue), probes=\(result.probeCount)"
                     )
-                    #endif
                 } catch {
                     lastError = error
-                    #if DEBUG
                     EnsembleLogger.debug("⚠️ SyncCoordinator: Failed to refresh \(server.name): \(error.localizedDescription)")
-                    #endif
                 }
             }
         }
@@ -1207,12 +1153,10 @@ public final class SyncCoordinator: ObservableObject {
     ///   - track: The track to stream
     ///   - quality: Streaming quality preference (default: original)
     public func getStreamURL(for track: Track, quality: StreamingQuality = .original) async throws -> StreamResolution {
-        #if DEBUG
         EnsembleLogger.debug("🔍 Getting stream URL for track: \(track.title) [quality: \(quality.rawValue)]")
         EnsembleLogger.debug("🔍 Track sourceKey: \(track.sourceCompositeKey ?? "nil")")
         EnsembleLogger.debug("🔍 Track streamKey: \(track.streamKey ?? "nil")")
         EnsembleLogger.debug("🔍 Available providers: \(syncProviders.keys.joined(separator: ", "))")
-        #endif
 
         if let sourceKey = await resolvedTrackSourceCompositeKey(for: track),
            let provider = syncProviders[sourceKey] {
@@ -1226,13 +1170,9 @@ public final class SyncCoordinator: ObservableObject {
                 // Find the server name
                 if let account = accountManager.plexAccounts.first(where: { $0.id == accountId }),
                    let server = account.servers.first(where: { $0.id == serverId }) {
-                    #if DEBUG
                     EnsembleLogger.debug("🔍 Using provider for server: \(server.name) (ID: \(serverId), Library: \(libraryId))")
-                    #endif
                 } else {
-                    #if DEBUG
                     EnsembleLogger.debug("🔍 Using provider for sourceKey: \(sourceKey)")
-                    #endif
                 }
             }
             return try await provider.getStreamURL(
@@ -1243,18 +1183,57 @@ public final class SyncCoordinator: ObservableObject {
 
         // Fallback: try any available provider
         if let provider = syncProviders.values.first {
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Using fallback provider")
-            #endif
             return try await provider.getStreamURL(
                 for: track.id, trackStreamKey: track.streamKey,
                 quality: quality, metadataDurationSeconds: track.duration
             )
         }
 
-        #if DEBUG
         EnsembleLogger.debug("❌ No providers available")
-        #endif
+        throw PlexAPIError.noServerSelected
+    }
+
+    // MARK: - Two-Phase Stream Resolution
+
+    /// Phase 1: Make a streaming decision for a track without embedding the server endpoint URL.
+    /// The returned `StreamDecision` can be cached across network transitions — it captures
+    /// codec, quality, and session parameters that don't change when the endpoint changes.
+    public func makeStreamDecision(for track: Track, quality: StreamingQuality = .original) async throws -> StreamDecision {
+        if let sourceKey = await resolvedTrackSourceCompositeKey(for: track),
+           let provider = syncProviders[sourceKey] as? PlexMusicSourceSyncProvider {
+            return try await provider.makeStreamDecision(
+                for: track.id, trackStreamKey: track.streamKey,
+                quality: quality, metadataDurationSeconds: track.duration
+            )
+        }
+
+        // Fallback: try any available provider
+        if let provider = syncProviders.values.first as? PlexMusicSourceSyncProvider {
+            return try await provider.makeStreamDecision(
+                for: track.id, trackStreamKey: track.streamKey,
+                quality: quality, metadataDurationSeconds: track.duration
+            )
+        }
+
+        throw PlexAPIError.noServerSelected
+    }
+
+    /// Phase 2: Assemble a `StreamResolution` from a cached `StreamDecision` using the
+    /// current server endpoint. Call this at download start time for a fresh URL.
+    /// This is a lightweight operation (no network calls) — the endpoint is read from
+    /// `ServerConnectionRegistry` at assembly time.
+    public func assembleStreamResolution(for track: Track, from decision: StreamDecision) async throws -> StreamResolution {
+        if let sourceKey = await resolvedTrackSourceCompositeKey(for: track),
+           let provider = syncProviders[sourceKey] as? PlexMusicSourceSyncProvider {
+            return try await provider.assembleStreamResolution(from: decision)
+        }
+
+        // Fallback: try any available provider
+        if let provider = syncProviders.values.first as? PlexMusicSourceSyncProvider {
+            return try await provider.assembleStreamResolution(from: decision)
+        }
+
         throw PlexAPIError.noServerSelected
     }
 
@@ -1422,9 +1401,7 @@ public final class SyncCoordinator: ObservableObject {
         postRatingPlaylistSyncTasks[serverSourceKey] = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s debounce
             guard !Task.isCancelled, let self else { return }
-            #if DEBUG
             EnsembleLogger.debug("🔄 SyncCoordinator: Post-rating playlist sync for \(serverSourceKey)")
-            #endif
             await self.refreshServerPlaylists(serverSourceKey: serverSourceKey)
             self.postRatingPlaylistSyncTasks.removeValue(forKey: serverSourceKey)
         }
@@ -1438,9 +1415,7 @@ public final class SyncCoordinator: ObservableObject {
         postRatingFavoritesReconciliationTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_000_000_000) // 2s debounce
             guard !Task.isCancelled, let self else { return }
-            #if DEBUG
             EnsembleLogger.debug("🔄 SyncCoordinator: Post-rating favorites reconciliation")
-            #endif
             await self.onFavoritesRatingChanged?()
             self.postRatingFavoritesReconciliationTask = nil
         }
@@ -1468,9 +1443,7 @@ public final class SyncCoordinator: ObservableObject {
             )
         } catch {
             // Timeline reporting is non-critical, just log the error
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Failed to report timeline: \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -1487,9 +1460,7 @@ public final class SyncCoordinator: ObservableObject {
             try await provider.scrobble(ratingKey: track.id)
         } catch {
             // Scrobbling is non-critical, just log the error
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Failed to scrobble track: \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -1559,9 +1530,7 @@ public final class SyncCoordinator: ObservableObject {
     /// Delete all CoreData for a removed music source
     public func cleanupRemovedSource(_ sourceId: MusicSourceIdentifier) async {
         do {
-            #if DEBUG
             EnsembleLogger.debug("🗑️ Cleaning up data for removed source: \(sourceId.compositeKey)")
-            #endif
 
             // Collect artwork ratingKeys BEFORE deleting CoreData records
             var artworkKeysToDelete = Set<String>()
@@ -1581,9 +1550,7 @@ public final class SyncCoordinator: ObservableObject {
             // Delete cached artwork files for the removed source
             if !artworkKeysToDelete.isEmpty {
                 artworkDownloadManager.deleteArtwork(forRatingKeys: artworkKeysToDelete)
-                #if DEBUG
                 EnsembleLogger.debug("🗑️ Deleted \(artworkKeysToDelete.count) artwork files for source: \(sourceId.compositeKey)")
-                #endif
             }
 
             // Clean up source-specific caches (lyrics, downloads, etc.)
@@ -1595,13 +1562,9 @@ public final class SyncCoordinator: ObservableObject {
             // Clear API client cache for this source
             accountManager.clearAPIClientCache(accountId: sourceId.accountId, serverId: sourceId.serverId)
 
-            #if DEBUG
             EnsembleLogger.debug("✅ Successfully cleaned up source: \(sourceId.compositeKey)")
-            #endif
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed to cleanup source \(sourceId.compositeKey): \(error)")
-            #endif
         }
     }
 
@@ -1625,14 +1588,10 @@ public final class SyncCoordinator: ObservableObject {
             // Delete cached playlist artwork files
             if !playlistKeys.isEmpty {
                 artworkDownloadManager.deleteArtwork(forRatingKeys: playlistKeys)
-                #if DEBUG
                 EnsembleLogger.debug("🗑️ Deleted \(playlistKeys.count) playlist artwork files for server: \(serverSourceKey)")
-                #endif
             }
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed to cleanup server playlists \(serverSourceKey): \(error)")
-            #endif
         }
     }
     
@@ -1671,21 +1630,15 @@ public final class SyncCoordinator: ObservableObject {
                     )
                     cached += 1
                 } catch {
-                    #if DEBUG
                     EnsembleLogger.debug("⚠️ Failed to cache artwork for album \(album.title): \(error.localizedDescription)")
-                    #endif
                 }
             }
 
-            #if DEBUG
             if cached > 0 {
                 EnsembleLogger.debug("🖼️ Cached artwork for \(cached) albums (\(sourceId.compositeKey))")
             }
-            #endif
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Failed to fetch albums for artwork caching: \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -1714,21 +1667,15 @@ public final class SyncCoordinator: ObservableObject {
                     )
                     cached += 1
                 } catch {
-                    #if DEBUG
                     EnsembleLogger.debug("⚠️ Failed to cache artwork for artist \(artist.name): \(error.localizedDescription)")
-                    #endif
                 }
             }
 
-            #if DEBUG
             if cached > 0 {
                 EnsembleLogger.debug("🖼️ Cached artwork for \(cached) artists (\(sourceId.compositeKey))")
             }
-            #endif
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Failed to fetch artists for artwork caching: \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -1760,21 +1707,15 @@ public final class SyncCoordinator: ObservableObject {
                     )
                     cached += 1
                 } catch {
-                    #if DEBUG
                     EnsembleLogger.debug("⚠️ Failed to cache artwork for playlist \(playlist.title): \(error.localizedDescription)")
-                    #endif
                 }
             }
 
-            #if DEBUG
             if cached > 0 {
                 EnsembleLogger.debug("🖼️ Cached artwork for \(cached) playlists (\(sourceId.compositeKey))")
             }
-            #endif
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Failed to fetch playlists for artwork caching: \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -1838,23 +1779,17 @@ public final class SyncCoordinator: ObservableObject {
 
         if let cachedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id),
            let source = cachedTrack.sourceCompositeKey {
-            #if DEBUG
             EnsembleLogger.debug("🎵 Resolved missing track source from cache: \(track.id) -> \(source)")
-            #endif
             return source
         }
 
         // Last resort: single-provider assumption when app is connected to one library source.
         if syncProviders.count == 1, let onlyKey = syncProviders.keys.first {
-            #if DEBUG
             EnsembleLogger.debug("🎵 Resolved missing track source via single-provider fallback: \(track.id) -> \(onlyKey)")
-            #endif
             return onlyKey
         }
 
-        #if DEBUG
         EnsembleLogger.debug("⚠️ Could not resolve source key for track: \(track.id)")
-        #endif
         return nil
     }
 
@@ -1915,9 +1850,7 @@ public final class SyncCoordinator: ObservableObject {
                     try await provider.syncPlaylists(to: playlistRepository, progressHandler: { _ in })
                     didRefresh = true
                 } catch {
-                    #if DEBUG
                     EnsembleLogger.debug("⚠️ Failed to refresh playlists for \(serverSourceKey): \(error.localizedDescription)")
-                    #endif
                 }
             }
             if didRefresh {
@@ -2082,9 +2015,7 @@ public final class SyncCoordinator: ObservableObject {
 
         let currentState = networkMonitor.networkState
 
-        #if DEBUG
         EnsembleLogger.debug("🌐 SyncCoordinator: App entering foreground with state \(currentState.description)")
-        #endif
 
         switch currentState {
         case .online:
@@ -2106,14 +2037,12 @@ public final class SyncCoordinator: ObservableObject {
 
         let transition = classifyNetworkTransition(from: previous, to: state)
 
-        #if DEBUG
         EnsembleLogger.debug(
             "🌐 SyncCoordinator: Network transition \(previous?.description ?? "nil") -> \(state.description)"
         )
         if case .interfaceSwitch(let from, let to) = transition {
             EnsembleLogger.debug("🌐 SyncCoordinator: Detected interface switch \(from.description) -> \(to.description)")
         }
-        #endif
 
         switch state {
         case .online:
@@ -2145,9 +2074,7 @@ public final class SyncCoordinator: ObservableObject {
             // Immediately invalidate artwork URL cache on reconnect.
             // This prevents stale artwork requests that use old endpoint URLs while
             // health checks are still running.
-            #if DEBUG
             EnsembleLogger.debug("🖼️ SyncCoordinator: Early artwork cache invalidation for reconnect")
-            #endif
             await onConnectionsRefreshed?()
             scheduleHealthRefresh(reason: .networkReconnect, forceServerRefresh: true)
         case .interfaceSwitch(let from, let to):
@@ -2163,9 +2090,7 @@ public final class SyncCoordinator: ObservableObject {
             // health checks are still running. The cache will be invalidated again
             // after health checks complete, but this early invalidation is critical
             // for any artwork requests that happen before health checks finish.
-            #if DEBUG
             EnsembleLogger.debug("🖼️ SyncCoordinator: Early artwork cache invalidation for interface switch")
-            #endif
             await onConnectionsRefreshed?()
             scheduleHealthRefresh(reason: .interfaceSwitch(from: from, to: to), forceServerRefresh: true)
         case .disconnect, .none:
@@ -2203,9 +2128,7 @@ public final class SyncCoordinator: ObservableObject {
 
     private func scheduleHealthRefresh(reason: HealthRefreshReason, forceServerRefresh: Bool) {
         if activeHealthRefreshTask != nil {
-            #if DEBUG
             EnsembleLogger.debug("🌐 SyncCoordinator: Coalescing health refresh request (\(reason.description))")
-            #endif
             return
         }
 
@@ -2214,11 +2137,9 @@ public final class SyncCoordinator: ObservableObject {
         if reason == .appForeground,
            let lastRefresh = lastHealthRefreshAt,
            now.timeIntervalSince(lastRefresh) < foregroundHealthStalenessThreshold {
-            #if DEBUG
             EnsembleLogger.debug(
                 "🌐 SyncCoordinator: Skipping foreground health refresh (last run \(String(format: "%.1f", now.timeIntervalSince(lastRefresh)))s ago)"
             )
-            #endif
             return
         }
 
@@ -2235,19 +2156,15 @@ public final class SyncCoordinator: ObservableObject {
         if !bypassCooldown,
            let lastRefresh = lastHealthRefreshAt,
            now.timeIntervalSince(lastRefresh) < healthRefreshCooldown {
-            #if DEBUG
             EnsembleLogger.debug(
                 "🌐 SyncCoordinator: Skipping health refresh due to cooldown (\(String(format: "%.1f", now.timeIntervalSince(lastRefresh)))s ago)"
             )
-            #endif
             return
         }
 
         let eligibleServerKeys = enabledServerKeysForHealthChecks()
         guard !eligibleServerKeys.isEmpty else {
-            #if DEBUG
             EnsembleLogger.debug("🌐 SyncCoordinator: No enabled-library servers eligible for health checks")
-            #endif
             return
         }
 
@@ -2283,12 +2200,10 @@ public final class SyncCoordinator: ObservableObject {
                 NotificationCenter.default.post(name: ArtworkLoader.serversBecameAvailable, object: nil)
             }
 
-            #if DEBUG
             let duration = self.nowProviderForTesting().timeIntervalSince(startedAt)
             EnsembleLogger.debug(
                 "🌐 SyncCoordinator: Health refresh complete reason=\(reason.description), checked=\(summary.checkedCount), skipped=\(summary.skippedCount), duration=\(String(format: "%.2f", duration))s"
             )
-            #endif
         }
     }
 
@@ -2335,9 +2250,7 @@ public final class SyncCoordinator: ObservableObject {
     public func triggerServerHealthCheck(sourceKey: String) async {
         guard let (accountId, serverId) = parseServerIds(from: sourceKey) else { return }
 
-        #if DEBUG
         EnsembleLogger.debug("🏥 SyncCoordinator: Targeted health check for server \(accountId):\(serverId)")
-        #endif
 
         let state = await serverHealthChecker.checkServer(
             accountId: accountId,
@@ -2345,9 +2258,7 @@ public final class SyncCoordinator: ObservableObject {
         )
         updateSourceConnectionStates()
 
-        #if DEBUG
         EnsembleLogger.debug("🏥 SyncCoordinator: Targeted health check result: \(state)")
-        #endif
     }
 
     /// Check whether a server is known to be available based on cached health state.
@@ -2423,11 +2334,9 @@ public final class SyncCoordinator: ObservableObject {
                     let currentURL = await apiClient.getCurrentServerURL()
                     if currentURL != state.endpoint.url {
                         await apiClient.updateCurrentServerURL(state.endpoint.url)
-                        #if DEBUG
                         EnsembleLogger.debug(
                             "📍 SyncCoordinator: Registry synced API client for \(state.serverKey) to \(state.endpoint.url) (source=\(state.source.rawValue))"
                         )
-                        #endif
                     }
                 }
 
@@ -2442,9 +2351,7 @@ public final class SyncCoordinator: ObservableObject {
     /// `subscribeToRegistryChanges`. This method remains as a fallback for tests and
     /// the non-registry path.
     public func refreshAPIClientConnections() async {
-        #if DEBUG
         EnsembleLogger.debug("🔄 SyncCoordinator: Updating API client connections...")
-        #endif
 
         for account in accountManager.plexAccounts {
             for server in account.servers {
@@ -2455,9 +2362,7 @@ public final class SyncCoordinator: ObservableObject {
                    let registryURL = await registry.currentURL(for: serverKey),
                    let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) {
                     await apiClient.updateCurrentServerURL(registryURL)
-                    #if DEBUG
                     EnsembleLogger.debug("✅ Updated API client for server \(server.name) from registry: \(registryURL)")
-                    #endif
                     continue
                 }
 
@@ -2470,15 +2375,11 @@ public final class SyncCoordinator: ObservableObject {
                 if case .connected(let workingURL) = connectionState,
                    let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) {
                     await apiClient.updateCurrentServerURL(workingURL)
-                    #if DEBUG
                     EnsembleLogger.debug("✅ Updated API client for server \(server.name) to use: \(workingURL)")
-                    #endif
                 } else if case .degraded(let workingURL) = connectionState,
                           let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) {
                     await apiClient.updateCurrentServerURL(workingURL)
-                    #if DEBUG
                     EnsembleLogger.debug("⚠️ Updated API client for server \(server.name) to use degraded connection: \(workingURL)")
-                    #endif
                 }
             }
         }
@@ -2495,9 +2396,7 @@ public final class SyncCoordinator: ObservableObject {
         // startupHealthChecksInitiated is set before the await, so it catches
         // the case where startup sync's health checks are still in progress.
         if startupHealthChecksInitiated || lastHealthRefreshAt != nil {
-            #if DEBUG
             EnsembleLogger.debug("🏥 SyncCoordinator: Skipping early health checks — startup sync already handling them")
-            #endif
             return
         }
         startupHealthChecksInitiated = true
@@ -2505,10 +2404,8 @@ public final class SyncCoordinator: ObservableObject {
         let eligibleServers = enabledServerKeysForHealthChecks()
         guard !eligibleServers.isEmpty else { return }
 
-        #if DEBUG
         let healthCheckStart = Date()
         EnsembleLogger.debug("🏥 SyncCoordinator: Running early health checks for \(eligibleServers.count) server(s)...")
-        #endif
 
         let preCheckStates = serverHealthChecker.serverStates
         let summary = await runHealthChecks(forceServerRefresh: false, eligibleServerKeys: eligibleServers)
@@ -2526,10 +2423,8 @@ public final class SyncCoordinator: ObservableObject {
             NotificationCenter.default.post(name: ArtworkLoader.serversBecameAvailable, object: nil)
         }
 
-        #if DEBUG
         let healthCheckDuration = Date().timeIntervalSince(healthCheckStart)
         EnsembleLogger.debug("🏥 SyncCoordinator: Startup health checks complete in \(String(format: "%.2f", healthCheckDuration))s — checked=\(summary.checkedCount), skipped=\(summary.skippedCount)")
-        #endif
     }
 
     /// Public entry point for callers outside SyncCoordinator (e.g. AppDelegate)
@@ -2589,68 +2484,48 @@ public final class SyncCoordinator: ObservableObject {
     /// Returns nil if the source doesn't support radio or isn't configured
     /// - Parameter sourceKey: The music source composite key
     public func makeRadioProvider(for sourceKey: String) -> RadioProviderProtocol? {
-        #if DEBUG
         EnsembleLogger.debug("🔄 SyncCoordinator.makeRadioProvider() called")
         EnsembleLogger.debug("  - Source key: \(sourceKey)")
-        #endif
         
         // Parse source key to extract identifiers
         // Format: sourceType:accountId:serverId:libraryId (e.g., "plex:account123:server456:library789")
         let components = sourceKey.split(separator: ":")
-        #if DEBUG
         EnsembleLogger.debug("  - Key components: \(components)")
         EnsembleLogger.debug("  - Component count: \(components.count)")
-        #endif
         
         guard components.count >= 4,
               let sourceType = MusicSourceType(rawValue: String(components[0])) else {
-            #if DEBUG
             EnsembleLogger.debug("❌ Invalid source key format: \(sourceKey)")
-            #endif
             return nil
         }
-        #if DEBUG
         EnsembleLogger.debug("  - Source type: \(sourceType)")
-        #endif
 
         let accountId = String(components[1])
         let serverId = String(components[2])
         let libraryId = String(components[3])
-        #if DEBUG
         EnsembleLogger.debug("  - Account ID: \(accountId)")
         EnsembleLogger.debug("  - Server ID: \(serverId)")
         EnsembleLogger.debug("  - Library ID: \(libraryId)")
-        #endif
 
         // Currently only Plex is supported
         guard sourceType == .plex else {
-            #if DEBUG
             EnsembleLogger.debug("ℹ️ Radio not available for source type: \(sourceType)")
-            #endif
             return nil
         }
 
         // Get API client for this source
-        #if DEBUG
         EnsembleLogger.debug("🔄 Creating API client...")
-        #endif
         guard let apiClient = accountManager.makeAPIClient(
             accountId: accountId,
             serverId: serverId
         ) else {
-            #if DEBUG
             EnsembleLogger.debug("❌ Could not create API client for source: \(sourceKey)")
-            #endif
             return nil
         }
-        #if DEBUG
         EnsembleLogger.debug("✅ API client created")
-        #endif
 
         // Create Plex radio provider
-        #if DEBUG
         EnsembleLogger.debug("🔄 Creating PlexRadioProvider...")
-        #endif
         let radioProvider = PlexRadioProvider(
             sourceKey: sourceKey,
             apiClient: apiClient,
@@ -2658,9 +2533,7 @@ public final class SyncCoordinator: ObservableObject {
             sectionKey: libraryId
         )
 
-        #if DEBUG
         EnsembleLogger.debug("✅ Created PlexRadioProvider for source: \(sourceKey)")
-        #endif
         return radioProvider
     }
     
@@ -2670,9 +2543,7 @@ public final class SyncCoordinator: ObservableObject {
     public func startPeriodicSync() {
         stopPeriodicSync()  // Stop any existing timer
         
-        #if DEBUG
         EnsembleLogger.debug("⏰ Starting periodic sync timer (every 1 hour)")
-        #endif
         incrementalSyncTimer = Timer.scheduledTimer(withTimeInterval: incrementalSyncInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 await self?.performPeriodicSync()
@@ -2684,51 +2555,37 @@ public final class SyncCoordinator: ObservableObject {
     public func stopPeriodicSync() {
         incrementalSyncTimer?.invalidate()
         incrementalSyncTimer = nil
-        #if DEBUG
         EnsembleLogger.debug("🛑 Stopped periodic sync timer")
-        #endif
     }
     
     /// Perform periodic incremental sync (called by timer)
     private func performPeriodicSync() async {
-        #if DEBUG
         EnsembleLogger.debug("⏰ Periodic sync triggered")
-        #endif
         
         // Don't sync if offline
         guard !isOffline else {
-            #if DEBUG
             EnsembleLogger.debug("📴 Offline - skipping periodic sync")
-            #endif
             return
         }
         
         // Don't sync if already syncing
         guard !isSyncing else {
-            #if DEBUG
             EnsembleLogger.debug("⏳ Sync already in progress - skipping periodic sync")
-            #endif
             return
         }
         
         // Check network connectivity - only sync when connected
         #if os(iOS)
         if !networkMonitor.isConnected {
-            #if DEBUG
             EnsembleLogger.debug("📡 Not connected - skipping periodic sync")
-            #endif
             return
         }
         #endif
         
-        #if DEBUG
         EnsembleLogger.debug("🔄 Performing periodic incremental sync...")
-        #endif
         await syncAllIncremental()
         lastIncrementalSyncTime = Date()
-        #if DEBUG
         EnsembleLogger.debug("✅ Periodic sync complete")
-        #endif
     }
 
     // MARK: - WebSocket-Triggered Sync
@@ -2751,15 +2608,11 @@ public final class SyncCoordinator: ObservableObject {
             return
         }
 
-        #if DEBUG
         EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered incremental sync for section \(sectionKey) (source=\(compositeKey))")
-        #endif
 
         await syncIncremental(source: sourceId)
 
-        #if DEBUG
         EnsembleLogger.debug("🔌 SyncCoordinator: Incremental sync completed for section \(sectionKey)")
-        #endif
     }
 
     /// Trigger a playlist-only sync for a specific server.
@@ -2777,9 +2630,7 @@ public final class SyncCoordinator: ObservableObject {
             return
         }
 
-        #if DEBUG
         EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered playlist sync for server \(serverKey)")
-        #endif
 
         let sourceId = provider.sourceIdentifier
         do {
@@ -2790,9 +2641,7 @@ public final class SyncCoordinator: ObservableObject {
             // Cache playlist artwork so it's always available offline
             await cachePlaylistArtwork(sourceId: sourceId, provider: provider)
             let serverSourceKey = "plex:\(sourceId.accountId):\(sourceId.serverId)"
-            #if DEBUG
             EnsembleLogger.debug("🔌 SyncCoordinator: Playlist sync completed for server \(serverKey), posting notification")
-            #endif
             onPlaylistRefreshCompleted?(serverSourceKey)
             NotificationCenter.default.post(
                 name: Self.playlistsDidRefresh,
@@ -2813,15 +2662,11 @@ public final class SyncCoordinator: ObservableObject {
         if hasActiveWebSocket {
             // With WebSocket: relax polling to every 4 hours (WebSocket pushes updates)
             interval = 4 * 60 * 60
-            #if DEBUG
             EnsembleLogger.debug("⏰ SyncCoordinator: WebSocket active — relaxed periodic sync to 4h")
-            #endif
         } else {
             // Without WebSocket: use default 1 hour interval
             interval = incrementalSyncInterval
-            #if DEBUG
             EnsembleLogger.debug("⏰ SyncCoordinator: No WebSocket — using default 1h periodic sync")
-            #endif
         }
 
         incrementalSyncTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in

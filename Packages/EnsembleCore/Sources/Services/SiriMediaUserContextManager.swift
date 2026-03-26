@@ -56,9 +56,7 @@ public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProto
 
             // Skip if the count hasn't changed since last publish
             guard totalItems != lastPublishedItemCount else {
-                #if DEBUG
                 EnsembleLogger.debug("🎯 INMediaUserContext unchanged (\(totalItems) items) — skipping")
-                #endif
                 return
             }
 
@@ -74,13 +72,9 @@ public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProto
             context.becomeCurrent()
             lastPublishedItemCount = totalItems
 
-            #if DEBUG
             EnsembleLogger.debug("🎯 Updated INMediaUserContext: \(totalItems) items (\(trackCount) tracks, \(albumCount) albums, \(playlistCount) playlists), status=\(subscriptionStatus.rawValue)")
-            #endif
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Failed to update INMediaUserContext: \(error.localizedDescription)")
-            #endif
         }
     }
 }

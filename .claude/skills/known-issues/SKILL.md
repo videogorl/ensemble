@@ -20,6 +20,19 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Resolved Issues
 
+### 89-Byte Transcode Error → Cryptic CoreAudio Error (Mar 26, 2026)
+- **Location:** `ProgressiveStreamLoader.swift`, `PlaybackService.swift`
+- **Issue:** When Plex server storage is unavailable (NAS disconnected, drives sleeping), the `/decision` endpoint succeeds (metadata is cached in PMS), but `/start.mp3` returns an HTML error page (~89 bytes, HTTP 503). `ProgressiveStreamLoader` wrote these bytes to a temp file and reported success. AVAudioEngine rejected the file with cryptic error `com.apple.coreaudio.avfaudio error 1685348671`.
+- **Root causes:** (1) `ProgressiveStreamLoader` never checked HTTP status — no `didReceive response:` delegate. (2) No payload validation before calling `onDownloadComplete`. (3) `waitForDownload()` only wired success callback — if a download failed for ANY reason, the continuation hung forever. (4) Progressive transcode path bypassed `isClearlyInvalidLocalPayload()`.
+- **Fix:** `ProgressiveStreamLoader` now checks HTTP status via `didReceive response:` delegate, diverts error body to diagnostic buffer (not audio file), validates payload size, and fires `onDownloadFailed` callback. `waitForDownload` wires both success/failure callbacks. `mapToPlaybackError` maps 503 to "Server storage unavailable". No auto-retry — user retries manually.
+- **Key files:** `ProgressiveStreamLoader.swift`, `PlaybackService.swift`
+
+### Gapless UI Stuck One Track Behind Audio on Network Switch (Mar 26, 2026)
+- **Location:** `AudioPlaybackEngine.swift` (`clearScheduledFiles`)
+- **Issue:** When a Wi-Fi→cellular network transition occurred mid-playback, `rebuildUpcomingQueueForNetworkTransition()` called `clearScheduledFiles()` which emptied the `scheduledFiles` tracking array and bumped the generation counter — but did NOT flush the `playerNode`'s actual FIFO queue. Orphaned audio segments remained in the FIFO while the primary segment's completion handler was silently invalidated (stale generation). Result: audio played the next track seamlessly from the FIFO, but no `onTrackAdvance` fired, leaving the UI persistently one track behind.
+- **Fix:** `clearScheduledFiles()` now flushes the playerNode FIFO (stop + re-schedule current track from current position + resume). The audio gap is imperceptible (microseconds). Added diagnostic logging to completion handlers for future debugging.
+- **Key files:** `AudioPlaybackEngine.swift`, `PlaybackService.swift`
+
 ### Download Worker Context Invalidation (Mar 26, 2026)
 - **Location:** `OfflineDownloadService.swift` (`process(download:)`, `completeViaDownloadQueue`)
 - **Issue:** Download worker held CDTrack/CDDownload managed object references from the viewContext throughout async downloads (several seconds). When `SyncCoordinator` ran `refreshViewContext()` → `viewContext.reset()` mid-download, property access returned empty/default values (`track.ratingKey` → `""`, `track.sourceCompositeKey` → `nil`). Additionally, CDTrack→CDDownload cascade delete (deletionRule="Cascade") removed the CDDownload when sync's `removeOrphanedTracks()` deleted the CDTrack. Symptoms: files saved as `_unknown_medium.mp3`, `completeDownload(objectID)` threw "object not found in store", downloads silently failed.

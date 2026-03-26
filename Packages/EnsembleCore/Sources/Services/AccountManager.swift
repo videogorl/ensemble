@@ -238,15 +238,11 @@ public final class AccountManager: ObservableObject {
 
         guard let account = plexAccounts.first(where: { $0.id == accountId }),
               let server = account.servers.first(where: { $0.id == serverId }) else {
-            #if DEBUG
             EnsembleLogger.debug("❌ makeAPIClient: account/server not found — accountId:\(accountId) serverId:\(serverId)")
-            #endif
             return nil
         }
 
-        #if DEBUG
         EnsembleLogger.debug("🔄 makeAPIClient: Creating new client for \(server.name) (\(server.url))")
-        #endif
 
         let insecurePolicy = currentAllowInsecureConnectionsPolicy()
         let orderedConnections = policyFilteredConnections(
@@ -312,11 +308,9 @@ public final class AccountManager: ObservableObject {
             return false
         }
 
-        #if DEBUG
         EnsembleLogger.debug(
             "🔐 AccountManager: Removed \(plexAccounts.count - validAccounts.count) account(s) with expired auth tokens"
         )
-        #endif
         plexAccounts = validAccounts
         clearAPIClientCache()
         saveAccounts()
@@ -359,11 +353,9 @@ public final class AccountManager: ObservableObject {
             return false
         }
 
-        #if DEBUG
         EnsembleLogger.debug(
             "🔐 AccountManager: Applying auth migration v\(Self.authMigrationVersion) (previous: \(previousVersion)); forcing re-login"
         )
-        #endif
         try? keychain.delete(KeychainKey.plexAccounts)
         plexAccounts = []
         clearAPIClientCache()

@@ -194,9 +194,7 @@ public final class OfflineDownloadService: ObservableObject {
     /// Called when PMS download queue completes an item (via WebSocket activity event).
     /// Restarts the download queue if it's idle, ensuring prepared downloads are picked up.
     public func handleDownloadQueueCompleted() async {
-        #if DEBUG
         EnsembleLogger.debug("⬇️ WebSocket: download queue completed — queueTask=\(queueTask == nil ? "nil" : "active"), isQueueRunning=\(isQueueRunning)")
-        #endif
         startQueueIfNeeded()
     }
 
@@ -283,9 +281,7 @@ public final class OfflineDownloadService: ObservableObject {
             await refreshTargetSnapshots()
             startQueueIfNeeded()
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed reconciling favorites target: \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -405,13 +401,9 @@ public final class OfflineDownloadService: ObservableObject {
             CoreDataStack.shared.refreshViewContext()
             NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
 
-            #if DEBUG
             EnsembleLogger.debug("🗑️ Removed all downloads, targets, and files")
-            #endif
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed to remove all downloads: \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -463,9 +455,7 @@ public final class OfflineDownloadService: ObservableObject {
             let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
             backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ OfflineDownloadService: Failed refreshing target \(key): \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -492,11 +482,9 @@ public final class OfflineDownloadService: ObservableObject {
                 quality: quality
             )
 
-            #if DEBUG
             EnsembleLogger.debug(
                 "🔁 Retrying download: track=\(trackRatingKey) source=\(sourceCompositeKey ?? "nil") quality=\(quality)"
             )
-            #endif
 
             await refreshAllTargetProgresses()
             startQueueIfNeeded()
@@ -504,11 +492,9 @@ public final class OfflineDownloadService: ObservableObject {
             let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
             backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
         } catch {
-            #if DEBUG
             EnsembleLogger.debug(
                 "❌ Retry download failed: track=\(trackRatingKey) source=\(sourceCompositeKey ?? "nil") reason=\(error.localizedDescription)"
             )
-            #endif
         }
     }
 
@@ -601,11 +587,9 @@ public final class OfflineDownloadService: ObservableObject {
                 )
             }
 
-            #if DEBUG
             EnsembleLogger.debug(
                 "🔄 Refresh: re-queued \(requeuedCount) quality-mismatched + \(retriedCount) failed downloads (targetQuality=\(desiredQuality))"
             )
-            #endif
 
             if totalRequeued > 0 {
                 CoreDataStack.shared.refreshViewContext()
@@ -617,11 +601,9 @@ public final class OfflineDownloadService: ObservableObject {
                 skippedUnsupportedCount: 0
             )
         } catch {
-            #if DEBUG
             EnsembleLogger.debug(
                 "❌ Failed re-queueing downloads for refresh: \(error.localizedDescription)"
             )
-            #endif
             return OfflineDownloadQualityRefreshResult(requeuedCount: 0, skippedUnsupportedCount: 0)
         }
     }
@@ -653,9 +635,7 @@ public final class OfflineDownloadService: ObservableObject {
             CoreDataStack.shared.refreshViewContext()
             NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed enabling offline target \(key): \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -707,9 +687,7 @@ public final class OfflineDownloadService: ObservableObject {
             NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
         } catch {
             removalInProgress.removeValue(forKey: key)
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed disabling offline target \(key): \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -870,9 +848,7 @@ public final class OfflineDownloadService: ObservableObject {
         // when there's nothing to download.
         let initialPending = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
         if initialPending == 0 {
-            #if DEBUG
             EnsembleLogger.debug("📥 Queue loop: no pending downloads, skipping worker spawn")
-            #endif
             queueTask = nil
             isQueueRunning = false
             queueStatusReason = .idle
@@ -908,9 +884,7 @@ public final class OfflineDownloadService: ObservableObject {
             try? await Task.sleep(nanoseconds: 500_000_000) // 500ms grace
             let remainingPending = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
 
-            #if DEBUG
             EnsembleLogger.debug("📥 Queue wind-down: wasCancelled=\(wasCancelled), didProcessAny=\(didProcessAny), remainingPending=\(remainingPending)")
-            #endif
 
             if remainingPending > 0 {
                 // More work arrived while workers were finishing — restart
@@ -957,10 +931,8 @@ public final class OfflineDownloadService: ObservableObject {
 
                 // Claim a single pending download (atomic, sets status to .downloading)
                 guard let nextDownload = try await downloadManager.fetchNextPendingDownload() else {
-                    #if DEBUG
                     let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? -1
                     EnsembleLogger.debug("📥 Worker exit: no pending download (pendingCount=\(pendingCount), didProcess=\(didProcess))")
-                    #endif
                     return didProcess
                 }
 
@@ -991,9 +963,7 @@ public final class OfflineDownloadService: ObservableObject {
                 )
             } catch {
                 if Task.isCancelled { return didProcess }
-                #if DEBUG
                 EnsembleLogger.debug("❌ Offline queue worker failed: \(error.localizedDescription)")
-                #endif
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
@@ -1070,11 +1040,9 @@ public final class OfflineDownloadService: ObservableObject {
             if requestedQuality != .original {
                 // Try the download queue for transcoded downloads.
                 do {
-                    #if DEBUG
                     EnsembleLogger.debug(
                         "⬇️ Offline download attempt: track=\(ctx.trackRatingKey) stage=download-queue quality=\(requestedQuality.rawValue)"
                     )
-                    #endif
                     let completed = try await completeViaDownloadQueue(
                         ctx: ctx,
                         quality: requestedQuality,
@@ -1085,20 +1053,16 @@ public final class OfflineDownloadService: ObservableObject {
                     // Task cancelled (quality change, pause, etc.) — reset to pending
                     // at the current quality so the worker downloads at the correct setting.
                     let updatedQuality = currentDownloadQuality()
-                    #if DEBUG
                     EnsembleLogger.debug(
                         "⏸️ Download queue cancelled for track=\(ctx.trackRatingKey); resetting to pending at quality=\(updatedQuality)"
                     )
-                    #endif
-                    try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: updatedQuality)
+                    try? await downloadManager.updateDownloadStatus(download.objectID, status: .pending, quality: updatedQuality)
                     return
                 } catch {
                     // Download queue failed — fall through to direct original download.
-                    #if DEBUG
                     EnsembleLogger.debug(
                         "⚠️ Download queue failed for track=\(ctx.trackRatingKey): \(error.localizedDescription); falling back to direct original"
                     )
-                    #endif
                     effectiveQuality = .original
                 }
             }
@@ -1108,30 +1072,24 @@ public final class OfflineDownloadService: ObservableObject {
             selectedMode = requestedQuality == .original ? "direct-original" : "direct-original-fallback"
             effectiveQuality = .original
 
-            #if DEBUG
             EnsembleLogger.debug(
                 "⬇️ Offline download attempt: track=\(ctx.trackRatingKey) stage=\(selectedMode) url=\(selectedURL)"
             )
-            #endif
-            let (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: ctx.downloadObjectID, estimatedSize: sizeEstimate)
+            let (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: download.objectID, estimatedSize: sizeEstimate)
 
             if let httpResponse = response as? HTTPURLResponse {
-                #if DEBUG
                 EnsembleLogger.debug(
                     "⬇️ Offline download response: track=\(ctx.trackRatingKey) status=\(httpResponse.statusCode) quality=\(requestedQuality.rawValue) effectiveQuality=\(effectiveQuality.rawValue) mode=\(selectedMode)"
                 )
                 if let plexError = httpResponse.value(forHTTPHeaderField: "X-Plex-Error"), !plexError.isEmpty {
                     EnsembleLogger.debug("⬇️ Offline download X-Plex-Error: \(plexError)")
                 }
-                #endif
                 if !(200...299).contains(httpResponse.statusCode) {
-                    #if DEBUG
                     if let data = try? Data(contentsOf: temporaryURL), !data.isEmpty {
                         let preview = String(decoding: data.prefix(200), as: UTF8.self)
                             .replacingOccurrences(of: "\n", with: " ")
                         EnsembleLogger.debug("⬇️ Offline download error body (preview): \(preview)")
                     }
-                    #endif
                     try? FileManager.default.removeItem(at: temporaryURL)
                     throw DownloadProcessingError.invalidHTTPStatus(httpResponse.statusCode)
                 }
@@ -1161,7 +1119,6 @@ public final class OfflineDownloadService: ObservableObject {
                 throw DownloadProcessingError.emptyPayload(selectedURL.absoluteString)
             }
 
-            #if DEBUG
             // Diagnostic: log Content-Type and file magic bytes to verify transcode actually happened
             let contentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
             var magicBytesHex = "?"
@@ -1173,7 +1130,6 @@ public final class OfflineDownloadService: ObservableObject {
             EnsembleLogger.debug(
                 "✅ Offline download stored: track=\(ctx.trackRatingKey) path=\(destinationURL.lastPathComponent) size=\(persistedFileSize) mode=\(selectedMode) contentType=\(contentType) requestedQuality=\(requestedQuality.rawValue) effectiveQuality=\(effectiveQuality.rawValue) magic=\(magicBytesHex)"
             )
-            #endif
 
             // Persist completion to CoreData with recovery for cascade-deleted records.
             try await completeDownloadWithRecovery(
@@ -1219,19 +1175,15 @@ public final class OfflineDownloadService: ObservableObject {
             } else if isNetworkLossError(error) {
                 // Network dropped mid-transfer — pause so the download auto-resumes
                 // when connectivity returns, instead of marking as permanently failed
-                try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .paused, quality: nil)
-                #if DEBUG
+                try? await downloadManager.updateDownloadStatus(download.objectID, status: .paused, quality: nil)
                 EnsembleLogger.debug(
                     "⏸️ Offline download paused (network lost): track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey)"
                 )
-                #endif
             } else {
-                try? await downloadManager.failDownload(ctx.downloadObjectID, error: error.localizedDescription)
-                #if DEBUG
+                try? await downloadManager.failDownload(download.objectID, error: error.localizedDescription)
                 EnsembleLogger.debug(
                     "❌ Offline download failed: track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey) reason=\(error.localizedDescription)"
                 )
-                #endif
             }
             // Targeted refresh: only update targets that own this track
             await refreshTargetsForTrack(ratingKey: ctx.trackRatingKey, sourceCompositeKey: ctx.sourceCompositeKey)
@@ -1368,7 +1320,6 @@ public final class OfflineDownloadService: ObservableObject {
             return false
         }
 
-        #if DEBUG
         // Log magic bytes for format verification
         var magicBytesHex = "?"
         if let handle = FileHandle(forReadingAtPath: destinationURL.path),
@@ -1379,7 +1330,6 @@ public final class OfflineDownloadService: ObservableObject {
         EnsembleLogger.debug(
             "✅ Offline download stored: track=\(ctx.trackRatingKey) path=\(destinationURL.lastPathComponent) size=\(queueFileSize) mode=\(mode) contentType=\(queuePayload.mimeType ?? "unknown") magic=\(magicBytesHex)"
         )
-        #endif
 
         // Persist completion to CoreData with recovery for cascade-deleted records.
         try await completeDownloadWithRecovery(
@@ -1454,17 +1404,13 @@ public final class OfflineDownloadService: ObservableObject {
                     type: .album
                 )
 
-                #if DEBUG
                 EnsembleLogger.debug(
                     "🖼️ Cached artwork for downloaded track: track=\(ctx.trackRatingKey) artworkKey=\(candidate.ratingKey)"
                 )
-                #endif
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug(
                     "⚠️ Failed caching artwork for downloaded track \(ctx.trackRatingKey): \(error.localizedDescription)"
                 )
-                #endif
             }
         }
     }
@@ -1544,13 +1490,9 @@ public final class OfflineDownloadService: ObservableObject {
                 ratingKey: ratingKey,
                 type: type
             )
-            #if DEBUG
             EnsembleLogger.debug("🖼️ Cached \(typeString) artwork for download target: \(ratingKey)")
-            #endif
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Failed caching \(typeString) artwork for target \(ratingKey): \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -1695,9 +1637,7 @@ public final class OfflineDownloadService: ObservableObject {
                 )
             }
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed fetching offline target snapshots: \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -1719,9 +1659,7 @@ public final class OfflineDownloadService: ObservableObject {
             }
             await refreshTargetSnapshots()
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed targeted refresh for track \(ratingKey): \(error.localizedDescription)")
-            #endif
             // Fall back to full refresh on error
             await refreshAllTargetProgresses()
         }
@@ -1742,9 +1680,7 @@ public final class OfflineDownloadService: ObservableObject {
             // but-useful counts while reconciliation proceeds in the background.
             await reconcileOrphanedTargets()
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed refreshing offline target progress: \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -1785,9 +1721,7 @@ public final class OfflineDownloadService: ObservableObject {
                 activeDownloadRatingKeys = keys
             }
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed refreshing active download ratingKeys: \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -1902,9 +1836,7 @@ public final class OfflineDownloadService: ObservableObject {
             qualityMismatchByTargetKey[targetKey] = qualityMismatch
             failedTracksByTargetKey[targetKey] = failed
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed refreshing target progress for \(targetKey): \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -1961,9 +1893,7 @@ public final class OfflineDownloadService: ObservableObject {
                         await self.refreshAllTargetProgresses()
                         self.startQueueIfNeeded()
                     } catch {
-                        #if DEBUG
                         EnsembleLogger.debug("❌ Failed applying offline network policy: \(error.localizedDescription)")
-                        #endif
                     }
                 }
             }
@@ -2020,9 +1950,7 @@ public final class OfflineDownloadService: ObservableObject {
             // Start downloading any newly-queued tracks from the reconciliation
             startQueueIfNeeded()
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed reconciling source targets for \(sourceCompositeKey): \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -2041,9 +1969,7 @@ public final class OfflineDownloadService: ObservableObject {
             // Start downloading any newly-queued tracks from the reconciliation
             startQueueIfNeeded()
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed reconciling playlist targets for \(serverSourceKey): \(error.localizedDescription)")
-            #endif
         }
     }
 

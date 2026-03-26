@@ -267,70 +267,14 @@ public struct FavoritesView: View {
     }
     
     private var trackListView: some View {
+        #if os(iOS)
+        // iOS: ScrollView with embedded UITableView (MediaTrackList)
         ScrollView {
             VStack(spacing: 0) {
-                // Header with heart icon
-                VStack(spacing: 16) {
-                    Image(systemName: "heart.fill")
-                        .font(.system(size: 80))
-                        .foregroundColor(.red)
-                        .padding(.top, 20)
-
-                    VStack(spacing: 4) {
-                        Text("Favorites")
-                            .font(.title2)
-                            .fontWeight(.bold)
-
-                        Text("\(viewModel.filteredTracks.count) tracks • \(viewModel.totalDuration)")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-
-                        Text("All libraries")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 20)
-
-                // Action buttons
-                HStack(spacing: 16) {
-                    Button {
-                        nowPlayingVM.play(tracks: viewModel.filteredTracks)
-                    } label: {
-                        HStack {
-                            Image(systemName: "play.fill")
-                            Text("Play")
-                        }
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                    }
-
-                    Button {
-                        nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
-                    } label: {
-                        HStack {
-                            Image(systemName: "shuffle")
-                            Text("Shuffle")
-                        }
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color.gray.opacity(0.2))
-                        .foregroundColor(.primary)
-                        .cornerRadius(10)
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.bottom)
-                .chromelessMediaControlButton()
+                favoritesHeader
+                favoritesActionButtons
 
                 // Track list
-                #if os(iOS)
                 let trackCount = viewModel.filteredTracks.count
                 let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
 
@@ -387,57 +331,137 @@ public struct FavoritesView: View {
                 }
                 .frame(height: height)
                 .padding(.horizontal)
-                #else
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(viewModel.filteredTracks.enumerated()), id: \.element.id) { index, track in
-                        TrackRow(
-                            track: track,
-                            showArtwork: true,
-                            isPlaying: track.id == currentTrackId,
-                            onPlayNext: { nowPlayingVM.playNext(track) },
-                            onPlayLast: { nowPlayingVM.playLast(track) },
-                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
-                            onAddToRecentPlaylist: { addToRecentPlaylist(track) },
-                            onToggleFavorite: {
-                                Task {
-                                    await nowPlayingVM.toggleTrackFavorite(track)
-                                }
-                            },
-                            onGoToAlbum: {
-                                if let albumId = track.albumRatingKey {
-                                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                                }
-                            },
-                            onGoToArtist: {
-                                if let artistId = track.artistRatingKey {
-                                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                                }
-                            },
-                            onShareLink: {
-                                ShareActions.shareTrackLink(track, deps: deps)
-                            },
-                            onShareFile: {
-                                ShareActions.shareTrackFile(track, deps: deps)
-                            },
-                            isFavorited: nowPlayingVM.isTrackFavorited(track),
-                            recentPlaylistTitle: recentPlaylistTitle(for: track)
-                        ) {
-                            nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
-                        }
-                        .id(track.id)
-                        .padding(.horizontal)
-                        .padding(.vertical, 8)
-
-                        if index < viewModel.filteredTracks.count - 1 {
-                            Divider()
-                                .padding(.leading, 68)
-                        }
-                    }
-                }
-                #endif
             }
         }
         .miniPlayerBottomSpacing(140)
+        #else
+        // macOS: List with header section + track rows with native swipe actions
+        List {
+            // Header section: heart icon, stats, action buttons
+            Section {
+                favoritesHeader
+                favoritesActionButtons
+            }
+            .hideListRowSeparator()
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+
+            // Track rows with swipe actions
+            ForEach(Array(viewModel.filteredTracks.enumerated()), id: \.element.id) { index, track in
+                TrackRow(
+                    track: track,
+                    showArtwork: true,
+                    isPlaying: track.id == currentTrackId,
+                    onPlayNext: { nowPlayingVM.playNext(track) },
+                    onPlayLast: { nowPlayingVM.playLast(track) },
+                    onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                    onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                    onToggleFavorite: {
+                        Task {
+                            await nowPlayingVM.toggleTrackFavorite(track)
+                        }
+                    },
+                    onGoToAlbum: {
+                        if let albumId = track.albumRatingKey {
+                            DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                        }
+                    },
+                    onGoToArtist: {
+                        if let artistId = track.artistRatingKey {
+                            DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                        }
+                    },
+                    onShareLink: {
+                        ShareActions.shareTrackLink(track, deps: deps)
+                    },
+                    onShareFile: {
+                        ShareActions.shareTrackFile(track, deps: deps)
+                    },
+                    isFavorited: nowPlayingVM.isTrackFavorited(track),
+                    recentPlaylistTitle: recentPlaylistTitle(for: track)
+                ) {
+                    nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+                }
+                .trackSwipeActions(
+                    track: track,
+                    nowPlayingVM: nowPlayingVM,
+                    onPlayNext: { nowPlayingVM.playNext(track) },
+                    onPlayLast: { nowPlayingVM.playLast(track) },
+                    onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
+                )
+                .listRowBackground(Color.clear)
+                .hideListRowSeparator()
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            }
+        }
+        .listStyle(.plain)
+        .modifier(ClearScrollContentBackgroundModifier())
+        .miniPlayerBottomSpacing(140)
+        #endif
+    }
+
+    /// Favorites header with heart icon and track stats
+    private var favoritesHeader: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "heart.fill")
+                .font(.system(size: 80))
+                .foregroundColor(.red)
+                .padding(.top, 20)
+
+            VStack(spacing: 4) {
+                Text("Favorites")
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                Text("\(viewModel.filteredTracks.count) tracks \u{2022} \(viewModel.totalDuration)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                Text("All libraries")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 20)
+    }
+
+    /// Play and Shuffle action buttons
+    private var favoritesActionButtons: some View {
+        HStack(spacing: 16) {
+            Button {
+                nowPlayingVM.play(tracks: viewModel.filteredTracks)
+            } label: {
+                HStack {
+                    Image(systemName: "play.fill")
+                    Text("Play")
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(Color.accentColor)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+            }
+
+            Button {
+                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
+            } label: {
+                HStack {
+                    Image(systemName: "shuffle")
+                    Text("Shuffle")
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(Color.gray.opacity(0.2))
+                .foregroundColor(.primary)
+                .cornerRadius(10)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.bottom)
+        .chromelessMediaControlButton()
     }
 
     private func presentPlaylistPicker(with tracks: [Track]) {

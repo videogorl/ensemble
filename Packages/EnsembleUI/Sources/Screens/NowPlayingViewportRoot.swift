@@ -35,18 +35,27 @@ struct NowPlayingViewportRoot: View {
                 VStack(spacing: 20) {
                     header(for: geometry)
 
-                    HStack(spacing: 20) {
+                    HStack(alignment: .top, spacing: 20) {
                         ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
-                            .frame(maxWidth: 520, maxHeight: .infinity)
+                            .frame(width: panelWidth(for: geometry))
+                            .frame(maxHeight: .infinity, alignment: .topLeading)
 
                         detailPanel
-                            .frame(maxWidth: 520, maxHeight: .infinity)
+                            .frame(width: panelWidth(for: geometry))
+                            .frame(maxHeight: .infinity, alignment: .topLeading)
                     }
-                    .frame(maxWidth: 1120, maxHeight: .infinity)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, topInset(for: geometry))
                 .padding(.bottom, 24)
+            }
+        }
+        .onAppear {
+            // Viewport layout always shows ControlsCard on the left.
+            // Carousel page 1 (Controls) has no panel equivalent in this layout —
+            // normalize to Queue (0) so QueueCard's isVisible check passes.
+            if viewModel.currentPage == 1 {
+                viewModel.currentPage = 0
             }
         }
     }
@@ -100,13 +109,11 @@ struct NowPlayingViewportRoot: View {
 
             Picker("Panel", selection: panelSelection) {
                 Text("Queue").tag(0)
-                if viewModel.lyricsState.isAvailable {
-                    Text("Lyrics").tag(2)
-                }
+                Text("Lyrics").tag(2)
                 Text("Info").tag(3)
             }
             .pickerStyle(.segmented)
-            .frame(width: viewModel.lyricsState.isAvailable ? 300 : 220)
+            .frame(width: 300)
 
             Button {
                 dismissAction()
@@ -126,12 +133,8 @@ struct NowPlayingViewportRoot: View {
     private var panelSelection: Binding<Int> {
         Binding(
             get: {
-                if viewModel.currentPage == 3 {
-                    return 3
-                }
-                if viewModel.lyricsState.isAvailable && viewModel.currentPage == 2 {
-                    return 2
-                }
+                if viewModel.currentPage == 3 { return 3 }
+                if viewModel.currentPage == 2 { return 2 }
                 return 0
             },
             set: { newValue in
@@ -144,7 +147,7 @@ struct NowPlayingViewportRoot: View {
     private var detailPanel: some View {
         if viewModel.currentPage == 3 {
             InfoCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
-        } else if viewModel.lyricsState.isAvailable && viewModel.currentPage == 2 {
+        } else if viewModel.currentPage == 2 {
             LyricsCard(
                 viewModel: viewModel,
                 currentPage: $viewModel.currentPage,
@@ -153,6 +156,14 @@ struct NowPlayingViewportRoot: View {
         } else {
             QueueCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
         }
+    }
+
+    /// Equal panel width for the two-column layout (controls + detail).
+    /// Computed from geometry so both sides are always exactly the same width.
+    private func panelWidth(for geometry: GeometryProxy) -> CGFloat {
+        // 48pt = horizontal padding (24 * 2), 20pt = HStack spacing
+        let available = min(geometry.size.width - 48, 1120)
+        return max((available - 20) / 2, 0)
     }
 
     private func topInset(for geometry: GeometryProxy) -> CGFloat {

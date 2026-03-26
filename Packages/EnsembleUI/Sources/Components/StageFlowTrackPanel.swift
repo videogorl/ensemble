@@ -126,31 +126,41 @@ struct StageFlowTrackPanel: View {
                     nowPlayingVM.play(tracks: tracks, startingAt: index)
                 }
                 #else
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
-                            TrackRow(
-                                track: track,
-                                showArtwork: true,
-                                isPlaying: track.id == currentTrackId,
-                                onPlayNext: { nowPlayingVM.playNext(track) },
-                                onPlayLast: { nowPlayingVM.playLast(track) },
-                                onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
-                                onAddToRecentPlaylist: { addToRecentPlaylist(track) },
-                                onShareLink: {
-                                    ShareActions.shareTrackLink(track, deps: deps)
-                                },
-                                onShareFile: {
-                                    ShareActions.shareTrackFile(track, deps: deps)
-                                },
-                                recentPlaylistTitle: recentPlaylistTitle(for: track)
-                            ) {
-                                nowPlayingVM.play(tracks: tracks, startingAt: index)
-                            }
-                            .padding(.vertical, 6)
+                // macOS: List with native .swipeActions for trackpad two-finger swipe support
+                List {
+                    ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+                        TrackRow(
+                            track: track,
+                            showArtwork: true,
+                            isPlaying: track.id == currentTrackId,
+                            onPlayNext: { nowPlayingVM.playNext(track) },
+                            onPlayLast: { nowPlayingVM.playLast(track) },
+                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                            onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                            onShareLink: {
+                                ShareActions.shareTrackLink(track, deps: deps)
+                            },
+                            onShareFile: {
+                                ShareActions.shareTrackFile(track, deps: deps)
+                            },
+                            recentPlaylistTitle: recentPlaylistTitle(for: track)
+                        ) {
+                            nowPlayingVM.play(tracks: tracks, startingAt: index)
                         }
+                        .trackSwipeActions(
+                            track: track,
+                            nowPlayingVM: nowPlayingVM,
+                            onPlayNext: { nowPlayingVM.playNext(track) },
+                            onPlayLast: { nowPlayingVM.playLast(track) },
+                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
+                        )
+                        .listRowBackground(Color.clear)
+                        .hideListRowSeparator()
+                        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
                     }
                 }
+                .listStyle(.plain)
+                .modifier(ClearScrollContentBackgroundModifier())
                 #endif
             }
         }

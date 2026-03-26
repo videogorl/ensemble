@@ -67,7 +67,10 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
             let context = self.coreDataStack.viewContext
             context.perform {
                 let request = CDPlaylist.fetchRequest()
-                request.predicate = NSPredicate(format: "title CONTAINS[cd] %@", query)
+                request.predicate = Self.tokenizedSearchPredicate(
+                    query: query,
+                    fieldNames: ["title"]
+                )
                 request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))]
                 do {
                     let playlists = try context.fetch(request)
@@ -97,6 +100,32 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                 }
             }
         }
+    }
+
+    /// Builds a search predicate that requires all whitespace-separated tokens
+    /// to appear (in any order) across the given fields.
+    private static func tokenizedSearchPredicate(
+        query: String,
+        fieldNames: [String]
+    ) -> NSPredicate {
+        let tokens = query
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .whitespaces)
+            .filter { !$0.isEmpty }
+
+        guard !tokens.isEmpty else {
+            return NSPredicate(value: false)
+        }
+
+        let tokenPredicates = tokens.map { token in
+            NSCompoundPredicate(orPredicateWithSubpredicates:
+                fieldNames.map { field in
+                    NSPredicate(format: "%K CONTAINS[cd] %@", field, token)
+                }
+            )
+        }
+
+        return NSCompoundPredicate(andPredicateWithSubpredicates: tokenPredicates)
     }
 
     private static func scopedTitleSearchPredicate(query: String, sourceCompositeKeys: Set<String>?) -> NSPredicate {

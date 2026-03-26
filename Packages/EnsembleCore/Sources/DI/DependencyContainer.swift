@@ -55,6 +55,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let songLinkService: SongLinkService
     public let shareService: ShareService
     public let powerStateMonitor: PowerStateMonitor
+    public let persistentLogService: PersistentLogService
 
     // MARK: - Network Infrastructure
 
@@ -245,6 +246,12 @@ public final class DependencyContainer: @unchecked Sendable {
         // Power state monitor — observes Low Power Mode for battery-aware behavior
         let powerMonitorRef = MainActor.assumeIsolated { PowerStateMonitor() }
         powerStateMonitor = powerMonitorRef
+
+        // Persistent log service — real-time session file logging for TestFlight diagnostics.
+        // Wires handlers for Core, API, and Persistence loggers. UI + App wired from EnsembleApp.
+        let logServiceRef = MainActor.assumeIsolated { PersistentLogService() }
+        persistentLogService = logServiceRef
+        MainActor.assumeIsolated { logServiceRef.installHandlers() }
 
         // Pause/resume downloads when Low Power Mode is toggled
         let offlineServiceForPower = offlineServiceRef

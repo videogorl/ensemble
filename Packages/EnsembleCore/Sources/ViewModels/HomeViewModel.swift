@@ -119,9 +119,7 @@ public final class HomeViewModel: ObservableObject {
                             self.unfilteredHubs,
                             hiddenSourceCompositeKeys: self.visibilityStore.hiddenSourceCompositeKeys
                         )
-                        #if DEBUG
                         EnsembleLogger.debug("[HubOrder] Applied saved order to \(serverHubs.count) cached hubs")
-                        #endif
                     } else {
                         self.unfilteredHubs = cachedForEnabledSources
                         self.hubs = Self.filterHubsForVisibility(
@@ -134,9 +132,7 @@ public final class HomeViewModel: ObservableObject {
                     self.clearHubContentForUnavailableSources()
                 }
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug("[HomeViewModel] Failed to load cached hubs: \(error.localizedDescription)")
-                #endif
             }
         }
         
@@ -190,9 +186,7 @@ public final class HomeViewModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 15_000_000_000)
             guard let self, !self.initialLoadCompleted else { return }
             self.initialLoadCompleted = true
-            #if DEBUG
             EnsembleLogger.debug("🏠 Home initial load safety timeout — unblocking auto-refresh")
-            #endif
         }
     }
     
@@ -233,11 +227,9 @@ public final class HomeViewModel: ObservableObject {
         
         // Identify the primary source key and name for ordering
         updateCurrentSource()
-        #if DEBUG
         EnsembleLogger.debug(
             "[HubOrder] loadHubs applySavedOrder=\(applySavedOrder) sourceKey=\(currentSourceKey ?? "nil") deferUI=\(deferUIUpdatesWhileInteracting)"
         )
-        #endif
         
         // Create a new load task
         loadTask = Task { @MainActor in
@@ -378,11 +370,9 @@ public final class HomeViewModel: ObservableObject {
 
             let fetchedHubs = collectedHubs
 
-            #if DEBUG
             if !self.failedHubKeys.isEmpty {
                 EnsembleLogger.debug("🏠 Cached \(self.failedHubKeys.count) failed hub key(s) — will skip on future loads")
             }
-            #endif
 
             // Fallback to global hubs if few section hubs found
             let finalHubs: [Hub]
@@ -460,17 +450,13 @@ public final class HomeViewModel: ObservableObject {
             // Merge and group hubs
             let fetchedHubsResult = mergeAndGroupHubs(finalHubs)
 
-            #if DEBUG
             EnsembleLogger.debug("[HubOrder] Fetched hubs count=\(fetchedHubsResult.count)")
-            #endif
 
             // CRITICAL: Save default order IMMEDIATELY after fetch, before any other operations
             // This ensures reset always has a baseline to return to
             if let sourceKey = currentSourceKey {
                 let defaultHubs = hubsForServer(sourceKey: sourceKey, in: fetchedHubsResult)
-                #if DEBUG
                 EnsembleLogger.debug("[HubOrder] Saving default order for sourceKey=\(sourceKey) count=\(defaultHubs.count)")
-                #endif
                 hubOrderManager.saveDefaultOrder(defaultHubs.map { $0.id }, for: sourceKey)
             }
 
@@ -568,16 +554,12 @@ public final class HomeViewModel: ObservableObject {
         // Suppress auto-refresh until the initial .task load completes.
         // The explicit loadHubs() from HomeView.task IS the startup load.
         guard initialLoadCompleted else {
-            #if DEBUG
             EnsembleLogger.debug("🏠 Home auto-refresh suppressed (initial load in flight) reason=\(reason.rawValue)")
-            #endif
             return
         }
 
         guard !syncCoordinator.isOffline else {
-            #if DEBUG
             EnsembleLogger.debug("📴 Home auto-refresh skipped (offline) reason=\(reason.rawValue)")
-            #endif
             return
         }
 
@@ -586,9 +568,7 @@ public final class HomeViewModel: ObservableObject {
         if reason != .accountChange,
            let lastFetch = lastNetworkHubFetchTime,
            Date().timeIntervalSince(lastFetch) < networkHubFetchCooldown {
-            #if DEBUG
             EnsembleLogger.debug("🏠 Home auto-refresh skipped (fetched \(String(format: "%.1f", Date().timeIntervalSince(lastFetch)))s ago) reason=\(reason.rawValue)")
-            #endif
             return
         }
 
@@ -596,20 +576,16 @@ public final class HomeViewModel: ObservableObject {
             if !pendingAutoRefreshReasons.insert(reason).inserted {
                 coalescedAutoRefreshCount += 1
             }
-            #if DEBUG
             EnsembleLogger.debug(
                 "🏠 Home auto-refresh deferred reason=\(reason.rawValue), visible=\(isViewVisible), interacting=\(isUserInteracting), pending=\(pendingAutoRefreshReasons.count)"
             )
-            #endif
             scheduleDeferredAutoRefresh()
             return
         }
 
         // Coalesce immediate refreshes: if a load is already in progress, skip
         guard loadTask == nil else {
-            #if DEBUG
             EnsembleLogger.debug("🏠 Home auto-refresh coalesced (load in progress) reason=\(reason.rawValue)")
-            #endif
             return
         }
 
@@ -639,9 +615,7 @@ public final class HomeViewModel: ObservableObject {
             return
         }
 
-        #if DEBUG
         EnsembleLogger.debug("🏠 Home auto-refresh executing reason=\(reason.rawValue)")
-        #endif
         await loadHubs(deferUIUpdatesWhileInteracting: true)
     }
 
@@ -660,9 +634,7 @@ public final class HomeViewModel: ObservableObject {
         }
 
         if let pendingHubSnapshot {
-            #if DEBUG
             EnsembleLogger.debug("🏠 Applying deferred hub snapshot with \(pendingHubSnapshot.count) hubs")
-            #endif
             self.pendingHubSnapshot = nil
             self.hubs = pendingHubSnapshot
             // Don't overwrite editableHubs — user may be actively reordering
@@ -685,9 +657,7 @@ public final class HomeViewModel: ObservableObject {
                 guard !Task.isCancelled else { return }
                 self.flushDeferredUpdatesIfIdle()
             }
-            #if DEBUG
             EnsembleLogger.debug("🏠 Deferred hub snapshot update source=\(source) count=\(visibleSnapshot.count)")
-            #endif
             return
         }
 
@@ -1103,16 +1073,12 @@ public final class HomeViewModel: ObservableObject {
         updateCurrentSource()
         guard let sourceKey = currentSourceKey else { return }
         
-        #if DEBUG
         EnsembleLogger.debug("[HubOrder] Reset requested for sourceKey=\(sourceKey)")
-        #endif
         hubOrderManager.resetOrder(for: sourceKey)
 
         // Apply cached default order immediately
         let serverHubs = hubsForServer(sourceKey: sourceKey, in: unfilteredHubs)
-        #if DEBUG
         EnsembleLogger.debug("[HubOrder] Applying default order to \(serverHubs.count) server hubs")
-        #endif
         let orderedServerHubs = hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
         let orderedSnapshot = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: unfilteredHubs)
         applyHubSnapshot(orderedSnapshot, deferIfInteracting: false, source: "resetOrder")
@@ -1121,9 +1087,7 @@ public final class HomeViewModel: ObservableObject {
         lastLoadTime = nil
         
         // Reload hubs to get fresh data from server
-        #if DEBUG
         EnsembleLogger.debug("[HubOrder] Triggering background refresh from server")
-        #endif
         Task {
             await loadHubs(applySavedOrder: false, deferUIUpdatesWhileInteracting: false)
             if isEditingOrder {
@@ -1139,9 +1103,7 @@ public final class HomeViewModel: ObservableObject {
         guard isViewVisible else { return }
         guard hubRefreshTimer == nil else { return }
         
-        #if DEBUG
         EnsembleLogger.debug("⏰ Starting periodic hub refresh (every 10 minutes)")
-        #endif
         hubRefreshTimer = Timer.scheduledTimer(withTimeInterval: hubRefreshInterval, repeats: true) { [weak self] _ in
             // No [weak self] here — the outer Timer closure already captures self weakly
             Task { @MainActor in
@@ -1149,17 +1111,13 @@ public final class HomeViewModel: ObservableObject {
                 
                 // Don't refresh if offline
                 guard !self.syncCoordinator.isOffline else {
-                    #if DEBUG
                     EnsembleLogger.debug("📴 Offline - skipping periodic hub refresh")
-                    #endif
                     return
                 }
 
                 guard self.isViewVisible else { return }
                 
-                #if DEBUG
                 EnsembleLogger.debug("⏰ Periodic hub refresh triggered")
-                #endif
                 self.requestAutoRefresh(reason: .periodicTimer)
             }
         }
@@ -1170,8 +1128,6 @@ public final class HomeViewModel: ObservableObject {
         guard hubRefreshTimer != nil else { return }
         hubRefreshTimer?.invalidate()
         hubRefreshTimer = nil
-        #if DEBUG
         EnsembleLogger.debug("🛑 Stopped periodic hub refresh")
-        #endif
     }
 }

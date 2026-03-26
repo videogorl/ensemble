@@ -143,9 +143,7 @@ public final class AudioPlaybackEngine {
 
         isSetUp = true
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Graph built (playerNode -> mixer -> output)")
-        #endif
     }
 
     // MARK: - Graph Building
@@ -181,9 +179,7 @@ public final class AudioPlaybackEngine {
         let position = currentTime()
         let wasActive = wasPlaying
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Configuration change detected at \(String(format: "%.1f", position))s, wasPlaying=\(wasActive)")
-        #endif
 
         // Rebuild the graph with current file's format
         buildGraph(format: currentFile?.processingFormat)
@@ -240,9 +236,7 @@ public final class AudioPlaybackEngine {
                 startTimeUpdates(from: position)
             }
 
-            #if DEBUG
             EnsembleLogger.debug("[AudioEngine] Route change recovery complete")
-            #endif
         } catch {
             EnsembleLogger.error("[AudioEngine] Route change recovery failed: \(error.localizedDescription)")
             onError?(error)
@@ -324,9 +318,7 @@ public final class AudioPlaybackEngine {
         AudioUnitSetProperty(au, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0,
                              &maxFrames, UInt32(MemoryLayout<UInt32>.size))
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] AU format configured: \(format)")
-        #endif
     }
 
     /// Load the v0 neural network model into the AUSoundIsolation unit.
@@ -389,10 +381,8 @@ public final class AudioPlaybackEngine {
         }
 
         guard let plistPath = loadedPlistPath, let basePath = loadedBasePath else {
-            #if DEBUG
             let checkedPaths = modelSearchPaths.map { $0.plist }
             EnsembleLogger.debug("[AudioEngine] No v0 model found — AU will use default (poor quality). Checked: \(checkedPaths)")
-            #endif
             return
         }
 
@@ -408,9 +398,7 @@ public final class AudioPlaybackEngine {
 
         musicModelLoaded = true
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] v0 model loaded from: \(plistPath), base: \(basePath)")
-        #endif
     }
 
     /// Set a CFString property on an AudioUnit, avoiding the UnsafeRawPointer warning.
@@ -441,9 +429,7 @@ public final class AudioPlaybackEngine {
         isIsolationActive = enabled
         applyIsolationParameters()
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Isolation \(enabled ? "enabled" : "disabled")")
-        #endif
     }
 
     /// Wire the isolation effect into the audio graph for the first time.
@@ -570,16 +556,13 @@ public final class AudioPlaybackEngine {
         }
         AudioUnitSetParameter(au, 0, kAudioUnitScope_Global, 0, wetDryValue, 0)
 
-        #if DEBUG
         var wetDry: AudioUnitParameterValue = -999
         var isolate: AudioUnitParameterValue = -999
         AudioUnitGetParameter(au, 0, kAudioUnitScope_Global, 0, &wetDry)
         AudioUnitGetParameter(au, 1, kAudioUnitScope_Global, 0, &isolate)
         EnsembleLogger.debug("[AudioEngine] Isolation params: wetDry=\(wetDry), soundToIsolate=\(isolate), active=\(isIsolationActive), bypass=\(bypass), modelLoaded=\(musicModelLoaded)")
-        #endif
     }
 
-    #if DEBUG
     /// Dump all parameters exposed by the AU via both the C API and the AUParameterTree.
     private func dumpAUParameters(au: AudioUnit, label: String) {
         EnsembleLogger.debug("[AudioEngine] === Parameter dump (\(label)) ===")
@@ -604,7 +587,6 @@ public final class AudioPlaybackEngine {
         }
         EnsembleLogger.debug("[AudioEngine] === End parameter dump ===")
     }
-    #endif
 
     // MARK: - File Loading
 
@@ -646,9 +628,7 @@ public final class AudioPlaybackEngine {
             }
         }
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Loaded: \(fileURL.lastPathComponent), rate=\(sampleRate), frames=\(file.length), duration=\(String(format: "%.1f", fileDuration))s, trackId=\(trackId)")
-        #endif
     }
 
     // MARK: - Gapless Scheduling
@@ -656,6 +636,11 @@ public final class AudioPlaybackEngine {
     /// Whether a track is already in the gapless schedule queue.
     func isTrackScheduled(_ trackId: String) -> Bool {
         scheduledFiles.contains { $0.trackId == trackId }
+    }
+
+    /// IDs of all tracks currently in the gapless schedule queue.
+    var scheduledTrackIds: Set<String> {
+        Set(scheduledFiles.map(\.trackId))
     }
 
     /// Schedule the next file for gapless playback. Uses AVAudioPlayerNode's FIFO queue --
@@ -685,21 +670,77 @@ public final class AudioPlaybackEngine {
 
         scheduledFiles.append((file: file, trackId: trackId, generation: myGeneration))
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Scheduled next: \(fileURL.lastPathComponent), trackId=\(trackId), queueDepth=\(scheduledFiles.count)")
-        #endif
     }
 
     /// Remove all pending gapless files from the schedule.
     /// Called when the queue changes (skip, shuffle, etc.) to prevent stale transitions.
+    ///
+    /// This flushes the playerNode's actual FIFO queue (via stop + re-schedule) so
+    /// that orphaned audio segments don't play after our tracking array is cleared.
+    /// Without the flush, a desync between the FIFO and `scheduledFiles` causes the
+    /// primary segment's completion handler to be silently ignored (stale generation),
+    /// leaving the UI one track behind the audio.
     func clearScheduledFiles() {
-        // Bump generation so pending completion handlers are ignored
-        scheduleGeneration &+= 1
+        let hadScheduledFiles = !scheduledFiles.isEmpty
         scheduledFiles.removeAll()
 
-        #if DEBUG
-        EnsembleLogger.debug("[AudioEngine] Cleared scheduled files")
-        #endif
+        // If nothing was scheduled, just bump generation and return — no FIFO to flush
+        guard hadScheduledFiles, let file = currentFile else {
+            scheduleGeneration &+= 1
+            EnsembleLogger.debug("[AudioEngine] Cleared scheduled files (nothing queued)")
+            return
+        }
+
+        // Capture position before stopping so we can re-anchor seamlessly
+        let position = currentTime()
+        let wasActive = wasPlaying || playerNode.isPlaying
+
+        // Bump generation AFTER capturing position — this invalidates all pending
+        // completion handlers (both primary segment and gapless entries)
+        scheduleGeneration &+= 1
+        let myGeneration = scheduleGeneration
+
+        // Flush the playerNode's entire FIFO (removes orphaned audio segments)
+        playerNode.stop()
+        playerTimeBaseOffset = 0
+
+        // Re-schedule only the current track from the current position
+        let startFrame = AVAudioFramePosition(position * sampleRate)
+        let totalFrames = file.length
+        guard startFrame < totalFrames else {
+            // Current track already at/past end — let natural completion handle it
+            EnsembleLogger.debug("[AudioEngine] Cleared scheduled files (track at end)")
+            onPlaybackComplete?()
+            return
+        }
+
+        seekFrameOffset = startFrame
+        let frameCount = AVAudioFrameCount(totalFrames - startFrame)
+
+        playerNode.scheduleSegment(
+            file,
+            startingFrame: startFrame,
+            frameCount: frameCount,
+            at: nil
+        ) { [weak self] in
+            DispatchQueue.main.async {
+                self?.handleSegmentComplete(generation: myGeneration)
+            }
+        }
+
+        // Resume playback if it was active — the gap is imperceptible (microseconds)
+        if wasActive {
+            if !engine.isRunning {
+                try? engine.start()
+                applyIsolationParameters()
+            }
+            playerNode.play()
+            wasPlaying = true
+            startTimeUpdates(from: position)
+        }
+
+        EnsembleLogger.debug("[AudioEngine] Cleared scheduled files (flushed FIFO, re-anchored at \(String(format: "%.1f", position))s)")
     }
 
     // MARK: - Playback Control
@@ -748,9 +789,7 @@ public final class AudioPlaybackEngine {
         wasPlaying = true
         startTimeUpdates(from: time)
 
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Playing from \(String(format: "%.1f", time))s (frame \(startFrame)/\(totalFrames))")
-        #endif
     }
 
     /// Pause playback and stop the engine.
@@ -769,9 +808,7 @@ public final class AudioPlaybackEngine {
         if engine.isRunning {
             engine.stop()
         }
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Paused (engine stopped)")
-        #endif
     }
 
     /// Resume playback after pause.
@@ -787,9 +824,7 @@ public final class AudioPlaybackEngine {
         playerNode.play()
         wasPlaying = true
         startTimeUpdates()
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Resumed")
-        #endif
     }
 
     /// Stop playback, reset position, and stop the engine.
@@ -805,9 +840,7 @@ public final class AudioPlaybackEngine {
         playerTimeBaseOffset = 0
         scheduledFiles.removeAll()
         currentTimeSubject.send(0)
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Stopped")
-        #endif
     }
 
     /// Seek to a new position within the current file.
@@ -871,9 +904,7 @@ public final class AudioPlaybackEngine {
 
         // Update time immediately for responsive UI
         currentTimeSubject.send(time)
-        #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Seeked to \(String(format: "%.1f", time))s")
-        #endif
     }
 
     // MARK: - Time Tracking
@@ -937,12 +968,13 @@ public final class AudioPlaybackEngine {
     /// If no files remain, fire onPlaybackComplete.
     private func handleSegmentComplete(generation: UInt64) {
         guard generation == scheduleGeneration else {
-            #if DEBUG
-            EnsembleLogger.debug("[AudioEngine] Ignoring stale completion (gen \(generation) vs current \(scheduleGeneration))")
-            #endif
+            EnsembleLogger.debug("[AudioEngine] Ignoring stale segment completion (gen \(generation) vs current \(scheduleGeneration))")
             return
         }
-        guard wasPlaying else { return }
+        guard wasPlaying else {
+            EnsembleLogger.debug("[AudioEngine] Segment complete ignored — wasPlaying=false")
+            return
+        }
 
         if let next = scheduledFiles.first {
             // Gapless advance: capture the current playerTime as the new base.
@@ -963,18 +995,14 @@ public final class AudioPlaybackEngine {
             // Re-anchor wall-clock estimation for the new track (position ≈ 0)
             captureWallTimeBase(position: 0)
 
-            #if DEBUG
             EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
-            #endif
 
             onTrackAdvance?(next.trackId)
         } else {
             // Queue exhausted
             wasPlaying = false
             stopTimeUpdates()
-            #if DEBUG
             EnsembleLogger.debug("[AudioEngine] All segments complete -- queue exhausted")
-            #endif
             onPlaybackComplete?()
         }
     }
@@ -984,8 +1012,14 @@ public final class AudioPlaybackEngine {
     /// to by handleSegmentComplete). Used for chaining further gapless transitions.
     private func handleScheduledFileComplete(trackId: String, generation: UInt64) {
         // Stale check -- if generation doesn't match, this was from a cleared schedule
-        guard generation == scheduleGeneration else { return }
-        guard wasPlaying else { return }
+        guard generation == scheduleGeneration else {
+            EnsembleLogger.debug("[AudioEngine] Ignoring stale gapless completion for trackId=\(trackId) (gen \(generation) vs current \(scheduleGeneration))")
+            return
+        }
+        guard wasPlaying else {
+            EnsembleLogger.debug("[AudioEngine] Gapless completion ignored — wasPlaying=false, trackId=\(trackId)")
+            return
+        }
 
         if let next = scheduledFiles.first {
             // Capture playerTime base for the next segment
@@ -1004,18 +1038,14 @@ public final class AudioPlaybackEngine {
             // Re-anchor wall-clock estimation for the new track (position ≈ 0)
             captureWallTimeBase(position: 0)
 
-            #if DEBUG
             EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
-            #endif
 
             onTrackAdvance?(next.trackId)
         } else {
             // No more files
             wasPlaying = false
             stopTimeUpdates()
-            #if DEBUG
             EnsembleLogger.debug("[AudioEngine] All segments complete -- queue exhausted")
-            #endif
             onPlaybackComplete?()
         }
     }

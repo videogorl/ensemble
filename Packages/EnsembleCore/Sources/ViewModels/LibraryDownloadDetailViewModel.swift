@@ -171,9 +171,7 @@ public final class LibraryDownloadDetailViewModel: ObservableObject {
                 return $0.trackNumber < $1.trackNumber
             }
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ LibraryDownloadDetailVM: Failed to load tracks: \(error)")
-            #endif
         }
     }
 

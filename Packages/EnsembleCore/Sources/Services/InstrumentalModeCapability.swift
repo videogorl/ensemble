@@ -15,9 +15,7 @@ public enum InstrumentalModeCapability {
             componentFlagsMask: 0
         )
         let found = AudioComponentFindNext(nil, &desc) != nil
-        #if DEBUG
         EnsembleLogger.debug("[InstrumentalMode] AUSoundIsolation probe: \(found ? "available" : "not found")")
-        #endif
         return found
     }()
 }

@@ -20,24 +20,18 @@ public final class BackgroundSyncScheduler {
     @MainActor
     public func scheduleAppRefresh() {
         #if targetEnvironment(simulator)
-        #if DEBUG
         EnsembleLogger.debug("ℹ️ Background refresh scheduling skipped on simulator")
-        #endif
         return
         #endif
 
         guard #available(iOS 16.0, *) else {
-            #if DEBUG
             EnsembleLogger.debug("ℹ️ Background refresh scheduling skipped on iOS 15")
-            #endif
             return
         }
 
         #if canImport(UIKit)
         guard UIApplication.shared.backgroundRefreshStatus == .available else {
-            #if DEBUG
             EnsembleLogger.debug("ℹ️ Background refresh unavailable; skipping schedule")
-            #endif
             return
         }
         #endif
@@ -49,22 +43,16 @@ public final class BackgroundSyncScheduler {
         
         do {
             try BGTaskScheduler.shared.submit(request)
-            #if DEBUG
             EnsembleLogger.debug("📅 Background refresh scheduled (earliest: \(request.earliestBeginDate?.description ?? "now"))")
-            #endif
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed to schedule background refresh: \(error.localizedDescription)")
-            #endif
         }
     }
     
     /// Cancel any pending background refresh
     public func cancelAppRefresh() {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: taskIdentifier)
-        #if DEBUG
         EnsembleLogger.debug("🚫 Background refresh cancelled")
-        #endif
     }
 }
 #endif

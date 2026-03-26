@@ -75,9 +75,7 @@ public actor PlexAuthService {
             let newId = UUID().uuidString
             // try? is unavoidable in init (can't throw); log if it fails so we notice in debug builds
             if (try? keychain.save(newId, forKey: KeychainKey.plexClientIdentifier)) == nil {
-                #if DEBUG
-                EnsembleLogger.debug("⚠️ [PlexAuthService] Failed to persist client identifier to keychain")
-                #endif
+                EnsembleLogger.debug("[PlexAuthService] Failed to persist client identifier to keychain")
             }
             self.clientIdentifier = newId
         }

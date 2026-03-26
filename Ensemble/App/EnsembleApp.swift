@@ -11,13 +11,25 @@ import AppKit
 import BackgroundTasks
 #endif
 
+/// App-target logger. Uses @autoclosure so message strings are not constructed
+/// unless needed — zero cost when file logging is disabled in release.
 enum AppLogger {
     private static let logger = Logger(subsystem: "com.videogorl.ensemble", category: "app")
 
-    static func debug(_ items: Any..., separator: String = " ", terminator: String = "\n") {
-        let message = items.map { String(describing: $0) }.joined(separator: separator)
-        let suffix = terminator == "\n" ? "" : terminator
-        logger.debug("\(message + suffix, privacy: .public)")
+    /// Closure wired by PersistentLogService to receive log entries for file writing.
+    static var fileLogHandler: ((String, String, String) -> Void)?
+
+    private static let category = "app"
+
+    static func debug(_ message: @autoclosure () -> String) {
+        #if DEBUG
+        let msg = message()
+        logger.debug("\(msg, privacy: .public)")
+        fileLogHandler?("DEBUG", category, msg)
+        #else
+        guard let handler = fileLogHandler else { return }
+        handler("DEBUG", category, message())
+        #endif
     }
 }
 
@@ -29,6 +41,7 @@ struct EnsembleApp: App {
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var hasPerformedStartupSync = false
+    @State private var hasStartedLogSession = false
     #if os(macOS)
     @State private var hasStartedPlaybackRestore = false
     @State private var hasCompletedPlaybackRestore = false
@@ -81,16 +94,24 @@ struct EnsembleApp: App {
         .onChange(of: scenePhase) { newPhase in
             handleScenePhaseChange(newPhase)
         }
-        #if os(macOS)
         .commands {
+            // Settings shortcut (⌘,) — macOS app menu + iPadOS keyboard shortcut overlay
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings...") {
+                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+
+            #if os(macOS)
             CommandMenu("Playback") {
                 Button("Play/Pause") {
                     MacPlaybackShortcut.togglePlaybackIfAllowed()
                 }
                 .keyboardShortcut(.space, modifiers: [])
             }
+            #endif
         }
-        #endif
         #if os(macOS)
         if #available(macOS 13.0, *) {
             Window("Settings", id: NavigationCoordinator.AuxiliaryPresentation.settings.windowID) {
@@ -112,6 +133,16 @@ struct EnsembleApp: App {
         Task { @MainActor in
             switch phase {
             case .active:
+                // Start persistent log session on first activation.
+                // Wire UI + App loggers here (Core/API/Persistence wired in DependencyContainer).
+                if !hasStartedLogSession {
+                    hasStartedLogSession = true
+                    let handler = DependencyContainer.shared.persistentLogService.logHandler
+                    EnsembleUI.EnsembleLogger.fileLogHandler = handler
+                    AppLogger.fileLogHandler = handler
+                    DependencyContainer.shared.persistentLogService.startSession()
+                }
+
                 // Schedule background refresh on first activation (iOS 16+)
                 if #available(iOS 16.0, *) {
                     if !hasScheduledBackgroundRefresh {
@@ -139,6 +170,10 @@ struct EnsembleApp: App {
                 await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
 
             case .background:
+                // Flush log session to disk but keep the file handle open so
+                // logs continue capturing during background audio playback.
+                DependencyContainer.shared.persistentLogService.flushSession()
+
                 // Stop network monitoring and WebSocket connections to save battery.
                 // Without this, WebSocket reconnect loops burn ~30% network while idle.
                 DependencyContainer.shared.networkMonitor.stopMonitoring()
@@ -157,6 +192,15 @@ struct EnsembleApp: App {
         Task { @MainActor in
             switch phase {
             case .active:
+                // Start persistent log session on first activation (macOS)
+                if !hasStartedLogSession {
+                    hasStartedLogSession = true
+                    let handler = DependencyContainer.shared.persistentLogService.logHandler
+                    EnsembleUI.EnsembleLogger.fileLogHandler = handler
+                    AppLogger.fileLogHandler = handler
+                    DependencyContainer.shared.persistentLogService.startSession()
+                }
+
                 // Start monitoring when app becomes active (macOS)
                 DependencyContainer.shared.networkMonitor.startMonitoring()
                 await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
@@ -227,6 +271,10 @@ struct EnsembleApp: App {
                     }
                 }
             case .background:
+                // Flush log session to disk but keep the file handle open so
+                // logs continue capturing during background activity.
+                DependencyContainer.shared.persistentLogService.flushSession()
+
                 // Stop monitoring when app goes to background (macOS)
                 DependencyContainer.shared.networkMonitor.stopMonitoring()
 
