@@ -20,6 +20,13 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Resolved Issues
 
+### Download Quality Fallback Re-Download Loop (Mar 26, 2026)
+- **Location:** `DownloadManager.swift` (`createDownload`)
+- **Issue:** When download-queue transcode failed (TLS error, cancelled), the system fell back to `direct-original-fallback` which stored the file at `original` quality. On the next session, reconciliation called `createDownload(quality: "medium")` which saw `"original" != "medium"` and reset the download to `.pending`, triggering an infinite re-download loop every session.
+- **Root cause:** `createDownload` used strict quality equality (`!=`) instead of quality ordering. `original` is HIGHER than `medium` and should satisfy the request.
+- **Fix:** Added `qualitySatisfies(existing:desired:)` with ranking `original > high > medium > low`. `createDownload` now only resets to `.pending` when existing quality is LOWER than desired.
+- **Key files:** `DownloadManager.swift`
+
 ### Playback Stutter During Bulk Downloads (Mar 26, 2026)
 - **Location:** `PlaybackService.swift` (`refreshQueueDownloadState`)
 - **Issue:** Every download completion posted `downloadsDidChange` → `refreshQueueDownloadState()` detected localFilePath changes → called `audioEngine.clearScheduledFiles()` unconditionally → `playerNode.stop()` flushed the entire FIFO including currently-playing audio buffer → audible stutter every 3-8 seconds during bulk downloads.
