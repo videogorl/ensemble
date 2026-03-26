@@ -1,10 +1,24 @@
 ---
 name: recent-changes
-description: "Changelog of recent major features and subsystem changes. Load when debugging, investigating prior work, understanding how a feature was implemented, or before touching an area that was recently modified. Covers: feature availability per account/server/library, cold launch optimization, low power mode, app performance optimization, live lyrics, sharing, startup/sync performance, playback/scroll performance, frequency visualizer, WebSocket enhancements, network resilience, offline downloads, universal transcode, Siri intents, account management, sync system, playlist mutations, gesture actions, network health, Plex connectivity, adaptive playback."
+description: "Changelog of recent major features and subsystem changes. Load when debugging, investigating prior work, understanding how a feature was implemented, or before touching an area that was recently modified. Covers: persistent session logging, feature availability per account/server/library, cold launch optimization, low power mode, app performance optimization, live lyrics, sharing, startup/sync performance, playback/scroll performance, frequency visualizer, WebSocket enhancements, network resilience, offline downloads, universal transcode, Siri intents, account management, sync system, playlist mutations, gesture actions, network health, Plex connectivity, adaptive playback."
 user-invocable: true
 ---
 
 # Recent Major Changes
+
+### Persistent On-Device Session Logging (Mar 26, 2026)
+
+Added real-time persistent logging for TestFlight diagnostics. Beta testers can view, share, and manage session logs from Settings > Developer > Logs without needing Console.app or a Mac connection.
+
+The Logger API was refactored from variadic `Any...` to `@autoclosure () -> String` with a `fileLogHandler` closure across all 5 packages. ~790 `#if DEBUG` wrappers were removed from call sites — debug logs are now available in release builds via file logging. `PersistentLogService` uses `LogFileWriter` (serial `DispatchQueue` + `FileHandle`) for thread-safe, force-quit-resilient writes. Session rotation keeps the last 5 files, with periodic `synchronizeFile()` every 50 writes. `LogsSettingsView` provides a toggle, session list, and swipe-to-delete; `LogDetailView` shows monospaced text with share. Lifecycle is wired in `EnsembleApp`: `startSession` on `.active`, `endSession` on `.background`.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/Services/PersistentLogService.swift` -- New service: file writer, session rotation, flush logic
+- `Packages/EnsembleUI/Sources/Screens/LogsSettingsView.swift` -- New view: log toggle, session list, swipe-to-delete
+- `Packages/EnsembleUI/Sources/Screens/LogDetailView.swift` -- New view: monospaced log text + share
+- All 5 `EnsembleLogger.swift` files -- Refactored to `@autoclosure () -> String` with `fileLogHandler`
+- `Packages/EnsembleCore/Sources/DI/DependencyContainer.swift` -- Added `persistentLogService` registration
+- `Ensemble/App/EnsembleApp.swift` -- Lifecycle wiring + AppLogger refactor
 
 ### Large-Screen Mini Player Hit-Testing Simplification (Mar 25, 2026)
 

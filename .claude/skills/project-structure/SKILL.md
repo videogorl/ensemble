@@ -158,6 +158,7 @@ Sources/
 |   +-- SongLinkService.swift          # Universal song.link URL resolution via MusicKit + song.link API
 |   +-- ShareService.swift             # Share payload coordinator (link/file/text) with temp download support
 |   +-- LyricsService.swift            # LRC parser, lyrics models (LyricsLine/ParsedLyrics/LyricsState), LyricsService fetch pipeline + offline sidecar
+|   +-- PersistentLogService.swift     # Persistent session logging with real-time file writes for TestFlight diagnostics
 +-- EnsembleLogger.swift               # Package logger categories
 +-- ViewModels/
 |   +-- AddPlexAccountViewModel.swift
@@ -275,6 +276,8 @@ Sources/
 |   +-- SettingsView.swift            # App settings with customizable tabs & accent colors
 |   +-- TrackSwipeActionsSettingsView.swift # Settings UI for configuring track swipe action slots
 |   +-- SongsView.swift               # All songs list
+|   +-- LogsSettingsView.swift        # Log session management (toggle, session list, delete)
+|   +-- LogDetailView.swift           # Full-text log viewer with share
 |   +-- MusicSourceAccountDetailView.swift # Source account detail (library toggles + sync status/actions)
 +-- EnsembleLogger.swift              # Package logger categories
 +-- EnsembleUI.swift                  # Public exports
