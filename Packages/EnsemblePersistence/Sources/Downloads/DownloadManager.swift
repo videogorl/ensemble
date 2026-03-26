@@ -167,11 +167,9 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                     if context.hasChanges {
                         try context.save()
-                        #if DEBUG
                         EnsembleLogger.debug(
                             "🧰 DownloadManager healed download metadata (path=\(healedPathCount), size=\(healedSizeCount), missing=\(missingFileCount), invalid=\(invalidFileCount), recoveredFailed=\(recoveredFailedCount))"
                         )
-                        #endif
                     }
 
                     continuation.resume(returning: downloads)
@@ -358,6 +356,9 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                             // Keep the old file and localFilePath intact so the track remains
                             // playable at old quality while the new download proceeds.
                             // completeDownload() will update paths and clean up the old file.
+                            EnsembleLogger.debug(
+                                "📥 createDownload: quality mismatch for track=\(trackRatingKey) existing=\(existing.quality ?? "nil") desired=\(normalizedQuality) status=\(existing.status ?? "nil") filePath=\(existing.filePath ?? "nil") — resetting to pending"
+                            )
                             existing.quality = normalizedQuality
                             existing.progress = 0
                             existing.error = nil
@@ -379,6 +380,10 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         return
                     }
 
+                    // No CDDownload exists for this track — create a new pending record
+                    EnsembleLogger.debug(
+                        "📥 createDownload: no existing record for track=\(trackRatingKey) source=\(sourceCompositeKey ?? "nil") — creating new pending download"
+                    )
                     let download = CDDownload(context: context)
                     download.status = CDDownload.Status.pending.rawValue
                     download.progress = 0
