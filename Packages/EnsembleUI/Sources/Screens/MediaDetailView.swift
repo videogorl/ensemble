@@ -544,7 +544,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         genreChipContent
                     }
                 }
-                .listRowSeparator(.hidden)
+                .hideListRowSeparator()
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
 
@@ -554,7 +554,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                             .padding(.top, 40)
                             .frame(maxWidth: .infinity)
                     }
-                    .listRowSeparator(.hidden)
+                    .hideListRowSeparator()
                     .listRowBackground(Color.clear)
                 } else if viewModel.filteredTracks.isEmpty {
                     Section {
@@ -563,7 +563,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                             .padding(.top, 40)
                             .frame(maxWidth: .infinity)
                     }
-                    .listRowSeparator(.hidden)
+                    .hideListRowSeparator()
                     .listRowBackground(Color.clear)
                 } else {
                     tracksSection
@@ -1019,7 +1019,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 onAddToPlaylist: { presentPlaylistPicker(with: [track], title: "Add to Playlist") }
             )
             .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
+            .hideListRowSeparator()
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         }
         #endif

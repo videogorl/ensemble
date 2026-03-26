@@ -369,7 +369,7 @@ public struct SongsView: View {
                                     excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
                                 )
                             }
-                            .listRowSeparator(.hidden)
+                            .hideListRowSeparator()
                             .listRowInsets(EdgeInsets())
                             .listRowBackground(Color.clear)
 
@@ -414,7 +414,7 @@ public struct SongsView: View {
                                             onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
                                         )
                                         .listRowBackground(Color.clear)
-                                        .listRowSeparator(.hidden)
+                                        .hideListRowSeparator()
                                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                     }
                                 }
@@ -580,7 +580,7 @@ public struct SongsView: View {
                     onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
                 )
                 .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
+                .hideListRowSeparator()
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             }
             #endif
@@ -685,7 +685,7 @@ public struct SongsView: View {
                     onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
                 )
                 .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
+                .hideListRowSeparator()
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             }
         }

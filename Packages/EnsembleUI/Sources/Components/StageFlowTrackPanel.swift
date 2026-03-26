@@ -155,7 +155,7 @@ struct StageFlowTrackPanel: View {
                             onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
                         )
                         .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
+                        .hideListRowSeparator()
                         .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
                     }
                 }

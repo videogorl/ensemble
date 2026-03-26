@@ -100,6 +100,20 @@ public extension View {
         #endif
     }
 
+    /// Hides the list row separator, with a macOS 13+ availability guard.
+    @ViewBuilder
+    func hideListRowSeparator() -> some View {
+        #if os(macOS)
+        if #available(macOS 13.0, *) {
+            self.listRowSeparator(.hidden)
+        } else {
+            self
+        }
+        #else
+        self.listRowSeparator(.hidden)
+        #endif
+    }
+
     /// Adds bottom spacing for the mini player/tab bar area on iPhone/iPad layouts
     /// that reserve content space for the player. macOS uses a floating overlay in
     /// the detail column, so content should scroll behind it instead of reserving a gutter.

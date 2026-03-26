@@ -342,7 +342,7 @@ public struct FavoritesView: View {
                 favoritesHeader
                 favoritesActionButtons
             }
-            .listRowSeparator(.hidden)
+            .hideListRowSeparator()
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
 
@@ -390,7 +390,7 @@ public struct FavoritesView: View {
                     onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
                 )
                 .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
+                .hideListRowSeparator()
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             }
         }
