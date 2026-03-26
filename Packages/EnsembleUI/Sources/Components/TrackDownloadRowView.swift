@@ -9,11 +9,11 @@ struct TrackDownloadRowView: View {
     let currentQuality: String
     let onRetry: () -> Void
 
-    /// Whether this completed download's quality doesn't match the current setting
+    /// Whether this completed download's quality is LOWER than the current setting.
+    /// Files at higher quality (e.g. original when setting is medium) are not mismatched.
     private var isQualityMismatched: Bool {
-        row.status == .completed
-            && row.downloadedQuality != nil
-            && row.downloadedQuality != currentQuality
+        guard row.status == .completed, let quality = row.downloadedQuality else { return false }
+        return !DownloadManager.qualitySatisfies(existing: quality, desired: currentQuality)
     }
 
     var body: some View {
@@ -96,6 +96,21 @@ struct TrackDownloadRowView: View {
         .clipShape(Capsule())
     }
 
+    /// Short abbreviation for the stored quality (shown next to file size when it
+    /// differs from the user's current setting, for transparency).
+    private var qualitySuffix: String? {
+        guard row.status == .completed,
+              let quality = row.downloadedQuality,
+              quality != currentQuality else { return nil }
+        switch quality {
+        case "original": return "ORIG"
+        case "high": return "HI"
+        case "medium": return "MED"
+        case "low": return "LO"
+        default: return nil
+        }
+    }
+
     private var chipLabel: String {
         switch row.status {
         case .pending: return "Queued"
@@ -106,7 +121,12 @@ struct TrackDownloadRowView: View {
                 let formatter = ByteCountFormatter()
                 formatter.allowedUnits = [.useMB, .useGB]
                 formatter.countStyle = .file
-                return formatter.string(fromByteCount: row.fileSize)
+                let size = formatter.string(fromByteCount: row.fileSize)
+                // Show stored quality when it differs from the current setting
+                if let suffix = qualitySuffix {
+                    return "\(size) · \(suffix)"
+                }
+                return size
             }
             return "Done"
         case .failed: return "Failed"

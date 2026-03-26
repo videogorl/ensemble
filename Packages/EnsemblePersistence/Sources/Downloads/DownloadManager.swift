@@ -740,7 +740,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
     /// Quality ranking: original > high > medium > low.
     /// Used to prevent re-downloading when a fallback stored original quality
     /// but the user's setting is medium/high — the file already exceeds the request.
-    private static func qualitySatisfies(existing: String, desired: String) -> Bool {
+    public static func qualitySatisfies(existing: String, desired: String) -> Bool {
         let ranking = ["low": 0, "medium": 1, "high": 2, "original": 3]
         let existingRank = ranking[existing] ?? 3
         let desiredRank = ranking[desired] ?? 3

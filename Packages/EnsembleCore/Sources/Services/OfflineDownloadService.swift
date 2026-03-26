@@ -1802,7 +1802,11 @@ public final class OfflineDownloadService: ObservableObject {
                 case .completed:
                     completed += 1
                     downloadedBytes += max(download.fileSize, 0)
-                    if let quality = download.quality, quality != desiredQuality {
+                    // Only count as mismatch when existing quality is LOWER than desired.
+                    // A fallback to "original" when the user wants "medium" is fine — the
+                    // file exceeds the request and shouldn't show the refresh indicator.
+                    if let quality = download.quality,
+                       !DownloadManager.qualitySatisfies(existing: quality, desired: desiredQuality) {
                         qualityMismatch += 1
                     }
                 case .downloading:
