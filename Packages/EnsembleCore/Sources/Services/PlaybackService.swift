@@ -3571,16 +3571,33 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             throw mapToPlaybackError(error)
         }
 
-        // 6. Handle resolution
+        // 6. Handle resolution — download with stale-endpoint retry.
+        // If the download fails due to a network/endpoint error, refresh the connection
+        // and re-assemble the URL from the cached decision (which gets the fresh endpoint).
+        // This avoids redoing the /decision network call on transient endpoint failures.
+        do {
+            return try await handleStreamResolution(resolution, for: track, quality: quality)
+        } catch {
+            guard shouldRetryStreamURLRequest(after: error) else {
+                throw mapToPlaybackError(error)
+            }
+            #if DEBUG
+            EnsembleLogger.debug("[resolveAudio] Download failed (\(error)), retrying with fresh endpoint")
+            #endif
+            try await syncCoordinator.refreshConnection()
+            let freshResolution = try await syncCoordinator.assembleStreamResolution(for: track, from: decision)
+            return try await handleStreamResolution(freshResolution, for: track, quality: quality)
+        }
+    }
+
+    /// Route a StreamResolution to the appropriate download/return path.
+    private func handleStreamResolution(_ resolution: StreamResolution, for track: Track, quality: StreamingQuality) async throws -> URL {
         switch resolution {
         case .downloadedFile(let url):
             return url
-
         case .directStream(let url):
             if url.isFileURL { return url }
-            // For remote direct streams, download to temp file
             return try await downloadStreamToTempFile(url: url, trackId: track.id)
-
         case .progressiveTranscode(let config):
             return try await startProgressiveDownload(for: track, config: config, quality: quality)
         }
