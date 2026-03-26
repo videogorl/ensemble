@@ -20,6 +20,12 @@ The Logger API was refactored from variadic `Any...` to `@autoclosure () -> Stri
 - `Packages/EnsembleCore/Sources/DI/DependencyContainer.swift` -- Added `persistentLogService` registration
 - `Ensemble/App/EnsembleApp.swift` -- Lifecycle wiring + AppLogger refactor
 
+### Native Trackpad Swipe Actions for macOS Track Rows (Mar 26, 2026)
+
+Converted macOS track list views from `ScrollView`+`VStack`+`ForEach` to `List`+`ForEach` with native `.swipeActions`, enabling two-finger trackpad swipe to reveal action buttons. The existing `TrackSwipeContainer` uses `DragGesture` which only fires for click-and-drag, not trackpad scroll events. SwiftUI's native `.swipeActions` on `List` rows handles trackpad swipes correctly (proven by PlaylistsView). A new `.trackSwipeActions()` View modifier reads the user's configured swipe layout from `SettingsManager` and applies it via native `.swipeActions` on both edges. Converted views: SongsView (unsorted + indexed modes), StageFlowTrackPanel, MediaDetailView, FavoritesView. iOS paths unchanged. ArtistsView deferred (nested scroll complication).
+
+**Key files:** `StandardSwipeActions.swift` (new modifier + shared `ClearScrollContentBackgroundModifier`), `SongsView.swift`, `StageFlowTrackPanel.swift`, `MediaDetailView.swift`, `FavoritesView.swift`, `QueueCard.swift` (removed now-shared modifier)
+
 ### Large-Screen Mini Player Hit-Testing Simplification (Mar 25, 2026)
 
 The large-screen mini player no longer uses a split-view-root geometry host on macOS. `SidebarView` now mounts the floating mini player directly on the detail-column container, while `miniPlayerBottomSpacing` is a no-op on macOS so detail content scrolls behind the player instead of reserving a dead gutter. This removes the oversized hit-blocking band that could sit above the floating pill and keeps the mini player centered relative to the detail pane without reintroducing detail-route disappearance.

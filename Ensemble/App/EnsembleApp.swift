@@ -94,16 +94,24 @@ struct EnsembleApp: App {
         .onChange(of: scenePhase) { newPhase in
             handleScenePhaseChange(newPhase)
         }
-        #if os(macOS)
         .commands {
+            // Settings shortcut (⌘,) — macOS app menu + iPadOS keyboard shortcut overlay
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings...") {
+                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+
+            #if os(macOS)
             CommandMenu("Playback") {
                 Button("Play/Pause") {
                     MacPlaybackShortcut.togglePlaybackIfAllowed()
                 }
                 .keyboardShortcut(.space, modifiers: [])
             }
+            #endif
         }
-        #endif
         #if os(macOS)
         if #available(macOS 13.0, *) {
             Window("Settings", id: NavigationCoordinator.AuxiliaryPresentation.settings.windowID) {

@@ -109,7 +109,11 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Supported swipe action catalog in v1: `Play Next`, `Play Last`, `Add to Playlist…`, favorite toggle
 - Keep primary tap behavior unchanged (tap still plays/navigates as before)
 - Use `TrackSwipeContainer` for SwiftUI rows and `MediaTrackList` swipe delegates for UIKit-backed track lists
-- macOS keeps existing interaction model (no custom swipe gesture layer in v1)
+- **macOS**: Track list views use `List` + native `.swipeActions` for two-finger trackpad swipe support
+  - Apply `.trackSwipeActions(track:nowPlayingVM:...)` modifier from `StandardSwipeActions.swift` to each row
+  - Style rows with `.listRowBackground(Color.clear)`, `.listRowSeparator(.hidden)`, `.listRowInsets(...)`, `.modifier(ClearScrollContentBackgroundModifier())`
+  - When mixing header content with track rows, put headers in a non-interactive `Section` with clear background
+  - `TrackSwipeContainer` (DragGesture-based) is NOT used on macOS — it doesn't respond to trackpad scroll events
 
 ### Long-Press Menus
 - Prefer `contextMenu` on album/artist/playlist cards/rows to mirror detail-view actions

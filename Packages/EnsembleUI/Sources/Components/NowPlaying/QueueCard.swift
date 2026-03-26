@@ -152,8 +152,9 @@ public struct QueueCard: View {
             .chromelessMediaControlMenu()
         }
         .padding(.horizontal, 40)
+        .frame(minHeight: 36) // Consistent height across all NPV card headers
     }
-    
+
     // MARK: - Queue List
     
     private var queueListView: some View {
@@ -264,17 +265,20 @@ public struct QueueCard: View {
             List {
                 ForEach(Array(viewModel.playbackHistory.enumerated()), id: \.element.id) { index, item in
                     macOSQueueRow(item: item, isAutoplay: false)
+                        .listRowBackground(Color.clear)
                         .contentShape(Rectangle())
                         .onTapGesture { viewModel.playFromHistory(at: index) }
                         .contextMenu { historyContextMenu(for: item) }
                 }
             }
             .listStyle(.plain)
+            .modifier(ClearScrollContentBackgroundModifier())
         } else {
             // Queue list with drag-to-reorder
             List {
                 ForEach(Array(queueItemsToShow.enumerated()), id: \.element.id) { index, item in
                     macOSQueueRow(item: item, isAutoplay: item.source == .autoplay)
+                        .listRowBackground(Color.clear)
                         .contentShape(Rectangle())
                         .onTapGesture { viewModel.playFromQueue(at: capturedCurrentIndex + 1 + index) }
                         .contextMenu { queueContextMenu(for: item, at: capturedCurrentIndex + 1 + index) }
@@ -287,6 +291,7 @@ public struct QueueCard: View {
                 }
             }
             .listStyle(.plain)
+            .modifier(ClearScrollContentBackgroundModifier())
 
             // Recommendations exhausted indicator
             if viewModel.recommendationsExhausted && viewModel.isAutoplayEnabled {
@@ -484,3 +489,4 @@ public struct QueueCard: View {
         playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
     }
 }
+
