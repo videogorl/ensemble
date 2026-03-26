@@ -557,9 +557,7 @@ public struct MediaTrackList: UIViewRepresentable {
         // .automatic contentInsetAdjustmentBehavior recalculates insets as the table
         // enters the view hierarchy (e.g. a navigation controller or tab bar controller).
         if managesOwnScrolling && bottomContentInset > 0 && tableView.contentInset.bottom != bottomContentInset {
-            #if DEBUG
-            EnsembleLogger.debug("🐛 MediaTrackList re-applying bottomContentInset: was \(tableView.contentInset.bottom), setting to \(bottomContentInset)")
-            #endif
+            EnsembleLogger.debug("MediaTrackList re-applying bottomContentInset: was \(tableView.contentInset.bottom), setting to \(bottomContentInset)")
             tableView.contentInset.bottom = bottomContentInset
         }
 
@@ -670,9 +668,7 @@ public struct MediaTrackList: UIViewRepresentable {
             tableView.reloadData()
             // 🐛 TEMP: log geometry after reload to diagnose clipping
             DispatchQueue.main.async {
-                #if DEBUG
-                EnsembleLogger.debug("🐛 MediaTrackList frame=\(tableView.frame) contentSize=\(tableView.contentSize) contentInset=\(tableView.contentInset) contentOffset=\(tableView.contentOffset) adjustedInset=\(tableView.adjustedContentInset) rows=\(self.tracks.count)")
-                #endif
+                EnsembleLogger.debug("MediaTrackList frame=\(tableView.frame) contentSize=\(tableView.contentSize) contentInset=\(tableView.contentInset) contentOffset=\(tableView.contentOffset) adjustedInset=\(tableView.adjustedContentInset) rows=\(self.tracks.count)")
             }
         } else if currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged {
             // Reconfigure visible cells when the playing track, connectivity, or download state changes.

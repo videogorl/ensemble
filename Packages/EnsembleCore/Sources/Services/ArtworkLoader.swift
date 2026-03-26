@@ -53,7 +53,6 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     private var lastBulkInvalidationDate: Date?
     private static let bulkInvalidationCooldown: TimeInterval = 5
 
-    #if DEBUG
     /// Batch counters for artwork load summary instead of per-item logs.
     /// After a burst of artwork loads settles, a single summary is logged.
     private actor ArtworkLoadStats {
@@ -78,7 +77,6 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
     }
     private let loadStats = ArtworkLoadStats()
-    #endif
 
     // Using an actor for thread-safe cache access in Swift 6
     private actor URLCacheActor {
@@ -147,9 +145,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             queue: .main
         ) { _ in
             ImagePipeline.shared.cache.removeAll()
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Memory warning: Cleared artwork cache")
-            #endif
         }
         #endif
         
@@ -163,9 +159,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // Coalesce rapid invalidations during startup
         if let lastDate = lastBulkInvalidationDate,
            Date().timeIntervalSince(lastDate) < Self.bulkInvalidationCooldown {
-            #if DEBUG
             EnsembleLogger.debug("🎨 ArtworkLoader: Coalesced URL cache invalidation (last was <\(Int(Self.bulkInvalidationCooldown))s ago)")
-            #endif
             return
         }
 
@@ -173,9 +167,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         await urlCache.clearAll()
         // Connection changed — all tracked URLs are stale
         await artworkURLTracker.clearAll()
-        #if DEBUG
         EnsembleLogger.debug("🎨 ArtworkLoader: Invalidated URL cache after connection change")
-        #endif
     }
 
     /// Invalidate a specific artwork so views re-fetch from the server.
@@ -207,9 +199,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             userInfo: ["ratingKey": ratingKey]
         )
 
-        #if DEBUG
         EnsembleLogger.debug("🎨 ArtworkLoader: Invalidated artwork for ratingKey=\(ratingKey)")
-        #endif
     }
 
     public func artworkURL(for path: String?, sourceKey: String? = nil, size: Int = 300) -> URL? {
@@ -413,9 +403,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 )
                 downloadedCount += 1
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug("Failed to download artwork for album \(album.title): \(error)")
-                #endif
                 continue
             }
         }
@@ -456,9 +444,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 )
                 downloadedCount += 1
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug("Failed to download artwork for artist \(artist.name): \(error)")
-                #endif
                 continue
             }
         }
@@ -499,9 +485,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 )
                 downloadedCount += 1
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug("Failed to download artwork for playlist \(playlist.title): \(error)")
-                #endif
                 continue
             }
         }

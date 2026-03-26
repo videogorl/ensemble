@@ -77,27 +77,19 @@ public final class SiriPlaybackCoordinator {
     /// Decodes and executes a Siri payload routed through NSUserActivity.
     @discardableResult
     public func handle(userActivity: NSUserActivity) async -> Bool {
-        #if DEBUG
         EnsembleLogger.debug("Siri playback coordinator received activity type: \(userActivity.activityType)")
-        #endif
         guard userActivity.activityType == SiriPlaybackActivityCodec.activityType,
               let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo) else {
-            #if DEBUG
             EnsembleLogger.debug("Siri playback coordinator rejected activity (type/payload mismatch)")
-            #endif
             return false
         }
 
         do {
-            #if DEBUG
             EnsembleLogger.debug("Siri playback coordinator executing payload kind=\(payload.kind.rawValue), entity=\(payload.entityID)")
-            #endif
             try await execute(payload: payload)
             return true
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("Siri playback handling failed: \(error.localizedDescription)")
-            #endif
             return false
         }
     }
@@ -108,9 +100,7 @@ public final class SiriPlaybackCoordinator {
             throw SiriPlaybackCoordinatorError.unsupportedPayloadVersion(payload.schemaVersion)
         }
 
-        #if DEBUG
         EnsembleLogger.debug("Siri payload schema=\(payload.schemaVersion), source=\(payload.sourceCompositeKey ?? "nil"), display=\(payload.displayName ?? "nil")")
-        #endif
 
         let request = SiriPlaybackRequest(
             entityID: payload.entityID,

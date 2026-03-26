@@ -147,9 +147,7 @@ public final class SiriMediaIndexStore {
             try save(index)
             return index
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("Failed to rebuild Siri media index: \(error)")
-            #endif
             return nil
         }
     }
@@ -183,9 +181,7 @@ public final class SiriMediaIndexStore {
             return groupURL.appendingPathComponent(Self.filename)
         }
 
-        #if DEBUG
         EnsembleLogger.debug("App Group unavailable for Siri index; using caches fallback")
-        #endif
         return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
             .appendingPathComponent(Self.filename)
     }

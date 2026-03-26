@@ -33,9 +33,7 @@ public final class SiriAddToPlaylistCoordinator {
             try await execute(payload: payload)
             return true
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("Siri add-to-playlist handling failed: \(error.localizedDescription)")
-            #endif
             return false
         }
     }

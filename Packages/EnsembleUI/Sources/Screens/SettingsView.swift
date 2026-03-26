@@ -199,9 +199,19 @@ public struct SettingsView: View {
                 }
             }
 
-            #if DEBUG
-            // Developer tools section (DEBUG builds only)
+            // Developer section — always visible; debug-only tools gated
             Section(header: Text("Developer").foregroundColor(.accentColor).textCase(nil)) {
+                NavigationLink {
+                    LogsSettingsView()
+                } label: {
+                    HStack {
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .frame(width: 44)
+                        Text("Logs")
+                    }
+                }
+
+                #if DEBUG
                 Toggle(isOn: $debugSimulateOffline) {
                     HStack {
                         Image(systemName: "wifi.slash")
@@ -235,8 +245,8 @@ public struct SettingsView: View {
                         Text("Send Test Toast")
                     }
                 }
+                #endif
             }
-            #endif
 
             // About section
             Section(header: Text("About").foregroundColor(.accentColor).textCase(nil)) {

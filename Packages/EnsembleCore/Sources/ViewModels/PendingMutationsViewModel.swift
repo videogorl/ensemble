@@ -70,9 +70,7 @@ public final class PendingMutationsViewModel: ObservableObject {
 
             rows = result
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ PendingMutationsViewModel: Failed loading mutations: \(error)")
-            #endif
         }
     }
 
@@ -84,9 +82,7 @@ public final class PendingMutationsViewModel: ObservableObject {
             await mutationCoordinator.drainQueue()
             await loadMutations()
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ PendingMutationsViewModel: Failed retrying mutation \(id): \(error)")
-            #endif
         }
     }
 
@@ -97,9 +93,7 @@ public final class PendingMutationsViewModel: ObservableObject {
             await mutationCoordinator.refreshCount()
             await loadMutations()
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ PendingMutationsViewModel: Failed deleting mutation \(id): \(error)")
-            #endif
         }
     }
 
