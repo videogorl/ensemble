@@ -3520,8 +3520,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             throw PlaybackError.offline
         }
 
-        // 2. Check if stream loader already completed
+        // 2. Check if stream loader already completed — but validate it didn't fail
         if let loader = streamLoaders[track.id], loader.isDownloadComplete {
+            if let error = loader.completionError { throw error }
             return loader.localFileURL
         }
 
@@ -3608,6 +3609,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Check if loader already exists
         if let loader = streamLoaders[track.id] {
             if loader.isDownloadComplete {
+                if let error = loader.completionError { throw error }
                 return loader.localFileURL
             }
             return try await waitForDownload(loader: loader, trackId: track.id, quality: quality)
@@ -3629,13 +3631,39 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     /// Wait for a ProgressiveStreamLoader to complete and return the file URL.
+    /// Wires both success and failure callbacks to prevent the continuation from hanging
+    /// if the download fails (e.g. HTTP 503 from unavailable storage).
     private func waitForDownload(loader: ProgressiveStreamLoader, trackId: String, quality: StreamingQuality) async throws -> URL {
+        // If already finished before we start waiting, handle synchronously
+        if loader.isDownloadComplete {
+            if let error = loader.completionError { throw error }
+            return loader.localFileURL
+        }
+
         return try await withCheckedThrowingContinuation { continuation in
-            let previousCallback = loader.onDownloadComplete
+            var hasResumed = false
+            let resumeOnce: (Result<URL, Error>) -> Void = { result in
+                guard !hasResumed else { return }
+                hasResumed = true
+                continuation.resume(with: result)
+            }
+
+            let prevComplete = loader.onDownloadComplete
             loader.onDownloadComplete = { fileURL, duration in
-                previousCallback?(fileURL, duration)
-                // XING injection removed -- AVAudioFile handles encoder delay natively
-                continuation.resume(returning: fileURL)
+                prevComplete?(fileURL, duration)
+                resumeOnce(.success(fileURL))
+            }
+            loader.onDownloadFailed = { error in
+                resumeOnce(.failure(error))
+            }
+
+            // Re-check: download may have completed between our check and callback wiring
+            if loader.isDownloadComplete {
+                if let error = loader.completionError {
+                    resumeOnce(.failure(error))
+                } else {
+                    resumeOnce(.success(loader.localFileURL))
+                }
             }
         }
     }
@@ -3652,7 +3680,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let ext = url.pathExtension.isEmpty ? "mp3" : url.pathExtension
         let destURL = cacheDir.appendingPathComponent("\(trackId)_\(UUID().uuidString.prefix(8)).\(ext)")
 
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        // Check for HTTP errors (e.g. 503 from unavailable storage)
+        if let httpResponse = response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
+            let snippet = String(data: data.prefix(200), encoding: .utf8)
+            throw ProgressiveStreamError.httpError(statusCode: httpResponse.statusCode, bodySnippet: snippet)
+        }
+
         try data.write(to: destURL)
         return destURL
     }
@@ -3672,6 +3707,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func mapToPlaybackError(_ error: Error) -> PlaybackError {
+        // Progressive stream errors (HTTP status, payload validation)
+        if let streamError = error as? ProgressiveStreamError {
+            switch streamError {
+            case .httpError(503, _):
+                return .serverUnavailable(message: "Server storage unavailable")
+            case .httpError(let code, _):
+                return .serverUnavailable(message: "Server returned HTTP \(code)")
+            case .invalidPayload:
+                return .corruptLocalFile
+            }
+        }
+
         if let plexError = error as? PlexAPIError {
             switch plexError {
             case .noServerSelected:
@@ -3821,7 +3868,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             || leadingText.hasPrefix("<!doctype html")
             || leadingText.hasPrefix("<?xml")
             || leadingText.contains("<h1>400 bad request</h1>")
-            || leadingText.contains("<h1>404 not found</h1>") {
+            || leadingText.contains("<h1>404 not found</h1>")
+            || leadingText.contains("<h1>503 ") {
             return true
         }
 
