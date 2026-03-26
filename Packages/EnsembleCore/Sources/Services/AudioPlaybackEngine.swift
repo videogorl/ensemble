@@ -638,6 +638,11 @@ public final class AudioPlaybackEngine {
         scheduledFiles.contains { $0.trackId == trackId }
     }
 
+    /// IDs of all tracks currently in the gapless schedule queue.
+    var scheduledTrackIds: Set<String> {
+        Set(scheduledFiles.map(\.trackId))
+    }
+
     /// Schedule the next file for gapless playback. Uses AVAudioPlayerNode's FIFO queue --
     /// the segment plays immediately after the current segment finishes, with zero gap.
     /// Call this during prefetch to ensure seamless transitions.

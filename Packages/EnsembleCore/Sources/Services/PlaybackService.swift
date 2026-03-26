@@ -4574,23 +4574,30 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     /// Rebuilds only upcoming queue items so prefetched entries don't keep stale endpoint URLs.
-        @MainActor
+    /// Already-downloaded gapless files are left alone — the audio engine plays from local files,
+    /// so a network transition doesn't invalidate them. Only tracks still being downloaded
+    /// (or not yet started) need their URLs evicted and re-resolved.
+    @MainActor
     private func rebuildUpcomingQueueForNetworkTransition() async {
-        // With AudioPlaybackEngine, upcoming items are file-based.
-        // Clear scheduled gapless files and re-prefetch with fresh URLs.
-        audioEngine?.clearScheduledFiles()
-
-        // Evict cached file URLs for upcoming tracks so they re-resolve
         let upcomingTrackIDs: [String] = upcomingQueueIndices(depth: 2).map { queue[$0].track.id }
-        for id in upcomingTrackIDs {
+
+        // Skip tracks already scheduled in the engine — their audio is downloaded and loaded
+        let alreadyScheduled = audioEngine?.scheduledTrackIds ?? []
+        let staleTrackIDs = upcomingTrackIDs.filter { !alreadyScheduled.contains($0) }
+
+        // Evict cached file URLs only for tracks that need re-resolution
+        for id in staleTrackIDs {
             resolvedFileURLs.removeValue(forKey: id)
             resolvedFileURLsLRU.removeAll { $0 == id }
             streamLoaders.removeValue(forKey: id)?.cancel()
         }
 
-        EnsembleLogger.debug("[rebuildQueue] Evicted \(upcomingTrackIDs.count) cached URLs for network transition")
-
-        await prefetchUpcomingItems(depth: 2)
+        if staleTrackIDs.isEmpty {
+            EnsembleLogger.debug("[rebuildQueue] Network transition — all upcoming tracks already scheduled, nothing to rebuild")
+        } else {
+            EnsembleLogger.debug("[rebuildQueue] Evicted \(staleTrackIDs.count) stale URLs (kept \(alreadyScheduled.count) scheduled)")
+            await prefetchUpcomingItems(depth: 2)
+        }
     }
 
     private func cleanup() {
