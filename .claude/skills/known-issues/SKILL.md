@@ -20,6 +20,27 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Resolved Issues
 
+### Download Quality Fallback Re-Download Loop (Mar 26, 2026)
+- **Location:** `DownloadManager.swift` (`createDownload`)
+- **Issue:** When download-queue transcode failed (TLS error, cancelled), the system fell back to `direct-original-fallback` which stored the file at `original` quality. On the next session, reconciliation called `createDownload(quality: "medium")` which saw `"original" != "medium"` and reset the download to `.pending`, triggering an infinite re-download loop every session.
+- **Root cause:** `createDownload` used strict quality equality (`!=`) instead of quality ordering. `original` is HIGHER than `medium` and should satisfy the request.
+- **Fix:** Added `qualitySatisfies(existing:desired:)` with ranking `original > high > medium > low`. `createDownload` now only resets to `.pending` when existing quality is LOWER than desired.
+- **Key files:** `DownloadManager.swift`
+
+### Playback Stutter During Bulk Downloads (Mar 26, 2026)
+- **Location:** `PlaybackService.swift` (`refreshQueueDownloadState`)
+- **Issue:** Every download completion posted `downloadsDidChange` → `refreshQueueDownloadState()` detected localFilePath changes → called `audioEngine.clearScheduledFiles()` unconditionally → `playerNode.stop()` flushed the entire FIFO including currently-playing audio buffer → audible stutter every 3-8 seconds during bulk downloads.
+- **Root cause:** `clearScheduledFiles()` was called whenever ANY queue item's download state changed, not just gaplessly-scheduled items. During bulk downloads with 20+ tracks, nearly every completion triggered a FIFO flush even though only the next gapless track needed re-scheduling.
+- **Fix:** Collect changed track IDs during the queue scan and check intersection with `audioEngine.scheduledTrackIds`. Only flush FIFO + re-prefetch when a gaplessly-scheduled track actually changed. Non-scheduled track changes update metadata silently.
+- **Key files:** `PlaybackService.swift`
+
+### Download Worker Context Invalidation (Mar 26, 2026)
+- **Location:** `OfflineDownloadService.swift` (`process(download:)`)
+- **Issue:** Download workers held references to `CDTrack`/`CDDownload` managed objects across async boundaries. When `viewContext.reset()` ran during incremental sync, these references became invalidated — property access returned default/empty values, causing files to be stored as `_unknown_medium.mp3` and `completeDownload()` to throw "object not found".
+- **Root cause:** `viewContext.reset()` invalidates ALL registered managed objects. Download workers captured managed objects before async download work but accessed their properties after the reset.
+- **Fix:** Added `DownloadContext` value-type struct that snapshots all needed CDTrack/CDDownload properties before any async work begins. All downstream code uses `ctx.*` instead of managed object properties. Added `completeDownloadWithRecovery()` that recreates CDDownload if the primary objectID path fails due to cascade deletion.
+- **Key files:** `OfflineDownloadService.swift`
+
 ### 89-Byte Transcode Error → Cryptic CoreAudio Error (Mar 26, 2026)
 - **Location:** `ProgressiveStreamLoader.swift`, `PlaybackService.swift`
 - **Issue:** When Plex server storage is unavailable (NAS disconnected, drives sleeping), the `/decision` endpoint succeeds (metadata is cached in PMS), but `/start.mp3` returns an HTML error page (~89 bytes, HTTP 503). `ProgressiveStreamLoader` wrote these bytes to a temp file and reported success. AVAudioEngine rejected the file with cryptic error `com.apple.coreaudio.avfaudio error 1685348671`.
@@ -32,6 +53,17 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Issue:** When a Wi-Fi→cellular network transition occurred mid-playback, `rebuildUpcomingQueueForNetworkTransition()` called `clearScheduledFiles()` which emptied the `scheduledFiles` tracking array and bumped the generation counter — but did NOT flush the `playerNode`'s actual FIFO queue. Orphaned audio segments remained in the FIFO while the primary segment's completion handler was silently invalidated (stale generation). Result: audio played the next track seamlessly from the FIFO, but no `onTrackAdvance` fired, leaving the UI persistently one track behind.
 - **Fix:** `clearScheduledFiles()` now flushes the playerNode FIFO (stop + re-schedule current track from current position + resume). The audio gap is imperceptible (microseconds). Added diagnostic logging to completion handlers for future debugging.
 - **Key files:** `AudioPlaybackEngine.swift`, `PlaybackService.swift`
+
+### Download Worker Context Invalidation (Mar 26, 2026)
+- **Location:** `OfflineDownloadService.swift` (`process(download:)`, `completeViaDownloadQueue`)
+- **Issue:** Download worker held CDTrack/CDDownload managed object references from the viewContext throughout async downloads (several seconds). When `SyncCoordinator` ran `refreshViewContext()` → `viewContext.reset()` mid-download, property access returned empty/default values (`track.ratingKey` → `""`, `track.sourceCompositeKey` → `nil`). Additionally, CDTrack→CDDownload cascade delete (deletionRule="Cascade") removed the CDDownload when sync's `removeOrphanedTracks()` deleted the CDTrack. Symptoms: files saved as `_unknown_medium.mp3`, `completeDownload(objectID)` threw "object not found in store", downloads silently failed.
+- **Fix:** `process(download:)` now captures ALL CDTrack/CDDownload properties into a value-type `DownloadContext` struct BEFORE async work begins. All downstream methods (`completeViaDownloadQueue`, `localFileURL`, `cacheArtworkForDownloadedTrack`) use captured values. `completeDownloadWithRecovery()` recreates the CDDownload record if the primary objectID-based completion fails due to cascade delete.
+- **Key files:** `OfflineDownloadService.swift`
+
+### Download Target Shows '0 Tracks' After Data Loss (Mar 25, 2026)
+- **Location:** `OfflineDownloadService.swift`, `DownloadsViewModel.swift`
+- **Issue:** When CDOfflineDownloadMembership records were lost (iOS update, corruption), `refreshTargetProgress()` found 0 references → aggressively wrote totalTrackCount=0 → UI showed "0 tracks". Recovery required waiting ~15min for sync-triggered reconciliation.
+- **Fix:** Three-part self-healing: preserve stale counts for orphaned targets, immediate reconciliation via `reconcileOrphanedTargets()`, startup + pull-to-refresh file existence checks via `refreshStateWithHealing()`.
 
 ### Queue Skipping Cascade (Mar 18, 2026)
 - **Location:** `PlaybackService.swift`
@@ -193,6 +225,12 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Previous:** 60fps `TimelineView(.animation)` with 6 blur passes (144 blur filter applications/frame). Never paused behind Now Playing sheet. Still ran at 30fps during breathing mode (playback paused), causing 25.6% GPU drain.
 - **Fix:** Capped at 30fps via `minimumInterval: 1/30`. Reduced to 3 glow passes (blur=18, 12, 8). Pauses when Now Playing sheet covers it (`isPaused` binding). Skips identical frequency band publishes. Display timer uses `MainActor.assumeIsolated` instead of `Task { @MainActor }`. Breathing mode (paused) drops to 4fps — the slow sine waves look smooth at very low rates, saving ~87% GPU vs 30fps.
 - **Key files:** `AuroraVisualizationView.swift`, `MainTabView.swift`, `AudioAnalyzer.swift`
+
+### Download Target Shows "0 Tracks" After Data Loss
+- **Resolved (March 25, 2026)**
+- **Previous:** When CDOfflineDownloadMembership records were lost (e.g., after iOS update or data corruption), `refreshTargetProgress()` found 0 memberships and aggressively wrote `totalTrackCount: 0, completedTrackCount: 0` to the CDOfflineDownloadTarget. The UI showed "0 tracks" even though the target itself survived. Recovery only happened after sync completed and triggered reconciliation (~15 min delay).
+- **Fix:** Three-part self-healing: (1) `refreshTargetProgress` now preserves stale total count and sets status to `.pending` when memberships are empty but the target previously had tracks, so UI shows "37 tracks - Queued" instead of "0 tracks". (2) `refreshAllTargetProgresses` calls `reconcileOrphanedTargets()` which immediately rebuilds memberships from existing library data. (3) Startup and pull-to-refresh both run download metadata self-healing (`fetchDownloads()` file-existence check) before computing progress.
+- **Key files:** `OfflineDownloadService.swift`, `DownloadsViewModel.swift`
 
 ### Downloads Stuck in "Downloading" After App Kill
 - **Resolved (March 18, 2026)**

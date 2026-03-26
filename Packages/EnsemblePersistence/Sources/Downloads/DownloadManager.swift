@@ -167,11 +167,9 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                     if context.hasChanges {
                         try context.save()
-                        #if DEBUG
                         EnsembleLogger.debug(
                             "🧰 DownloadManager healed download metadata (path=\(healedPathCount), size=\(healedSizeCount), missing=\(missingFileCount), invalid=\(invalidFileCount), recoveredFailed=\(recoveredFailedCount))"
                         )
-                        #endif
                     }
 
                     continuation.resume(returning: downloads)
@@ -354,10 +352,18 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                     if let existing = try context.fetch(downloadRequest).first {
                         let normalizedQuality = Self.normalizedQuality(quality)
-                        if existing.quality != normalizedQuality {
+                        let existingQuality = existing.quality ?? "original"
+
+                        // Only re-queue if the existing quality is LOWER than desired.
+                        // original > high > medium > low — a fallback to "original"
+                        // satisfies any lower quality request and should not re-trigger.
+                        if !Self.qualitySatisfies(existing: existingQuality, desired: normalizedQuality) {
                             // Keep the old file and localFilePath intact so the track remains
                             // playable at old quality while the new download proceeds.
                             // completeDownload() will update paths and clean up the old file.
+                            EnsembleLogger.debug(
+                                "📥 createDownload: quality upgrade needed for track=\(trackRatingKey) existing=\(existingQuality) desired=\(normalizedQuality) status=\(existing.status ?? "nil") filePath=\(existing.filePath ?? "nil") — resetting to pending"
+                            )
                             existing.quality = normalizedQuality
                             existing.progress = 0
                             existing.error = nil
@@ -379,6 +385,10 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         return
                     }
 
+                    // No CDDownload exists for this track — create a new pending record
+                    EnsembleLogger.debug(
+                        "📥 createDownload: no existing record for track=\(trackRatingKey) source=\(sourceCompositeKey ?? "nil") — creating new pending download"
+                    )
                     let download = CDDownload(context: context)
                     download.status = CDDownload.Status.pending.rawValue
                     download.progress = 0
@@ -724,6 +734,17 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         default:
             return "original"
         }
+    }
+
+    /// Returns true when `existing` quality is equal to or higher than `desired`.
+    /// Quality ranking: original > high > medium > low.
+    /// Used to prevent re-downloading when a fallback stored original quality
+    /// but the user's setting is medium/high — the file already exceeds the request.
+    public static func qualitySatisfies(existing: String, desired: String) -> Bool {
+        let ranking = ["low": 0, "medium": 1, "high": 2, "original": 3]
+        let existingRank = ranking[existing] ?? 3
+        let desiredRank = ranking[desired] ?? 3
+        return existingRank >= desiredRank
     }
 
     /// Build the current absolute path for a download filename.

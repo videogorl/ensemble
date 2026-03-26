@@ -140,7 +140,9 @@ public final class DownloadsViewModel: ObservableObject {
     public func refresh() async {
         isLoading = true
         error = nil
-        await offlineDownloadService.refreshState()
+        // Use healing variant: verifies download files on disk and
+        // reconciles orphaned targets with missing memberships.
+        await offlineDownloadService.refreshStateWithHealing()
         isLoading = false
     }
 
