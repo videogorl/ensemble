@@ -20,6 +20,12 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Resolved Issues
 
+### Gapless UI Stuck One Track Behind Audio on Network Switch (Mar 26, 2026)
+- **Location:** `AudioPlaybackEngine.swift` (`clearScheduledFiles`)
+- **Issue:** When a Wi-Fi→cellular network transition occurred mid-playback, `rebuildUpcomingQueueForNetworkTransition()` called `clearScheduledFiles()` which emptied the `scheduledFiles` tracking array and bumped the generation counter — but did NOT flush the `playerNode`'s actual FIFO queue. Orphaned audio segments remained in the FIFO while the primary segment's completion handler was silently invalidated (stale generation). Result: audio played the next track seamlessly from the FIFO, but no `onTrackAdvance` fired, leaving the UI persistently one track behind.
+- **Fix:** `clearScheduledFiles()` now flushes the playerNode FIFO (stop + re-schedule current track from current position + resume). The audio gap is imperceptible (microseconds). Added diagnostic logging to completion handlers for future debugging.
+- **Key files:** `AudioPlaybackEngine.swift`, `PlaybackService.swift`
+
 ### Queue Skipping Cascade (Mar 18, 2026)
 - **Location:** `PlaybackService.swift`
 - **Issue:** Rapid previous()/next() taps caused a cascade: AVPlayer XPC errors (`err=-17221`) → old AVPlayerItem fails asynchronously → `handleQueueExhausted()` fires phantom auto-advance → queue never recovers, even starting a new queue fails.
