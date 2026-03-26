@@ -69,21 +69,47 @@ public struct SongsView: View {
             GeometryReader { geometry in
                 Color.clear
                     .onAppear {
-                        isStageFlowActive = supportsStageFlow && geometry.size.width > geometry.size.height
+                        let active = supportsStageFlow && geometry.size.width > geometry.size.height
+                        if active != isStageFlowActive { isStageFlowActive = active }
                     }
                     .onChange(of: geometry.size) { newSize in
-                        isStageFlowActive = supportsStageFlow && newSize.width > newSize.height
+                        let shouldBeActive = supportsStageFlow && newSize.width > newSize.height
+                        if shouldBeActive && !isStageFlowActive {
+                            isStageFlowActive = true
+                        } else if !shouldBeActive && isStageFlowActive {
+                            #if os(iOS)
+                            if #available(iOS 16.0, *) {
+                                isStageFlowActive = false
+                            } else {
+                                // iOS 15: delay exit to let rotation animation complete
+                                // before switching the view tree. Changing nav bar, status bar,
+                                // title display mode, and content simultaneously mid-rotation
+                                // causes NavigationView layout hangs on iOS 15.
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    let screen = UIScreen.main.bounds
+                                    if screen.width < screen.height {
+                                        isStageFlowActive = false
+                                    }
+                                }
+                            }
+                            #else
+                            isStageFlowActive = false
+                            #endif
+                        }
                     }
             }
         )
         .hideTabBarIfAvailable(isHidden: isStageFlowActive)
         .stageFlowRotationSupport(isEnabled: supportsStageFlow)
+        .stageFlowImmersiveMode(isActive: isStageFlowActive)
         #if os(iOS)
         .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
+        .navigationBarHidden(isStageFlowActive)
+        .statusBar(hidden: isStageFlowActive)
         #endif
         .navigationTitle(isStageFlowActive ? "" : "Songs")
         #if os(iOS)
-        .navigationBarTitleDisplayMode(isStageFlowActive ? .inline : .large)
+        .navigationBarTitleDisplayMode(.large)
         #endif
         .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
         .refreshable {
@@ -247,14 +273,12 @@ public struct SongsView: View {
         }
     }
 
+    /// StageFlow carousel for landscape mode.
+    /// Nav bar and status bar hiding are applied at the outer Group level
+    /// so SwiftUI diffs a parameter change rather than a view tree swap,
+    /// which prevents NavigationView layout hangs on iOS 15 during rotation.
     private var landscapeAlbumStageFlowView: some View {
-        #if os(iOS)
         albumStageFlowView
-            .navigationBarHidden(true)
-            .statusBar(hidden: true)
-        #else
-        albumStageFlowView
-        #endif
     }
 
     private var loadingView: some View {
