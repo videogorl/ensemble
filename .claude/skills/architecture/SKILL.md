@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, frequency visualizer, hubs, filtering, network resilience, playback tracking, playlist mutations, incremental sync, Siri media intents, pinned content, persistent session logging)"
+description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, frequency visualizer, hubs, filtering, network resilience, playback tracking, playlist mutations, playlist merging, incremental sync, Siri media intents, pinned content, persistent session logging)"
 ---
 
 # Ensemble Architecture
@@ -592,6 +592,18 @@ Karaoke-style time-synced lyrics fetched from Plex and displayed in the Lyrics C
 - `Packages/EnsembleUI/Sources/Components/NowPlaying/LyricsCard.swift` - three-state lyrics display
 
 **Known limitation:** The `/library/streams/` endpoint occasionally returns 404 for tracks that report a valid `lyricsStream`. See Known Issues.
+
+## Subsystem: Playlist Merging
+
+Visually merges same-named playlists across multiple Plex servers into a single entry:
+
+- `DisplayPlaylist` (`EnsembleCore`) -- Wrapper that holds one or more `Playlist` objects. Single-source playlists pass through; multi-source playlists are presented as merged.
+- `PlaylistViewModel` groups playlists via Combine pipeline: `$filteredPlaylists` + `$isMergeEnabled` → `$displayPlaylists`. Toggle state sourced from `SettingsManager.playlistMergeEnabled`.
+- `MergedPlaylistDetailViewModel` handles the merged detail view, including bulk rename and delete across constituent playlists.
+- `MergedPlaylistDetailView` / `MergedPlaylistDetailLoader` (`EnsembleUI`) -- Detail UI and async loading wrapper for merged playlists.
+- Track ordering: interleaved round-robin from constituent playlists.
+- `PlaylistRowChip` (`EnsembleUI`) -- Visual indicator for multi-source merged playlists.
+- Navigation: `NavigationCoordinator.Destination.mergedPlaylist` and `SidebarSelection.mergedPlaylist` provide routing support.
 
 ## Subsystem: Persistent Session Logging
 

@@ -112,6 +112,7 @@ Sources/
 +-- DI/
 |   +-- DependencyContainer.swift      # Singleton DI container & VM factories
 +-- Models/
+|   +-- DisplayPlaylist.swift          # Merge-aware playlist wrapper (single or multi-server merged)
 |   +-- DomainModels.swift             # UI-facing models (Track, Album, Artist, Hub, etc.)
 |   +-- ModelMappers.swift             # CD* <-> Domain model conversions
 |   +-- MusicSource.swift              # Multi-account source identification
@@ -168,6 +169,7 @@ Sources/
 |   +-- FavoritesViewModel.swift       # Tracks rated 4+ stars, sorting (FavoritesSortOption), download toggle
 |   +-- HomeViewModel.swift            # Hub-based home screen (Recently Added, etc.)
 |   +-- LibraryViewModel.swift
+|   +-- MergedPlaylistDetailViewModel.swift # ViewModel for merged playlist detail (interleaved tracks, rename/delete all)
 |   +-- MusicSourceAccountDetailViewModel.swift
 |   +-- NowPlayingViewModel.swift
 |   +-- DownloadManagerSettingsViewModel.swift # Settings manager list for offline targets
@@ -262,6 +264,7 @@ Sources/
 |   +-- HomeView.swift                # Hub-based home screen (Recently Added, etc.)
 |   +-- MainTabView.swift             # iPhone tab bar
 |   +-- MediaDetailView.swift         # Artist/Album/Playlist detail (adaptive, protocol-based)
+|   +-- MergedPlaylistDetailView.swift # Detail view + loader for merged playlists (source servers, edit picker)
 |   +-- MoodTracksView.swift          # Track list for a specific Plex mood/vibe category
 |   +-- MoreView.swift                # Additional options
 |   +-- NowPlayingView.swift          # Full-screen player
