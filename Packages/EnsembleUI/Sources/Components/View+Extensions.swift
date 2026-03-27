@@ -100,6 +100,21 @@ public extension View {
         #endif
     }
 
+    /// Notifies MainTabView of immersive mode state on iOS 15 via notification.
+    /// iOS 16+ uses ChromeVisibilityPreferenceKey instead (observed via onPreferenceChange).
+    @ViewBuilder
+    func stageFlowImmersiveMode(isActive: Bool) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            self // iOS 16+ uses preference key — no notification needed
+        } else {
+            self.modifier(StageFlowImmersiveModeNotifier(isActive: isActive))
+        }
+        #else
+        self
+        #endif
+    }
+
     /// Hides the list row separator, with a macOS 13+ availability guard.
     @ViewBuilder
     func hideListRowSeparator() -> some View {
@@ -213,6 +228,33 @@ private struct StageFlowRotationSupportModifier: ViewModifier {
         NotificationCenter.default.post(
             name: AppOrientationNotifications.stageFlowRotationSupportChanged,
             object: isEnabled
+        )
+    }
+}
+
+/// Notifies the app of immersive mode changes via NotificationCenter.
+/// iOS 15 fallback for ChromeVisibilityPreferenceKey, which causes recursive
+/// HostPreferences crashes during modal presentation on iOS 15.
+private struct StageFlowImmersiveModeNotifier: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                postImmersiveMode(isActive)
+            }
+            .onChange(of: isActive) { active in
+                postImmersiveMode(active)
+            }
+            .onDisappear {
+                postImmersiveMode(false)
+            }
+    }
+
+    private func postImmersiveMode(_ isActive: Bool) {
+        NotificationCenter.default.post(
+            name: AppOrientationNotifications.stageFlowImmersiveModeChanged,
+            object: isActive
         )
     }
 }

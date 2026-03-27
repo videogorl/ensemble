@@ -247,7 +247,10 @@ public struct MainTabView: View {
         if #available(iOS 16.0, *) {
             content.toolbar(isHidden ? .hidden : .visible, for: .tabBar)
         } else {
-            content
+            // iOS 15: hide tab bar via UIKit since .toolbar(_, for: .tabBar) is unavailable
+            content.background(
+                iOS15TabBarHider(isHidden: isHidden)
+            )
         }
         #else
         content
@@ -267,9 +270,20 @@ public struct MainTabView: View {
                 }
             }
         } else {
-            // iOS 15 fallback: skip preference observation to avoid recursive
-            // HostPreferences updates that can crash during modal presentation.
+            // iOS 15: preference observation causes recursive HostPreferences crashes
+            // during modal presentation. Use notification-based approach instead.
             content
+                .onReceive(
+                    NotificationCenter.default.publisher(
+                        for: AppOrientationNotifications.stageFlowImmersiveModeChanged
+                    )
+                ) { notification in
+                    guard let isHidden = notification.object as? Bool else { return }
+                    guard !isShowingNowPlaying else { return }
+                    if isImmersiveMode != isHidden {
+                        isImmersiveMode = isHidden
+                    }
+                }
         }
         #else
         content.onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
@@ -479,6 +493,65 @@ private struct MainTabNowPlayingOverlay: View {
 
     }
 }
+
+// MARK: - iOS 15 Tab Bar Hider
+
+#if os(iOS)
+/// Hides the UITabBar on iOS 15 where .toolbar(_, for: .tabBar) is unavailable.
+/// Searches from the window's root view controller to find the UITabBarController
+/// backing SwiftUI's TabView, then sets tabBar.isHidden directly.
+private struct iOS15TabBarHider: UIViewRepresentable {
+    let isHidden: Bool
+
+    func makeUIView(context: Context) -> TabBarProbeView {
+        let view = TabBarProbeView()
+        view.targetHidden = isHidden
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
+        view.isHidden = true
+        return view
+    }
+
+    func updateUIView(_ view: TabBarProbeView, context: Context) {
+        view.targetHidden = isHidden
+        view.applyTabBarVisibility()
+    }
+
+    final class TabBarProbeView: UIView {
+        var targetHidden: Bool = false
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            DispatchQueue.main.async { [weak self] in
+                self?.applyTabBarVisibility()
+            }
+        }
+
+        func applyTabBarVisibility() {
+            guard let window = self.window,
+                  let tabBarController = Self.findTabBarController(from: window.rootViewController) else {
+                return
+            }
+            if tabBarController.tabBar.isHidden != targetHidden {
+                tabBarController.tabBar.isHidden = targetHidden
+            }
+        }
+
+        /// Recursively search the view controller hierarchy for the UITabBarController
+        private static func findTabBarController(from vc: UIViewController?) -> UITabBarController? {
+            guard let vc else { return nil }
+            if let tbc = vc as? UITabBarController { return tbc }
+            for child in vc.children {
+                if let found = findTabBarController(from: child) { return found }
+            }
+            if let presented = vc.presentedViewController {
+                return findTabBarController(from: presented)
+            }
+            return nil
+        }
+    }
+}
+#endif
 
 // MARK: - iOS 15 Navigation Helpers
 

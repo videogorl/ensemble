@@ -14,5 +14,12 @@ public enum AppOrientationNotifications {
     public static let stageFlowRotationSupportChanged = Notification.Name(
         "com.videogorl.ensemble.stageFlowRotationSupportChanged"
     )
+
+    /// Posted by StageFlow-capable views when entering/exiting immersive mode.
+    /// iOS 15 fallback for ChromeVisibilityPreferenceKey, which can't be
+    /// observed on iOS 15 due to recursive HostPreferences crashes.
+    public static let stageFlowImmersiveModeChanged = Notification.Name(
+        "com.videogorl.ensemble.stageFlowImmersiveModeChanged"
+    )
 }
 #endif

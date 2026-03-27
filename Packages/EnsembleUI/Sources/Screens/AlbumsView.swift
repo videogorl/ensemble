@@ -56,15 +56,38 @@ public struct AlbumsView: View {
                         if active != isStageFlowActive { isStageFlowActive = active }
                     }
                     .onChange(of: geometry.size) { newSize in
-                        let active = supportsStageFlow && newSize.width > newSize.height
-                        if active != isStageFlowActive { isStageFlowActive = active }
+                        let shouldBeActive = supportsStageFlow && newSize.width > newSize.height
+                        if shouldBeActive && !isStageFlowActive {
+                            isStageFlowActive = true
+                        } else if !shouldBeActive && isStageFlowActive {
+                            #if os(iOS)
+                            if #available(iOS 16.0, *) {
+                                isStageFlowActive = false
+                            } else {
+                                // iOS 15: delay exit to let rotation animation complete
+                                // before switching the view tree, preventing NavigationView
+                                // layout hangs from simultaneous nav bar + content changes.
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    let screen = UIScreen.main.bounds
+                                    if screen.width < screen.height {
+                                        isStageFlowActive = false
+                                    }
+                                }
+                            }
+                            #else
+                            isStageFlowActive = false
+                            #endif
+                        }
                     }
             }
         )
             .hideTabBarIfAvailable(isHidden: isStageFlowActive)
             .stageFlowRotationSupport(isEnabled: supportsStageFlow)
+            .stageFlowImmersiveMode(isActive: isStageFlowActive)
             #if os(iOS)
             .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
+            .navigationBarHidden(isStageFlowActive)
+            .statusBar(hidden: isStageFlowActive)
             #endif
             .navigationTitle(isStageFlowActive ? "" : "Albums")
             .searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
@@ -202,14 +225,11 @@ public struct AlbumsView: View {
             }
     }
 
+    /// StageFlow carousel for landscape mode.
+    /// Nav bar and status bar hiding are applied at the outer Group level
+    /// so SwiftUI diffs a parameter change rather than a view tree swap.
     private var landscapeStageFlowView: some View {
-        #if os(iOS)
         stageFlowView
-            .navigationBarHidden(true)
-            .statusBar(hidden: true)
-        #else
-        stageFlowView
-        #endif
     }
 
     private var loadingView: some View {
