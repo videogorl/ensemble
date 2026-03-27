@@ -38,22 +38,27 @@ public struct PlaylistCard: View {
 
 // MARK: - Playlist Row
 
+/// List row for a single or merged playlist entry.
+/// Handles navigation to either a single playlist or merged playlist detail.
 public struct PlaylistRow: View {
-    let playlist: Playlist
+    let displayPlaylist: DisplayPlaylist
     let nowPlayingVM: NowPlayingViewModel
+    let chipStyle: PlaylistRowChip.Style?
     let onTap: (() -> Void)?
     let isDisabled: Bool
     let statusText: String?
 
     public init(
-        playlist: Playlist,
+        displayPlaylist: DisplayPlaylist,
         nowPlayingVM: NowPlayingViewModel,
+        chipStyle: PlaylistRowChip.Style? = nil,
         onTap: (() -> Void)? = nil,
         isDisabled: Bool = false,
         statusText: String? = nil
     ) {
-        self.playlist = playlist
+        self.displayPlaylist = displayPlaylist
         self.nowPlayingVM = nowPlayingVM
+        self.chipStyle = chipStyle
         self.onTap = onTap
         self.isDisabled = isDisabled
         self.statusText = statusText
@@ -64,7 +69,7 @@ public struct PlaylistRow: View {
             if isDisabled {
                 playlistRowContent
             } else {
-                NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)) {
+                NavigationLink(value: navigationDestination) {
                     playlistRowContent
                 }
                 .buttonStyle(.plain)
@@ -74,11 +79,22 @@ public struct PlaylistRow: View {
             Group {
                 if isDisabled {
                     playlistRowContent
+                } else if displayPlaylist.isMerged {
+                    NavigationLink {
+                        MergedPlaylistDetailLoader(
+                            title: displayPlaylist.title,
+                            isSmart: displayPlaylist.isSmart,
+                            nowPlayingVM: nowPlayingVM
+                        )
+                    } label: {
+                        playlistRowContent
+                    }
+                    .buttonStyle(.plain)
                 } else {
                     NavigationLink {
                         PlaylistDetailLoader(
-                            playlistId: playlist.id,
-                            playlistSourceKey: playlist.sourceCompositeKey,
+                            playlistId: displayPlaylist.primaryPlaylist.id,
+                            playlistSourceKey: displayPlaylist.primaryPlaylist.sourceCompositeKey,
                             nowPlayingVM: nowPlayingVM
                         )
                     } label: {
@@ -89,29 +105,46 @@ public struct PlaylistRow: View {
             }
         }
     }
-    
+
+    /// Navigation destination for iOS 16+ value-based NavigationLink
+    private var navigationDestination: NavigationCoordinator.Destination {
+        if displayPlaylist.isMerged {
+            return .mergedPlaylist(title: displayPlaylist.title, isSmart: displayPlaylist.isSmart)
+        }
+        return .playlist(
+            id: displayPlaylist.primaryPlaylist.id,
+            sourceKey: displayPlaylist.primaryPlaylist.sourceCompositeKey
+        )
+    }
+
     private var playlistRowContent: some View {
         HStack(spacing: 12) {
-            ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)
+            ArtworkView(playlist: displayPlaylist.primaryPlaylist, size: .tiny, cornerRadius: 4)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(playlist.title)
+                Text(displayPlaylist.title)
                     .font(.body)
                     .lineLimit(1)
                     .foregroundColor(.primary)
 
                 HStack(spacing: 4) {
-                    if playlist.isSmart {
+                    // Smart playlist icon always shows when applicable
+                    if displayPlaylist.isSmart {
                         Image(systemName: "gearshape.fill")
                             .font(.caption2)
                     }
-                    Text(statusText ?? "\(playlist.trackCount) songs")
+                    Text(statusText ?? "\(displayPlaylist.trackCount) songs")
                         .font(.caption)
                 }
                 .foregroundColor(.secondary)
             }
 
             Spacer()
+
+            // Chip: shows merge icon or server name for name collisions
+            if let chipStyle {
+                PlaylistRowChip(style: chipStyle)
+            }
 
             if isDisabled {
                 ProgressView()
@@ -120,5 +153,52 @@ public struct PlaylistRow: View {
         }
         .contentShape(Rectangle())
         .opacity(isDisabled ? 0.55 : 1.0)
+    }
+}
+
+// MARK: - Playlist Row Chip
+
+/// A small capsule badge shown on playlist rows to indicate merge status
+/// or server name when there are name collisions across servers.
+public struct PlaylistRowChip: View {
+    public enum Style {
+        /// Shows the server name (when merge is off and names collide across servers)
+        case serverName(String)
+        /// Shows a merge icon (when this entry is a merged playlist)
+        case merged
+    }
+
+    let style: Style
+
+    public init(style: Style) {
+        self.style = style
+    }
+
+    public var body: some View {
+        Group {
+            switch style {
+            case .serverName(let name):
+                Text(name)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule()
+                            .fill(Color.secondary.opacity(0.15))
+                    )
+            case .merged:
+                Image(systemName: "arrow.triangle.merge")
+                    .font(.caption2)
+                    .foregroundColor(.accentColor)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule()
+                            .fill(Color.accentColor.opacity(0.15))
+                    )
+            }
+        }
+        .lineLimit(1)
     }
 }

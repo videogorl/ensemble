@@ -13,7 +13,7 @@ private extension Notification.Name {
 public struct PlaylistsView: View {
     @StateObject private var viewModel: PlaylistViewModel
     let nowPlayingVM: NowPlayingViewModel
-    @State private var selectedPlaylist: Playlist?
+    @State private var selectedPlaylist: DisplayPlaylist?
     @State private var pendingDeletionPlaylistIDs: Set<String> = []
     @State private var playlistPendingSwipeDelete: Playlist?
     @State private var deletingToastIDsByPlaylistID: [String: UUID] = [:]
@@ -26,8 +26,11 @@ public struct PlaylistsView: View {
     @State private var playlistPendingRename: Playlist?
     @State private var renamePlaylistTitle = ""
     @State private var playlistForEditSheet: Playlist?
-    // Cached filtered playlists — avoids recomputing .filter() on every body evaluation
-    @State private var cachedDisplayedPlaylists: [Playlist] = []
+    @State private var displayPlaylistPendingDelete: DisplayPlaylist?
+    @State private var displayPlaylistPendingRename: DisplayPlaylist?
+    @State private var mergedRenameTitle = ""
+    // Cached merge-aware playlist list — avoids recomputing grouping on every body evaluation
+    @State private var cachedDisplayedPlaylists: [DisplayPlaylist] = []
     // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
     @State private var isStageFlowActive = false
     private let accountManager = DependencyContainer.shared.accountManager
@@ -143,6 +146,50 @@ public struct PlaylistsView: View {
             } message: {
                 Text("Choose a new name for this playlist.")
             }
+            // Alert: confirm delete for merged playlists (affects all servers)
+            .alert("Delete Merged Playlist?", isPresented: Binding(
+                get: { displayPlaylistPendingDelete != nil },
+                set: { if !$0 { displayPlaylistPendingDelete = nil } }
+            )) {
+                Button("Cancel", role: .cancel) { displayPlaylistPendingDelete = nil }
+                Button("Delete All", role: .destructive) {
+                    guard let dp = displayPlaylistPendingDelete else { return }
+                    displayPlaylistPendingDelete = nil
+                    // Delete all constituent playlists
+                    for playlist in dp.playlists {
+                        startOptimisticDelete(for: playlist)
+                    }
+                }
+            } message: {
+                let count = displayPlaylistPendingDelete?.playlists.count ?? 0
+                Text("This will permanently delete \"\(displayPlaylistPendingDelete?.title ?? "")\" from \(count) server\(count == 1 ? "" : "s").")
+            }
+            // Alert: rename merged playlists (renames on all servers)
+            .alert("Rename Merged Playlist", isPresented: Binding(
+                get: { displayPlaylistPendingRename != nil },
+                set: { if !$0 { displayPlaylistPendingRename = nil } }
+            )) {
+                TextField("Playlist name", text: $mergedRenameTitle)
+                Button("Cancel", role: .cancel) {
+                    displayPlaylistPendingRename = nil
+                    mergedRenameTitle = ""
+                }
+                Button("Save") {
+                    guard let dp = displayPlaylistPendingRename else { return }
+                    displayPlaylistPendingRename = nil
+                    let trimmed = mergedRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    mergedRenameTitle = ""
+                    guard !trimmed.isEmpty else { return }
+                    // Apply optimistic rename to all constituents and then rename each
+                    viewModel.applyOptimisticRenameForMerged(dp, newTitle: trimmed)
+                    for playlist in dp.playlists {
+                        renamePlaylist(playlist, to: trimmed)
+                    }
+                }
+            } message: {
+                let count = displayPlaylistPendingRename?.playlists.count ?? 0
+                Text("This will rename the playlist on \(count) server\(count == 1 ? "" : "s").")
+            }
             .sheet(item: $playlistForEditSheet) { playlist in
                 NavigationView {
                     PlaylistDetailView(
@@ -162,19 +209,25 @@ public struct PlaylistsView: View {
             .task {
                 await viewModel.loadPlaylists()
             }
-            // Keep cached displayed playlists in sync (avoids recomputing .filter() on every body eval)
-            .onReceive(viewModel.$filteredPlaylists) { playlists in
-                cachedDisplayedPlaylists = playlists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
+            // Keep cached displayed playlists in sync (avoids recomputing grouping on every body eval)
+            .onReceive(viewModel.$displayPlaylists) { displayPlaylists in
+                cachedDisplayedPlaylists = displayPlaylists.filter { dp in
+                    !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionStarted)) { note in
                 guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
                 pendingDeletionPlaylistIDs.insert(playlistID)
-                cachedDisplayedPlaylists = viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
+                cachedDisplayedPlaylists = viewModel.displayPlaylists.filter { dp in
+                    !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionFailed)) { note in
                 guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
                 pendingDeletionPlaylistIDs.remove(playlistID)
-                cachedDisplayedPlaylists = viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
+                cachedDisplayedPlaylists = viewModel.displayPlaylists.filter { dp in
+                    !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
+                }
                 if let toastID = deletingToastIDsByPlaylistID.removeValue(forKey: playlistID) {
                     deps.toastCenter.dismiss(id: toastID)
                 }
@@ -187,7 +240,9 @@ public struct PlaylistsView: View {
                 Task {
                     await viewModel.loadPlaylists()
                     pendingDeletionPlaylistIDs.remove(playlistID)
-                    cachedDisplayedPlaylists = viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
+                    cachedDisplayedPlaylists = viewModel.displayPlaylists.filter { dp in
+                        !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
+                    }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .playlistRenameStarted)) { note in
@@ -225,6 +280,16 @@ public struct PlaylistsView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if !isStageFlowActive {
                         HStack(spacing: 16) {
+                            // Merge toggle — controls cross-server playlist grouping
+                            Button {
+                                viewModel.toggleMerge()
+                            } label: {
+                                Image(systemName: viewModel.isMergeEnabled
+                                      ? "arrow.triangle.merge"
+                                      : "arrow.triangle.branch")
+                            }
+                            .accessibilityLabel(viewModel.isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
+
                             // Extracted to scope syncCoordinator observation to just the button
                             PlaylistsNewButton {
                                 showCreatePlaylistPrompt = true
@@ -260,6 +325,15 @@ public struct PlaylistsView: View {
                 ToolbarItem(placement: .automatic) {
                     if !isStageFlowActive {
                         HStack(spacing: 16) {
+                            Button {
+                                viewModel.toggleMerge()
+                            } label: {
+                                Image(systemName: viewModel.isMergeEnabled
+                                      ? "arrow.triangle.merge"
+                                      : "arrow.triangle.branch")
+                            }
+                            .accessibilityLabel(viewModel.isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
+
                             PlaylistsNewButton {
                                 showCreatePlaylistPrompt = true
                             }
@@ -376,31 +450,49 @@ public struct PlaylistsView: View {
 
     private var playlistListView: some View {
         List {
-            ForEach(cachedDisplayedPlaylists) { playlist in
-                let isPendingCreation = viewModel.isPlaylistPendingCreation(playlist)
+            ForEach(cachedDisplayedPlaylists) { dp in
+                let isPendingCreation = viewModel.isDisplayPlaylistPendingCreation(dp)
                 PlaylistRow(
-                    playlist: playlist,
+                    displayPlaylist: dp,
                     nowPlayingVM: nowPlayingVM,
+                    chipStyle: chipStyle(for: dp),
                     isDisabled: isPendingCreation,
                     statusText: isPendingCreation ? "Creating..." : nil
                 )
                     .contextMenu {
                         if !isPendingCreation {
-                            PlaylistViewContextMenu(
-                                playlist: playlist,
-                                nowPlayingVM: nowPlayingVM,
-                                onRename: {
-                                    playlistPendingRename = playlist
-                                    renamePlaylistTitle = playlist.title
-                                },
-                                onEdit: { playlistForEditSheet = playlist },
-                                onDelete: { playlistPendingSwipeDelete = playlist }
-                            )
+                            if dp.isMerged {
+                                // Merged playlist context menu — actions apply to all constituents
+                                MergedPlaylistContextMenu(
+                                    displayPlaylist: dp,
+                                    nowPlayingVM: nowPlayingVM,
+                                    onRename: {
+                                        displayPlaylistPendingRename = dp
+                                        mergedRenameTitle = dp.title
+                                    },
+                                    onDelete: { displayPlaylistPendingDelete = dp }
+                                )
+                            } else {
+                                PlaylistViewContextMenu(
+                                    playlist: dp.primaryPlaylist,
+                                    nowPlayingVM: nowPlayingVM,
+                                    onRename: {
+                                        playlistPendingRename = dp.primaryPlaylist
+                                        renamePlaylistTitle = dp.primaryPlaylist.title
+                                    },
+                                    onEdit: { playlistForEditSheet = dp.primaryPlaylist },
+                                    onDelete: { playlistPendingSwipeDelete = dp.primaryPlaylist }
+                                )
+                            }
                         }
                     }
-                    .if(!playlist.isSmart && !isPendingCreation) { row in
+                    .if(!dp.isSmart && !isPendingCreation) { row in
                         row.standardDeleteSwipeAction {
-                            playlistPendingSwipeDelete = playlist
+                            if dp.isMerged {
+                                displayPlaylistPendingDelete = dp
+                            } else {
+                                playlistPendingSwipeDelete = dp.primaryPlaylist
+                            }
                         }
                     }
             }
@@ -413,23 +505,37 @@ public struct PlaylistsView: View {
         StageFlowView(
             items: cachedDisplayedPlaylists,
             nowPlayingVM: nowPlayingVM,
-            itemView: { playlist in
-                StageFlowItemView(playlist: playlist)
+            itemView: { dp in
+                StageFlowItemView(playlist: dp.primaryPlaylist)
             },
-            detailView: { selectedPlaylist in
+            detailView: { selectedDP in
                 StageFlowTrackPanel(
-                    contentType: .playlist(id: selectedPlaylist.id, sourceCompositeKey: selectedPlaylist.sourceCompositeKey),
+                    contentType: .playlist(id: selectedDP.primaryPlaylist.id, sourceCompositeKey: selectedDP.primaryPlaylist.sourceCompositeKey),
                     nowPlayingVM: nowPlayingVM
                 )
             },
             titleContent: { $0.title },
             subtitleContent: { "\($0.trackCount) tracks" },
-            resolvePlaybackTracks: { playlist in
-                if let cachedPlaylist = try? await deps.playlistRepository.fetchPlaylist(
-                    ratingKey: playlist.id,
-                    sourceCompositeKey: playlist.sourceCompositeKey
+            resolvePlaybackTracks: { dp in
+                // For merged playlists, load and interleave tracks from all constituents
+                if dp.isMerged {
+                    var trackSets: [[Track]] = []
+                    for playlist in dp.playlists {
+                        if let cached = try? await deps.playlistRepository.fetchPlaylist(
+                            ratingKey: playlist.id,
+                            sourceCompositeKey: playlist.sourceCompositeKey
+                        ) {
+                            trackSets.append(cached.tracksArray.map { Track(from: $0) })
+                        }
+                    }
+                    return DisplayPlaylist.interleave(trackSets)
+                }
+                // Single playlist — fetch directly
+                if let cached = try? await deps.playlistRepository.fetchPlaylist(
+                    ratingKey: dp.primaryPlaylist.id,
+                    sourceCompositeKey: dp.primaryPlaylist.sourceCompositeKey
                 ) {
-                    return cachedPlaylist.tracksArray.map { Track(from: $0) }
+                    return cached.tracksArray.map { Track(from: $0) }
                 }
                 return []
             },
@@ -437,8 +543,23 @@ public struct PlaylistsView: View {
         )
     }
 
-    private var effectivePlaylists: [Playlist] {
-        viewModel.playlists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
+    private var effectivePlaylists: [DisplayPlaylist] {
+        // Filter out display playlists whose only constituent is pending deletion
+        cachedDisplayedPlaylists.isEmpty
+            ? viewModel.displayPlaylists.filter { dp in
+                !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
+            }
+            : cachedDisplayedPlaylists
+    }
+
+    /// Determines the chip style for a DisplayPlaylist row
+    private func chipStyle(for dp: DisplayPlaylist) -> PlaylistRowChip.Style? {
+        if dp.isMerged { return .merged }
+        if viewModel.hasNameCollision(dp.title) {
+            let name = accountManager.serverName(for: dp.primaryPlaylist.sourceCompositeKey ?? "") ?? "Unknown"
+            return .serverName(name)
+        }
+        return nil
     }
 
     private var hasEnabledLibraries: Bool {
@@ -776,6 +897,100 @@ private struct PlaylistViewContextMenu: View {
             return cachedPlaylist.tracksArray.map { Track(from: $0) }
         }
         return []
+    }
+}
+
+// MARK: - Merged Playlist Context Menu
+
+/// Context menu for merged playlist entries — actions apply to all constituent playlists.
+private struct MergedPlaylistContextMenu: View {
+    let displayPlaylist: DisplayPlaylist
+    let nowPlayingVM: NowPlayingViewModel
+    var onRename: (() -> Void)?
+    var onDelete: (() -> Void)?
+
+    @Environment(\.dependencies) private var deps
+
+    var body: some View {
+        Button {
+            withMergedTracks { tracks in nowPlayingVM.play(tracks: tracks) }
+        } label: {
+            Label("Play", systemImage: "play.fill")
+        }
+
+        Button {
+            withMergedTracks { tracks in nowPlayingVM.shufflePlay(tracks: tracks) }
+        } label: {
+            Label("Shuffle", systemImage: "shuffle")
+        }
+
+        Button {
+            withMergedTracks { tracks in nowPlayingVM.playNext(tracks) }
+        } label: {
+            Label("Play Next", systemImage: "text.insert")
+        }
+
+        Button {
+            withMergedTracks { tracks in nowPlayingVM.playLast(tracks) }
+        } label: {
+            Label("Play Last", systemImage: "text.append")
+        }
+
+        // Download all constituent playlists
+        Button {
+            Task {
+                for playlist in displayPlaylist.playlists {
+                    await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: true)
+                }
+            }
+        } label: {
+            Label("Download All", systemImage: "arrow.down.circle")
+        }
+
+        if !displayPlaylist.isSmart {
+            Button {
+                onRename?()
+            } label: {
+                Label("Rename All...", systemImage: "pencil")
+            }
+
+            Button(role: .destructive) {
+                onDelete?()
+            } label: {
+                Label("Delete All", systemImage: "trash")
+            }
+        }
+    }
+
+    /// Loads and interleaves tracks from all constituent playlists
+    private func withMergedTracks(perform action: @escaping ([Track]) -> Void) {
+        Task {
+            var trackSets: [[Track]] = []
+            for playlist in displayPlaylist.playlists {
+                if let cached = try? await deps.playlistRepository.fetchPlaylist(
+                    ratingKey: playlist.id,
+                    sourceCompositeKey: playlist.sourceCompositeKey
+                ) {
+                    trackSets.append(cached.tracksArray.map { Track(from: $0) })
+                }
+            }
+            let interleaved = DisplayPlaylist.interleave(trackSets)
+            guard !interleaved.isEmpty else {
+                await MainActor.run {
+                    deps.toastCenter.show(
+                        ToastPayload(
+                            style: .warning,
+                            iconSystemName: "exclamationmark.triangle.fill",
+                            title: "No tracks available",
+                            message: "Try again after playlists finish syncing.",
+                            dedupeKey: "merged-playlist-menu-empty-\(displayPlaylist.id)"
+                        )
+                    )
+                }
+                return
+            }
+            await MainActor.run { action(interleaved) }
+        }
     }
 }
 

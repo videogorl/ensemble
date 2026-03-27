@@ -420,6 +420,8 @@ public struct MainTabView: View {
             AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
         case .playlist(let id, let sourceKey):
             PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+        case .mergedPlaylist(let title, let isSmart):
+            MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM)
         case .moodTracks(let mood):
             MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .view(let tab):
@@ -532,6 +534,7 @@ public struct SidebarView: View {
         let sourceKey: String?
         let title: String
         let isSmart: Bool
+        let isMerged: Bool
     }
 
     @StateObject private var libraryVM: LibraryViewModel
@@ -611,8 +614,34 @@ public struct SidebarView: View {
     }
 
     /// Build sidebar playlist items from the VM's current playlists.
+    /// When merge is enabled, uses `sortedDisplayPlaylists` to group same-named playlists.
     /// Called from rebuildCachedSidebarPlaylists to update @State caches.
     private func buildSidebarPlaylistItems() -> [SidebarPlaylistItem] {
+        if playlistsVM.isMergeEnabled {
+            return buildMergedSidebarPlaylistItems()
+        }
+        return buildIndividualSidebarPlaylistItems()
+    }
+
+    /// Build sidebar items from DisplayPlaylists (merge-aware grouping)
+    private func buildMergedSidebarPlaylistItems() -> [SidebarPlaylistItem] {
+        var seenIDs = Set<String>()
+        return playlistsVM.sortedDisplayPlaylists.compactMap { dp in
+            let stableID = dp.id
+            guard seenIDs.insert(stableID).inserted else { return nil }
+            return SidebarPlaylistItem(
+                id: stableID,
+                playlistID: dp.primaryPlaylist.id,
+                sourceKey: dp.primaryPlaylist.sourceCompositeKey,
+                title: dp.title,
+                isSmart: dp.isSmart,
+                isMerged: dp.isMerged
+            )
+        }
+    }
+
+    /// Build sidebar items from individual playlists (merge off)
+    private func buildIndividualSidebarPlaylistItems() -> [SidebarPlaylistItem] {
         var seenIDs = Set<String>()
         let sortedPlaylists = sortedSidebarSourcePlaylists()
 
@@ -643,7 +672,8 @@ public struct SidebarView: View {
                 playlistID: playlist.id,
                 sourceKey: playlist.sourceCompositeKey,
                 title: resolvedTitle,
-                isSmart: playlist.isSmart
+                isSmart: playlist.isSmart,
+                isMerged: false
             )
         }
     }
@@ -891,6 +921,9 @@ public struct SidebarView: View {
             .onReceive(playlistsVM.$filterOptions) { _ in
                 rebuildCachedSidebarPlaylists()
             }
+            .onReceive(playlistsVM.$isMergeEnabled) { _ in
+                rebuildCachedSidebarPlaylists()
+            }
 
             Divider()
 
@@ -950,6 +983,8 @@ public struct SidebarView: View {
             return .library(.albums)
         case .playlist(let id, let sourceKey):
             return .playlist(id: id, sourceKey: sourceKey)
+        case .mergedPlaylist(let title, let isSmart):
+            return .mergedPlaylist(title: title, isSmart: isSmart)
         case .moodTracks:
             return .library(.home)
         case .view(let tab):
@@ -967,7 +1002,7 @@ public struct SidebarView: View {
         switch destination {
         case .artist: return .artists
         case .album: return .albums
-        case .playlist: return .playlists
+        case .playlist, .mergedPlaylist: return .playlists
         case .moodTracks: return .home
         case .view(let tab): return tab
         }
@@ -982,6 +1017,8 @@ public struct SidebarView: View {
                 sidebarNavigationStack(for: tab)
             case .playlist(let id, let sourceKey):
                 playlistDetailNavigationStack(playlistID: id, sourceKey: sourceKey)
+            case .mergedPlaylist(let title, let isSmart):
+                mergedPlaylistDetailNavigationStack(title: title, isSmart: isSmart)
             case .pin(let id, let type):
                 // Navigate directly to the pinned item's detail view
                 NavigationStack {
@@ -1029,6 +1066,21 @@ public struct SidebarView: View {
             }
         }
         .id("playlist-detail-\(playlistID)-\(sourceKey ?? "none")")
+    }
+
+    @ViewBuilder
+    private func mergedPlaylistDetailNavigationStack(title: String, isSmart: Bool) -> some View {
+        NavigationStack(path: sidebarPathBinding(for: .playlists)) {
+            MergedPlaylistDetailLoader(
+                title: title,
+                isSmart: isSmart,
+                nowPlayingVM: nowPlayingVM
+            )
+            .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                destinationView(for: destination)
+            }
+        }
+        .id("merged-playlist-detail-\(title)-\(isSmart)")
     }
 
     /// Keep the detail column's navigation container shape consistent across sidebar sections.
@@ -1143,16 +1195,29 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private func sidebarPlaylistButton(_ playlist: SidebarPlaylistItem) -> some View {
-        Button {
-            selection = .playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey)
-        } label: {
-            sidebarSelectableRow(
-                title: playlist.title,
-                systemImage: "music.note",
-                isSelected: selection == .playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey)
-            )
+        if playlist.isMerged {
+            Button {
+                selection = .mergedPlaylist(title: playlist.title, isSmart: playlist.isSmart)
+            } label: {
+                sidebarSelectableRow(
+                    title: playlist.title,
+                    systemImage: "music.note",
+                    isSelected: selection == .mergedPlaylist(title: playlist.title, isSmart: playlist.isSmart)
+                )
+            }
+            .buttonStyle(.plain)
+        } else {
+            Button {
+                selection = .playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey)
+            } label: {
+                sidebarSelectableRow(
+                    title: playlist.title,
+                    systemImage: "music.note",
+                    isSelected: selection == .playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey)
+                )
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -1216,6 +1281,8 @@ public struct SidebarView: View {
             AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
         case .playlist(let id, let sourceKey):
             PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+        case .mergedPlaylist(let title, let isSmart):
+            MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM)
         case .moodTracks(let mood):
             MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .view(let tab):
@@ -1232,6 +1299,7 @@ public struct SidebarView: View {
 public enum SidebarSelection: Hashable {
     case library(TabItem)
     case playlist(id: String, sourceKey: String?)
+    case mergedPlaylist(title: String, isSmart: Bool)
     case pin(id: String, type: PinnedItemType)
 
     /// Map sidebar section to the corresponding TabItem for NavigationCoordinator sync.
@@ -1240,7 +1308,7 @@ public enum SidebarSelection: Hashable {
         switch self {
         case .library(let tab):
             return tab
-        case .playlist:
+        case .playlist, .mergedPlaylist:
             return .playlists
         case .pin:
             return nil
