@@ -841,6 +841,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var isInterrupted = false
     private var isRouteChangeInProgress = false
     private var lastRouteChangeAt: Date?
+    private var lastDeviceDisconnectAt: Date?
     private var lastUnexpectedPauseAt: Date?
     private var lastSuccessfulPlayAt: Date?
     private var unexpectedPauseCount = 0
@@ -1548,6 +1549,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         switch type {
         case .began:
             EnsembleLogger.debug("🔇 Audio session interruption BEGAN")
+            // iOS fires interruption BEGAN alongside old-device-unavailable route
+            // changes. If we already handled the disconnect (paused explicitly),
+            // skip setting isInterrupted — no matching ENDED will arrive.
+            if let disconnectAt = lastDeviceDisconnectAt,
+               Date().timeIntervalSince(disconnectAt) < 1.0 {
+                EnsembleLogger.debug("🔇 Ignoring interruption — caused by device disconnect (already paused)")
+                lastDeviceDisconnectAt = nil
+                return
+            }
             isInterrupted = true
             // When interruption begins, the system pauses audio.
             // Update internal state so we know to resume when interruption ends.
@@ -1617,7 +1627,29 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         case .oldDeviceUnavailable:
             EnsembleLogger.debug("🎧 Audio device unavailable (e.g. disconnected)")
             isRouteChangeInProgress = false
-            // Default system behavior is to pause; we should stay paused if the user disconnected.
+            lastDeviceDisconnectAt = Date()
+            // Bluetooth/headphones disconnected. iOS auto-pauses the audio session,
+            // but our AudioEngine would auto-resume on the upcoming config change
+            // notification. Explicitly stop the engine so wasPlaying becomes false
+            // and the config change handler won't restart playback on the speaker.
+            if playbackState == .playing || playbackState == .buffering {
+                audioEngine?.pause()
+                playbackState = .paused
+                isInterrupted = false
+                updateNowPlayingInfo()
+                MPNowPlayingInfoCenter.default().playbackState = .paused
+                // Pause frequency analysis
+                Task { @MainActor in
+                    audioAnalyzer.pauseUpdates()
+                }
+                // Report pause to Plex
+                if let track = currentTrack {
+                    Task {
+                        await syncCoordinator.reportTimeline(track: track, state: "paused", time: currentTime)
+                    }
+                }
+                EnsembleLogger.debug("🎧 Paused playback after device disconnect")
+            }
         default:
             isRouteChangeInProgress = false
         }
