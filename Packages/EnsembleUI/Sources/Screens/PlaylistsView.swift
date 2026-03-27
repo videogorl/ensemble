@@ -936,15 +936,27 @@ private struct MergedPlaylistContextMenu: View {
             Label("Play Last", systemImage: "text.append")
         }
 
-        // Download all constituent playlists
-        Button {
-            Task {
-                for playlist in displayPlaylist.playlists {
-                    await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: true)
+        // Download/remove all constituent playlists
+        if isAnyConstituentDownloaded {
+            Button {
+                Task {
+                    for playlist in displayPlaylist.playlists {
+                        await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: false)
+                    }
                 }
+            } label: {
+                Label("Remove Downloads", systemImage: "xmark.circle")
             }
-        } label: {
-            Label("Download All", systemImage: "arrow.down.circle")
+        } else {
+            Button {
+                Task {
+                    for playlist in displayPlaylist.playlists {
+                        await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: true)
+                    }
+                }
+            } label: {
+                Label("Download All", systemImage: "arrow.down.circle")
+            }
         }
 
         if !displayPlaylist.isSmart {
@@ -960,6 +972,11 @@ private struct MergedPlaylistContextMenu: View {
                 Label("Delete All", systemImage: "trash")
             }
         }
+    }
+
+    /// Whether any constituent playlist is already marked for download
+    private var isAnyConstituentDownloaded: Bool {
+        displayPlaylist.playlists.contains { deps.offlineDownloadService.isPlaylistDownloadEnabled($0) }
     }
 
     /// Loads and interleaves tracks from all constituent playlists
