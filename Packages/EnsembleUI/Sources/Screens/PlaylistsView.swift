@@ -200,9 +200,14 @@ public struct PlaylistsView: View {
                 let filtered = displayPlaylists.filter { dp in
                     !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
                 }
-                // Don't replace a populated cache with empty/partial results while
+                // Don't replace a populated cache with smaller/partial results while
                 // the Combine pipeline is still catching up after a refresh.
-                if filtered.isEmpty && !cachedDisplayedPlaylists.isEmpty && !viewModel.playlists.isEmpty {
+                // This guards against intermediate CoreData states during sync that
+                // contain fewer playlists than the fully committed state.
+                if filtered.count < cachedDisplayedPlaylists.count
+                    && !cachedDisplayedPlaylists.isEmpty
+                    && !viewModel.playlists.isEmpty
+                    && pendingDeletionPlaylistIDs.isEmpty {
                     return
                 }
                 cachedDisplayedPlaylists = filtered
@@ -989,6 +994,8 @@ public struct PlaylistDetailView: View {
     @State private var isSavingPlaylistEdits = false
     @State private var isDeletingPlaylist = false
     @State private var deletingToastID: UUID?
+    /// When true, Cancel in edit mode dismisses the sheet instead of just toggling edit off
+    private let startedInEditMode: Bool
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
 
@@ -996,6 +1003,7 @@ public struct PlaylistDetailView: View {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistDetailViewModel(playlist: playlist))
         self.nowPlayingVM = nowPlayingVM
         self._isEditingPlaylist = State(initialValue: startInEditMode)
+        self.startedInEditMode = startInEditMode
     }
 
     public var body: some View {
@@ -1065,8 +1073,12 @@ public struct PlaylistDetailView: View {
             ToolbarItem(placement: .navigationBarLeading) {
                 if isEditingPlaylist {
                     Button("Cancel") {
-                        isEditingPlaylist = false
-                        editedTracks = []
+                        if startedInEditMode {
+                            dismiss()
+                        } else {
+                            isEditingPlaylist = false
+                            editedTracks = []
+                        }
                     }
                 }
             }
@@ -1090,8 +1102,12 @@ public struct PlaylistDetailView: View {
             ToolbarItem(placement: .automatic) {
                 if isEditingPlaylist {
                     Button("Cancel") {
-                        isEditingPlaylist = false
-                        editedTracks = []
+                        if startedInEditMode {
+                            dismiss()
+                        } else {
+                            isEditingPlaylist = false
+                            editedTracks = []
+                        }
                     }
                 }
             }
@@ -1230,6 +1246,18 @@ public struct PlaylistDetailView: View {
         }
         .refreshable {
             await viewModel.refreshFromServer()
+        }
+        // When opened in edit mode (from merged playlist picker), populate editedTracks
+        // once the view model finishes loading tracks.
+        .onAppear {
+            if startedInEditMode && editedTracks.isEmpty && !viewModel.tracks.isEmpty {
+                editedTracks = viewModel.tracks
+            }
+        }
+        .onChange(of: viewModel.tracks) { tracks in
+            if startedInEditMode && isEditingPlaylist && editedTracks.isEmpty && !tracks.isEmpty {
+                editedTracks = tracks
+            }
         }
         #if os(iOS)
         .navigationBarBackButtonHidden(isEditingPlaylist)

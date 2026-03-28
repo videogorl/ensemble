@@ -171,10 +171,12 @@ public final class PlaylistViewModel: ObservableObject {
         }
         EnsembleLogger.debug("✅ Playlist sync complete")
 
-        isRefreshingFromServer = false
-
-        // Reload from updated cache (now that sync is fully committed)
+        // Reload from updated cache (now that sync is fully committed).
+        // Keep the flag set until AFTER loadPlaylists finishes — clearing it before
+        // would let queued debounced observers fire in the window between flag-clear
+        // and loadPlaylists, potentially publishing partial CoreData state.
         await loadPlaylists()
+        isRefreshingFromServer = false
     }
 
     public func deletePlaylist(_ playlist: Playlist) async -> Bool {
