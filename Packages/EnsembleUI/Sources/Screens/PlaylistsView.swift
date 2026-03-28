@@ -17,22 +17,32 @@ public struct PlaylistsView: View {
     @State private var pendingDeletionPlaylistIDs: Set<String> = []
     @State private var playlistPendingSwipeDelete: Playlist?
     @State private var deletingToastIDsByPlaylistID: [String: UUID] = [:]
-    @State private var showCreatePlaylistPrompt = false
-    @State private var newPlaylistName = ""
     @State private var pendingCreatePlaylistName = ""
     @State private var createServerOptions: [PlaylistServerOption] = []
     @State private var showCreateServerPicker = false
     @State private var creatingPlaylistToastID: UUID?
-    @State private var playlistPendingRename: Playlist?
-    @State private var renamePlaylistTitle = ""
     @State private var playlistForEditSheet: Playlist?
     @State private var displayPlaylistPendingDelete: DisplayPlaylist?
-    @State private var displayPlaylistPendingRename: DisplayPlaylist?
-    @State private var mergedRenameTitle = ""
+    // Push-based text input — avoids keyboard over root nav bar (iOS 26 scroll pocket bug)
+    @State private var showCreatePlaylistPush = false
+    @State private var renamePushPlaylist: Playlist?
+    @State private var renamePushDP: DisplayPlaylist?
     // Cached merge-aware playlist list — avoids recomputing grouping on every body evaluation
     @State private var cachedDisplayedPlaylists: [DisplayPlaylist] = []
     // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
     @State private var isStageFlowActive = false
+    // --- Navigation bar decoupling (iOS 26 ScrollPocket fix) ---
+    // On iOS 26, the ScrollPocketCollectorModel triggers updateProperties on the navigation bar
+    // whenever a software keyboard appears. If toolbar items or .searchable read @Published
+    // properties, UIKit's automatic observation tracking creates a feedback loop that hangs
+    // the app. Caching these values in @State and bridging via .onReceive ensures the
+    // navigation bar only reads inert @State — invisible to UIKit's observation tracking.
+    @State private var searchText = ""
+    @State private var isMergeEnabled = false
+    @State private var isOffline = false
+    @State private var sortOption: PlaylistSortOption = .title
+    @State private var sortDirection: SortDirection = .ascending
+    @State private var isLoading = false
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
@@ -55,7 +65,7 @@ public struct PlaylistsView: View {
 
     public var body: some View {
         Group {
-            if viewModel.isLoading && effectivePlaylists.isEmpty {
+            if isLoading && effectivePlaylists.isEmpty {
                 loadingView
             } else if effectivePlaylists.isEmpty {
                 emptyView
@@ -80,20 +90,6 @@ public struct PlaylistsView: View {
                     }
             }
         )
-            .alert("New Playlist", isPresented: $showCreatePlaylistPrompt) {
-                TextField("Playlist name", text: $newPlaylistName)
-                Button("Cancel", role: .cancel) {
-                    newPlaylistName = ""
-                }
-                Button("Create") {
-                    let trimmed = newPlaylistName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    newPlaylistName = ""
-                    guard !trimmed.isEmpty else { return }
-                    startCreatePlaylistFlow(named: trimmed)
-                }
-            } message: {
-                Text("Choose a name for your playlist.")
-            }
             .confirmationDialog("Choose Server", isPresented: $showCreateServerPicker, titleVisibility: .visible) {
                 ForEach(createServerOptions) { option in
                     Button(option.name) {
@@ -124,28 +120,6 @@ public struct PlaylistsView: View {
             } message: {
                 Text("This will permanently delete \"\(playlistPendingSwipeDelete?.title ?? "this playlist")\" from Plex.")
             }
-            .alert("Rename Playlist", isPresented: Binding(
-                get: { playlistPendingRename != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        playlistPendingRename = nil
-                    }
-                }
-            )) {
-                TextField("Playlist name", text: $renamePlaylistTitle)
-                Button("Cancel", role: .cancel) {
-                    playlistPendingRename = nil
-                    renamePlaylistTitle = ""
-                }
-                Button("Save") {
-                    guard let playlist = playlistPendingRename else { return }
-                    playlistPendingRename = nil
-                    renamePlaylist(playlist, to: renamePlaylistTitle)
-                    renamePlaylistTitle = ""
-                }
-            } message: {
-                Text("Choose a new name for this playlist.")
-            }
             // Alert: confirm delete for merged playlists (affects all servers)
             .alert("Delete Merged Playlist?", isPresented: Binding(
                 get: { displayPlaylistPendingDelete != nil },
@@ -164,32 +138,6 @@ public struct PlaylistsView: View {
                 let count = displayPlaylistPendingDelete?.playlists.count ?? 0
                 Text("This will permanently delete \"\(displayPlaylistPendingDelete?.title ?? "")\" from \(count) server\(count == 1 ? "" : "s").")
             }
-            // Alert: rename merged playlists (renames on all servers)
-            .alert("Rename Merged Playlist", isPresented: Binding(
-                get: { displayPlaylistPendingRename != nil },
-                set: { if !$0 { displayPlaylistPendingRename = nil } }
-            )) {
-                TextField("Playlist name", text: $mergedRenameTitle)
-                Button("Cancel", role: .cancel) {
-                    displayPlaylistPendingRename = nil
-                    mergedRenameTitle = ""
-                }
-                Button("Save") {
-                    guard let dp = displayPlaylistPendingRename else { return }
-                    displayPlaylistPendingRename = nil
-                    let trimmed = mergedRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                    mergedRenameTitle = ""
-                    guard !trimmed.isEmpty else { return }
-                    // Apply optimistic rename to all constituents and then rename each
-                    viewModel.applyOptimisticRenameForMerged(dp, newTitle: trimmed)
-                    for playlist in dp.playlists {
-                        renamePlaylist(playlist, to: trimmed)
-                    }
-                }
-            } message: {
-                let count = displayPlaylistPendingRename?.playlists.count ?? 0
-                Text("This will rename the playlist on \(count) server\(count == 1 ? "" : "s").")
-            }
             .sheet(item: $playlistForEditSheet) { playlist in
                 NavigationView {
                     PlaylistDetailView(
@@ -205,7 +153,72 @@ public struct PlaylistsView: View {
             .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
             #endif
             .navigationTitle(isStageFlowActive ? "" : "Playlists")
-            .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
+            // Push-based text input — keyboard appears in the PUSHED view's context,
+            // which uses inline title and doesn't have scroll pocket collapse tracking.
+            // This avoids the iOS 26 ScrollPocketCollectorModel feedback loop that hangs
+            // the app when a keyboard appears over a root tab view's navigation bar.
+            .background(
+                NavigationLink(
+                    destination: TextInputView(
+                        title: "New Playlist",
+                        placeholder: "Playlist name",
+                        actionTitle: "Create"
+                    ) { name in
+                        startCreatePlaylistFlow(named: name)
+                    },
+                    isActive: $showCreatePlaylistPush
+                ) { EmptyView() }
+                    .hidden()
+            )
+            .background(
+                NavigationLink(
+                    destination: Group {
+                        if let playlist = renamePushPlaylist {
+                            TextInputView(
+                                title: "Rename Playlist",
+                                placeholder: "Playlist name",
+                                initialText: playlist.title,
+                                actionTitle: "Save"
+                            ) { name in
+                                renamePlaylist(playlist, to: name)
+                            }
+                        }
+                    },
+                    isActive: Binding(
+                        get: { renamePushPlaylist != nil },
+                        set: { if !$0 { renamePushPlaylist = nil } }
+                    )
+                ) { EmptyView() }
+                    .hidden()
+            )
+            .background(
+                NavigationLink(
+                    destination: Group {
+                        if let dp = renamePushDP {
+                            TextInputView(
+                                title: "Rename Playlist",
+                                message: "This will rename on \(dp.playlists.count) server\(dp.playlists.count == 1 ? "" : "s").",
+                                placeholder: "Playlist name",
+                                initialText: dp.title,
+                                actionTitle: "Save"
+                            ) { name in
+                                viewModel.applyOptimisticRenameForMerged(dp, newTitle: name)
+                                for playlist in dp.playlists {
+                                    renamePlaylist(playlist, to: name)
+                                }
+                            }
+                        }
+                    },
+                    isActive: Binding(
+                        get: { renamePushDP != nil },
+                        set: { if !$0 { renamePushDP = nil } }
+                    )
+                ) { EmptyView() }
+                    .hidden()
+            )
+            .onChange(of: searchText) { newValue in
+                viewModel.filterOptions.searchText = newValue
+            }
             .task {
                 await viewModel.loadPlaylists()
             }
@@ -271,6 +284,14 @@ public struct PlaylistsView: View {
                     await viewModel.loadPlaylists()
                 }
             }
+            // Bridge viewModel/syncCoordinator → @State for navigation bar decoupling
+            .onReceive(viewModel.$isLoading) { val in if val != isLoading { isLoading = val } }
+            .onReceive(viewModel.$isMergeEnabled) { val in if val != isMergeEnabled { isMergeEnabled = val } }
+            .onReceive(viewModel.$playlistSortOption) { val in if val != sortOption { sortOption = val } }
+            .onReceive(viewModel.$filterOptions.map(\.sortDirection).removeDuplicates()) { val in
+                if val != sortDirection { sortDirection = val }
+            }
+            .onReceive(syncCoordinator.$isOffline) { val in if val != isOffline { isOffline = val } }
             .refreshable {
                 await viewModel.refreshFromServer()
             }
@@ -279,28 +300,27 @@ public struct PlaylistsView: View {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if !isStageFlowActive {
+                        // All reads use @State (not viewModel) — invisible to UIKit observation.
+                        // Actions write to viewModel, which is fine (writes don't create tracking).
                         HStack(spacing: 16) {
-                            // Merge toggle — controls cross-server playlist grouping
-                            Button {
-                                viewModel.toggleMerge()
-                            } label: {
-                                Image(systemName: viewModel.isMergeEnabled
+                            Button { viewModel.toggleMerge() } label: {
+                                Image(systemName: isMergeEnabled
                                       ? "arrow.triangle.merge"
                                       : "arrow.triangle.branch")
                             }
-                            .accessibilityLabel(viewModel.isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
+                            .accessibilityLabel(isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
 
-                            // Extracted to scope syncCoordinator observation to just the button
-                            PlaylistsNewButton {
-                                showCreatePlaylistPrompt = true
+                            Button { showCreatePlaylistPush = true } label: {
+                                Label("New Playlist", systemImage: "plus")
                             }
+                            .disabled(isOffline)
 
                             Menu {
                                 ForEach(PlaylistSortOption.allCases, id: \.self) { option in
                                     Button {
-                                        if viewModel.playlistSortOption == option {
+                                        if sortOption == option {
                                             viewModel.filterOptions.sortDirection =
-                                                viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
+                                                sortDirection == .ascending ? .descending : .ascending
                                         } else {
                                             viewModel.playlistSortOption = option
                                             viewModel.filterOptions.sortDirection = option.defaultDirection
@@ -308,8 +328,8 @@ public struct PlaylistsView: View {
                                     } label: {
                                         HStack {
                                             Text(option.rawValue)
-                                            if viewModel.playlistSortOption == option {
-                                                Image(systemName: viewModel.filterOptions.sortDirection == .ascending
+                                            if sortOption == option {
+                                                Image(systemName: sortDirection == .ascending
                                                       ? "chevron.up" : "chevron.down")
                                             }
                                         }
@@ -325,25 +345,24 @@ public struct PlaylistsView: View {
                 ToolbarItem(placement: .automatic) {
                     if !isStageFlowActive {
                         HStack(spacing: 16) {
-                            Button {
-                                viewModel.toggleMerge()
-                            } label: {
-                                Image(systemName: viewModel.isMergeEnabled
+                            Button { viewModel.toggleMerge() } label: {
+                                Image(systemName: isMergeEnabled
                                       ? "arrow.triangle.merge"
                                       : "arrow.triangle.branch")
                             }
-                            .accessibilityLabel(viewModel.isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
+                            .accessibilityLabel(isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
 
-                            PlaylistsNewButton {
-                                showCreatePlaylistPrompt = true
+                            Button { showCreatePlaylistPush = true } label: {
+                                Label("New Playlist", systemImage: "plus")
                             }
+                            .disabled(isOffline)
 
                             Menu {
                                 ForEach(PlaylistSortOption.allCases, id: \.self) { option in
                                     Button {
-                                        if viewModel.playlistSortOption == option {
+                                        if sortOption == option {
                                             viewModel.filterOptions.sortDirection =
-                                                viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
+                                                sortDirection == .ascending ? .descending : .ascending
                                         } else {
                                             viewModel.playlistSortOption = option
                                             viewModel.filterOptions.sortDirection = option.defaultDirection
@@ -351,8 +370,8 @@ public struct PlaylistsView: View {
                                     } label: {
                                         HStack {
                                             Text(option.rawValue)
-                                            if viewModel.playlistSortOption == option {
-                                                Image(systemName: viewModel.filterOptions.sortDirection == .ascending
+                                            if sortOption == option {
+                                                Image(systemName: sortDirection == .ascending
                                                       ? "chevron.up" : "chevron.down")
                                             }
                                         }
@@ -450,6 +469,26 @@ public struct PlaylistsView: View {
 
     private var playlistListView: some View {
         List {
+            // Inline search — replaces .searchable to eliminate _UIFloatingBarContainerView
+            // which participates in the iOS 26 ScrollPocket feedback loop
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+                TextField("Filter playlists", text: $searchText)
+                    .disableAutocorrection(true)
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+                if !searchText.isEmpty {
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .hideListRowSeparator()
+
             ForEach(cachedDisplayedPlaylists) { dp in
                 let isPendingCreation = viewModel.isDisplayPlaylistPendingCreation(dp)
                 PlaylistRow(
@@ -467,8 +506,7 @@ public struct PlaylistsView: View {
                                     displayPlaylist: dp,
                                     nowPlayingVM: nowPlayingVM,
                                     onRename: {
-                                        displayPlaylistPendingRename = dp
-                                        mergedRenameTitle = dp.title
+                                        renamePushDP = dp
                                     },
                                     onDelete: { displayPlaylistPendingDelete = dp }
                                 )
@@ -477,8 +515,7 @@ public struct PlaylistsView: View {
                                     playlist: dp.primaryPlaylist,
                                     nowPlayingVM: nowPlayingVM,
                                     onRename: {
-                                        playlistPendingRename = dp.primaryPlaylist
-                                        renamePlaylistTitle = dp.primaryPlaylist.title
+                                        renamePushPlaylist = dp.primaryPlaylist
                                     },
                                     onEdit: { playlistForEditSheet = dp.primaryPlaylist },
                                     onDelete: { playlistPendingSwipeDelete = dp.primaryPlaylist }
@@ -746,24 +783,7 @@ public struct PlaylistsView: View {
             }
         }
     }
-}
 
-// MARK: - "New Playlist" Toolbar Button
-
-/// Scopes syncCoordinator observation so only this button re-renders on sync state changes,
-/// not the entire PlaylistsView list.
-private struct PlaylistsNewButton: View {
-    let action: () -> Void
-    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
-
-    var body: some View {
-        Button {
-            action()
-        } label: {
-            Label("New Playlist", systemImage: "plus")
-        }
-        .disabled(syncCoordinator.isOffline)
-    }
 }
 
 // MARK: - Playlist Context Menu
@@ -1320,5 +1340,83 @@ public struct PlaylistDetailView: View {
         .environment(\.editMode, .constant(.active))
         #endif
         .miniPlayerBottomSpacing(110)
+    }
+}
+
+// MARK: - Push-based Text Input
+
+/// A simple pushed view with a text field for name input.
+/// Used instead of alerts/sheets to avoid the iOS 26 ScrollPocketCollectorModel
+/// feedback loop: pushed views replace the root navigation bar (which has active
+/// scroll pocket tracking) with their own inline-title bar (no collapse tracking),
+/// so the keyboard can appear without triggering the loop.
+private struct TextInputView: View {
+    let title: String
+    var message: String = ""
+    let placeholder: String
+    var initialText: String = ""
+    let actionTitle: String
+    let onSubmit: (String) -> Void
+
+    @State private var text = ""
+    @FocusState private var isFocused: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        Form {
+            if !message.isEmpty {
+                Section {
+                    Text(message)
+                        .foregroundColor(.secondary)
+                }
+            }
+            Section {
+                TextField(placeholder, text: $text)
+                    .focused($isFocused)
+                    .submitLabel(.done)
+                    .onSubmit { submit() }
+            }
+        }
+        .navigationTitle(title)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { dismissAfterKeyboard() }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button(actionTitle) { submit() }
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .onAppear {
+            text = initialText
+            // Delay focus slightly so the push animation completes first
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                isFocused = true
+            }
+        }
+    }
+
+    /// Dismiss keyboard first, then pop — prevents the keyboard dismissal animation
+    /// from overlapping with the root navigation bar restoration, which triggers
+    /// the iOS 26 ScrollPocket feedback loop.
+    private func dismissAfterKeyboard() {
+        isFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            dismiss()
+        }
+    }
+
+    private func submit() {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        isFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            dismiss()
+            onSubmit(trimmed)
+        }
     }
 }
