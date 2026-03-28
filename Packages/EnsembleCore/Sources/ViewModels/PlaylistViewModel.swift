@@ -44,7 +44,8 @@ public final class PlaylistViewModel: ObservableObject {
     private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
     /// Suppresses observer-triggered reloads during pull-to-refresh so intermediate
     /// CoreData states (partial data while sync rebuilds records) don't clobber the list.
-    private var isRefreshingFromServer = false
+    /// Published so the view can freeze its cached list during refresh.
+    @Published public private(set) var isRefreshingFromServer = false
 
     public init(
         playlistRepository: PlaylistRepositoryProtocol,
@@ -381,11 +382,12 @@ public final class PlaylistViewModel: ObservableObject {
             let renamedApplied = applyOptimisticRenames(to: serverPlaylists)
             let merged = mergeWithOptimisticCreatingPlaylists(renamedApplied)
 
-            // Never replace populated playlists with empty results. CoreData
-            // can return empty mid-sync while records are being rebuilt, and
-            // PlaylistsView's .task re-calls loadPlaylists on the shared VM.
-            if merged.isEmpty && !playlists.isEmpty {
-                EnsembleLogger.debug("📋 PlaylistViewModel: skipping empty reload result (preserving \(self.playlists.count) existing playlists)")
+            // Never replace populated playlists with empty or degraded results.
+            // CoreData can return empty mid-sync while records are being rebuilt,
+            // or return partial records with empty titles before the full sync commits.
+            let hasDegradedData = merged.contains { $0.title.isEmpty }
+            if (merged.isEmpty || hasDegradedData) && !playlists.isEmpty {
+                EnsembleLogger.debug("📋 PlaylistViewModel: skipping degraded reload (\(merged.count) playlists, \(merged.filter { $0.title.isEmpty }.count) empty titles, preserving \(self.playlists.count) existing)")
             } else {
                 playlists = merged
                 nameCollisionTitles = DisplayPlaylist.detectNameCollisions(merged)

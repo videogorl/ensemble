@@ -195,18 +195,23 @@ public struct PlaylistsView: View {
             }
             // Keep cached displayed playlists in sync (avoids recomputing grouping on every body eval)
             .onReceive(viewModel.$displayPlaylists) { displayPlaylists in
+                // During pull-to-refresh, freeze the cached list so intermediate
+                // CoreData states (partial data while sync rebuilds records) can't
+                // clobber the display. The ViewModel does its own loadPlaylists()
+                // after sync finishes, which emits the final correct data.
+                guard !viewModel.isRefreshingFromServer else { return }
+
                 let filtered = displayPlaylists.filter { dp in
                     !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
                 }
-                // Don't replace a populated cache with smaller/partial results while
-                // the Combine pipeline is still catching up after a refresh.
-                // This guards against intermediate CoreData states during sync that
-                // contain fewer playlists than the fully committed state.
-                if filtered.count < cachedDisplayedPlaylists.count
-                    && !cachedDisplayedPlaylists.isEmpty
-                    && !viewModel.playlists.isEmpty
-                    && pendingDeletionPlaylistIDs.isEmpty {
-                    return
+                cachedDisplayedPlaylists = filtered
+            }
+            // When refresh completes, catch up immediately rather than waiting for the
+            // Combine pipeline's 150ms debounce to produce the next displayPlaylists emission.
+            .onReceive(viewModel.$isRefreshingFromServer) { isRefreshing in
+                guard !isRefreshing else { return }
+                let filtered = viewModel.displayPlaylists.filter { dp in
+                    !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
                 }
                 cachedDisplayedPlaylists = filtered
             }
