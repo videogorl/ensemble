@@ -17,9 +17,6 @@ public struct PlaylistsView: View {
     @State private var pendingDeletionPlaylistIDs: Set<String> = []
     @State private var playlistPendingSwipeDelete: Playlist?
     @State private var deletingToastIDsByPlaylistID: [String: UUID] = [:]
-    @State private var pendingCreatePlaylistName = ""
-    @State private var createServerOptions: [PlaylistServerOption] = []
-    @State private var showCreateServerPicker = false
     @State private var creatingPlaylistToastID: UUID?
     @State private var playlistForEditSheet: Playlist?
     @State private var displayPlaylistPendingDelete: DisplayPlaylist?
@@ -90,17 +87,6 @@ public struct PlaylistsView: View {
                     }
             }
         )
-            .confirmationDialog("Choose Server", isPresented: $showCreateServerPicker, titleVisibility: .visible) {
-                ForEach(createServerOptions) { option in
-                    Button(option.name) {
-                        createPlaylist(named: pendingCreatePlaylistName, serverSourceKey: option.id)
-                    }
-                }
-                Button("Cancel", role: .cancel) {
-                    pendingCreatePlaylistName = ""
-                    createServerOptions = []
-                }
-            }
             .alert("Delete Playlist?", isPresented: Binding(
                 get: { playlistPendingSwipeDelete != nil },
                 set: { isPresented in
@@ -159,12 +145,13 @@ public struct PlaylistsView: View {
             // the app when a keyboard appears over a root tab view's navigation bar.
             .background(
                 NavigationLink(
-                    destination: TextInputView(
-                        title: "New Playlist",
-                        placeholder: "Playlist name",
-                        actionTitle: "Create"
-                    ) { name in
-                        startCreatePlaylistFlow(named: name)
+                    destination: CreatePlaylistView(
+                        serverOptions: nowPlayingVM.playlistServerOptions(),
+                        isMergeEnabled: isMergeEnabled
+                    ) { name, serverKeys in
+                        for key in serverKeys {
+                            createPlaylist(named: name, serverSourceKey: key)
+                        }
                     },
                     isActive: $showCreatePlaylistPush
                 ) { EmptyView() }
@@ -663,31 +650,6 @@ public struct PlaylistsView: View {
         }
     }
 
-    private func startCreatePlaylistFlow(named title: String) {
-        let options = nowPlayingVM.playlistServerOptions()
-        guard !options.isEmpty else {
-            deps.toastCenter.show(
-                ToastPayload(
-                    style: .error,
-                    iconSystemName: "wifi.exclamationmark",
-                    title: "No servers available",
-                    message: "Connect a Plex server to create playlists.",
-                    dedupeKey: "playlist-create-no-server"
-                )
-            )
-            return
-        }
-
-        if options.count == 1, let option = options.first {
-            createPlaylist(named: title, serverSourceKey: option.id)
-            return
-        }
-
-        pendingCreatePlaylistName = title
-        createServerOptions = options
-        showCreateServerPicker = true
-    }
-
     private func createPlaylist(named title: String, serverSourceKey: String) {
         let creatingToast = ToastPayload(
             style: .info,
@@ -728,8 +690,6 @@ public struct PlaylistsView: View {
                 )
             }
 
-            pendingCreatePlaylistName = ""
-            createServerOptions = []
         }
     }
 
@@ -1417,6 +1377,121 @@ private struct TextInputView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             dismiss()
             onSubmit(trimmed)
+        }
+    }
+}
+
+// MARK: - Create Playlist View
+
+/// Pushed view for creating a new playlist with optional multi-server selection.
+/// When only one server is available, the server picker is hidden and the playlist
+/// is created on that server automatically. With multiple servers, a multi-select
+/// list lets the user create the same playlist on several servers at once.
+private struct CreatePlaylistView: View {
+    let serverOptions: [PlaylistServerOption]
+    let isMergeEnabled: Bool
+    let onCreate: (String, [String]) -> Void
+
+    @State private var playlistName = ""
+    @State private var selectedServerIDs: Set<String> = []
+    @FocusState private var isFocused: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    private var isCreateDisabled: Bool {
+        let trimmed = playlistName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+        if serverOptions.count > 1 && selectedServerIDs.isEmpty { return true }
+        return false
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Playlist name", text: $playlistName)
+                    .focused($isFocused)
+                    .submitLabel(serverOptions.count <= 1 ? .done : .next)
+                    .onSubmit {
+                        if serverOptions.count <= 1 { submit() }
+                    }
+            }
+
+            // Multi-server picker — only shown when more than one server is available
+            if serverOptions.count > 1 {
+                Section {
+                    ForEach(serverOptions) { option in
+                        Button {
+                            if selectedServerIDs.contains(option.id) {
+                                selectedServerIDs.remove(option.id)
+                            } else {
+                                selectedServerIDs.insert(option.id)
+                            }
+                        } label: {
+                            HStack {
+                                Text(option.name)
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                if selectedServerIDs.contains(option.id) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Servers")
+                } footer: {
+                    Text("Select which servers to create this playlist on.")
+                }
+            }
+        }
+        .navigationTitle("New Playlist")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { dismissAfterKeyboard() }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Create") { submit() }
+                    .disabled(isCreateDisabled)
+            }
+        }
+        .onAppear {
+            // Default: select all servers when merge is enabled, first server otherwise
+            if serverOptions.count > 1 {
+                if isMergeEnabled {
+                    selectedServerIDs = Set(serverOptions.map(\.id))
+                } else if let first = serverOptions.first {
+                    selectedServerIDs = [first.id]
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                isFocused = true
+            }
+        }
+    }
+
+    private func dismissAfterKeyboard() {
+        isFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            dismiss()
+        }
+    }
+
+    private func submit() {
+        let trimmed = playlistName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        // Single server: auto-select it; multi-server: use selection
+        let keys = serverOptions.count == 1
+            ? [serverOptions[0].id]
+            : Array(selectedServerIDs)
+        guard !keys.isEmpty else { return }
+        isFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            dismiss()
+            onCreate(trimmed, keys)
         }
     }
 }
