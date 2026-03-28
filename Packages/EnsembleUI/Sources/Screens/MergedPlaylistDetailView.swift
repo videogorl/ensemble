@@ -294,7 +294,7 @@ public struct MergedPlaylistDetailLoader: View {
                         nowPlayingVM: nowPlayingVM
                     )
                 }
-            } else if playlistsVM.isLoading {
+            } else if isPipelinePending {
                 ProgressView()
             } else {
                 // Playlist no longer exists (deleted, etc.)
@@ -314,14 +314,29 @@ public struct MergedPlaylistDetailLoader: View {
         }
     }
 
+    /// True while playlists are loading or the displayPlaylists Combine pipeline hasn't fired yet.
+    /// The displayPlaylists pipeline has a 50ms debounce, so there's a brief window after
+    /// playlists load where displayPlaylists is still empty.
+    private var isPipelinePending: Bool {
+        playlistsVM.isLoading
+            || (!playlistsVM.playlists.isEmpty && playlistsVM.displayPlaylists.isEmpty)
+    }
+
     private func findDisplayPlaylist() -> DisplayPlaylist? {
-        // First check displayPlaylists (merge-aware)
+        // Check displayPlaylists (merge-aware) — authoritative source once pipeline has fired
         if let dp = playlistsVM.displayPlaylists.first(where: {
             $0.title == title && $0.isSmart == isSmart
         }) {
             return dp
         }
-        // Fall back to raw playlists — wrap as single DisplayPlaylist
+        // If playlists exist but displayPlaylists is still empty, the Combine pipeline
+        // hasn't fired yet (50ms debounce). Return nil to show loading state rather
+        // than prematurely wrapping as .single() which causes wrong navigation.
+        if !playlistsVM.playlists.isEmpty && playlistsVM.displayPlaylists.isEmpty {
+            return nil
+        }
+        // displayPlaylists is populated but no match — merge state may have changed
+        // since navigation. Fall back to raw playlists wrapped as single.
         if let playlist = playlistsVM.playlists.first(where: {
             $0.title == title && $0.isSmart == isSmart
         }) {
