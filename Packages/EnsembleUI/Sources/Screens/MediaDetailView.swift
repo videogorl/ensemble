@@ -71,6 +71,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let playlistMenuActions: PlaylistDetailMenuActions?
     let albumMenuActions: AlbumDetailMenuActions?
     let additionalFooterContent: AnyView?
+    /// Custom pin/unpin action for merged playlists (pins all constituents).
+    /// When nil, the default single-item pin behavior is used.
+    let customPinAction: ((Bool) -> Void)?
+    /// Custom pin state check for merged playlists.
+    /// When nil, uses pinManager.isPinned(id:) with the header's ratingKey.
+    let customIsPinned: (() -> Bool)?
 
     @State private var artworkImage: UIImage?
     @State private var currentLoadPath: String?
@@ -106,7 +112,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         genreChipContent: AnyView? = nil,
         playlistMenuActions: PlaylistDetailMenuActions? = nil,
         albumMenuActions: AlbumDetailMenuActions? = nil,
-        additionalFooterContent: AnyView? = nil
+        additionalFooterContent: AnyView? = nil,
+        customPinAction: ((Bool) -> Void)? = nil,
+        customIsPinned: (() -> Bool)? = nil
     ) {
         self.viewModel = viewModel
         self.nowPlayingVM = nowPlayingVM
@@ -121,6 +129,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.playlistMenuActions = playlistMenuActions
         self.albumMenuActions = albumMenuActions
         self.additionalFooterContent = additionalFooterContent
+        self.customPinAction = customPinAction
+        self.customIsPinned = customIsPinned
     }
 
     public var body: some View {
@@ -297,7 +307,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     /// Toolbar menu with Pin/Unpin action
     private func pinMenuButton(ratingKey: String, mediaType: PinnedItemType) -> some View {
-        let isPinned = pinManager.isPinned(id: ratingKey)
+        let isPinned = customIsPinned?() ?? pinManager.isPinned(id: ratingKey)
         let sourceKey = headerData.sourceKey
         return Menu {
             if showFilter {
@@ -314,7 +324,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
 
             Button {
-                if isPinned {
+                if let customAction = customPinAction {
+                    customAction(isPinned)
+                } else if isPinned {
                     pinManager.unpin(id: ratingKey)
                 } else {
                     pinManager.pin(

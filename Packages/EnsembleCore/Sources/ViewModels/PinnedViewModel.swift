@@ -7,12 +7,15 @@ public enum ResolvedPin: Identifiable {
     case album(Album, PinnedItem)
     case artist(Artist, PinnedItem)
     case playlist(Playlist, PinnedItem)
+    /// Merged playlist group — multiple pinned playlists with the same title grouped together
+    case mergedPlaylist(DisplayPlaylist, [PinnedItem])
 
     public var id: String {
         switch self {
         case .album(_, let pin): return pin.id
         case .artist(_, let pin): return pin.id
         case .playlist(_, let pin): return pin.id
+        case .mergedPlaylist(let dp, _): return "merged-pin:\(dp.id)"
         }
     }
 
@@ -21,6 +24,17 @@ public enum ResolvedPin: Identifiable {
         case .album(_, let pin): return pin
         case .artist(_, let pin): return pin
         case .playlist(_, let pin): return pin
+        case .mergedPlaylist(_, let pins): return pins[0]
+        }
+    }
+
+    /// All pinned item IDs in this resolved pin (1 for single items, N for merged)
+    public var allPinnedIds: Set<String> {
+        switch self {
+        case .album(_, let pin): return [pin.id]
+        case .artist(_, let pin): return [pin.id]
+        case .playlist(_, let pin): return [pin.id]
+        case .mergedPlaylist(_, let pins): return Set(pins.map(\.id))
         }
     }
 }
@@ -102,10 +116,68 @@ public final class PinnedViewModel: ObservableObject {
         }
 
         // Preserve original pin order
-        resolvedPins = results
+        var resolved = results
             .sorted { $0.index < $1.index }
             .compactMap { $0.pin }
+
+        // When merge is enabled, group adjacent playlist pins with the same title
+        let isMergeEnabled = UserDefaults.standard.bool(forKey: "playlistMergeEnabled")
+        if isMergeEnabled {
+            resolved = mergePlaylistPins(resolved)
+        }
+
+        resolvedPins = resolved
         isLoading = false
+    }
+
+    /// Groups resolved playlist pins with the same (title, isSmart) into merged entries.
+    /// Non-playlist pins pass through unchanged. The first occurrence of each group key
+    /// determines the merged entry's position in the output.
+    private func mergePlaylistPins(_ pins: [ResolvedPin]) -> [ResolvedPin] {
+        struct GroupKey: Hashable {
+            let title: String
+            let isSmart: Bool
+        }
+
+        var output: [ResolvedPin] = []
+        // Track playlist groups: key -> index in output where the group lives
+        var groupIndex: [GroupKey: Int] = [:]
+        // Accumulate playlists and pin metadata per group
+        var groupPlaylists: [GroupKey: [Playlist]] = [:]
+        var groupPins: [GroupKey: [PinnedItem]] = [:]
+
+        for pin in pins {
+            switch pin {
+            case .playlist(let playlist, let pinnedItem):
+                let key = GroupKey(title: playlist.title, isSmart: playlist.isSmart)
+                if groupIndex[key] == nil {
+                    // First occurrence — reserve a slot in the output
+                    groupIndex[key] = output.count
+                    output.append(pin) // Placeholder, will be replaced if merged
+                    groupPlaylists[key] = [playlist]
+                    groupPins[key] = [pinnedItem]
+                } else {
+                    // Additional occurrence — accumulate into the group
+                    groupPlaylists[key, default: []].append(playlist)
+                    groupPins[key, default: []].append(pinnedItem)
+                }
+            default:
+                output.append(pin)
+            }
+        }
+
+        // Replace single-playlist placeholders with merged entries where applicable
+        for (key, index) in groupIndex {
+            let playlists = groupPlaylists[key] ?? []
+            let pinnedItems = groupPins[key] ?? []
+            if playlists.count > 1 {
+                let dp = DisplayPlaylist.merged(title: key.title, isSmart: key.isSmart, playlists: playlists)
+                output[index] = .mergedPlaylist(dp, pinnedItems)
+            }
+            // If only 1 playlist, the original .playlist entry is already in place
+        }
+
+        return output
     }
 
     /// Move a resolved pin from one position to another
@@ -142,5 +214,15 @@ public final class PinnedViewModel: ObservableObject {
     /// Unpin an item by its ID
     public func unpin(id: String) {
         pinManager.unpin(id: id)
+    }
+
+    /// Unpin all items in a resolved pin (handles merged playlists with multiple IDs)
+    public func unpinAll(_ pin: ResolvedPin) {
+        let ids = pin.allPinnedIds
+        if ids.count > 1 {
+            pinManager.unpinAll(ids: ids)
+        } else if let id = ids.first {
+            pinManager.unpin(id: id)
+        }
     }
 }

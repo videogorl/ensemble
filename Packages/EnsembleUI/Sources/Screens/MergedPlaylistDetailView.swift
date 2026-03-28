@@ -23,6 +23,8 @@ public struct MergedPlaylistDetailView: View {
         self.nowPlayingVM = nowPlayingVM
     }
 
+    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+
     public var body: some View {
         MediaDetailView(
             viewModel: viewModel,
@@ -66,7 +68,22 @@ public struct MergedPlaylistDetailView: View {
                 onPlayLast: {
                     nowPlayingVM.playLast(viewModel.filteredTracks)
                 }
-            )
+            ),
+            // Pin/unpin ALL constituent playlists as a batch
+            customPinAction: { isPinned in
+                let dp = viewModel.displayPlaylist
+                if isPinned {
+                    pinManager.unpinAll(ids: Set(dp.playlists.map(\.id)))
+                } else {
+                    pinManager.pinAll(items: dp.playlists.map { playlist in
+                        (id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "", type: .playlist, title: dp.title)
+                    })
+                }
+            },
+            customIsPinned: {
+                let ids = Set(viewModel.displayPlaylist.playlists.map(\.id))
+                return pinManager.areAllPinned(ids: ids)
+            }
         )
         // Rename all constituent playlists
         .alert("Rename Playlist", isPresented: $showRenamePrompt) {
