@@ -28,18 +28,6 @@ public struct PlaylistsView: View {
     @State private var cachedDisplayedPlaylists: [DisplayPlaylist] = []
     // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
     @State private var isStageFlowActive = false
-    // --- Navigation bar decoupling (iOS 26 ScrollPocket fix) ---
-    // On iOS 26, the ScrollPocketCollectorModel triggers updateProperties on the navigation bar
-    // whenever a software keyboard appears. If toolbar items or .searchable read @Published
-    // properties, UIKit's automatic observation tracking creates a feedback loop that hangs
-    // the app. Caching these values in @State and bridging via .onReceive ensures the
-    // navigation bar only reads inert @State — invisible to UIKit's observation tracking.
-    @State private var searchText = ""
-    @State private var isMergeEnabled = false
-    @State private var isOffline = false
-    @State private var sortOption: PlaylistSortOption = .title
-    @State private var sortDirection: SortDirection = .ascending
-    @State private var isLoading = false
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
@@ -62,7 +50,7 @@ public struct PlaylistsView: View {
 
     public var body: some View {
         Group {
-            if isLoading && effectivePlaylists.isEmpty {
+            if viewModel.isLoading && effectivePlaylists.isEmpty {
                 loadingView
             } else if effectivePlaylists.isEmpty {
                 emptyView
@@ -147,7 +135,7 @@ public struct PlaylistsView: View {
                 NavigationLink(
                     destination: CreatePlaylistView(
                         serverOptions: nowPlayingVM.playlistServerOptions(),
-                        isMergeEnabled: isMergeEnabled
+                        isMergeEnabled: viewModel.isMergeEnabled
                     ) { name, serverKeys in
                         for key in serverKeys {
                             createPlaylist(named: name, serverSourceKey: key)
@@ -203,9 +191,7 @@ public struct PlaylistsView: View {
                 ) { EmptyView() }
                     .hidden()
             )
-            .onChange(of: searchText) { newValue in
-                viewModel.filterOptions.searchText = newValue
-            }
+            .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             .task {
                 await viewModel.loadPlaylists()
             }
@@ -271,14 +257,6 @@ public struct PlaylistsView: View {
                     await viewModel.loadPlaylists()
                 }
             }
-            // Bridge viewModel/syncCoordinator → @State for navigation bar decoupling
-            .onReceive(viewModel.$isLoading) { val in if val != isLoading { isLoading = val } }
-            .onReceive(viewModel.$isMergeEnabled) { val in if val != isMergeEnabled { isMergeEnabled = val } }
-            .onReceive(viewModel.$playlistSortOption) { val in if val != sortOption { sortOption = val } }
-            .onReceive(viewModel.$filterOptions.map(\.sortDirection).removeDuplicates()) { val in
-                if val != sortDirection { sortDirection = val }
-            }
-            .onReceive(syncCoordinator.$isOffline) { val in if val != isOffline { isOffline = val } }
             .refreshable {
                 await viewModel.refreshFromServer()
             }
@@ -287,27 +265,28 @@ public struct PlaylistsView: View {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if !isStageFlowActive {
-                        // All reads use @State (not viewModel) — invisible to UIKit observation.
-                        // Actions write to viewModel, which is fine (writes don't create tracking).
                         HStack(spacing: 16) {
-                            Button { viewModel.toggleMerge() } label: {
-                                Image(systemName: isMergeEnabled
+                            // Merge toggle — controls cross-server playlist grouping
+                            Button {
+                                viewModel.toggleMerge()
+                            } label: {
+                                Image(systemName: viewModel.isMergeEnabled
                                       ? "arrow.triangle.merge"
                                       : "arrow.triangle.branch")
                             }
-                            .accessibilityLabel(isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
+                            .accessibilityLabel(viewModel.isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
 
-                            Button { showCreatePlaylistPush = true } label: {
-                                Label("New Playlist", systemImage: "plus")
+                            // Extracted to scope syncCoordinator observation to just the button
+                            PlaylistsNewButton {
+                                showCreatePlaylistPush = true
                             }
-                            .disabled(isOffline)
 
                             Menu {
                                 ForEach(PlaylistSortOption.allCases, id: \.self) { option in
                                     Button {
-                                        if sortOption == option {
+                                        if viewModel.playlistSortOption == option {
                                             viewModel.filterOptions.sortDirection =
-                                                sortDirection == .ascending ? .descending : .ascending
+                                                viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
                                         } else {
                                             viewModel.playlistSortOption = option
                                             viewModel.filterOptions.sortDirection = option.defaultDirection
@@ -315,8 +294,8 @@ public struct PlaylistsView: View {
                                     } label: {
                                         HStack {
                                             Text(option.rawValue)
-                                            if sortOption == option {
-                                                Image(systemName: sortDirection == .ascending
+                                            if viewModel.playlistSortOption == option {
+                                                Image(systemName: viewModel.filterOptions.sortDirection == .ascending
                                                       ? "chevron.up" : "chevron.down")
                                             }
                                         }
@@ -332,24 +311,25 @@ public struct PlaylistsView: View {
                 ToolbarItem(placement: .automatic) {
                     if !isStageFlowActive {
                         HStack(spacing: 16) {
-                            Button { viewModel.toggleMerge() } label: {
-                                Image(systemName: isMergeEnabled
+                            Button {
+                                viewModel.toggleMerge()
+                            } label: {
+                                Image(systemName: viewModel.isMergeEnabled
                                       ? "arrow.triangle.merge"
                                       : "arrow.triangle.branch")
                             }
-                            .accessibilityLabel(isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
+                            .accessibilityLabel(viewModel.isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
 
-                            Button { showCreatePlaylistPush = true } label: {
-                                Label("New Playlist", systemImage: "plus")
+                            PlaylistsNewButton {
+                                showCreatePlaylistPush = true
                             }
-                            .disabled(isOffline)
 
                             Menu {
                                 ForEach(PlaylistSortOption.allCases, id: \.self) { option in
                                     Button {
-                                        if sortOption == option {
+                                        if viewModel.playlistSortOption == option {
                                             viewModel.filterOptions.sortDirection =
-                                                sortDirection == .ascending ? .descending : .ascending
+                                                viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
                                         } else {
                                             viewModel.playlistSortOption = option
                                             viewModel.filterOptions.sortDirection = option.defaultDirection
@@ -357,8 +337,8 @@ public struct PlaylistsView: View {
                                     } label: {
                                         HStack {
                                             Text(option.rawValue)
-                                            if sortOption == option {
-                                                Image(systemName: sortDirection == .ascending
+                                            if viewModel.playlistSortOption == option {
+                                                Image(systemName: viewModel.filterOptions.sortDirection == .ascending
                                                       ? "chevron.up" : "chevron.down")
                                             }
                                         }
@@ -456,26 +436,6 @@ public struct PlaylistsView: View {
 
     private var playlistListView: some View {
         List {
-            // Inline search — replaces .searchable to eliminate _UIFloatingBarContainerView
-            // which participates in the iOS 26 ScrollPocket feedback loop
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                TextField("Filter playlists", text: $searchText)
-                    .disableAutocorrection(true)
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    #endif
-                if !searchText.isEmpty {
-                    Button { searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .hideListRowSeparator()
-
             ForEach(cachedDisplayedPlaylists) { dp in
                 let isPendingCreation = viewModel.isDisplayPlaylistPendingCreation(dp)
                 PlaylistRow(
@@ -744,6 +704,24 @@ public struct PlaylistsView: View {
         }
     }
 
+}
+
+// MARK: - "New Playlist" Toolbar Button
+
+/// Scopes syncCoordinator observation so only this button re-renders on sync state changes,
+/// not the entire PlaylistsView list.
+private struct PlaylistsNewButton: View {
+    let action: () -> Void
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+
+    var body: some View {
+        Button {
+            action()
+        } label: {
+            Label("New Playlist", systemImage: "plus")
+        }
+        .disabled(syncCoordinator.isOffline)
+    }
 }
 
 // MARK: - Playlist Context Menu
