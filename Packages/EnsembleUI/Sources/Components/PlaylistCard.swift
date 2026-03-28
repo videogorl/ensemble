@@ -119,7 +119,7 @@ public struct PlaylistRow: View {
 
     private var playlistRowContent: some View {
         HStack(spacing: 12) {
-            ArtworkView(playlist: displayPlaylist.primaryPlaylist, size: .tiny, cornerRadius: 4)
+            PlaylistArtwork(displayPlaylist: displayPlaylist, size: .tiny, cornerRadius: 4)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(displayPlaylist.title)

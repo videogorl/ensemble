@@ -197,7 +197,8 @@ public struct MergedPlaylistDetailView: View {
             metadataLine: metadataParts.joined(separator: " \u{00B7} "),
             artworkPath: dp.compositePath,
             sourceKey: dp.sourceCompositeKey,
-            ratingKey: dp.primaryPlaylist.id
+            ratingKey: dp.primaryPlaylist.id,
+            artworkPlaylists: dp.isMerged ? dp.playlists : nil
         )
     }
 

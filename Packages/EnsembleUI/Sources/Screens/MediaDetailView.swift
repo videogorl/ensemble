@@ -12,6 +12,8 @@ public struct MediaHeaderData {
     let sourceKey: String?
     let ratingKey: String?
     let artistRatingKey: String? // Added for cross-navigation
+    /// When set, renders composite 2x2 artwork from multiple playlists (for merged playlists)
+    let artworkPlaylists: [Playlist]?
 
     public init(
         title: String,
@@ -20,7 +22,8 @@ public struct MediaHeaderData {
         artworkPath: String?,
         sourceKey: String?,
         ratingKey: String? = nil,
-        artistRatingKey: String? = nil
+        artistRatingKey: String? = nil,
+        artworkPlaylists: [Playlist]? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -29,6 +32,7 @@ public struct MediaHeaderData {
         self.sourceKey = sourceKey
         self.ratingKey = ratingKey
         self.artistRatingKey = artistRatingKey
+        self.artworkPlaylists = artworkPlaylists
     }
 }
 
@@ -699,9 +703,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
     }
 
-    /// Compact (vertical) header layout for iPhone — artwork centered above text.
-    private var headerView: some View {
-        VStack(spacing: 16) {
+    /// Header artwork — uses composite 2x2 grid for merged playlists, single artwork otherwise
+    @ViewBuilder
+    private var headerArtwork: some View {
+        if let playlists = headerData.artworkPlaylists, playlists.count > 1 {
+            CompositeArtworkView(playlists: playlists, size: .medium, cornerRadius: 12)
+        } else {
             ArtworkView(
                 path: headerData.artworkPath,
                 sourceKey: headerData.sourceKey,
@@ -709,6 +716,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 size: .medium,
                 cornerRadius: 12
             )
+        }
+    }
+
+    /// Compact (vertical) header layout for iPhone — artwork centered above text.
+    private var headerView: some View {
+        VStack(spacing: 16) {
+            headerArtwork
             .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
 
             VStack(spacing: 8) {
@@ -733,13 +747,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var wideHeaderView: some View {
         HStack(alignment: .center, spacing: 24) {
             // Artwork on the left
-            ArtworkView(
-                path: headerData.artworkPath,
-                sourceKey: headerData.sourceKey,
-                ratingKey: headerData.ratingKey,
-                size: .medium,
-                cornerRadius: 12
-            )
+            headerArtwork
             .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
 
             // Metadata and action buttons on the right

@@ -499,7 +499,7 @@ public struct PlaylistsView: View {
             items: cachedDisplayedPlaylists,
             nowPlayingVM: nowPlayingVM,
             itemView: { dp in
-                StageFlowItemView(playlist: dp.primaryPlaylist)
+                StageFlowItemView(displayPlaylist: dp)
             },
             detailView: { selectedDP in
                 if selectedDP.isMerged {
