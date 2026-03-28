@@ -3520,10 +3520,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             throw PlaybackError.offline
         }
 
-        // 2. Check if stream loader already completed — but validate it didn't fail
+        // 2. Check if stream loader already completed — discard failed prefetch loaders
+        // so we get a fresh resolution instead of re-throwing stale errors (fixes
+        // cross-server playback where a prefetch from server A fails when switching to B)
         if let loader = streamLoaders[track.id], loader.isDownloadComplete {
-            if let error = loader.completionError { throw error }
-            return loader.localFileURL
+            if loader.completionError != nil {
+                EnsembleLogger.debug("[resolveAudioFile] Discarding failed prefetch loader for '\(track.title)'")
+                streamLoaders.removeValue(forKey: track.id)?.cancel()
+                cachedStreamDecisions.removeValue(forKey: track.id)
+                fileResolutionTasks.removeValue(forKey: track.id)
+                // Fall through to fresh resolution below
+            } else {
+                return loader.localFileURL
+            }
         }
 
         // 3. Ensure server connection
@@ -3942,6 +3951,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Don't schedule if already in the engine's gapless queue
         guard !engine.isTrackScheduled(track.id) else { return }
 
+        EnsembleLogger.debug("[prefetch] Upcoming '\(track.title)' source=\(track.sourceCompositeKey ?? "nil")")
+
         do {
             // Check cache first
             let fileURL: URL
@@ -3973,6 +3984,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         } catch {
             EnsembleLogger.debug("[prefetch] Failed for '\(track.title)': \(error)")
+            // Clean up all cached state for the failed track so the next real
+            // playback attempt gets a fresh resolution instead of hitting the
+            // stale failed loader (fixes cross-server prefetch cascade failures)
+            streamLoaders.removeValue(forKey: track.id)?.cancel()
+            cachedStreamDecisions.removeValue(forKey: track.id)
+            fileResolutionTasks.removeValue(forKey: track.id)
         }
     }
 

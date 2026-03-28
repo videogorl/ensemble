@@ -137,9 +137,7 @@ public struct PlaylistsView: View {
                         serverOptions: nowPlayingVM.playlistServerOptions(),
                         isMergeEnabled: viewModel.isMergeEnabled
                     ) { name, serverKeys in
-                        for key in serverKeys {
-                            createPlaylist(named: name, serverSourceKey: key)
-                        }
+                        createPlaylistOnServers(named: name, serverSourceKeys: serverKeys)
                     },
                     isActive: $showCreatePlaylistPush
                 ) { EmptyView() }
@@ -504,10 +502,17 @@ public struct PlaylistsView: View {
                 StageFlowItemView(playlist: dp.primaryPlaylist)
             },
             detailView: { selectedDP in
-                StageFlowTrackPanel(
-                    contentType: .playlist(id: selectedDP.primaryPlaylist.id, sourceCompositeKey: selectedDP.primaryPlaylist.sourceCompositeKey),
-                    nowPlayingVM: nowPlayingVM
-                )
+                if selectedDP.isMerged {
+                    StageFlowTrackPanel(
+                        contentType: .mergedPlaylist(playlists: selectedDP.playlists),
+                        nowPlayingVM: nowPlayingVM
+                    )
+                } else {
+                    StageFlowTrackPanel(
+                        contentType: .playlist(id: selectedDP.primaryPlaylist.id, sourceCompositeKey: selectedDP.primaryPlaylist.sourceCompositeKey),
+                        nowPlayingVM: nowPlayingVM
+                    )
+                }
             },
             titleContent: { $0.title },
             subtitleContent: { "\($0.trackCount) tracks" },
@@ -621,7 +626,9 @@ public struct PlaylistsView: View {
         }
     }
 
-    private func createPlaylist(named title: String, serverSourceKey: String) {
+    /// Creates a playlist on one or more servers with a single aggregate toast.
+    /// When merge is enabled, the callback may pass multiple server keys.
+    private func createPlaylistOnServers(named title: String, serverSourceKeys: [String]) {
         let creatingToast = ToastPayload(
             style: .info,
             iconSystemName: "plus.circle",
@@ -634,13 +641,26 @@ public struct PlaylistsView: View {
         deps.toastCenter.show(creatingToast)
 
         Task {
-            let didCreate = await viewModel.createPlaylist(title: title, serverSourceKey: serverSourceKey)
-            if let creatingPlaylistToastID {
-                deps.toastCenter.dismiss(id: creatingPlaylistToastID)
+            var successCount = 0
+            var lastError: String?
+
+            for key in serverSourceKeys {
+                let didCreate = await viewModel.createPlaylist(title: title, serverSourceKey: key)
+                if didCreate {
+                    successCount += 1
+                } else {
+                    lastError = viewModel.error
+                }
+            }
+
+            // Always dismiss the persistent toast regardless of outcome
+            if let toastID = creatingPlaylistToastID {
+                deps.toastCenter.dismiss(id: toastID)
             }
             creatingPlaylistToastID = nil
 
-            if didCreate {
+            if successCount == serverSourceKeys.count {
+                // All servers succeeded
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .success,
@@ -649,18 +669,29 @@ public struct PlaylistsView: View {
                         dedupeKey: "playlist-create-success-\(title.lowercased())"
                     )
                 )
+            } else if successCount > 0 {
+                // Partial success — some servers created it, others failed
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: .warning,
+                        iconSystemName: "exclamationmark.triangle.fill",
+                        title: "Created \(title) on \(successCount)/\(serverSourceKeys.count) servers",
+                        message: lastError ?? "Some servers could not create this playlist.",
+                        dedupeKey: "playlist-create-partial-\(title.lowercased())"
+                    )
+                )
             } else {
+                // All failed
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .error,
                         iconSystemName: "xmark.octagon.fill",
                         title: "Could not create \(title)",
-                        message: viewModel.error ?? "Try again later.",
+                        message: lastError ?? "Try again later.",
                         dedupeKey: "playlist-create-error-\(title.lowercased())"
                     )
                 )
             }
-
         }
     }
 
