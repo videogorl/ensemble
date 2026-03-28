@@ -42,6 +42,9 @@ public final class PlaylistViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var optimisticCreatingPlaylists: [Playlist] = []
     private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
+    /// Suppresses observer-triggered reloads during pull-to-refresh so intermediate
+    /// CoreData states (partial data while sync rebuilds records) don't clobber the list.
+    private var isRefreshingFromServer = false
 
     public init(
         playlistRepository: PlaylistRepositoryProtocol,
@@ -73,12 +76,12 @@ public final class PlaylistViewModel: ObservableObject {
         setupDisplayPlaylistsPipeline()
         setupSortedDisplayPlaylistsPipeline()
 
-        // Auto-reload when sync completes
+        // Auto-reload when sync completes (skip during pull-to-refresh — it does its own reload)
         syncCoordinator.$isSyncing
             .receive(on: DispatchQueue.main)
             .removeDuplicates()
             .sink { [weak self] syncing in
-                if !syncing {
+                if !syncing, self?.isRefreshingFromServer != true {
                     Task { @MainActor in
                         await self?.loadPlaylists()
                     }
@@ -90,6 +93,7 @@ public final class PlaylistViewModel: ObservableObject {
         NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
             .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
             .sink { [weak self] notification in
+                guard self?.isRefreshingFromServer != true else { return }
                 let serverKey = notification.userInfo?["serverSourceKey"] as? String ?? "unknown"
                 EnsembleLogger.debug("📋 PlaylistViewModel: playlistsDidRefresh notification from \(serverKey)")
                 Task { @MainActor in
@@ -105,6 +109,7 @@ public final class PlaylistViewModel: ObservableObject {
             .dropFirst()
             .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
             .sink { [weak self] statuses in
+                guard self?.isRefreshingFromServer != true else { return }
                 EnsembleLogger.debug("📋 PlaylistViewModel: sourceStatuses changed — \(statuses.map { "\($0.key.compositeKey): \($0.value.syncStatus)" })")
                 Task { @MainActor in
                     await self?.loadPlaylists()
@@ -151,6 +156,11 @@ public final class PlaylistViewModel: ObservableObject {
 
         error = nil
 
+        // Suppress observer-triggered reloads during sync to prevent intermediate
+        // CoreData states (partial data while records are rebuilt) from clobbering the list.
+        // refreshFromServer does its own loadPlaylists() after sync completes.
+        isRefreshingFromServer = true
+
         // Run sync in a detached task to avoid SwiftUI's .refreshable cancellation
         EnsembleLogger.debug("🔄 Starting playlist sync (detached)...")
         await withCheckedContinuation { continuation in
@@ -161,7 +171,9 @@ public final class PlaylistViewModel: ObservableObject {
         }
         EnsembleLogger.debug("✅ Playlist sync complete")
 
-        // Reload from updated cache
+        isRefreshingFromServer = false
+
+        // Reload from updated cache (now that sync is fully committed)
         await loadPlaylists()
     }
 

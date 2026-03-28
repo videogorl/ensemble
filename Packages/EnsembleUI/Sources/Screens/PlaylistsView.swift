@@ -197,9 +197,15 @@ public struct PlaylistsView: View {
             }
             // Keep cached displayed playlists in sync (avoids recomputing grouping on every body eval)
             .onReceive(viewModel.$displayPlaylists) { displayPlaylists in
-                cachedDisplayedPlaylists = displayPlaylists.filter { dp in
+                let filtered = displayPlaylists.filter { dp in
                     !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
                 }
+                // Don't replace a populated cache with empty/partial results while
+                // the Combine pipeline is still catching up after a refresh.
+                if filtered.isEmpty && !cachedDisplayedPlaylists.isEmpty && !viewModel.playlists.isEmpty {
+                    return
+                }
+                cachedDisplayedPlaylists = filtered
             }
             .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionStarted)) { note in
                 guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
