@@ -218,6 +218,7 @@ Sources/
 |   +-- ArtistDetailLoader.swift      # Async loader for artist detail with loading/error states
 |   +-- ArtworkColorExtractor.swift   # Actor-based color extraction from artwork for dynamic gradients
 |   +-- ArtworkView.swift             # Lazy-loading artwork with Nuke
+|   +-- CompositeArtworkView.swift    # Composite 2x2 artwork grid for merged playlists + PlaylistArtwork wrapper
 |   +-- AuroraVisualizationView.swift # Aurora-style background visualization of music loudness
 |   +-- BlurredArtworkBackground.swift # Heavily blurred artwork background with contrast/saturation
 |   +-- CollapsingToolbar.swift      # Shared collapsing toolbar title with nav bar appearance toggle
