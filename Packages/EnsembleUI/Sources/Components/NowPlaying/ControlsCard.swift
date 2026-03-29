@@ -384,6 +384,26 @@ public struct ControlsCard: View {
             }
             .disabled(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable)
             .opacity(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable ? 0.4 : 1.0)
+            .onAppear {
+                // Sync loading indicator with current state when the view mounts.
+                // onChange only fires on *subsequent* changes — if the NPV opens
+                // while state is already .loading, onChange never fires and the
+                // spinner never shows. The mini player doesn't have this problem
+                // because it checks playbackState directly in its body.
+                let state = viewModel.playbackState
+                let isLoading = state == .loading || state == .buffering
+                if isLoading {
+                    loadingDelayTask?.cancel()
+                    loadingDelayTask = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        guard !Task.isCancelled else { return }
+                        showLoadingIndicator = true
+                    }
+                }
+                if state == .playing {
+                    wasPlayingBeforeTransition = true
+                }
+            }
             .onChange(of: viewModel.playbackState) { newState in
                 let isLoading = newState == .loading || newState == .buffering
                 if isLoading {
