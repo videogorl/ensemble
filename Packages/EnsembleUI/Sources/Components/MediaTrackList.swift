@@ -606,6 +606,17 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.rowHeight = rowHeight
         context.coordinator.lastAvailabilityGeneration = availabilityGeneration
 
+        // Reload data immediately after updating groupedTracks to keep UIKit's geometry
+        // in sync with the backing data. Previously there was a ~85 line gap between the
+        // data assignment and reloadData(), during which delegate methods could fire with
+        // stale index paths against the new (possibly shorter) data — causing crashes.
+        if tableView.window != nil && dataChanged {
+            tableView.reloadData()
+            DispatchQueue.main.async {
+                EnsembleLogger.debug("MediaTrackList frame=\(tableView.frame) contentSize=\(tableView.contentSize) contentInset=\(tableView.contentInset) contentOffset=\(tableView.contentOffset) adjustedInset=\(tableView.adjustedContentInset) rows=\(self.tracks.count)")
+            }
+        }
+
         // Update table header view size if needed (e.g., after initial width becomes available).
         // UITableView requires explicit header resizing — it doesn't auto-layout the header.
         if let headerHost = context.coordinator.headerHostingController,
@@ -659,22 +670,18 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
 
-        // Skip reloads when the table isn't in a window yet — DeferredLayoutTableView
+        // Skip remaining work when the table isn't in a window yet — DeferredLayoutTableView
         // will trigger reloadData() on didMoveToWindow to avoid early layout passes.
         guard tableView.window != nil else { return }
 
-        // Only reload if data actually changed
-        if dataChanged {
-            tableView.reloadData()
-            // 🐛 TEMP: log geometry after reload to diagnose clipping
-            DispatchQueue.main.async {
-                EnsembleLogger.debug("MediaTrackList frame=\(tableView.frame) contentSize=\(tableView.contentSize) contentInset=\(tableView.contentInset) contentOffset=\(tableView.contentOffset) adjustedInset=\(tableView.adjustedContentInset) rows=\(self.tracks.count)")
-            }
-        } else if currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged {
+        if !dataChanged && (currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged) {
             // Reconfigure visible cells when the playing track, connectivity, or download state changes.
+            // Bounds-check indexPaths since visible cells may reference stale geometry.
             tableView.visibleCells.forEach { cell in
                 if let trackCell = cell as? TrackTableViewCell,
-                   let indexPath = tableView.indexPath(for: cell) {
+                   let indexPath = tableView.indexPath(for: cell),
+                   indexPath.section < newGroupedTracks.count,
+                   indexPath.row < newGroupedTracks[indexPath.section].tracks.count {
                     let track = newGroupedTracks[indexPath.section].tracks[indexPath.row]
                     let isPlaying = track.id == currentTrackId
                     trackCell.configure(
@@ -831,18 +838,32 @@ public struct MediaTrackList: UIViewRepresentable {
             self.rowHeight = rowHeight
         }
         
+        // MARK: - Bounds-Safe Accessor
+
+        /// Safely access a track, returning nil if indices are out of bounds.
+        /// Protects against race conditions where UIKit requests cells for stale index paths
+        /// after groupedTracks has been updated but before reloadData completes.
+        private func track(at indexPath: IndexPath) -> Track? {
+            guard indexPath.section < groupedTracks.count,
+                  indexPath.row < groupedTracks[indexPath.section].tracks.count else {
+                return nil
+            }
+            return groupedTracks[indexPath.section].tracks[indexPath.row]
+        }
+
         public func numberOfSections(in tableView: UITableView) -> Int {
             groupedTracks.count
         }
-        
+
         public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-            groupedTracks[section].tracks.count
+            guard section < groupedTracks.count else { return 0 }
+            return groupedTracks[section].tracks.count
         }
-        
+
         public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
             let cell = tableView.dequeueReusableCell(withIdentifier: "TrackCell", for: indexPath) as! TrackTableViewCell
             cell.backgroundColor = .clear
-            let track = groupedTracks[indexPath.section].tracks[indexPath.row]
+            guard let track = track(at: indexPath) else { return cell }
             let isPlaying = track.id == currentTrackId
             cell.configure(
                 with: track,
@@ -864,7 +885,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-            guard let disc = groupedTracks[section].disc else { return nil }
+            guard section < groupedTracks.count, let disc = groupedTracks[section].disc else { return nil }
             
             let headerView = UIView()
             headerView.backgroundColor = .clear
@@ -886,6 +907,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+            guard section < groupedTracks.count else { return 0 }
             return groupedTracks[section].disc != nil ? 40 : 0
         }
 
@@ -895,7 +917,7 @@ public struct MediaTrackList: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
             tableView.deselectRow(at: indexPath, animated: true)
-            let track = groupedTracks[indexPath.section].tracks[indexPath.row]
+            guard let track = track(at: indexPath) else { return }
 
             let availability = trackAvailabilityResolver.availability(for: track)
             if !availability.canPlay {
@@ -923,7 +945,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
-            let track = groupedTracks[indexPath.section].tracks[indexPath.row]
+            guard let track = track(at: indexPath) else { return nil }
             // Only show context menu if at least one callback is provided
             guard onPlayNext != nil || onPlayLast != nil || onAddToPlaylist != nil || onAddToRecentPlaylist != nil || onToggleFavorite != nil || onGoToAlbum != nil || onGoToArtist != nil || onShareLink != nil || onShareFile != nil else { return nil }
             
@@ -1014,7 +1036,7 @@ public struct MediaTrackList: UIViewRepresentable {
         // MARK: - Drag Delegate (iPad drag-and-drop for downloaded tracks)
 
         public func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
-            let track = groupedTracks[indexPath.section].tracks[indexPath.row]
+            guard let track = track(at: indexPath) else { return [] }
             guard let path = track.localFilePath else { return [] }
             let fileURL = URL(fileURLWithPath: path)
             guard let provider = NSItemProvider(contentsOf: fileURL) else { return [] }
@@ -1031,7 +1053,7 @@ public struct MediaTrackList: UIViewRepresentable {
         // MARK: - Swipe Actions
 
         public func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-            let track = groupedTracks[indexPath.section].tracks[indexPath.row]
+            guard let track = track(at: indexPath) else { return nil }
             let configured = DependencyContainer.shared.settingsManager.trackSwipeLayout.leading
             let actions = swipeActions(from: configured, track: track)
             guard !actions.isEmpty else { return nil }
@@ -1042,7 +1064,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
 
         public func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-            let track = groupedTracks[indexPath.section].tracks[indexPath.row]
+            guard let track = track(at: indexPath) else { return nil }
             let configured = DependencyContainer.shared.settingsManager.trackSwipeLayout.trailing
             let actions = swipeActions(from: configured, track: track)
             guard !actions.isEmpty else { return nil }
