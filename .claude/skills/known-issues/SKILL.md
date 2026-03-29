@@ -76,12 +76,16 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Issue:** `NavigationView` + `.searchable()` on iOS 26 triggers 997+ "Observation tracking feedback loop detected!" errors from `ScrollPocketCollectorModel`, freezing/crashing the app.
 - **Fix:** Use `NavigationStack` on iOS 16+ for sheet navigation containers. Tab-level views already use `NavigationStack` via `MainTabView.tabRootView`.
 
-### Fix 8 — Premature Gapless Track Advance
-- **Location:** `AudioPlaybackEngine.swift` (~line 969-1008), `ProgressiveStreamLoader.swift`, `PlaybackService.swift` (`resolveAudioFileImpl`)
-- **Issue:** Songs occasionally skip a whole minute+ early to the next track (not subtle timing). Has existed since endpoint handling was redone.
-- **Root cause hypothesis:** Truncated progressive stream download causes `AVAudioFile` to read shorter frame count than expected, triggering premature `handleSegmentComplete`.
-- **Investigation needed:** Compare `AVAudioFile.length` vs expected frames from `track.duration * sampleRate`.
-- **Impact:** Significantly affects merged playlist UX but is NOT related to playlist merging itself.
+### Fix 8 — Premature Gapless Track Advance (RESOLVED Mar 29, 2026)
+- **Location:** `PlaybackService.swift` (`updateNowPlayingInfo`, `changePlaybackPositionCommand`, `prefetchUpcomingItems`, `playCurrentQueueItem`), `AudioPlaybackEngine.swift` (`scheduleNext`)
+- **Issue:** Songs occasionally skip a whole minute+ early to the next track. Two root causes confirmed:
+  1. **Phantom seek via NowPlayingInfo duration mismatch:** When `playCurrentQueueItem` sets `currentTrack` to the new track but the engine still has the previous track's file loaded, `updateNowPlayingInfo()` publishes the old track's engine `fileDuration` under the new track's title. iOS's NowPlaying scrubber detects the duration discrepancy and sends a `changePlaybackPositionCommand` with a stale position — causing a seek to ~200s into a ~220s track.
+  2. **Truncated cached stream files:** A cached file from an interrupted download or aggressive cache cleanup contains only a fraction of the expected audio (e.g. 25s of a 179s track). When scheduled for gapless playback, the track ends prematurely.
+- **Fix:**
+  1. Use track metadata duration (not engine fileDuration) in `updateNowPlayingInfo()` during `.loading` state.
+  2. Reject `changePlaybackPositionCommand` events that seek >30s from current position within 5s of track start.
+  3. Validate file duration against track metadata before scheduling — if <50% of expected, evict and re-download.
+  4. Improved `scheduleNext()` logging to include frame counts and duration for visibility.
 
 ## Feature Completeness Gaps
 
