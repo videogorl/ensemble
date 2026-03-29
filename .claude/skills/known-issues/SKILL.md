@@ -96,7 +96,9 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
   2. `OfflineDownloadService.scanForTruncatedDownloads()` — runs at startup and on pull-to-refresh to catch existing truncated files, marks them as failed for re-download
   3. `PlaybackService.evictTruncatedFile()` — catches truncated files at play/prefetch time, handles both stream cache and offline downloads (deletes file, marks CDDownload as failed, falls through to streaming)
 - **Detection threshold:** file duration < 50% of expected AND < expected - 10s (avoids false positives on short tracks or minor encoding differences)
+- **Transport-level validation:** `downloadWithProgress()` now validates `bytesReceived` against `Content-Length` after the byte loop completes. Incomplete transfers throw `DownloadTransferError` which auto-retries (up to 3 attempts) instead of permanently failing. In beta testing, 21/113 downloads (19%) were truncated — likely from app backgrounding with foreground URLSession.
 - **Key files:** `OfflineDownloadService.swift`, `PlaybackService.swift`, `DownloadManager.swift`
+- **Known limitation:** `URLSession.shared` is foreground-only. Long download sessions (100+ tracks) will be interrupted when the app is backgrounded. A future improvement would be to migrate to `URLSessionConfiguration.background` for offline downloads.
 
 ## Feature Completeness Gaps
 
