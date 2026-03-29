@@ -60,6 +60,29 @@ public final class PinManager: ObservableObject {
         pinnedItems.contains { $0.id == id }
     }
 
+    /// Pin multiple items at once (for merged playlists — pins all constituents)
+    public func pinAll(items: [(id: String, sourceKey: String, type: PinnedItemType, title: String)]) {
+        var didChange = false
+        for item in items {
+            guard !isPinned(id: item.id) else { continue }
+            pinnedItems.append(PinnedItem(id: item.id, sourceCompositeKey: item.sourceKey, type: item.type, title: item.title))
+            didChange = true
+        }
+        if didChange { savePins() }
+    }
+
+    /// Remove multiple pinned items at once (for merged playlists — unpins all constituents)
+    public func unpinAll(ids: Set<String>) {
+        let before = pinnedItems.count
+        pinnedItems.removeAll { ids.contains($0.id) }
+        if pinnedItems.count != before { savePins() }
+    }
+
+    /// Check if all items in a set are pinned (for merged playlist pin state)
+    public func areAllPinned(ids: Set<String>) -> Bool {
+        ids.allSatisfy { isPinned(id: $0) }
+    }
+
     /// Reorder pinned items (for drag-and-drop)
     public func move(fromOffsets source: IndexSet, toOffset destination: Int) {
         pinnedItems.move(fromOffsets: source, toOffset: destination)

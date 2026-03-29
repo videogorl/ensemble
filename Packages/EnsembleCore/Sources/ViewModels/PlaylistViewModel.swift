@@ -20,6 +20,21 @@ public final class PlaylistViewModel: ObservableObject {
     /// Sorted playlist list used by large-screen sidebar navigation.
     @Published public private(set) var sortedPlaylists: [Playlist] = []
 
+    // MARK: - Merge Support
+
+    /// Whether cross-server playlist merging is enabled (persisted via SettingsManager)
+    @Published public var isMergeEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(isMergeEnabled, forKey: "playlistMergeEnabled")
+        }
+    }
+    /// Merge-aware playlist list for the UI — groups same-named playlists when merge is on
+    @Published public private(set) var displayPlaylists: [DisplayPlaylist] = []
+    /// Merge-aware sorted list for the macOS sidebar
+    @Published public private(set) var sortedDisplayPlaylists: [DisplayPlaylist] = []
+    /// Titles that appear on 2+ servers (used for showing server name chips when merge is off)
+    public private(set) var nameCollisionTitles: Set<String> = []
+
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let mutationCoordinator: MutationCoordinator
@@ -27,6 +42,10 @@ public final class PlaylistViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var optimisticCreatingPlaylists: [Playlist] = []
     private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
+    /// Suppresses observer-triggered reloads during pull-to-refresh so intermediate
+    /// CoreData states (partial data while sync rebuilds records) don't clobber the list.
+    /// Published so the view can freeze its cached list during refresh.
+    @Published public private(set) var isRefreshingFromServer = false
 
     public init(
         playlistRepository: PlaylistRepositoryProtocol,
@@ -38,6 +57,7 @@ public final class PlaylistViewModel: ObservableObject {
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
         self.toastCenter = toastCenter
+        self.isMergeEnabled = UserDefaults.standard.bool(forKey: "playlistMergeEnabled")
         let savedFilters = FilterPersistence.load(for: "Playlists")
         self.filterOptions = savedFilters
 
@@ -53,12 +73,16 @@ public final class PlaylistViewModel: ObservableObject {
         setupFilteredPlaylistsPipeline()
         setupSortedPlaylistsPipeline()
 
-        // Auto-reload when sync completes
+        // Merge-aware pipelines that group playlists into DisplayPlaylist entries
+        setupDisplayPlaylistsPipeline()
+        setupSortedDisplayPlaylistsPipeline()
+
+        // Auto-reload when sync completes (skip during pull-to-refresh — it does its own reload)
         syncCoordinator.$isSyncing
             .receive(on: DispatchQueue.main)
             .removeDuplicates()
             .sink { [weak self] syncing in
-                if !syncing {
+                if !syncing, self?.isRefreshingFromServer != true {
                     Task { @MainActor in
                         await self?.loadPlaylists()
                     }
@@ -70,6 +94,7 @@ public final class PlaylistViewModel: ObservableObject {
         NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
             .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
             .sink { [weak self] notification in
+                guard self?.isRefreshingFromServer != true else { return }
                 let serverKey = notification.userInfo?["serverSourceKey"] as? String ?? "unknown"
                 EnsembleLogger.debug("📋 PlaylistViewModel: playlistsDidRefresh notification from \(serverKey)")
                 Task { @MainActor in
@@ -85,6 +110,7 @@ public final class PlaylistViewModel: ObservableObject {
             .dropFirst()
             .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
             .sink { [weak self] statuses in
+                guard self?.isRefreshingFromServer != true else { return }
                 EnsembleLogger.debug("📋 PlaylistViewModel: sourceStatuses changed — \(statuses.map { "\($0.key.compositeKey): \($0.value.syncStatus)" })")
                 Task { @MainActor in
                     await self?.loadPlaylists()
@@ -131,6 +157,11 @@ public final class PlaylistViewModel: ObservableObject {
 
         error = nil
 
+        // Suppress observer-triggered reloads during sync to prevent intermediate
+        // CoreData states (partial data while records are rebuilt) from clobbering the list.
+        // refreshFromServer does its own loadPlaylists() after sync completes.
+        isRefreshingFromServer = true
+
         // Run sync in a detached task to avoid SwiftUI's .refreshable cancellation
         EnsembleLogger.debug("🔄 Starting playlist sync (detached)...")
         await withCheckedContinuation { continuation in
@@ -141,8 +172,12 @@ public final class PlaylistViewModel: ObservableObject {
         }
         EnsembleLogger.debug("✅ Playlist sync complete")
 
-        // Reload from updated cache
+        // Reload from updated cache (now that sync is fully committed).
+        // Keep the flag set until AFTER loadPlaylists finishes — clearing it before
+        // would let queued debounced observers fire in the window between flag-clear
+        // and loadPlaylists, potentially publishing partial CoreData state.
         await loadPlaylists()
+        isRefreshingFromServer = false
     }
 
     public func deletePlaylist(_ playlist: Playlist) async -> Bool {
@@ -273,6 +308,66 @@ public final class PlaylistViewModel: ObservableObject {
         .store(in: &cancellables)
     }
 
+    // MARK: - Merge Pipelines
+
+    /// Downstream pipeline: groups filteredPlaylists into DisplayPlaylist entries based on merge toggle
+    private func setupDisplayPlaylistsPipeline() {
+        Publishers.CombineLatest($filteredPlaylists, $isMergeEnabled)
+            .debounce(for: .milliseconds(50), scheduler: Self.computeQueue)
+            .map { playlists, merge -> [DisplayPlaylist] in
+                DisplayPlaylist.group(playlists, merge: merge)
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.displayPlaylists = $0 }
+            .store(in: &cancellables)
+    }
+
+    /// Downstream pipeline: groups sortedPlaylists for the macOS sidebar
+    private func setupSortedDisplayPlaylistsPipeline() {
+        Publishers.CombineLatest($sortedPlaylists, $isMergeEnabled)
+            .debounce(for: .milliseconds(50), scheduler: Self.computeQueue)
+            .map { playlists, merge -> [DisplayPlaylist] in
+                DisplayPlaylist.group(playlists, merge: merge)
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.sortedDisplayPlaylists = $0 }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - Merge Helpers
+
+    /// Toggles the cross-server merge setting
+    public func toggleMerge() {
+        isMergeEnabled.toggle()
+    }
+
+    /// Whether a playlist title has name collisions across servers (for showing server chips)
+    public func hasNameCollision(_ title: String) -> Bool {
+        nameCollisionTitles.contains(title)
+    }
+
+    /// Checks if a DisplayPlaylist contains any pending-creation playlists
+    public func isDisplayPlaylistPendingCreation(_ dp: DisplayPlaylist) -> Bool {
+        dp.playlists.contains { Self.isOptimisticCreatingPlaylistID($0.id) }
+    }
+
+    /// Deletes all constituent playlists in a merged DisplayPlaylist
+    public func deleteMergedPlaylist(_ dp: DisplayPlaylist) async -> Bool {
+        var allSucceeded = true
+        for playlist in dp.playlists {
+            let success = await deletePlaylist(playlist)
+            if !success { allSucceeded = false }
+        }
+        return allSucceeded
+    }
+
+    /// Applies optimistic rename to all constituents of a merged DisplayPlaylist
+    public func applyOptimisticRenameForMerged(_ dp: DisplayPlaylist, newTitle: String) {
+        for playlist in dp.playlists {
+            applyOptimisticRename(forPlaylistID: playlist.id, newTitle: newTitle)
+        }
+    }
+
     private func reloadPlaylists(showLoading: Bool) async {
         if showLoading {
             isLoading = true
@@ -287,13 +382,15 @@ public final class PlaylistViewModel: ObservableObject {
             let renamedApplied = applyOptimisticRenames(to: serverPlaylists)
             let merged = mergeWithOptimisticCreatingPlaylists(renamedApplied)
 
-            // Never replace populated playlists with empty results. CoreData
-            // can return empty mid-sync while records are being rebuilt, and
-            // PlaylistsView's .task re-calls loadPlaylists on the shared VM.
-            if merged.isEmpty && !playlists.isEmpty {
-                EnsembleLogger.debug("📋 PlaylistViewModel: skipping empty reload result (preserving \(self.playlists.count) existing playlists)")
+            // Never replace populated playlists with empty or degraded results.
+            // CoreData can return empty mid-sync while records are being rebuilt,
+            // or return partial records with empty titles before the full sync commits.
+            let hasDegradedData = merged.contains { $0.title.isEmpty }
+            if (merged.isEmpty || hasDegradedData) && !playlists.isEmpty {
+                EnsembleLogger.debug("📋 PlaylistViewModel: skipping degraded reload (\(merged.count) playlists, \(merged.filter { $0.title.isEmpty }.count) empty titles, preserving \(self.playlists.count) existing)")
             } else {
                 playlists = merged
+                nameCollisionTitles = DisplayPlaylist.detectNameCollisions(merged)
             }
         } catch {
             self.error = error.localizedDescription

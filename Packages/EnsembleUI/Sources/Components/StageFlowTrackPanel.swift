@@ -5,6 +5,7 @@ import SwiftUI
 enum StageFlowContentType: Equatable {
     case album(id: String, sourceCompositeKey: String?)
     case playlist(id: String, sourceCompositeKey: String?)
+    case mergedPlaylist(playlists: [Playlist])
 }
 
 /// Repository-backed track loading for StageFlow panels.
@@ -43,6 +44,19 @@ struct StageFlowTrackLoader {
             }
 
             return playlist.tracksArray.map { Track(from: $0) }
+
+        case .mergedPlaylist(let playlists):
+            // Fetch tracks from each constituent playlist and interleave them
+            var trackSets: [[Track]] = []
+            for playlist in playlists {
+                if let cached = try await playlistRepository.fetchPlaylist(
+                    ratingKey: playlist.id,
+                    sourceCompositeKey: playlist.sourceCompositeKey
+                ) {
+                    trackSets.append(cached.tracksArray.map { Track(from: $0) })
+                }
+            }
+            return DisplayPlaylist.interleave(trackSets)
         }
     }
 }

@@ -480,9 +480,9 @@ public struct SearchView: View {
                     ForEach(displayItems) { pin in
                         pinnedItemCard(pin)
                             .contextMenu {
-                                // Unpin action
+                                // Unpin action (handles merged playlists with multiple IDs)
                                 Button(role: .destructive) {
-                                    pinnedVM.unpin(id: pin.pinnedItem.id)
+                                    pinnedVM.unpinAll(pin)
                                 } label: {
                                     Label("Unpin", systemImage: "pin.slash")
                                 }
@@ -539,7 +539,7 @@ public struct SearchView: View {
                 if isEditingPins {
                     Button {
                         withAnimation {
-                            pinnedVM.unpin(id: pin.pinnedItem.id)
+                            pinnedVM.unpinAll(pin)
                         }
                     } label: {
                         Image(systemName: "minus.circle.fill")
@@ -654,6 +654,27 @@ public struct SearchView: View {
                     )
                 } label: {
                     PlaylistCard(playlist: playlist)
+                }
+                .buttonStyle(.plain)
+                .disabled(isEditingPins)
+            }
+        case .mergedPlaylist(let dp, _):
+            // Navigate to merged playlist detail — shows composite artwork and aggregated info
+            if #available(iOS 16.0, macOS 13.0, *) {
+                NavigationLink(value: NavigationCoordinator.Destination.mergedPlaylist(title: dp.title, isSmart: dp.isSmart)) {
+                    DisplayPlaylistCard(displayPlaylist: dp)
+                }
+                .buttonStyle(.plain)
+                .disabled(isEditingPins)
+            } else {
+                NavigationLink {
+                    MergedPlaylistDetailLoader(
+                        title: dp.title,
+                        isSmart: dp.isSmart,
+                        nowPlayingVM: nowPlayingVM
+                    )
+                } label: {
+                    DisplayPlaylistCard(displayPlaylist: dp)
                 }
                 .buttonStyle(.plain)
                 .disabled(isEditingPins)

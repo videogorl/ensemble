@@ -222,6 +222,21 @@ public final class AccountManager: ObservableObject {
         return sources
     }
 
+    /// Resolves a server name from a sourceCompositeKey (format: "plex:accountId:serverId:libraryId").
+    /// Returns the server's friendly name, or nil if not found.
+    public func serverName(for sourceCompositeKey: String) -> String? {
+        let parts = sourceCompositeKey.split(separator: ":")
+        guard parts.count >= 3 else { return nil }
+        let accountId = String(parts[1])
+        let serverId = String(parts[2])
+
+        guard let account = plexAccounts.first(where: { $0.id == accountId }),
+              let server = account.servers.first(where: { $0.id == serverId }) else {
+            return nil
+        }
+        return server.name
+    }
+
     /// Whether any sources are configured
     public var hasAnySources: Bool {
         !plexAccounts.isEmpty

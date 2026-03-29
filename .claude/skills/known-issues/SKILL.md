@@ -76,6 +76,13 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Issue:** `NavigationView` + `.searchable()` on iOS 26 triggers 997+ "Observation tracking feedback loop detected!" errors from `ScrollPocketCollectorModel`, freezing/crashing the app.
 - **Fix:** Use `NavigationStack` on iOS 16+ for sheet navigation containers. Tab-level views already use `NavigationStack` via `MainTabView.tabRootView`.
 
+### Fix 8 — Premature Gapless Track Advance
+- **Location:** `AudioPlaybackEngine.swift` (~line 969-1008), `ProgressiveStreamLoader.swift`, `PlaybackService.swift` (`resolveAudioFileImpl`)
+- **Issue:** Songs occasionally skip a whole minute+ early to the next track (not subtle timing). Has existed since endpoint handling was redone.
+- **Root cause hypothesis:** Truncated progressive stream download causes `AVAudioFile` to read shorter frame count than expected, triggering premature `handleSegmentComplete`.
+- **Investigation needed:** Compare `AVAudioFile.length` vs expected frames from `track.duration * sampleRate`.
+- **Impact:** Significantly affects merged playlist UX but is NOT related to playlist merging itself.
+
 ## Feature Completeness Gaps
 
 ### Intermittent 404 on /library/streams/ for Lyrics
