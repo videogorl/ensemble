@@ -3152,8 +3152,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     /// Remove temporary stream cache files created by downloadUniversalStreamToFile.
-    /// Keeps only files for the current playback neighborhood (current, next 2, previous 1)
-    /// to cap disk usage at ~4 files. Falls back to playerItems-based cleanup if queue is empty.
+    /// Keeps only files for the current playback neighborhood (current, next 2, previous 1),
+    /// plus files that are scheduled in the AudioEngine's gapless queue or actively downloading.
     private func cleanupStreamCacheFiles() {
         let cacheDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
@@ -3178,6 +3178,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Use the tighter neighborhood if we have queue context
             keepIds = neighborhood
         }
+
+        // Protect files scheduled in the AudioEngine's gapless FIFO queue —
+        // these may have been moved outside the neighborhood by queue reordering
+        // but are still referenced by the playerNode for upcoming playback.
+        if let engineIds = audioEngine?.scheduledTrackIds {
+            keepIds.formUnion(engineIds)
+        }
+
+        // Protect files with in-flight downloads to avoid deleting partially-written files
+        keepIds.formUnion(streamLoaders.keys)
 
         guard let files = try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path) else {
             try? FileManager.default.removeItem(at: cacheDir)
@@ -4024,7 +4034,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Clean up all cached state for the failed track so the next real
             // playback attempt gets a fresh resolution instead of hitting the
             // stale failed loader (fixes cross-server prefetch cascade failures)
-            streamLoaders.removeValue(forKey: track.id)?.cancel()
+            await MainActor.run { removeCachedPlayerItem(for: track.id) }
             cachedStreamDecisions.removeValue(forKey: track.id)
             fileResolutionTasks.removeValue(forKey: track.id)
         }
@@ -4100,6 +4110,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             EnsembleLogger.playback("ENGINE: playing '\(track.title)'")
         } catch {
+            // Clear stale cached URL so retry/recovery gets a fresh download
+            // instead of repeatedly hitting the same deleted or corrupt file
+            removeCachedPlayerItem(for: track.id)
+
             EnsembleLogger.playback("ENGINE: load/play failed -- \(error.localizedDescription)")
             isSkipTransitionInProgress = false
             disarmSkipTransitionSafety()
