@@ -3331,8 +3331,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     let fileDuration = Double(probeFile.length) / probeFile.processingFormat.sampleRate
                     if fileDuration < expectedDuration * 0.5 && fileDuration < expectedDuration - 10 {
                         EnsembleLogger.debug("[playCurrentQueueItem] Truncated file for '\(track.title)': file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedDuration))s — re-downloading")
-                        await MainActor.run { removeCachedPlayerItem(for: track.id) }
-                        cachedStreamDecisions.removeValue(forKey: track.id)
+                        await evictTruncatedFile(fileURL: fileURL, track: track, fileDuration: fileDuration, expectedDuration: expectedDuration)
                         fileURL = try await resolveAudioFile(for: track)
                     }
                 }
@@ -3984,6 +3983,37 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return false
     }
 
+    /// Evict a truncated audio file — clears stream cache and, if the file came from an
+    /// offline download, marks the CDDownload as failed and deletes the file on disk.
+    /// After calling this, `resolveAudioFile` will fall through to streaming.
+    private func evictTruncatedFile(fileURL: URL, track: Track, fileDuration: Double, expectedDuration: Double) async {
+        // Always clear in-memory caches so resolveAudioFile doesn't return the same file
+        await MainActor.run { removeCachedPlayerItem(for: track.id) }
+        cachedStreamDecisions.removeValue(forKey: track.id)
+
+        // Check if this is an offline download (vs a stream cache file)
+        if track.localFilePath != nil {
+            // Delete the truncated file so DownloadManager self-healing won't recover it
+            try? FileManager.default.removeItem(at: fileURL)
+
+            // Mark the CDDownload as failed so the Downloads view shows it correctly
+            do {
+                if let download = try await downloadManager.fetchDownload(
+                    forTrackRatingKey: track.id,
+                    sourceCompositeKey: track.sourceCompositeKey
+                ) {
+                    try await downloadManager.failDownload(
+                        download.objectID,
+                        error: "Truncated download (\(String(format: "%.0f", fileDuration))s vs \(String(format: "%.0f", expectedDuration))s expected)"
+                    )
+                    EnsembleLogger.debug("[evictTruncatedFile] Marked offline download as failed for '\(track.title)'")
+                }
+            } catch {
+                EnsembleLogger.debug("[evictTruncatedFile] Failed to mark download as failed for '\(track.title)': \(error.localizedDescription)")
+            }
+        }
+    }
+
     static func shouldForceTransportRecovery(errorCode: Int, domain: String) -> Bool {
         guard domain == NSURLErrorDomain else { return false }
         switch errorCode {
@@ -4071,8 +4101,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 let fileDuration = Double(probeFile.length) / probeFile.processingFormat.sampleRate
                 if fileDuration < expectedDuration * 0.5 && fileDuration < expectedDuration - 10 {
                     EnsembleLogger.debug("[prefetch] Truncated file for '\(track.title)': file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedDuration))s — evicting and re-downloading")
-                    await MainActor.run { removeCachedPlayerItem(for: track.id) }
-                    cachedStreamDecisions.removeValue(forKey: track.id)
+                    await evictTruncatedFile(fileURL: fileURL, track: track, fileDuration: fileDuration, expectedDuration: expectedDuration)
                     fileURL = try await resolveAudioFile(for: track)
                 }
             }
