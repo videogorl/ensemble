@@ -78,6 +78,20 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
+    /// Transport-level error for incomplete byte transfer.
+    /// Separate from DownloadProcessingError because these are retryable —
+    /// the download should be re-queued as pending, not permanently failed.
+    private enum DownloadTransferError: LocalizedError {
+        case incompleteTransfer(bytesReceived: Int64, bytesExpected: Int64, percentComplete: Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .incompleteTransfer(let received, let expected, let pct):
+                return "Incomplete transfer: received \(received)/\(expected) bytes (\(pct)%)"
+            }
+        }
+    }
+
     /// Value-type snapshot of CDDownload + CDTrack properties captured before async download begins.
     /// Prevents issues when viewContext.reset() invalidates managed objects mid-download
     /// or when cascade deletes remove the CDDownload from the store during sync.
@@ -123,6 +137,12 @@ public final class OfflineDownloadService: ObservableObject {
     private var downloadedBytesByTargetKey: [String: Int64] = [:]
     private var qualityMismatchByTargetKey: [String: Int] = [:]
     private var failedTracksByTargetKey: [String: Int] = [:]
+
+    /// In-memory retry counter for truncated/incomplete downloads.
+    /// Prevents infinite retry loops when a track consistently fails transfer.
+    /// Cleared on successful completion; capped at maxTransferRetries.
+    private var transferRetryCount: [String: Int] = [:]
+    private static let maxTransferRetries = 3
 
     /// Debounced notification task so individual download completions don't
     /// spam `downloadsDidChange` during bulk queue processing.
@@ -1187,6 +1207,9 @@ public final class OfflineDownloadService: ObservableObject {
                 )
             }
 
+            // Clear transfer retry counter on success
+            transferRetryCount.removeValue(forKey: ctx.trackRatingKey)
+
             // Notify track-displaying VMs so they re-fetch and reflect updated
             // offline state (e.g. dimming). Debounced to avoid spamming during
             // bulk queue processing.
@@ -1205,6 +1228,25 @@ public final class OfflineDownloadService: ObservableObject {
                 EnsembleLogger.debug(
                     "⏸️ Offline download paused (network lost): track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey)"
                 )
+            } else if error is DownloadTransferError || isRetryableTruncation(error) {
+                // Incomplete transfer or truncated payload — re-queue as pending so the
+                // download worker automatically retries. These are transient failures
+                // (app backgrounded, server timeout, FFmpeg crash) not permanent ones.
+                let retries = (transferRetryCount[ctx.trackRatingKey] ?? 0) + 1
+                transferRetryCount[ctx.trackRatingKey] = retries
+
+                if retries <= Self.maxTransferRetries {
+                    try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: nil)
+                    EnsembleLogger.debug(
+                        "🔄 Offline download re-queued (attempt \(retries)/\(Self.maxTransferRetries)): track=\(ctx.trackRatingKey) reason=\(error.localizedDescription)"
+                    )
+                } else {
+                    try? await downloadManager.failDownload(ctx.downloadObjectID, error: "Transfer incomplete after \(Self.maxTransferRetries) attempts")
+                    transferRetryCount.removeValue(forKey: ctx.trackRatingKey)
+                    EnsembleLogger.debug(
+                        "❌ Offline download failed (max retries): track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey) reason=\(error.localizedDescription)"
+                    )
+                }
             } else {
                 try? await downloadManager.failDownload(ctx.downloadObjectID, error: error.localizedDescription)
                 EnsembleLogger.debug(
@@ -1276,9 +1318,38 @@ public final class OfflineDownloadService: ObservableObject {
 
                 // Flush remaining bytes
                 if !buffer.isEmpty {
+                    bytesReceived += Int64(buffer.count)
                     fileHandle.write(buffer)
                 }
                 try fileHandle.close()
+
+                // Validate bytes received against Content-Length when available.
+                // URLSession.bytes exits silently when the server closes the connection
+                // mid-stream (e.g. app backgrounded, server timeout, FFmpeg crash).
+                // Without this check, a partial file passes as "complete."
+                let expectedLength = response.expectedContentLength
+                if expectedLength > 0 {
+                    if bytesReceived < expectedLength {
+                        let pctReceived = Int(Double(bytesReceived) / Double(expectedLength) * 100)
+                        EnsembleLogger.debug(
+                            "⚠️ Download incomplete: received \(bytesReceived)/\(expectedLength) bytes (\(pctReceived)%)"
+                        )
+                        try? FileManager.default.removeItem(at: tempURL)
+                        throw DownloadTransferError.incompleteTransfer(
+                            bytesReceived: bytesReceived,
+                            bytesExpected: expectedLength,
+                            percentComplete: pctReceived
+                        )
+                    }
+                } else if estimate > 0, bytesReceived < estimate / 2 {
+                    // No Content-Length (chunked transcode) but received less than half
+                    // the bitrate estimate — likely truncated. Log for diagnostics but
+                    // let validateDownloadDuration() make the final call with audio probing.
+                    let pctOfEstimate = Int(Double(bytesReceived) / Double(estimate) * 100)
+                    EnsembleLogger.debug(
+                        "⚠️ Download suspiciously short: received \(bytesReceived) bytes vs ~\(estimate) estimated (\(pctOfEstimate)%)"
+                    )
+                }
 
                 return (tempURL, response)
             } catch {
@@ -1680,6 +1751,12 @@ public final class OfflineDownloadService: ObservableObject {
 
     /// Returns true if the error indicates a network/connectivity loss rather than a server-side
     /// or content error. Used to pause (not fail) downloads when connectivity drops mid-transfer.
+    /// Returns true for truncated payload errors that should be retried automatically.
+    private func isRetryableTruncation(_ error: Error) -> Bool {
+        if case DownloadProcessingError.truncatedPayload = error { return true }
+        return false
+    }
+
     private func isNetworkLossError(_ error: Error) -> Bool {
         if let urlError = error as? URLError {
             switch urlError.code {
