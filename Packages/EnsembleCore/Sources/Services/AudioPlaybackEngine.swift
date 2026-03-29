@@ -1101,6 +1101,9 @@ public final class AudioPlaybackEngine {
     /// - `mRemainderFrames`: padding at the end to fill the last codec frame
     /// - `mNumberValidFrames`: total real audio frames (content only)
     ///
+    /// Falls back to LAME/Xing header parsing for MP3 files where the packet table
+    /// is unavailable (common with FFmpeg streaming transcodes used by Plex).
+    ///
     /// Returns (0, file.length) for formats without a packet table (PCM, FLAC, ALAC).
     private static func readContentBounds(
         for url: URL,
@@ -1118,17 +1121,116 @@ public final class AudioPlaybackEngine {
         let ptStatus = AudioFileGetProperty(
             fileID, kAudioFilePropertyPacketTableInfo, &size, &packetTable
         )
-        guard ptStatus == noErr, packetTable.mNumberValidFrames > 0 else {
-            return (0, AVAudioFrameCount(fileLength))
+
+        if ptStatus == noErr, packetTable.mNumberValidFrames > 0 {
+            let priming = max(0, AVAudioFramePosition(packetTable.mPrimingFrames))
+            let validFrames = AVAudioFrameCount(packetTable.mNumberValidFrames)
+
+            // Sanity check: priming + valid frames shouldn't exceed file length
+            guard priming + AVAudioFramePosition(validFrames) <= fileLength else {
+                return (0, AVAudioFrameCount(fileLength))
+            }
+
+            return (priming, validFrames)
         }
 
-        let priming = max(0, AVAudioFramePosition(packetTable.mPrimingFrames))
-        let validFrames = AVAudioFrameCount(packetTable.mNumberValidFrames)
+        // Fallback for MP3 files: parse the Xing/Info + LAME header directly.
+        // FFmpeg's streaming transcode (used by Plex's /start.mp3) often omits the
+        // Xing header, or writes one without the fields Apple needs for PacketTableInfo.
+        let ext = url.pathExtension.lowercased()
+        if ext == "mp3" || ext == "audio" {
+            if let gapless = parseLAMEGaplessInfo(url: url, fileLength: fileLength) {
+                return gapless
+            }
 
-        // Sanity check: priming + valid frames shouldn't exceed file length
-        guard priming + AVAudioFramePosition(validFrames) <= fileLength else {
-            return (0, AVAudioFrameCount(fileLength))
+            // Last resort: apply standard LAME encoder delay (576 samples).
+            // libmp3lame always adds a 576-sample priming delay. Without trimming,
+            // each track boundary accumulates ~13ms of silence (at 44.1kHz).
+            let defaultDelay: AVAudioFramePosition = 576
+            if fileLength > defaultDelay * 2 {
+                let trimmedFrames = AVAudioFrameCount(fileLength - defaultDelay)
+                EnsembleLogger.debug("[AudioEngine] readContentBounds: no packet table or LAME header for MP3, applying default 576-sample encoder delay")
+                return (defaultDelay, trimmedFrames)
+            }
         }
+
+        return (0, AVAudioFrameCount(fileLength))
+    }
+
+    /// Parse LAME/Xing header from an MP3 file to extract encoder delay and padding.
+    ///
+    /// MP3 gapless metadata lives in the first frame's Xing/Info VBR header:
+    ///   [Xing|Info] [flags:4] [frames?:4] [bytes?:4] [TOC?:100] [quality?:4]
+    ///   [encoder_version:9] [...LAME extension:12+] including delay/padding at +21
+    ///
+    /// Delay and padding are encoded as two 12-bit values in 3 bytes:
+    ///   byte0 = delay[11:4], byte1 = delay[3:0]|padding[11:8], byte2 = padding[7:0]
+    private static func parseLAMEGaplessInfo(
+        url: URL,
+        fileLength: AVAudioFramePosition
+    ) -> (contentStartFrame: AVAudioFramePosition, contentFrameCount: AVAudioFrameCount)? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+
+        // Read first 4KB — the Xing/Info header is always in the first MP3 frame
+        guard let data = try? handle.read(upToCount: 4096), data.count > 200 else { return nil }
+
+        // Find "Xing" or "Info" marker in the data
+        let xingBytes: [UInt8] = [0x58, 0x69, 0x6E, 0x67] // "Xing"
+        let infoBytes: [UInt8] = [0x49, 0x6E, 0x66, 0x6F] // "Info"
+
+        var markerOffset: Int?
+        for i in 0..<(data.count - 4) {
+            if (data[i] == xingBytes[0] && data[i+1] == xingBytes[1] && data[i+2] == xingBytes[2] && data[i+3] == xingBytes[3])
+                || (data[i] == infoBytes[0] && data[i+1] == infoBytes[1] && data[i+2] == infoBytes[2] && data[i+3] == infoBytes[3]) {
+                markerOffset = i
+                break
+            }
+        }
+
+        guard let xingStart = markerOffset else { return nil }
+
+        // Read flags at Xing+4
+        let flagsOffset = xingStart + 4
+        guard flagsOffset + 4 <= data.count else { return nil }
+        let flags = (UInt32(data[flagsOffset]) << 24) | (UInt32(data[flagsOffset+1]) << 16)
+            | (UInt32(data[flagsOffset+2]) << 8) | UInt32(data[flagsOffset+3])
+
+        // Skip past optional fields to reach the encoder version string
+        var offset = flagsOffset + 4
+        if flags & 0x01 != 0 { offset += 4 }   // frame count
+        if flags & 0x02 != 0 { offset += 4 }   // byte count
+        if flags & 0x04 != 0 { offset += 100 }  // TOC entries
+        if flags & 0x08 != 0 { offset += 4 }   // quality indicator
+
+        // Encoder delay/padding is at offset +21 from the encoder version string start
+        let delayPaddingOffset = offset + 21
+        guard delayPaddingOffset + 3 <= data.count else { return nil }
+
+        // Decode the 12-bit encoder delay and 12-bit padding
+        let byte0 = UInt16(data[delayPaddingOffset])
+        let byte1 = UInt16(data[delayPaddingOffset + 1])
+        let byte2 = UInt16(data[delayPaddingOffset + 2])
+
+        let encoderDelay = Int((byte0 << 4) | (byte1 >> 4))
+        let encoderPadding = Int(((byte1 & 0x0F) << 8) | byte2)
+
+        // Sanity check: typical LAME delay is 576, padding is 0-2000
+        guard encoderDelay > 0, encoderDelay <= 3000,
+              encoderPadding >= 0, encoderPadding <= 3000 else {
+            return nil
+        }
+
+        let priming = AVAudioFramePosition(encoderDelay)
+        let totalTrim = AVAudioFramePosition(encoderDelay + encoderPadding)
+        guard totalTrim < fileLength else { return nil }
+
+        let validFrames = AVAudioFrameCount(fileLength - totalTrim)
+
+        // Log the encoder version for diagnostics
+        let versionEnd = min(offset + 9, data.count)
+        let versionString = String(bytes: data[offset..<versionEnd], encoding: .ascii) ?? "?"
+        EnsembleLogger.debug("[AudioEngine] readContentBounds: LAME header found (encoder='\(versionString)', delay=\(encoderDelay), padding=\(encoderPadding))")
 
         return (priming, validFrames)
     }
