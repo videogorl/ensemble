@@ -832,6 +832,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var qualityChangeObserver: NSObjectProtocol?
     private var qualityDebounceTask: Task<Void, Never>?
     private var downloadChangeObserver: AnyCancellable?
+    private var visualizerSettingObserver: NSObjectProtocol?
     private var lastObservedStreamingQuality: String = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?  // Kept for network stall detection during file resolution
@@ -994,6 +995,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupHealthCheckObservation()
         setupAccountSourcesObservation()
         setupAudioAnalyzer()
+        setupVisualizerSettingObservation()
         setupQueueQualityObservation()
         setupDownloadChangeObservation()
     }
@@ -1008,6 +1010,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         downloadChangeObserver = nil
         if let qualityChangeObserver {
             NotificationCenter.default.removeObserver(qualityChangeObserver)
+        }
+        if let visualizerSettingObserver {
+            NotificationCenter.default.removeObserver(visualizerSettingObserver)
         }
     }
 
@@ -3348,13 +3353,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
-        // All retries exhausted — handle failure
+        // All retries exhausted — classify failure and dispatch to specialized handler
         let nsError = lastError.map { $0 as NSError }
+        let isTLSError = nsError?.domain == NSURLErrorDomain &&
+            nsError?.code == NSURLErrorSecureConnectionFailed
         let isConnectionError = nsError?.domain == NSURLErrorDomain &&
             (nsError?.code == NSURLErrorTimedOut ||
              nsError?.code == NSURLErrorNetworkConnectionLost ||
              nsError?.code == NSURLErrorCannotConnectToHost ||
              nsError?.code == NSURLErrorNotConnectedToInternet)
+
+        // TLS errors: refresh connection to find a working endpoint and retry.
+        // This handles transient TLS issues on relay endpoints by switching to
+        // a direct connection or a different relay.
+        if isTLSError {
+            loadingStateTask?.cancel()
+            endTrackTransitionBackgroundTask()
+            await handleTLSPlaybackFailure()
+            return
+        }
 
         if isConnectionError, let sourceKey = track.sourceCompositeKey {
             await syncCoordinator.triggerServerHealthCheck(sourceKey: sourceKey)
@@ -4591,6 +4608,39 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         .receive(on: DispatchQueue.main)
         .sink { [weak self] bands in
             self?.frequencyBands = bands
+        }
+    }
+
+    /// Observe the aurora visualizer setting so toggling it mid-song triggers
+    /// frequency analysis for the currently playing track immediately, instead of
+    /// waiting for the next track transition.
+    private func setupVisualizerSettingObservation() {
+        visualizerSettingObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let enabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
+
+                // Only act when toggled ON during active playback
+                guard enabled, self.playbackState == .playing,
+                      let track = self.currentTrack,
+                      let fileURL = self.getCachedFileURL(for: track.id) else { return }
+
+                let analyzer = self.audioAnalyzer
+                let trackId = track.id
+                let throttle = self.isInstrumentalModeActive
+                let priority: TaskPriority = throttle ? .background : .userInitiated
+
+                EnsembleLogger.debug("[Visualizer] Setting toggled ON mid-song — loading timeline for '\(track.title)'")
+                Task.detached {
+                    await analyzer.loadTimeline(for: trackId, fileURL: fileURL, priority: priority, throttled: throttle)
+                }
+                analyzer.activateTimeline(for: trackId)
+                analyzer.resumeUpdates()
+            }
         }
     }
 

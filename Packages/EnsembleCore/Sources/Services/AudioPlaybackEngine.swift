@@ -49,9 +49,10 @@ public final class AudioPlaybackEngine {
     private var currentFile: AVAudioFile?
     /// Track ID of the currently playing file (for caller identification)
     private(set) var currentTrackId: String?
-    /// Duration of the current file in seconds
+    /// Duration of the current file in seconds (content only, excludes encoder delay/padding)
     private(set) var fileDuration: TimeInterval = 0
-    /// Frame offset from which the current segment was scheduled
+    /// Frame offset from which the current segment was scheduled (in user-visible frame space,
+    /// relative to content start — NOT the file's raw frame space)
     private var seekFrameOffset: AVAudioFramePosition = 0
     /// Cumulative playerTime.sampleTime at the start of the current segment.
     /// During gapless transitions the playerNode keeps running, so sampleTime
@@ -63,6 +64,16 @@ public final class AudioPlaybackEngine {
     /// Whether the engine was playing when last paused (for resume logic)
     private var wasPlaying = false
 
+    // MARK: - Encoder Delay Compensation
+
+    /// Encoder delay (priming frames) for the currently loaded file.
+    /// Audio content begins at this frame offset in the file's raw frame space.
+    /// For PCM/FLAC/ALAC this is 0. For MP3 (LAME) it's typically 576 frames (~13ms).
+    private var currentContentStartFrame: AVAudioFramePosition = 0
+    /// Total frames of actual audio content (excludes encoder delay and padding).
+    /// For lossless formats this equals file.length. For MP3 it's shorter.
+    private var currentContentFrameCount: AVAudioFrameCount = 0
+
     // MARK: - Generation Counter
 
     /// Incremented on each schedule/seek/stop to suppress stale completion callbacks.
@@ -73,8 +84,8 @@ public final class AudioPlaybackEngine {
     // MARK: - Gapless FIFO Queue
 
     /// Files scheduled for gapless playback via scheduleSegment FIFO.
-    /// Each entry tracks the file, track ID, and generation at schedule time.
-    private var scheduledFiles: [(file: AVAudioFile, trackId: String, generation: UInt64)] = []
+    /// Each entry tracks the file, track ID, generation, and encoder delay trim info.
+    private var scheduledFiles: [(file: AVAudioFile, trackId: String, generation: UInt64, contentStartFrame: AVAudioFramePosition, contentFrameCount: AVAudioFrameCount)] = []
 
     // MARK: - Time Tracking
 
@@ -598,7 +609,15 @@ public final class AudioPlaybackEngine {
         currentFile = file
         currentTrackId = trackId
         sampleRate = file.processingFormat.sampleRate
-        fileDuration = Double(file.length) / sampleRate
+
+        // Read encoder delay/padding for gapless-accurate scheduling.
+        // MP3 files have priming frames (encoder delay, ~576 for LAME) at the start
+        // and padding at the end. Without trimming, gapless transitions have an
+        // audible silence gap of ~50ms at each boundary.
+        let (contentStart, contentFrames) = Self.readContentBounds(for: fileURL, fileLength: file.length)
+        currentContentStartFrame = contentStart
+        currentContentFrameCount = contentFrames
+        fileDuration = Double(contentFrames) / sampleRate
         seekFrameOffset = 0
         playerTimeBaseOffset = 0
 
@@ -613,14 +632,15 @@ public final class AudioPlaybackEngine {
         // Re-apply isolation parameters (reconnection can reset AU state)
         applyIsolationParameters()
 
-        // Schedule the full file so resume() works without a prior play(from:).
+        // Schedule the content portion of the file (skipping encoder delay/padding)
+        // so resume() works without a prior play(from:).
         // This is critical for restore-to-paused: load() is called but play(from:)
         // is not, so without this the playerNode has nothing queued and resume()
         // would produce silence (or play prefetched gapless tracks instead).
         playerNode.scheduleSegment(
             file,
-            startingFrame: 0,
-            frameCount: AVAudioFrameCount(file.length),
+            startingFrame: AVAudioFramePosition(contentStart),
+            frameCount: contentFrames,
             at: nil
         ) { [weak self] in
             DispatchQueue.main.async {
@@ -628,7 +648,8 @@ public final class AudioPlaybackEngine {
             }
         }
 
-        EnsembleLogger.debug("[AudioEngine] Loaded: \(fileURL.lastPathComponent), rate=\(sampleRate), frames=\(file.length), duration=\(String(format: "%.1f", fileDuration))s, trackId=\(trackId)")
+        let trimmed = contentStart > 0 ? ", trim=\(contentStart)+\(Int64(file.length) - Int64(contentStart) - Int64(contentFrames))" : ""
+        EnsembleLogger.debug("[AudioEngine] Loaded: \(fileURL.lastPathComponent), rate=\(sampleRate), frames=\(contentFrames)/\(file.length)\(trimmed), duration=\(String(format: "%.1f", fileDuration))s, trackId=\(trackId)")
     }
 
     // MARK: - Gapless Scheduling
@@ -645,10 +666,13 @@ public final class AudioPlaybackEngine {
 
     /// Schedule the next file for gapless playback. Uses AVAudioPlayerNode's FIFO queue --
     /// the segment plays immediately after the current segment finishes, with zero gap.
+    /// Reads the file's packet table to trim encoder delay/padding for seamless transitions.
     /// Call this during prefetch to ensure seamless transitions.
     func scheduleNext(fileURL: URL, trackId: String) throws {
         let file = try AVAudioFile(forReading: fileURL)
-        let frameCount = AVAudioFrameCount(file.length)
+
+        // Read encoder delay/padding so the gapless boundary is sample-accurate
+        let (contentStart, contentFrames) = Self.readContentBounds(for: fileURL, fileLength: file.length)
 
         // Don't bump scheduleGeneration here — that would invalidate the current
         // segment's completion handler. The generation counter only needs to change
@@ -656,11 +680,11 @@ public final class AudioPlaybackEngine {
         // scheduleNext just appends to the FIFO queue; no stop, no stale callbacks.
         let myGeneration = scheduleGeneration
 
-        // Schedule the entire file to play after current segment (at: nil = FIFO)
+        // Schedule only the content portion (skipping encoder delay/padding)
         playerNode.scheduleSegment(
             file,
-            startingFrame: 0,
-            frameCount: frameCount,
+            startingFrame: AVAudioFramePosition(contentStart),
+            frameCount: contentFrames,
             at: nil
         ) { [weak self] in
             DispatchQueue.main.async {
@@ -668,9 +692,9 @@ public final class AudioPlaybackEngine {
             }
         }
 
-        scheduledFiles.append((file: file, trackId: trackId, generation: myGeneration))
+        scheduledFiles.append((file: file, trackId: trackId, generation: myGeneration, contentStartFrame: contentStart, contentFrameCount: contentFrames))
 
-        EnsembleLogger.debug("[AudioEngine] Scheduled next: \(fileURL.lastPathComponent), trackId=\(trackId), queueDepth=\(scheduledFiles.count)")
+        EnsembleLogger.debug("[AudioEngine] Scheduled next: \(fileURL.lastPathComponent), trackId=\(trackId), queueDepth=\(scheduledFiles.count)\(contentStart > 0 ? ", trim=\(contentStart)" : "")")
     }
 
     /// Remove all pending gapless files from the schedule.
@@ -705,22 +729,24 @@ public final class AudioPlaybackEngine {
         playerNode.stop()
         playerTimeBaseOffset = 0
 
-        // Re-schedule only the current track from the current position
-        let startFrame = AVAudioFramePosition(position * sampleRate)
-        let totalFrames = file.length
-        guard startFrame < totalFrames else {
+        // Re-schedule only the current track from the current position.
+        // Convert user-visible time to file frame space by adding the content offset.
+        let userFrame = AVAudioFramePosition(position * sampleRate)
+        let fileFrame = userFrame + currentContentStartFrame
+        let contentEnd = currentContentStartFrame + AVAudioFramePosition(currentContentFrameCount)
+        guard fileFrame < contentEnd else {
             // Current track already at/past end — let natural completion handle it
             EnsembleLogger.debug("[AudioEngine] Cleared scheduled files (track at end)")
             onPlaybackComplete?()
             return
         }
 
-        seekFrameOffset = startFrame
-        let frameCount = AVAudioFrameCount(totalFrames - startFrame)
+        seekFrameOffset = userFrame
+        let frameCount = AVAudioFrameCount(contentEnd - fileFrame)
 
         playerNode.scheduleSegment(
             file,
-            startingFrame: startFrame,
+            startingFrame: fileFrame,
             frameCount: frameCount,
             at: nil
         ) { [weak self] in
@@ -745,15 +771,17 @@ public final class AudioPlaybackEngine {
 
     // MARK: - Playback Control
 
-    /// Schedule and start playback from the given time offset.
+    /// Schedule and start playback from the given time offset (in user-visible seconds).
     func play(from time: TimeInterval = 0) throws {
         guard let file = currentFile else {
             throw AudioPlaybackEngineError.noFileLoaded
         }
 
-        let startFrame = AVAudioFramePosition(time * sampleRate)
-        let totalFrames = file.length
-        guard startFrame < totalFrames else {
+        // Convert user-visible time to file frame space
+        let userFrame = AVAudioFramePosition(time * sampleRate)
+        let fileFrame = userFrame + currentContentStartFrame
+        let contentEnd = currentContentStartFrame + AVAudioFramePosition(currentContentFrameCount)
+        guard fileFrame < contentEnd else {
             onPlaybackComplete?()
             return
         }
@@ -761,15 +789,15 @@ public final class AudioPlaybackEngine {
         scheduleGeneration &+= 1
         let myGeneration = scheduleGeneration
 
-        seekFrameOffset = startFrame
+        seekFrameOffset = userFrame
         playerTimeBaseOffset = 0
-        let frameCount = AVAudioFrameCount(totalFrames - startFrame)
+        let frameCount = AVAudioFrameCount(contentEnd - fileFrame)
 
         playerNode.stop()
-        file.framePosition = startFrame
+        file.framePosition = fileFrame
         playerNode.scheduleSegment(
             file,
-            startingFrame: startFrame,
+            startingFrame: fileFrame,
             frameCount: frameCount,
             at: nil
         ) { [weak self] in
@@ -789,7 +817,7 @@ public final class AudioPlaybackEngine {
         wasPlaying = true
         startTimeUpdates(from: time)
 
-        EnsembleLogger.debug("[AudioEngine] Playing from \(String(format: "%.1f", time))s (frame \(startFrame)/\(totalFrames))")
+        EnsembleLogger.debug("[AudioEngine] Playing from \(String(format: "%.1f", time))s (frame \(fileFrame)/\(currentContentFrameCount))")
     }
 
     /// Pause playback and stop the engine.
@@ -838,12 +866,14 @@ public final class AudioPlaybackEngine {
         wasPlaying = false
         seekFrameOffset = 0
         playerTimeBaseOffset = 0
+        currentContentStartFrame = 0
+        currentContentFrameCount = 0
         scheduledFiles.removeAll()
         currentTimeSubject.send(0)
         EnsembleLogger.debug("[AudioEngine] Stopped")
     }
 
-    /// Seek to a new position within the current file.
+    /// Seek to a new position within the current file (in user-visible seconds).
     func seek(to time: TimeInterval) throws {
         guard let file = currentFile else { return }
 
@@ -856,20 +886,22 @@ public final class AudioPlaybackEngine {
         playerNode.stop()
         playerTimeBaseOffset = 0
 
-        let startFrame = AVAudioFramePosition(time * sampleRate)
-        let totalFrames = file.length
-        guard startFrame < totalFrames else {
+        // Convert user-visible time to file frame space
+        let userFrame = AVAudioFramePosition(time * sampleRate)
+        let fileFrame = userFrame + currentContentStartFrame
+        let contentEnd = currentContentStartFrame + AVAudioFramePosition(currentContentFrameCount)
+        guard fileFrame < contentEnd else {
             onPlaybackComplete?()
             return
         }
 
-        seekFrameOffset = startFrame
-        let frameCount = AVAudioFrameCount(totalFrames - startFrame)
+        seekFrameOffset = userFrame
+        let frameCount = AVAudioFrameCount(contentEnd - fileFrame)
 
-        file.framePosition = startFrame
+        file.framePosition = fileFrame
         playerNode.scheduleSegment(
             file,
-            startingFrame: startFrame,
+            startingFrame: fileFrame,
             frameCount: frameCount,
             at: nil
         ) { [weak self] in
@@ -878,13 +910,14 @@ public final class AudioPlaybackEngine {
             }
         }
 
-        // Re-schedule any gapless files that were cleared by playerNode.stop()
+        // Re-schedule any gapless files that were cleared by playerNode.stop(),
+        // using each file's stored content bounds (encoder delay/padding trim)
         for entry in scheduledFiles {
             let entryGen = scheduleGeneration
             playerNode.scheduleSegment(
                 entry.file,
-                startingFrame: 0,
-                frameCount: AVAudioFrameCount(entry.file.length),
+                startingFrame: AVAudioFramePosition(entry.contentStartFrame),
+                frameCount: entry.contentFrameCount,
                 at: nil
             ) { [weak self] in
                 DispatchQueue.main.async {
@@ -988,8 +1021,10 @@ public final class AudioPlaybackEngine {
             scheduledFiles.removeFirst()
             currentFile = next.file
             currentTrackId = next.trackId
+            currentContentStartFrame = next.contentStartFrame
+            currentContentFrameCount = next.contentFrameCount
             sampleRate = next.file.processingFormat.sampleRate
-            fileDuration = Double(next.file.length) / sampleRate
+            fileDuration = Double(next.contentFrameCount) / sampleRate
             seekFrameOffset = 0
 
             // Re-anchor wall-clock estimation for the new track (position ≈ 0)
@@ -1031,8 +1066,10 @@ public final class AudioPlaybackEngine {
             scheduledFiles.removeFirst()
             currentFile = next.file
             currentTrackId = next.trackId
+            currentContentStartFrame = next.contentStartFrame
+            currentContentFrameCount = next.contentFrameCount
             sampleRate = next.file.processingFormat.sampleRate
-            fileDuration = Double(next.file.length) / sampleRate
+            fileDuration = Double(next.contentFrameCount) / sampleRate
             seekFrameOffset = 0
 
             // Re-anchor wall-clock estimation for the new track (position ≈ 0)
@@ -1048,6 +1085,50 @@ public final class AudioPlaybackEngine {
             EnsembleLogger.debug("[AudioEngine] All segments complete -- queue exhausted")
             onPlaybackComplete?()
         }
+    }
+
+    // MARK: - Encoder Delay Detection
+
+    /// Read audio content boundaries from the file's packet table.
+    /// Compressed formats (MP3, AAC) encode silence at the start (encoder delay / priming)
+    /// and end (padding / remainder) of the file. For gapless playback, these must be
+    /// trimmed to avoid audible gaps at track boundaries.
+    ///
+    /// Uses AudioToolbox's `kAudioFilePropertyPacketTableInfo` which provides:
+    /// - `mPrimingFrames`: encoder delay at the start (e.g. 576 for LAME MP3)
+    /// - `mRemainderFrames`: padding at the end to fill the last codec frame
+    /// - `mNumberValidFrames`: total real audio frames (content only)
+    ///
+    /// Returns (0, file.length) for formats without a packet table (PCM, FLAC, ALAC).
+    private static func readContentBounds(
+        for url: URL,
+        fileLength: AVAudioFramePosition
+    ) -> (contentStartFrame: AVAudioFramePosition, contentFrameCount: AVAudioFrameCount) {
+        var audioFileID: AudioFileID?
+        let status = AudioFileOpenURL(url as CFURL, .readPermission, 0, &audioFileID)
+        guard status == noErr, let fileID = audioFileID else {
+            return (0, AVAudioFrameCount(fileLength))
+        }
+        defer { AudioFileClose(fileID) }
+
+        var packetTable = AudioFilePacketTableInfo()
+        var size = UInt32(MemoryLayout<AudioFilePacketTableInfo>.size)
+        let ptStatus = AudioFileGetProperty(
+            fileID, kAudioFilePropertyPacketTableInfo, &size, &packetTable
+        )
+        guard ptStatus == noErr, packetTable.mNumberValidFrames > 0 else {
+            return (0, AVAudioFrameCount(fileLength))
+        }
+
+        let priming = max(0, AVAudioFramePosition(packetTable.mPrimingFrames))
+        let validFrames = AVAudioFrameCount(packetTable.mNumberValidFrames)
+
+        // Sanity check: priming + valid frames shouldn't exceed file length
+        guard priming + AVAudioFramePosition(validFrames) <= fileLength else {
+            return (0, AVAudioFrameCount(fileLength))
+        }
+
+        return (priming, validFrames)
     }
 
     // MARK: - Cleanup
