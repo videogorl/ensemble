@@ -659,10 +659,10 @@ public struct SearchView: View {
                 .disabled(isEditingPins)
             }
         case .mergedPlaylist(let dp, _):
-            // Navigate to merged playlist detail (same as playlist grid navigation)
+            // Navigate to merged playlist detail — shows composite artwork and aggregated info
             if #available(iOS 16.0, macOS 13.0, *) {
                 NavigationLink(value: NavigationCoordinator.Destination.mergedPlaylist(title: dp.title, isSmart: dp.isSmart)) {
-                    PlaylistCard(playlist: dp.primaryPlaylist)
+                    DisplayPlaylistCard(displayPlaylist: dp)
                 }
                 .buttonStyle(.plain)
                 .disabled(isEditingPins)
@@ -674,7 +674,7 @@ public struct SearchView: View {
                         nowPlayingVM: nowPlayingVM
                     )
                 } label: {
-                    PlaylistCard(playlist: dp.primaryPlaylist)
+                    DisplayPlaylistCard(displayPlaylist: dp)
                 }
                 .buttonStyle(.plain)
                 .disabled(isEditingPins)
