@@ -903,6 +903,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private var isSkipTransitionInProgress = false  // Suppresses stale callbacks during next/previous
     private var lastRemoteSkipTime: CFTimeInterval = 0  // Debounce for remote command center skip events
+    private var trackStartWallTime: CFTimeInterval = 0  // Wall-clock time when the current track started playing (for stale seek rejection)
     private var playbackGenerationCounter: UInt64 = 0  // Incremented on each new playback request to cancel stale completions
     /// Timestamps of recent handleQueueExhausted calls for rapid-advance rate limiting
     private var queueExhaustedTimestamps: [Date] = []
@@ -1130,6 +1131,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let newTrack = queue[index].track
         currentQueueIndex = index
         currentTrack = newTrack
+        trackStartWallTime = CACurrentMediaTime()
         updatePlaybackTimes(rawTime: 0)
         bufferedProgress = 1.0
         waveformHeights = []
@@ -1712,10 +1714,29 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else {
+            guard let event = event as? MPChangePlaybackPositionCommandEvent,
+                  let self else {
                 return .commandFailed
             }
-            self?.seek(to: event.positionTime)
+
+            let position = event.positionTime
+            let trackAge = CACurrentMediaTime() - self.trackStartWallTime
+
+            // Reject stale position commands that arrive shortly after a track change.
+            // iOS can send changePlaybackPositionCommand with a position from the
+            // previous NowPlaying scrubber state when the duration changes between tracks.
+            // A seek >30s away from current position within 5s of track start is almost
+            // certainly stale — the user couldn't have manually scrubbed that far yet.
+            if trackAge < 5.0 && trackAge > 0 {
+                let delta = abs(position - self.currentTime)
+                if delta > 30.0 {
+                    EnsembleLogger.debug("[RemoteSeek] Rejected stale position command: target=\(String(format: "%.1f", position))s current=\(String(format: "%.1f", self.currentTime))s trackAge=\(String(format: "%.1f", trackAge))s")
+                    return .success
+                }
+            }
+
+            EnsembleLogger.debug("[RemoteSeek] Accepted: \(String(format: "%.1f", position))s (current=\(String(format: "%.1f", self.currentTime))s, trackAge=\(String(format: "%.1f", trackAge))s)")
+            self.seek(to: position)
             return .success
         }
 
@@ -3293,13 +3314,27 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
 
                 // Check for cached URL first
-                let fileURL: URL
+                var fileURL: URL
                 if let cachedURL = await MainActor.run(body: { getCachedFileURL(for: track.id) }),
                    !forcingFreshItem,
                    FileManager.default.fileExists(atPath: cachedURL.path) {
                     fileURL = cachedURL
                 } else {
                     fileURL = try await resolveAudioFile(for: track)
+                }
+
+                // Validate cached file isn't truncated (interrupted download or stale cache).
+                // A truncated file causes premature track completion and stale gapless state.
+                let expectedDuration = track.duration
+                if expectedDuration > 10 {
+                    let probeFile = try AVAudioFile(forReading: fileURL)
+                    let fileDuration = Double(probeFile.length) / probeFile.processingFormat.sampleRate
+                    if fileDuration < expectedDuration * 0.5 && fileDuration < expectedDuration - 10 {
+                        EnsembleLogger.debug("[playCurrentQueueItem] Truncated file for '\(track.title)': file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedDuration))s — re-downloading")
+                        await MainActor.run { removeCachedPlayerItem(for: track.id) }
+                        cachedStreamDecisions.removeValue(forKey: track.id)
+                        fileURL = try await resolveAudioFile(for: track)
+                    }
                 }
 
                 // Check if this playback request has been superseded
@@ -4019,12 +4054,27 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         do {
             // Check cache first
-            let fileURL: URL
+            var fileURL: URL
             if let cachedURL = await MainActor.run(body: { getCachedFileURL(for: track.id) }),
                FileManager.default.fileExists(atPath: cachedURL.path) {
                 fileURL = cachedURL
             } else {
                 fileURL = try await resolveAudioFile(for: track)
+            }
+
+            // Validate file duration against metadata to catch truncated cached files.
+            // An interrupted download or aggressive cache cleanup can leave a partial file
+            // on disk. Scheduling it for gapless causes a premature track advance.
+            let expectedDuration = track.duration
+            if expectedDuration > 10 {
+                let probeFile = try AVAudioFile(forReading: fileURL)
+                let fileDuration = Double(probeFile.length) / probeFile.processingFormat.sampleRate
+                if fileDuration < expectedDuration * 0.5 && fileDuration < expectedDuration - 10 {
+                    EnsembleLogger.debug("[prefetch] Truncated file for '\(track.title)': file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedDuration))s — evicting and re-downloading")
+                    await MainActor.run { removeCachedPlayerItem(for: track.id) }
+                    cachedStreamDecisions.removeValue(forKey: track.id)
+                    fileURL = try await resolveAudioFile(for: track)
+                }
             }
 
             // Schedule for gapless playback
@@ -4112,6 +4162,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try engine.load(fileURL: fileURL, trackId: track.id)
             try engine.play()
             refreshPresentationLatencyEstimate()
+            trackStartWallTime = CACurrentMediaTime()
             playbackState = .playing
             updateNowPlayingInfo()
             audioAnalyzer.resumeUpdates()
@@ -4879,9 +4930,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let artworkRequestKey = "\(track.id)|\(track.thumbPath ?? "")|\(track.fallbackThumbPath ?? "")|\(track.sourceCompositeKey ?? "")"
 
         let rate: Double = playbackState == .playing ? 1.0 : 0.0
+
+        // During the loading state, the engine may still have the PREVIOUS track's file
+        // loaded. Using `duration` (which prefers engine fileDuration) would publish the
+        // old track's duration under the new track's title, confusing the iOS NowPlaying
+        // scrubber. The scrubber then sends a changePlaybackPositionCommand to "correct"
+        // the position — causing a phantom seek. Use metadata duration during loading.
+        let effectiveDuration: TimeInterval
+        if playbackState == .loading {
+            effectiveDuration = track.duration
+        } else {
+            effectiveDuration = duration
+        }
+
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: track.title,
-            MPMediaItemPropertyPlaybackDuration: duration,
+            MPMediaItemPropertyPlaybackDuration: effectiveDuration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: rate,
             MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0

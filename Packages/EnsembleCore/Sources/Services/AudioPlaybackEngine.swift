@@ -694,7 +694,9 @@ public final class AudioPlaybackEngine {
 
         scheduledFiles.append((file: file, trackId: trackId, generation: myGeneration, contentStartFrame: contentStart, contentFrameCount: contentFrames))
 
-        EnsembleLogger.debug("[AudioEngine] Scheduled next: \(fileURL.lastPathComponent), trackId=\(trackId), queueDepth=\(scheduledFiles.count)\(contentStart > 0 ? ", trim=\(contentStart)" : "")")
+        let scheduledDuration = Double(contentFrames) / file.processingFormat.sampleRate
+        let trimInfo = contentStart > 0 ? ", trim=\(contentStart)+\(Int64(file.length) - Int64(contentStart) - Int64(contentFrames))" : ""
+        EnsembleLogger.debug("[AudioEngine] Scheduled next: \(fileURL.lastPathComponent), trackId=\(trackId), frames=\(contentFrames)/\(file.length), duration=\(String(format: "%.1f", scheduledDuration))s, queueDepth=\(scheduledFiles.count)\(trimInfo)")
     }
 
     /// Remove all pending gapless files from the schedule.
