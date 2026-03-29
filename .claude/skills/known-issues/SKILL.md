@@ -87,6 +87,17 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
   3. Validate file duration against track metadata before scheduling — if <50% of expected, evict and re-download.
   4. Improved `scheduleNext()` logging to include frame counts and duration for visibility.
 
+### Download Truncation Validation (RESOLVED Mar 29, 2026)
+- **Location:** `OfflineDownloadService.swift` (`validateDownloadDuration`, `scanForTruncatedDownloads`), `PlaybackService.swift` (`evictTruncatedFile`)
+- **Issue:** Truncated downloads (interrupted network transfer that closes cleanly with HTTP 200) were accepted as valid completed downloads. The file passes all existing checks (HTTP 200, non-empty, non-HTML), but contains only a fraction of the expected audio. The Downloads view showed these as "completed" despite being broken, and playback would end prematurely.
+- **Root cause:** `URLSession.bytes` async sequence exits normally when server closes the connection mid-stream. `ProgressiveStreamLoader` only rejects files <256 bytes. `DownloadManager.isClearlyInvalidDownloadedPayload` only detects HTML error pages and empty files.
+- **Fix:** Three-layer defense:
+  1. `OfflineDownloadService.validateDownloadDuration()` — rejects truncated files at download completion before marking as "completed" (checks file audio duration via AVAudioFile against track metadata duration)
+  2. `OfflineDownloadService.scanForTruncatedDownloads()` — runs at startup and on pull-to-refresh to catch existing truncated files, marks them as failed for re-download
+  3. `PlaybackService.evictTruncatedFile()` — catches truncated files at play/prefetch time, handles both stream cache and offline downloads (deletes file, marks CDDownload as failed, falls through to streaming)
+- **Detection threshold:** file duration < 50% of expected AND < expected - 10s (avoids false positives on short tracks or minor encoding differences)
+- **Key files:** `OfflineDownloadService.swift`, `PlaybackService.swift`, `DownloadManager.swift`
+
 ## Feature Completeness Gaps
 
 ### Intermittent 404 on /library/streams/ for Lyrics
