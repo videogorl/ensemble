@@ -83,6 +83,7 @@ Hub IDs encode this as `plex:{accountId}:{serverId}:{libraryKey}:{hubIdentifier}
 - The "resource unavailable" AVPlayer error is an **AVPlayer-specific issue** with how it handles the response, not a server problem
 - Universal response headers: `Transfer-Encoding: chunked`, `Accept-Ranges: none`, `Connection: close`, no `Content-Length`
 - Decision endpoint MUST be called before `start.mp3` (returns 400 without it)
+- **Decision endpoint rejects `X-Plex-Platform=macOS`** — returns 400. PMS assumes macOS clients handle all codecs natively. Fix: all transcode endpoints override the platform header/query to `iOS` since AVAudioEngine has identical codec support on both platforms. General Plex headers still report the real platform.
 - Concurrent transcode sessions work fine; no cookies needed
 
 ### Getting Test Credentials

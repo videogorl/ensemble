@@ -353,6 +353,27 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Fix:** Replaced `IntrinsicTableView` with regular `UITableView` (scroll enabled). Removed `ScrollView` wrapper in `QueueCard`. Added `configureGeneration` counter to `QueueItemCell` — async artwork loads check their generation matches before assigning.
 - **Key files:** `QueueTableView.swift`, `QueueCard.swift`
 
+### Queue Reorder Plays Wrong Song / Stream Cache Deletes Active Files / MediaTrackList Crash
+- **Resolved (March 29, 2026)**
+- **Symptoms:** (1) Drag-reordering up-next queue caused old next track to play, (2) downloaded stream file became unplayable (avfaudio error 2003334207) when transitioning while backgrounded, (3) crash with "Index out of range" in MediaTrackList on fast scroll
+- **Root Causes:** (1) Queue-mutating methods didn't call `clearScheduledFiles()` to invalidate AudioEngine's gapless FIFO, (2) `cleanupStreamCacheFiles()` didn't protect files scheduled in the AudioEngine or being downloaded by streamLoaders, (3) `groupedTracks` updated 85 lines before `reloadData()`, leaving UIKit with stale geometry
+- **Fix:** (1) Added `invalidateGaplessSchedule()` helper called by all 10 queue-mutating methods, (2) expanded keepIds to include `audioEngine.scheduledTrackIds` and `streamLoaders.keys`, plus cache invalidation on load/prefetch failure, (3) bounds-safe accessor on all 9 delegate methods + moved `reloadData()` immediately after data assignment
+- **Key files:** `PlaybackService.swift`, `MediaTrackList.swift`
+
+### NPV Does Not Show Loading Spinner When Opened During Track Loading
+- **Resolved (March 29, 2026)**
+- **Symptom:** Mini player showed buffering spinner but NPV showed a play button when opened while a track was loading
+- **Root Cause:** `ControlsCard.showLoadingIndicator` is a debounced `@State` flag updated only via `onChange(of: playbackState)`. When NPV opens while state is already `.loading`, `onChange` doesn't fire (only triggers on subsequent changes). Mini player works because it checks `playbackState` directly in its body.
+- **Fix:** Added `onAppear` to sync `showLoadingIndicator` and `wasPlayingBeforeTransition` with current state when the view mounts.
+- **Key files:** `ControlsCard.swift`
+
+### PMS Decision Endpoint Returns 400 on macOS
+- **Resolved (March 29, 2026)**
+- **Symptom:** Every `makeStreamDecision` call failed with HTTP 400 on macOS, causing fallback to full FLAC direct downloads instead of smaller MP3 transcodes (10s+ loading times)
+- **Root Cause:** PMS's `/music/:/transcode/universal/decision` endpoint rejects `X-Plex-Platform=macOS`. Confirmed via curl: iOS→200, macOS→400, even with Plex Pass tokens.
+- **Fix:** Override `X-Plex-Platform` to `iOS` in both query params and headers for all transcode-related endpoints. AVAudioEngine has identical codec support across platforms.
+- **Key files:** `PlexAPIClient.swift`
+
 ## Future Enhancements (Waveform System)
 
 - Implement waveform seeking (jump to specific parts of track)
