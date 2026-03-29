@@ -353,6 +353,13 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Fix:** Replaced `IntrinsicTableView` with regular `UITableView` (scroll enabled). Removed `ScrollView` wrapper in `QueueCard`. Added `configureGeneration` counter to `QueueItemCell` — async artwork loads check their generation matches before assigning.
 - **Key files:** `QueueTableView.swift`, `QueueCard.swift`
 
+### TLS Error Not Auto-Retried / Aurora Mid-Song Toggle / Gapless MP3 Skip (Mar 29, 2026)
+- **Resolved (March 29, 2026)**
+- **Symptoms:** (1) Tapping shuffle on a merged playlist caused "TLS error" until manual retry, (2) enabling Aurora visualizer mid-song didn't activate frequency analysis, (3) slight audible skip between gapless MP3 tracks
+- **Root Causes:** (1) `handleTLSPlaybackFailure()` existed but was never wired into `playCurrentQueueItem`'s failure path — TLS errors (code -1200) broke out of the retry loop immediately, (2) `isVisualizerEnabled` was only checked at track transitions in `playCurrentQueueItem` and `prefetchUpcomingItems`, no observation of the setting change, (3) MP3 encoder delay (576 priming frames for LAME) and padding (~1700 remainder frames) were included in `scheduleSegment` calls, creating ~50ms of silence at each gapless boundary
+- **Fix:** (1) Detect TLS errors after retry loop and dispatch to `handleTLSPlaybackFailure()` which refreshes connection + retries, (2) added `UserDefaults.didChangeNotification` observer in `setupVisualizerSettingObservation()` that triggers `loadTimeline` + `activateTimeline` + `resumeUpdates` for current track when toggled ON, (3) added `readContentBounds()` using `AudioFilePacketTableInfo` to read priming/remainder frames, trimmed all `scheduleSegment` calls in `load()`, `scheduleNext()`, `seek()`, `play(from:)`, and `clearScheduledFiles()`
+- **Key files:** `PlaybackService.swift`, `AudioPlaybackEngine.swift`
+
 ### Queue Reorder Plays Wrong Song / Stream Cache Deletes Active Files / MediaTrackList Crash
 - **Resolved (March 29, 2026)**
 - **Symptoms:** (1) Drag-reordering up-next queue caused old next track to play, (2) downloaded stream file became unplayable (avfaudio error 2003334207) when transitioning while backgrounded, (3) crash with "Index out of range" in MediaTrackList on fast scroll
