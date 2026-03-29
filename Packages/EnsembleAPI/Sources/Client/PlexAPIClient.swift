@@ -1435,6 +1435,8 @@ public actor PlexAPIClient {
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
         addPlexHeaders(to: &request, token: serverConnection.token)
+        // Override platform for transcode endpoint (see callTranscodeDecision comment)
+        request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
 
         let (tempURL, response) = try await session.download(for: request)
 
@@ -1642,6 +1644,8 @@ public actor PlexAPIClient {
             request.httpMethod = "GET"
             request.cachePolicy = .reloadIgnoringLocalCacheData
             addPlexHeaders(to: &request, token: serverConnection.token)
+            // Override platform for transcode endpoint (see callTranscodeDecision comment)
+            request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
 
             let config = ProgressiveStreamConfig(
                 streamRequest: request,
@@ -1680,6 +1684,8 @@ public actor PlexAPIClient {
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
         addPlexHeaders(to: &request, token: serverConnection.token)
+        // Override platform for transcode endpoint (see callTranscodeDecision comment)
+        request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
 
         let (tempURL, response) = try await session.download(for: request)
 
@@ -1815,6 +1821,8 @@ public actor PlexAPIClient {
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
         addPlexHeaders(to: &request, token: serverConnection.token)
+        // Override platform for transcode endpoint (see callTranscodeDecision comment)
+        request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
 
         let estimatedLength = estimateTranscodeSize(
             quality: quality,
@@ -1863,7 +1871,11 @@ public actor PlexAPIClient {
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Use addPlexHeaders for standard Plex identification, then override the
+        // platform header. PMS returns 400 on the decision endpoint when the header
+        // says "macOS" (query param alone isn't enough — header takes precedence).
         addPlexHeaders(to: &request, token: serverConnection.token)
+        request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
 
         let (data, response) = try await session.data(for: request)
 
@@ -1945,7 +1957,12 @@ public actor PlexAPIClient {
             // Some server versions key transcode sessions off `session`.
             URLQueryItem(name: "session", value: sessionId),
             URLQueryItem(name: "X-Plex-Product", value: productName),
-            URLQueryItem(name: "X-Plex-Platform", value: platformName),
+            // Always report "iOS" for transcode endpoints — PMS returns 400 on the
+            // decision endpoint when X-Plex-Platform=macOS (assumes macOS clients
+            // don't need transcoding). Our codec support is identical across platforms
+            // via AVAudioEngine, and the profile extra declares the real capabilities.
+            // General Plex headers (addPlexHeaders) still report the actual platform.
+            URLQueryItem(name: "X-Plex-Platform", value: "iOS"),
             URLQueryItem(name: "X-Plex-Device", value: deviceName),
             URLQueryItem(name: "X-Plex-Device-Name", value: deviceName),
             // DO NOT include X-Plex-Client-Profile-Name — "generic" causes PMS to
