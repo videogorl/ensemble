@@ -1,3 +1,4 @@
+import AVFoundation
 import Combine
 import EnsembleAPI
 import EnsemblePersistence
@@ -63,6 +64,7 @@ public final class OfflineDownloadService: ObservableObject {
     private enum DownloadProcessingError: LocalizedError {
         case invalidHTTPStatus(Int)
         case emptyPayload(String)
+        case truncatedPayload(fileDuration: Double, expectedDuration: Double)
 
         var errorDescription: String? {
             switch self {
@@ -70,6 +72,22 @@ public final class OfflineDownloadService: ObservableObject {
                 return "Download HTTP status \(statusCode)"
             case .emptyPayload(let url):
                 return "Download payload was empty for \(url)"
+            case .truncatedPayload(let fileDuration, let expectedDuration):
+                return "Download truncated: file is \(String(format: "%.1f", fileDuration))s but expected \(String(format: "%.1f", expectedDuration))s"
+            }
+        }
+    }
+
+    /// Transport-level error for incomplete byte transfer.
+    /// Separate from DownloadProcessingError because these are retryable —
+    /// the download should be re-queued as pending, not permanently failed.
+    private enum DownloadTransferError: LocalizedError {
+        case incompleteTransfer(bytesReceived: Int64, bytesExpected: Int64, percentComplete: Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .incompleteTransfer(let received, let expected, let pct):
+                return "Incomplete transfer: received \(received)/\(expected) bytes (\(pct)%)"
             }
         }
     }
@@ -119,6 +137,12 @@ public final class OfflineDownloadService: ObservableObject {
     private var downloadedBytesByTargetKey: [String: Int64] = [:]
     private var qualityMismatchByTargetKey: [String: Int] = [:]
     private var failedTracksByTargetKey: [String: Int] = [:]
+
+    /// In-memory retry counter for truncated/incomplete downloads.
+    /// Prevents infinite retry loops when a track consistently fails transfer.
+    /// Cleared on successful completion; capped at maxTransferRetries.
+    private var transferRetryCount: [String: Int] = [:]
+    private static let maxTransferRetries = 3
 
     /// Debounced notification task so individual download completions don't
     /// spam `downloadsDidChange` during bulk queue processing.
@@ -181,6 +205,10 @@ public final class OfflineDownloadService: ObservableObject {
             // are accurate before we compute target state.
             _ = try? await downloadManager.fetchDownloads()
 
+            // Scan for truncated audio files that passed basic payload checks
+            // but have significantly shorter duration than expected (e.g. interrupted downloads)
+            await scanForTruncatedDownloads()
+
             await refreshState()
             // Reset stale .downloading status from previous app session.
             // At init time, no download can be actively in-progress.
@@ -208,6 +236,8 @@ public final class OfflineDownloadService: ObservableObject {
     public func refreshStateWithHealing() async {
         // Verify files on disk, mark missing/invalid downloads as failed
         _ = try? await downloadManager.fetchDownloads()
+        // Catch truncated audio files (interrupted downloads that passed basic checks)
+        await scanForTruncatedDownloads()
         await refreshState()
     }
 
@@ -1142,6 +1172,11 @@ public final class OfflineDownloadService: ObservableObject {
                 "✅ Offline download stored: track=\(ctx.trackRatingKey) path=\(destinationURL.lastPathComponent) size=\(persistedFileSize) mode=\(selectedMode) contentType=\(contentType) requestedQuality=\(requestedQuality.rawValue) effectiveQuality=\(effectiveQuality.rawValue) magic=\(magicBytesHex)"
             )
 
+            // Validate that the downloaded file isn't truncated (interrupted connection, etc.).
+            // Must happen BEFORE marking complete — a truncated file should stay as "failed"
+            // so the download queue retries it on the next pass.
+            try validateDownloadDuration(fileURL: destinationURL, ctx: ctx)
+
             // Persist completion to CoreData with recovery for cascade-deleted records.
             try await completeDownloadWithRecovery(
                 ctx: ctx,
@@ -1172,6 +1207,9 @@ public final class OfflineDownloadService: ObservableObject {
                 )
             }
 
+            // Clear transfer retry counter on success
+            transferRetryCount.removeValue(forKey: ctx.trackRatingKey)
+
             // Notify track-displaying VMs so they re-fetch and reflect updated
             // offline state (e.g. dimming). Debounced to avoid spamming during
             // bulk queue processing.
@@ -1190,6 +1228,25 @@ public final class OfflineDownloadService: ObservableObject {
                 EnsembleLogger.debug(
                     "⏸️ Offline download paused (network lost): track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey)"
                 )
+            } else if error is DownloadTransferError || isRetryableTruncation(error) {
+                // Incomplete transfer or truncated payload — re-queue as pending so the
+                // download worker automatically retries. These are transient failures
+                // (app backgrounded, server timeout, FFmpeg crash) not permanent ones.
+                let retries = (transferRetryCount[ctx.trackRatingKey] ?? 0) + 1
+                transferRetryCount[ctx.trackRatingKey] = retries
+
+                if retries <= Self.maxTransferRetries {
+                    try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: nil)
+                    EnsembleLogger.debug(
+                        "🔄 Offline download re-queued (attempt \(retries)/\(Self.maxTransferRetries)): track=\(ctx.trackRatingKey) reason=\(error.localizedDescription)"
+                    )
+                } else {
+                    try? await downloadManager.failDownload(ctx.downloadObjectID, error: "Transfer incomplete after \(Self.maxTransferRetries) attempts")
+                    transferRetryCount.removeValue(forKey: ctx.trackRatingKey)
+                    EnsembleLogger.debug(
+                        "❌ Offline download failed (max retries): track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey) reason=\(error.localizedDescription)"
+                    )
+                }
             } else {
                 try? await downloadManager.failDownload(ctx.downloadObjectID, error: error.localizedDescription)
                 EnsembleLogger.debug(
@@ -1261,9 +1318,38 @@ public final class OfflineDownloadService: ObservableObject {
 
                 // Flush remaining bytes
                 if !buffer.isEmpty {
+                    bytesReceived += Int64(buffer.count)
                     fileHandle.write(buffer)
                 }
                 try fileHandle.close()
+
+                // Validate bytes received against Content-Length when available.
+                // URLSession.bytes exits silently when the server closes the connection
+                // mid-stream (e.g. app backgrounded, server timeout, FFmpeg crash).
+                // Without this check, a partial file passes as "complete."
+                let expectedLength = response.expectedContentLength
+                if expectedLength > 0 {
+                    if bytesReceived < expectedLength {
+                        let pctReceived = Int(Double(bytesReceived) / Double(expectedLength) * 100)
+                        EnsembleLogger.debug(
+                            "⚠️ Download incomplete: received \(bytesReceived)/\(expectedLength) bytes (\(pctReceived)%)"
+                        )
+                        try? FileManager.default.removeItem(at: tempURL)
+                        throw DownloadTransferError.incompleteTransfer(
+                            bytesReceived: bytesReceived,
+                            bytesExpected: expectedLength,
+                            percentComplete: pctReceived
+                        )
+                    }
+                } else if estimate > 0, bytesReceived < estimate / 2 {
+                    // No Content-Length (chunked transcode) but received less than half
+                    // the bitrate estimate — likely truncated. Log for diagnostics but
+                    // let validateDownloadDuration() make the final call with audio probing.
+                    let pctOfEstimate = Int(Double(bytesReceived) / Double(estimate) * 100)
+                    EnsembleLogger.debug(
+                        "⚠️ Download suspiciously short: received \(bytesReceived) bytes vs ~\(estimate) estimated (\(pctOfEstimate)%)"
+                    )
+                }
 
                 return (tempURL, response)
             } catch {
@@ -1341,6 +1427,9 @@ public final class OfflineDownloadService: ObservableObject {
         EnsembleLogger.debug(
             "✅ Offline download stored: track=\(ctx.trackRatingKey) path=\(destinationURL.lastPathComponent) size=\(queueFileSize) mode=\(mode) contentType=\(queuePayload.mimeType ?? "unknown") magic=\(magicBytesHex)"
         )
+
+        // Validate that the downloaded file isn't truncated
+        try validateDownloadDuration(fileURL: destinationURL, ctx: ctx)
 
         // Persist completion to CoreData with recovery for cascade-deleted records.
         try await completeDownloadWithRecovery(
@@ -1423,6 +1512,101 @@ public final class OfflineDownloadService: ObservableObject {
                     "⚠️ Failed caching artwork for downloaded track \(ctx.trackRatingKey): \(error.localizedDescription)"
                 )
             }
+        }
+    }
+
+    /// Validate that a downloaded audio file's duration is consistent with the track's metadata.
+    /// Catches truncated downloads from interrupted connections or server-side errors.
+    /// Throws `truncatedPayload` if the file is less than 50% of expected duration.
+    private func validateDownloadDuration(
+        fileURL: URL,
+        ctx: DownloadContext
+    ) throws {
+        let expectedDurationMs = ctx.trackDuration
+        guard expectedDurationMs > 10_000 else { return } // Skip very short tracks
+        let expectedSeconds = Double(expectedDurationMs) / 1000.0
+
+        do {
+            let audioFile = try AVAudioFile(forReading: fileURL)
+            let sampleRate = audioFile.processingFormat.sampleRate
+            guard sampleRate > 0 else { return }
+            let fileDuration = Double(audioFile.length) / sampleRate
+
+            if fileDuration < expectedSeconds * 0.5 && fileDuration < expectedSeconds - 10 {
+                EnsembleLogger.debug(
+                    "⚠️ Truncated download for track=\(ctx.trackRatingKey): file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedSeconds))s — rejecting"
+                )
+                // Clean up the truncated file
+                try? FileManager.default.removeItem(at: fileURL)
+                throw DownloadProcessingError.truncatedPayload(
+                    fileDuration: fileDuration,
+                    expectedDuration: expectedSeconds
+                )
+            }
+        } catch let error as DownloadProcessingError {
+            throw error // Re-throw our own errors
+        } catch {
+            // AVAudioFile failed to open — file may be corrupt. Log but don't block
+            // completion since the format might just be unrecognizable to AVAudioFile.
+            EnsembleLogger.debug(
+                "⚠️ Could not validate download duration for track=\(ctx.trackRatingKey): \(error.localizedDescription)"
+            )
+        }
+    }
+
+    /// Scan all completed downloads for truncated audio files and mark them as failed.
+    /// Runs at startup (after DownloadManager's own self-healing) to catch truncated files
+    /// that passed the basic HTML/empty payload checks but have significantly shorter audio
+    /// duration than expected (e.g. interrupted network transfer that closed cleanly).
+    private func scanForTruncatedDownloads() async {
+        do {
+            let completed = try await downloadManager.fetchCompletedDownloads()
+            guard !completed.isEmpty else { return }
+
+            var truncatedCount = 0
+            for download in completed {
+                guard let filename = download.filePath, !filename.isEmpty,
+                      let track = download.track else { continue }
+
+                let expectedMs = track.duration
+                guard expectedMs > 10_000 else { continue } // Skip very short tracks
+                let expectedSeconds = Double(expectedMs) / 1000.0
+
+                let absolutePath = DownloadManager.absolutePath(forFilename: filename)
+                guard FileManager.default.fileExists(atPath: absolutePath) else { continue }
+
+                let fileURL = URL(fileURLWithPath: absolutePath)
+                do {
+                    let audioFile = try AVAudioFile(forReading: fileURL)
+                    let sampleRate = audioFile.processingFormat.sampleRate
+                    guard sampleRate > 0 else { continue }
+                    let fileDuration = Double(audioFile.length) / sampleRate
+
+                    if fileDuration < expectedSeconds * 0.5 && fileDuration < expectedSeconds - 10 {
+                        EnsembleLogger.debug(
+                            "[OfflineDownloads] Truncated download detected: '\(track.title ?? "?")' file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedSeconds))s — marking failed"
+                        )
+                        // Delete truncated file so DownloadManager self-healing won't recover it.
+                        // resolveAudioFile checks fileExists before using localFilePath, so the
+                        // stale path is harmless — playback will fall through to streaming.
+                        try? FileManager.default.removeItem(at: fileURL)
+                        try? await downloadManager.failDownload(
+                            download.objectID,
+                            error: "Truncated (\(String(format: "%.0f", fileDuration))s vs \(String(format: "%.0f", expectedSeconds))s expected)"
+                        )
+                        truncatedCount += 1
+                    }
+                } catch {
+                    // AVAudioFile can't read this file — skip, don't block other checks
+                    continue
+                }
+            }
+
+            if truncatedCount > 0 {
+                EnsembleLogger.debug("[OfflineDownloads] Startup scan found \(truncatedCount) truncated download(s) — marked as failed for re-download")
+            }
+        } catch {
+            EnsembleLogger.debug("[OfflineDownloads] Truncation scan failed: \(error.localizedDescription)")
         }
     }
 
@@ -1567,6 +1751,12 @@ public final class OfflineDownloadService: ObservableObject {
 
     /// Returns true if the error indicates a network/connectivity loss rather than a server-side
     /// or content error. Used to pause (not fail) downloads when connectivity drops mid-transfer.
+    /// Returns true for truncated payload errors that should be retried automatically.
+    private func isRetryableTruncation(_ error: Error) -> Bool {
+        if case DownloadProcessingError.truncatedPayload = error { return true }
+        return false
+    }
+
     private func isNetworkLossError(_ error: Error) -> Bool {
         if let urlError = error as? URLError {
             switch urlError.code {

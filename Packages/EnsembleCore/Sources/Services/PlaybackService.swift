@@ -804,6 +804,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var cachedStreamDecisions: [String: StreamDecision] = [:]
     /// In-flight file resolution tasks keyed by trackId
     private var fileResolutionTasks: [String: Task<URL, Error>] = [:]
+    /// Track IDs currently being resolved for gapless prefetch.
+    /// Guards against TOCTOU race where two concurrent prefetchUpcomingItems calls
+    /// both pass the isTrackScheduled check before either completes scheduleNext().
+    private var prefetchingTrackIds: Set<String> = []
     /// Combine subscription for engine time updates
     private var engineTimeCancellable: AnyCancellable?
     /// Active progressive stream loaders keyed by trackId. Kept alive so the
@@ -832,6 +836,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var qualityChangeObserver: NSObjectProtocol?
     private var qualityDebounceTask: Task<Void, Never>?
     private var downloadChangeObserver: AnyCancellable?
+    private var visualizerSettingObserver: NSObjectProtocol?
     private var lastObservedStreamingQuality: String = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?  // Kept for network stall detection during file resolution
@@ -902,6 +907,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private var isSkipTransitionInProgress = false  // Suppresses stale callbacks during next/previous
     private var lastRemoteSkipTime: CFTimeInterval = 0  // Debounce for remote command center skip events
+    private var trackStartWallTime: CFTimeInterval = 0  // Wall-clock time when the current track started playing (for stale seek rejection)
     private var playbackGenerationCounter: UInt64 = 0  // Incremented on each new playback request to cancel stale completions
     /// Timestamps of recent handleQueueExhausted calls for rapid-advance rate limiting
     private var queueExhaustedTimestamps: [Date] = []
@@ -994,6 +1000,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupHealthCheckObservation()
         setupAccountSourcesObservation()
         setupAudioAnalyzer()
+        setupVisualizerSettingObservation()
         setupQueueQualityObservation()
         setupDownloadChangeObservation()
     }
@@ -1008,6 +1015,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         downloadChangeObserver = nil
         if let qualityChangeObserver {
             NotificationCenter.default.removeObserver(qualityChangeObserver)
+        }
+        if let visualizerSettingObserver {
+            NotificationCenter.default.removeObserver(visualizerSettingObserver)
         }
     }
 
@@ -1125,6 +1135,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let newTrack = queue[index].track
         currentQueueIndex = index
         currentTrack = newTrack
+        trackStartWallTime = CACurrentMediaTime()
         updatePlaybackTimes(rawTime: 0)
         bufferedProgress = 1.0
         waveformHeights = []
@@ -1707,10 +1718,29 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else {
+            guard let event = event as? MPChangePlaybackPositionCommandEvent,
+                  let self else {
                 return .commandFailed
             }
-            self?.seek(to: event.positionTime)
+
+            let position = event.positionTime
+            let trackAge = CACurrentMediaTime() - self.trackStartWallTime
+
+            // Reject stale position commands that arrive shortly after a track change.
+            // iOS can send changePlaybackPositionCommand with a position from the
+            // previous NowPlaying scrubber state when the duration changes between tracks.
+            // A seek >30s away from current position within 5s of track start is almost
+            // certainly stale — the user couldn't have manually scrubbed that far yet.
+            if trackAge < 5.0 && trackAge > 0 {
+                let delta = abs(position - self.currentTime)
+                if delta > 30.0 {
+                    EnsembleLogger.debug("[RemoteSeek] Rejected stale position command: target=\(String(format: "%.1f", position))s current=\(String(format: "%.1f", self.currentTime))s trackAge=\(String(format: "%.1f", trackAge))s")
+                    return .success
+                }
+            }
+
+            EnsembleLogger.debug("[RemoteSeek] Accepted: \(String(format: "%.1f", position))s (current=\(String(format: "%.1f", self.currentTime))s, trackAge=\(String(format: "%.1f", trackAge))s)")
+            self.seek(to: position)
             return .success
         }
 
@@ -2313,6 +2343,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         consecutivePlaybackFailures = 0
         queueExhaustedTimestamps.removeAll()
         isSkipTransitionInProgress = false
+        prefetchingTrackIds.removeAll()
         disarmSkipTransitionSafety()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         MPNowPlayingInfoCenter.default().playbackState = .stopped
@@ -2562,7 +2593,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         savePlaybackState()
-        Task { await checkAndRefreshAutoplayQueue() }
+        invalidateGaplessSchedule(thenRefreshAutoplay: true)
     }
 
     /// Insert multiple tracks to play immediately after the current track, preserving order
@@ -2590,7 +2621,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         savePlaybackState()
-        Task { await checkAndRefreshAutoplayQueue() }
+        invalidateGaplessSchedule(thenRefreshAutoplay: true)
     }
 
     /// Add a track to end of the "real" queue (before autoplay tracks)
@@ -2609,7 +2640,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         savePlaybackState()
-        Task { await checkAndRefreshAutoplayQueue() }
+        invalidateGaplessSchedule(thenRefreshAutoplay: true)
     }
 
     /// Add tracks to end of the "real" queue (before autoplay tracks)
@@ -2626,7 +2657,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         savePlaybackState()
-        Task { await checkAndRefreshAutoplayQueue() }
+        invalidateGaplessSchedule(thenRefreshAutoplay: true)
     }
 
     public func removeFromQueue(at index: Int) {
@@ -2648,10 +2679,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         savePlaybackState()
-        Task {
-            await prefetchNextItem()
-            await checkAndRefreshAutoplayQueue()
-        }
+        invalidateGaplessSchedule(thenRefreshAutoplay: true)
     }
 
     public func clearQueue() {
@@ -2668,10 +2696,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         originalQueue = queue
         playbackHistory.removeAll()
         savePlaybackState()
-        Task {
-            await prefetchNextItem()
-            await checkAndRefreshAutoplayQueue()
-        }
+        invalidateGaplessSchedule(thenRefreshAutoplay: true)
     }
 
     /// Move a queue item by ID from source position to destination position.
@@ -2720,11 +2745,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.queue = queue
         
         savePlaybackState()
-        
-        // Update the player's internal queue to reflect the change
-        Task {
-            await prefetchNextItem()
-        }
+
+        // Clear stale gapless schedule and re-prefetch for new queue order
+        invalidateGaplessSchedule()
     }
 
     /// Move a queue item from one position to another (for drag-to-reorder).
@@ -2752,6 +2775,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         flattenAutoplayItemsBeforeIndex(adjustedDest)
 
         savePlaybackState()
+        invalidateGaplessSchedule()
+    }
+
+    // MARK: - Gapless Schedule Invalidation
+
+    /// Clear the AudioEngine's gapless schedule and re-prefetch based on new queue order.
+    /// Call after any queue mutation that changes what the "next" track should be.
+    /// Without this, the engine's playerNode FIFO retains stale tracks from before the
+    /// mutation, causing wrong songs to play on gapless transitions.
+    private func invalidateGaplessSchedule(thenRefreshAutoplay: Bool = false) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.audioEngine?.clearScheduledFiles()
+            await self.prefetchNextItem()
+            if thenRefreshAutoplay {
+                await self.checkAndRefreshAutoplayQueue()
+            }
+        }
     }
 
     // MARK: - Shuffle & Repeat
@@ -2809,15 +2850,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         savePlaybackState()
 
-        // Clear prefetched items from AVQueuePlayer — they're from the old order.
-        // Without this, AVPlayer gaplessly advances to the wrong (pre-shuffle) track.
-        // Then re-prefetch based on the new queue order, and rebuild autoplay.
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.audioEngine?.clearScheduledFiles()
-            await self.prefetchNextItem()
-            await self.checkAndRefreshAutoplayQueue()
-        }
+        // Clear gapless schedule — it's from the old order.
+        // Re-prefetch based on the new queue order, and rebuild autoplay.
+        invalidateGaplessSchedule(thenRefreshAutoplay: true)
     }
 
     public func cycleRepeatMode() {
@@ -2846,9 +2881,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             autoGeneratedTrackIds.removeAll()
             radioMode = .off
             savePlaybackState()
-            Task {
-                await prefetchNextItem()
-            }
+            invalidateGaplessSchedule()
         }
     }
 
@@ -2869,15 +2902,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Removes excess tracks from the end to maintain the limit
     private func trimAutoplayQueue() {
         let futureTracksCount = max(0, queue.count - currentQueueIndex - 1)
-        
+
         // If we have more future tracks than the limit, trim the excess auto-generated ones
         if futureTracksCount > maxQueueLookahead {
             let tracksToRemove = futureTracksCount - maxQueueLookahead
             let removeStartIndex = queue.count - tracksToRemove
-            
+
             EnsembleLogger.debug("🔪 Trimming \(tracksToRemove) excess auto-generated tracks from queue")
             EnsembleLogger.debug("   Future tracks: \(futureTracksCount) → \(maxQueueLookahead)")
-            
+
             // Remove excess tracks from end of queue and update tracking
             for i in (removeStartIndex..<queue.count).reversed() {
                 let removedTrack = queue[i].track
@@ -2887,8 +2920,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
                 queue.remove(at: i)
             }
-            
+
             EnsembleLogger.debug("✅ Queue trimmed to \(queue.count) total tracks")
+
+            // Clear stale gapless schedule in case a trimmed track was already scheduled
+            invalidateGaplessSchedule()
         }
     }
 
@@ -3147,8 +3183,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     /// Remove temporary stream cache files created by downloadUniversalStreamToFile.
-    /// Keeps only files for the current playback neighborhood (current, next 2, previous 1)
-    /// to cap disk usage at ~4 files. Falls back to playerItems-based cleanup if queue is empty.
+    /// Keeps only files for the current playback neighborhood (current, next 2, previous 1),
+    /// plus files that are scheduled in the AudioEngine's gapless queue or actively downloading.
     private func cleanupStreamCacheFiles() {
         let cacheDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
@@ -3173,6 +3209,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Use the tighter neighborhood if we have queue context
             keepIds = neighborhood
         }
+
+        // Protect files scheduled in the AudioEngine's gapless FIFO queue —
+        // these may have been moved outside the neighborhood by queue reordering
+        // but are still referenced by the playerNode for upcoming playback.
+        if let engineIds = audioEngine?.scheduledTrackIds {
+            keepIds.formUnion(engineIds)
+        }
+
+        // Protect files with in-flight downloads to avoid deleting partially-written files
+        keepIds.formUnion(streamLoaders.keys)
 
         guard let files = try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path) else {
             try? FileManager.default.removeItem(at: cacheDir)
@@ -3273,13 +3319,26 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
 
                 // Check for cached URL first
-                let fileURL: URL
+                var fileURL: URL
                 if let cachedURL = await MainActor.run(body: { getCachedFileURL(for: track.id) }),
                    !forcingFreshItem,
                    FileManager.default.fileExists(atPath: cachedURL.path) {
                     fileURL = cachedURL
                 } else {
                     fileURL = try await resolveAudioFile(for: track)
+                }
+
+                // Validate cached file isn't truncated (interrupted download or stale cache).
+                // A truncated file causes premature track completion and stale gapless state.
+                let expectedDuration = track.duration
+                if expectedDuration > 10 {
+                    let probeFile = try AVAudioFile(forReading: fileURL)
+                    let fileDuration = Double(probeFile.length) / probeFile.processingFormat.sampleRate
+                    if fileDuration < expectedDuration * 0.5 && fileDuration < expectedDuration - 10 {
+                        EnsembleLogger.debug("[playCurrentQueueItem] Truncated file for '\(track.title)': file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedDuration))s — re-downloading")
+                        await evictTruncatedFile(fileURL: fileURL, track: track, fileDuration: fileDuration, expectedDuration: expectedDuration)
+                        fileURL = try await resolveAudioFile(for: track)
+                    }
                 }
 
                 // Check if this playback request has been superseded
@@ -3333,13 +3392,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
-        // All retries exhausted — handle failure
+        // All retries exhausted — classify failure and dispatch to specialized handler
         let nsError = lastError.map { $0 as NSError }
+        let isTLSError = nsError?.domain == NSURLErrorDomain &&
+            nsError?.code == NSURLErrorSecureConnectionFailed
         let isConnectionError = nsError?.domain == NSURLErrorDomain &&
             (nsError?.code == NSURLErrorTimedOut ||
              nsError?.code == NSURLErrorNetworkConnectionLost ||
              nsError?.code == NSURLErrorCannotConnectToHost ||
              nsError?.code == NSURLErrorNotConnectedToInternet)
+
+        // TLS errors: refresh connection to find a working endpoint and retry.
+        // This handles transient TLS issues on relay endpoints by switching to
+        // a direct connection or a different relay.
+        if isTLSError {
+            loadingStateTask?.cancel()
+            endTrackTransitionBackgroundTask()
+            await handleTLSPlaybackFailure()
+            return
+        }
 
         if isConnectionError, let sourceKey = track.sourceCompositeKey {
             await syncCoordinator.triggerServerHealthCheck(sourceKey: sourceKey)
@@ -3917,6 +3988,37 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return false
     }
 
+    /// Evict a truncated audio file — clears stream cache and, if the file came from an
+    /// offline download, marks the CDDownload as failed and deletes the file on disk.
+    /// After calling this, `resolveAudioFile` will fall through to streaming.
+    private func evictTruncatedFile(fileURL: URL, track: Track, fileDuration: Double, expectedDuration: Double) async {
+        // Always clear in-memory caches so resolveAudioFile doesn't return the same file
+        await MainActor.run { removeCachedPlayerItem(for: track.id) }
+        cachedStreamDecisions.removeValue(forKey: track.id)
+
+        // Check if this is an offline download (vs a stream cache file)
+        if track.localFilePath != nil {
+            // Delete the truncated file so DownloadManager self-healing won't recover it
+            try? FileManager.default.removeItem(at: fileURL)
+
+            // Mark the CDDownload as failed so the Downloads view shows it correctly
+            do {
+                if let download = try await downloadManager.fetchDownload(
+                    forTrackRatingKey: track.id,
+                    sourceCompositeKey: track.sourceCompositeKey
+                ) {
+                    try await downloadManager.failDownload(
+                        download.objectID,
+                        error: "Truncated download (\(String(format: "%.0f", fileDuration))s vs \(String(format: "%.0f", expectedDuration))s expected)"
+                    )
+                    EnsembleLogger.debug("[evictTruncatedFile] Marked offline download as failed for '\(track.title)'")
+                }
+            } catch {
+                EnsembleLogger.debug("[evictTruncatedFile] Failed to mark download as failed for '\(track.title)': \(error.localizedDescription)")
+            }
+        }
+    }
+
     static func shouldForceTransportRecovery(errorCode: Int, domain: String) -> Bool {
         guard domain == NSURLErrorDomain else { return false }
         switch errorCode {
@@ -3983,16 +4085,46 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Don't schedule if already in the engine's gapless queue
         guard !engine.isTrackScheduled(track.id) else { return }
 
+        // Guard against TOCTOU race: two concurrent calls can both pass
+        // isTrackScheduled before either reaches scheduleNext(). The in-flight
+        // set closes this window so only the first caller proceeds.
+        guard !prefetchingTrackIds.contains(track.id) else {
+            EnsembleLogger.debug("[prefetch] Already in-flight for '\(track.title)' — skipping duplicate")
+            return
+        }
+        prefetchingTrackIds.insert(track.id)
+        defer { prefetchingTrackIds.remove(track.id) }
+
         EnsembleLogger.debug("[prefetch] Upcoming '\(track.title)' source=\(track.sourceCompositeKey ?? "nil")")
 
         do {
             // Check cache first
-            let fileURL: URL
+            var fileURL: URL
             if let cachedURL = await MainActor.run(body: { getCachedFileURL(for: track.id) }),
                FileManager.default.fileExists(atPath: cachedURL.path) {
                 fileURL = cachedURL
             } else {
                 fileURL = try await resolveAudioFile(for: track)
+            }
+
+            // Validate file duration against metadata to catch truncated cached files.
+            // An interrupted download or aggressive cache cleanup can leave a partial file
+            // on disk. Scheduling it for gapless causes a premature track advance.
+            let expectedDuration = track.duration
+            if expectedDuration > 10 {
+                let probeFile = try AVAudioFile(forReading: fileURL)
+                let fileDuration = Double(probeFile.length) / probeFile.processingFormat.sampleRate
+                if fileDuration < expectedDuration * 0.5 && fileDuration < expectedDuration - 10 {
+                    EnsembleLogger.debug("[prefetch] Truncated file for '\(track.title)': file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedDuration))s — evicting and re-downloading")
+                    await evictTruncatedFile(fileURL: fileURL, track: track, fileDuration: fileDuration, expectedDuration: expectedDuration)
+                    fileURL = try await resolveAudioFile(for: track)
+                }
+            }
+
+            // Final guard: another caller may have scheduled while we were resolving
+            guard !engine.isTrackScheduled(track.id) else {
+                EnsembleLogger.debug("[prefetch] '\(track.title)' was scheduled by another path — skipping")
+                return
             }
 
             // Schedule for gapless playback
@@ -4019,7 +4151,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Clean up all cached state for the failed track so the next real
             // playback attempt gets a fresh resolution instead of hitting the
             // stale failed loader (fixes cross-server prefetch cascade failures)
-            streamLoaders.removeValue(forKey: track.id)?.cancel()
+            await MainActor.run { removeCachedPlayerItem(for: track.id) }
             cachedStreamDecisions.removeValue(forKey: track.id)
             fileResolutionTasks.removeValue(forKey: track.id)
         }
@@ -4080,6 +4212,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try engine.load(fileURL: fileURL, trackId: track.id)
             try engine.play()
             refreshPresentationLatencyEstimate()
+            trackStartWallTime = CACurrentMediaTime()
             playbackState = .playing
             updateNowPlayingInfo()
             audioAnalyzer.resumeUpdates()
@@ -4095,6 +4228,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             EnsembleLogger.playback("ENGINE: playing '\(track.title)'")
         } catch {
+            // Clear stale cached URL so retry/recovery gets a fresh download
+            // instead of repeatedly hitting the same deleted or corrupt file
+            removeCachedPlayerItem(for: track.id)
+
             EnsembleLogger.playback("ENGINE: load/play failed -- \(error.localizedDescription)")
             isSkipTransitionInProgress = false
             disarmSkipTransitionSafety()
@@ -4575,6 +4712,39 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
+    /// Observe the aurora visualizer setting so toggling it mid-song triggers
+    /// frequency analysis for the currently playing track immediately, instead of
+    /// waiting for the next track transition.
+    private func setupVisualizerSettingObservation() {
+        visualizerSettingObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let enabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
+
+                // Only act when toggled ON during active playback
+                guard enabled, self.playbackState == .playing,
+                      let track = self.currentTrack,
+                      let fileURL = self.getCachedFileURL(for: track.id) else { return }
+
+                let analyzer = self.audioAnalyzer
+                let trackId = track.id
+                let throttle = self.isInstrumentalModeActive
+                let priority: TaskPriority = throttle ? .background : .userInitiated
+
+                EnsembleLogger.debug("[Visualizer] Setting toggled ON mid-song — loading timeline for '\(track.title)'")
+                Task.detached {
+                    await analyzer.loadTimeline(for: trackId, fileURL: fileURL, priority: priority, throttled: throttle)
+                }
+                analyzer.activateTimeline(for: trackId)
+                analyzer.resumeUpdates()
+            }
+        }
+    }
+
     // MARK: - Visualizer Position
 
     /// Update the pre-computed visualizer's playback position.
@@ -4810,9 +4980,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let artworkRequestKey = "\(track.id)|\(track.thumbPath ?? "")|\(track.fallbackThumbPath ?? "")|\(track.sourceCompositeKey ?? "")"
 
         let rate: Double = playbackState == .playing ? 1.0 : 0.0
+
+        // During the loading state, the engine may still have the PREVIOUS track's file
+        // loaded. Using `duration` (which prefers engine fileDuration) would publish the
+        // old track's duration under the new track's title, confusing the iOS NowPlaying
+        // scrubber. The scrubber then sends a changePlaybackPositionCommand to "correct"
+        // the position — causing a phantom seek. Use metadata duration during loading.
+        let effectiveDuration: TimeInterval
+        if playbackState == .loading {
+            effectiveDuration = track.duration
+        } else {
+            effectiveDuration = duration
+        }
+
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: track.title,
-            MPMediaItemPropertyPlaybackDuration: duration,
+            MPMediaItemPropertyPlaybackDuration: effectiveDuration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: rate,
             MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0

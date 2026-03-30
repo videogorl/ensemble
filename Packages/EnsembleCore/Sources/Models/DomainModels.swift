@@ -155,6 +155,11 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         if let streamFileName = filenameStem(fromPath: streamKey) {
             return streamFileName
         }
+        // Diagnostic: log when we fall through to "Unknown Track" so we can
+        // trace the source of empty titles (e.g. faulted CoreData objects)
+        #if DEBUG
+        EnsembleLogger.debug("[Track] normalizedTrackTitle fell through to 'Unknown Track' — rawTitle='\(rawTitle)', localFilePath=\(localFilePath ?? "nil"), streamKey=\(streamKey ?? "nil")")
+        #endif
         return "Unknown Track"
     }
 

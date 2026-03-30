@@ -76,12 +76,29 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Issue:** `NavigationView` + `.searchable()` on iOS 26 triggers 997+ "Observation tracking feedback loop detected!" errors from `ScrollPocketCollectorModel`, freezing/crashing the app.
 - **Fix:** Use `NavigationStack` on iOS 16+ for sheet navigation containers. Tab-level views already use `NavigationStack` via `MainTabView.tabRootView`.
 
-### Fix 8 — Premature Gapless Track Advance
-- **Location:** `AudioPlaybackEngine.swift` (~line 969-1008), `ProgressiveStreamLoader.swift`, `PlaybackService.swift` (`resolveAudioFileImpl`)
-- **Issue:** Songs occasionally skip a whole minute+ early to the next track (not subtle timing). Has existed since endpoint handling was redone.
-- **Root cause hypothesis:** Truncated progressive stream download causes `AVAudioFile` to read shorter frame count than expected, triggering premature `handleSegmentComplete`.
-- **Investigation needed:** Compare `AVAudioFile.length` vs expected frames from `track.duration * sampleRate`.
-- **Impact:** Significantly affects merged playlist UX but is NOT related to playlist merging itself.
+### Fix 8 — Premature Gapless Track Advance (RESOLVED Mar 29, 2026)
+- **Location:** `PlaybackService.swift` (`updateNowPlayingInfo`, `changePlaybackPositionCommand`, `prefetchUpcomingItems`, `playCurrentQueueItem`), `AudioPlaybackEngine.swift` (`scheduleNext`)
+- **Issue:** Songs occasionally skip a whole minute+ early to the next track. Two root causes confirmed:
+  1. **Phantom seek via NowPlayingInfo duration mismatch:** When `playCurrentQueueItem` sets `currentTrack` to the new track but the engine still has the previous track's file loaded, `updateNowPlayingInfo()` publishes the old track's engine `fileDuration` under the new track's title. iOS's NowPlaying scrubber detects the duration discrepancy and sends a `changePlaybackPositionCommand` with a stale position — causing a seek to ~200s into a ~220s track.
+  2. **Truncated cached stream files:** A cached file from an interrupted download or aggressive cache cleanup contains only a fraction of the expected audio (e.g. 25s of a 179s track). When scheduled for gapless playback, the track ends prematurely.
+- **Fix:**
+  1. Use track metadata duration (not engine fileDuration) in `updateNowPlayingInfo()` during `.loading` state.
+  2. Reject `changePlaybackPositionCommand` events that seek >30s from current position within 5s of track start.
+  3. Validate file duration against track metadata before scheduling — if <50% of expected, evict and re-download.
+  4. Improved `scheduleNext()` logging to include frame counts and duration for visibility.
+
+### Download Truncation Validation (RESOLVED Mar 29, 2026)
+- **Location:** `OfflineDownloadService.swift` (`validateDownloadDuration`, `scanForTruncatedDownloads`), `PlaybackService.swift` (`evictTruncatedFile`)
+- **Issue:** Truncated downloads (interrupted network transfer that closes cleanly with HTTP 200) were accepted as valid completed downloads. The file passes all existing checks (HTTP 200, non-empty, non-HTML), but contains only a fraction of the expected audio. The Downloads view showed these as "completed" despite being broken, and playback would end prematurely.
+- **Root cause:** `URLSession.bytes` async sequence exits normally when server closes the connection mid-stream. `ProgressiveStreamLoader` only rejects files <256 bytes. `DownloadManager.isClearlyInvalidDownloadedPayload` only detects HTML error pages and empty files.
+- **Fix:** Three-layer defense:
+  1. `OfflineDownloadService.validateDownloadDuration()` — rejects truncated files at download completion before marking as "completed" (checks file audio duration via AVAudioFile against track metadata duration)
+  2. `OfflineDownloadService.scanForTruncatedDownloads()` — runs at startup and on pull-to-refresh to catch existing truncated files, marks them as failed for re-download
+  3. `PlaybackService.evictTruncatedFile()` — catches truncated files at play/prefetch time, handles both stream cache and offline downloads (deletes file, marks CDDownload as failed, falls through to streaming)
+- **Detection threshold:** file duration < 50% of expected AND < expected - 10s (avoids false positives on short tracks or minor encoding differences)
+- **Transport-level validation:** `downloadWithProgress()` now validates `bytesReceived` against `Content-Length` after the byte loop completes. Incomplete transfers throw `DownloadTransferError` which auto-retries (up to 3 attempts) instead of permanently failing. In beta testing, 21/113 downloads (19%) were truncated — likely from app backgrounding with foreground URLSession.
+- **Key files:** `OfflineDownloadService.swift`, `PlaybackService.swift`, `DownloadManager.swift`
+- **Known limitation:** `URLSession.shared` is foreground-only. Long download sessions (100+ tracks) will be interrupted when the app is backgrounded. A future improvement would be to migrate to `URLSessionConfiguration.background` for offline downloads.
 
 ## Feature Completeness Gaps
 
@@ -352,6 +369,34 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Previous:** `QueueTableView` used `IntrinsicTableView` inside a SwiftUI `ScrollView`. `IntrinsicTableView` reported full content height as `intrinsicContentSize`, forcing all 1436 cells to render. Artwork could also flash incorrectly during drag-to-rearrange due to stale async loads.
 - **Fix:** Replaced `IntrinsicTableView` with regular `UITableView` (scroll enabled). Removed `ScrollView` wrapper in `QueueCard`. Added `configureGeneration` counter to `QueueItemCell` — async artwork loads check their generation matches before assigning.
 - **Key files:** `QueueTableView.swift`, `QueueCard.swift`
+
+### TLS Error Not Auto-Retried / Aurora Mid-Song Toggle / Gapless MP3 Skip (Mar 29, 2026)
+- **Resolved (March 29, 2026)**
+- **Symptoms:** (1) Tapping shuffle on a merged playlist caused "TLS error" until manual retry, (2) enabling Aurora visualizer mid-song didn't activate frequency analysis, (3) slight audible skip between gapless MP3 tracks
+- **Root Causes:** (1) `handleTLSPlaybackFailure()` existed but was never wired into `playCurrentQueueItem`'s failure path — TLS errors (code -1200) broke out of the retry loop immediately, (2) `isVisualizerEnabled` was only checked at track transitions in `playCurrentQueueItem` and `prefetchUpcomingItems`, no observation of the setting change, (3) MP3 encoder delay (576 priming frames for LAME) and padding (~1700 remainder frames) were included in `scheduleSegment` calls, creating ~50ms of silence at each gapless boundary
+- **Fix:** (1) Detect TLS errors after retry loop and dispatch to `handleTLSPlaybackFailure()` which refreshes connection + retries, (2) added `UserDefaults.didChangeNotification` observer in `setupVisualizerSettingObservation()` that triggers `loadTimeline` + `activateTimeline` + `resumeUpdates` for current track when toggled ON, (3) added `readContentBounds()` using `AudioFilePacketTableInfo` to read priming/remainder frames, trimmed all `scheduleSegment` calls in `load()`, `scheduleNext()`, `seek()`, `play(from:)`, and `clearScheduledFiles()`
+- **Key files:** `PlaybackService.swift`, `AudioPlaybackEngine.swift`
+
+### Queue Reorder Plays Wrong Song / Stream Cache Deletes Active Files / MediaTrackList Crash
+- **Resolved (March 29, 2026)**
+- **Symptoms:** (1) Drag-reordering up-next queue caused old next track to play, (2) downloaded stream file became unplayable (avfaudio error 2003334207) when transitioning while backgrounded, (3) crash with "Index out of range" in MediaTrackList on fast scroll
+- **Root Causes:** (1) Queue-mutating methods didn't call `clearScheduledFiles()` to invalidate AudioEngine's gapless FIFO, (2) `cleanupStreamCacheFiles()` didn't protect files scheduled in the AudioEngine or being downloaded by streamLoaders, (3) `groupedTracks` updated 85 lines before `reloadData()`, leaving UIKit with stale geometry
+- **Fix:** (1) Added `invalidateGaplessSchedule()` helper called by all 10 queue-mutating methods, (2) expanded keepIds to include `audioEngine.scheduledTrackIds` and `streamLoaders.keys`, plus cache invalidation on load/prefetch failure, (3) bounds-safe accessor on all 9 delegate methods + moved `reloadData()` immediately after data assignment
+- **Key files:** `PlaybackService.swift`, `MediaTrackList.swift`
+
+### NPV Does Not Show Loading Spinner When Opened During Track Loading
+- **Resolved (March 29, 2026)**
+- **Symptom:** Mini player showed buffering spinner but NPV showed a play button when opened while a track was loading
+- **Root Cause:** `ControlsCard.showLoadingIndicator` is a debounced `@State` flag updated only via `onChange(of: playbackState)`. When NPV opens while state is already `.loading`, `onChange` doesn't fire (only triggers on subsequent changes). Mini player works because it checks `playbackState` directly in its body.
+- **Fix:** Added `onAppear` to sync `showLoadingIndicator` and `wasPlayingBeforeTransition` with current state when the view mounts.
+- **Key files:** `ControlsCard.swift`
+
+### PMS Decision Endpoint Returns 400 on macOS
+- **Resolved (March 29, 2026)**
+- **Symptom:** Every `makeStreamDecision` call failed with HTTP 400 on macOS, causing fallback to full FLAC direct downloads instead of smaller MP3 transcodes (10s+ loading times)
+- **Root Cause:** PMS's `/music/:/transcode/universal/decision` endpoint rejects `X-Plex-Platform=macOS`. Confirmed via curl: iOS→200, macOS→400, even with Plex Pass tokens.
+- **Fix:** Override `X-Plex-Platform` to `iOS` in both query params and headers for all transcode-related endpoints. AVAudioEngine has identical codec support across platforms.
+- **Key files:** `PlexAPIClient.swift`
 
 ## Future Enhancements (Waveform System)
 
