@@ -87,6 +87,13 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
   3. Validate file duration against track metadata before scheduling — if <50% of expected, evict and re-download.
   4. Improved `scheduleNext()` logging to include frame counts and duration for visibility.
 
+### Plex Transcode MP3s Play Without Encoder Delay Trimming (RESOLVED Mar 30, 2026)
+- **Resolved (March 30, 2026)**
+- **Symptom:** Gapless transitions involving Plex progressive stream transcodes had audible gaps, particularly on album tracks designed for continuous playback (e.g. Metric's Synthetica). Downloaded MP3s had correct trimming, but streamed transcodes did not.
+- **Root Cause:** `readContentBounds()` trusted AudioToolbox's `PacketTableInfo` unconditionally. FFmpeg transcodes (Plex's `/start.mp3`) write a packet table with `mPrimingFrames = 0` even though real LAME encoder delay (576 frames, ~13ms) is present. Downloaded MP3s' packet tables failed, correctly falling through to the 576-frame default.
+- **Fix:** When the packet table reports 0 priming frames for MP3 files, fall through to the LAME header parser / default 576-frame delay fallback instead of trusting the misleading value.
+- **Key files:** `AudioPlaybackEngine.swift` (`readContentBounds`)
+
 ### Gapless UI Desync — Audio Advances but UI Stays on Old Track (RESOLVED Mar 30, 2026)
 - **Location:** `AudioPlaybackEngine.swift` (`clearScheduledFiles`)
 - **Issue:** After a queue mutation (autoplay add/trim, playNext, playLast, etc.) while a track was playing with no gapless files scheduled, the next gapless transition would silently fail — audio would advance to the next track but the UI stayed on the old track. The user would hear a different song than what was displayed.
@@ -233,6 +240,13 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Resolved (March 10, 2026)**
 - **Fix:** `ratedAfter` fetch is now skipped when the sync timestamp is older than 10 minutes. Within that window (foreground/background cycling), the full rated-tracks fetch runs. Beyond 10 minutes, rating changes are caught by the next full sync.
 - **Key files:** `PlexMusicSourceSyncProvider.swift` (lines 155-167)
+
+### AirPlay Audio Glitching During Health Check Probes (Watchlist)
+- **Location:** `ServerHealthChecker.swift`, `AudioPlaybackEngine.swift`
+- **Issue:** Observed one-time mid-track audio glitching during AirPlay playback. Correlated with app foreground transition triggering 12 concurrent HTTPS health check probes. The Wi-Fi traffic from TLS handshakes may compete with AirPlay's Wi-Fi audio stream. IO buffer is only 23ms — very tight for AirPlay.
+- **Impact:** Rare — observed once during extended AirPlay session. Not reproducible on demand.
+- **Mitigation if recurs:** Throttle concurrent health probes to 2-3 when AirPlay is the active route, or defer health checks entirely during active AirPlay playback.
+- **Status:** Monitoring — single occurrence, not yet actionable.
 
 ### Wall-Clock Boundary Timer Limitations
 - **Location:** `PlaybackService.swift` (wall-clock boundary section in periodic time observer)
