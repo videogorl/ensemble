@@ -46,7 +46,7 @@ Use structured `os.Logger` logging, not `print()`.
 Rules:
 - Use package/app logger helpers (`AppLogger` / `EnsembleLogger`) with category-specific logger instances.
 - Use log levels intentionally: `.debug` for verbose traces, `.info` for key state transitions, `.error` for recoverable failures, `.fault` for critical failures.
-- Keep verbose diagnostic logging debug-only when it could be noisy.
+- **NEVER wrap `logger.*` calls in `#if DEBUG`.** `os.Logger` works in release and TestFlight builds — it is the *only* way to capture logs from a device or beta tester. Guarding with `#if DEBUG` silently strips the call from the builds where you need it most. Only use `#if DEBUG` if the surrounding code (not just the log line) must be absent from release.
 - Treat logs as production data: use privacy-safe interpolation and avoid leaking secrets/tokens.
 - `print(` is disallowed in production codepaths. Keep repository-wide `print(` count at zero for Swift sources.
 
