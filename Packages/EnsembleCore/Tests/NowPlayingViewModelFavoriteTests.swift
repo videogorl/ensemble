@@ -85,6 +85,8 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         var instrumentalModeActivePublisher: AnyPublisher<Bool, Never> { Just(false).eraseToAnyPublisher() }
         func setInstrumentalMode(_ enabled: Bool) {}
 
+        var isScreenMirroringActive: Bool = false
+
         func setCurrentTrack(_ track: Track?) {
             currentTrackSubject.send(track)
         }

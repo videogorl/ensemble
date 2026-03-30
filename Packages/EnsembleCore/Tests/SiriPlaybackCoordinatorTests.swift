@@ -62,6 +62,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         var recommendationsExhausted: Bool { recommendationsSubject.value }
         var queueSections: QueueSections { .empty }
         var playbackHistory: [QueueItem] { historySubject.value }
+        var isScreenMirroringActive: Bool = false
 
         var currentTrackPublisher: AnyPublisher<Track?, Never> { currentTrackSubject.eraseToAnyPublisher() }
         var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { playbackStateSubject.eraseToAnyPublisher() }

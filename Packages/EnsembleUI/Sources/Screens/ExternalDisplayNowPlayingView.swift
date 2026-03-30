@@ -16,6 +16,11 @@ public struct ExternalDisplayNowPlayingView: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
 
+    /// Tracks the last detail page (Queue/Lyrics/Info) the user was viewing.
+    /// When the user swipes to Controls (page 1) on their device, the external
+    /// display keeps showing this panel instead of going blank.
+    @State private var lastDetailPage: Int = 0
+
     public init(viewModel: NowPlayingViewModel) {
         self.viewModel = viewModel
     }
@@ -48,9 +53,19 @@ public struct ExternalDisplayNowPlayingView: View {
         .onAppear {
             // Viewport layout always shows ControlsCard on the left.
             // Carousel page 1 (Controls) has no panel equivalent in this layout —
-            // normalize to Queue (0) so QueueCard's isVisible check passes.
+            // seed lastDetailPage so the right panel shows Queue by default.
             if viewModel.currentPage == 1 {
-                viewModel.currentPage = 0
+                lastDetailPage = 0
+            } else {
+                lastDetailPage = viewModel.currentPage
+            }
+        }
+        .onChange(of: viewModel.currentPage) { newPage in
+            // When the user navigates to a detail panel (Queue/Lyrics/Info),
+            // remember it. When they swipe to Controls (page 1), we keep
+            // showing the last detail panel on the external display.
+            if newPage != 1 {
+                lastDetailPage = newPage
             }
         }
     }
@@ -76,21 +91,41 @@ public struct ExternalDisplayNowPlayingView: View {
 
     // MARK: - Detail Panel
 
+    /// The page index used for the right detail panel.
+    /// When the user is on Controls (page 1) on their device, we show the last
+    /// detail panel they were viewing instead of a blank/default panel.
+    private var effectiveDetailPage: Int {
+        viewModel.currentPage == 1 ? lastDetailPage : viewModel.currentPage
+    }
+
+    /// Binding that tells detail cards they're "visible" even when the device
+    /// is on the Controls page (page 1). Cards gate their content behind an
+    /// `isVisible` check (`currentPage == myPage`); by passing
+    /// `effectiveDetailPage` as the read value, the card sees its own page
+    /// index and renders content. Writes go through to `viewModel.currentPage`.
+    private var effectivePageBinding: Binding<Int> {
+        Binding(
+            get: { effectiveDetailPage },
+            set: { viewModel.currentPage = $0 }
+        )
+    }
+
     /// Switches the right panel based on the device's current page selection.
+    /// When the device is on Controls (page 1), keeps the last detail panel visible.
     /// NOTE: If you add a new card/panel to NowPlayingViewportRoot or NowPlayingCarousel,
     /// you MUST also add it here so it appears on the external display.
     @ViewBuilder
     private var detailPanel: some View {
-        if viewModel.currentPage == 3 {
-            InfoCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
-        } else if viewModel.currentPage == 2 {
+        if effectiveDetailPage == 3 {
+            InfoCard(viewModel: viewModel, currentPage: effectivePageBinding)
+        } else if effectiveDetailPage == 2 {
             LyricsCard(
                 viewModel: viewModel,
-                currentPage: $viewModel.currentPage,
+                currentPage: effectivePageBinding,
                 isLowPowerMode: powerStateMonitor.isLowPowerMode
             )
         } else {
-            QueueCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+            QueueCard(viewModel: viewModel, currentPage: effectivePageBinding)
         }
     }
 
