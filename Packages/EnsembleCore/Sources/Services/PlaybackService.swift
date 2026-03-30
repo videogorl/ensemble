@@ -1115,11 +1115,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Handle gapless track advance from AudioPlaybackEngine
     private func handleEngineTrackAdvance(trackId: String) {
+        // If a manual skip (next/previous) is in progress, ignore the gapless advance —
+        // the skip task owns state mutation and will load the correct track.
+        if isSkipTransitionInProgress {
+            EnsembleLogger.playback("GAPLESS_ADVANCE: ignored — skip transition in progress for trackId \(trackId)")
+            return
+        }
+
         guard let index = queue.firstIndex(where: { $0.track.id == trackId }) else {
             EnsembleLogger.debug("[AudioEngine] Track advance: trackId \(trackId) not found in queue")
             return
         }
-        guard currentQueueIndex != index else {
+        guard currentQueueIndex != index || repeatMode == .one else {
             EnsembleLogger.debug("[AudioEngine] Track advance: already at index \(index) for trackId \(trackId)")
             return
         }
@@ -1135,6 +1142,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let newTrack = queue[index].track
         currentQueueIndex = index
         currentTrack = newTrack
+        consecutivePlaybackFailures = 0  // Successful gapless advance = healthy playback
         trackStartWallTime = CACurrentMediaTime()
         updatePlaybackTimes(rawTime: 0)
         bufferedProgress = 1.0
@@ -1156,6 +1164,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         updateNowPlayingInfo()
         savePlaybackState()
 
+        // Re-schedule next gapless file (critical for repeat-one looping)
         Task { await prefetchNextItem() }
         Task { await checkAndRefreshAutoplayQueue() }
 
