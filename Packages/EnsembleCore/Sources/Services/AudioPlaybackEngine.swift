@@ -711,10 +711,24 @@ public final class AudioPlaybackEngine {
         let hadScheduledFiles = !scheduledFiles.isEmpty
         scheduledFiles.removeAll()
 
-        // If nothing was scheduled, just bump generation and return — no FIFO to flush
-        guard hadScheduledFiles, let file = currentFile else {
+        // If nothing was scheduled, return WITHOUT bumping the generation.
+        // Bumping the generation here would invalidate the currently playing
+        // segment's completion handler, preventing gapless advance when the
+        // track finishes. This was the root cause of "audio advances but UI
+        // stays on old track" — queue mutations (autoplay add/trim, playNext,
+        // etc.) that call clearScheduledFiles when no gapless files are queued
+        // would silently kill the current segment's callback.
+        guard hadScheduledFiles else {
+            EnsembleLogger.debug("[AudioEngine] Cleared scheduled files (nothing queued, gen unchanged=\(scheduleGeneration))")
+            return
+        }
+
+        // Had scheduled files but no current file — unusual state.
+        // Bump generation to invalidate the orphaned handlers, but we can't
+        // flush the FIFO since there's no track to re-schedule.
+        guard let file = currentFile else {
             scheduleGeneration &+= 1
-            EnsembleLogger.debug("[AudioEngine] Cleared scheduled files (nothing queued)")
+            EnsembleLogger.debug("[AudioEngine] Cleared scheduled files (no current file, bumped gen=\(scheduleGeneration))")
             return
         }
 
