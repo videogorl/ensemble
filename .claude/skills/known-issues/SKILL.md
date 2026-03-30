@@ -87,6 +87,15 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
   3. Validate file duration against track metadata before scheduling — if <50% of expected, evict and re-download.
   4. Improved `scheduleNext()` logging to include frame counts and duration for visibility.
 
+### Gapless UI Desync — Audio Advances but UI Stays on Old Track (RESOLVED Mar 30, 2026)
+- **Location:** `AudioPlaybackEngine.swift` (`clearScheduledFiles`)
+- **Issue:** After a queue mutation (autoplay add/trim, playNext, playLast, etc.) while a track was playing with no gapless files scheduled, the next gapless transition would silently fail — audio would advance to the next track but the UI stayed on the old track. The user would hear a different song than what was displayed.
+- **Root cause:** `clearScheduledFiles()` unconditionally bumped the `scheduleGeneration` counter even when there were no scheduled gapless files to clear. This invalidated the currently-playing segment's completion handler. When the track finished, `handleSegmentComplete` was classified as "stale" (gen N vs current N+1) and ignored. Audio played from the FIFO (which still had the next track scheduled), but `onTrackAdvance` never fired so `PlaybackService.currentTrack` never updated.
+- **Trigger sequence:** Play album → last track starts → autoplay fires → `trimAutoplayQueue()` → `invalidateGaplessSchedule()` → `clearScheduledFiles()` with empty queue → gen bumped → current track completion handler dies.
+- **Fix:** Split the early-return path: (1) no scheduled files → return WITHOUT bumping generation; (2) had scheduled files but no current file → bump to invalidate orphaned handlers. Only the case where there ARE scheduled files AND a current file triggers the full FIFO flush + re-schedule.
+- **Also fixed:** TOCTOU race in `prefetchUpcomingItems` where two concurrent calls could both pass `isTrackScheduled` before either completed `scheduleNext()`, causing duplicate scheduling (queueDepth=2). Added `prefetchingTrackIds` in-flight set.
+- **Key files:** `AudioPlaybackEngine.swift`, `PlaybackService.swift`
+
 ### Download Truncation Validation (RESOLVED Mar 29, 2026)
 - **Location:** `OfflineDownloadService.swift` (`validateDownloadDuration`, `scanForTruncatedDownloads`), `PlaybackService.swift` (`evictTruncatedFile`)
 - **Issue:** Truncated downloads (interrupted network transfer that closes cleanly with HTTP 200) were accepted as valid completed downloads. The file passes all existing checks (HTTP 200, non-empty, non-HTML), but contains only a fraction of the expected audio. The Downloads view showed these as "completed" despite being broken, and playback would end prematurely.
