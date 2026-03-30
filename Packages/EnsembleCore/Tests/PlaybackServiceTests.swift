@@ -28,6 +28,29 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(routeKind, .bluetooth)
     }
 
+    func testScreenMirroringSuppressesAirPlayLatencyCompensation() {
+        // During screen mirroring, AVAudioSession reports .airPlay because audio
+        // goes through the mirroring stream. But the mirroring protocol syncs A/V
+        // together — no separate delay. Route should be builtInOrWired (zero latency).
+        let routeKind = PlaybackService.inferPresentationRouteKind(
+            hasAirPlay: true,
+            hasBluetooth: false,
+            isScreenMirroringActive: true
+        )
+        XCTAssertEqual(routeKind, .builtInOrWired)
+    }
+
+    func testScreenMirroringStillDetectsBluetoothWhenActive() {
+        // If the user has Bluetooth headphones during screen mirroring, audio goes
+        // to Bluetooth (not the TV). Bluetooth latency should still apply.
+        let routeKind = PlaybackService.inferPresentationRouteKind(
+            hasAirPlay: false,
+            hasBluetooth: true,
+            isScreenMirroringActive: true
+        )
+        XCTAssertEqual(routeKind, .bluetooth)
+    }
+
     func testEstimatedPresentationLatencyUsesBluetoothFallbackWhenReportedLatencyIsTiny() {
         let latency = PlaybackService.estimatedPresentationLatency(
             routeKind: .bluetooth,

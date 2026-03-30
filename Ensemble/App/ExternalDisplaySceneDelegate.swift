@@ -25,6 +25,12 @@ class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
 
         os_log(.info, "ExternalDisplay: scene willConnectTo — setting up external display window")
 
+        // Tell PlaybackService that screen mirroring is active so it suppresses
+        // AirPlay latency compensation. During mirroring, AVAudioSession reports
+        // .airPlay but the mirroring protocol syncs A/V together — no separate
+        // audio pipeline delay exists. Without this, lyrics lag by ~2s.
+        DependencyContainer.shared.playbackService.isScreenMirroringActive = true
+
         // Use the shared NowPlayingViewModel from the main UI so playback state,
         // lyrics, queue, and panel selection stay in sync automatically.
         // Falls back to a new instance if the main UI hasn't loaded yet —
@@ -53,6 +59,7 @@ class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneDidDisconnect(_ scene: UIScene) {
         os_log(.info, "ExternalDisplay: scene disconnected — tearing down window")
+        DependencyContainer.shared.playbackService.isScreenMirroringActive = false
         window = nil
     }
 }
