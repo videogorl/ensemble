@@ -2394,6 +2394,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard let self else { return }
 
             if let nextIndex = self.findNextPlayableTrackIndex(after: self.currentQueueIndex) {
+                // Check cancellation before mutating state — a second next() call
+                // cancels this task, so committing state here would briefly flash
+                // the wrong track in the UI before being overwritten.
+                guard !Task.isCancelled else { return }
                 self.currentQueueIndex = nextIndex
                 let nextTrack = self.queue[nextIndex].track
                 self.currentTrack = nextTrack
@@ -2408,6 +2412,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             } else {
                 if self.repeatMode == .all {
                     if let wrappedIndex = self.findNextPlayableTrackIndex(after: -1) {
+                        guard !Task.isCancelled else { return }
                         self.currentQueueIndex = wrappedIndex
                         let wrappedTrack = self.queue[wrappedIndex].track
                         self.currentTrack = wrappedTrack
