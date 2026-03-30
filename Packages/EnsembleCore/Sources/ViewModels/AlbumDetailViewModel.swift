@@ -70,17 +70,25 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         do {
             // First try to fetch from local repository
             let cachedTracks = try await libraryRepository.fetchTracks(forAlbum: album.id)
-            
+
             if !cachedTracks.isEmpty {
-                tracks = cachedTracks.map { Track(from: $0) }
+                let mapped = cachedTracks.map { Track(from: $0) }
+                #if DEBUG
+                // Diagnostic: detect "Unknown Track" entries to trace empty-title source
+                let unknownCount = mapped.filter { $0.title == "Unknown Track" }.count
+                if unknownCount > 0 {
+                    EnsembleLogger.debug("AlbumDetailViewModel.loadTracks: \(unknownCount)/\(mapped.count) tracks have 'Unknown Track' title for album \(album.id)")
+                }
+                #endif
+                tracks = mapped
             } else if let sourceKey = album.sourceCompositeKey {
                 // If not found and we have a source key, try to fetch from API
-                EnsembleLogger.debug("💿 AlbumDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
+                EnsembleLogger.debug("AlbumDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
                 let apiTracks = try await syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)
                 tracks = apiTracks
             }
         } catch {
-            EnsembleLogger.debug("❌ AlbumDetailViewModel error: \(error.localizedDescription)")
+            EnsembleLogger.debug("AlbumDetailViewModel error: \(error.localizedDescription)")
             self.error = error.localizedDescription
         }
 

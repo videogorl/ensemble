@@ -804,6 +804,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var cachedStreamDecisions: [String: StreamDecision] = [:]
     /// In-flight file resolution tasks keyed by trackId
     private var fileResolutionTasks: [String: Task<URL, Error>] = [:]
+    /// Track IDs currently being resolved for gapless prefetch.
+    /// Guards against TOCTOU race where two concurrent prefetchUpcomingItems calls
+    /// both pass the isTrackScheduled check before either completes scheduleNext().
+    private var prefetchingTrackIds: Set<String> = []
     /// Combine subscription for engine time updates
     private var engineTimeCancellable: AnyCancellable?
     /// Active progressive stream loaders keyed by trackId. Kept alive so the
@@ -2339,6 +2343,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         consecutivePlaybackFailures = 0
         queueExhaustedTimestamps.removeAll()
         isSkipTransitionInProgress = false
+        prefetchingTrackIds.removeAll()
         disarmSkipTransitionSafety()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         MPNowPlayingInfoCenter.default().playbackState = .stopped
@@ -4080,6 +4085,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Don't schedule if already in the engine's gapless queue
         guard !engine.isTrackScheduled(track.id) else { return }
 
+        // Guard against TOCTOU race: two concurrent calls can both pass
+        // isTrackScheduled before either reaches scheduleNext(). The in-flight
+        // set closes this window so only the first caller proceeds.
+        guard !prefetchingTrackIds.contains(track.id) else {
+            EnsembleLogger.debug("[prefetch] Already in-flight for '\(track.title)' — skipping duplicate")
+            return
+        }
+        prefetchingTrackIds.insert(track.id)
+        defer { prefetchingTrackIds.remove(track.id) }
+
         EnsembleLogger.debug("[prefetch] Upcoming '\(track.title)' source=\(track.sourceCompositeKey ?? "nil")")
 
         do {
@@ -4104,6 +4119,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     await evictTruncatedFile(fileURL: fileURL, track: track, fileDuration: fileDuration, expectedDuration: expectedDuration)
                     fileURL = try await resolveAudioFile(for: track)
                 }
+            }
+
+            // Final guard: another caller may have scheduled while we were resolving
+            guard !engine.isTrackScheduled(track.id) else {
+                EnsembleLogger.debug("[prefetch] '\(track.title)' was scheduled by another path — skipping")
+                return
             }
 
             // Schedule for gapless playback
