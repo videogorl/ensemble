@@ -106,6 +106,20 @@ public struct TrackUpsertInput: Sendable {
     }
 }
 
+/// Describes a track whose album association changed during a sync upsert.
+/// Used to trigger downstream artwork cache invalidation.
+public struct TrackReparentInfo: Sendable {
+    public let trackRatingKey: String
+    public let oldAlbumRatingKey: String
+    public let newAlbumRatingKey: String?
+
+    public init(trackRatingKey: String, oldAlbumRatingKey: String, newAlbumRatingKey: String?) {
+        self.trackRatingKey = trackRatingKey
+        self.oldAlbumRatingKey = oldAlbumRatingKey
+        self.newAlbumRatingKey = newAlbumRatingKey
+    }
+}
+
 public protocol LibraryRepositoryProtocol: Sendable {
     /// Refresh the context to ensure fresh data from the store
     func refreshContext() async
@@ -228,13 +242,36 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func batchUpsertArtists(_ inputs: [ArtistUpsertInput], sourceCompositeKey: String) async throws
     func batchUpsertAlbums(_ inputs: [AlbumUpsertInput], sourceCompositeKey: String) async throws
     func batchUpsertTracks(_ inputs: [TrackUpsertInput], sourceCompositeKey: String) async throws
+
+    /// Returns and clears any track reparent events accumulated during upsert operations.
+    /// Called after sync to trigger artwork invalidation for tracks whose album changed.
+    func drainTrackReparentInfo() -> [TrackReparentInfo]
 }
 
 public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
     private let coreDataStack: CoreDataStack
 
+    // Accumulator for tracks whose album changed during upsert.
+    // Protected by reparentLock; drained by SyncCoordinator after sync.
+    private var pendingReparentInfo: [TrackReparentInfo] = []
+    private let reparentLock = NSLock()
+
     public init(coreDataStack: CoreDataStack = .shared) {
         self.coreDataStack = coreDataStack
+    }
+
+    public func drainTrackReparentInfo() -> [TrackReparentInfo] {
+        reparentLock.lock()
+        defer { reparentLock.unlock() }
+        let info = pendingReparentInfo
+        pendingReparentInfo = []
+        return info
+    }
+
+    private func recordReparent(_ info: TrackReparentInfo) {
+        reparentLock.lock()
+        defer { reparentLock.unlock() }
+        pendingReparentInfo.append(info)
     }
 
     // MARK: - Context Refresh
@@ -773,6 +810,16 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     track.sourceCompositeKey = sourceCompositeKey
 
                     if let albumKey = albumRatingKey {
+                        // Detect album reparenting for existing tracks
+                        let oldAlbumKey = existing?.album?.ratingKey
+                        if let oldKey = oldAlbumKey, oldKey != albumKey {
+                            self.recordReparent(TrackReparentInfo(
+                                trackRatingKey: ratingKey,
+                                oldAlbumRatingKey: oldKey,
+                                newAlbumRatingKey: albumKey
+                            ))
+                        }
+
                         let albumRequest = CDAlbum.fetchRequest()
                         if let sourceKey = sourceCompositeKey {
                             albumRequest.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", albumKey, sourceKey)
@@ -1605,6 +1652,15 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                         track.source = source
 
                         if let albumKey = input.albumRatingKey {
+                            // Detect album reparenting for existing tracks
+                            if let oldKey = existing?.album?.ratingKey, oldKey != albumKey {
+                                self.recordReparent(TrackReparentInfo(
+                                    trackRatingKey: input.ratingKey,
+                                    oldAlbumRatingKey: oldKey,
+                                    newAlbumRatingKey: albumKey
+                                ))
+                            }
+
                             let album = albumsByKey[albumKey]
                             track.album = album
 

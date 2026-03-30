@@ -419,6 +419,18 @@ public final class DependencyContainer: @unchecked Sendable {
                 await artworkLoaderRef?.invalidateURLCache()
             }
 
+            // When tracks are reparented (album changed), invalidate cached artwork
+            // for the old album so ArtworkView re-fetches the correct cover
+            syncRef.onTrackAlbumChanged = { [weak artworkLoaderRef] reparentedTracks in
+                guard let artworkLoader = artworkLoaderRef else { return }
+                for info in reparentedTracks {
+                    // Invalidate old album artwork (stale cache entry)
+                    await artworkLoader.invalidateArtwork(ratingKey: info.oldAlbumRatingKey, type: .album)
+                    // Invalidate track-level artwork if it was cached under the track's own key
+                    await artworkLoader.invalidateArtwork(ratingKey: info.trackRatingKey, type: .album)
+                }
+            }
+
             syncRef.onSourceCleanup = { [weak lyricsServiceRef] sourceKey in
                 lyricsServiceRef?.clearCache(forSourceCompositeKey: sourceKey)
                 // Remove download stubs and offline targets for the removed source

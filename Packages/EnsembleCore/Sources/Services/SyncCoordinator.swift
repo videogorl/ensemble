@@ -136,6 +136,10 @@ public final class SyncCoordinator: ObservableObject {
     /// Signal fired after a rating change so the favorites download target can reconcile.
     public var onFavoritesRatingChanged: (() async -> Void)?
 
+    /// Called after sync when tracks have been reparented (album changed).
+    /// Used by ArtworkLoader to invalidate stale artwork for affected albums.
+    public var onTrackAlbumChanged: (([TrackReparentInfo]) async -> Void)?
+
     /// Called when a source is being removed, allowing dependents to clean up
     /// source-specific caches (e.g. lyrics persistent cache, download stubs).
     public var onSourceCleanup: ((String) async -> Void)?
@@ -264,7 +268,14 @@ public final class SyncCoordinator: ObservableObject {
                         }
                     }
                 )
-                
+
+                // Invalidate artwork for tracks whose album changed during sync
+                let reparentedTracks = libraryRepository.drainTrackReparentInfo()
+                if !reparentedTracks.isEmpty {
+                    EnsembleLogger.debug("[Sync] \(reparentedTracks.count) track(s) reparented — invalidating artwork")
+                    await onTrackAlbumChanged?(reparentedTracks)
+                }
+
                 // Pre-cache artwork for albums
                 await cacheArtworkForSource(sourceId: sourceId, provider: provider)
                 
@@ -373,6 +384,13 @@ public final class SyncCoordinator: ObservableObject {
                     }
                 }
             )
+
+            // Invalidate artwork for tracks whose album changed during sync
+            let reparentedTracks = libraryRepository.drainTrackReparentInfo()
+            if !reparentedTracks.isEmpty {
+                EnsembleLogger.debug("[Sync] \(reparentedTracks.count) track(s) reparented — invalidating artwork")
+                await onTrackAlbumChanged?(reparentedTracks)
+            }
 
             // Sync playlists for this server
             try await provider.syncPlaylists(
@@ -488,7 +506,14 @@ public final class SyncCoordinator: ObservableObject {
                             }
                         }
                     )
-                    
+
+                    // Invalidate artwork for tracks whose album changed during sync
+                    let reparentedTracks = libraryRepository.drainTrackReparentInfo()
+                    if !reparentedTracks.isEmpty {
+                        EnsembleLogger.debug("[Sync] \(reparentedTracks.count) track(s) reparented — invalidating artwork")
+                        await onTrackAlbumChanged?(reparentedTracks)
+                    }
+
                     let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
                         for: sourceId,
                         fallback: currentConnectionState
@@ -530,7 +555,14 @@ public final class SyncCoordinator: ObservableObject {
                         }
                     }
                 )
-                
+
+                // Invalidate artwork for tracks whose album changed during sync
+                let reparentedTracks = libraryRepository.drainTrackReparentInfo()
+                if !reparentedTracks.isEmpty {
+                    EnsembleLogger.debug("[Sync] \(reparentedTracks.count) track(s) reparented — invalidating artwork")
+                    await onTrackAlbumChanged?(reparentedTracks)
+                }
+
                 // Sync playlists incrementally once per server
                 let serverKey = "\(sourceId.accountId):\(sourceId.serverId)"
                 if !syncedServerKeys.contains(serverKey) {
@@ -616,7 +648,14 @@ public final class SyncCoordinator: ObservableObject {
                     }
                 }
             )
-            
+
+            // Invalidate artwork for tracks whose album changed during sync
+            let reparentedTracks = libraryRepository.drainTrackReparentInfo()
+            if !reparentedTracks.isEmpty {
+                EnsembleLogger.debug("[Sync] \(reparentedTracks.count) track(s) reparented — invalidating artwork")
+                await onTrackAlbumChanged?(reparentedTracks)
+            }
+
             // Sync playlists incrementally (only changed playlists, not all)
             let playlistPhaseStart = CFAbsoluteTimeGetCurrent()
             try await provider.syncPlaylistsIncremental(

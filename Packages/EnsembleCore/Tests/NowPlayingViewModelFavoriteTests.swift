@@ -194,6 +194,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func batchUpsertArtists(_ inputs: [ArtistUpsertInput], sourceCompositeKey: String) async throws {}
         func batchUpsertAlbums(_ inputs: [AlbumUpsertInput], sourceCompositeKey: String) async throws {}
         func batchUpsertTracks(_ inputs: [TrackUpsertInput], sourceCompositeKey: String) async throws {}
+        func drainTrackReparentInfo() -> [TrackReparentInfo] { [] }
     }
 
     private final class MockPlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
