@@ -87,6 +87,13 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
   3. Validate file duration against track metadata before scheduling — if <50% of expected, evict and re-download.
   4. Improved `scheduleNext()` logging to include frame counts and duration for visibility.
 
+### Stale Artwork After Server-Side Album Reassignment (RESOLVED Mar 30, 2026)
+- **Resolved (March 30, 2026)**
+- **Symptom:** After splitting or merging albums on the Plex server, tracks displayed stale artwork from the old album even after pull-to-refresh. Track metadata (title, album name, artist) updated correctly.
+- **Root Cause:** No mechanism to detect that a track's `parentRatingKey` (album) changed during sync. `LibraryRepository.upsertTrack()` and `batchUpsertTracks()` silently overwrote the album relationship without invalidating cached artwork. WebSocket artwork invalidation only fires on type=9/8 metadata updates with state=5, which doesn't cover tracks moving between albums during library scans.
+- **Fix:** Added `TrackReparentInfo` detection to both upsert paths. `LibraryRepository` compares old vs new `albumRatingKey` for existing tracks and accumulates reparent events in a lock-protected buffer. `SyncCoordinator` drains after every sync path (full, incremental, section-level) and fires `onTrackAlbumChanged`. `DependencyContainer` wires this to `ArtworkLoader.invalidateArtwork()` for both the old album and the track's own ratingKey, triggering `ArtworkView` to re-fetch correct covers.
+- **Key files:** `LibraryRepository.swift` (detection), `SyncCoordinator.swift` (drain + callback), `DependencyContainer.swift` (wiring)
+
 ### Plex Transcode MP3s Play Without Encoder Delay Trimming (RESOLVED Mar 30, 2026)
 - **Resolved (March 30, 2026)**
 - **Symptom:** Gapless transitions involving Plex progressive stream transcodes had audible gaps, particularly on album tracks designed for continuous playback (e.g. Metric's Synthetica). Downloaded MP3s had correct trimming, but streamed transcodes did not.

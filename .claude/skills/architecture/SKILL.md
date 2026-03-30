@@ -189,6 +189,12 @@ Persistent artwork caching that survives app restarts:
    - `PlexWebSocketCoordinator.onArtworkInvalidation` fires on album (type=9) and artist (type=8) metadata updates (state=5)
    - `DependencyContainer` wires this to `ArtworkLoader.invalidateArtwork()` so UI refreshes automatically
 
+6. **Sync-Driven Reparenting Invalidation** -- When tracks change albums during sync, stale artwork is evicted
+   - `LibraryRepository` detects album reparenting during `upsertTrack` and `batchUpsertTracks` by comparing old vs new `albumRatingKey`
+   - `TrackReparentInfo` events accumulate in a lock-protected buffer, drained by `SyncCoordinator` after each sync path
+   - `SyncCoordinator.onTrackAlbumChanged` callback wired to `ArtworkLoader.invalidateArtwork()` for both the old album and the track's own ratingKey
+   - `ArtworkView` re-triggers load via `artworkDidInvalidate` notification, fetching the correct new album cover
+
 **Usage:**
 ```swift
 // During sync - pre-download artwork
