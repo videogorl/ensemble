@@ -1303,6 +1303,13 @@ public struct PlaylistDetailView: View {
         .refreshable {
             await viewModel.refreshFromServer()
         }
+        // Ensure tracks load even when starting in edit mode (where MediaDetailView
+        // isn't mounted and its .task { loadTracks() } never fires).
+        .task {
+            if viewModel.tracks.isEmpty {
+                await viewModel.loadTracks()
+            }
+        }
         // When opened in edit mode (from merged playlist picker), populate editedTracks
         // once the view model finishes loading tracks.
         .onAppear {
