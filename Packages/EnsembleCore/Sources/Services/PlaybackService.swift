@@ -1048,12 +1048,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
-        engine.onError = { [weak self] error in
+        engine.onError = { [weak self] error, trackId in
             DispatchQueue.main.async {
-                EnsembleLogger.playback("ENGINE: error -- \(error.localizedDescription)")
-                // Treat engine errors as playback failures
-                if let self, self.playbackState == .playing || self.playbackState == .loading {
-                    self.playbackState = .failed(error.localizedDescription)
+                guard let self else { return }
+                if let trackId, trackId != self.currentTrack?.id {
+                    // Error in a gapless-scheduled track — remove it from the schedule
+                    // without stopping the currently playing track.
+                    EnsembleLogger.playback("ENGINE: scheduled track error (trackId=\(trackId)) -- \(error.localizedDescription)")
+                    self.audioEngine?.removeScheduledTrack(trackId)
+                } else {
+                    // Error in the current track — existing failure behavior
+                    EnsembleLogger.playback("ENGINE: error -- \(error.localizedDescription)")
+                    if self.playbackState == .playing || self.playbackState == .loading {
+                        self.playbackState = .failed(error.localizedDescription)
+                    }
                 }
             }
         }

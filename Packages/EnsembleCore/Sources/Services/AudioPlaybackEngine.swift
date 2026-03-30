@@ -124,7 +124,9 @@ public final class AudioPlaybackEngine {
     /// Fires when a gapless transition advances to the next scheduled track
     var onTrackAdvance: ((_ newTrackId: String) -> Void)?
     /// Fires on unrecoverable engine errors (route change failure, etc.)
-    var onError: ((Error) -> Void)?
+    /// Parameters: (error, trackId or nil). When trackId is non-nil, the error
+    /// originated from a gapless-scheduled track (not the currently playing one).
+    var onError: ((Error, String?) -> Void)?
 
 
     // MARK: - Setup
@@ -238,7 +240,7 @@ public final class AudioPlaybackEngine {
             EnsembleLogger.debug("[AudioEngine] Route change recovery complete")
         } catch {
             EnsembleLogger.error("[AudioEngine] Route change recovery failed: \(error.localizedDescription)")
-            onError?(error)
+            onError?(error, nil)
         }
     }
 
@@ -692,6 +694,16 @@ public final class AudioPlaybackEngine {
         let scheduledDuration = Double(contentFrames) / file.processingFormat.sampleRate
         let trimInfo = contentStart > 0 ? ", trim=\(contentStart)+\(Int64(file.length) - Int64(contentStart) - Int64(contentFrames))" : ""
         EnsembleLogger.debug("[AudioEngine] Scheduled next: \(fileURL.lastPathComponent), trackId=\(trackId), frames=\(contentFrames)/\(file.length), duration=\(String(format: "%.1f", scheduledDuration))s, queueDepth=\(scheduledFiles.count)\(trimInfo)")
+    }
+
+    /// Remove a single scheduled track by ID (e.g. when a gapless-scheduled file fails to decode).
+    /// Only removes it from the tracking array — the playerNode's FIFO segment cannot be surgically
+    /// removed, but its completion callback will find no matching entry and be ignored.
+    func removeScheduledTrack(_ trackId: String) {
+        if let idx = scheduledFiles.firstIndex(where: { $0.trackId == trackId }) {
+            scheduledFiles.remove(at: idx)
+            EnsembleLogger.debug("[AudioEngine] Removed scheduled track \(trackId), queueDepth=\(scheduledFiles.count)")
+        }
     }
 
     /// Remove all pending gapless files from the schedule.
