@@ -12,37 +12,20 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(routeKind, .airPlay)
     }
 
-    func testScreenMirroringInfersAirPlayRouteWhenNoExplicitAirPlayOrBluetooth() {
-        // When screen mirroring is active but AVAudioSession doesn't report an AirPlay
-        // audio route (audio goes through the mirroring video stream), we should still
-        // infer AirPlay so lyrics latency compensation kicks in.
+    func testPresentationRouteKindDefaultsToBuiltInWithNoExternalRoutes() {
         let routeKind = PlaybackService.inferPresentationRouteKind(
             hasAirPlay: false,
-            hasBluetooth: false,
-            isScreenMirroringActive: true
-        )
-        XCTAssertEqual(routeKind, .airPlay)
-    }
-
-    func testScreenMirroringDefersToBluetoothWhenBluetoothIsActive() {
-        // If the user has Bluetooth headphones connected during screen mirroring,
-        // audio goes via Bluetooth — not the mirroring stream — so use Bluetooth latency.
-        let routeKind = PlaybackService.inferPresentationRouteKind(
-            hasAirPlay: false,
-            hasBluetooth: true,
-            isScreenMirroringActive: true
-        )
-        XCTAssertEqual(routeKind, .bluetooth)
-    }
-
-    func testScreenMirroringInactiveDefaultsToBuiltIn() {
-        // No AirPlay, no Bluetooth, no screen mirroring → built-in speaker/wired.
-        let routeKind = PlaybackService.inferPresentationRouteKind(
-            hasAirPlay: false,
-            hasBluetooth: false,
-            isScreenMirroringActive: false
+            hasBluetooth: false
         )
         XCTAssertEqual(routeKind, .builtInOrWired)
+    }
+
+    func testPresentationRouteKindDetectsBluetoothAlone() {
+        let routeKind = PlaybackService.inferPresentationRouteKind(
+            hasAirPlay: false,
+            hasBluetooth: true
+        )
+        XCTAssertEqual(routeKind, .bluetooth)
     }
 
     func testEstimatedPresentationLatencyUsesBluetoothFallbackWhenReportedLatencyIsTiny() {

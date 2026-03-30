@@ -208,10 +208,6 @@ public protocol PlaybackServiceProtocol: AnyObject {
 
     // MARK: - Screen Mirroring
 
-    /// Whether AirPlay screen mirroring is active (external display connected).
-    /// Set by the ExternalDisplaySceneDelegate to enable AirPlay latency compensation
-    /// when the audio route isn't explicitly detected as AirPlay.
-    var isScreenMirroringActive: Bool { get set }
 }
 
 // MARK: - Playback Service Implementation
@@ -313,15 +309,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     static func inferPresentationRouteKind(
         hasAirPlay: Bool,
-        hasBluetooth: Bool,
-        isScreenMirroringActive: Bool = false
+        hasBluetooth: Bool
     ) -> PresentationRouteKind {
         if hasAirPlay { return .airPlay }
-        // When AirPlay screen mirroring is active, audio is routed through the
-        // mirroring stream to the TV but AVAudioSession doesn't report the
-        // output as .airPlay. Treat it as an AirPlay route so presentation
-        // time compensation accounts for the mirroring pipeline delay.
-        if isScreenMirroringActive && !hasBluetooth { return .airPlay }
         if hasBluetooth { return .bluetooth }
         return .builtInOrWired
     }
@@ -882,16 +872,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var nowPlayingArtwork: MPMediaItemArtwork?
     private var presentationRouteKind: PresentationRouteKind = .builtInOrWired
     private var effectivePresentationLatency: TimeInterval = 0
-
-    /// Whether AirPlay screen mirroring is active. Set by ExternalDisplaySceneDelegate
-    /// so route inference can treat the mirroring audio path as AirPlay.
-    public var isScreenMirroringActive: Bool = false {
-        didSet {
-            guard oldValue != isScreenMirroringActive else { return }
-            EnsembleLogger.debug("[Playback] isScreenMirroringActive=\(isScreenMirroringActive)")
-            refreshPresentationLatencyEstimate()
-        }
-    }
 
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
@@ -1565,8 +1545,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         presentationRouteKind = Self.inferPresentationRouteKind(
             hasAirPlay: hasAirPlay,
-            hasBluetooth: hasBluetooth,
-            isScreenMirroringActive: isScreenMirroringActive
+            hasBluetooth: hasBluetooth
         )
         isExternalPlaybackActive = presentationRouteKind != .builtInOrWired
         effectivePresentationLatency = Self.estimatedPresentationLatency(
