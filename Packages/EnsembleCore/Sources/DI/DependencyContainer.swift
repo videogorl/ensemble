@@ -440,6 +440,13 @@ public final class DependencyContainer: @unchecked Sendable {
         }
     }
 
+    // MARK: - Shared ViewModel State
+
+    /// The active NowPlayingViewModel from the main UI.
+    /// Set by MainTabView/SidebarView so the external display SceneDelegate
+    /// can observe the same instance for AirPlay screen mirroring.
+    @MainActor public var activeNowPlayingViewModel: NowPlayingViewModel?
+
     // MARK: - View Model Factories
 
     @MainActor

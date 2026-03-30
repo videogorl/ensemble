@@ -21,6 +21,7 @@ ensemble/
 |   +-- App/
 |   |   +-- EnsembleApp.swift     # App entry point
 |   |   +-- AppDelegate.swift     # Audio session & background playback config
+|   |   +-- ExternalDisplaySceneDelegate.swift # UIWindowSceneDelegate for AirPlay screen mirroring external display
 |   |   +-- EnsembleAppShortcuts.swift # App Intents fallback entities/phrases for Siri album/playlist playback
 |   +-- Resources/
 |   |   +-- Assets.xcassets       # App icons, colors, images
@@ -240,6 +241,7 @@ Sources/
 |   +-- MarqueeText.swift             # Auto-scrolling text component for long titles
 |   +-- MediaTrackList.swift          # Reusable track list with context menu
 |   +-- MiniPlayer.swift              # Compact persistent player overlay
+|   +-- ExternalDisplayNowPlayingView.swift # Non-interactive Now Playing for AirPlay screen mirroring (TV)
 |   +-- NowPlayingViewportRoot.swift  # Dedicated iPad/macOS Now Playing root + macOS window chrome bridge
 |   +-- PendingChangesRow.swift        # Shared row for pending mutations (used in Downloads + Source Detail)
 |   +-- PlaylistActionSheets.swift    # Shared add-to-playlist and create-playlist UI sheets
