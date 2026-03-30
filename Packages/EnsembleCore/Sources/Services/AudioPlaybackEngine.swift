@@ -105,8 +105,16 @@ public final class AudioPlaybackEngine {
     // gets preempted by the main thread (doing heavy SwiftUI layout), the real-time
     // IO thread is blocked for the duration of the layout pass — classic unbounded
     // priority inversion. Instead we estimate time from CACurrentMediaTime().
-    private var wallTimeBase: TimeInterval = 0       // CACurrentMediaTime() at play/resume/seek
-    private var positionAtWallTimeBase: TimeInterval = 0 // Playback position at that moment
+    //
+    // Packed into a value-type struct so the background timer reads a consistent
+    // snapshot — struct assignment/read is a single pointer-width copy on arm64,
+    // avoiding torn reads of (wallTime, position, duration) during gapless transitions.
+    private struct TimeBase {
+        var wallTime: TimeInterval = 0      // CACurrentMediaTime() at play/resume/seek
+        var position: TimeInterval = 0      // Playback position at that moment
+        var duration: TimeInterval = 0      // Duration of the current file
+    }
+    private var timeBase = TimeBase()
 
     // MARK: - Route Change Recovery
 
@@ -979,8 +987,11 @@ public final class AudioPlaybackEngine {
         timer.schedule(deadline: .now(), repeating: .milliseconds(100))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
-            let elapsed = CACurrentMediaTime() - self.wallTimeBase
-            let estimated = min(self.positionAtWallTimeBase + elapsed, self.fileDuration)
+            // Read the struct once — value copy gives a consistent snapshot even
+            // if the main thread updates it mid-read during a gapless transition.
+            let base = self.timeBase
+            let elapsed = CACurrentMediaTime() - base.wallTime
+            let estimated = min(base.position + elapsed, base.duration)
             self.currentTimeSubject.send(max(0, estimated))
         }
         timer.resume()
@@ -994,8 +1005,11 @@ public final class AudioPlaybackEngine {
     ///   position is already known (seek, play) to avoid calling currentTime()
     ///   which accesses playerNode.lastRenderTime.
     private func captureWallTimeBase(position: TimeInterval? = nil) {
-        wallTimeBase = CACurrentMediaTime()
-        positionAtWallTimeBase = position ?? currentTime()
+        timeBase = TimeBase(
+            wallTime: CACurrentMediaTime(),
+            position: position ?? currentTime(),
+            duration: fileDuration
+        )
     }
 
     /// Stop periodic time updates.
