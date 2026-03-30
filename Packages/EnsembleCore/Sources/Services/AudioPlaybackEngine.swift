@@ -1144,6 +1144,9 @@ public final class AudioPlaybackEngine {
             fileID, kAudioFilePropertyPacketTableInfo, &size, &packetTable
         )
 
+        let ext = url.pathExtension.lowercased()
+        let isMp3 = ext == "mp3" || ext == "audio"
+
         if ptStatus == noErr, packetTable.mNumberValidFrames > 0 {
             let priming = max(0, AVAudioFramePosition(packetTable.mPrimingFrames))
             let validFrames = AVAudioFrameCount(packetTable.mNumberValidFrames)
@@ -1153,14 +1156,22 @@ public final class AudioPlaybackEngine {
                 return (0, AVAudioFrameCount(fileLength))
             }
 
-            return (priming, validFrames)
+            // For MP3 files, if the packet table reports 0 priming frames, don't
+            // trust it — FFmpeg transcodes (used by Plex's /start.mp3) write a
+            // technically-valid packet table but set mPrimingFrames = 0 even though
+            // the actual LAME encoder delay (576 frames, ~13ms) is present.
+            // Fall through to the LAME header / default delay check below.
+            if isMp3 && priming == 0 {
+                EnsembleLogger.debug("[AudioEngine] readContentBounds: packet table reports 0 priming for MP3 — cross-checking with LAME header")
+            } else {
+                return (priming, validFrames)
+            }
         }
 
         // Fallback for MP3 files: parse the Xing/Info + LAME header directly.
         // FFmpeg's streaming transcode (used by Plex's /start.mp3) often omits the
         // Xing header, or writes one without the fields Apple needs for PacketTableInfo.
-        let ext = url.pathExtension.lowercased()
-        if ext == "mp3" || ext == "audio" {
+        if isMp3 {
             if let gapless = parseLAMEGaplessInfo(url: url, fileLength: fileLength) {
                 return gapless
             }
