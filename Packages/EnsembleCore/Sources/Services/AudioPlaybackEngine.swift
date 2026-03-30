@@ -226,20 +226,8 @@ public final class AudioPlaybackEngine {
                 }
             }
 
-            // Re-schedule any queued gapless files
-            for entry in scheduledFiles {
-                let entryGen = scheduleGeneration
-                playerNode.scheduleSegment(
-                    entry.file,
-                    startingFrame: 0,
-                    frameCount: AVAudioFrameCount(entry.file.length),
-                    at: nil
-                ) { [weak self] in
-                    DispatchQueue.main.async {
-                        self?.handleScheduledFileComplete(trackId: entry.trackId, generation: entryGen)
-                    }
-                }
-            }
+            // Re-schedule any queued gapless files with correct content bounds
+            rescheduleGaplessFiles()
 
             if wasActive {
                 playerNode.play()
@@ -485,19 +473,7 @@ public final class AudioPlaybackEngine {
         }
 
         // Re-schedule any gapless files that were flushed by playerNode.stop()
-        for entry in scheduledFiles {
-            let entryGen = scheduleGeneration
-            playerNode.scheduleSegment(
-                entry.file,
-                startingFrame: 0,
-                frameCount: AVAudioFrameCount(entry.file.length),
-                at: nil
-            ) { [weak self] in
-                DispatchQueue.main.async {
-                    self?.handleScheduledFileComplete(trackId: entry.trackId, generation: entryGen)
-                }
-            }
-        }
+        rescheduleGaplessFiles()
 
         // Always restart the engine (we stopped it above for graph rebuild).
         // This ensures the IO buffer preference is applied.
@@ -653,6 +629,25 @@ public final class AudioPlaybackEngine {
     }
 
     // MARK: - Gapless Scheduling
+
+    /// Re-schedule all queued gapless files on the playerNode after a stop/flush.
+    /// Uses each entry's stored content bounds to preserve encoder delay trimming.
+    /// Called from handleConfigurationChange(), wireIsolationIntoGraph(), and seek().
+    private func rescheduleGaplessFiles() {
+        for entry in scheduledFiles {
+            let entryGen = scheduleGeneration
+            playerNode.scheduleSegment(
+                entry.file,
+                startingFrame: AVAudioFramePosition(entry.contentStartFrame),
+                frameCount: entry.contentFrameCount,
+                at: nil
+            ) { [weak self] in
+                DispatchQueue.main.async {
+                    self?.handleScheduledFileComplete(trackId: entry.trackId, generation: entryGen)
+                }
+            }
+        }
+    }
 
     /// Whether a track is already in the gapless schedule queue.
     func isTrackScheduled(_ trackId: String) -> Bool {
@@ -926,21 +921,8 @@ public final class AudioPlaybackEngine {
             }
         }
 
-        // Re-schedule any gapless files that were cleared by playerNode.stop(),
-        // using each file's stored content bounds (encoder delay/padding trim)
-        for entry in scheduledFiles {
-            let entryGen = scheduleGeneration
-            playerNode.scheduleSegment(
-                entry.file,
-                startingFrame: AVAudioFramePosition(entry.contentStartFrame),
-                frameCount: entry.contentFrameCount,
-                at: nil
-            ) { [weak self] in
-                DispatchQueue.main.async {
-                    self?.handleScheduledFileComplete(trackId: entry.trackId, generation: entryGen)
-                }
-            }
-        }
+        // Re-schedule any gapless files that were cleared by playerNode.stop()
+        rescheduleGaplessFiles()
 
         if wasPlayingBeforeSeek {
             if !engine.isRunning {
