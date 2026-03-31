@@ -636,7 +636,6 @@ public struct SidebarView: View {
     @State private var selection: SidebarSelection? = .library(.home)
     @State private var showingSheetNowPlaying = false
     @State private var sidebarColumnWidth: CGFloat = 260
-    // Sidebar visibility is never changed — using .constant binding prevents collapse
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
