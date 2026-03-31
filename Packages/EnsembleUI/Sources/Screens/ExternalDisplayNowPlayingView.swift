@@ -9,11 +9,19 @@ import SwiftUI
 /// - Forces dark color scheme (better for TV viewing)
 /// - When nothing is playing, the existing `ControlsCard.emptyStateView` handles the idle state
 /// - Content is constrained to a 4:3 aspect ratio so panels don't stretch too wide on 16:9 TVs
-/// - Uses a reference iPad layout (1024×768) scaled up to the TV, with high-DPI rendering
+/// - Uses a reference iPad layout (1024×768) scaled up to the TV via `scaleEffect`
 ///
 /// The view reuses all existing card components (`ControlsCard`, `QueueCard`, `LyricsCard`,
 /// `InfoCard`) and shares the same `NowPlayingViewModel` instance as the main UI so all
 /// state (playback, lyrics, queue, panel selection) stays in sync with zero duplicate work.
+///
+/// ## Known limitation
+///
+/// SwiftUI renders Metal drawables at `UIScreen.scale` (1x for AirPlay TVs).
+/// `scaleEffect` scales the rendered texture, so some elements with compositing
+/// boundaries (MarqueeText masks, conditional ZStacks) may appear slightly soft.
+/// This is a SwiftUI platform limitation — UIKit-rendered elements (like
+/// QueueTableView rows) and images render at full resolution.
 public struct ExternalDisplayNowPlayingView: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
@@ -30,8 +38,7 @@ public struct ExternalDisplayNowPlayingView: View {
 
     /// Reference size matching a landscape iPad layout. The card components are
     /// designed for this viewing scale. We lay out at this size and use `scaleEffect`
-    /// to fill the 4:3 container. The hosting HighDPIContainerController overrides
-    /// UITraitCollection.displayScale for crisp text rendering at TV resolution.
+    /// to fill the 4:3 container.
     private static let referenceSize = CGSize(width: 1024, height: 768)
 
     public var body: some View {
@@ -44,13 +51,7 @@ public struct ExternalDisplayNowPlayingView: View {
                 backgroundView
 
                 // Content constrained to 4:3, laid out at iPad reference size
-                // then scaled up proportionally. The HighDPIContainerController
-                // overrides UITraitCollection.displayScale so SwiftUI renders
-                // text/symbols at high pixel density before the scale transform.
-                // DO NOT set .environment(\.displayScale) here — the trait
-                // collection override provides the correct (higher) value, and
-                // an explicit environment override would take precedence and
-                // lower the effective scale.
+                // then scaled up proportionally via scaleEffect.
                 contentView
                     .frame(
                         width: container.width / scale,

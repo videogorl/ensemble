@@ -14,6 +14,15 @@ import UIKit
 /// On iPadOS with a wired display in "Extend" mode, the system also creates this
 /// scene. We detect wired displays and skip window creation so the extended
 /// desktop is not replaced by our view.
+///
+/// ## Rendering strategy
+///
+/// The SwiftUI view lays out at a 1024×768 reference size (iPad proportions)
+/// and uses `scaleEffect` to fill the 4:3 container on the TV. SwiftUI renders
+/// Metal drawables at `UIScreen.scale` (1x for AirPlay TVs), so some elements
+/// with compositing boundaries may appear slightly soft after scaling — this is
+/// a SwiftUI platform limitation, not something we can override via trait
+/// collection or contentScaleFactor (both were tried and reverted).
 class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
 
@@ -101,155 +110,26 @@ class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
         let externalView = ExternalDisplayNowPlayingView(viewModel: viewModel)
             .environment(\.dependencies, DependencyContainer.shared)
 
-        // Compute the target content scale for high-DPI rendering.
-        // External displays (especially TVs via AirPlay) report 1x native scale.
-        // Our layout uses scaleEffect to scale up from a 1024×768 reference size,
-        // so we need the backing store to have enough pixels for crisp text.
-        let refWidth: CGFloat = 1024
-        let fourThreeHeight = screenBounds.height
-        let fourThreeWidth = fourThreeHeight * 4.0 / 3.0
-        let layoutScale = min(fourThreeWidth / refWidth, fourThreeHeight / 768.0)
-        // Use ceil(layoutScale) + 1 to ensure the backing store has a generous
-        // pixel surplus over the display resolution. scaleEffect rasterizes into
-        // an intermediate compositing layer; the extra pixel density ensures text
-        // and SF Symbols remain crisp after the bitmap transform.
-        let targetContentScale = max(screenScale, ceil(layoutScale) + 1)
-
         let hostingController = UIHostingController(rootView: externalView)
         hostingController.view.backgroundColor = .black
 
-        // Wrap hosting controller in a container that overrides the trait
-        // collection's displayScale. This is the primary mechanism for high-DPI
-        // rendering — UITraitCollection.displayScale is what SwiftUI reads when
-        // rasterizing text and SF Symbols. contentScaleFactor alone doesn't stick
-        // because SwiftUI resets it during its own render pass.
-        let container = HighDPIContainerController(
-            child: hostingController,
-            targetContentScale: targetContentScale
-        )
-        container.view.backgroundColor = .black
-
-        EnsembleLogger.debug(
-            "[ExternalDisplay] layoutScale=\(String(format: "%.2f", layoutScale))"
-            + " targetContentScale=\(String(format: "%.1f", targetContentScale))"
-        )
-
         let window = UIWindow(windowScene: windowScene)
-        window.rootViewController = container
+        window.rootViewController = hostingController
         window.makeKeyAndVisible()
 
-        // Log actual trait collection after window is visible to verify override
-        EnsembleLogger.debug(
-            "[ExternalDisplay] post-visible hostingView.traitCollection.displayScale="
-            + "\(hostingController.traitCollection.displayScale)"
-            + " contentScaleFactor=\(hostingController.view.contentScaleFactor)"
-        )
-
         self.window = window
+
+        EnsembleLogger.debug(
+            "[ExternalDisplay] window visible"
+            + " | screenScale=\(screenScale)"
+            + " | bounds=\(Int(screenBounds.width))x\(Int(screenBounds.height))"
+        )
     }
 
     func sceneDidDisconnect(_ scene: UIScene) {
         EnsembleLogger.debug("[ExternalDisplay] scene disconnected — tearing down window")
         DependencyContainer.shared.playbackService.isScreenMirroringActive = false
         window = nil
-    }
-}
-
-// MARK: - High-DPI Container Controller
-
-/// Container view controller that overrides its child's trait collection to
-/// force a high `displayScale`. This is the correct way to make SwiftUI render
-/// text and SF Symbols at higher pixel density on external displays.
-///
-/// Why trait collection override instead of contentScaleFactor?
-/// - `contentScaleFactor` is set on individual UIViews, but SwiftUI resets it
-///   on its internal `_UIGraphicsView` instances during each render pass.
-/// - `UITraitCollection.displayScale` propagates through the entire view
-///   controller hierarchy automatically. SwiftUI reads this trait when deciding
-///   the rasterization scale for text, SF Symbols, and shape rendering.
-/// - `setOverrideTraitCollection(_:forChild:)` is the standard UIKit API for
-///   this (iOS 13+), so it works reliably across all supported OS versions.
-private class HighDPIContainerController: UIViewController {
-    private let child: UIViewController
-    private let targetContentScale: CGFloat
-
-    init(child: UIViewController, targetContentScale: CGFloat) {
-        self.child = child
-        self.targetContentScale = targetContentScale
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        addChild(child)
-        view.addSubview(child.view)
-        child.view.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            child.view.topAnchor.constraint(equalTo: view.topAnchor),
-            child.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            child.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            child.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-        ])
-        child.didMove(toParent: self)
-
-        // Override the child's trait collection to report high display scale
-        // and dark user interface style. The displayScale propagates to all
-        // SwiftUI views inside the hosting controller, causing text and SF Symbols
-        // to rasterize at targetContentScale pixels per point instead of the
-        // screen's native 1x. The dark style ensures the color scheme is correct
-        // even though SwiftUI's preferredColorScheme(.dark) is also set — the
-        // trait collection override at the VC level takes precedence.
-        let highDPITraits = UITraitCollection(traitsFrom: [
-            UITraitCollection(displayScale: targetContentScale),
-            UITraitCollection(userInterfaceStyle: .dark),
-        ])
-        setOverrideTraitCollection(highDPITraits, forChild: child)
-    }
-
-    private var hasLoggedPostLayout = false
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        // Belt-and-suspenders: also force contentScaleFactor on the UIView
-        // hierarchy. The trait collection override is the primary mechanism,
-        // but contentScaleFactor affects CALayer backing store resolution
-        // for any custom-drawn UIKit views in the hierarchy.
-        applyContentScale(to: child.view)
-
-        // Log once after first layout to verify overrides took effect
-        if !hasLoggedPostLayout {
-            hasLoggedPostLayout = true
-            let viewCount = countViews(in: child.view)
-            EnsembleLogger.debug(
-                "[ExternalDisplay] post-layout: child.traitCollection.displayScale="
-                + "\(child.traitCollection.displayScale)"
-                + " child.view.contentScaleFactor=\(child.view.contentScaleFactor)"
-                + " totalViewsUpdated=\(viewCount)"
-            )
-        }
-    }
-
-    private func countViews(in view: UIView) -> Int {
-        var count = 1
-        for subview in view.subviews {
-            count += countViews(in: subview)
-        }
-        return count
-    }
-
-    private func applyContentScale(to view: UIView) {
-        if view.contentScaleFactor != targetContentScale {
-            view.contentScaleFactor = targetContentScale
-        }
-        for subview in view.subviews {
-            applyContentScale(to: subview)
-        }
     }
 }
 #endif
