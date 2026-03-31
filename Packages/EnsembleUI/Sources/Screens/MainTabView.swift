@@ -636,8 +636,7 @@ public struct SidebarView: View {
     @State private var selection: SidebarSelection? = .library(.home)
     @State private var showingSheetNowPlaying = false
     @State private var sidebarColumnWidth: CGFloat = 260
-    // Keep sidebar always visible — .balanced style on iPad, AppKit introspection on macOS
-    @State private var sidebarVisibility: NavigationSplitViewVisibility = .doubleColumn
+    // Sidebar visibility is never changed — using .constant binding prevents collapse
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
@@ -839,15 +838,14 @@ public struct SidebarView: View {
     public var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .bottomLeading) {
-                NavigationSplitView(columnVisibility: $sidebarVisibility) {
+                // .constant(.doubleColumn) makes the binding read-only — SwiftUI
+                // cannot collapse the sidebar because the write is a no-op.
+                NavigationSplitView(columnVisibility: .constant(.doubleColumn)) {
                     sidebarColumn
                 } detail: {
                     detailContainerView
                 }
                 .navigationSplitViewStyle(.balanced)
-                #if os(macOS)
-                .background(SplitViewCollapseDisabler())
-                #endif
 
                 if !isShowingNowPlaying {
                     detailColumnMiniPlayer(totalSize: proxy.size)
@@ -926,12 +924,6 @@ public struct SidebarView: View {
         .onChange(of: selection) { newSelection in
             if let tab = newSelection?.correspondingTab {
                 navigationCoordinator.selectedTab = tab
-            }
-        }
-        // Prevent sidebar from being collapsed (e.g. via swipe gesture)
-        .onChange(of: sidebarVisibility) { newVisibility in
-            if newVisibility != .doubleColumn {
-                sidebarVisibility = .doubleColumn
             }
         }
     }
@@ -1318,131 +1310,6 @@ public enum SidebarSelection: Hashable {
 
 // MARK: - macOS Sidebar Collapse Prevention
 
-#if os(macOS)
-import AppKit
-
-/// Forwarding NSSplitViewDelegate that prevents the sidebar (first subview)
-/// from being collapsed by dragging the divider. All other delegate calls
-/// are forwarded to the original delegate so NSSplitViewController keeps working.
-private final class NonCollapsibleSidebarDelegate: NSObject, NSSplitViewDelegate {
-    weak var originalDelegate: NSSplitViewDelegate?
-
-    func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool {
-        // Sidebar is the first arranged subview — never allow it to collapse
-        if subview == splitView.arrangedSubviews.first {
-            return false
-        }
-        return originalDelegate?.splitView?(splitView, canCollapseSubview: subview) ?? true
-    }
-
-    // Forward all other delegate methods to the original so NSSplitViewController
-    // continues to function normally.
-
-    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        // Enforce a minimum sidebar width of 220pt (matching our navigationSplitViewColumnWidth min)
-        if dividerIndex == 0 {
-            return max(proposedMinimumPosition, 220)
-        }
-        return originalDelegate?.splitView?(splitView, constrainMinCoordinate: proposedMinimumPosition, ofSubviewAt: dividerIndex) ?? proposedMinimumPosition
-    }
-
-    func splitViewDidResizeSubviews(_ notification: Notification) {
-        originalDelegate?.splitViewDidResizeSubviews?(notification)
-    }
-
-    func splitViewWillResizeSubviews(_ notification: Notification) {
-        originalDelegate?.splitViewWillResizeSubviews?(notification)
-    }
-
-    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        return originalDelegate?.splitView?(splitView, constrainMaxCoordinate: proposedMaximumPosition, ofSubviewAt: dividerIndex) ?? proposedMaximumPosition
-    }
-
-    func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
-        if let original = originalDelegate, original.responds(to: #selector(NSSplitViewDelegate.splitView(_:resizeSubviewsWithOldSize:))) {
-            original.splitView?(splitView, resizeSubviewsWithOldSize: oldSize)
-        } else {
-            splitView.adjustSubviews()
-        }
-    }
-
-    func splitView(_ splitView: NSSplitView, constrainSplitPosition proposedPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        return originalDelegate?.splitView?(splitView, constrainSplitPosition: proposedPosition, ofSubviewAt: dividerIndex) ?? proposedPosition
-    }
-
-    func splitView(_ splitView: NSSplitView, shouldAdjustSizeOfSubview view: NSView) -> Bool {
-        return originalDelegate?.splitView?(splitView, shouldAdjustSizeOfSubview: view) ?? true
-    }
-
-    func splitView(_ splitView: NSSplitView, additionalEffectiveRectOfDividerAt dividerIndex: Int) -> NSRect {
-        return originalDelegate?.splitView?(splitView, additionalEffectiveRectOfDividerAt: dividerIndex) ?? .zero
-    }
-
-    func splitView(_ splitView: NSSplitView, shouldHideDividerAt dividerIndex: Int) -> Bool {
-        return originalDelegate?.splitView?(splitView, shouldHideDividerAt: dividerIndex) ?? false
-    }
-
-    func splitView(_ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect, ofDividerAt dividerIndex: Int) -> NSRect {
-        return originalDelegate?.splitView?(splitView, effectiveRect: proposedEffectiveRect, forDrawnRect: drawnRect, ofDividerAt: dividerIndex) ?? proposedEffectiveRect
-    }
-}
-
-/// An invisible NSViewRepresentable that installs a forwarding delegate on the
-/// parent NSSplitView to prevent sidebar collapse. Matches Apple Music / Books behavior.
-private struct SplitViewCollapseDisabler: NSViewRepresentable {
-    // Hold a strong reference to the custom delegate so it isn't deallocated
-    fileprivate final class Coordinator {
-        var customDelegate: NonCollapsibleSidebarDelegate?
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        view.frame = .zero
-        DispatchQueue.main.async {
-            installDelegate(from: view, coordinator: context.coordinator)
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        // Re-install if the split view was recreated
-        DispatchQueue.main.async {
-            installDelegate(from: nsView, coordinator: context.coordinator)
-        }
-    }
-
-    private func installDelegate(from view: NSView, coordinator: Coordinator) {
-        guard let splitView = findSplitView(from: view) else { return }
-
-        // Don't re-install if we've already set up our delegate
-        if splitView.delegate is NonCollapsibleSidebarDelegate { return }
-
-        let customDelegate = NonCollapsibleSidebarDelegate()
-        customDelegate.originalDelegate = splitView.delegate
-        coordinator.customDelegate = customDelegate
-        splitView.delegate = customDelegate
-
-        // Also set canCollapse on the NSSplitViewItem for belt-and-suspenders
-        if let controller = splitView.window?.contentViewController as? NSSplitViewController,
-           let sidebarItem = controller.splitViewItems.first {
-            sidebarItem.canCollapse = false
-        }
-    }
-
-    private func findSplitView(from view: NSView) -> NSSplitView? {
-        var current: NSView? = view
-        while let candidate = current {
-            if let splitView = candidate as? NSSplitView {
-                return splitView
-            }
-            current = candidate.superview
-        }
-        return nil
-    }
-}
-#endif
 
 // MARK: - TabView Style Helper
 

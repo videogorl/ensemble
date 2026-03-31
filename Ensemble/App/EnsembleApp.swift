@@ -104,6 +104,10 @@ struct EnsembleApp: App {
             }
 
             #if os(macOS)
+            // Remove the sidebar toggle command (Cmd+Option+S) since
+            // the sidebar is always visible and non-collapsible
+            CommandGroup(replacing: .sidebar) {}
+
             CommandMenu("Playback") {
                 Button("Play/Pause") {
                     MacPlaybackShortcut.togglePlaybackIfAllowed()
