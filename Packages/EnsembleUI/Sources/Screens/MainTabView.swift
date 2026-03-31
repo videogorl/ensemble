@@ -946,45 +946,46 @@ public struct SidebarView: View {
                     .tag(SidebarSelection.library(.favorites))
             }
 
-            // Pins section (collapsible)
+            // Pins section (collapsible — native Section header style)
             if !pinnedVM.resolvedPins.isEmpty {
-                Section {
-                    DisclosureGroup(isExpanded: $isPinsExpanded) {
-                        ForEach(pinnedVM.resolvedPins) { pin in
-                            Label(pin.pinnedItem.title, systemImage: iconForPinType(pin.pinnedItem.type))
-                                .tag(SidebarSelection.pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type))
-                        }
-                    } label: {
-                        Text("Pins")
+                collapsibleSidebarSection("Pins", isExpanded: $isPinsExpanded) {
+                    ForEach(pinnedVM.resolvedPins) { pin in
+                        Label(pin.pinnedItem.title, systemImage: iconForPinType(pin.pinnedItem.type))
+                            .tag(SidebarSelection.pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type))
                     }
                 }
             }
 
             // Smart Playlists section (collapsible)
             if !cachedSmartPlaylists.isEmpty {
-                Section {
-                    DisclosureGroup(isExpanded: $isSmartPlaylistsExpanded) {
-                        ForEach(cachedSmartPlaylists) { playlist in
-                            sidebarPlaylistRow(playlist)
-                        }
-                    } label: {
-                        Text("Smart Playlists")
+                collapsibleSidebarSection("Smart Playlists", isExpanded: $isSmartPlaylistsExpanded) {
+                    ForEach(cachedSmartPlaylists) { playlist in
+                        sidebarPlaylistRow(playlist)
                     }
                 }
             }
 
             // Playlists section (collapsible)
-            Section {
-                DisclosureGroup(isExpanded: $isPlaylistsExpanded) {
-                    Label("All Playlists", systemImage: "music.note.list")
-                        .tag(SidebarSelection.library(.playlists))
+            collapsibleSidebarSection("Playlists", isExpanded: $isPlaylistsExpanded) {
+                Label("All Playlists", systemImage: "music.note.list")
+                    .tag(SidebarSelection.library(.playlists))
 
-                    ForEach(cachedRegularPlaylists) { playlist in
-                        sidebarPlaylistRow(playlist)
-                    }
-                } label: {
-                    Text("Playlists")
+                ForEach(cachedRegularPlaylists) { playlist in
+                    sidebarPlaylistRow(playlist)
                 }
+            }
+
+            // Downloads + Settings as full sidebar rows at the bottom
+            Section {
+                Button { navigationCoordinator.openDownloads() } label: {
+                    Label("Downloads", systemImage: "arrow.down.circle")
+                }
+                .help("Downloads")
+
+                Button { navigationCoordinator.openSettings() } label: {
+                    Label("Settings", systemImage: "gear")
+                }
+                .help("Settings")
             }
         }
         .listStyle(.sidebar)
@@ -1004,35 +1005,6 @@ public struct SidebarView: View {
         .onReceive(playlistsVM.$isMergeEnabled) { _ in
             rebuildCachedSidebarPlaylists()
         }
-        // Downloads + Settings buttons pinned below the scrollable list
-        .safeAreaInset(edge: .bottom) {
-            HStack(spacing: 12) {
-                Spacer()
-
-                Button {
-                    navigationCoordinator.openDownloads()
-                } label: {
-                    Image(systemName: "arrow.down.circle")
-                        .font(.system(size: 16))
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Downloads")
-
-                Button {
-                    navigationCoordinator.openSettings()
-                } label: {
-                    Image(systemName: "gear")
-                        .font(.system(size: 16))
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Settings")
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(.bar)
-        }
         .background(
             GeometryReader { proxy in
                 Color.clear.preference(
@@ -1041,6 +1013,32 @@ public struct SidebarView: View {
                 )
             }
         )
+    }
+
+    /// Collapsible sidebar section using native Section(isExpanded:) on iOS 17+/macOS 14+,
+    /// falling back to DisclosureGroup on earlier versions. Section(isExpanded:) renders
+    /// like Apple Music / Finder — a normal section header with hover-reveal chevron.
+    @ViewBuilder
+    private func collapsibleSidebarSection<Content: View>(
+        _ title: String,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if #available(iOS 17.0, macOS 14.0, *) {
+            Section(title, isExpanded: isExpanded) {
+                content()
+            }
+        } else {
+            // Evaluate content eagerly to avoid escaping capture in DisclosureGroup
+            let builtContent = content()
+            Section {
+                DisclosureGroup(isExpanded: isExpanded) {
+                    builtContent
+                } label: {
+                    Text(title)
+                }
+            }
+        }
     }
 
     /// SF Symbol for each pinned item type
