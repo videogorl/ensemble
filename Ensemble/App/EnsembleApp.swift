@@ -37,6 +37,8 @@ enum AppLogger {
 struct EnsembleApp: App {
     #if os(iOS)
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    #elseif os(macOS)
+    @NSApplicationDelegateAdaptor(MacAppDelegate.self) var macDelegate
     #endif
 
     @Environment(\.scenePhase) private var scenePhase
@@ -104,6 +106,10 @@ struct EnsembleApp: App {
             }
 
             #if os(macOS)
+            // Remove the sidebar toggle command (Cmd+Option+S) since
+            // the sidebar is always visible and non-collapsible
+            CommandGroup(replacing: .sidebar) {}
+
             CommandMenu("Playback") {
                 Button("Play/Pause") {
                     MacPlaybackShortcut.togglePlaybackIfAllowed()
@@ -409,7 +415,106 @@ struct EnsembleApp: App {
     }
 }
 
+// MARK: - macOS App Delegate (Sidebar Collapse Prevention)
+
 #if os(macOS)
+
+/// App-level delegate that configures the underlying NSSplitViewController to
+/// prevent sidebar collapse. This runs at the application level — above the
+/// SwiftUI view hierarchy — using window notifications to ensure the split view
+/// is fully set up before we configure it. Re-applies on window updates so the
+/// configuration survives SwiftUI recreating the split view controller.
+class MacAppDelegate: NSObject, NSApplicationDelegate {
+    private var windowObservers: [NSObjectProtocol] = []
+    private var eventMonitor: Any?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Listen for when any window becomes main (the split view is ready)
+        let mainObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeMainNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let window = notification.object as? NSWindow else { return }
+            self?.configureSplitView(in: window)
+        }
+        windowObservers.append(mainObserver)
+
+        // Re-apply after window layout updates (catches SwiftUI recreation)
+        let updateObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didUpdateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let window = notification.object as? NSWindow else { return }
+            self?.configureSplitView(in: window)
+        }
+        windowObservers.append(updateObserver)
+
+        // Intercept the sidebar toggle keyboard shortcut at the event level,
+        // before it reaches the NSSplitViewController's responder chain.
+        // CommandGroup(replacing: .sidebar) only removes the menu item —
+        // the responder chain still handles the key combo.
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let sKey: UInt16 = 0x01
+            // Block both Cmd+Option+S and Ctrl+Cmd+S (macOS uses both)
+            if event.keyCode == sKey {
+                let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                if flags == [.command, .option] || flags == [.command, .control] {
+                    return nil // swallow the event
+                }
+            }
+            return event
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        for observer in windowObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        windowObservers.removeAll()
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
+    }
+
+    // MARK: - Split View Configuration
+
+    /// Find and configure the NSSplitView to prevent sidebar collapse.
+    /// Called from window notifications — safe to call multiple times
+    /// (skips if already configured).
+    private func configureSplitView(in window: NSWindow) {
+        guard let contentView = window.contentView,
+              let splitView = findNSSplitView(in: contentView),
+              let splitVC = splitView.delegate as? NSSplitViewController,
+              let sidebarItem = splitVC.splitViewItems.first else { return }
+
+        // Skip if already configured to avoid redundant work
+        guard sidebarItem.canCollapse else { return }
+
+        sidebarItem.canCollapse = false
+        sidebarItem.canCollapseFromWindowResize = false
+        sidebarItem.minimumThickness = 220
+        sidebarItem.holdingPriority = .init(999)
+
+        #if DEBUG
+        print("[MacAppDelegate] ✅ Configured non-collapsible sidebar (window: \(window.title))")
+        #endif
+    }
+
+    /// Recursively search the view hierarchy for an NSSplitView.
+    private func findNSSplitView(in view: NSView) -> NSSplitView? {
+        if let splitView = view as? NSSplitView { return splitView }
+        for subview in view.subviews {
+            if let found = findNSSplitView(in: subview) { return found }
+        }
+        return nil
+    }
+}
+
+// MARK: - Playback Shortcut
+
 private enum MacPlaybackShortcut {
     static func togglePlaybackIfAllowed() {
         guard !isTextInputActive else { return }
