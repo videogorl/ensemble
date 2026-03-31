@@ -243,9 +243,16 @@ public final class AudioPlaybackEngine {
                 playerNode.play()
                 wasPlaying = true
                 startTimeUpdates(from: position)
+            } else {
+                // Stop the engine when not actively playing. iOS detects a running
+                // engine's render cycle and overrides MPNowPlayingInfoCenter.playbackState
+                // to .playing, causing the lock screen / Dynamic Island to show "playing"
+                // even though audio is paused. Stopping here preserves the paused state
+                // that the route-change handler already pushed to NowPlayingInfoCenter.
+                engine.stop()
             }
 
-            EnsembleLogger.debug("[AudioEngine] Route change recovery complete")
+            EnsembleLogger.debug("[AudioEngine] Route change recovery complete (wasActive=\(wasActive))")
         } catch {
             EnsembleLogger.error("[AudioEngine] Route change recovery failed: \(error.localizedDescription)")
             onError?(error, nil)
