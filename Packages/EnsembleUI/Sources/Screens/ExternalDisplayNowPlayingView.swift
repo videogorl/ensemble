@@ -17,6 +17,7 @@ import SwiftUI
 public struct ExternalDisplayNowPlayingView: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
 
     /// Tracks the last detail page (Queue/Lyrics/Info) the user was viewing.
     /// When the user swipes to Controls (page 1) on their device, the external
@@ -29,7 +30,8 @@ public struct ExternalDisplayNowPlayingView: View {
 
     /// Reference size matching a landscape iPad layout. The card components are
     /// designed for this viewing scale. We lay out at this size and use `scaleEffect`
-    /// to fill the 4:3 container, with `displayScale` set high enough for crisp text.
+    /// to fill the 4:3 container. The hosting HighDPIContainerController overrides
+    /// UITraitCollection.displayScale for crisp text rendering at TV resolution.
     private static let referenceSize = CGSize(width: 1024, height: 768)
 
     public var body: some View {
@@ -42,20 +44,24 @@ public struct ExternalDisplayNowPlayingView: View {
                 backgroundView
 
                 // Content constrained to 4:3, laid out at iPad reference size
-                // then scaled up proportionally. displayScale is set to ceil(scale)
-                // so SwiftUI renders text/symbols at high pixel density before the
-                // scale transform is applied — prevents bitmap pixelation.
+                // then scaled up proportionally. The HighDPIContainerController
+                // overrides UITraitCollection.displayScale so SwiftUI renders
+                // text/symbols at high pixel density before the scale transform.
+                // DO NOT set .environment(\.displayScale) here — the trait
+                // collection override provides the correct (higher) value, and
+                // an explicit environment override would take precedence and
+                // lower the effective scale.
                 contentView
                     .frame(
                         width: container.width / scale,
                         height: container.height / scale
                     )
-                    .environment(\.displayScale, ceil(scale))
                     .scaleEffect(scale)
                     .frame(width: container.width, height: container.height)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
+        .accentColor(settingsManager.accentColor.color)
         .preferredColorScheme(.dark)
         .onAppear {
             // Viewport layout always shows ControlsCard on the left.

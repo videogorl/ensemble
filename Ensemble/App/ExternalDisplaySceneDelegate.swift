@@ -212,6 +212,8 @@ private class HighDPIContainerController: UIViewController {
         setOverrideTraitCollection(highDPITraits, forChild: child)
     }
 
+    private var hasLoggedPostLayout = false
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         // Belt-and-suspenders: also force contentScaleFactor on the UIView
@@ -219,6 +221,26 @@ private class HighDPIContainerController: UIViewController {
         // but contentScaleFactor affects CALayer backing store resolution
         // for any custom-drawn UIKit views in the hierarchy.
         applyContentScale(to: child.view)
+
+        // Log once after first layout to verify overrides took effect
+        if !hasLoggedPostLayout {
+            hasLoggedPostLayout = true
+            let viewCount = countViews(in: child.view)
+            EnsembleLogger.debug(
+                "[ExternalDisplay] post-layout: child.traitCollection.displayScale="
+                + "\(child.traitCollection.displayScale)"
+                + " child.view.contentScaleFactor=\(child.view.contentScaleFactor)"
+                + " totalViewsUpdated=\(viewCount)"
+            )
+        }
+    }
+
+    private func countViews(in view: UIView) -> Int {
+        var count = 1
+        for subview in view.subviews {
+            count += countViews(in: subview)
+        }
+        return count
     }
 
     private func applyContentScale(to view: UIView) {
