@@ -138,12 +138,17 @@ public final class PersistentLogService: ObservableObject {
     /// Scan the logs directory and populate the sessions list.
     public func loadSessions() {
         let fm = FileManager.default
-        guard let files = try? fm.contentsOfDirectory(
-            at: Self.logsDirectory,
-            includingPropertiesForKeys: [.fileSizeKey, .creationDateKey],
-            options: .skipsHiddenFiles
-        ) else {
-            sessions = []
+        let files: [URL]
+        do {
+            files = try fm.contentsOfDirectory(
+                at: Self.logsDirectory,
+                includingPropertiesForKeys: [.fileSizeKey, .creationDateKey],
+                options: .skipsHiddenFiles
+            )
+        } catch {
+            // Don't clear existing sessions on transient directory-listing failures
+            // (e.g. file coordination locks during share-to-Files).
+            EnsembleLogger.debug("⚠️ PersistentLogService: Failed to list logs directory: \(error.localizedDescription)")
             return
         }
 

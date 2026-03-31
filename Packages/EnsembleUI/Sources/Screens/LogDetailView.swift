@@ -137,10 +137,34 @@ public struct LogDetailView: View {
                 Image(systemName: "arrow.clockwise")
             }
             Button {
-                ShareSheetPresenter.present(items: [session.fileURL])
+                shareLogFile()
             } label: {
                 Image(systemName: "square.and.arrow.up")
             }
+        }
+    }
+
+    // MARK: - Sharing
+
+    /// Flush buffered writes, copy to a temp file, and share the copy.
+    /// Sharing the original file URL directly can cause iOS file coordination
+    /// to interfere with the active log writer, potentially making the original
+    /// inaccessible until the share completes.
+    private func shareLogFile() {
+        logService.flushSession()
+        let sourceURL = session.fileURL
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempURL = tempDir.appendingPathComponent(sourceURL.lastPathComponent)
+
+        // Remove stale temp copy if present
+        try? FileManager.default.removeItem(at: tempURL)
+
+        do {
+            try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+            ShareSheetPresenter.present(items: [tempURL])
+        } catch {
+            // Fall back to sharing the original if copy fails
+            ShareSheetPresenter.present(items: [sourceURL])
         }
     }
 

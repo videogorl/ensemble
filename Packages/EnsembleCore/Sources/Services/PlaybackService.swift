@@ -5068,6 +5068,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         syncNowPlayingPlaybackState()
         updateFeedbackCommandState(isLiked: isLiked, isDisliked: isDisliked)
 
+        EnsembleLogger.debug("[NowPlaying] Updated: '\(track.title)' rate=\(rate) elapsed=\(String(format: "%.1f", currentTime))s duration=\(String(format: "%.1f", effectiveDuration))s state=\(playbackState)")
+
         guard nowPlayingArtworkRequestKey != artworkRequestKey else { return }
         cancelNowPlayingArtworkLoad(clearArtwork: false)
         nowPlayingArtworkRequestKey = artworkRequestKey
@@ -5116,19 +5118,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// app's internal `playbackState`.  Must be called **after** every assignment
     /// to `…nowPlayingInfo` because that assignment can reset the property.
     private func syncNowPlayingPlaybackState() {
+        let mpState: MPNowPlayingPlaybackState
         switch playbackState {
         case .playing:
-            MPNowPlayingInfoCenter.default().playbackState = .playing
+            mpState = .playing
         case .paused:
-            MPNowPlayingInfoCenter.default().playbackState = .paused
+            mpState = .paused
         case .stopped:
-            MPNowPlayingInfoCenter.default().playbackState = .stopped
+            mpState = .stopped
         case .loading, .buffering:
             // Transient — leave the last reported state.
-            break
+            return
         case .failed:
-            MPNowPlayingInfoCenter.default().playbackState = .stopped
+            mpState = .stopped
         }
+        MPNowPlayingInfoCenter.default().playbackState = mpState
+        EnsembleLogger.debug("[NowPlaying] Synced playbackState → \(mpState.rawValue) (app=\(playbackState))")
     }
 
     private func cancelNowPlayingArtworkLoad(clearArtwork: Bool) {
