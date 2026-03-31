@@ -205,6 +205,13 @@ public protocol PlaybackServiceProtocol: AnyObject {
 
     /// Toggle instrumental mode on or off. Requires iOS 16+ / A13+ device.
     func setInstrumentalMode(_ enabled: Bool)
+
+    /// Whether AirPlay screen mirroring is active (external display connected).
+    /// During screen mirroring, AVAudioSession reports `.airPlay` as the audio output
+    /// because audio routes through the mirroring stream. But the mirroring protocol
+    /// syncs audio and video together — there's no separate audio pipeline delay.
+    /// This flag tells route inference to suppress AirPlay latency compensation.
+    var isScreenMirroringActive: Bool { get set }
 }
 
 // MARK: - Playback Service Implementation
@@ -306,9 +313,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     static func inferPresentationRouteKind(
         hasAirPlay: Bool,
-        hasBluetooth: Bool
+        hasBluetooth: Bool,
+        isScreenMirroringActive: Bool = false
     ) -> PresentationRouteKind {
-        if hasAirPlay { return .airPlay }
+        if hasAirPlay {
+            // During screen mirroring, AVAudioSession reports .airPlay because
+            // audio routes through the mirroring stream. But the mirroring
+            // protocol syncs audio and video together — no separate audio
+            // pipeline delay exists. Suppress AirPlay latency compensation
+            // so lyrics stay in sync on the TV.
+            if isScreenMirroringActive { return .builtInOrWired }
+            return .airPlay
+        }
         if hasBluetooth { return .bluetooth }
         return .builtInOrWired
     }
@@ -869,6 +885,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var nowPlayingArtwork: MPMediaItemArtwork?
     private var presentationRouteKind: PresentationRouteKind = .builtInOrWired
     private var effectivePresentationLatency: TimeInterval = 0
+
+    /// Whether AirPlay screen mirroring is active. Set by ExternalDisplaySceneDelegate.
+    /// Suppresses AirPlay latency compensation because the mirroring protocol
+    /// syncs audio and video together (no separate audio pipeline delay).
+    public var isScreenMirroringActive: Bool = false {
+        didSet {
+            guard oldValue != isScreenMirroringActive else { return }
+            EnsembleLogger.debug("[Playback] isScreenMirroringActive=\(isScreenMirroringActive)")
+            refreshPresentationLatencyEstimate()
+        }
+    }
 
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
@@ -1542,7 +1569,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         presentationRouteKind = Self.inferPresentationRouteKind(
             hasAirPlay: hasAirPlay,
-            hasBluetooth: hasBluetooth
+            hasBluetooth: hasBluetooth,
+            isScreenMirroringActive: isScreenMirroringActive
         )
         isExternalPlaybackActive = presentationRouteKind != .builtInOrWired
         effectivePresentationLatency = Self.estimatedPresentationLatency(
@@ -5040,6 +5068,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         syncNowPlayingPlaybackState()
         updateFeedbackCommandState(isLiked: isLiked, isDisliked: isDisliked)
 
+        EnsembleLogger.debug("[NowPlaying] Updated: '\(track.title)' rate=\(rate) elapsed=\(String(format: "%.1f", currentTime))s duration=\(String(format: "%.1f", effectiveDuration))s state=\(playbackState)")
+
         guard nowPlayingArtworkRequestKey != artworkRequestKey else { return }
         cancelNowPlayingArtworkLoad(clearArtwork: false)
         nowPlayingArtworkRequestKey = artworkRequestKey
@@ -5088,19 +5118,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// app's internal `playbackState`.  Must be called **after** every assignment
     /// to `…nowPlayingInfo` because that assignment can reset the property.
     private func syncNowPlayingPlaybackState() {
+        let mpState: MPNowPlayingPlaybackState
         switch playbackState {
         case .playing:
-            MPNowPlayingInfoCenter.default().playbackState = .playing
+            mpState = .playing
         case .paused:
-            MPNowPlayingInfoCenter.default().playbackState = .paused
+            mpState = .paused
         case .stopped:
-            MPNowPlayingInfoCenter.default().playbackState = .stopped
+            mpState = .stopped
         case .loading, .buffering:
             // Transient — leave the last reported state.
-            break
+            return
         case .failed:
-            MPNowPlayingInfoCenter.default().playbackState = .stopped
+            mpState = .stopped
         }
+        MPNowPlayingInfoCenter.default().playbackState = mpState
+        EnsembleLogger.debug("[NowPlaying] Synced playbackState → \(mpState.rawValue) (app=\(playbackState))")
     }
 
     private func cancelNowPlayingArtworkLoad(clearArtwork: Bool) {

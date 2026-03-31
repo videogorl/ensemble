@@ -96,6 +96,7 @@ As you make changes, keep the following documents in sync:
 | New UI component, navigation pattern, or visual rule | `ui-conventions` skill |
 | New coding rule, naming convention, or mandatory practice | `code-style` skill |
 | New known bug, limitation, or tech debt | `known-issues` skill |
+| New Now Playing card/panel | `ExternalDisplayNowPlayingView.swift` (add to `detailPanel`) + `common-tasks` skill |
 | Feature shipped or roadmap item completed | `README.md` |
 | Anything that changes how agents should work in this repo | `CLAUDE.md` |
 | New View or UI element added/renamed/removed | `VOCABULARY.md` |

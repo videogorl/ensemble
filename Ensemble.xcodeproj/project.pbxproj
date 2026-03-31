@@ -10,6 +10,7 @@
 		9926CB082F43A106004A19A3 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 9926CB072F43A106004A19A3 /* AppIcon.icon */; };
 		E0001001 /* EnsembleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001000 /* EnsembleApp.swift */; };
 		E0001003 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001002 /* AppDelegate.swift */; };
+		E0001030 /* ExternalDisplaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001031 /* ExternalDisplaySceneDelegate.swift */; };
 		E0001005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E0001004 /* Assets.xcassets */; };
 		E0001007 /* IntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001010 /* IntentHandler.swift */; };
 		E0001008 /* PlayMediaIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001011 /* PlayMediaIntentHandler.swift */; };
@@ -58,6 +59,7 @@
 		E0000003 /* EnsembleSiriIntentsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = EnsembleSiriIntentsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		E0001000 /* EnsembleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleApp.swift; sourceTree = "<group>"; };
 		E0001002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		E0001031 /* ExternalDisplaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalDisplaySceneDelegate.swift; sourceTree = "<group>"; };
 		E0001004 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E0001006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		E0001010 /* IntentHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntentHandler.swift; sourceTree = "<group>"; };
@@ -182,6 +184,7 @@
 			children = (
 				E0001000 /* EnsembleApp.swift */,
 				E0001002 /* AppDelegate.swift */,
+				E0001031 /* ExternalDisplaySceneDelegate.swift */,
 				E0001015 /* EnsembleAppShortcuts.swift */,
 			);
 			path = App;
@@ -410,6 +413,7 @@
 			files = (
 				E0001001 /* EnsembleApp.swift in Sources */,
 				E0001003 /* AppDelegate.swift in Sources */,
+				E0001030 /* ExternalDisplaySceneDelegate.swift in Sources */,
 				E0001016 /* EnsembleAppShortcuts.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -42,7 +42,7 @@ public enum EnsembleLogger {
         fileLogHandler?("INFO", "playback", msg)
     }
 
-    static func debug(_ message: @autoclosure () -> String) {
+    public static func debug(_ message: @autoclosure () -> String) {
         #if DEBUG
         let msg = message()
         logger.debug("\(msg, privacy: .public)")

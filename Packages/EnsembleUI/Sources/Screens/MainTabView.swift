@@ -171,6 +171,11 @@ public struct MainTabView: View {
                     miniPlayerBottomLift: miniPlayerBottomLift
                 )
             }
+            .onAppear {
+                // Register the active NowPlayingViewModel so the external display
+                // SceneDelegate (AirPlay screen mirroring) can observe the same instance.
+                DependencyContainer.shared.activeNowPlayingViewModel = nowPlayingVM
+            }
             .task {
                 // Sync selectedTab with the actual first visible tab on launch.
                 // selectedTab defaults to .home, but the user may have reordered
@@ -896,6 +901,11 @@ public struct SidebarView: View {
             #if os(macOS)
                 .frame(width: 720, height: 560)
             #endif
+        }
+        .onAppear {
+            // Register the active NowPlayingViewModel so the external display
+            // SceneDelegate (AirPlay screen mirroring) can observe the same instance.
+            DependencyContainer.shared.activeNowPlayingViewModel = nowPlayingVM
         }
         .task {
             // Load all sidebar data concurrently so playlists appear

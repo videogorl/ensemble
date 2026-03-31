@@ -492,6 +492,17 @@ iOS/iPadOS gesture system for track swipe actions and long-press media actions:
 - `NowPlayingViewModel` exposes `setTrackFavorite(_:for:)` and `toggleTrackFavorite(_:)` for non-current track favorite mutations
 - Album/artist/playlist cards and search rows expose `contextMenu` actions aligned with detail-view capabilities
 
+## Subsystem: External Display (AirPlay Screen Mirroring)
+
+Non-interactive Now Playing UI shown on an external display when the user activates AirPlay Screen Mirroring:
+
+- `ExternalDisplaySceneDelegate` (app target) handles the `UIWindowSceneSessionRoleExternalDisplayNonInteractive` scene lifecycle — creates a `UIWindow` with a `UIHostingController` hosting the SwiftUI view
+- `ExternalDisplayNowPlayingView` (EnsembleUI) is the TV-adapted variant of `NowPlayingViewportRoot` — two-column layout (ControlsCard + detail panel), dark-only, no interactive controls
+- The external display observes the **same** `NowPlayingViewModel` instance as the main UI via `DependencyContainer.activeNowPlayingViewModel` — all state (playback, lyrics, queue, panel selection) stays in sync
+- `AppDelegate.configurationForConnecting` routes the external display role to `ExternalDisplaySceneDelegate`; Stage Manager extended desktop uses the `windowApplication` role and is unaffected
+- The Info.plist declares a `UIWindowSceneSessionRoleExternalDisplayNonInteractive` scene configuration
+- **Important:** When adding a new card/panel to `NowPlayingViewportRoot` or `NowPlayingCarousel`, it must also be added to `ExternalDisplayNowPlayingView.detailPanel`
+
 ## Subsystem: Pinned Content
 
 User-pinnable items (albums, artists, playlists) persisted across sessions:

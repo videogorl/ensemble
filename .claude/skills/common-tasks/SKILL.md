@@ -49,6 +49,16 @@ struct MyNewView: View {
 }
 ```
 
+## Adding a New Now Playing Panel/Card
+
+When adding a new card/panel to the Now Playing view, it must be added in **three** places:
+
+1. `NowPlayingCarousel.swift` — iPhone swipe carousel (TabView pages)
+2. `NowPlayingViewportRoot.swift` — iPad/macOS two-column detail panel
+3. `ExternalDisplayNowPlayingView.swift` — AirPlay external display detail panel
+
+All three switch on `viewModel.currentPage`. Assign your new card a page index and add a case in each file's `detailPanel` / carousel body.
+
 ## Adding a New CoreData Entity
 
 1. Update `Ensemble.xcdatamodeld` in `Packages/EnsemblePersistence/Sources/CoreData/`

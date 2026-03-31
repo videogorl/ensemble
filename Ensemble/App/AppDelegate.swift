@@ -440,6 +440,20 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                options.userActivities.count,
                options.shortcutItem != nil ? 1 : 0)
 
+        // Route external display (AirPlay screen mirroring) to dedicated scene delegate.
+        // Raw string comparison for iOS 15 compatibility — the typed Swift constant
+        // was only added in iOS 16, but the role string works on iOS 13+.
+        // This does NOT affect iPadOS Stage Manager, which uses the windowApplication role.
+        if connectingSceneSession.role.rawValue == "UIWindowSceneSessionRoleExternalDisplayNonInteractive" {
+            os_log(.info, "ExternalDisplay: routing external display scene to ExternalDisplaySceneDelegate")
+            let config = UISceneConfiguration(
+                name: "External Display",
+                sessionRole: connectingSceneSession.role
+            )
+            config.delegateClass = ExternalDisplaySceneDelegate.self
+            return config
+        }
+
         // Check if there's a Siri userActivity in the connection options
         for activity in options.userActivities {
             os_log(.info, "SIRI_APP: scene connection has activity type=%{public}@", activity.activityType)
