@@ -92,6 +92,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
             context.perform {
                 let request = CDDownload.fetchRequest()
                 request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
+                request.fetchBatchSize = 50
                 do {
                     let downloads = try context.fetch(request)
 
@@ -191,6 +192,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     CDDownload.Status.downloading.rawValue
                 )
                 request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: true)]
+                request.fetchBatchSize = 50
                 do {
                     let downloads = try context.fetch(request)
                     continuation.resume(returning: downloads)
@@ -235,6 +237,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                 let request = CDDownload.fetchRequest()
                 request.predicate = NSPredicate(format: "status == %@", CDDownload.Status.completed.rawValue)
                 request.sortDescriptors = [NSSortDescriptor(key: "completedAt", ascending: false)]
+                request.fetchBatchSize = 50
                 do {
                     let downloads = try context.fetch(request)
                     continuation.resume(returning: downloads)

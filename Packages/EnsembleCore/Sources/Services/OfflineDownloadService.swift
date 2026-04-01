@@ -964,10 +964,13 @@ public final class OfflineDownloadService: ObservableObject {
                 try await applyNetworkPolicy()
 
                 guard canExecuteDownloads else {
+                    // Exit instead of polling every 2s — lets the CPU idle on dual-core devices.
+                    // The network state observer calls startQueueIfNeeded() reactively when
+                    // conditions change, so we don't need to spin here.
                     isQueueRunning = false
                     queueStatusReason = queueReasonForCurrentState()
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    continue
+                    EnsembleLogger.debug("📥 Worker exit: network not available (\(queueStatusReason))")
+                    return didProcess
                 }
 
                 // Claim a single pending download (atomic, sets status to .downloading)

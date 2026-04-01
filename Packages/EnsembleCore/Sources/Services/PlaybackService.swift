@@ -4775,6 +4775,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 guard let self else { return }
                 let enabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
 
+                // Keep the analyzer's timer gate in sync so it stops/starts the 30Hz timer
+                self.audioAnalyzer.visualizationEnabled = enabled
+
                 // Only act when toggled ON during active playback
                 guard enabled, self.playbackState == .playing,
                       let track = self.currentTrack,

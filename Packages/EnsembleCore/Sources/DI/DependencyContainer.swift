@@ -394,6 +394,12 @@ public final class DependencyContainer: @unchecked Sendable {
             playbackServiceRef.setMutationCoordinator(mutationCoordinatorRef)
         }
 
+        // Sync aurora visualization setting to frequency analyzer.
+        // When disabled, the 30Hz display timer won't start — saves measurable CPU on A9.
+        MainActor.assumeIsolated {
+            audioAnalyzerRef.visualizationEnabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
+        }
+
         // Sharing services — SongLinkService resolves universal links, ShareService coordinates payloads
         #if canImport(MusicKit)
         let songLinkRef = SongLinkService(searcher: MusicKitCatalogSearcher())

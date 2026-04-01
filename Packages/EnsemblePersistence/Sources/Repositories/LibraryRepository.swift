@@ -576,6 +576,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     NSSortDescriptor(key: "discNumber", ascending: true),
                     NSSortDescriptor(key: "trackNumber", ascending: true)
                 ]
+                request.fetchBatchSize = 50
+                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
                 do {
                     let tracks = try context.fetch(request)
                     continuation.resume(returning: tracks)
@@ -619,6 +621,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     NSSortDescriptor(key: "discNumber", ascending: true),
                     NSSortDescriptor(key: "trackNumber", ascending: true)
                 ]
+                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
                 do {
                     let tracks = try context.fetch(request)
                     continuation.resume(returning: tracks)
@@ -643,6 +646,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     NSSortDescriptor(key: "discNumber", ascending: true),
                     NSSortDescriptor(key: "trackNumber", ascending: true)
                 ]
+                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
                 do {
                     let tracks = try context.fetch(request)
                     continuation.resume(returning: tracks)
@@ -665,6 +669,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     NSSortDescriptor(key: "discNumber", ascending: true),
                     NSSortDescriptor(key: "trackNumber", ascending: true)
                 ]
+                request.fetchBatchSize = 50
+                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
                 do {
                     let tracks = try context.fetch(request)
                     continuation.resume(returning: tracks)
@@ -691,6 +697,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     NSSortDescriptor(key: "discNumber", ascending: true),
                     NSSortDescriptor(key: "trackNumber", ascending: true)
                 ]
+                request.fetchBatchSize = 50
+                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
                 do {
                     let tracks = try context.fetch(request)
                     continuation.resume(returning: tracks)

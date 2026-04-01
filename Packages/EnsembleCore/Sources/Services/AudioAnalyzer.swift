@@ -46,6 +46,10 @@ public protocol AudioAnalyzerProtocol: AnyObject {
 
     /// Resume frequency band updates.
     @MainActor func resumeUpdates()
+
+    /// Whether aurora visualization is enabled. When false, the 30Hz display timer
+    /// is not started, saving CPU on low-end devices.
+    @MainActor var visualizationEnabled: Bool { get set }
 }
 
 // MARK: - Frequency Snapshot
@@ -212,6 +216,22 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     /// Whether updates are paused
     private var isPaused: Bool = false
 
+    /// Whether the aurora visualizer is enabled in settings.
+    /// When false, the 30Hz display timer is not started — saving significant CPU
+    /// on dual-core devices (A9). Synced from PlaybackService's UserDefaults observer.
+    public var visualizationEnabled: Bool = true {
+        didSet {
+            guard visualizationEnabled != oldValue else { return }
+            if !visualizationEnabled {
+                // Stop the 30Hz timer immediately when disabled
+                stopDisplayTimer()
+            } else if activeTrackId != nil && !isPaused {
+                // Re-enable: start the timer if we have an active, unpaused track
+                startDisplayTimer()
+            }
+        }
+    }
+
     /// In-flight analysis tasks (to avoid duplicate work)
     private var analysisTasks: [String: Task<Void, Never>] = [:]
 
@@ -357,11 +377,17 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         // Clear bands immediately so stale data from the previous track doesn't persist
         frequencyBands = Array(repeating: 0.0, count: bandCount)
 
-        startDisplayTimer()
+        // Only start the 30Hz display timer when visualization is enabled.
+        // On A9 (dual-core), the timer + Gaussian blending + array allocations
+        // consume measurable CPU even when the aurora Canvas isn't rendering.
+        if visualizationEnabled {
+            startDisplayTimer()
+        }
 
         #if DEBUG
         let hasTimeline = timelines[trackId] != nil
-        logger.debug("Activated timeline for \(trackId), hasData=\(hasTimeline)")
+        let vizEnabled = visualizationEnabled
+        logger.debug("Activated timeline for \(trackId), hasData=\(hasTimeline), vizEnabled=\(vizEnabled)")
         #endif
     }
 
@@ -416,6 +442,12 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         guard isPaused else { return }
         isPaused = false
         positionUpdateWallTime = CACurrentMediaTime()
+
+        // If visualization was enabled after activateTimeline() was called without it,
+        // start the timer now (e.g. user toggles aurora on mid-playback)
+        if visualizationEnabled && displayTimer == nil && activeTrackId != nil {
+            startDisplayTimer()
+        }
 
         #if DEBUG
         logger.debug("Frequency updates resumed")
