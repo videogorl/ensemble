@@ -378,7 +378,16 @@ public struct ArtistDetailView: View {
         // Background gradient as background modifier so it extends behind safe areas
         // without affecting the ScrollView's safe area layout (ZStack + ignoresSafeArea
         // on a sibling was causing the ScrollView to ignore bottom safe area on iOS 15)
-        .background(backgroundGradient.ignoresSafeArea())
+        .background(
+            // VStack + Spacer pins the gradient to the top of the viewport
+            // so it doesn't drift down when the ScrollView frame is taller
+            // than the gradient's 600pt height.
+            VStack(spacing: 0) {
+                backgroundGradient
+                Spacer(minLength: 0)
+            }
+            .ignoresSafeArea()
+        )
         .collapsingToolbarTitle(
             viewModel.artist.name,
             threshold: 0,
