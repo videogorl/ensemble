@@ -478,7 +478,8 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Fix (CPU — analyzer):** Added `visualizationEnabled` gate on the 30Hz display timer in `FrequencyAnalysisService`. Timer only starts when aurora is enabled. `didSet` stops/starts timer reactively on setting toggle.
 - **Fix (CoreData):** Added `fetchBatchSize=50` to 3 `DownloadManager` fetch methods. Added `relationshipKeyPathsForPrefetching=["album","album.artist"]` to 5 `LibraryRepository` track fetch methods.
 - **Key files:** `ArtworkLoader.swift`, `OfflineDownloadService.swift`, `AudioAnalyzer.swift`, `PlaybackService.swift`, `DependencyContainer.swift`, `DownloadManager.swift`, `LibraryRepository.swift`
-- **Remaining opportunities:** HubItemCard pinManager observation extraction, MainTabView singleton observation extraction, ControlsCard TimelineView consolidation, SyncCoordinator sourceStatuses progress throttling
+- **Phase 2 fixes (observation cascades):** HubItemCard `@ObservedObject pinManager` → `let` (context menus are demand-evaluated). MainTabView networkMonitor/powerStateMonitor → `@State` + `.onReceive`. ControlsCard 3×TimelineView → 1×TimelineView. SyncCoordinator progress handlers throttled to 200ms via `throttledProgressUpdate`.
+- **Key Phase 2 files:** `HomeView.swift`, `MainTabView.swift`, `ControlsCard.swift`, `SyncCoordinator.swift`
 
 ## Future Enhancements (Waveform System)
 
