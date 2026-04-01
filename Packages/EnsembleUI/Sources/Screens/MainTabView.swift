@@ -51,13 +51,17 @@ public struct MainTabView: View {
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
-    @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
+    // Observation-extracted: networkMonitor publishes on every network state change,
+    // which would invalidate the entire root view. We only need networkState, so we
+    // listen to just that property and store it in @State.
+    private let networkMonitor = DependencyContainer.shared.networkMonitor
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
-    @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    // Observation-extracted: only isLowPowerMode is used, avoid root view invalidation
+    private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @Environment(\.presentViewportNowPlaying) private var presentViewportNowPlaying
-    
+
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
     
@@ -68,6 +72,9 @@ public struct MainTabView: View {
     @State private var showingSheetNowPlaying = false
     @State private var didSetInitialTab = false
     @State private var isImmersiveMode = false
+    // Extracted observation state — avoids full root invalidation from singleton publishers
+    @State private var networkState: NetworkState = DependencyContainer.shared.networkMonitor.networkState
+    @State private var isLowPowerMode: Bool = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
 
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
@@ -190,6 +197,14 @@ public struct MainTabView: View {
                 }
                 await libraryVM.refresh()
             }
+            // Observation-extracted receivers — update @State only when specific values change,
+            // avoiding full root view invalidation from singleton objectWillChange.
+            .onReceive(networkMonitor.$networkState) { newValue in
+                networkState = newValue
+            }
+            .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
+                isLowPowerMode = newValue
+            }
             .onChange(of: isShowingNowPlaying) { isShowing in
                 // Execute pending navigation after the sheet fully dismisses.
                 // The 0.35s delay lets the NavigationStack settle after the
@@ -237,7 +252,7 @@ public struct MainTabView: View {
                     .overlay(alignment: .top) {
                         if !isImmersiveMode {
                             OfflineIndicatorOverlay(
-                                networkState: networkMonitor.networkState,
+                                networkState: networkState,
                                 topInset: geometry.safeAreaInsets.top
                             )
                         }
@@ -374,7 +389,7 @@ public struct MainTabView: View {
                     playbackService: DependencyContainer.shared.playbackService,
                     accentColor: settingsManager.accentColor.color,
                     isPaused: isShowingNowPlaying,
-                    isLowPowerMode: powerStateMonitor.isLowPowerMode
+                    isLowPowerMode: isLowPowerMode
                 )
                 .ignoresSafeArea(.all)
                 .allowsHitTesting(false)
@@ -623,7 +638,8 @@ public struct SidebarView: View {
     @StateObject private var playlistsVM: PlaylistViewModel
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
-    @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    // Observation-extracted: only isLowPowerMode is used from this monitor
+    private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @Environment(\.presentViewportNowPlaying) private var presentViewportNowPlaying
@@ -637,6 +653,8 @@ public struct SidebarView: View {
     @State private var selection: SidebarSelection? = .library(.home)
     @State private var showingSheetNowPlaying = false
     @State private var sidebarColumnWidth: CGFloat = 260
+    // Extracted observation state — avoids full root invalidation from powerStateMonitor
+    @State private var isLowPowerMode: Bool = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
@@ -928,6 +946,10 @@ public struct SidebarView: View {
             async let pinsLoad: () = pinnedVM.loadPinnedItems()
             async let playlistsLoad: () = playlistsVM.loadPlaylists()
             _ = await (libRefresh, pinsLoad, playlistsLoad)
+        }
+        // Observation-extracted receiver for powerStateMonitor
+        .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
+            isLowPowerMode = newValue
         }
         // Keep NavigationCoordinator.selectedTab in sync with sidebar selection
         // so navigate(to:) pushes onto the correct section's NavigationStack
@@ -1247,7 +1269,7 @@ public struct SidebarView: View {
             playbackService: DependencyContainer.shared.playbackService,
             accentColor: settingsManager.accentColor.color,
             isPaused: isShowingNowPlaying,
-            isLowPowerMode: powerStateMonitor.isLowPowerMode
+            isLowPowerMode: isLowPowerMode
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .padding(.leading, clampedSidebarWidth)

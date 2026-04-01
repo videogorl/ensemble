@@ -105,6 +105,10 @@ public final class SyncCoordinator: ObservableObject {
     /// This transition is normal initialization, not a reconnect, so we skip the
     /// expensive reconnect path (health refresh + connection invalidation).
     private var hasCompletedInitialNetworkTransition = false
+    /// Timestamp of last sourceStatuses progress update per source — used to throttle
+    /// @Published updates during sync so SwiftUI doesn't re-render on every item.
+    private var lastProgressUpdateTime: [MusicSourceIdentifier: CFAbsoluteTime] = [:]
+    private let progressThrottleInterval: CFAbsoluteTime = 0.2  // 200ms
     /// Set when any startup path begins running health checks, so
     /// `performStartupHealthChecks()` can skip if already covered.
     private var startupHealthChecksInitiated = false
@@ -259,12 +263,8 @@ public final class SyncCoordinator: ObservableObject {
                     progressHandler: { [weak self] progress in
                         Task { @MainActor in
                             guard let self = self else { return }
-                            let connState = self.sourceStatuses[sourceId]?.connectionState ?? .unknown
                             // Library sync takes up 70% of the progress
-                            self.sourceStatuses[sourceId] = MusicSourceStatus(
-                                syncStatus: .syncing(progress: progress * 0.7),
-                                connectionState: connState
-                            )
+                            self.throttledProgressUpdate(for: sourceId, mappedProgress: progress * 0.7)
                         }
                     }
                 )
@@ -288,12 +288,8 @@ public final class SyncCoordinator: ObservableObject {
                         progressHandler: { [weak self] progress in
                             Task { @MainActor in
                                 guard let self = self else { return }
-                                let connState = self.sourceStatuses[sourceId]?.connectionState ?? .unknown
                                 // Playlist sync takes up the remaining 20%
-                                self.sourceStatuses[sourceId] = MusicSourceStatus(
-                                    syncStatus: .syncing(progress: 0.8 + (progress * 0.2)),
-                                    connectionState: connState
-                                )
+                                self.throttledProgressUpdate(for: sourceId, mappedProgress: 0.8 + (progress * 0.2))
                             }
                         }
                     )
@@ -375,12 +371,8 @@ public final class SyncCoordinator: ObservableObject {
                 progressHandler: { [weak self] progress in
                     Task { @MainActor in
                         guard let self = self else { return }
-                        let connState = self.sourceStatuses[source]?.connectionState ?? .unknown
                         // Library sync takes up 80% of the progress
-                        self.sourceStatuses[source] = MusicSourceStatus(
-                            syncStatus: .syncing(progress: progress * 0.8),
-                            connectionState: connState
-                        )
+                        self.throttledProgressUpdate(for: source, mappedProgress: progress * 0.8)
                     }
                 }
             )
@@ -398,12 +390,8 @@ public final class SyncCoordinator: ObservableObject {
                 progressHandler: { [weak self] progress in
                     Task { @MainActor in
                         guard let self = self else { return }
-                        let connState = self.sourceStatuses[source]?.connectionState ?? .unknown
                         // Playlist sync takes up the remaining 20%
-                        self.sourceStatuses[source] = MusicSourceStatus(
-                            syncStatus: .syncing(progress: 0.8 + (progress * 0.2)),
-                            connectionState: connState
-                        )
+                        self.throttledProgressUpdate(for: source, mappedProgress: 0.8 + (progress * 0.2))
                     }
                 }
             )
@@ -465,6 +453,23 @@ public final class SyncCoordinator: ObservableObject {
         }
         return message
     }
+
+    /// Throttles sourceStatuses progress updates to avoid flooding SwiftUI with per-item
+    /// @Published changes during sync. Always publishes near-completion updates (≥99%).
+    private func throttledProgressUpdate(for sourceId: MusicSourceIdentifier, mappedProgress: Double) {
+        let now = CFAbsoluteTimeGetCurrent()
+        let lastUpdate = lastProgressUpdateTime[sourceId] ?? 0
+
+        // Always publish near-completion; otherwise respect throttle interval
+        guard mappedProgress >= 0.99 || (now - lastUpdate) >= progressThrottleInterval else { return }
+        lastProgressUpdateTime[sourceId] = now
+
+        let connState = sourceStatuses[sourceId]?.connectionState ?? .unknown
+        sourceStatuses[sourceId] = MusicSourceStatus(
+            syncStatus: .syncing(progress: mappedProgress),
+            connectionState: connState
+        )
+    }
     
     /// Sync all enabled sources incrementally (only fetch changes since last sync)
     public func syncAllIncremental() async {
@@ -498,11 +503,7 @@ public final class SyncCoordinator: ObservableObject {
                         progressHandler: { [weak self] progress in
                             Task { @MainActor in
                                 guard let self = self else { return }
-                                let connState = self.sourceStatuses[sourceId]?.connectionState ?? .unknown
-                                self.sourceStatuses[sourceId] = MusicSourceStatus(
-                                    syncStatus: .syncing(progress: progress * 0.9),
-                                    connectionState: connState
-                                )
+                                self.throttledProgressUpdate(for: sourceId, mappedProgress: progress * 0.9)
                             }
                         }
                     )
@@ -547,11 +548,7 @@ public final class SyncCoordinator: ObservableObject {
                     progressHandler: { [weak self] progress in
                         Task { @MainActor in
                             guard let self = self else { return }
-                            let connState = self.sourceStatuses[sourceId]?.connectionState ?? .unknown
-                            self.sourceStatuses[sourceId] = MusicSourceStatus(
-                                syncStatus: .syncing(progress: progress * 0.9),
-                                connectionState: connState
-                            )
+                            self.throttledProgressUpdate(for: sourceId, mappedProgress: progress * 0.9)
                         }
                     }
                 )
@@ -572,11 +569,7 @@ public final class SyncCoordinator: ObservableObject {
                         progressHandler: { [weak self] progress in
                             Task { @MainActor in
                                 guard let self = self else { return }
-                                let connState = self.sourceStatuses[sourceId]?.connectionState ?? .unknown
-                                self.sourceStatuses[sourceId] = MusicSourceStatus(
-                                    syncStatus: .syncing(progress: 0.9 + (progress * 0.1)),
-                                    connectionState: connState
-                                )
+                                self.throttledProgressUpdate(for: sourceId, mappedProgress: 0.9 + (progress * 0.1))
                             }
                         }
                     )
@@ -640,11 +633,7 @@ public final class SyncCoordinator: ObservableObject {
                 progressHandler: { [weak self] progress in
                     Task { @MainActor in
                         guard let self = self else { return }
-                        let connState = self.sourceStatuses[source]?.connectionState ?? .unknown
-                        self.sourceStatuses[source] = MusicSourceStatus(
-                            syncStatus: .syncing(progress: progress * 0.9),
-                            connectionState: connState
-                        )
+                        self.throttledProgressUpdate(for: source, mappedProgress: progress * 0.9)
                     }
                 }
             )
@@ -663,11 +652,7 @@ public final class SyncCoordinator: ObservableObject {
                 progressHandler: { [weak self] progress in
                     Task { @MainActor in
                         guard let self = self else { return }
-                        let connState = self.sourceStatuses[source]?.connectionState ?? .unknown
-                        self.sourceStatuses[source] = MusicSourceStatus(
-                            syncStatus: .syncing(progress: 0.9 + (progress * 0.1)),
-                            connectionState: connState
-                        )
+                        self.throttledProgressUpdate(for: source, mappedProgress: 0.9 + (progress * 0.1))
                     }
                 }
             )

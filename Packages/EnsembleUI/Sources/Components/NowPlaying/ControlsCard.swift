@@ -216,120 +216,124 @@ public struct ControlsCard: View {
     // MARK: - Progress View / Scrubber
     
     private func progressView(track: Track) -> some View {
-        VStack(spacing: 8) {
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-                        let waveform = WaveformView(
-                            progress: isDraggingSlider ? localProgress : viewModel.progress,
-                            bufferedProgress: viewModel.bufferedProgress,
-                            color: .primary,
-                            heights: viewModel.waveformHeights
-                        )
-                        .frame(width: geometry.size.width)
-                        .opacity(0.8)
-                        
-                        #if os(iOS)
-                        if #available(iOS 16.0, *) {
-                            waveform
-                                .id(track.id)
-                                .transition(.opacity)
-                                .animation(.easeInOut, value: track.id)
-                        } else {
-                            waveform
-                        }
-                        #else
-                        waveform
-                            .id(track.id)
-                            .transition(.opacity)
-                            .animation(.easeInOut, value: track.id)
-                        #endif
+        // Single TimelineView replaces 3 individual ones (waveform + 2 time labels).
+        // On a dual-core A9, this reduces timer wake-ups from 3 to 1 per 0.5s tick.
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+            VStack(spacing: 8) {
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        waveformContent(track: track, width: geometry.size.width)
+
+                        Color.clear
+                            .contentShape(Rectangle())
                     }
-                    
-                    Color.clear
-                        .contentShape(Rectangle())
+                    .frame(height: 24)
+                    .clipped()
+                    .onAppear {
+                        sliderWidth = geometry.size.width
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                if !isDraggingSlider {
+                                    isDraggingSlider = true
+                                    sliderWidth = geometry.size.width
+                                    dragStartY = value.location.y
+                                    dragStartX = value.location.x
+                                    lastDragX = value.location.x
+                                    initialProgress = max(0, min(1, value.location.x / sliderWidth))
+                                    localProgress = initialProgress
+                                }
+
+                                currentDragY = value.location.y
+                                let verticalDistance = abs(currentDragY - dragStartY)
+                                let scrubRate = getScrubRate(verticalDistance: verticalDistance)
+
+                                if scrubRate != lastScrubRate {
+                                    #if os(iOS)
+                                    UISelectionFeedbackGenerator().selectionChanged()
+                                    #endif
+                                    lastScrubRate = scrubRate
+                                }
+
+                                let deltaX = value.location.x - lastDragX
+                                let progressChange = (deltaX / sliderWidth) * scrubRate
+                                localProgress = max(0, min(1, localProgress + progressChange))
+                                lastDragX = value.location.x
+
+                                // Update visualizer in real-time during scrubber drag
+                                viewModel.updateVisualizerPosition(localProgress)
+                            }
+                            .onEnded { _ in
+                                viewModel.seekToProgress(localProgress)
+                                isDraggingSlider = false
+                            }
+                    )
                 }
                 .frame(height: 24)
-                .clipped()
-                .onAppear {
-                    sliderWidth = geometry.size.width
-                }
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            if !isDraggingSlider {
-                                isDraggingSlider = true
-                                sliderWidth = geometry.size.width
-                                dragStartY = value.location.y
-                                dragStartX = value.location.x
-                                lastDragX = value.location.x
-                                initialProgress = max(0, min(1, value.location.x / sliderWidth))
-                                localProgress = initialProgress
-                            }
-                            
-                            currentDragY = value.location.y
-                            let verticalDistance = abs(currentDragY - dragStartY)
-                            let scrubRate = getScrubRate(verticalDistance: verticalDistance)
-                            
-                            if scrubRate != lastScrubRate {
-                                #if os(iOS)
-                                UISelectionFeedbackGenerator().selectionChanged()
-                                #endif
-                                lastScrubRate = scrubRate
-                            }
-                            
-                            let deltaX = value.location.x - lastDragX
-                            let progressChange = (deltaX / sliderWidth) * scrubRate
-                            localProgress = max(0, min(1, localProgress + progressChange))
-                            lastDragX = value.location.x
 
-                            // Update visualizer in real-time during scrubber drag
-                            viewModel.updateVisualizerPosition(localProgress)
-                        }
-                        .onEnded { _ in
-                            viewModel.seekToProgress(localProgress)
-                            isDraggingSlider = false
-                        }
-                )
-            }
-            .frame(height: 24)
-            
-            HStack {
-                Group {
-                    if isDraggingSlider {
-                        Text(formatTime(localProgress * viewModel.scrubberDuration))
-                    } else {
-                        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                HStack {
+                    Group {
+                        if isDraggingSlider {
+                            Text(formatTime(localProgress * viewModel.scrubberDuration))
+                        } else {
                             Text(viewModel.formattedCurrentTime)
                         }
                     }
-                }
-                .font(.caption)
-                .monospacedDigit()
-                .foregroundColor(.secondary)
-                
-                Spacer()
-                
-                if isDraggingSlider {
-                    scrubIndicator
-                }
-                
-                Spacer()
-                
-                Group {
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundColor(.secondary)
+
+                    Spacer()
+
                     if isDraggingSlider {
-                        Text(formatTime((1 - localProgress) * viewModel.scrubberDuration))
-                    } else {
-                        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                        scrubIndicator
+                    }
+
+                    Spacer()
+
+                    Group {
+                        if isDraggingSlider {
+                            Text(formatTime((1 - localProgress) * viewModel.scrubberDuration))
+                        } else {
                             Text(viewModel.formattedRemainingTime)
                         }
                     }
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundColor(.secondary)
                 }
-                .font(.caption)
-                .monospacedDigit()
-                .foregroundColor(.secondary)
             }
         }
+    }
+
+    // Extracted waveform builder for readability
+    @ViewBuilder
+    private func waveformContent(track: Track, width: CGFloat) -> some View {
+        let waveform = WaveformView(
+            progress: isDraggingSlider ? localProgress : viewModel.progress,
+            bufferedProgress: viewModel.bufferedProgress,
+            color: .primary,
+            heights: viewModel.waveformHeights
+        )
+        .frame(width: width)
+        .opacity(0.8)
+
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            waveform
+                .id(track.id)
+                .transition(.opacity)
+                .animation(.easeInOut, value: track.id)
+        } else {
+            waveform
+        }
+        #else
+        waveform
+            .id(track.id)
+            .transition(.opacity)
+            .animation(.easeInOut, value: track.id)
+        #endif
     }
     
     private var scrubIndicator: some View {
