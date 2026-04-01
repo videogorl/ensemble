@@ -529,7 +529,7 @@ public struct ArtistDetailView: View {
 
     private var heroBanner: some View {
         GeometryReader { geometry in
-            let bannerHeight = geometry.size.width // 1:1 square aspect ratio
+            let bannerHeight = geometry.size.height
             // Detect overscroll: when the banner's top in global coords is > 0,
             // the user is pulling down past the top edge
             let globalMinY = geometry.frame(in: .global).minY
@@ -537,15 +537,26 @@ public struct ArtistDetailView: View {
             let artworkHeight = bannerHeight + geometry.safeAreaInsets.top + overscroll
 
             ZStack(alignment: .bottom) {
-                // Artist artwork — grows upward on overscroll, fades at the bottom.
-                // No .clipped() so it can extend above the GeometryReader frame.
-                ArtworkView(
-                    artist: viewModel.artist,
-                    size: .extraLarge,
-                    cornerRadius: 0
-                )
-                .aspectRatio(contentMode: .fill)
+                // Artist artwork — uses artworkImage directly instead of ArtworkView
+                // to avoid ArtworkView's internal 800x800 maxWidth/maxHeight constraints
+                // which prevent the image from covering the full banner width on macOS.
+                Group {
+                    if let img = artworkImage {
+                        #if os(macOS)
+                        Image(nsImage: img)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                        #else
+                        Image(uiImage: img)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                        #endif
+                    } else {
+                        Color.gray.opacity(0.2)
+                    }
+                }
                 .frame(width: geometry.size.width, height: artworkHeight)
+                .clipped()
                 .mask(
                     LinearGradient(
                         gradient: Gradient(stops: [
@@ -589,7 +600,11 @@ public struct ArtistDetailView: View {
                 .offset(y: -overscroll)
             }
         }
+        #if os(macOS)
+        .aspectRatio(2.5, contentMode: .fit)
+        #else
         .aspectRatio(1, contentMode: .fit)
+        #endif
     }
 
     // MARK: - Action Buttons
