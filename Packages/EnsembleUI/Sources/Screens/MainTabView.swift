@@ -846,6 +846,14 @@ public struct SidebarView: View {
                 }
                 .navigationSplitViewStyle(.balanced)
 
+                // Aurora visualization — placed in the outer ZStack so it renders
+                // above NavigationStack pushed views (macOS NavigationStack creates
+                // opaque compositing layers that paint over parent overlays).
+                if settingsManager.auroraVisualizationEnabled {
+                    detailColumnAurora(totalSize: proxy.size)
+                        .zIndex(1)
+                }
+
                 if !isShowingNowPlaying {
                     detailColumnMiniPlayer(totalSize: proxy.size)
                         .zIndex(2)
@@ -1123,18 +1131,6 @@ public struct SidebarView: View {
             }
         }
         .auroraBackgroundSupport()
-        .overlay(alignment: .bottom) {
-            if settingsManager.auroraVisualizationEnabled {
-                AuroraVisualizationView(
-                    playbackService: DependencyContainer.shared.playbackService,
-                    accentColor: settingsManager.accentColor.color,
-                    isPaused: isShowingNowPlaying,
-                    isLowPowerMode: powerStateMonitor.isLowPowerMode
-                )
-                .ignoresSafeArea(.all)
-                .allowsHitTesting(false)
-            }
-        }
     }
 
     private var detailContainerView: some View {
@@ -1152,6 +1148,7 @@ public struct SidebarView: View {
             )
             .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                 destinationView(for: destination)
+                    .auroraBackgroundSupport()
             }
         }
         .id("playlist-detail-\(playlistID)-\(sourceKey ?? "none")")
@@ -1167,6 +1164,7 @@ public struct SidebarView: View {
             )
             .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                 destinationView(for: destination)
+                    .auroraBackgroundSupport()
             }
         }
         .id("merged-playlist-detail-\(title)-\(isSmart)")
@@ -1235,7 +1233,25 @@ public struct SidebarView: View {
         .frame(width: totalSize.width, height: totalSize.height, alignment: .bottomLeading)
         .transition(.identity)
     }
-    
+
+    /// Aurora visualization positioned within the detail column.
+    /// Uses the same sidebar-width offset as the mini player so the aurora
+    /// covers only the detail area, not the sidebar.
+    private func detailColumnAurora(totalSize: CGSize) -> some View {
+        let clampedSidebarWidth = min(max(sidebarColumnWidth, 0), totalSize.width)
+
+        return AuroraVisualizationView(
+            playbackService: DependencyContainer.shared.playbackService,
+            accentColor: settingsManager.accentColor.color,
+            isPaused: isShowingNowPlaying,
+            isLowPowerMode: powerStateMonitor.isLowPowerMode
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .padding(.leading, clampedSidebarWidth)
+        .ignoresSafeArea(.all)
+        .allowsHitTesting(false)
+    }
+
     /// Sidebar section content with navigation destinations registered for path-based push
     @ViewBuilder
     private func sidebarContentView(for tab: TabItem) -> some View {
@@ -1248,6 +1264,7 @@ public struct SidebarView: View {
         }
             .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                 destinationView(for: destination)
+                    .auroraBackgroundSupport()
             }
     }
 
