@@ -480,6 +480,8 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Key files:** `ArtworkLoader.swift`, `OfflineDownloadService.swift`, `AudioAnalyzer.swift`, `PlaybackService.swift`, `DependencyContainer.swift`, `DownloadManager.swift`, `LibraryRepository.swift`
 - **Phase 2 fixes (observation cascades):** HubItemCard `@ObservedObject pinManager` → `let` (context menus are demand-evaluated). MainTabView networkMonitor/powerStateMonitor → `@State` + `.onReceive`. ControlsCard 3×TimelineView → 1×TimelineView. SyncCoordinator progress handlers throttled to 200ms via `throttledProgressUpdate`.
 - **Key Phase 2 files:** `HomeView.swift`, `MainTabView.swift`, `ControlsCard.swift`, `SyncCoordinator.swift`
+- **Phase 3 fix (download CPU pressure):** Post-download frequency analysis (FFT ~2s/track) now serialized via `SidecarAnalysisQueue` actor — only 1 analysis at a time, `.background` priority, 500ms delay before each to let download workers breathe.
+- **Key Phase 3 files:** `OfflineDownloadService.swift`, `AudioAnalyzer.swift`
 
 ## Future Enhancements (Waveform System)
 
