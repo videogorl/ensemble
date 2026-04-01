@@ -148,6 +148,12 @@ public final class OfflineDownloadService: ObservableObject {
     /// spam `downloadsDidChange` during bulk queue processing.
     private var downloadChangeNotificationTask: Task<Void, Never>?
 
+    /// Serial queue for post-download frequency analysis. On dual-core A9 devices,
+    /// concurrent FFT analyses (each ~2s of CPU) saturate both cores. This actor chains
+    /// analyses so only one runs at a time, at background priority, with a brief delay
+    /// to let download workers start the next transfer first.
+    private let sidecarAnalysisQueue = SidecarAnalysisQueue()
+
     public init(
         downloadManager: DownloadManagerProtocol,
         targetRepository: OfflineDownloadTargetRepositoryProtocol,
@@ -1191,13 +1197,10 @@ public final class OfflineDownloadService: ObservableObject {
             // Targeted refresh: only update targets that own this track (not all targets)
             await refreshTargetsForTrack(ratingKey: ctx.trackRatingKey, sourceCompositeKey: ctx.sourceCompositeKey)
 
-            // Pre-compute frequency analysis sidecar for the visualizer
+            // Pre-compute frequency analysis sidecar for the visualizer.
+            // Uses the serial queue so only one FFT runs at a time (A9 dual-core friendly).
             let sidecarURL = destinationURL.appendingPathExtension("freq")
-            Task.detached(priority: .utility) {
-                if let timeline = try? await FrequencyAnalysisService.analyzeForSidecar(fileURL: destinationURL) {
-                    try? FrequencyTimelinePersistence.save(timeline, to: sidecarURL)
-                }
-            }
+            await sidecarAnalysisQueue.enqueue(sourceURL: destinationURL, sidecarURL: sidecarURL)
 
             // Pre-cache lyrics for offline playback
             let lyricsRatingKey = ctx.trackRatingKey
@@ -1445,13 +1448,10 @@ public final class OfflineDownloadService: ObservableObject {
         // Targeted refresh: only update targets that own this track
         await refreshTargetsForTrack(ratingKey: ctx.trackRatingKey, sourceCompositeKey: ctx.sourceCompositeKey)
 
-        // Pre-compute frequency analysis sidecar for the visualizer
+        // Pre-compute frequency analysis sidecar for the visualizer.
+        // Uses the serial queue so only one FFT runs at a time (A9 dual-core friendly).
         let sidecarURL2 = destinationURL.appendingPathExtension("freq")
-        Task.detached(priority: .utility) {
-            if let timeline = try? await FrequencyAnalysisService.analyzeForSidecar(fileURL: destinationURL) {
-                try? FrequencyTimelinePersistence.save(timeline, to: sidecarURL2)
-            }
-        }
+        await sidecarAnalysisQueue.enqueue(sourceURL: destinationURL, sidecarURL: sidecarURL2)
 
         scheduleDownloadChangeNotification()
         return true
@@ -2222,5 +2222,29 @@ public final class OfflineDownloadService: ObservableObject {
         let ratingComponent = ratingKey ?? "*"
         let sourceComponent = sourceCompositeKey ?? "*"
         return "offline:\(kind.rawValue):\(sourceComponent):\(ratingComponent)"
+    }
+}
+
+// MARK: - Sidecar Analysis Queue
+
+/// Serializes post-download frequency analysis so only one FFT runs at a time.
+/// Each analysis chains on the previous via Task reference, ensuring sequential execution
+/// at `.background` priority. A 500ms delay before each analysis lets download workers
+/// start the next transfer before the CPU-intensive FFT work begins.
+private actor SidecarAnalysisQueue {
+    private var pendingTask: Task<Void, Never>?
+
+    /// Enqueue a sidecar analysis. Returns immediately — analysis runs asynchronously.
+    func enqueue(sourceURL: URL, sidecarURL: URL) {
+        let previous = pendingTask
+        pendingTask = Task.detached(priority: .background) {
+            // Wait for any previous analysis to finish first
+            _ = await previous?.value
+            // Brief delay so the download worker can pick up the next track
+            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+            if let timeline = await FrequencyAnalysisService.analyzeForSidecar(fileURL: sourceURL) {
+                try? FrequencyTimelinePersistence.save(timeline, to: sidecarURL)
+            }
+        }
     }
 }

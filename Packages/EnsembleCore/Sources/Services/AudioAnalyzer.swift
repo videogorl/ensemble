@@ -502,9 +502,11 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     typealias ProgressHandler = @Sendable ([FrequencySnapshot], Double, TimeInterval, TimeInterval) -> Void
 
     /// Public entry point for sidecar generation after offline downloads.
-    /// Runs FFT analysis on a background thread. Returns nil if the file can't be read.
+    /// Runs FFT analysis at background priority. Returns nil if the file can't be read.
+    /// Called via `SidecarAnalysisQueue` which serializes and delays analyses so they
+    /// don't compete with active downloads on dual-core devices.
     public nonisolated static func analyzeForSidecar(fileURL: URL) async -> FrequencyTimeline? {
-        return await analyzeInBackground(fileURL: fileURL, priority: .utility, progressHandler: nil)
+        return await analyzeInBackground(fileURL: fileURL, priority: .background, progressHandler: nil)
     }
 
     /// Analyze an audio file and produce a FrequencyTimeline.
