@@ -290,9 +290,16 @@ public final class AudioPlaybackEngine {
         // (Ref: QuietNow sets format on input+output scopes before AudioUnitInitialize)
         configureAUFormat(for: effect)
 
-        // Load the v0 neural network model for high-quality source separation.
-        // Without the model, the AU does almost nothing.
+        // Load the neural network model for source separation.
+        // iOS: v0 model isolates instrumentals directly with positive wetDryMix.
+        // macOS: AU always isolates vocals regardless of parameters or model. The
+        //   high-quality-voice model (MIL2BNNS) produces cleaner vocal isolation than
+        //   the v0 Espresso model, yielding better complementary instrumental output.
+        #if os(macOS)
+        loadHighQualityVoiceModel(for: effect)
+        #else
         loadMusicModel(for: effect)
+        #endif
 
         engine.attach(effect)
 
@@ -405,6 +412,7 @@ public final class AudioPlaybackEngine {
         // Set model paths via undocumented AU properties (from QuietNow)
         setAUStringProperty(au, property: kNeuralNetPlistPath, value: plistPath)
         setAUStringProperty(au, property: kNeuralNetModelBasePath, value: basePath)
+
         // Disable dereverb network (empty path = disabled)
         setAUStringProperty(au, property: kDeverbPresetPathOverride, value: "")
 
@@ -415,6 +423,38 @@ public final class AudioPlaybackEngine {
         musicModelLoaded = true
 
         EnsembleLogger.debug("[AudioEngine] v0 model loaded from: \(plistPath), base: \(basePath)")
+    }
+
+    /// Load the high-quality-voice model for macOS vocal isolation.
+    /// This model uses MIL2BNNS (vs Espresso for v0) and may produce cleaner vocal
+    /// separation on macOS, improving the complementary instrumental output.
+    private func loadHighQualityVoiceModel(for effect: AVAudioUnitEffect) {
+        let au = effect.audioUnit
+        let basePath = "/System/Library/Components/AudioDSP.component/Contents/Resources/Tunings"
+        let plistPath = basePath + "/Generic/AU/SoundIsolation/aufx-vois-appl-nnet-vi-high-quality-voice.plist"
+
+        guard FileManager.default.fileExists(atPath: plistPath) else {
+            EnsembleLogger.debug("[AudioEngine] macOS high-quality-voice model not found at: \(plistPath)")
+            // Fall back to v0 model
+            loadMusicModel(for: effect)
+            return
+        }
+
+        setAUStringProperty(au, property: kNeuralNetPlistPath, value: plistPath)
+        setAUStringProperty(au, property: kNeuralNetModelBasePath, value: basePath)
+
+        // Enable dereverb network to clean up vocal reverb tails that bleed into
+        // the complementary (instrumental) signal during loud vocal sections.
+        let deverbPath = basePath + "/Generic/AU/SoundIsolation/aufx-vois-appl-drev.aupreset"
+        if FileManager.default.fileExists(atPath: deverbPath) {
+            setAUStringProperty(au, property: kDeverbPresetPathOverride, value: deverbPath)
+            EnsembleLogger.debug("[AudioEngine] macOS: dereverb network enabled")
+        } else {
+            setAUStringProperty(au, property: kDeverbPresetPathOverride, value: "")
+        }
+
+        musicModelLoaded = true
+        EnsembleLogger.debug("[AudioEngine] macOS: high-quality-voice model loaded from: \(plistPath)")
     }
 
     /// Set a CFString property on an AudioUnit, avoiding the UnsafeRawPointer warning.
@@ -539,19 +579,22 @@ public final class AudioPlaybackEngine {
                              &bypass, UInt32(MemoryLayout<UInt32>.size))
 
         // Sound to Isolate: 0.0 = background/instruments, 1.0 = vocals
-        // With the v0 model loaded, 0.0 isolates the instrumental track on iOS.
-        // macOS AU interprets the same parameters with inverted polarity, so we
-        // use negative wetDryMix to get the complementary (instrumental) signal.
+        // iOS: v0 model with soundToIsolate=0.0 isolates instrumentals directly.
+        // macOS: AU always isolates vocals; use soundToIsolate=1.0 for cleanest output,
+        //   then negative wetDryMix to get the complement (instrumentals).
+        #if os(macOS)
+        AudioUnitSetParameter(au, 1, kAudioUnitScope_Global, 0, 1.0, 0)
+        #else
         AudioUnitSetParameter(au, 1, kAudioUnitScope_Global, 0, 0.0, 0)
+        #endif
 
-        // Wet/Dry Mix: 100 = fully isolated, 0 = original (passthrough), -100 = complementary.
-        // iOS: positive wetDryMix gives instrumentals directly.
-        // macOS: the AU isolates vocals instead, so use negative wetDryMix
-        // to subtract them and get the instrumental complement.
+        // Wet/Dry Mix: 100 = fully isolated, 0 = original, -100 = complementary.
+        // iOS: positive wetDryMix outputs instrumentals directly from v0 model.
+        // macOS: negative wetDryMix outputs complement of isolated vocals (= instrumentals).
         let wetDryValue: AudioUnitParameterValue
         if isIsolationActive {
             #if os(macOS)
-            wetDryValue = -92.5
+            wetDryValue = -100.0
             #else
             wetDryValue = 92.5
             #endif
