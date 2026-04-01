@@ -2242,6 +2242,8 @@ private actor SidecarAnalysisQueue {
             _ = await previous?.value
             // Brief delay so the download worker can pick up the next track
             try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+            // Skip if sidecar already exists (e.g. saved by the playback analysis path)
+            if FileManager.default.fileExists(atPath: sidecarURL.path) { return }
             if let timeline = await FrequencyAnalysisService.analyzeForSidecar(fileURL: sourceURL) {
                 try? FrequencyTimelinePersistence.save(timeline, to: sidecarURL)
             }
