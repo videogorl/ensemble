@@ -129,9 +129,8 @@ public extension View {
         #endif
     }
 
-    /// Adds bottom spacing for the mini player/tab bar area on iPhone/iPad layouts
-    /// that reserve content space for the player. macOS uses a floating overlay in
-    /// the detail column, so content should scroll behind it instead of reserving a gutter.
+    /// Adds bottom spacing for the mini player/tab bar area so content can
+    /// scroll clear of the floating player overlay.
     /// iOS 15 is a no-op here — the inset is applied once at the container level via
     /// `miniPlayerContainerInset()` in MainTabView, which sets additionalSafeAreaInsets
     /// on the TabView's hosting controller.
@@ -148,7 +147,11 @@ public extension View {
             self
         }
         #else
-        self
+        // macOS: floating mini player overlay needs bottom inset so the last
+        // items in scroll views aren't hidden behind it.
+        self.safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: height)
+        }
         #endif
     }
 
