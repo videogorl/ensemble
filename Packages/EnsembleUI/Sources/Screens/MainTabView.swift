@@ -613,6 +613,7 @@ public struct SidebarView: View {
         let title: String
         let isSmart: Bool
         let isMerged: Bool
+        let compositePath: String?
     }
 
     @StateObject private var libraryVM: LibraryViewModel
@@ -713,7 +714,8 @@ public struct SidebarView: View {
                 sourceKey: dp.primaryPlaylist.sourceCompositeKey,
                 title: dp.title,
                 isSmart: dp.isSmart,
-                isMerged: dp.isMerged
+                isMerged: dp.isMerged,
+                compositePath: dp.primaryPlaylist.compositePath
             )
         }
     }
@@ -751,7 +753,8 @@ public struct SidebarView: View {
                 sourceKey: playlist.sourceCompositeKey,
                 title: resolvedTitle,
                 isSmart: playlist.isSmart,
-                isMerged: false
+                isMerged: false,
+                compositePath: playlist.compositePath
             )
         }
     }
@@ -961,8 +964,7 @@ public struct SidebarView: View {
             if !pinnedVM.resolvedPins.isEmpty {
                 collapsibleSidebarSection("Pins", isExpanded: $isPinsExpanded) {
                     ForEach(pinnedVM.resolvedPins) { pin in
-                        Label(pin.pinnedItem.title, systemImage: iconForPinType(pin.pinnedItem.type))
-                            .tag(SidebarSelection.pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type))
+                        sidebarPinRow(pin)
                     }
                 }
             }
@@ -1268,14 +1270,76 @@ public struct SidebarView: View {
             }
     }
 
-    /// Native sidebar row for a playlist item, using Label + .tag() for List selection.
+    /// Sidebar row for a pinned item, showing artwork preview instead of an icon.
+    @ViewBuilder
+    private func sidebarPinRow(_ pin: ResolvedPin) -> some View {
+        let cornerRadius: CGFloat = pin.pinnedItem.type == .artist ? 11 : 4
+        switch pin {
+        case .artist(let artist, let pinnedItem):
+            Label {
+                Text(pinnedItem.title)
+            } icon: {
+                ArtworkView(artist: artist, size: .tiny, cornerRadius: cornerRadius)
+                    .frame(width: 22, height: 22)
+            }
+            .tag(SidebarSelection.pin(id: pinnedItem.id, type: pinnedItem.type))
+
+        case .album(let album, let pinnedItem):
+            Label {
+                Text(pinnedItem.title)
+            } icon: {
+                ArtworkView(album: album, size: .tiny, cornerRadius: cornerRadius)
+                    .frame(width: 22, height: 22)
+            }
+            .tag(SidebarSelection.pin(id: pinnedItem.id, type: pinnedItem.type))
+
+        case .playlist(let playlist, let pinnedItem):
+            Label {
+                Text(pinnedItem.title)
+            } icon: {
+                ArtworkView(playlist: playlist, size: .tiny, cornerRadius: cornerRadius)
+                    .frame(width: 22, height: 22)
+            }
+            .tag(SidebarSelection.pin(id: pinnedItem.id, type: pinnedItem.type))
+
+        case .mergedPlaylist(let displayPlaylist, let pinnedItems):
+            Label {
+                Text(displayPlaylist.title)
+            } icon: {
+                ArtworkView(
+                    path: displayPlaylist.primaryPlaylist.compositePath,
+                    sourceKey: displayPlaylist.primaryPlaylist.sourceCompositeKey,
+                    ratingKey: displayPlaylist.primaryPlaylist.id,
+                    size: .tiny,
+                    cornerRadius: 4
+                )
+                .frame(width: 22, height: 22)
+            }
+            .tag(SidebarSelection.pin(id: pinnedItems[0].id, type: pinnedItems[0].type))
+        }
+    }
+
+    /// Sidebar row for a playlist item, showing artwork preview instead of an icon.
     @ViewBuilder
     private func sidebarPlaylistRow(_ playlist: SidebarPlaylistItem) -> some View {
+        let artworkLabel = Label {
+            Text(playlist.title)
+        } icon: {
+            ArtworkView(
+                path: playlist.compositePath,
+                sourceKey: playlist.sourceKey,
+                ratingKey: playlist.playlistID,
+                size: .tiny,
+                cornerRadius: 4
+            )
+            .frame(width: 22, height: 22)
+        }
+
         if playlist.isMerged {
-            Label(playlist.title, systemImage: "music.note")
+            artworkLabel
                 .tag(SidebarSelection.mergedPlaylist(title: playlist.title, isSmart: playlist.isSmart))
         } else {
-            Label(playlist.title, systemImage: "music.note")
+            artworkLabel
                 .tag(SidebarSelection.playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey))
         }
     }
