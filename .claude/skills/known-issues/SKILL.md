@@ -31,6 +31,35 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Status:** Accepted as SwiftUI platform limitation for v1. The overall layout and functionality work well; only some text elements are slightly soft.
 - **Impact:** Cosmetic only — all features (lyrics sync, queue, info) work correctly on TV
 
+### macOS Instrumental Mode — Complement-Based Vocal Removal (Mar 31, 2026)
+- **Location:** `AudioPlaybackEngine.swift` (`applyIsolationParameters`, `loadHighQualityVoiceModel`, `createIsolationEffect`)
+- **Issue:** On macOS, AUSoundIsolation always isolates vocals regardless of the `soundToIsolate` parameter or model loaded. On iOS, the v0 model with `soundToIsolate=0.0` directly outputs a clean instrumental stem. macOS has no equivalent direct instrumental output.
+- **Root cause:** AUSoundIsolation on macOS is built for voice isolation (FaceTime, calls). The AU's neural network always targets vocals. Apple Music Sing (which uses this AU) is not available on macOS even as of macOS 26, confirming Apple hasn't shipped direct instrumental isolation on the platform.
+- **Current solution:** Use the high-quality-voice model (`aufx-vois-appl-nnet-vi-high-quality-voice.plist`, MIL2BNNS backend) with `soundToIsolate=1.0` + `wetDryMix=-100` (full complement = original minus vocals). Dereverb network enabled for additional cleanup. This achieves ~95% of iOS quality.
+- **Remaining artifact:** Vocal bleed during loud chorus sections — the complement approach (phase cancellation) is inherently lossy. Vocals "fight through" because the neural network's vocal isolation isn't perfect, so the subtraction leaves residual vocal energy.
+- **Experiments conducted (Mar 31, 2026):**
+
+  | # | Model | soundToIsolate | wetDryMix | Result |
+  |---|-------|---------------|-----------|--------|
+  | 1 | v0 (Espresso) | 1.0 | 92.5 | Clear vocals only (confirmed AU isolates vocals) |
+  | 2 | v0 (Espresso) | 0.0 | 92.5 | Dampened vocals (same params as iOS — doesn't work) |
+  | 3 | v0 (Espresso) | 1.0 | -100 | Mostly instruments, vocals fighting through |
+  | 4 | None (default AU) | 0.0 | 92.5 | Vocals with instrument bleed |
+  | 5 | HQ Voice (MIL2BNNS) | 1.0 | -100 | ~95% of iOS quality |
+  | 6 | HQ Voice + dereverb | 1.0 | -100 | ~95% of iOS (chosen solution) |
+  | 7 | v0 + dereverb | 1.0 | -100 | Worse than HQ Voice |
+
+- **Key findings:**
+  - The `soundToIsolate` parameter has NO effect on macOS — AU always isolates vocals
+  - The high-quality-voice model (MIL2BNNS) produces cleaner vocal isolation than v0 (Espresso) on macOS
+  - Dereverb has minimal audible impact but doesn't hurt — kept enabled as a safety net
+  - Model files exist on macOS at `/System/Library/Components/AudioDSP.component/Contents/Resources/Tunings/Generic/AU/SoundIsolation/`
+  - v0 model plist: `aufx-vois-appl-nnet-vi-v0.plist` (Espresso, CPU, 24kHz mono)
+  - HQ voice model plist: `aufx-vois-appl-nnet-vi-high-quality-voice.plist` (MIL2BNNS, CPU)
+  - Dereverb preset: `aufx-vois-appl-drev.aupreset`
+- **Future improvements:** If Apple adds direct instrumental output to AUSoundIsolation on macOS (e.g., via Apple Music Sing support), revisit with the iOS parameter approach (`soundToIsolate=0.0` + positive `wetDryMix`). Also monitor for new model files in OS updates.
+- **Impact:** Minor quality degradation vs iOS — vocals occasionally bleed through during loud sections. Acceptable for v1 beta.
+
 ## Resolved Issues
 
 ### Download Quality Fallback Re-Download Loop (Mar 26, 2026)
