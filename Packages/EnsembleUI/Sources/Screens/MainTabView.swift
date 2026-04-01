@@ -1127,6 +1127,7 @@ public struct SidebarView: View {
                         PlaylistDetailLoader(playlistId: id, playlistSourceKey: nil, nowPlayingVM: nowPlayingVM)
                     }
                 }
+                .id("pin-\(id)-\(type)")
             case .none:
                 // Fallback when nothing is selected — show Home
                 sidebarNavigationStack(for: .home)
