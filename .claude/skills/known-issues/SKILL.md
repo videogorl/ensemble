@@ -470,6 +470,16 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Fix:** Override `X-Plex-Platform` to `iOS` in both query params and headers for all transcode-related endpoints. AVAudioEngine has identical codec support across platforms.
 - **Key files:** `PlexAPIClient.swift`
 
+### A9 Performance Audit: Memory, CPU Idle, CoreData (Apr 1, 2026)
+- **Resolved (April 1, 2026)**
+- **Previous:** Profiling on iPhone 6s simulator revealed 96 MB footprint at idle (50 MB CG raster from Nuke image cache), download workers polling CoreData every 2s even when paused, 30Hz frequency analyzer timer running with aurora disabled, and missing `fetchBatchSize`/`relationshipKeyPathsForPrefetching` on CoreData queries.
+- **Fix (memory):** Reduced Nuke in-memory image cache from 50 MB / 100 images to 20 MB / 40 images. Disk cache (100 MB) unchanged.
+- **Fix (CPU — downloads):** Workers now exit immediately when network prevents downloads instead of sleep-polling. Network state observer restarts queue reactively.
+- **Fix (CPU — analyzer):** Added `visualizationEnabled` gate on the 30Hz display timer in `FrequencyAnalysisService`. Timer only starts when aurora is enabled. `didSet` stops/starts timer reactively on setting toggle.
+- **Fix (CoreData):** Added `fetchBatchSize=50` to 3 `DownloadManager` fetch methods. Added `relationshipKeyPathsForPrefetching=["album","album.artist"]` to 5 `LibraryRepository` track fetch methods.
+- **Key files:** `ArtworkLoader.swift`, `OfflineDownloadService.swift`, `AudioAnalyzer.swift`, `PlaybackService.swift`, `DependencyContainer.swift`, `DownloadManager.swift`, `LibraryRepository.swift`
+- **Remaining opportunities:** HubItemCard pinManager observation extraction, MainTabView singleton observation extraction, ControlsCard TimelineView consolidation, SyncCoordinator sourceStatuses progress throttling
+
 ## Future Enhancements (Waveform System)
 
 - Implement waveform seeking (jump to specific parts of track)
