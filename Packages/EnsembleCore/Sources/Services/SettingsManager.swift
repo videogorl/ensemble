@@ -188,6 +188,7 @@ public final class SettingsManager: ObservableObject {
         // Register defaults so UserDefaults.standard.bool(forKey:) returns true
         // before the setting has ever been toggled (PlaybackService reads directly).
         UserDefaults.standard.register(defaults: [
+            "auroraVisualizationEnabled": true,
             "scrobblingEnabled": true,
             "playlistMergeEnabled": true
         ])
