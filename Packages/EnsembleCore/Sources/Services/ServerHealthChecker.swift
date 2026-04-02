@@ -208,7 +208,10 @@ public final class ServerHealthChecker: ObservableObject {
                 EnsembleLogger.debug(
                     "🏥 ServerHealthChecker: Using cached state for \(serverKey) (\(String(format: "%.1f", age))s old, ttl=\(String(format: "%.1f", ttl))s)"
                 )
-                serverStates[serverKey] = cached.state
+                // Guard: only publish if state actually changed to avoid spurious Combine emissions
+                if serverStates[serverKey] != cached.state {
+                    serverStates[serverKey] = cached.state
+                }
                 return ServerCheckResult(state: cached.state, usedCachedResult: true)
             }
 
@@ -235,7 +238,10 @@ public final class ServerHealthChecker: ObservableObject {
             
             // Update state on MainActor since serverStates is @Published
             await MainActor.run {
-                serverStates[serverKey] = state
+                // Guard: only publish if state actually changed to avoid spurious Combine emissions
+                if serverStates[serverKey] != state {
+                    serverStates[serverKey] = state
+                }
                 recentChecks[serverKey] = CachedCheckEntry(state: state, checkedAt: nowProvider())
                 if state.isAvailable {
                     serverFailureReasons.removeValue(forKey: serverKey)
@@ -279,9 +285,11 @@ public final class ServerHealthChecker: ObservableObject {
     ) async -> ServerConnectionState {
         let serverKey = makeServerKey(accountId: accountId, serverId: serverId)
 
-        // Update state to connecting
+        // Update state to connecting (guard to avoid spurious Combine emissions)
         await MainActor.run {
-            serverStates[serverKey] = .connecting
+            if serverStates[serverKey] != .connecting {
+                serverStates[serverKey] = .connecting
+            }
         }
 
         let allowInsecurePolicy = currentAllowInsecureConnectionsPolicy()
