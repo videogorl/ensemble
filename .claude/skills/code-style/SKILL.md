@@ -242,6 +242,23 @@ let throttle = isInstrumentalModeActive || isLowCoreDevice
 let priority: TaskPriority = isLowCoreDevice ? .utility : .userInitiated
 ```
 
+### Separate Lifecycle Pauses from User-Initiated Pauses
+
+When stopping CPU work on app background (e.g., display timers, analysis queues), use dedicated lifecycle methods rather than reusing the same flag as user-initiated pauses. Sharing state causes incorrect resume behavior when both overlap.
+
+```swift
+// BAD — pauseUpdates() is also called by PlaybackService on music pause.
+// When app foregrounds: resumeUpdates() restarts the timer while music is still paused.
+case .background: audioAnalyzer.pauseUpdates()
+case .active:     audioAnalyzer.resumeUpdates()  // wrong if user paused music
+
+// GOOD — separate method preserves isPaused flag, restarts only if music was playing
+case .background: audioAnalyzer.enterBackground()   // stops timer, doesn't touch isPaused
+case .active:     audioAnalyzer.exitBackground()    // restarts timer only if !isPaused
+```
+
+Pattern proven by `AudioAnalyzer.enterBackground()`/`exitBackground()` and `SidecarAnalysisQueue.suspend()`/`resume()` — see Phase 7 entry in `known-issues` skill.
+
 ### Never Call `ProcessInfo.processorCount` in Rendering or Animation Hot Paths
 
 `ProcessInfo.processInfo.processorCount` is not a cheap syscall. Store it **once** as a `let` constant at init time for any view or service that makes rendering decisions per-frame. Never call it inside `drawAurora()`, `Canvas {}` closures, `TimelineView` callbacks, or any function that runs at >1Hz:

@@ -74,6 +74,21 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
   6. **Download queue polling offline** (`PlexAPIClient`): Polling loop continued for 120s when network was down. Fix: catch URLError connectivity codes and throw immediately.
 - **Key files:** `PlaybackService.swift`, `ServerHealthChecker.swift`, `SyncCoordinator.swift`, `LyricsService.swift`, `DownloadManager.swift`, `OfflineDownloadService.swift`, `PlexAPIClient.swift`
 
+### Phase 7 Performance Optimizations — Background CPU / SIGKILL Fix (Apr 2, 2026)
+- **Resolved (April 2, 2026)**
+- **Source:** Run 5 real-device session. App crashed (SIGKILL) ~2 minutes after backgrounding. Background CPU was ~95% continuously — well above iOS's 10–15% background CPU budget. Thermal state: Fair → CPU throttled → single FFT took 116s instead of ~20s → SIGKILL.
+- **Root causes (3 total):**
+  1. `SidecarAnalysisQueue` in `OfflineDownloadService` had no suspend/cancel mechanism. A 75-track batch download completing at ~8:43am enqueued 75 serial FFT jobs. When the app backgrounded at ~8:47am, all queued jobs kept running at `.background` priority. The currently-running FFT (116s due to thermal throttling) alone exceeded iOS's background CPU budget.
+  2. `AudioAnalyzer`'s 30Hz display timer (main RunLoop) had no app-lifecycle pause. `pauseUpdates()` was only called by PlaybackService on music pause — the main RunLoop stays active during background audio playback. Timer fired ~30×/sec doing nothing during background playback.
+  3. `EnsembleApp.handleScenePhaseChange(.background)` never called either of the above.
+- **Fixes applied (3 total):**
+  1. **SidecarAnalysisQueue redesign** (`OfflineDownloadService.swift`): Replaced chained `Task` reference pattern with an explicit pending array. Added `suspend()`/`resume()`/`prioritize()` methods. `suspend()` cancels the worker `Task` — `analyzeForSidecar()` now calls `analyzeFile()` directly (no inner `Task.detached`), so `Task.isCancelled` checks inside the FFT loop (~every 0.1s at 10fps) respond to our cancel. Interrupted item is re-queued at front.
+  2. **AudioAnalyzer lifecycle methods** (`AudioAnalyzer.swift`): Added `enterBackground()`/`exitBackground()` that stop/restart the 30Hz timer WITHOUT touching `isPaused`. This decouples app-lifecycle pause from music-pause — `exitBackground()` only restarts the timer if `!isPaused && activeTrackId != nil`.
+  3. **EnsembleApp lifecycle hooks** (`EnsembleApp.swift`): `.background` now calls `enterBackground()` + `suspendSidecarAnalysis()`. `.active` calls `exitBackground()` + `resumeSidecarAnalysis()`.
+- **Bonus:** `observePlayback()` in `OfflineDownloadService` subscribes to `PlaybackService.currentTrackPublisher` and calls `prioritize()` when a track with a local file starts playing — its sidecar moves to the front of the analysis queue for fast visualizer readiness.
+- **Design note:** Use separate lifecycle pause methods (e.g., `enterBackground`/`exitBackground`) rather than reusing user-facing pause flags (e.g., `isPaused` / `pauseUpdates`) for app lifecycle transitions. Sharing state between lifecycle and user-initiated pauses causes incorrect resume behavior when both overlap.
+- **Key files:** `OfflineDownloadService.swift`, `AudioAnalyzer.swift`, `EnsembleApp.swift`, `DependencyContainer.swift`
+
 ### Phase 6 Performance Optimizations — Aurora + AttributeGraph Research (Apr 2, 2026)
 - **Resolved (April 2, 2026)**
 - **Source:** Run 4 post-Phase 5 Instruments trace on iPhone 6s (A9 dual-core). Aurora Canvas rendering was 13.2% of total CPU / 20.4% of main thread (`drawSoftGlowLayer()` alone: 9.9%). Research confirmed `withAnimation(.linear)`, `drawingGroup()`, and AsyncCanvas are not applicable — Aurora uses SwiftUI `GraphicsContext` with `@State` mutations in the draw closure. The only lever is frame rate + pass count.
