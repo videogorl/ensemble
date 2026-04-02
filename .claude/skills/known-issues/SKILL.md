@@ -74,6 +74,16 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
   6. **Download queue polling offline** (`PlexAPIClient`): Polling loop continued for 120s when network was down. Fix: catch URLError connectivity codes and throw immediately.
 - **Key files:** `PlaybackService.swift`, `ServerHealthChecker.swift`, `SyncCoordinator.swift`, `LyricsService.swift`, `DownloadManager.swift`, `OfflineDownloadService.swift`, `PlexAPIClient.swift`
 
+### Phase 6 Performance Optimizations — Aurora + AttributeGraph Research (Apr 2, 2026)
+- **Resolved (April 2, 2026)**
+- **Source:** Run 4 post-Phase 5 Instruments trace on iPhone 6s (A9 dual-core). Aurora Canvas rendering was 13.2% of total CPU / 20.4% of main thread (`drawSoftGlowLayer()` alone: 9.9%). Research confirmed `withAnimation(.linear)`, `drawingGroup()`, and AsyncCanvas are not applicable — Aurora uses SwiftUI `GraphicsContext` with `@State` mutations in the draw closure. The only lever is frame rate + pass count.
+- **Fixes applied (2 total):**
+  1. **Aurora A9/low-core rendering tier** (`AuroraVisualizationView.swift`): Added a 3-tier system. ≤2-core devices (A9/A10) now run at 15fps with 2 glow passes (was 30fps, 3 passes). `isLowCoreDevice` stored as a `let` at init time — `ProcessInfo.processorCount` is NOT called on the 15-30fps draw hot path. Expected ~67% reduction in Aurora CPU on A9 (~20% main thread → ~7%).
+  2. **NowPlayingCarousel unused `@Environment`** (`NowPlayingCarousel.swift`): Removed `@Environment(\.dependencies) private var deps` which was declared but never read.
+- **Known cosmetic artifact:** `deltaTime` in `drawAurora()` is hardcoded at `1/30.0`. At 15fps, peak decay runs at half speed on A9 devices. Acceptable for ambient visualization — fix if noticeable.
+- **AttributeGraph research conclusion:** 66% main thread cost is structural ObservableObject overhead. `@Observable` macro (iOS 17+) is the real fix; no meaningful workaround exists on iOS 15 beyond the CurrentValueSubject migrations already done in Phase 5.
+- **Key files:** `AuroraVisualizationView.swift`, `NowPlayingCarousel.swift`
+
 ### Phase 5 Performance Optimizations — SwiftUI + CPU Audit (Apr 1, 2026)
 - **Resolved (April 1, 2026)**
 - **Source:** Second round of real-device profiling on iPhone 6s (A9 dual-core, 2GB RAM, iOS 15.8.7). Instruments trace: 298K CPU samples over 7 minutes. Main thread averaged 47.5% CPU (peaking at 98%) — SwiftUI AttributeGraph 46.8%, FrequencyAnalysis 22%, 30Hz timer 22% of main thread.

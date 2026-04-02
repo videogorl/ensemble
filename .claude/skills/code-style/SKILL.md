@@ -241,3 +241,21 @@ let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
 let throttle = isInstrumentalModeActive || isLowCoreDevice
 let priority: TaskPriority = isLowCoreDevice ? .utility : .userInitiated
 ```
+
+### Never Call `ProcessInfo.processorCount` in Rendering or Animation Hot Paths
+
+`ProcessInfo.processInfo.processorCount` is not a cheap syscall. Store it **once** as a `let` constant at init time for any view or service that makes rendering decisions per-frame. Never call it inside `drawAurora()`, `Canvas {}` closures, `TimelineView` callbacks, or any function that runs at >1Hz:
+
+```swift
+// GOOD — stored once in init, checked at 15-30fps with zero syscall overhead
+private let isLowCoreDevice: Bool
+
+init(...) {
+    self.isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+}
+
+// BAD — syscall on every frame (15-30fps = thousands of calls per minute)
+private var isLowCoreDevice: Bool {
+    ProcessInfo.processInfo.processorCount <= 2
+}
+```
