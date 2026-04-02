@@ -737,20 +737,13 @@ public final class OfflineDownloadService: ObservableObject {
         try await targetRepository.replaceMemberships(targetKey: key, trackReferences: trackReferences)
 
         // Queue missing tracks at the selected download quality.
-        // createDownload returns existing records unchanged if quality matches,
-        // so only truly missing or quality-mismatched tracks become pending.
+        // batchCreateDownloads handles existing records (skips if quality satisfies)
+        // and returns the count of newly created/re-queued pending downloads.
         let downloadQuality = currentDownloadQuality()
-        var newPendingCount = 0
-        let preReconcilePending = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
-        for reference in trackReferences {
-            _ = try await downloadManager.createDownload(
-                forTrackRatingKey: reference.trackRatingKey,
-                sourceCompositeKey: reference.trackSourceCompositeKey,
-                quality: downloadQuality
-            )
-        }
-        let postReconcilePending = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
-        newPendingCount = postReconcilePending - preReconcilePending
+        let newPendingCount = try await downloadManager.batchCreateDownloads(
+            references: trackReferences,
+            quality: downloadQuality
+        )
         if newPendingCount > 0 {
             EnsembleLogger.debug(
                 "📥 reconcileTarget: key=\(key) totalRefs=\(trackReferences.count) newPending=\(newPendingCount) quality=\(downloadQuality)"

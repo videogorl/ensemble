@@ -38,6 +38,13 @@ public protocol DownloadManagerProtocol: Sendable {
     func createDownload(forTrackRatingKey trackRatingKey: String) async throws -> CDDownload
     func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?, quality: String) async throws -> CDDownload
 
+    /// Batch-create download records for multiple tracks in a single CoreData save.
+    /// Returns the number of newly created pending downloads.
+    func batchCreateDownloads(
+        references: [OfflineTrackReference],
+        quality: String
+    ) async throws -> Int
+
     func updateDownloadProgress(_ downloadId: NSManagedObjectID, progress: Float) async throws
     func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status, quality: String?) async throws
     func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws
@@ -410,6 +417,93 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                             continuation.resume(throwing: DownloadError.trackNotFound)
                         }
                     }
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func batchCreateDownloads(
+        references: [OfflineTrackReference],
+        quality: String
+    ) async throws -> Int {
+        guard !references.isEmpty else { return 0 }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let normalizedQuality = Self.normalizedQuality(quality)
+
+                    // 1. Pre-fetch all CDTrack records in one query
+                    let ratingKeys = references.map(\.trackRatingKey)
+                    let trackRequest = CDTrack.fetchRequest()
+                    trackRequest.predicate = NSPredicate(format: "ratingKey IN %@", ratingKeys)
+                    let tracks = try context.fetch(trackRequest)
+
+                    // Build lookup: "sourceCompositeKey|ratingKey" → CDTrack
+                    var trackLookup: [String: CDTrack] = [:]
+                    trackLookup.reserveCapacity(tracks.count)
+                    for track in tracks {
+                        let key = "\(track.sourceCompositeKey ?? "")|\(track.ratingKey)"
+                        trackLookup[key] = track
+                    }
+
+                    // 2. Pre-fetch all existing CDDownload records in one query
+                    let downloadRequest = CDDownload.fetchRequest()
+                    downloadRequest.predicate = NSPredicate(format: "track.ratingKey IN %@", ratingKeys)
+                    let existingDownloads = try context.fetch(downloadRequest)
+
+                    // Build lookup: "sourceCompositeKey|ratingKey" → CDDownload
+                    var downloadLookup: [String: CDDownload] = [:]
+                    downloadLookup.reserveCapacity(existingDownloads.count)
+                    for download in existingDownloads {
+                        guard let track = download.track else { continue }
+                        let key = "\(track.sourceCompositeKey ?? "")|\(track.ratingKey)"
+                        downloadLookup[key] = download
+                    }
+
+                    // 3. Loop through references, creating/updating records in memory
+                    var newlyCreated = 0
+                    let now = Date()
+                    for ref in references {
+                        let lookupKey = "\(ref.trackSourceCompositeKey)|\(ref.trackRatingKey)"
+
+                        guard let track = trackLookup[lookupKey] else {
+                            // Track not in CoreData — skip (don't fail the batch)
+                            continue
+                        }
+
+                        if let existing = downloadLookup[lookupKey] {
+                            // Existing download — only re-queue if quality upgrade needed
+                            let existingQuality = existing.quality ?? "original"
+                            if !Self.qualitySatisfies(existing: existingQuality, desired: normalizedQuality) {
+                                existing.quality = normalizedQuality
+                                existing.progress = 0
+                                existing.error = nil
+                                existing.completedAt = nil
+                                existing.status = CDDownload.Status.pending.rawValue
+                                existing.startedAt = now
+                                newlyCreated += 1
+                            }
+                        } else {
+                            // No existing download — create new pending record
+                            let download = CDDownload(context: context)
+                            download.status = CDDownload.Status.pending.rawValue
+                            download.progress = 0
+                            download.startedAt = now
+                            download.quality = normalizedQuality
+                            download.track = track
+                            newlyCreated += 1
+                        }
+                    }
+
+                    // 4. Single save for all changes
+                    if context.hasChanges {
+                        try context.save()
+                    }
+
+                    continuation.resume(returning: newlyCreated)
                 } catch {
                     continuation.resume(throwing: error)
                 }
