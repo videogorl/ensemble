@@ -1452,23 +1452,24 @@ public final class SyncCoordinator: ObservableObject {
     ///   - state: Playback state ("playing", "paused", or "stopped")
     ///   - time: Current playback time in seconds
     public func reportTimeline(track: Track, state: String, time: TimeInterval) async {
+        try? await reportTimelineThrowing(track: track, state: state, time: time)
+    }
+
+    /// Throwing variant of reportTimeline that propagates errors to the caller.
+    /// Used by PlaybackService for failure-aware backoff during offline periods.
+    public func reportTimelineThrowing(track: Track, state: String, time: TimeInterval) async throws {
         guard let sourceKey = track.sourceCompositeKey,
               let provider = syncProviders[sourceKey] else {
             return
         }
 
-        do {
-            try await provider.reportTimeline(
-                ratingKey: track.id,
-                key: "/library/metadata/\(track.id)",
-                state: state,
-                time: Int(time * 1000),  // Convert to milliseconds
-                duration: Int(track.duration * 1000)  // Convert to milliseconds
-            )
-        } catch {
-            // Timeline reporting is non-critical, just log the error
-            EnsembleLogger.debug("⚠️ Failed to report timeline: \(error.localizedDescription)")
-        }
+        try await provider.reportTimeline(
+            ratingKey: track.id,
+            key: "/library/metadata/\(track.id)",
+            state: state,
+            time: Int(time * 1000),  // Convert to milliseconds
+            duration: Int(track.duration * 1000)  // Convert to milliseconds
+        )
     }
 
     /// Scrobble a track (mark as played)
