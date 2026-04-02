@@ -35,6 +35,9 @@ public struct ControlsCard: View {
     @State private var loadingDelayTask: Task<Void, Never>?
     // Hold the last settled play/pause icon during skip transitions
     @State private var wasPlayingBeforeTransition = false
+    // Decoupled from @Published via CurrentValueSubject — avoids firing
+    // objectWillChange at ~10Hz which would re-evaluate all 4 NP cards.
+    @State private var waveformHeights: [Double] = []
     
     private let namespace: Namespace.ID?
     private let animationID: String?
@@ -74,6 +77,9 @@ public struct ControlsCard: View {
         }
         .onChange(of: viewModel.lastPlaylistTarget?.id) { _ in
             Task { @MainActor in await refreshLastPlaylistQuickTarget() }
+        }
+        .onReceive(viewModel.waveformHeightsPublisher) { heights in
+            waveformHeights = heights
         }
     }
     
@@ -314,7 +320,7 @@ public struct ControlsCard: View {
             progress: isDraggingSlider ? localProgress : viewModel.progress,
             bufferedProgress: viewModel.bufferedProgress,
             color: .primary,
-            heights: viewModel.waveformHeights
+            heights: waveformHeights
         )
         .frame(width: width)
         .opacity(0.8)

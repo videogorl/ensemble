@@ -17,6 +17,12 @@ public struct LyricsCard: View {
     // Track last scroll target to detect large jumps (seeks) vs natural progression
     @State private var lastScrollIndex: Int?
 
+    // Decoupled from @Published via CurrentValueSubject — these update every ~0.5s
+    // during lyrics sync but only LyricsCard needs them, not all 4 NP cards.
+    @State private var currentLyricsLineIndex: Int?
+    @State private var lyricsScrollTargetIndex: Int?
+    @State private var instrumentalProgress: Double?
+
     public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>, isLowPowerMode: Bool = false) {
         self.viewModel = viewModel
         self._currentPage = currentPage
@@ -42,6 +48,15 @@ public struct LyricsCard: View {
                 Spacer().frame(height: 36) // Reserve space for fixed page indicator
             }
             .padding(.bottom, 20)
+        }
+        .onReceive(viewModel.currentLyricsLineIndexPublisher) { index in
+            if index != currentLyricsLineIndex { currentLyricsLineIndex = index }
+        }
+        .onReceive(viewModel.lyricsScrollTargetIndexPublisher) { index in
+            if index != lyricsScrollTargetIndex { lyricsScrollTargetIndex = index }
+        }
+        .onReceive(viewModel.instrumentalProgressPublisher) { progress in
+            if progress != instrumentalProgress { instrumentalProgress = progress }
         }
     }
 
@@ -166,7 +181,7 @@ public struct LyricsCard: View {
                             line: line,
                             index: index,
                             isTimed: lyrics.isTimed,
-                            isActive: viewModel.currentLyricsLineIndex == index,
+                            isActive: currentLyricsLineIndex == index,
                             isPast: isPastLine(index: index)
                         )
                         .onTapGesture {
@@ -184,10 +199,10 @@ public struct LyricsCard: View {
                         // Instrumental gap indicator as its own item (same spacing as lyrics)
                         if lyrics.isTimed,
                            viewModel.instrumentalGapAfterIndices.contains(index) {
-                            let isActiveGap = viewModel.instrumentalProgress != nil
-                                && viewModel.currentLyricsLineIndex == nil
+                            let isActiveGap = instrumentalProgress != nil
+                                && currentLyricsLineIndex == nil
                                 && isCurrentGap(afterIndex: index, lyrics: lyrics)
-                            let progress = isActiveGap ? (viewModel.instrumentalProgress ?? 0) : (isPastLine(index: index) ? 1.0 : 0.0)
+                            let progress = isActiveGap ? (instrumentalProgress ?? 0) : (isPastLine(index: index) ? 1.0 : 0.0)
                             let gapBlur = lineBlurRadius(index: index, isTimed: true)
                             instrumentalIndicator(progress: progress)
                                 .blur(radius: gapBlur)
@@ -243,12 +258,12 @@ public struct LyricsCard: View {
             .onAppear {
                 guard lyrics.isTimed else { return }
                 let scrollTarget: AnyHashable
-                if let index = viewModel.lyricsScrollTargetIndex {
+                if let index = lyricsScrollTargetIndex {
                     scrollTarget = index
                 } else {
                     scrollTarget = "intro-instrumental"
                 }
-                lastScrollIndex = viewModel.lyricsScrollTargetIndex
+                lastScrollIndex = lyricsScrollTargetIndex
                 // Defer to next frame so the LazyVStack has laid out its content
                 DispatchQueue.main.async {
                     proxy.scrollTo(scrollTarget, anchor: .center)
@@ -256,7 +271,7 @@ public struct LyricsCard: View {
             }
             // Scroll to active lyric — animate for natural progression, snap for seeks.
             // nil target means "before first lyric" — scroll to top (index 0 or intro).
-            .onChange(of: viewModel.lyricsScrollTargetIndex) { newIndex in
+            .onChange(of: lyricsScrollTargetIndex) { newIndex in
                 guard lyrics.isTimed else { return }
 
                 // Determine scroll destination: active line, or intro dot if before lyrics
@@ -288,7 +303,7 @@ public struct LyricsCard: View {
             .onChange(of: viewModel.isUserScrollingLyrics) { isScrolling in
                 guard !isScrolling, lyrics.isTimed else { return }
                 let scrollTarget: AnyHashable
-                if let index = viewModel.lyricsScrollTargetIndex {
+                if let index = lyricsScrollTargetIndex {
                     scrollTarget = index
                 } else {
                     scrollTarget = "intro-instrumental"
@@ -371,26 +386,26 @@ public struct LyricsCard: View {
     /// Intro dot progress: time-synced if there's a real intro gap, otherwise just past/future
     private var introProgress: Double {
         if viewModel.hasIntroInstrumentalGap {
-            let isIntroActive = viewModel.lyricsScrollTargetIndex == nil
-                && viewModel.instrumentalProgress != nil
+            let isIntroActive = lyricsScrollTargetIndex == nil
+                && instrumentalProgress != nil
             if isIntroActive {
-                return viewModel.instrumentalProgress ?? 0
+                return instrumentalProgress ?? 0
             }
         }
         // Filled once any lyric line has been reached
-        let hasStarted = viewModel.currentLyricsLineIndex != nil
-            || viewModel.lyricsScrollTargetIndex != nil
+        let hasStarted = currentLyricsLineIndex != nil
+            || lyricsScrollTargetIndex != nil
         return hasStarted ? 1.0 : 0.0
     }
 
     /// Outro dot progress: time-synced if there's a real outro gap, otherwise just past/future
     private func outroProgress(lastIndex: Int) -> Double {
         if viewModel.hasOutroInstrumentalGap {
-            let isOutroActive = viewModel.instrumentalProgress != nil
-                && viewModel.currentLyricsLineIndex == nil
-                && viewModel.lyricsScrollTargetIndex == lastIndex
+            let isOutroActive = instrumentalProgress != nil
+                && currentLyricsLineIndex == nil
+                && lyricsScrollTargetIndex == lastIndex
             if isOutroActive {
-                return viewModel.instrumentalProgress ?? 0
+                return instrumentalProgress ?? 0
             }
         }
         return isPastLine(index: lastIndex) ? 1.0 : 0.0
@@ -419,8 +434,8 @@ public struct LyricsCard: View {
         guard isTimed, !isLowPowerMode, !viewModel.isUserScrollingLyrics else { return 0 }
 
         // Use active line index, fall back to scroll target during instrumental gaps
-        let center = viewModel.currentLyricsLineIndex
-            ?? viewModel.lyricsScrollTargetIndex
+        let center = currentLyricsLineIndex
+            ?? lyricsScrollTargetIndex
         guard let center else { return 0 }
 
         let distance = abs(index - center)
@@ -431,10 +446,10 @@ public struct LyricsCard: View {
 
     /// Whether a line is in the past (before the current active line)
     private func isPastLine(index: Int) -> Bool {
-        guard let activeIndex = viewModel.currentLyricsLineIndex else {
+        guard let activeIndex = currentLyricsLineIndex else {
             // During instrumental gaps, currentLyricsLineIndex is nil.
             // Use the scroll target as fallback to determine past/future.
-            guard let scrollTarget = viewModel.lyricsScrollTargetIndex else { return false }
+            guard let scrollTarget = lyricsScrollTargetIndex else { return false }
             return index < scrollTarget
         }
         return index < activeIndex
@@ -444,7 +459,7 @@ public struct LyricsCard: View {
     /// During gaps, currentLyricsLineIndex is nil but the scroll target tracks the
     /// underlying active line index from the binary search.
     private func isCurrentGap(afterIndex index: Int, lyrics: ParsedLyrics) -> Bool {
-        guard let scrollTarget = viewModel.lyricsScrollTargetIndex else { return false }
+        guard let scrollTarget = lyricsScrollTargetIndex else { return false }
         return scrollTarget == index
     }
 

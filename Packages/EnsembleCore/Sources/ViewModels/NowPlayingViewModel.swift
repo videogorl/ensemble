@@ -82,7 +82,16 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var playbackHistory: [QueueItem] = []
     @Published public private(set) var isShuffleEnabled = false
     @Published public private(set) var repeatMode: RepeatMode = .off
-    @Published public private(set) var waveformHeights: [Double] = []
+    // waveformHeights uses CurrentValueSubject to avoid firing objectWillChange
+    // at ~10Hz — only ControlsCard needs this, not all 4 NP cards.
+    private let _waveformHeights = CurrentValueSubject<[Double], Never>([])
+    public var waveformHeights: [Double] {
+        get { _waveformHeights.value }
+        set { _waveformHeights.send(newValue) }
+    }
+    public var waveformHeightsPublisher: AnyPublisher<[Double], Never> {
+        _waveformHeights.eraseToAnyPublisher()
+    }
     @Published public var currentRating: TrackRating = .none
     @Published public private(set) var isAutoplayEnabled = false
     @Published public private(set) var autoplayTracks: [Track] = []
@@ -105,11 +114,36 @@ public final class NowPlayingViewModel: ObservableObject {
     // Lyrics state driven by LyricsService
     @Published public private(set) var lyricsState: LyricsState = .notAvailable
     @Published public private(set) var lyricsSource: LyricsSource = .none
-    @Published public private(set) var currentLyricsLineIndex: Int?
+    // High-frequency lyrics properties use CurrentValueSubject to avoid firing
+    // objectWillChange every ~0.5s — only LyricsCard needs these, not all 4 NP cards.
+    private let _currentLyricsLineIndex = CurrentValueSubject<Int?, Never>(nil)
+    public var currentLyricsLineIndex: Int? {
+        get { _currentLyricsLineIndex.value }
+        set { _currentLyricsLineIndex.send(newValue) }
+    }
+    public var currentLyricsLineIndexPublisher: AnyPublisher<Int?, Never> {
+        _currentLyricsLineIndex.eraseToAnyPublisher()
+    }
+
     // Scroll target looks ahead so lyrics anticipate the vocals
-    @Published public private(set) var lyricsScrollTargetIndex: Int?
+    private let _lyricsScrollTargetIndex = CurrentValueSubject<Int?, Never>(nil)
+    public var lyricsScrollTargetIndex: Int? {
+        get { _lyricsScrollTargetIndex.value }
+        set { _lyricsScrollTargetIndex.send(newValue) }
+    }
+    public var lyricsScrollTargetIndexPublisher: AnyPublisher<Int?, Never> {
+        _lyricsScrollTargetIndex.eraseToAnyPublisher()
+    }
+
     // Progress through an instrumental gap (0.0 to 1.0), nil when not in a gap
-    @Published public private(set) var instrumentalProgress: Double?
+    private let _instrumentalProgress = CurrentValueSubject<Double?, Never>(nil)
+    public var instrumentalProgress: Double? {
+        get { _instrumentalProgress.value }
+        set { _instrumentalProgress.send(newValue) }
+    }
+    public var instrumentalProgressPublisher: AnyPublisher<Double?, Never> {
+        _instrumentalProgress.eraseToAnyPublisher()
+    }
     // Pre-computed set of line indices that have an instrumental gap AFTER them
     @Published public private(set) var instrumentalGapAfterIndices: Set<Int> = []
     // Whether there's an instrumental gap before the first lyric
@@ -198,7 +232,10 @@ public final class NowPlayingViewModel: ObservableObject {
         
         playbackService.waveformPublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$waveformHeights)
+            .sink { [weak self] heights in
+                self?.waveformHeights = heights
+            }
+            .store(in: &cancellables)
 
         playbackService.autoplayEnabledPublisher
             .receive(on: DispatchQueue.main)
