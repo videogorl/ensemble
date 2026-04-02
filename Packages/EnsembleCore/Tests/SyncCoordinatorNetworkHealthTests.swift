@@ -97,6 +97,62 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         func getArtworkCacheSize() async throws -> Int64 { 0 }
     }
 
+    private struct MockSyncProvider: MusicSourceSyncProvider, @unchecked Sendable {
+        let sourceIdentifier: MusicSourceIdentifier
+        var libraryResult: Result<LibrarySyncResult, Error> = .success(LibrarySyncResult())
+        var playlistResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
+
+        func syncLibrary(
+            to repository: LibraryRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> LibrarySyncResult {
+            progressHandler(1.0)
+            return try libraryResult.get()
+        }
+
+        func syncLibraryIncremental(
+            since timestamp: TimeInterval,
+            to repository: LibraryRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> LibrarySyncResult {
+            progressHandler(1.0)
+            return try libraryResult.get()
+        }
+
+        func syncPlaylists(
+            to repository: PlaylistRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> PlaylistSyncResult {
+            progressHandler(1.0)
+            return try playlistResult.get()
+        }
+
+        func syncPlaylistsIncremental(
+            to repository: PlaylistRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> PlaylistSyncResult {
+            progressHandler(1.0)
+            return try playlistResult.get()
+        }
+
+        func getStreamURL(
+            for trackRatingKey: String,
+            trackStreamKey: String?,
+            quality: StreamingQuality,
+            metadataDurationSeconds: Double?
+        ) async throws -> StreamResolution {
+            throw MockError.unimplemented
+        }
+
+        func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
+        func rateTrack(ratingKey: String, rating: Int?) async throws {}
+        func reportTimeline(ratingKey: String, key: String, state: String, time: Int, duration: Int) async throws {}
+        func scrobble(ratingKey: String) async throws {}
+        func getAlbumTracks(albumKey: String) async throws -> [Track] { [] }
+        func getArtistAlbums(artistKey: String) async throws -> [Album] { [] }
+        func getArtistTracks(artistKey: String) async throws -> [Track] { [] }
+    }
+
     private enum MockError: Error {
         case unimplemented
     }
@@ -281,6 +337,63 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         await coordinator.awaitHealthRefreshForTesting()
 
         XCTAssertEqual(startedCount, 1)
+    }
+
+    func testSyncPublishesOnlyMaterialLibraryChanges() async {
+        let (coordinator, _) = makeCoordinator()
+        let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "lib-1")
+        let previousSyncDate = Date(timeIntervalSince1970: 1_000)
+
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(
+                sourceIdentifier: source,
+                libraryResult: .success(LibrarySyncResult()),
+                playlistResult: .success(PlaylistSyncResult(changedPlaylists: 1))
+            ),
+            status: MusicSourceStatus(syncStatus: .lastSynced(previousSyncDate), connectionState: .connected(url: "https://example.com"))
+        )
+
+        await coordinator.sync(source: source)
+        XCTAssertTrue(coordinator.lastContentChange?.affectsLibraryBrowse == false)
+        XCTAssertTrue(coordinator.lastContentChange?.affectsPlaylists == true)
+
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(
+                sourceIdentifier: source,
+                libraryResult: .success(LibrarySyncResult(changedTracks: 2)),
+                playlistResult: .success(PlaylistSyncResult())
+            ),
+            status: coordinator.sourceStatuses[source]
+        )
+
+        await coordinator.sync(source: source)
+
+        XCTAssertEqual(coordinator.lastContentChange?.source, source)
+        XCTAssertEqual(coordinator.lastContentChange?.libraryResult?.changedTracks, 2)
+        XCTAssertTrue(coordinator.lastContentChange?.affectsLibraryBrowse == true)
+    }
+
+    func testCancellationRestoresPreviousStatusInsteadOfPublishingError() async {
+        let (coordinator, _) = makeCoordinator()
+        let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "lib-1")
+        let previousSyncDate = Date(timeIntervalSince1970: 2_000)
+
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(
+                sourceIdentifier: source,
+                libraryResult: .failure(CancellationError())
+            ),
+            status: MusicSourceStatus(syncStatus: .lastSynced(previousSyncDate), connectionState: .connected(url: "https://example.com"))
+        )
+
+        await coordinator.sync(source: source)
+
+        guard let status = coordinator.sourceStatuses[source] else {
+            return XCTFail("Missing source status after cancelled sync")
+        }
+
+        XCTAssertEqual(status.connectionState, .connected(url: "https://example.com"))
+        XCTAssertEqual(status.syncStatus, .lastSynced(previousSyncDate))
     }
 }
 

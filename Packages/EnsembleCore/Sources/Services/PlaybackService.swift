@@ -3353,8 +3353,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         loadingStateTask?.cancel()
         loadingStateTask = nil
 
-        // Pause engine and show loading state
+        // Update the exposed track first so state-transition logs and Now Playing
+        // do not briefly point at the previous item during a skip.
         await MainActor.run {
+            self.currentTrack = track
+            self.updatePlaybackTimes(rawTime: 0)
+            self.bufferedProgress = 0
+            self.waveformHeights = []
+            self.updateNowPlayingInfo()
             isSkipTransitionInProgress = true
             armSkipTransitionSafety()
             audioEngine?.pause()
@@ -3365,15 +3371,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Reset cache for fresh playback attempts
         if forcingFreshItem {
             await MainActor.run { removeCachedPlayerItem(for: track.id) }
-        }
-
-        // Set current track info
-        await MainActor.run {
-            self.currentTrack = track
-            self.updatePlaybackTimes(rawTime: 0)
-            self.bufferedProgress = 0
-            self.waveformHeights = []
-            self.updateNowPlayingInfo()
         }
 
         // Generate waveform asynchronously

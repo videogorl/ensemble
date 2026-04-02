@@ -34,7 +34,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         since timestamp: TimeInterval,
         to repository: LibraryRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
-    ) async throws {
+    ) async throws -> LibrarySyncResult {
         let sourceKey = sourceIdentifier.compositeKey
         EnsembleLogger.debug("🔄 Incremental sync for \(sourceKey) since \(Date(timeIntervalSince1970: timestamp))")
 
@@ -256,12 +256,20 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         progressHandler(1.0)
         EnsembleLogger.debug("⏱️ Incremental sync: orphan check took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
         EnsembleLogger.debug("✅ Incremental sync complete for \(sourceKey) — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
+        return LibrarySyncResult(
+            changedArtists: artistsToSync.count,
+            changedAlbums: albumsToSync.count,
+            changedTracks: tracksToSync.count,
+            removedArtists: removedArtists,
+            removedAlbums: removedAlbums,
+            removedTracks: removedTracks
+        )
     }
     
     public func syncLibrary(
         to repository: LibraryRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
-    ) async throws {
+    ) async throws -> LibrarySyncResult {
         let syncStart = CFAbsoluteTimeGetCurrent()
         let sourceKey = sourceIdentifier.compositeKey
         EnsembleLogger.debug("🔄 Full library sync starting for \(sourceKey)")
@@ -403,12 +411,22 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
 
         progressHandler(1.0)
+        return LibrarySyncResult(
+            changedArtists: artists.count,
+            changedAlbums: albums.count,
+            changedTracks: tracks.count,
+            changedGenres: genres.count,
+            removedArtists: removedArtists,
+            removedAlbums: removedAlbums,
+            removedTracks: removedTracks,
+            removedGenres: removedGenres
+        )
     }
 
     public func syncPlaylists(
         to repository: PlaylistRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
-    ) async throws {
+    ) async throws -> PlaylistSyncResult {
         // Use server-level identifier for playlists (not library-specific)
         let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
 
@@ -451,13 +469,14 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         EnsembleLogger.debug("⏱️ Playlist sync: full sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s (\(playlists.count) playlists)")
         progressHandler(1.0)
+        return PlaylistSyncResult(changedPlaylists: playlists.count)
     }
 
     /// Sync only playlists that changed since last sync (incremental)
     public func syncPlaylistsIncremental(
         to repository: PlaylistRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
-    ) async throws {
+    ) async throws -> PlaylistSyncResult {
         let syncStart = CFAbsoluteTimeGetCurrent()
         let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
         let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
@@ -468,8 +487,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // If never synced, fall back to full sync
         guard lastSyncTimestamp > 0 else {
             EnsembleLogger.debug("⚠️ No previous playlist sync found, performing full sync")
-            try await syncPlaylists(to: repository, progressHandler: progressHandler)
-            return
+            return try await syncPlaylists(to: repository, progressHandler: progressHandler)
         }
 
         progressHandler(0.1)
@@ -550,6 +568,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         EnsembleLogger.debug("⏱️ Incremental playlist sync complete — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
 
         progressHandler(1.0)
+        return PlaylistSyncResult(
+            changedPlaylists: changedPlaylists.count,
+            removedPlaylists: removedPlaylists
+        )
     }
 
 public func getStreamURL(

@@ -2,6 +2,56 @@ import EnsemblePersistence
 import EnsembleAPI
 import Foundation
 
+public struct LibrarySyncResult: Sendable, Equatable {
+    public let changedArtists: Int
+    public let changedAlbums: Int
+    public let changedTracks: Int
+    public let changedGenres: Int
+    public let removedArtists: Int
+    public let removedAlbums: Int
+    public let removedTracks: Int
+    public let removedGenres: Int
+
+    public init(
+        changedArtists: Int = 0,
+        changedAlbums: Int = 0,
+        changedTracks: Int = 0,
+        changedGenres: Int = 0,
+        removedArtists: Int = 0,
+        removedAlbums: Int = 0,
+        removedTracks: Int = 0,
+        removedGenres: Int = 0
+    ) {
+        self.changedArtists = changedArtists
+        self.changedAlbums = changedAlbums
+        self.changedTracks = changedTracks
+        self.changedGenres = changedGenres
+        self.removedArtists = removedArtists
+        self.removedAlbums = removedAlbums
+        self.removedTracks = removedTracks
+        self.removedGenres = removedGenres
+    }
+
+    public var hasMaterialChanges: Bool {
+        changedArtists > 0 || changedAlbums > 0 || changedTracks > 0 || changedGenres > 0 ||
+        removedArtists > 0 || removedAlbums > 0 || removedTracks > 0 || removedGenres > 0
+    }
+}
+
+public struct PlaylistSyncResult: Sendable, Equatable {
+    public let changedPlaylists: Int
+    public let removedPlaylists: Int
+
+    public init(changedPlaylists: Int = 0, removedPlaylists: Int = 0) {
+        self.changedPlaylists = changedPlaylists
+        self.removedPlaylists = removedPlaylists
+    }
+
+    public var hasMaterialChanges: Bool {
+        changedPlaylists > 0 || removedPlaylists > 0
+    }
+}
+
 /// Protocol for syncing music from a source (Plex, future Apple Music, etc.)
 public protocol MusicSourceSyncProvider: Sendable {
     var sourceIdentifier: MusicSourceIdentifier { get }
@@ -10,7 +60,7 @@ public protocol MusicSourceSyncProvider: Sendable {
     func syncLibrary(
         to repository: LibraryRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
-    ) async throws
+    ) async throws -> LibrarySyncResult
     
     /// Sync only items added or updated since the given timestamp (incremental sync)
     /// - Parameter since: Unix timestamp of last sync (fetch items added/updated after this)
@@ -18,19 +68,19 @@ public protocol MusicSourceSyncProvider: Sendable {
         since timestamp: TimeInterval,
         to repository: LibraryRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
-    ) async throws
+    ) async throws -> LibrarySyncResult
     
     /// Sync playlists to CoreData (should be called once per server, not per library)
     func syncPlaylists(
         to repository: PlaylistRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
-    ) async throws
+    ) async throws -> PlaylistSyncResult
 
     /// Sync only playlists added or updated since last sync (incremental)
     func syncPlaylistsIncremental(
         to repository: PlaylistRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
-    ) async throws
+    ) async throws -> PlaylistSyncResult
 
     /// Get a streaming resolution for a track — may be a direct URL, downloaded file,
     /// or progressive transcode config for chunked streaming.

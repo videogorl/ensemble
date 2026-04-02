@@ -142,6 +142,10 @@ public final class OfflineDownloadService: ObservableObject {
     /// Prevents infinite retry loops when a track consistently fails transfer.
     /// Cleared on successful completion; capped at maxTransferRetries.
     private var transferRetryCount: [String: Int] = [:]
+    /// Session-level circuit breaker for direct-original fallback after the download
+    /// queue already failed. Prevents the same track from repeating a doomed fallback
+    /// path on every retry in one app session.
+    private var blockedDirectFallbackKeys = Set<String>()
     private static let maxTransferRetries = 3
 
     /// Debounced notification task so individual download completions don't
@@ -228,6 +232,22 @@ public final class OfflineDownloadService: ObservableObject {
     public func handleDownloadQueueCompleted() async {
         EnsembleLogger.debug("⬇️ WebSocket: download queue completed — queueTask=\(queueTask == nil ? "nil" : "active"), isQueueRunning=\(isQueueRunning)")
         startQueueIfNeeded()
+    }
+
+    private func directFallbackKey(for ctx: DownloadContext) -> String {
+        "\(ctx.trackRatingKey)|\(ctx.sourceCompositeKey)"
+    }
+
+    private func shouldSkipDirectFallback(for ctx: DownloadContext) -> Bool {
+        blockedDirectFallbackKeys.contains(directFallbackKey(for: ctx))
+    }
+
+    private func markDirectFallbackBlocked(for ctx: DownloadContext) {
+        blockedDirectFallbackKeys.insert(directFallbackKey(for: ctx))
+    }
+
+    private func clearDirectFallbackBlock(for ctx: DownloadContext) {
+        blockedDirectFallbackKeys.remove(directFallbackKey(for: ctx))
     }
 
     public func refreshState() async {
@@ -1083,6 +1103,7 @@ public final class OfflineDownloadService: ObservableObject {
             trackRatingKey: ctx.trackRatingKey,
             trackSourceCompositeKey: ctx.sourceCompositeKey
         )
+        var attemptedDirectFallback = false
 
         do {
             // Target could be removed while this transfer is waiting.
@@ -1136,6 +1157,12 @@ public final class OfflineDownloadService: ObservableObject {
                     return
                 } catch {
                     // Download queue failed — fall through to direct original download.
+                    if shouldSkipDirectFallback(for: ctx) {
+                        EnsembleLogger.debug(
+                            "⛔️ Skipping direct-original fallback for track=\(ctx.trackRatingKey) after an earlier fallback failure in this session"
+                        )
+                        throw error
+                    }
                     EnsembleLogger.debug(
                         "⚠️ Download queue failed for track=\(ctx.trackRatingKey): \(error.localizedDescription); falling back to direct original"
                     )
@@ -1147,6 +1174,7 @@ public final class OfflineDownloadService: ObservableObject {
             selectedURL = try await syncCoordinator.getDownloadURL(for: ctx.domainTrack, quality: .original)
             selectedMode = requestedQuality == .original ? "direct-original" : "direct-original-fallback"
             effectiveQuality = .original
+            attemptedDirectFallback = requestedQuality != .original
 
             EnsembleLogger.debug(
                 "⬇️ Offline download attempt: track=\(ctx.trackRatingKey) stage=\(selectedMode) url=\(selectedURL)"
@@ -1241,6 +1269,9 @@ public final class OfflineDownloadService: ObservableObject {
 
             // Clear transfer retry counter on success
             transferRetryCount.removeValue(forKey: ctx.trackRatingKey)
+            if attemptedDirectFallback {
+                clearDirectFallbackBlock(for: ctx)
+            }
 
             // Notify track-displaying VMs so they re-fetch and reflect updated
             // offline state (e.g. dimming). Debounced to avoid spamming during
@@ -1261,6 +1292,9 @@ public final class OfflineDownloadService: ObservableObject {
                     "⏸️ Offline download paused (network lost): track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey)"
                 )
             } else if error is DownloadTransferError || isRetryableTruncation(error) {
+                if attemptedDirectFallback {
+                    markDirectFallbackBlocked(for: ctx)
+                }
                 // Incomplete transfer or truncated payload — re-queue as pending so the
                 // download worker automatically retries. These are transient failures
                 // (app backgrounded, server timeout, FFmpeg crash) not permanent ones.
@@ -1280,6 +1314,9 @@ public final class OfflineDownloadService: ObservableObject {
                     )
                 }
             } else {
+                if attemptedDirectFallback {
+                    markDirectFallbackBlocked(for: ctx)
+                }
                 try? await downloadManager.failDownload(ctx.downloadObjectID, error: error.localizedDescription)
                 EnsembleLogger.debug(
                     "❌ Offline download failed: track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey) reason=\(error.localizedDescription)"
