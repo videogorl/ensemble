@@ -80,17 +80,6 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
                 }
             }
             .store(in: &cancellables)
-
-        syncCoordinator.$sourceStatuses
-            .receive(on: DispatchQueue.main)
-            .dropFirst()
-            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.loadTracks()
-                }
-            }
-            .store(in: &cancellables)
     }
 
     // MARK: - Track Loading
