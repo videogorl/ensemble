@@ -350,6 +350,12 @@ public final class LyricsService: ObservableObject {
             }
         }
 
+        // Skip server fetch when offline — avoids triggering connection probes we know will fail
+        if syncCoordinator.isOffline {
+            EnsembleLogger.debug("Lyrics: offline, no cached lyrics for track \(track.id)")
+            return (.notAvailable, .noApiClient)
+        }
+
         // 2. Fetch track metadata to discover lyrics streams
         guard let apiClient = syncCoordinator.apiClient(for: track.sourceCompositeKey) else {
             EnsembleLogger.debug("Lyrics: no API client for source \(track.sourceCompositeKey ?? "nil")")
