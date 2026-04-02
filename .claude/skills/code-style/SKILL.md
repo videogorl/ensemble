@@ -177,3 +177,33 @@ When fetching entities that will have relationships accessed during mapping, set
 ### Batch I/O Over Per-Item Calls
 
 For operations like checking file existence across 1000+ items, pre-compute results in bulk (`FileManager.contentsOfDirectory` -> `Set<String>`) and pass the set to per-item initializers. Never call `FileManager.fileExists` in a loop.
+
+### Never Observe `UserDefaults.didChangeNotification` for a Specific Key
+
+`UserDefaults.didChangeNotification` fires on ANY key write — not just the key you care about. PlaybackService writes `currentTime`, `queue`, etc. frequently, so an observer for a visualizer toggle fires 94+ times per session with only 1 real change. Instead, cache the last-known value and compare before creating a Task:
+
+```swift
+private var lastKnownSetting = UserDefaults.standard.bool(forKey: "mySetting")
+
+// In observer:
+let current = UserDefaults.standard.bool(forKey: "mySetting")
+guard current != self?.lastKnownSetting else { return }
+self?.lastKnownSetting = current
+// ... proceed with actual change handling
+```
+
+Alternatively, use KVO on the specific key if you need change-only notifications.
+
+### Guard `@Published` Dictionary Writes with `!= oldValue`
+
+Dictionary mutations on `@Published` properties always publish Combine changes, even when the value being assigned is identical. `.removeDuplicates()` on subscribers doesn't help because dictionary value semantics publish on any mutation. This causes spurious SwiftUI re-renders downstream. Always guard:
+
+```swift
+// BAD: publishes every time, even if state hasn't changed
+serverStates[serverKey] = state
+
+// GOOD: only publishes on actual state transitions
+if serverStates[serverKey] != state {
+    serverStates[serverKey] = state
+}
+```

@@ -62,6 +62,18 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Resolved Issues
 
+### Phase 4 Performance Optimizations — iPhone 6s A9 Audit (Apr 1, 2026)
+- **Resolved (April 1, 2026)**
+- **Source:** 57-minute real-device session log + Instruments trace on iPhone 6s (A9 dual-core, 2GB RAM, iOS 15.8.7). 57 data drops from CPU saturation, likely Serious thermal state, 33-second continuous CPU burst.
+- **Fixes applied (6 total):**
+  1. **Visualizer UserDefaults observer** (`PlaybackService.setupVisualizerSettingObservation`): Listened to `UserDefaults.didChangeNotification` which fires on ANY key write. 94 wasted Task hops per session, only 1 real toggle. Fix: cache+compare before creating Task.
+  2. **ServerHealthChecker redundant @Published writes** (`ServerHealthChecker`): Every `serverStates[key] = value` published Combine change even when identical, causing 46 TrackAvailabilityResolver generation bumps → mass SwiftUI re-renders. Fix: guard all assignment sites with `!=` check.
+  3. **Timeline reporting without network awareness** (`PlaybackService`, `SyncCoordinator`): 50 failed reports × 6 connection probes = ~300 failed HTTPS attempts when offline for 9 minutes. Fix: check network state before reporting, exponential backoff on failures (10s→30s→60s), added `reportTimelineThrowing` variant.
+  4. **Lyrics negative cache missing** (`LyricsService`): `setCached()` skipped `.notAvailable` results → same 404 stream retried 6 times = 18 HTTP requests. Fix: time-limited negative caching (30-min TTL) that preserves retry intent.
+  5. **CoreData batch saves for downloads** (`DownloadManager`, `OfflineDownloadService`): `reconcileTarget` looped over ~42 tracks individually — 42 CoreData saves with 42 `NSManagedObjectContextDidSave` notifications in 1.3s. Fix: `batchCreateDownloads()` with IN predicates (2 fetches) + single save.
+  6. **Download queue polling offline** (`PlexAPIClient`): Polling loop continued for 120s when network was down. Fix: catch URLError connectivity codes and throw immediately.
+- **Key files:** `PlaybackService.swift`, `ServerHealthChecker.swift`, `SyncCoordinator.swift`, `LyricsService.swift`, `DownloadManager.swift`, `OfflineDownloadService.swift`, `PlexAPIClient.swift`
+
 ### Download Quality Fallback Re-Download Loop (Mar 26, 2026)
 - **Location:** `DownloadManager.swift` (`createDownload`)
 - **Issue:** When download-queue transcode failed (TLS error, cancelled), the system fell back to `direct-original-fallback` which stored the file at `original` quality. On the next session, reconciliation called `createDownload(quality: "medium")` which saw `"original" != "medium"` and reset the download to `.pending`, triggering an infinite re-download loop every session.
