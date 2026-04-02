@@ -62,6 +62,17 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Resolved Issues
 
+### Phase 8 Performance & Bug-Fix — Run 6 Findings (Apr 2, 2026)
+- **Resolved (April 2, 2026)**
+- **Source:** Run 6 session log on iPhone 6s (A9, iOS 15.8.7). Phase 7 fixes confirmed working. Five new issues identified and fixed.
+- **Fixes applied (5 total):**
+  1. **ratedAfter fetch removed** (`PlexMusicSourceSyncProvider.swift`): The Plex API `ratedAfter` (`lastRatedAt>=`) filter returns ALL ever-rated tracks regardless of timestamp — 1913 tracks, 3.6s, ~1MB wasted every incremental sync cycle with 0 changes. Removed the block entirely. Cross-client rating changes sync on next full sync. On-device changes go through MutationCoordinator immediately.
+  2. **PlaylistDetailVM double loadTracks** (`PlaylistViewModel.swift`, `MergedPlaylistDetailViewModel.swift`): Both files subscribed to `playlistsDidRefresh` notification AND `$sourceStatuses` changes, both triggering `loadTracks()`. These fire 36ms apart as part of the same sync completion event (two redundant CoreData fetches). Removed the `$sourceStatuses` fallback subscription from all three observePlaylistRefresh/observePlaylistChanges sites — the notification is the correct, specific signal.
+  3. **PendingMutationsViewModel "Loved" label bug** (`PendingMutationsViewModel.swift`): `rating > 0` mapped rating=2 (disliked) to "Set X as Loved". Fixed to check `rating >= 8` for Loved, 1–7 for Disliked, matching `TrackRating.from(rating:)` thresholds.
+  4. **toggleRating double-tap guard** (`NowPlayingViewModel.swift`): Two rapid taps could create two concurrent Tasks, queueing duplicate mutations (Run 6 showed two mutations 397ms apart). Added `guard !isUpdatingRating else { return }` at start of `toggleRating()`.
+  5. **Offline connection probe storm** (`ServerHealthChecker.swift`, `LyricsService.swift`): Every API request while offline triggered 6 parallel connection probes (all failing). `ServerHealthChecker.performServerCheck()` now checks `isNetworkOffline()` before probing and returns `.offline` immediately. `LyricsService.fetchLyrics()` also checks `syncCoordinator.isOffline` after persistent cache miss to avoid even entering the API path.
+- **Key files:** `PlexMusicSourceSyncProvider.swift`, `PlaylistViewModel.swift`, `MergedPlaylistDetailViewModel.swift`, `PendingMutationsViewModel.swift`, `NowPlayingViewModel.swift`, `ServerHealthChecker.swift`, `LyricsService.swift`
+
 ### Phase 4 Performance Optimizations — iPhone 6s A9 Audit (Apr 1, 2026)
 - **Resolved (April 1, 2026)**
 - **Source:** 57-minute real-device session log + Instruments trace on iPhone 6s (A9 dual-core, 2GB RAM, iOS 15.8.7). 57 data drops from CPU saturation, likely Serious thermal state, 33-second continuous CPU burst.
