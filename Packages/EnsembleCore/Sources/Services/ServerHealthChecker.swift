@@ -31,6 +31,7 @@ public final class ServerHealthChecker: ObservableObject {
     private let resourceRefreshCooldown: TimeInterval
     private let nowProvider: () -> Date
     private let networkContextProvider: () -> NetworkReachabilityContext
+    private let isNetworkOffline: () -> Bool
 
     private var recentChecks: [String: CachedCheckEntry] = [:]
     private var ongoingServerChecks: [String: Task<ServerCheckResult, Never>] = [:]
@@ -51,6 +52,7 @@ public final class ServerHealthChecker: ObservableObject {
         self.resourceRefreshCooldown = 60
         self.nowProvider = { Date() }
         self.networkContextProvider = { Self.mapNetworkStateToContext(networkMonitor.networkState) }
+        self.isNetworkOffline = { networkMonitor.networkState == .offline }
     }
 
     internal init(
@@ -61,7 +63,8 @@ public final class ServerHealthChecker: ObservableObject {
         unavailableCacheTTL: TimeInterval = 10,
         resourceRefreshCooldown: TimeInterval = 60,
         nowProvider: @escaping () -> Date = { Date() },
-        networkContextProvider: @escaping () -> NetworkReachabilityContext = { .unknown }
+        networkContextProvider: @escaping () -> NetworkReachabilityContext = { .unknown },
+        isNetworkOffline: @escaping () -> Bool = { false }
     ) {
         self.accountManager = accountManager
         self.failoverManager = failoverManager
@@ -71,6 +74,7 @@ public final class ServerHealthChecker: ObservableObject {
         self.resourceRefreshCooldown = resourceRefreshCooldown
         self.nowProvider = nowProvider
         self.networkContextProvider = networkContextProvider
+        self.isNetworkOffline = isNetworkOffline
     }
 
     /// Map NetworkState to NetworkReachabilityContext for endpoint filtering
@@ -290,6 +294,19 @@ public final class ServerHealthChecker: ObservableObject {
             if serverStates[serverKey] != .connecting {
                 serverStates[serverKey] = .connecting
             }
+        }
+
+        // Short-circuit when the network is confirmed down — skip all probes and mark offline
+        // immediately. Without this, every API request while offline fires 6 parallel probes
+        // (all timing out after 4s), creating a connection-probe storm.
+        if isNetworkOffline() {
+            EnsembleLogger.debug("📴 ServerHealthChecker: Network offline — skipping probes for \(server.name)")
+            await MainActor.run {
+                if serverStates[serverKey] != .offline {
+                    serverStates[serverKey] = .offline
+                }
+            }
+            return .offline
         }
 
         let allowInsecurePolicy = currentAllowInsecureConnectionsPolicy()
