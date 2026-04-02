@@ -3421,11 +3421,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
 
                 // Pre-compute frequency analysis for the visualizer.
-                // Throttle when instrumental mode is active to reduce CPU cache
-                // contention with AUSoundIsolation's neural network on the IO thread.
+                // Throttle when instrumental mode is active or on ≤2-core devices (A9)
+                // to reduce CPU cache contention and avoid saturating the main thread.
                 if isVisualizerEnabled {
-                    let throttle = isInstrumentalModeActive
-                    let priority: TaskPriority = throttle ? .background : .userInitiated
+                    let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+                    let throttle = isInstrumentalModeActive || isLowCoreDevice
+                    let priority: TaskPriority
+                    if isInstrumentalModeActive {
+                        priority = .background
+                    } else if isLowCoreDevice {
+                        priority = .utility
+                    } else {
+                        priority = .userInitiated
+                    }
                     EnsembleLogger.debug("[Visualizer] Dispatching loadTimeline for '\(track.title)', url=\(fileURL.lastPathComponent), isFile=\(fileURL.isFileURL)")
                     Task.detached { [audioAnalyzer] in
                         await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: priority, throttled: throttle)
@@ -4203,13 +4211,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try engine.scheduleNext(fileURL: fileURL, trackId: track.id)
 
             // Pre-compute frequency timeline so the visualizer is ready on gapless advance.
-            // When instrumental mode is active, defer by 10s to avoid CPU cache contention
-            // with AUSoundIsolation during the critical post-schedule period when the user
-            // is likely interacting with the UI.
+            // When instrumental mode or low-core device, defer to avoid CPU contention
+            // during the critical post-schedule period when the user is likely interacting.
             if isVisualizerEnabled {
                 let analyzer = self.audioAnalyzer
-                let throttle = isInstrumentalModeActive
-                let priority: TaskPriority = throttle ? .background : .utility
+                let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+                let throttle = isInstrumentalModeActive || isLowCoreDevice
+                let priority: TaskPriority = (isInstrumentalModeActive || isLowCoreDevice) ? .background : .utility
                 Task.detached {
                     if throttle {
                         try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s delay
@@ -4481,10 +4489,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 updatePlaybackTimes(rawTime: savedTime)
             }
 
-            // Pre-load frequency timeline (throttle during instrumental mode)
+            // Pre-load frequency timeline (throttle during instrumental mode or on low-core devices)
             if isVisualizerEnabled {
-                let throttle = isInstrumentalModeActive
-                let priority: TaskPriority = throttle ? .background : .utility
+                let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+                let throttle = isInstrumentalModeActive || isLowCoreDevice
+                let priority: TaskPriority = (isInstrumentalModeActive || isLowCoreDevice) ? .background : .utility
                 Task.detached { [audioAnalyzer] in
                     await audioAnalyzer.loadTimeline(
                         for: track.id, fileURL: fileURL, priority: priority, throttled: throttle
@@ -4813,8 +4822,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                 let analyzer = self.audioAnalyzer
                 let trackId = track.id
-                let throttle = self.isInstrumentalModeActive
-                let priority: TaskPriority = throttle ? .background : .userInitiated
+                let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+                let throttle = self.isInstrumentalModeActive || isLowCoreDevice
+                let priority: TaskPriority
+                if self.isInstrumentalModeActive {
+                    priority = .background
+                } else if isLowCoreDevice {
+                    priority = .utility
+                } else {
+                    priority = .userInitiated
+                }
 
                 EnsembleLogger.debug("[Visualizer] Setting toggled ON mid-song — loading timeline for '\(track.title)'")
                 Task.detached {
