@@ -47,6 +47,15 @@ public protocol AudioAnalyzerProtocol: AnyObject {
     /// Resume frequency band updates.
     @MainActor func resumeUpdates()
 
+    /// Pause the display timer when the app enters background.
+    /// Unlike pauseUpdates(), this does not set the music-pause flag — it only stops the
+    /// timer so it doesn't burn main-thread CPU during background audio playback.
+    /// exitBackground() restarts the timer only if music is actively playing.
+    @MainActor func enterBackground()
+
+    /// Restart the display timer when the app foregrounds, if music was actively playing.
+    @MainActor func exitBackground()
+
     /// Whether aurora visualization is enabled. When false, the 30Hz display timer
     /// is not started, saving CPU on low-end devices.
     @MainActor var visualizationEnabled: Bool { get set }
@@ -231,6 +240,11 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             }
         }
     }
+
+    /// True while the app is in the background. Stops the 30Hz display timer without
+    /// disturbing the music-pause (isPaused) flag, so exitBackground() can correctly
+    /// restart the timer only when music was actively playing.
+    private var isBackgrounded = false
 
     /// In-flight analysis tasks (to avoid duplicate work)
     private var analysisTasks: [String: Task<Void, Never>] = [:]
@@ -456,6 +470,24 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         #endif
     }
 
+    // MARK: - App Lifecycle
+
+    /// Stop the display timer when the app backgrounds. Does not touch isPaused so
+    /// the music-pause state is preserved for when the app returns to foreground.
+    public func enterBackground() {
+        isBackgrounded = true
+        stopDisplayTimer()
+    }
+
+    /// Restart the display timer when the app foregrounds — but only if music was
+    /// actively playing (not paused by the user or a track transition).
+    public func exitBackground() {
+        isBackgrounded = false
+        if !isPaused && visualizationEnabled && activeTrackId != nil {
+            startDisplayTimer()
+        }
+    }
+
     // MARK: - Display Timer
 
     /// Start a 30Hz timer that reads the active timeline and publishes bands.
@@ -479,7 +511,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     /// Called ~30 times per second by the display timer
     private func tickDisplay() {
-        guard !isPaused,
+        guard !isPaused, !isBackgrounded,
               let trackId = activeTrackId,
               let timeline = timelines[trackId] else {
             return
@@ -504,11 +536,11 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     typealias ProgressHandler = @Sendable ([FrequencySnapshot], Double, TimeInterval, TimeInterval) -> Void
 
     /// Public entry point for sidecar generation after offline downloads.
-    /// Runs FFT analysis at background priority. Returns nil if the file can't be read.
-    /// Called via `SidecarAnalysisQueue` which serializes and delays analyses so they
-    /// don't compete with active downloads on dual-core devices.
+    /// Calls analyzeFile directly (no inner Task.detached) so Task.isCancelled checks
+    /// inside the FFT loop propagate from the SidecarAnalysisQueue's worker task.
+    /// This enables clean suspension when the app backgrounds mid-analysis.
     public nonisolated static func analyzeForSidecar(fileURL: URL) async -> FrequencyTimeline? {
-        return await analyzeInBackground(fileURL: fileURL, priority: .background, progressHandler: nil)
+        return analyzeFile(at: fileURL)
     }
 
     /// Analyze an audio file and produce a FrequencyTimeline.

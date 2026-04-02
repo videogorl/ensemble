@@ -175,10 +175,26 @@ struct EnsembleApp: App {
                 // Update Siri media user context in case library changed while backgrounded
                 await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
 
+                // Restart display timer if music was actively playing when backgrounded.
+                // Also resumes sidecar analysis so pending FFT jobs process in foreground.
+                DependencyContainer.shared.audioAnalyzer.exitBackground()
+                await DependencyContainer.shared.offlineDownloadService.resumeSidecarAnalysis()
+
             case .background:
                 // Flush log session to disk but keep the file handle open so
                 // logs continue capturing during background audio playback.
                 DependencyContainer.shared.persistentLogService.flushSession()
+
+                // Stop the frequency display timer to prevent it from burning main thread
+                // CPU during background audio playback (~3ms/sec saved on main thread).
+                // Uses enterBackground() rather than pauseUpdates() so the music-pause
+                // flag is preserved — exitBackground() on foreground restarts correctly.
+                DependencyContainer.shared.audioAnalyzer.enterBackground()
+
+                // Suspend sidecar FFT analysis. Without this, a 75-track batch download
+                // completing in background can sustain ~95% CPU (FFT at background priority
+                // outlasts iOS's background CPU budget), triggering a SIGKILL after ~2min.
+                await DependencyContainer.shared.offlineDownloadService.suspendSidecarAnalysis()
 
                 // Stop network monitoring and WebSocket connections to save battery.
                 // Without this, WebSocket reconnect loops burn ~30% network while idle.

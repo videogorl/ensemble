@@ -314,6 +314,13 @@ public final class DependencyContainer: @unchecked Sendable {
             )
         }
 
+        // Wire playback observation so sidecar analysis prioritizes the playing track.
+        // When a track with a local file starts playing and its sidecar doesn't exist yet,
+        // it moves to the front of the analysis queue for fast visualizer readiness.
+        MainActor.assumeIsolated {
+            offlineServiceRef.observePlayback(playbackServiceRef.currentTrackPublisher)
+        }
+
         // Settings manager
         settingsManager = MainActor.assumeIsolated {
             SettingsManager()

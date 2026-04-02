@@ -148,10 +148,8 @@ public final class OfflineDownloadService: ObservableObject {
     /// spam `downloadsDidChange` during bulk queue processing.
     private var downloadChangeNotificationTask: Task<Void, Never>?
 
-    /// Serial queue for post-download frequency analysis. On dual-core A9 devices,
-    /// concurrent FFT analyses (each ~2s of CPU) saturate both cores. This actor chains
-    /// analyses so only one runs at a time, at background priority, with a brief delay
-    /// to let download workers start the next transfer first.
+    /// Serializes post-download frequency analysis so only one FFT runs at a time.
+    /// Supports suspend/resume for app lifecycle and priority bumping for the playing track.
     private let sidecarAnalysisQueue = SidecarAnalysisQueue()
 
     public init(
@@ -845,6 +843,41 @@ public final class OfflineDownloadService: ObservableObject {
         try? await downloadManager.updateDownloads(withStatuses: [.paused], to: .pending)
         await refreshAllTargetProgresses()
         startQueueIfNeeded()
+    }
+
+    // MARK: - Sidecar Analysis Lifecycle
+
+    /// Suspend sidecar analysis when the app backgrounds to prevent background CPU abuse.
+    /// Any in-progress FFT stops at the next cancellation checkpoint (~0.1s); the
+    /// interrupted item is re-queued at the front and retries when the app foregrounds.
+    public func suspendSidecarAnalysis() async {
+        await sidecarAnalysisQueue.suspend()
+        EnsembleLogger.info("Sidecar analysis suspended — app backgrounded")
+    }
+
+    /// Resume sidecar analysis when the app foregrounds.
+    public func resumeSidecarAnalysis() async {
+        await sidecarAnalysisQueue.resume()
+        EnsembleLogger.info("Sidecar analysis resumed — app foregrounded")
+    }
+
+    /// Subscribe to a playback track publisher and prioritize sidecar generation for the
+    /// playing track. If the track has a local file but no sidecar yet, it moves to the
+    /// front of the queue so the visualizer is ready quickly.
+    /// Call once after init, passing PlaybackService.currentTrackPublisher.
+    public func observePlayback(_ publisher: AnyPublisher<Track?, Never>) {
+        publisher
+            .compactMap { $0?.localFilePath }
+            .removeDuplicates()
+            .sink { [weak self] localPath in
+                guard let self else { return }
+                let sourceURL = URL(fileURLWithPath: localPath)
+                let sidecarURL = sourceURL.appendingPathExtension("freq")
+                Task {
+                    await self.sidecarAnalysisQueue.prioritize(sourceURL: sourceURL, sidecarURL: sidecarURL)
+                }
+            }
+            .store(in: &cancellables)
     }
 
     /// Stops all in-progress downloads immediately and re-queues them as pending.
@@ -2221,25 +2254,112 @@ public final class OfflineDownloadService: ObservableObject {
 // MARK: - Sidecar Analysis Queue
 
 /// Serializes post-download frequency analysis so only one FFT runs at a time.
-/// Each analysis chains on the previous via Task reference, ensuring sequential execution
-/// at `.background` priority. A 500ms delay before each analysis lets download workers
-/// start the next transfer before the CPU-intensive FFT work begins.
+/// Supports suspend/resume for app lifecycle and priority bumping so the currently-
+/// playing track's sidecar is generated first.
+///
+/// Design notes:
+/// - Pending items are stored in an explicit array (not chained Task references) so they
+///   can be reordered and inspected.
+/// - On suspend(), the worker Task is cancelled. FrequencyAnalysisService.analyzeForSidecar
+///   calls analyzeFile() directly (no inner Task.detached), so Task.isCancelled inside the
+///   FFT loop (~every 0.1s at 10fps) responds to our cancellation.
+/// - The interrupted item is re-queued at the front so it retries on resume().
 private actor SidecarAnalysisQueue {
-    private var pendingTask: Task<Void, Never>?
+    private var pending: [(sourceURL: URL, sidecarURL: URL)] = []
+    /// The item currently being analyzed (popped from pending, held here for re-queuing on suspend).
+    private var currentItem: (sourceURL: URL, sidecarURL: URL)?
+    /// Active worker task. Cancelled on suspend().
+    private var workerTask: Task<Void, Never>?
+    private var isSuspended = false
 
-    /// Enqueue a sidecar analysis. Returns immediately — analysis runs asynchronously.
+    // MARK: - Public Interface
+
+    /// Add an item to the end of the queue. Skips duplicates (same sourceURL already pending).
     func enqueue(sourceURL: URL, sidecarURL: URL) {
-        let previous = pendingTask
-        pendingTask = Task.detached(priority: .background) {
-            // Wait for any previous analysis to finish first
-            _ = await previous?.value
-            // Brief delay so the download worker can pick up the next track
-            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
-            // Skip if sidecar already exists (e.g. saved by the playback analysis path)
-            if FileManager.default.fileExists(atPath: sidecarURL.path) { return }
-            if let timeline = await FrequencyAnalysisService.analyzeForSidecar(fileURL: sourceURL) {
-                try? FrequencyTimelinePersistence.save(timeline, to: sidecarURL)
-            }
+        guard !pending.contains(where: { $0.sourceURL == sourceURL }) else { return }
+        pending.append((sourceURL: sourceURL, sidecarURL: sidecarURL))
+        startWorkerIfNeeded()
+    }
+
+    /// Move an item to the front so it runs next. If not already queued, inserts it.
+    /// No-op if the sidecar file already exists.
+    func prioritize(sourceURL: URL, sidecarURL: URL) {
+        guard !FileManager.default.fileExists(atPath: sidecarURL.path) else { return }
+        pending.removeAll { $0.sourceURL == sourceURL }
+        pending.insert((sourceURL: sourceURL, sidecarURL: sidecarURL), at: 0)
+        startWorkerIfNeeded()
+    }
+
+    /// Suspend the queue. Cancels the worker task — the FFT loop checks Task.isCancelled
+    /// every ~0.1s, so it stops quickly. The interrupted item is re-queued at the front.
+    func suspend() {
+        isSuspended = true
+        workerTask?.cancel()
+        workerTask = nil
+        if let item = currentItem {
+            pending.insert(item, at: 0)
+            currentItem = nil
         }
+    }
+
+    /// Resume processing the queue.
+    func resume() {
+        isSuspended = false
+        startWorkerIfNeeded()
+    }
+
+    // MARK: - Worker
+
+    private func startWorkerIfNeeded() {
+        guard !isSuspended, workerTask == nil, !pending.isEmpty else { return }
+        let task = Task.detached(priority: .background) { [self] in
+            while let item = await self.popNextItem() {
+                // Skip if sidecar was already generated (e.g. by the playback path)
+                if FileManager.default.fileExists(atPath: item.sidecarURL.path) {
+                    await self.clearCurrentItem()
+                    continue
+                }
+                // Brief delay so download workers can start the next transfer first.
+                // Task.sleep is cancellation-aware — exits immediately on cancel.
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else {
+                    await self.requeueCurrentItem()
+                    break
+                }
+                if let timeline = await FrequencyAnalysisService.analyzeForSidecar(fileURL: item.sourceURL) {
+                    try? FrequencyTimelinePersistence.save(timeline, to: item.sidecarURL)
+                }
+                await self.clearCurrentItem()
+            }
+            await self.markWorkerFinished()
+        }
+        workerTask = task
+    }
+
+    /// Pop the next item. Returns nil if suspended or empty (stops the worker loop).
+    private func popNextItem() -> (sourceURL: URL, sidecarURL: URL)? {
+        guard !isSuspended, !pending.isEmpty else { return nil }
+        let item = pending.removeFirst()
+        currentItem = item
+        return item
+    }
+
+    private func clearCurrentItem() {
+        currentItem = nil
+    }
+
+    /// Re-insert the current item at the front so it retries after resume().
+    private func requeueCurrentItem() {
+        if let item = currentItem {
+            pending.insert(item, at: 0)
+            currentItem = nil
+        }
+    }
+
+    /// Called when the worker loop exits naturally. Clears task reference and
+    /// restarts if items arrived while the last worker was finishing.
+    private func markWorkerFinished() {
+        workerTask = nil
+        startWorkerIfNeeded()
     }
 }
