@@ -74,6 +74,17 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
   6. **Download queue polling offline** (`PlexAPIClient`): Polling loop continued for 120s when network was down. Fix: catch URLError connectivity codes and throw immediately.
 - **Key files:** `PlaybackService.swift`, `ServerHealthChecker.swift`, `SyncCoordinator.swift`, `LyricsService.swift`, `DownloadManager.swift`, `OfflineDownloadService.swift`, `PlexAPIClient.swift`
 
+### Phase 5 Performance Optimizations — SwiftUI + CPU Audit (Apr 1, 2026)
+- **Resolved (April 1, 2026)**
+- **Source:** Second round of real-device profiling on iPhone 6s (A9 dual-core, 2GB RAM, iOS 15.8.7). Instruments trace: 298K CPU samples over 7 minutes. Main thread averaged 47.5% CPU (peaking at 98%) — SwiftUI AttributeGraph 46.8%, FrequencyAnalysis 22%, 30Hz timer 22% of main thread.
+- **Fixes applied (5 total):**
+  1. **FFT throttle on ≤2-core devices** (`PlaybackService.swift`): All 4 `loadTimeline` call sites now check `ProcessInfo.processorCount <= 2` and use `.utility` priority + 5ms yield pauses (throttled mode). Analysis takes ~84s instead of ~42s per song on A9 — acceptable since visualizer updates progressively.
+  2. **Stop 30Hz timer on pause** (`AudioAnalyzer.swift`): `pauseUpdates()` now calls `stopDisplayTimer()` instead of just setting a flag. Previously the RunLoop timer fired 30×/sec doing nothing during pause.
+  3. **Coalesce download-triggered availability bumps** (`TrackAvailabilityResolver.swift`): Download completions now use 5s debounce instead of 100ms. Network/server state changes keep fast 100ms debounce. During a session with 8 downloads over 90s: 1-2 bumps instead of 8.
+  4. **Pre-rendered blurred artwork** (`NowPlayingViewModel.swift`, `BlurredArtworkBackground.swift`): `.blur(radius:80) + .contrast(2.0) + .saturation(1.9) + .brightness(-0.05)` was 4 GPU render passes on every body evaluation. Now pre-rendered once using Core Image (CIGaussianBlur + CIColorControls) on a background thread when artwork loads. NP sheet, viewport root, and mini player use pre-blurred; other consumers keep live blur.
+  5. **CurrentValueSubject for high-frequency NP properties** (`NowPlayingViewModel.swift`, `ControlsCard.swift`, `LyricsCard.swift`): Moved `waveformHeights`, `currentLyricsLineIndex`, `lyricsScrollTargetIndex`, `instrumentalProgress` from `@Published` to `CurrentValueSubject`. Cards subscribe via `.onReceive` with local `@State`. Expected ~60-70% reduction in NP body evaluations during lyrics playback.
+- **Key files:** `PlaybackService.swift`, `AudioAnalyzer.swift`, `TrackAvailabilityResolver.swift`, `NowPlayingViewModel.swift`, `BlurredArtworkBackground.swift`, `ControlsCard.swift`, `LyricsCard.swift`
+
 ### Download Quality Fallback Re-Download Loop (Mar 26, 2026)
 - **Location:** `DownloadManager.swift` (`createDownload`)
 - **Issue:** When download-queue transcode failed (TLS error, cancelled), the system fell back to `direct-original-fallback` which stored the file at `original` quality. On the next session, reconciliation called `createDownload(quality: "medium")` which saw `"original" != "medium"` and reset the download to `.pending`, triggering an infinite re-download loop every session.

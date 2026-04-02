@@ -207,3 +207,37 @@ if serverStates[serverKey] != state {
     serverStates[serverKey] = state
 }
 ```
+
+### Use `CurrentValueSubject` for High-Frequency Properties in Multi-Subscriber ViewModels
+
+Never use `@Published` for properties updated at >2Hz in ViewModels with many subscribers. Every `@Published` assignment fires `objectWillChange` for ALL `@ObservedObject` subscribers — even cards/views that don't read the changed property. Use `CurrentValueSubject` with computed property getters and explicit `AnyPublisher` accessors. Consuming views subscribe via `.onReceive` with local `@State`:
+
+```swift
+// In ViewModel:
+private let _highFreqValue = CurrentValueSubject<[Double], Never>([])
+public var highFreqValue: [Double] {
+    get { _highFreqValue.value }
+    set { _highFreqValue.send(newValue) }
+}
+public var highFreqValuePublisher: AnyPublisher<[Double], Never> {
+    _highFreqValue.eraseToAnyPublisher()
+}
+
+// In View:
+@State private var highFreqValue: [Double] = []
+.onReceive(viewModel.highFreqValuePublisher) { value in
+    highFreqValue = value
+}
+```
+
+Proven pattern from `PlaybackService.frequencyBands` and `NowPlayingViewModel.waveformHeights`/lyrics properties.
+
+### Throttle Background CPU Work on ≤2-Core Devices
+
+FFT analysis, image processing, and other CPU-heavy optional features should check `ProcessInfo.processInfo.processorCount` and use `.utility` or `.background` priority with yield pauses on dual-core devices (A9/A10). On quad-core+ devices, higher priorities are acceptable:
+
+```swift
+let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+let throttle = isInstrumentalModeActive || isLowCoreDevice
+let priority: TaskPriority = isLowCoreDevice ? .utility : .userInitiated
+```
