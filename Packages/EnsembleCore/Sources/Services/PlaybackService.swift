@@ -853,6 +853,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var qualityDebounceTask: Task<Void, Never>?
     private var downloadChangeObserver: AnyCancellable?
     private var visualizerSettingObserver: NSObjectProtocol?
+    private var lastKnownVisualizerEnabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
     private var lastObservedStreamingQuality: String = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?  // Kept for network stall detection during file resolution
@@ -4771,15 +4772,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            // Fast path: skip the Task+MainActor hop if the visualizer setting hasn't changed.
+            // UserDefaults.didChangeNotification fires on ANY key write (currentTime, queue, etc.),
+            // so without this guard we'd create ~94 unnecessary Tasks per session.
+            let current = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
+            guard current != self?.lastKnownVisualizerEnabled else { return }
+
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                let enabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
+                self.lastKnownVisualizerEnabled = current
 
                 // Keep the analyzer's timer gate in sync so it stops/starts the 30Hz timer
-                self.audioAnalyzer.visualizationEnabled = enabled
+                self.audioAnalyzer.visualizationEnabled = current
 
                 // Only act when toggled ON during active playback
-                guard enabled, self.playbackState == .playing,
+                guard current, self.playbackState == .playing,
                       let track = self.currentTrack,
                       let fileURL = self.getCachedFileURL(for: track.id) else { return }
 
