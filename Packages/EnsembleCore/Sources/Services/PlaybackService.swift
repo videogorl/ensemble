@@ -853,6 +853,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var qualityDebounceTask: Task<Void, Never>?
     private var downloadChangeObserver: AnyCancellable?
     private var visualizerSettingObserver: NSObjectProtocol?
+    private var lastKnownVisualizerEnabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
     private var lastObservedStreamingQuality: String = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?  // Kept for network stall detection during file resolution
@@ -916,6 +917,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var mutationCoordinator: MutationCoordinator?
     private var originalQueue: [QueueItem] = []  // For shuffle restore
     private var lastTimelineReportTime: TimeInterval = 0  // Track last timeline report
+    private var consecutiveTimelineFailures = 0  // Backoff counter for offline periods
     private var hasScrobbled: Bool = false  // Track if current track has been scrobbled
     private var isScrobblingEnabled: Bool {
         UserDefaults.standard.bool(forKey: "scrobblingEnabled")
@@ -1104,16 +1106,35 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     self.audioAnalyzer.updatePlaybackPosition(self.presentationTime)
                 }
 
-                // Timeline reporting every 10 seconds
+                // Timeline reporting with network awareness and failure backoff.
+                // Without this, offline periods trigger ~50 failed reports × 6 connection
+                // probes each = ~300 wasted HTTPS attempts with TLS overhead.
                 if let track = self.currentTrack,
-                   time - self.lastTimelineReportTime >= 10.0 {
-                    self.lastTimelineReportTime = time
-                    Task {
-                        await self.syncCoordinator.reportTimeline(
-                            track: track,
-                            state: "playing",
-                            time: time
-                        )
+                   self.lastObservedNetworkState?.isConnected == true {
+                    let backoffInterval: TimeInterval
+                    if self.consecutiveTimelineFailures >= 4 {
+                        backoffInterval = 60.0
+                    } else if self.consecutiveTimelineFailures >= 2 {
+                        backoffInterval = 30.0
+                    } else {
+                        backoffInterval = 10.0
+                    }
+
+                    if time - self.lastTimelineReportTime >= backoffInterval {
+                        self.lastTimelineReportTime = time
+                        let syncCoordinator = self.syncCoordinator
+                        Task { [weak self] in
+                            do {
+                                try await syncCoordinator.reportTimelineThrowing(
+                                    track: track,
+                                    state: "playing",
+                                    time: time
+                                )
+                                self?.consecutiveTimelineFailures = 0
+                            } catch {
+                                self?.consecutiveTimelineFailures += 1
+                            }
+                        }
                     }
                 }
 
@@ -1183,6 +1204,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         bufferedProgress = 1.0
         waveformHeights = []
         lastTimelineReportTime = 0
+        consecutiveTimelineFailures = 0
         hasScrobbled = false
 
         // Reset pause tracking for the new track
@@ -3331,8 +3353,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         loadingStateTask?.cancel()
         loadingStateTask = nil
 
-        // Pause engine and show loading state
+        // Update the exposed track first so state-transition logs and Now Playing
+        // do not briefly point at the previous item during a skip.
         await MainActor.run {
+            self.currentTrack = track
+            self.updatePlaybackTimes(rawTime: 0)
+            self.bufferedProgress = 0
+            self.waveformHeights = []
+            self.updateNowPlayingInfo()
             isSkipTransitionInProgress = true
             armSkipTransitionSafety()
             audioEngine?.pause()
@@ -3343,15 +3371,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Reset cache for fresh playback attempts
         if forcingFreshItem {
             await MainActor.run { removeCachedPlayerItem(for: track.id) }
-        }
-
-        // Set current track info
-        await MainActor.run {
-            self.currentTrack = track
-            self.updatePlaybackTimes(rawTime: 0)
-            self.bufferedProgress = 0
-            self.waveformHeights = []
-            self.updateNowPlayingInfo()
         }
 
         // Generate waveform asynchronously
@@ -3399,11 +3418,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
 
                 // Pre-compute frequency analysis for the visualizer.
-                // Throttle when instrumental mode is active to reduce CPU cache
-                // contention with AUSoundIsolation's neural network on the IO thread.
+                // Throttle when instrumental mode is active or on ≤2-core devices (A9)
+                // to reduce CPU cache contention and avoid saturating the main thread.
                 if isVisualizerEnabled {
-                    let throttle = isInstrumentalModeActive
-                    let priority: TaskPriority = throttle ? .background : .userInitiated
+                    let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+                    let throttle = isInstrumentalModeActive || isLowCoreDevice
+                    let priority: TaskPriority
+                    if isInstrumentalModeActive {
+                        priority = .background
+                    } else if isLowCoreDevice {
+                        priority = .utility
+                    } else {
+                        priority = .userInitiated
+                    }
                     EnsembleLogger.debug("[Visualizer] Dispatching loadTimeline for '\(track.title)', url=\(fileURL.lastPathComponent), isFile=\(fileURL.isFileURL)")
                     Task.detached { [audioAnalyzer] in
                         await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: priority, throttled: throttle)
@@ -4181,13 +4208,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try engine.scheduleNext(fileURL: fileURL, trackId: track.id)
 
             // Pre-compute frequency timeline so the visualizer is ready on gapless advance.
-            // When instrumental mode is active, defer by 10s to avoid CPU cache contention
-            // with AUSoundIsolation during the critical post-schedule period when the user
-            // is likely interacting with the UI.
+            // When instrumental mode or low-core device, defer to avoid CPU contention
+            // during the critical post-schedule period when the user is likely interacting.
             if isVisualizerEnabled {
                 let analyzer = self.audioAnalyzer
-                let throttle = isInstrumentalModeActive
-                let priority: TaskPriority = throttle ? .background : .utility
+                let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+                let throttle = isInstrumentalModeActive || isLowCoreDevice
+                let priority: TaskPriority = (isInstrumentalModeActive || isLowCoreDevice) ? .background : .utility
                 Task.detached {
                     if throttle {
                         try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s delay
@@ -4459,10 +4486,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 updatePlaybackTimes(rawTime: savedTime)
             }
 
-            // Pre-load frequency timeline (throttle during instrumental mode)
+            // Pre-load frequency timeline (throttle during instrumental mode or on low-core devices)
             if isVisualizerEnabled {
-                let throttle = isInstrumentalModeActive
-                let priority: TaskPriority = throttle ? .background : .utility
+                let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+                let throttle = isInstrumentalModeActive || isLowCoreDevice
+                let priority: TaskPriority = (isInstrumentalModeActive || isLowCoreDevice) ? .background : .utility
                 Task.detached { [audioAnalyzer] in
                     await audioAnalyzer.loadTimeline(
                         for: track.id, fileURL: fileURL, priority: priority, throttled: throttle
@@ -4771,19 +4799,36 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            // Fast path: skip the Task+MainActor hop if the visualizer setting hasn't changed.
+            // UserDefaults.didChangeNotification fires on ANY key write (currentTime, queue, etc.),
+            // so without this guard we'd create ~94 unnecessary Tasks per session.
+            let current = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
+            guard current != self?.lastKnownVisualizerEnabled else { return }
+
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                let enabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
+                self.lastKnownVisualizerEnabled = current
+
+                // Keep the analyzer's timer gate in sync so it stops/starts the 30Hz timer
+                self.audioAnalyzer.visualizationEnabled = current
 
                 // Only act when toggled ON during active playback
-                guard enabled, self.playbackState == .playing,
+                guard current, self.playbackState == .playing,
                       let track = self.currentTrack,
                       let fileURL = self.getCachedFileURL(for: track.id) else { return }
 
                 let analyzer = self.audioAnalyzer
                 let trackId = track.id
-                let throttle = self.isInstrumentalModeActive
-                let priority: TaskPriority = throttle ? .background : .userInitiated
+                let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+                let throttle = self.isInstrumentalModeActive || isLowCoreDevice
+                let priority: TaskPriority
+                if self.isInstrumentalModeActive {
+                    priority = .background
+                } else if isLowCoreDevice {
+                    priority = .utility
+                } else {
+                    priority = .userInitiated
+                }
 
                 EnsembleLogger.debug("[Visualizer] Setting toggled ON mid-song — loading timeline for '\(track.title)'")
                 Task.detached {
@@ -4883,6 +4928,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         updatePlaybackTimes(rawTime: 0)
         bufferedProgress = 0
         lastTimelineReportTime = 0
+        consecutiveTimelineFailures = 0
         hasScrobbled = false
                                         autoGeneratedTrackIds.removeAll()
 

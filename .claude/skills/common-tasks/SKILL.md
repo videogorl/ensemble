@@ -247,7 +247,8 @@ Use this flow for target-based offline support:
    - `deleteDownload(forTrackRatingKey:sourceCompositeKey:)`
 4. Keep removal reference-counted by checking membership counts before deleting local files.
 5. Trigger reconcile after source changes:
-   - observe `SyncCoordinator.sourceStatuses` for sync timestamp updates
+   - observe `SyncCoordinator.sourceStatuses` for sync timestamp updates in download/offline services
+   - observe `SyncCoordinator.lastContentChange` for browse-surface reloads; do not drive full library reloads from generic `sourceStatuses` churn
    - wire `SyncCoordinator.onPlaylistRefreshCompleted` for playlist-target refresh
 6. Respect download quality by reading `downloadQuality` and passing mapped `StreamingQuality` into stream URL generation.
 

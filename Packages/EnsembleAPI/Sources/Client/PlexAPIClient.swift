@@ -1193,11 +1193,27 @@ public actor PlexAPIClient {
 
         // Poll with exponential backoff until the item is ready.
         // Starts at 1s, doubles each iteration, capped at 15s.
+        // Exits immediately on network connectivity errors to avoid spinning offline.
         let timeoutDeadline = Date().addingTimeInterval(120)
         var pollInterval: UInt64 = 1_000_000_000 // 1s initial
         let maxPollInterval: UInt64 = 15_000_000_000 // 15s cap
         while Date() < timeoutDeadline {
-            let item = try await getDownloadQueueItem(queueId: queueId, itemId: itemId)
+            let item: DownloadQueueItemRecord
+            do {
+                item = try await getDownloadQueueItem(queueId: queueId, itemId: itemId)
+            } catch let urlError as URLError where [
+                .notConnectedToInternet, .networkConnectionLost,
+                .dataNotAllowed, .internationalRoamingOff
+            ].contains(urlError.code) {
+                // No point polling when offline — exit immediately
+                throw urlError
+            } catch {
+                // Non-network error: continue polling with backoff
+                try? await Task.sleep(nanoseconds: pollInterval)
+                pollInterval = min(pollInterval * 2, maxPollInterval)
+                continue
+            }
+
             switch item.status {
             case "available":
                 let media = try await fetchDownloadQueueMedia(queueId: queueId, itemId: itemId)

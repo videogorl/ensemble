@@ -82,7 +82,16 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var playbackHistory: [QueueItem] = []
     @Published public private(set) var isShuffleEnabled = false
     @Published public private(set) var repeatMode: RepeatMode = .off
-    @Published public private(set) var waveformHeights: [Double] = []
+    // waveformHeights uses CurrentValueSubject to avoid firing objectWillChange
+    // at ~10Hz — only ControlsCard needs this, not all 4 NP cards.
+    private let _waveformHeights = CurrentValueSubject<[Double], Never>([])
+    public var waveformHeights: [Double] {
+        get { _waveformHeights.value }
+        set { _waveformHeights.send(newValue) }
+    }
+    public var waveformHeightsPublisher: AnyPublisher<[Double], Never> {
+        _waveformHeights.eraseToAnyPublisher()
+    }
     @Published public var currentRating: TrackRating = .none
     @Published public private(set) var isAutoplayEnabled = false
     @Published public private(set) var autoplayTracks: [Track] = []
@@ -95,6 +104,9 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var isPlaylistMutationInProgress = false
     @Published public var lastPlaylistTarget: LastPlaylistTarget?
     @Published public private(set) var artworkImage: PlatformImage?
+    /// Pre-rendered blurred artwork for NP background — avoids live .blur(80) +
+    /// .contrast(2.0) + .saturation(1.9) + .brightness(-0.05) on every body eval.
+    @Published public private(set) var blurredArtworkImage: PlatformImage?
     @Published private var optimisticTrackRatings: [String: Int] = [:]
     /// Mirrors TrackAvailabilityResolver generation to drive isCurrentTrackPlayable re-evaluation
     @Published private var availabilityGeneration: UInt64 = 0
@@ -102,11 +114,36 @@ public final class NowPlayingViewModel: ObservableObject {
     // Lyrics state driven by LyricsService
     @Published public private(set) var lyricsState: LyricsState = .notAvailable
     @Published public private(set) var lyricsSource: LyricsSource = .none
-    @Published public private(set) var currentLyricsLineIndex: Int?
+    // High-frequency lyrics properties use CurrentValueSubject to avoid firing
+    // objectWillChange every ~0.5s — only LyricsCard needs these, not all 4 NP cards.
+    private let _currentLyricsLineIndex = CurrentValueSubject<Int?, Never>(nil)
+    public var currentLyricsLineIndex: Int? {
+        get { _currentLyricsLineIndex.value }
+        set { _currentLyricsLineIndex.send(newValue) }
+    }
+    public var currentLyricsLineIndexPublisher: AnyPublisher<Int?, Never> {
+        _currentLyricsLineIndex.eraseToAnyPublisher()
+    }
+
     // Scroll target looks ahead so lyrics anticipate the vocals
-    @Published public private(set) var lyricsScrollTargetIndex: Int?
+    private let _lyricsScrollTargetIndex = CurrentValueSubject<Int?, Never>(nil)
+    public var lyricsScrollTargetIndex: Int? {
+        get { _lyricsScrollTargetIndex.value }
+        set { _lyricsScrollTargetIndex.send(newValue) }
+    }
+    public var lyricsScrollTargetIndexPublisher: AnyPublisher<Int?, Never> {
+        _lyricsScrollTargetIndex.eraseToAnyPublisher()
+    }
+
     // Progress through an instrumental gap (0.0 to 1.0), nil when not in a gap
-    @Published public private(set) var instrumentalProgress: Double?
+    private let _instrumentalProgress = CurrentValueSubject<Double?, Never>(nil)
+    public var instrumentalProgress: Double? {
+        get { _instrumentalProgress.value }
+        set { _instrumentalProgress.send(newValue) }
+    }
+    public var instrumentalProgressPublisher: AnyPublisher<Double?, Never> {
+        _instrumentalProgress.eraseToAnyPublisher()
+    }
     // Pre-computed set of line indices that have an instrumental gap AFTER them
     @Published public private(set) var instrumentalGapAfterIndices: Set<Int> = []
     // Whether there's an instrumental gap before the first lyric
@@ -133,6 +170,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
     // Artwork loading state
     private var artworkLoadTask: Task<Void, Never>?
+    private var blurGenerationTask: Task<Void, Never>?
     private var currentLoadTrackID: String?
 
     // Track if we're currently updating the rating to prevent overwriting
@@ -194,7 +232,10 @@ public final class NowPlayingViewModel: ObservableObject {
         
         playbackService.waveformPublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$waveformHeights)
+            .sink { [weak self] heights in
+                self?.waveformHeights = heights
+            }
+            .store(in: &cancellables)
 
         playbackService.autoplayEnabledPublisher
             .receive(on: DispatchQueue.main)
@@ -549,9 +590,10 @@ public final class NowPlayingViewModel: ObservableObject {
                 // Try synchronous cache lookup first
                 if let cachedImage = Nuke.ImagePipeline.shared.cache.cachedImage(for: request) {
                     guard !Task.isCancelled else { return }
-                    
+
                     if self.currentLoadTrackID == trackID {
                         self.artworkImage = cachedImage.image
+                        self.dispatchBlurGeneration(for: cachedImage.image, trackID: trackID)
                     }
                     return
                 }
@@ -567,6 +609,7 @@ public final class NowPlayingViewModel: ObservableObject {
                         withAnimation(.easeInOut(duration: 0.5)) {
                             self.artworkImage = result
                         }
+                        self.dispatchBlurGeneration(for: result, trackID: trackID)
                     }
                 }
                 // If Nuke fails (transient network error, pipeline cancellation),
@@ -581,9 +624,72 @@ public final class NowPlayingViewModel: ObservableObject {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         self.artworkImage = nil
                     }
+                    self.dispatchBlurGeneration(for: nil, trackID: trackID)
                 }
             }
         }
+    }
+
+    /// Dispatch background pre-rendering of blurred artwork for NP background.
+    /// Avoids live .blur(80) + .contrast(2.0) + .saturation(1.9) + .brightness(-0.05)
+    /// on every SwiftUI body evaluation — saves 4 GPU render passes per body eval.
+    private func dispatchBlurGeneration(for image: PlatformImage?, trackID: String) {
+        blurGenerationTask?.cancel()
+
+        guard let source = image else {
+            blurredArtworkImage = nil
+            return
+        }
+
+        blurGenerationTask = Task.detached(priority: .utility) { [weak self] in
+            let blurred = NowPlayingViewModel.generateBlurredImage(from: source)
+            await MainActor.run {
+                guard let self, self.currentLoadTrackID == trackID else { return }
+                self.blurredArtworkImage = blurred
+            }
+        }
+    }
+
+    /// Pre-render blurred artwork using Core Image.
+    /// Applies CIGaussianBlur (radius 40) + CIColorControls (contrast 2.0,
+    /// saturation 1.9, brightness -0.05) to match BlurredArtworkBackground's
+    /// live SwiftUI modifiers, computed once on a background thread.
+    nonisolated private static func generateBlurredImage(from source: PlatformImage) -> PlatformImage? {
+        #if os(iOS) || os(tvOS) || os(watchOS)
+        guard let ciImage = CIImage(image: source) else { return nil }
+        #elseif os(macOS)
+        guard let tiffData = source.tiffRepresentation,
+              let ciImage = CIImage(data: tiffData) else { return nil }
+        #endif
+
+        // Gaussian blur — radius 40 on the 600px source ≈ 80pt in SwiftUI
+        // when scaled to fit ~375pt screen width
+        guard let blurFilter = CIFilter(name: "CIGaussianBlur") else { return nil }
+        blurFilter.setValue(ciImage, forKey: kCIInputImageKey)
+        blurFilter.setValue(40.0, forKey: kCIInputRadiusKey)
+
+        guard let blurred = blurFilter.outputImage else { return nil }
+
+        // CIGaussianBlur extends image bounds — crop back to original extent
+        let cropped = blurred.cropped(to: ciImage.extent)
+
+        // Apply contrast/saturation/brightness to match BlurredArtworkBackground defaults
+        guard let colorFilter = CIFilter(name: "CIColorControls") else { return nil }
+        colorFilter.setValue(cropped, forKey: kCIInputImageKey)
+        colorFilter.setValue(2.0, forKey: kCIInputContrastKey)
+        colorFilter.setValue(1.9, forKey: kCIInputSaturationKey)
+        colorFilter.setValue(-0.05, forKey: kCIInputBrightnessKey)
+
+        guard let output = colorFilter.outputImage else { return nil }
+
+        let context = CIContext(options: [.useSoftwareRenderer: false])
+        guard let cgImage = context.createCGImage(output, from: output.extent) else { return nil }
+
+        #if os(iOS) || os(tvOS) || os(watchOS)
+        return UIImage(cgImage: cgImage)
+        #elseif os(macOS)
+        return NSImage(cgImage: cgImage, size: source.size)
+        #endif
     }
 
     // MARK: - Computed Properties
@@ -1215,6 +1321,7 @@ public final class NowPlayingViewModel: ObservableObject {
     
     /// Toggle rating through three states: none → loved → disliked → none
     public func toggleRating() {
+        guard !isUpdatingRating else { return }
         Task {
             guard let track = currentTrack else { return }
             

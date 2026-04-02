@@ -13,6 +13,8 @@ ensemble/
 +-- Ensemble.xcodeproj             # Xcode project file
 +-- CLAUDE.md                      # Agent instructions
 +-- README.md                      # User-facing documentation
++-- .claude/skills/                # Project-specific agent skills and bundled helper scripts
+|   +-- trace-analysis/            # Instruments .trace export + correlation workflow
 +-- scripts/
 |   +-- compile_coredata_model.sh # Compiles SwiftPM CoreData model bundle for package tests
 |   +-- update_build_number.sh    # Sets deterministic CFBundleVersion for app + Siri extension builds
@@ -187,6 +189,7 @@ Tests/
 +-- PlaybackServiceTests.swift
 +-- NetworkMonitorTests.swift
 +-- SyncCoordinatorNetworkHealthTests.swift
++-- OfflineDownloadServicePolicyTests.swift # Playback/background download work-mode policy coverage
 +-- HomeViewModelRefreshPolicyTests.swift
 +-- ServerHealthCheckerClassificationTests.swift
 +-- SettingsManagerConnectionPolicyTests.swift

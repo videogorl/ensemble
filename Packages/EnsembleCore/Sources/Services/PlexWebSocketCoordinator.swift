@@ -60,6 +60,9 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private var pendingPlaylistUpdates: [String: Task<Void, Never>] = [:]
     private let libraryUpdateDebounce: TimeInterval = 3.0
     private let playlistUpdateDebounce: TimeInterval = 5.0
+    private let recentLibrarySyncCooldown: TimeInterval = 10.0
+    private var activeLibrarySyncs: Set<String> = []
+    private var lastLibrarySyncCompletion: [String: Date] = [:]
 
     // Debounce settings-changed events per server to coalesce rapid bursts
     private var pendingSettingsUpdates: [String: Task<Void, Never>] = [:]
@@ -125,6 +128,8 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             task.cancel()
         }
         pendingLibraryUpdates.removeAll()
+        activeLibrarySyncs.removeAll()
+        lastLibrarySyncCompletion.removeAll()
         for (_, task) in pendingPlaylistUpdates {
             task.cancel()
         }
@@ -318,13 +323,18 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64((self?.libraryUpdateDebounce ?? 3.0) * 1_000_000_000))
             guard !Task.isCancelled else { return }
 
+            guard let self else { return }
+            guard await self.shouldTriggerLibrarySync(for: debounceKey) else { return }
+
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Triggering incremental sync for section \(sectionKey)")
 
-            if let onLibraryUpdate = await self?.onLibraryUpdate {
+            if let onLibraryUpdate = await self.onLibraryUpdate {
                 await onLibraryUpdate(sectionKey)
             } else {
                 EnsembleLogger.error("🔌 WebSocketCoordinator: onLibraryUpdate callback is nil — sync not triggered!")
             }
+
+            await self.finishLibrarySync(for: debounceKey)
         }
     }
 
@@ -390,5 +400,26 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         for library in server.libraries where library.isEnabled {
             debouncedLibraryUpdate(sectionKey: library.key, serverKey: serverKey)
         }
+    }
+
+    private func shouldTriggerLibrarySync(for debounceKey: String) -> Bool {
+        if activeLibrarySyncs.contains(debounceKey) {
+            EnsembleLogger.debug("🔌 WebSocketCoordinator: Skipping section sync for \(debounceKey) — already in flight")
+            return false
+        }
+
+        if let lastCompletion = lastLibrarySyncCompletion[debounceKey],
+           Date().timeIntervalSince(lastCompletion) < recentLibrarySyncCooldown {
+            EnsembleLogger.debug("🔌 WebSocketCoordinator: Skipping section sync for \(debounceKey) — completed recently")
+            return false
+        }
+
+        activeLibrarySyncs.insert(debounceKey)
+        return true
+    }
+
+    private func finishLibrarySync(for debounceKey: String) {
+        activeLibrarySyncs.remove(debounceKey)
+        lastLibrarySyncCompletion[debounceKey] = Date()
     }
 }

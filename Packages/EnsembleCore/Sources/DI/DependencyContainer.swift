@@ -263,11 +263,7 @@ public final class DependencyContainer: @unchecked Sendable {
                 .sink { [weak offlineServiceForPower] isLowPower in
                     _ = powerCancellable // retain
                     Task { @MainActor in
-                        if isLowPower {
-                            await offlineServiceForPower?.pauseQueue()
-                        } else {
-                            await offlineServiceForPower?.resumeQueue()
-                        }
+                        await offlineServiceForPower?.setLowPowerModePaused(isLowPower)
                     }
                 }
         }
@@ -312,6 +308,19 @@ public final class DependencyContainer: @unchecked Sendable {
                 playlistRepository: playlistRef,
                 playbackService: playbackServiceRef
             )
+        }
+
+        // Wire playback observation so sidecar analysis prioritizes the playing track.
+        // When a track with a local file starts playing and its sidecar doesn't exist yet,
+        // it moves to the front of the analysis queue for fast visualizer readiness.
+        MainActor.assumeIsolated {
+            offlineServiceRef.observePlayback(
+                trackPublisher: playbackServiceRef.currentTrackPublisher,
+                playbackStatePublisher: playbackServiceRef.playbackStatePublisher
+            )
+            syncCoordinatorRef.shouldDeferForegroundHealthRefresh = { [weak offlineServiceRef] in
+                offlineServiceRef?.shouldDeferForegroundHealthRefresh ?? false
+            }
         }
 
         // Settings manager
@@ -392,6 +401,12 @@ public final class DependencyContainer: @unchecked Sendable {
         // Wire mutation coordinator into PlaybackService for offline lock-screen rating support
         MainActor.assumeIsolated {
             playbackServiceRef.setMutationCoordinator(mutationCoordinatorRef)
+        }
+
+        // Sync aurora visualization setting to frequency analyzer.
+        // When disabled, the 30Hz display timer won't start — saves measurable CPU on A9.
+        MainActor.assumeIsolated {
+            audioAnalyzerRef.visualizationEnabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
         }
 
         // Sharing services — SongLinkService resolves universal links, ShareService coordinates payloads

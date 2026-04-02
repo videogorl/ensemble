@@ -57,6 +57,7 @@ public struct NowPlayingSheetView: View {
         return ZStack {
             BlurredArtworkBackground(
                 image: viewModel.artworkImage,
+                preBlurredImage: viewModel.blurredArtworkImage,
                 overlayColor: colorScheme == .dark ? .black : lightOverlayColor
             )
             .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)

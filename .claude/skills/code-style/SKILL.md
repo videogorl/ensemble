@@ -177,3 +177,102 @@ When fetching entities that will have relationships accessed during mapping, set
 ### Batch I/O Over Per-Item Calls
 
 For operations like checking file existence across 1000+ items, pre-compute results in bulk (`FileManager.contentsOfDirectory` -> `Set<String>`) and pass the set to per-item initializers. Never call `FileManager.fileExists` in a loop.
+
+### Never Observe `UserDefaults.didChangeNotification` for a Specific Key
+
+`UserDefaults.didChangeNotification` fires on ANY key write — not just the key you care about. PlaybackService writes `currentTime`, `queue`, etc. frequently, so an observer for a visualizer toggle fires 94+ times per session with only 1 real change. Instead, cache the last-known value and compare before creating a Task:
+
+```swift
+private var lastKnownSetting = UserDefaults.standard.bool(forKey: "mySetting")
+
+// In observer:
+let current = UserDefaults.standard.bool(forKey: "mySetting")
+guard current != self?.lastKnownSetting else { return }
+self?.lastKnownSetting = current
+// ... proceed with actual change handling
+```
+
+Alternatively, use KVO on the specific key if you need change-only notifications.
+
+### Guard `@Published` Dictionary Writes with `!= oldValue`
+
+Dictionary mutations on `@Published` properties always publish Combine changes, even when the value being assigned is identical. `.removeDuplicates()` on subscribers doesn't help because dictionary value semantics publish on any mutation. This causes spurious SwiftUI re-renders downstream. Always guard:
+
+```swift
+// BAD: publishes every time, even if state hasn't changed
+serverStates[serverKey] = state
+
+// GOOD: only publishes on actual state transitions
+if serverStates[serverKey] != state {
+    serverStates[serverKey] = state
+}
+```
+
+### Use `CurrentValueSubject` for High-Frequency Properties in Multi-Subscriber ViewModels
+
+Never use `@Published` for properties updated at >2Hz in ViewModels with many subscribers. Every `@Published` assignment fires `objectWillChange` for ALL `@ObservedObject` subscribers — even cards/views that don't read the changed property. Use `CurrentValueSubject` with computed property getters and explicit `AnyPublisher` accessors. Consuming views subscribe via `.onReceive` with local `@State`:
+
+```swift
+// In ViewModel:
+private let _highFreqValue = CurrentValueSubject<[Double], Never>([])
+public var highFreqValue: [Double] {
+    get { _highFreqValue.value }
+    set { _highFreqValue.send(newValue) }
+}
+public var highFreqValuePublisher: AnyPublisher<[Double], Never> {
+    _highFreqValue.eraseToAnyPublisher()
+}
+
+// In View:
+@State private var highFreqValue: [Double] = []
+.onReceive(viewModel.highFreqValuePublisher) { value in
+    highFreqValue = value
+}
+```
+
+Proven pattern from `PlaybackService.frequencyBands` and `NowPlayingViewModel.waveformHeights`/lyrics properties.
+
+### Throttle Background CPU Work on ≤2-Core Devices
+
+FFT analysis, image processing, and other CPU-heavy optional features should check `ProcessInfo.processInfo.processorCount` and use `.utility` or `.background` priority with yield pauses on dual-core devices (A9/A10). On quad-core+ devices, higher priorities are acceptable:
+
+```swift
+let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+let throttle = isInstrumentalModeActive || isLowCoreDevice
+let priority: TaskPriority = isLowCoreDevice ? .utility : .userInitiated
+```
+
+### Separate Lifecycle Pauses from User-Initiated Pauses
+
+When stopping CPU work on app background (e.g., display timers, analysis queues), use dedicated lifecycle methods rather than reusing the same flag as user-initiated pauses. Sharing state causes incorrect resume behavior when both overlap.
+
+```swift
+// BAD — pauseUpdates() is also called by PlaybackService on music pause.
+// When app foregrounds: resumeUpdates() restarts the timer while music is still paused.
+case .background: audioAnalyzer.pauseUpdates()
+case .active:     audioAnalyzer.resumeUpdates()  // wrong if user paused music
+
+// GOOD — separate method preserves isPaused flag, restarts only if music was playing
+case .background: audioAnalyzer.enterBackground()   // stops timer, doesn't touch isPaused
+case .active:     audioAnalyzer.exitBackground()    // restarts timer only if !isPaused
+```
+
+Pattern proven by `AudioAnalyzer.enterBackground()`/`exitBackground()` and `SidecarAnalysisQueue.suspend()`/`resume()` — see Phase 7 entry in `known-issues` skill.
+
+### Never Call `ProcessInfo.processorCount` in Rendering or Animation Hot Paths
+
+`ProcessInfo.processInfo.processorCount` is not a cheap syscall. Store it **once** as a `let` constant at init time for any view or service that makes rendering decisions per-frame. Never call it inside `drawAurora()`, `Canvas {}` closures, `TimelineView` callbacks, or any function that runs at >1Hz:
+
+```swift
+// GOOD — stored once in init, checked at 15-30fps with zero syscall overhead
+private let isLowCoreDevice: Bool
+
+init(...) {
+    self.isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+}
+
+// BAD — syscall on every frame (15-30fps = thousands of calls per minute)
+private var isLowCoreDevice: Bool {
+    ProcessInfo.processInfo.processorCount <= 2
+}
+```

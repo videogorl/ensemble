@@ -254,10 +254,13 @@ public final class LyricsService: ObservableObject {
     @Published public private(set) var currentLyrics: LyricsState = .notAvailable
     @Published public private(set) var currentLyricsSource: LyricsSource = .none
 
-    // In-memory cache keyed by "ratingKey:sourceCompositeKey" (max ~20 entries)
-    // Only caches successful results — .notAvailable is NOT cached so retries are possible
+    // In-memory cache keyed by "ratingKey:sourceCompositeKey" (max ~20 entries).
+    // Both .available and .notAvailable results are cached. Negative entries expire
+    // after 30 minutes to allow retries once PMS's LyricFind cache warms up.
     private var cache: [String: LyricsState] = [:]
+    private var negativeCacheTimestamps: [String: Date] = [:]
     private let maxCacheSize = 20
+    private let negativeCacheTTL: TimeInterval = 30 * 60  // 30 minutes
 
     // Cancel in-flight fetch on track change
     private var loadTask: Task<Void, Never>?
@@ -284,11 +287,19 @@ public final class LyricsService: ObservableObject {
 
         let cacheKey = Self.cacheKey(for: track)
 
-        // Check in-memory cache
+        // Check in-memory cache (negative entries expire after 30 min to allow retry)
         if let cached = cache[cacheKey] {
-            currentLyrics = cached
-            currentLyricsSource = .memoryCache
-            return
+            if case .notAvailable = cached,
+               let timestamp = negativeCacheTimestamps[cacheKey],
+               Date().timeIntervalSince(timestamp) >= negativeCacheTTL {
+                // Negative cache expired — evict and re-fetch
+                cache.removeValue(forKey: cacheKey)
+                negativeCacheTimestamps.removeValue(forKey: cacheKey)
+            } else {
+                currentLyrics = cached
+                currentLyricsSource = .memoryCache
+                return
+            }
         }
 
         currentLyrics = .loading
@@ -337,6 +348,12 @@ public final class LyricsService: ObservableObject {
                 EnsembleLogger.debug("Lyrics: loaded from persistent cache (\(parsed.lines.count) lines)")
                 return (.available(parsed), .persistentCache)
             }
+        }
+
+        // Skip server fetch when offline — avoids triggering connection probes we know will fail
+        if syncCoordinator.isOffline {
+            EnsembleLogger.debug("Lyrics: offline, no cached lyrics for track \(track.id)")
+            return (.notAvailable, .noApiClient)
         }
 
         // 2. Fetch track metadata to discover lyrics streams
@@ -542,16 +559,27 @@ public final class LyricsService: ObservableObject {
     }
 
     private func setCached(_ state: LyricsState, forKey key: String) {
-        // Only cache successful results — don't cache .notAvailable so retries
-        // are possible when PMS's LyricFind cache warms up
-        guard case .available = state else { return }
+        // Skip caching transient states
+        guard case .available = state else {
+            // Cache .notAvailable with a timestamp so it expires after negativeCacheTTL.
+            // This prevents 18-request storms when the same 404 stream is retried per
+            // track visit, while still allowing retries once PMS's LyricFind cache warms up.
+            if case .notAvailable = state {
+                cache[key] = state
+                negativeCacheTimestamps[key] = Date()
+            }
+            return
+        }
 
         cache[key] = state
+        // Clear any negative timestamp if we now have a positive result
+        negativeCacheTimestamps.removeValue(forKey: key)
 
         // Evict oldest entries if over limit
         if cache.count > maxCacheSize {
             if let firstKey = cache.keys.first {
                 cache.removeValue(forKey: firstKey)
+                negativeCacheTimestamps.removeValue(forKey: firstKey)
             }
         }
     }

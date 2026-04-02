@@ -34,7 +34,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         since timestamp: TimeInterval,
         to repository: LibraryRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
-    ) async throws {
+    ) async throws -> LibrarySyncResult {
         let sourceKey = sourceIdentifier.compositeKey
         EnsembleLogger.debug("🔄 Incremental sync for \(sourceKey) since \(Date(timeIntervalSince1970: timestamp))")
 
@@ -157,24 +157,16 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let newTracks = try await apiClient.getTracks(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedTracks = try await apiClient.getTracks(sectionKey: sectionKey, updatedAfter: timestamp)
 
-        // Only fetch rated tracks when the sync window is recent (≤10min).
-        // The ratedAfter filter (lastRatedAt>=) returns ALL ever-rated tracks,
-        // not just recently rated ones, which wastes ~1MB per sync cycle.
-        // Beyond 10 minutes, rating changes are caught by the next full sync.
-        let ratedTracks: [PlexTrack]
-        let syncAge = Date().timeIntervalSince(Date(timeIntervalSince1970: timestamp))
-        if syncAge <= 600 {
-            ratedTracks = try await apiClient.getTracks(sectionKey: sectionKey, ratedAfter: timestamp)
-        } else {
-            ratedTracks = []
-            EnsembleLogger.debug("⏱️ Skipping ratedAfter fetch (sync age: \(String(format: "%.0f", syncAge))s > 600s)")
-        }
+        // Note: ratedAfter (lastRatedAt>=) is intentionally omitted. The Plex API filter
+        // returns ALL ever-rated tracks regardless of the timestamp argument, wasting ~1MB
+        // and 3+ seconds per cycle for zero incremental benefit. Rating changes made on
+        // other clients are caught by the next full sync (app launch or 1h periodic).
+        // On-device rating changes go through MutationCoordinator immediately.
 
         // Deduplicate by ratingKey, then filter to items actually changed vs local copy
         var trackMap: [String: PlexTrack] = [:]
         for t in newTracks { trackMap[t.ratingKey] = t }
         for t in updatedTracks { trackMap[t.ratingKey] = t }
-        for t in ratedTracks { trackMap[t.ratingKey] = t }
         let tracksToSync = trackMap.values.filter { track in
             // Check if rating changed (Plex updates lastRatedAt, not updatedAt, for rating changes)
             let serverRating = Int16(track.userRating.map { Int($0) } ?? 0)
@@ -198,7 +190,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             return localRating != Int16(track.userRating.map { Int($0) } ?? 0)
         }.count
         let tracksTimestampChanged = tracksToSync.count - tracksNew - tracksRatingChanged
-        EnsembleLogger.debug("⏱️ Incremental sync: tracks fetch \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(trackMap.count) from server (\(ratedTracks.count) rated), \(tracksToSync.count) to sync (new=\(tracksNew), ratingChanged=\(tracksRatingChanged), timestampChanged=\(tracksTimestampChanged))")
+        EnsembleLogger.debug("⏱️ Incremental sync: tracks fetch \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(trackMap.count) from server, \(tracksToSync.count) to sync (new=\(tracksNew), ratingChanged=\(tracksRatingChanged), timestampChanged=\(tracksTimestampChanged))")
         phaseStart = CFAbsoluteTimeGetCurrent()
         for track in tracksToSync {
             // Copy genre from parent album (Plex doesn't return genres on tracks)
@@ -264,12 +256,20 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         progressHandler(1.0)
         EnsembleLogger.debug("⏱️ Incremental sync: orphan check took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
         EnsembleLogger.debug("✅ Incremental sync complete for \(sourceKey) — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
+        return LibrarySyncResult(
+            changedArtists: artistsToSync.count,
+            changedAlbums: albumsToSync.count,
+            changedTracks: tracksToSync.count,
+            removedArtists: removedArtists,
+            removedAlbums: removedAlbums,
+            removedTracks: removedTracks
+        )
     }
     
     public func syncLibrary(
         to repository: LibraryRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
-    ) async throws {
+    ) async throws -> LibrarySyncResult {
         let syncStart = CFAbsoluteTimeGetCurrent()
         let sourceKey = sourceIdentifier.compositeKey
         EnsembleLogger.debug("🔄 Full library sync starting for \(sourceKey)")
@@ -411,12 +411,22 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
 
         progressHandler(1.0)
+        return LibrarySyncResult(
+            changedArtists: artists.count,
+            changedAlbums: albums.count,
+            changedTracks: tracks.count,
+            changedGenres: genres.count,
+            removedArtists: removedArtists,
+            removedAlbums: removedAlbums,
+            removedTracks: removedTracks,
+            removedGenres: removedGenres
+        )
     }
 
     public func syncPlaylists(
         to repository: PlaylistRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
-    ) async throws {
+    ) async throws -> PlaylistSyncResult {
         // Use server-level identifier for playlists (not library-specific)
         let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
 
@@ -459,13 +469,14 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         EnsembleLogger.debug("⏱️ Playlist sync: full sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s (\(playlists.count) playlists)")
         progressHandler(1.0)
+        return PlaylistSyncResult(changedPlaylists: playlists.count)
     }
 
     /// Sync only playlists that changed since last sync (incremental)
     public func syncPlaylistsIncremental(
         to repository: PlaylistRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
-    ) async throws {
+    ) async throws -> PlaylistSyncResult {
         let syncStart = CFAbsoluteTimeGetCurrent()
         let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
         let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
@@ -476,8 +487,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // If never synced, fall back to full sync
         guard lastSyncTimestamp > 0 else {
             EnsembleLogger.debug("⚠️ No previous playlist sync found, performing full sync")
-            try await syncPlaylists(to: repository, progressHandler: progressHandler)
-            return
+            return try await syncPlaylists(to: repository, progressHandler: progressHandler)
         }
 
         progressHandler(0.1)
@@ -558,6 +568,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         EnsembleLogger.debug("⏱️ Incremental playlist sync complete — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
 
         progressHandler(1.0)
+        return PlaylistSyncResult(
+            changedPlaylists: changedPlaylists.count,
+            removedPlaylists: removedPlaylists
+        )
     }
 
 public func getStreamURL(

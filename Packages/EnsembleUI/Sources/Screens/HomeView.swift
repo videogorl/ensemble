@@ -282,7 +282,10 @@ struct HubItemCard: View {
     let item: HubItem
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    // Not @ObservedObject — pinManager publishes on every pin/unpin, which would
+    // re-render ALL HubItemCards on the home screen. Pin state is only read in the
+    // context menu, which SwiftUI evaluates on-demand when the menu opens.
+    private let pinManager = DependencyContainer.shared.pinManager
     @Binding var playlistPickerTracks: [Track]?
 
     private var isArtist: Bool {

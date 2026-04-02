@@ -364,6 +364,7 @@ private struct MiniPlayerBackground: View {
                 // DO NOT REMOVE THIS — it prevents jarring swaps and flickering.
                 BlurredArtworkBackground(
                     image: viewModel.artworkImage,
+                    preBlurredImage: viewModel.blurredArtworkImage,
                     blurRadius: 50,
                     contrast: 2.0,
                     saturation: 1.9,

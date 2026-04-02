@@ -121,27 +121,49 @@ public final class TrackAvailabilityResolver: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Download state changes (tracks downloaded or removed)
+        // Download state changes — use deferred bump (5s) since download completions
+        // don't affect playability of other tracks, only download icons/offline availability.
+        // This prevents 8+ separate re-render cascades during bulk download sessions.
         NotificationCenter.default.publisher(for: Notification.Name("OfflineDownloadsDidChange"))
             .sink { [weak self] _ in
-                self?.bumpGeneration()
+                self?.bumpGenerationDeferred()
             }
             .store(in: &cancellables)
     }
 
     private var generationBumpTask: Task<Void, Never>?
+    private var generationDeferredBumpTask: Task<Void, Never>?
 
+    /// Fast bump (100ms debounce) for network/server state changes.
+    /// These affect playability immediately and need fast UI feedback.
     private func bumpGeneration() {
-        // Debounce rapid-fire bumps (e.g. server health + network + download state at launch)
         generationBumpTask?.cancel()
+        generationDeferredBumpTask?.cancel() // A fast bump supersedes any pending deferred bump
         generationBumpTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms debounce
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
             guard !Task.isCancelled else { return }
-            self?.availabilityGeneration &+= 1
-            if let self {
-                EnsembleLogger.debug("🔄 TrackAvailabilityResolver: generation bumped to \(self.availabilityGeneration), serverStates=\(self.serverHealthChecker.serverStates.mapValues { $0.description })")
-            }
+            self?.applyGenerationBump()
         }
+    }
+
+    /// Deferred bump (5s debounce) for download state changes.
+    /// Downloads completing don't affect playability of other tracks —
+    /// only the download icon and offline availability. Coalesces
+    /// multiple download completions into a single re-render cascade.
+    private func bumpGenerationDeferred() {
+        // Don't override a pending fast bump (network/server changes take priority)
+        if let task = generationBumpTask, !task.isCancelled { return }
+        generationDeferredBumpTask?.cancel()
+        generationDeferredBumpTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s
+            guard !Task.isCancelled else { return }
+            self?.applyGenerationBump()
+        }
+    }
+
+    private func applyGenerationBump() {
+        availabilityGeneration &+= 1
+        EnsembleLogger.debug("🔄 TrackAvailabilityResolver: generation bumped to \(availabilityGeneration), serverStates=\(serverHealthChecker.serverStates.mapValues { $0.description })")
     }
 
     /// Extract the server key (accountId:serverId) from a source composite key.

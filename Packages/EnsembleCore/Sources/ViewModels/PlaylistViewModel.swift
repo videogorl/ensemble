@@ -103,20 +103,6 @@ public final class PlaylistViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Defensive fallback: reload when source statuses change (e.g. WebSocket-triggered sync completes)
-        // This catches playlist updates from other devices that may not fire playlistsDidRefresh.
-        syncCoordinator.$sourceStatuses
-            .receive(on: DispatchQueue.main)
-            .dropFirst()
-            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
-            .sink { [weak self] statuses in
-                guard self?.isRefreshingFromServer != true else { return }
-                EnsembleLogger.debug("📋 PlaylistViewModel: sourceStatuses changed — \(statuses.map { "\($0.key.compositeKey): \($0.value.syncStatus)" })")
-                Task { @MainActor in
-                    await self?.loadPlaylists()
-                }
-            }
-            .store(in: &cancellables)
     }
     
     private func setupFilterPersistence() {
@@ -601,18 +587,6 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             }
             .store(in: &cancellables)
 
-        // Defensive fallback: reload when source statuses change (catches WebSocket-triggered
-        // incremental syncs that include playlist data)
-        syncCoordinator.$sourceStatuses
-            .receive(on: DispatchQueue.main)
-            .dropFirst()
-            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.loadTracks()
-                }
-            }
-            .store(in: &cancellables)
     }
 
     public func loadTracks() async {
