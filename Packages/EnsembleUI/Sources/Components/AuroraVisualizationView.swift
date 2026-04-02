@@ -68,11 +68,17 @@ public struct AuroraVisualizationView: View {
     /// When true, reduces to 1 glow pass at 15fps to conserve battery
     private let isLowPowerMode: Bool
 
+    /// True on A9 (dual-core) and other ≤2-core devices.
+    /// Stored once at init time — processorCount never changes at runtime,
+    /// and drawAurora() runs at 15-30fps so we don't want ProcessInfo on the hot path.
+    private let isLowCoreDevice: Bool
+
     public init(playbackService: PlaybackServiceProtocol, accentColor: Color, isPaused: Bool = false, isLowPowerMode: Bool = false) {
         self.playbackService = playbackService
         self.accentColor = accentColor
         self.isPaused = isPaused
         self.isLowPowerMode = isLowPowerMode
+        self.isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
     }
 
     // MARK: - Body
@@ -87,9 +93,9 @@ public struct AuroraVisualizationView: View {
         return playbackState != .playing
     }
 
-    /// Frame rate: 30fps normal, 15fps in Low Power Mode.
+    /// Frame rate: 30fps normal, 15fps in Low Power Mode or on ≤2-core devices (A9/A10).
     private var frameInterval: Double {
-        isLowPowerMode ? 1.0 / 15.0 : 1.0 / 30.0
+        isLowPowerMode || isLowCoreDevice ? 1.0 / 15.0 : 1.0 / 30.0
     }
 
     public var body: some View {
@@ -221,14 +227,21 @@ public struct AuroraVisualizationView: View {
             self.peakDecayTimers = newPeakTimers
         }
 
-        // Normal: 3 soft glow passes for ethereal blur effect (back to front).
-        // Low Power Mode: single pass with bumped opacity to preserve visibility.
+        // Three rendering tiers based on device capability:
+        // - Low Power Mode: 1 pass at 15fps (battery preservation, user opt-in)
+        // - Low-core (A9/A10, ≤2 cores): 2 passes at 15fps — drops ~67% of rendering
+        //   cost vs full mode while preserving visual quality better than 1-pass mode.
+        //   Opacities slightly bumped to compensate for the missing middle pass.
+        // - Normal (A12+, 4+ cores): 3 passes at 30fps, full quality.
         if isLowPowerMode {
             drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 10, opacity: 0.50)
+        } else if isLowCoreDevice {
+            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 18, opacity: 0.28)
+            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 8,  opacity: 0.42)
         } else {
             drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 18, opacity: 0.25)
             drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 12, opacity: 0.30)
-            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 8, opacity: 0.35)
+            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 8,  opacity: 0.35)
         }
         
         // Peak highlights (subtle)
