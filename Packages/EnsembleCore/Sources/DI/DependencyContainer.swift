@@ -263,11 +263,7 @@ public final class DependencyContainer: @unchecked Sendable {
                 .sink { [weak offlineServiceForPower] isLowPower in
                     _ = powerCancellable // retain
                     Task { @MainActor in
-                        if isLowPower {
-                            await offlineServiceForPower?.pauseQueue()
-                        } else {
-                            await offlineServiceForPower?.resumeQueue()
-                        }
+                        await offlineServiceForPower?.setLowPowerModePaused(isLowPower)
                     }
                 }
         }
@@ -318,7 +314,13 @@ public final class DependencyContainer: @unchecked Sendable {
         // When a track with a local file starts playing and its sidecar doesn't exist yet,
         // it moves to the front of the analysis queue for fast visualizer readiness.
         MainActor.assumeIsolated {
-            offlineServiceRef.observePlayback(playbackServiceRef.currentTrackPublisher)
+            offlineServiceRef.observePlayback(
+                trackPublisher: playbackServiceRef.currentTrackPublisher,
+                playbackStatePublisher: playbackServiceRef.playbackStatePublisher
+            )
+            syncCoordinatorRef.shouldDeferForegroundHealthRefresh = { [weak offlineServiceRef] in
+                offlineServiceRef?.shouldDeferForegroundHealthRefresh ?? false
+            }
         }
 
         // Settings manager

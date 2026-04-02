@@ -146,6 +146,7 @@ public final class SyncCoordinator: ObservableObject {
     /// `performStartupHealthChecks()` can skip if already covered.
     private var startupHealthChecksInitiated = false
     private let foregroundHealthStalenessThreshold: TimeInterval = 60
+    private let foregroundHealthLoadDeferralThreshold: TimeInterval = 5 * 60
     private var registrySubscriptionTask: Task<Void, Never>?
     
     // Periodic sync timers
@@ -175,6 +176,10 @@ public final class SyncCoordinator: ObservableObject {
     public var onPlaylistRefreshCompleted: ((String) -> Void)?
     /// Signal fired after a rating change so the favorites download target can reconcile.
     public var onFavoritesRatingChanged: (() async -> Void)?
+    /// Optional load-aware gate for foreground health refreshes. DependencyContainer
+    /// wires this to the download/playback stack so nonessential probes can defer
+    /// while the app is actively protecting playback.
+    public var shouldDeferForegroundHealthRefresh: (() -> Bool)?
 
     /// Called after sync when tracks have been reparented (album changed).
     /// Used by ArtworkLoader to invalidate stale artwork for affected albums.
@@ -2327,6 +2332,16 @@ public final class SyncCoordinator: ObservableObject {
            now.timeIntervalSince(lastRefresh) < foregroundHealthStalenessThreshold {
             EnsembleLogger.debug(
                 "🌐 SyncCoordinator: Skipping foreground health refresh (last run \(String(format: "%.1f", now.timeIntervalSince(lastRefresh)))s ago)"
+            )
+            return
+        }
+
+        if reason == .appForeground,
+           shouldDeferForegroundHealthRefresh?() == true,
+           let lastRefresh = lastHealthRefreshAt,
+           now.timeIntervalSince(lastRefresh) < foregroundHealthLoadDeferralThreshold {
+            EnsembleLogger.debug(
+                "🌐 SyncCoordinator: Deferring foreground health refresh due to active playback/download load (\(String(format: "%.1f", now.timeIntervalSince(lastRefresh)))s since last run)"
             )
             return
         }

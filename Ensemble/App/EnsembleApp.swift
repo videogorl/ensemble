@@ -178,6 +178,7 @@ struct EnsembleApp: App {
                 // Restart display timer if music was actively playing when backgrounded.
                 // Also resumes sidecar analysis so pending FFT jobs process in foreground.
                 DependencyContainer.shared.audioAnalyzer.exitBackground()
+                await DependencyContainer.shared.offlineDownloadService.handleAppWillEnterForeground()
                 await DependencyContainer.shared.offlineDownloadService.resumeSidecarAnalysis()
 
             case .background:
@@ -195,6 +196,7 @@ struct EnsembleApp: App {
                 // completing in background can sustain ~95% CPU (FFT at background priority
                 // outlasts iOS's background CPU budget), triggering a SIGKILL after ~2min.
                 await DependencyContainer.shared.offlineDownloadService.suspendSidecarAnalysis()
+                await DependencyContainer.shared.offlineDownloadService.handleAppDidEnterBackground()
 
                 // Stop network monitoring and WebSocket connections to save battery.
                 // Without this, WebSocket reconnect loops burn ~30% network while idle.

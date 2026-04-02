@@ -189,6 +189,7 @@ Tests/
 +-- PlaybackServiceTests.swift
 +-- NetworkMonitorTests.swift
 +-- SyncCoordinatorNetworkHealthTests.swift
++-- OfflineDownloadServicePolicyTests.swift # Playback/background download work-mode policy coverage
 +-- HomeViewModelRefreshPolicyTests.swift
 +-- ServerHealthCheckerClassificationTests.swift
 +-- SettingsManagerConnectionPolicyTests.swift

@@ -57,6 +57,12 @@ public struct RemovalProgress: Equatable {
     public let total: Int
 }
 
+enum DownloadWorkMode: Equatable, Sendable {
+    case interactivePlayback
+    case foregroundIdle
+    case background
+}
+
 @MainActor
 public final class OfflineDownloadService: ObservableObject {
     /// Posted when download targets change (enable/disable/quality refresh) so track-displaying VMs can re-fetch
@@ -151,10 +157,27 @@ public final class OfflineDownloadService: ObservableObject {
     /// Debounced notification task so individual download completions don't
     /// spam `downloadsDidChange` during bulk queue processing.
     private var downloadChangeNotificationTask: Task<Void, Never>?
+    /// Coalesces expensive target progress refreshes so queue/network churn
+    /// doesn't rebuild every target on each state transition.
+    private var fullProgressRefreshTask: Task<Void, Never>?
+    private var hasQueuedFullProgressRefresh = false
 
     /// Serializes post-download frequency analysis so only one FFT runs at a time.
     /// Supports suspend/resume for app lifecycle and priority bumping for the playing track.
     private let sidecarAnalysisQueue = SidecarAnalysisQueue()
+    private var isUserPaused = false
+    private var isLowPowerSuspended = false
+    private var isAppInBackground = false
+    private var allowsBackgroundContinuation = false
+    private var isPlaybackSensitive = false
+
+    private static let maxConcurrentDownloads = 2
+    private static let interactivePlaybackConcurrentDownloads = 1
+    private static let playbackBurstThreshold = 8
+    private static let interactivePlaybackRefreshDelayNs: UInt64 = 1_500_000_000
+    private static let foregroundIdleRefreshDelayNs: UInt64 = 250_000_000
+    private static let backgroundRefreshDelayNs: UInt64 = 2_500_000_000
+    private static let interactivePlaybackWorkerCooldownNs: UInt64 = 750_000_000
 
     public init(
         downloadManager: DownloadManagerProtocol,
@@ -184,20 +207,8 @@ public final class OfflineDownloadService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "offlineTranscodeProfileV2Migrated")
 
         backgroundExecutionCoordinator.onExecutionRequested = { [weak self] in
-            guard let self else { return }
-            if self.queueTask != nil {
-                // Queue already running — BG task will be completed when it finishes
-                return
-            }
-            // Check if there's pending work; if not, finish the BG task immediately
-            // to prevent it from lingering as "in progress" in the Dynamic Island
-            Task {
-                let pending = (try? await self.downloadManager.fetchPendingDownloads()) ?? []
-                if pending.isEmpty {
-                    self.backgroundExecutionCoordinator.finishCurrentTask(success: true)
-                } else {
-                    self.startQueueIfNeeded()
-                }
+            Task { @MainActor in
+                await self?.handleBackgroundExecutionRequest()
             }
         }
         backgroundExecutionCoordinator.onExpiration = { [weak self] in
@@ -439,7 +450,7 @@ public final class OfflineDownloadService: ObservableObject {
         queueTask?.cancel()
         queueTask = nil
         isQueueRunning = false
-        queueStatusReason = .idle
+        refreshQueueStatusReason()
 
         do {
             // Delete all targets and memberships from CoreData
@@ -850,19 +861,35 @@ public final class OfflineDownloadService: ObservableObject {
     /// Pauses the download queue — cancels the current download task and marks
     /// any actively downloading tracks as paused so they can be resumed later.
     public func pauseQueue() async {
-        queueTask?.cancel()
-        queueTask = nil
-        isQueueRunning = false
-        queueStatusReason = .paused
-        try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .paused)
-        await refreshAllTargetProgresses()
+        isUserPaused = true
+        await stopQueueForSuspension()
+        refreshQueueStatusReason()
+        scheduleFullProgressRefresh()
     }
 
     /// Resumes the download queue — unpauses tracks and restarts the queue loop.
     public func resumeQueue() async {
-        try? await downloadManager.updateDownloads(withStatuses: [.paused], to: .pending)
-        await refreshAllTargetProgresses()
+        isUserPaused = false
+        try? await applyNetworkPolicy()
+        refreshQueueStatusReason()
+        scheduleFullProgressRefresh()
         startQueueIfNeeded()
+    }
+
+    /// Applies the Low Power Mode policy without overwriting the user's manual pause state.
+    public func setLowPowerModePaused(_ isPaused: Bool) async {
+        guard isLowPowerSuspended != isPaused else { return }
+        isLowPowerSuspended = isPaused
+        if isPaused {
+            await stopQueueForSuspension()
+        } else {
+            try? await applyNetworkPolicy()
+        }
+        refreshQueueStatusReason()
+        scheduleFullProgressRefresh()
+        if !isPaused {
+            startQueueIfNeeded()
+        }
     }
 
     // MARK: - Sidecar Analysis Lifecycle
@@ -879,6 +906,26 @@ public final class OfflineDownloadService: ObservableObject {
     public func resumeSidecarAnalysis() async {
         await sidecarAnalysisQueue.resume()
         EnsembleLogger.info("Sidecar analysis resumed — app foregrounded")
+    }
+
+    /// Subscribe to playback publishers so download work can protect active listening.
+    /// Track changes still prioritize sidecar generation, while playback-state changes
+    /// switch the queue into a lower-impact mode during active playback.
+    public func observePlayback(
+        trackPublisher: AnyPublisher<Track?, Never>,
+        playbackStatePublisher: AnyPublisher<PlaybackState, Never>
+    ) {
+        observePlayback(trackPublisher)
+
+        playbackStatePublisher
+            .map(Self.isPlaybackSensitiveState)
+            .removeDuplicates()
+            .sink { [weak self] isSensitive in
+                Task { @MainActor in
+                    await self?.handlePlaybackSensitivityChange(isSensitive)
+                }
+            }
+            .store(in: &cancellables)
     }
 
     /// Subscribe to a playback track publisher and prioritize sidecar generation for the
@@ -903,18 +950,41 @@ public final class OfflineDownloadService: ObservableObject {
     /// Stops all in-progress downloads immediately and re-queues them as pending.
     /// Used when download quality changes to avoid continuing old-quality downloads.
     public func cancelInProgressDownloads() async {
-        queueTask?.cancel()
-        queueTask = nil
-        isQueueRunning = false
-        queueStatusReason = .idle
+        await stopQueueForSuspension()
         try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .pending)
-        await refreshAllTargetProgresses()
+        refreshQueueStatusReason()
+        scheduleFullProgressRefresh()
+    }
+
+    /// Called when the app backgrounds. Suspends discretionary queue work unless
+    /// the OS explicitly grants a continued-processing window later.
+    public func handleAppDidEnterBackground() async {
+        isAppInBackground = true
+        allowsBackgroundContinuation = false
+        await stopQueueForSuspension()
+        refreshQueueStatusReason()
+        scheduleFullProgressRefresh()
+    }
+
+    /// Called when the app foregrounds so the queue can resume under the current policy.
+    public func handleAppWillEnterForeground() async {
+        isAppInBackground = false
+        allowsBackgroundContinuation = false
+        try? await applyNetworkPolicy()
+        refreshQueueStatusReason()
+        scheduleFullProgressRefresh(forceImmediate: true)
+        startQueueIfNeeded()
     }
 
     // MARK: - Queue Execution
 
     private func startQueueIfNeeded() {
         guard queueTask == nil else { return }
+        guard canRunQueueAutomatically else {
+            isQueueRunning = false
+            refreshQueueStatusReason()
+            return
+        }
 
         queueTask = Task { [weak self] in
             guard let self else { return }
@@ -922,18 +992,36 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
+    private func handleBackgroundExecutionRequest() async {
+        allowsBackgroundContinuation = true
+
+        if queueTask != nil {
+            refreshQueueStatusReason()
+            return
+        }
+
+        let pending = (try? await downloadManager.fetchPendingDownloads()) ?? []
+        if pending.isEmpty {
+            backgroundExecutionCoordinator.finishCurrentTask(success: true)
+            return
+        }
+
+        try? await applyNetworkPolicy()
+        refreshQueueStatusReason()
+        startQueueIfNeeded()
+    }
+
     private func handleBackgroundTaskExpiration() {
+        allowsBackgroundContinuation = false
         queueTask?.cancel()
         queueTask = nil
         isQueueRunning = false
         Task {
             try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .paused)
             await refreshAllTargetProgresses()
+            refreshQueueStatusReason()
         }
     }
-
-    /// Maximum number of downloads that run simultaneously
-    private static let maxConcurrentDownloads = 2
 
     private func runQueueLoop() async {
         // Quick check: if no pending downloads, exit immediately without spawning workers.
@@ -944,16 +1032,20 @@ public final class OfflineDownloadService: ObservableObject {
             EnsembleLogger.debug("📥 Queue loop: no pending downloads, skipping worker spawn")
             queueTask = nil
             isQueueRunning = false
-            queueStatusReason = .idle
+            refreshQueueStatusReason()
             return
         }
+
+        let workMode = currentDownloadWorkMode
+        let workerCount = queueWorkerCount(forPendingCount: initialPending, workMode: workMode)
+        let shouldApplyInteractiveCooldown = workMode == .interactivePlayback && initialPending >= Self.playbackBurstThreshold
 
         // Spawn N independent workers that each pull the next pending download
         // when they finish. This keeps all slots busy without batch-and-wait.
         // Each worker returns whether it processed at least one download.
         let didProcessAny = await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
-            for _ in 0..<Self.maxConcurrentDownloads {
-                group.addTask { await self.workerLoop() }
+            for _ in 0..<workerCount {
+                group.addTask { await self.workerLoop(applyInteractiveCooldown: shouldApplyInteractiveCooldown) }
             }
             var anyProcessed = false
             for await workerDidWork in group {
@@ -982,14 +1074,14 @@ public final class OfflineDownloadService: ObservableObject {
             if remainingPending > 0 {
                 // More work arrived while workers were finishing — restart
                 isQueueRunning = true
-                queueStatusReason = .downloading
+                refreshQueueStatusReason()
                 startQueueIfNeeded()
                 return
             }
         }
 
         isQueueRunning = false
-        queueStatusReason = .idle
+        refreshQueueStatusReason()
         backgroundExecutionCoordinator.finishCurrentTask(success: true)
 
         // Show toast when downloads complete naturally (not cancelled/expired)
@@ -1008,20 +1100,20 @@ public final class OfflineDownloadService: ObservableObject {
     /// Runs the actual download in a detached task so multiple workers execute
     /// their network I/O truly in parallel instead of serializing on @MainActor.
     /// Returns true if at least one download was processed.
-    private func workerLoop() async -> Bool {
+    private func workerLoop(applyInteractiveCooldown: Bool) async -> Bool {
         var didProcess = false
         while !Task.isCancelled {
             do {
                 // Wait for network availability (lightweight main-actor check)
                 try await applyNetworkPolicy()
 
-                guard canExecuteDownloads else {
+                guard canRunQueueAutomatically else {
                     // Exit instead of polling every 2s — lets the CPU idle on dual-core devices.
                     // The network state observer calls startQueueIfNeeded() reactively when
                     // conditions change, so we don't need to spin here.
                     isQueueRunning = false
-                    queueStatusReason = queueReasonForCurrentState()
-                    EnsembleLogger.debug("📥 Worker exit: network not available (\(queueStatusReason))")
+                    refreshQueueStatusReason()
+                    EnsembleLogger.debug("📥 Worker exit: queue unavailable (\(queueStatusReason))")
                     return didProcess
                 }
 
@@ -1034,7 +1126,7 @@ public final class OfflineDownloadService: ObservableObject {
 
                 didProcess = true
                 isQueueRunning = true
-                queueStatusReason = .downloading
+                refreshQueueStatusReason()
 
                 // Run process() in a detached task so it doesn't serialize on @MainActor.
                 // The detached task hops to main actor only when calling @MainActor services,
@@ -1057,6 +1149,10 @@ public final class OfflineDownloadService: ObservableObject {
                     completedUnitCount: completedCount,
                     totalUnitCount: totalCount
                 )
+
+                if applyInteractiveCooldown {
+                    try? await Task.sleep(nanoseconds: Self.interactivePlaybackWorkerCooldownNs)
+                }
             } catch {
                 if Task.isCancelled { return didProcess }
                 EnsembleLogger.debug("❌ Offline queue worker failed: \(error.localizedDescription)")
@@ -1067,11 +1163,12 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func applyNetworkPolicy() async throws {
-        if canExecuteDownloads {
+        if canRunQueueAutomatically {
             try await downloadManager.updateDownloads(withStatuses: [.paused], to: .pending)
         } else {
             try await downloadManager.updateDownloads(withStatuses: [.downloading], to: .paused)
         }
+        refreshQueueStatusReason()
     }
 
     private func process(download: CDDownload) async {
@@ -1157,10 +1254,7 @@ public final class OfflineDownloadService: ObservableObject {
                     return
                 } catch {
                     // Download queue failed — fall through to direct original download.
-                    if shouldSkipDirectFallback(for: ctx) {
-                        EnsembleLogger.debug(
-                            "⛔️ Skipping direct-original fallback for track=\(ctx.trackRatingKey) after an earlier fallback failure in this session"
-                        )
+                    if !shouldAttemptDirectFallback(after: error, for: ctx) {
                         throw error
                     }
                     EnsembleLogger.debug(
@@ -1650,7 +1744,7 @@ public final class OfflineDownloadService: ObservableObject {
 
                     if fileDuration < expectedSeconds * 0.5 && fileDuration < expectedSeconds - 10 {
                         EnsembleLogger.debug(
-                            "[OfflineDownloads] Truncated download detected: '\(track.title ?? "?")' file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedSeconds))s — marking failed"
+                            "[OfflineDownloads] Truncated download detected: '\(track.title)' file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedSeconds))s — marking failed"
                         )
                         // Delete truncated file so DownloadManager self-healing won't recover it.
                         // resolveAudioFile checks fileExists before using localFilePath, so the
@@ -1848,6 +1942,28 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
+    private var canRunQueueAutomatically: Bool {
+        canExecuteDownloads
+            && !isUserPaused
+            && !isLowPowerSuspended
+            && (!isAppInBackground || allowsBackgroundContinuation)
+    }
+
+    internal var currentDownloadWorkMode: DownloadWorkMode {
+        if isAppInBackground && !allowsBackgroundContinuation {
+            return .background
+        }
+        if isPlaybackSensitive {
+            return .interactivePlayback
+        }
+        return .foregroundIdle
+    }
+
+    internal var shouldDeferForegroundHealthRefresh: Bool {
+        currentDownloadWorkMode == .interactivePlayback
+            && (queueTask != nil || isQueueRunning || !activeDownloadRatingKeys.isEmpty || fullProgressRefreshTask != nil)
+    }
+
     /// Maps current network state to a user-facing queue pause reason
     private func queueReasonForCurrentState() -> QueueStatusReason {
         switch networkMonitor.networkState {
@@ -1871,7 +1987,7 @@ public final class OfflineDownloadService: ObservableObject {
     /// Called when the user toggles the cellular download setting.
     public func reevaluateQueuePolicy() async {
         try? await applyNetworkPolicy()
-        queueStatusReason = queueReasonForCurrentState()
+        refreshQueueStatusReason()
         if canExecuteDownloads {
             startQueueIfNeeded()
         }
@@ -2160,8 +2276,11 @@ public final class OfflineDownloadService: ObservableObject {
                 Task { @MainActor in
                     guard let self else { return }
                     do {
+                        if !self.canExecuteDownloads {
+                            await self.stopQueueForSuspension()
+                        }
                         try await self.applyNetworkPolicy()
-                        await self.refreshAllTargetProgresses()
+                        self.scheduleFullProgressRefresh()
                         self.startQueueIfNeeded()
                     } catch {
                         EnsembleLogger.debug("❌ Failed applying offline network policy: \(error.localizedDescription)")
@@ -2169,6 +2288,129 @@ public final class OfflineDownloadService: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+    }
+
+    private func stopQueueForSuspension() async {
+        queueTask?.cancel()
+        queueTask = nil
+        isQueueRunning = false
+        backgroundExecutionCoordinator.finishCurrentTask(success: true)
+        try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .paused)
+    }
+
+    private func refreshQueueStatusReason() {
+        if isQueueRunning {
+            queueStatusReason = .downloading
+        } else if isUserPaused || isLowPowerSuspended || (isAppInBackground && !allowsBackgroundContinuation) {
+            queueStatusReason = .paused
+        } else {
+            queueStatusReason = queueReasonForCurrentState()
+        }
+    }
+
+    private func queueWorkerCount(forPendingCount pendingCount: Int, workMode: DownloadWorkMode) -> Int {
+        let limit: Int
+        switch workMode {
+        case .interactivePlayback:
+            limit = Self.interactivePlaybackConcurrentDownloads
+        case .foregroundIdle:
+            limit = Self.maxConcurrentDownloads
+        case .background:
+            limit = 1
+        }
+        return max(1, min(limit, pendingCount))
+    }
+
+    private func scheduleFullProgressRefresh(forceImmediate: Bool = false) {
+        if forceImmediate {
+            fullProgressRefreshTask?.cancel()
+            fullProgressRefreshTask = nil
+            hasQueuedFullProgressRefresh = false
+            Task { @MainActor [weak self] in
+                await self?.refreshAllTargetProgresses()
+            }
+            return
+        }
+
+        guard fullProgressRefreshTask == nil else {
+            hasQueuedFullProgressRefresh = true
+            return
+        }
+
+        let delay = fullProgressRefreshDelay(for: currentDownloadWorkMode)
+        fullProgressRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+            }
+            guard !Task.isCancelled else { return }
+
+            await self.refreshAllTargetProgresses()
+            self.fullProgressRefreshTask = nil
+
+            if self.hasQueuedFullProgressRefresh {
+                self.hasQueuedFullProgressRefresh = false
+                self.scheduleFullProgressRefresh()
+            }
+        }
+    }
+
+    private func fullProgressRefreshDelay(for workMode: DownloadWorkMode) -> UInt64 {
+        switch workMode {
+        case .interactivePlayback:
+            return Self.interactivePlaybackRefreshDelayNs
+        case .foregroundIdle:
+            return Self.foregroundIdleRefreshDelayNs
+        case .background:
+            return Self.backgroundRefreshDelayNs
+        }
+    }
+
+    private func shouldAttemptDirectFallback(after error: Error, for ctx: DownloadContext) -> Bool {
+        if shouldSkipDirectFallback(for: ctx) {
+            EnsembleLogger.debug(
+                "⛔️ Skipping direct-original fallback for track=\(ctx.trackRatingKey) after an earlier fallback failure in this session"
+            )
+            return false
+        }
+
+        if isNetworkLossError(error) || syncCoordinator.isOffline || !canExecuteDownloads {
+            EnsembleLogger.debug(
+                "⛔️ Skipping direct-original fallback for track=\(ctx.trackRatingKey) because the network is unavailable"
+            )
+            return false
+        }
+
+        if !canRunQueueAutomatically || currentDownloadWorkMode == .background {
+            EnsembleLogger.debug(
+                "⛔️ Skipping direct-original fallback for track=\(ctx.trackRatingKey) while download work is suspended"
+            )
+            return false
+        }
+
+        return true
+    }
+
+    private func handlePlaybackSensitivityChange(_ isSensitive: Bool) async {
+        guard isPlaybackSensitive != isSensitive else { return }
+        isPlaybackSensitive = isSensitive
+
+        if isSensitive {
+            scheduleFullProgressRefresh()
+        } else {
+            scheduleFullProgressRefresh(forceImmediate: true)
+            startQueueIfNeeded()
+        }
+    }
+
+    private static func isPlaybackSensitiveState(_ state: PlaybackState) -> Bool {
+        switch state {
+        case .loading, .buffering, .playing:
+            return true
+        case .stopped, .paused, .failed:
+            return false
+        }
     }
 
     private func observeSyncCompletions() {

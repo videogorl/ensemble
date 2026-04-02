@@ -301,6 +301,48 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         XCTAssertEqual(healthRefreshCount, 1)
     }
 
+    func testForegroundRefreshDefersDuringInteractivePlaybackLoad() async {
+        let (coordinator, networkMonitor) = makeCoordinator()
+        let now = Date(timeIntervalSince1970: 41_000)
+        coordinator.nowProviderForTesting = { now }
+        coordinator.shouldDeferForegroundHealthRefresh = { true }
+        networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+
+        var healthRefreshCount = 0
+        coordinator.healthCheckRunnerForTesting = { _, _ in
+            healthRefreshCount += 1
+            return ServerHealthChecker.CheckSummary(checkedCount: 1, skippedCount: 0)
+        }
+        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
+
+        coordinator.setLastHealthRefreshForTesting(now.addingTimeInterval(-120))
+        await coordinator.handleAppWillEnterForeground()
+        await coordinator.awaitHealthRefreshForTesting()
+
+        XCTAssertEqual(healthRefreshCount, 0)
+    }
+
+    func testForegroundRefreshStillRunsWhenDeferredLoadStateIsTooStale() async {
+        let (coordinator, networkMonitor) = makeCoordinator()
+        let now = Date(timeIntervalSince1970: 42_000)
+        coordinator.nowProviderForTesting = { now }
+        coordinator.shouldDeferForegroundHealthRefresh = { true }
+        networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+
+        var healthRefreshCount = 0
+        coordinator.healthCheckRunnerForTesting = { _, _ in
+            healthRefreshCount += 1
+            return ServerHealthChecker.CheckSummary(checkedCount: 1, skippedCount: 0)
+        }
+        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
+
+        coordinator.setLastHealthRefreshForTesting(now.addingTimeInterval(-301))
+        await coordinator.handleAppWillEnterForeground()
+        await coordinator.awaitHealthRefreshForTesting()
+
+        XCTAssertEqual(healthRefreshCount, 1)
+    }
+
     func testOfflineTransitionUpdatesStateWithoutHealthRefresh() async {
         let (coordinator, _) = makeCoordinator()
 
