@@ -1321,6 +1321,7 @@ public final class NowPlayingViewModel: ObservableObject {
     
     /// Toggle rating through three states: none → loved → disliked → none
     public func toggleRating() {
+        guard !isUpdatingRating else { return }
         Task {
             guard let track = currentTrack else { return }
             
