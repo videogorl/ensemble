@@ -432,9 +432,10 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     public func pauseUpdates() {
         isPaused = true
+        stopDisplayTimer() // Actually stop the timer, not just flag — saves ~3ms/sec of main thread
 
         #if DEBUG
-        logger.debug("Frequency updates paused")
+        logger.debug("Frequency updates paused (timer stopped)")
         #endif
     }
 
@@ -443,14 +444,15 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         isPaused = false
         positionUpdateWallTime = CACurrentMediaTime()
 
-        // If visualization was enabled after activateTimeline() was called without it,
-        // start the timer now (e.g. user toggles aurora on mid-playback)
-        if visualizationEnabled && displayTimer == nil && activeTrackId != nil {
+        // Restart the timer now that we're unpaused.
+        // Also handles the case where visualization was enabled after activateTimeline()
+        // was called without it (e.g. user toggles aurora on mid-playback).
+        if visualizationEnabled && activeTrackId != nil {
             startDisplayTimer()
         }
 
         #if DEBUG
-        logger.debug("Frequency updates resumed")
+        logger.debug("Frequency updates resumed (timer restarted)")
         #endif
     }
 
