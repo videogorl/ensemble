@@ -231,44 +231,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let isInterfaceSwitch: Bool
     }
 
-    struct PlaybackBufferingProfile: Equatable {
-        let waitsToMinimizeStalling: Bool
-        let preferredForwardBufferDuration: TimeInterval
-        let prefetchDepth: Int
-        let stallRecoveryTimeout: TimeInterval
-        let label: String
-
-        static let wifiOrWired = PlaybackBufferingProfile(
-            waitsToMinimizeStalling: false,
-            preferredForwardBufferDuration: 8,
-            prefetchDepth: 1,
-            stallRecoveryTimeout: 8,
-            label: "wifi/wired"
-        )
-
-        static let cellularOrOther = PlaybackBufferingProfile(
-            waitsToMinimizeStalling: true,
-            preferredForwardBufferDuration: 18,
-            prefetchDepth: 1,
-            stallRecoveryTimeout: 12,
-            label: "cellular/other"
-        )
-
-        static let conservative = PlaybackBufferingProfile(
-            waitsToMinimizeStalling: true,
-            preferredForwardBufferDuration: 20,
-            prefetchDepth: 1,
-            stallRecoveryTimeout: 15,
-            label: "conservative"
-        )
-    }
-
-    struct AdaptiveBufferingState {
-        var stallTimestamps: [Date] = []
-        var conservativeModeUntil: Date?
-        var lastRecoveryAttemptAt: Date?
-        var conservativeWaitCycles: Int = 0
-    }
+    typealias PlaybackBufferingProfile = PlaybackRecoveryPolicy.BufferingProfile
+    typealias AdaptiveBufferingState = PlaybackRecoveryPolicy.AdaptiveState
 
     // MARK: - Seek Operation
 
@@ -303,13 +267,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         case buffering    // Data unavailable — show .buffering, engage stall recovery
     }
 
-    static let stallEscalationThreshold = 2
-    static let stallEscalationWindow: TimeInterval = 30
-    static let conservativeModeDuration: TimeInterval = 120
-    static let recoveryCooldown: TimeInterval = 6
+    static let stallEscalationThreshold = PlaybackRecoveryPolicy.stallEscalationThreshold
+    static let stallEscalationWindow: TimeInterval = PlaybackRecoveryPolicy.stallEscalationWindow
+    static let conservativeModeDuration: TimeInterval = PlaybackRecoveryPolicy.conservativeModeDuration
+    static let recoveryCooldown: TimeInterval = PlaybackRecoveryPolicy.recoveryCooldown
     static let bufferedSeekGateDuration: TimeInterval = 3
-    static let prefetchThrottleDuration: TimeInterval = 90
-    static let minUnexpectedPauseInterval: TimeInterval = 0.8
+    static let prefetchThrottleDuration: TimeInterval = PlaybackRecoveryPolicy.prefetchThrottleDuration
+    static let minUnexpectedPauseInterval: TimeInterval = PlaybackRecoveryPolicy.minUnexpectedPauseInterval
 
     static func inferPresentationRouteKind(
         hasAirPlay: Bool,
@@ -472,12 +436,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     static func baseBufferingProfile(for networkState: NetworkState) -> PlaybackBufferingProfile {
-        switch networkState {
-        case .online(.wifi), .online(.wired):
-            return .wifiOrWired
-        case .online(.cellular), .online(.other), .unknown, .limited, .offline:
-            return .cellularOrOther
-        }
+        PlaybackRecoveryPolicy.baseBufferingProfile(for: networkState)
     }
 
     static func trimmedStallTimestamps(
@@ -485,7 +444,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         now: Date,
         window: TimeInterval = stallEscalationWindow
     ) -> [Date] {
-        timestamps.filter { now.timeIntervalSince($0) <= window }
+        PlaybackRecoveryPolicy.trimmedStallTimestamps(timestamps, now: now, window: window)
     }
 
     static func shouldEnterConservativeMode(
@@ -494,7 +453,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         threshold: Int = stallEscalationThreshold,
         window: TimeInterval = stallEscalationWindow
     ) -> Bool {
-        trimmedStallTimestamps(stallTimestamps, now: now, window: window).count >= threshold
+        PlaybackRecoveryPolicy.shouldEnterConservativeMode(
+            stallTimestamps: stallTimestamps,
+            now: now,
+            threshold: threshold,
+            window: window
+        )
     }
 
     static func resolvedBufferingProfile(
@@ -502,25 +466,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         conservativeModeUntil: Date?,
         now: Date
     ) -> PlaybackBufferingProfile {
-        if let conservativeModeUntil, conservativeModeUntil > now {
-            return .conservative
-        }
-        return baseBufferingProfile(for: networkState)
+        PlaybackRecoveryPolicy.resolvedBufferingProfile(
+            for: networkState,
+            conservativeModeUntil: conservativeModeUntil,
+            now: now
+        )
     }
 
     static func throttledPrefetchProfileIfNeeded(
         _ profile: PlaybackBufferingProfile,
         throttleActive: Bool
     ) -> PlaybackBufferingProfile {
-        guard throttleActive, profile.prefetchDepth > 1 else { return profile }
-        // During transport error throttle, reduce prefetch to 1 (not 0) so
-        // AVQueuePlayer always has a next item for gapless transitions.
-        return PlaybackBufferingProfile(
-            waitsToMinimizeStalling: profile.waitsToMinimizeStalling,
-            preferredForwardBufferDuration: profile.preferredForwardBufferDuration,
-            prefetchDepth: 1,
-            stallRecoveryTimeout: profile.stallRecoveryTimeout,
-            label: "\(profile.label)-prefetch-throttled"
+        PlaybackRecoveryPolicy.throttledPrefetchProfileIfNeeded(
+            profile,
+            throttleActive: throttleActive
         )
     }
 
@@ -529,9 +488,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         isPlaybackBufferEmpty: Bool,
         hasActiveSeek: Bool
     ) -> Bool {
-        guard playbackState == .playing else { return false }
-        guard !hasActiveSeek else { return false }
-        return isPlaybackBufferEmpty
+        PlaybackRecoveryPolicy.shouldRecordWaitingStallEvent(
+            playbackState: playbackState,
+            isPlaybackBufferEmpty: isPlaybackBufferEmpty,
+            hasActiveSeek: hasActiveSeek
+        )
     }
 
     static func unexpectedPauseRecoveryAction(
@@ -541,16 +502,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         isPlaybackBufferEmpty: Bool,
         hasActiveSeek: Bool
     ) -> (resumeImmediately: Bool, recordStallEvent: Bool)? {
-        switch playbackState {
-        case .playing, .buffering, .loading:
-            if isPlaybackLikelyToKeepUp || isPlaybackBufferFull {
-                return (true, false)
-            }
-            let shouldRecordStallEvent = !hasActiveSeek && isPlaybackBufferEmpty
-            return (false, shouldRecordStallEvent)
-        default:
-            return nil
-        }
+        PlaybackRecoveryPolicy.unexpectedPauseRecoveryAction(
+            playbackState: playbackState,
+            isPlaybackLikelyToKeepUp: isPlaybackLikelyToKeepUp,
+            isPlaybackBufferFull: isPlaybackBufferFull,
+            isPlaybackBufferEmpty: isPlaybackBufferEmpty,
+            hasActiveSeek: hasActiveSeek
+        )
     }
 
     static func contiguousBufferedRangeEnd(

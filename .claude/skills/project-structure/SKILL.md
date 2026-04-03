@@ -142,6 +142,7 @@ Sources/
 |   +-- NavigationCoordinator.swift    # Centralized navigation state management (MainActor)
 |   +-- PlaybackService.swift          # AVPlayer wrapper with queue/shuffle/repeat
 |   +-- PlaybackQueueStore.swift       # Queue/history restoration persistence extracted from PlaybackService
+|   +-- PlaybackRecoveryPolicy.swift   # Buffering/stall-recovery policy extracted from PlaybackService
 |   +-- ProgressiveStreamLoader.swift  # AVAssetResourceLoaderDelegate bridge for chunked transcode streams
 |   +-- ArtworkLoader.swift            # Persistent artwork caching & loading
 |   +-- CacheManager.swift             # Cache size tracking & management (MainActor)
@@ -195,6 +196,7 @@ Sources/
 
 Tests/
 +-- PlaybackServiceTests.swift
++-- PlaybackRecoveryPolicyTests.swift
 +-- PlaybackQueueStoreTests.swift
 +-- NetworkMonitorTests.swift
 +-- SyncCoordinatorNetworkHealthTests.swift
