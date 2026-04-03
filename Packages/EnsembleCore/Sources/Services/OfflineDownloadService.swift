@@ -160,6 +160,15 @@ public final class OfflineDownloadService: ObservableObject {
     private var allowsBackgroundContinuation = false
     private var isPlaybackSensitive = false
     private let retryPolicy = DownloadRetryPolicy()
+    private lazy var targetReconciler = DownloadTargetReconciler(
+        dependencies: .init(
+            targetRepository: targetRepository,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            downloadManager: downloadManager,
+            currentDownloadQuality: { [weak self] in self?.currentDownloadQuality() ?? "original" }
+        )
+    )
     private lazy var queueCoordinator = DownloadQueueCoordinator(
         dependencies: .init(
             canRunAutomatically: { [weak self] in self?.canRunQueueAutomatically ?? false },
@@ -765,99 +774,22 @@ public final class OfflineDownloadService: ObservableObject {
             return
         }
 
-        let previousReferences = try await targetRepository.fetchTrackReferences(targetKey: key)
-        let trackReferences = try await resolveTrackReferences(for: target)
-        try await targetRepository.replaceMemberships(targetKey: key, trackReferences: trackReferences)
-
-        // Queue missing tracks at the selected download quality.
-        // batchCreateDownloads handles existing records (skips if quality satisfies)
-        // and returns the count of newly created/re-queued pending downloads.
-        let downloadQuality = currentDownloadQuality()
-        let newPendingCount = try await downloadManager.batchCreateDownloads(
-            references: trackReferences,
-            quality: downloadQuality
-        )
-        if newPendingCount > 0 {
-            EnsembleLogger.debug(
-                "📥 reconcileTarget: key=\(key) totalRefs=\(trackReferences.count) newPending=\(newPendingCount) quality=\(downloadQuality)"
+        let result = try await targetReconciler.reconcileTarget(
+            .init(
+                key: key,
+                kind: target.targetKind,
+                ratingKey: target.ratingKey,
+                sourceCompositeKey: target.sourceCompositeKey
             )
-        }
+        )
 
-        // Drop orphaned files no longer referenced by any target.
-        let removedReferences = Set(previousReferences).subtracting(Set(trackReferences))
-        for reference in removedReferences {
-            let count = try await targetRepository.membershipCount(for: reference)
-            if count == 0 {
-                try await downloadManager.deleteDownload(
-                    forTrackRatingKey: reference.trackRatingKey,
-                    sourceCompositeKey: reference.trackSourceCompositeKey
-                )
-            }
+        if result.newPendingCount > 0 {
+            EnsembleLogger.debug(
+                "📥 reconcileTarget: key=\(key) totalRefs=\(result.trackReferenceCount) newPending=\(result.newPendingCount) quality=\(result.downloadQuality)"
+            )
         }
 
         await refreshTargetProgress(forTargetKey: key)
-    }
-
-    private func resolveTrackReferences(for target: CDOfflineDownloadTarget) async throws -> [OfflineTrackReference] {
-        let kind = target.targetKind
-
-        switch kind {
-        case .library:
-            guard let sourceKey = target.sourceCompositeKey else { return [] }
-            let tracks = try await libraryRepository.fetchTracks(forSource: sourceKey)
-            return normalizedTrackReferences(from: tracks)
-
-        case .album:
-            guard let ratingKey = target.ratingKey else { return [] }
-            let tracks: [CDTrack]
-            if let sourceKey = target.sourceCompositeKey {
-                tracks = try await libraryRepository.fetchTracks(forAlbum: ratingKey, sourceCompositeKey: sourceKey)
-            } else {
-                tracks = try await libraryRepository.fetchTracks(forAlbum: ratingKey)
-            }
-            return normalizedTrackReferences(from: tracks)
-
-        case .artist:
-            guard let ratingKey = target.ratingKey else { return [] }
-            let tracks: [CDTrack]
-            if let sourceKey = target.sourceCompositeKey {
-                tracks = try await libraryRepository.fetchTracks(forArtist: ratingKey, sourceCompositeKey: sourceKey)
-            } else {
-                tracks = try await libraryRepository.fetchTracks(forArtist: ratingKey)
-            }
-            return normalizedTrackReferences(from: tracks)
-
-        case .playlist:
-            guard let ratingKey = target.ratingKey else { return [] }
-            guard let playlist = try await playlistRepository.fetchPlaylist(
-                ratingKey: ratingKey,
-                sourceCompositeKey: target.sourceCompositeKey
-            ) else {
-                return []
-            }
-            return normalizedTrackReferences(from: playlist.tracksArray)
-
-        case .favorites:
-            let tracks = try await libraryRepository.fetchFavoriteTracks()
-            return normalizedTrackReferences(from: tracks)
-        }
-    }
-
-    private func normalizedTrackReferences(from tracks: [CDTrack]) -> [OfflineTrackReference] {
-        let references = tracks.compactMap { track -> OfflineTrackReference? in
-            guard let sourceCompositeKey = track.sourceCompositeKey else { return nil }
-            return OfflineTrackReference(
-                trackRatingKey: track.ratingKey,
-                trackSourceCompositeKey: sourceCompositeKey
-            )
-        }
-
-        return Array(Set(references)).sorted {
-            if $0.trackSourceCompositeKey != $1.trackSourceCompositeKey {
-                return $0.trackSourceCompositeKey < $1.trackSourceCompositeKey
-            }
-            return $0.trackRatingKey < $1.trackRatingKey
-        }
     }
 
     // MARK: - Queue Control
