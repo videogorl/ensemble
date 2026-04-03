@@ -110,6 +110,7 @@ public final class SyncCoordinator: ObservableObject {
     private let refreshOrchestrator: RefreshOrchestrator
     private let serverConnectionController: ServerConnectionController
     private let periodicSyncController: PeriodicSyncController
+    private let playlistRefreshController: PlaylistRefreshController
     private var syncProviders: [String: MusicSourceSyncProvider] = [:]  // keyed by compositeKey
     private var cancellables = Set<AnyCancellable>()
     private var isCheckingHealth = false
@@ -178,6 +179,7 @@ public final class SyncCoordinator: ObservableObject {
         self.connectionRegistry = connectionRegistry
         self.refreshOrchestrator = RefreshOrchestrator()
         self.periodicSyncController = PeriodicSyncController()
+        self.playlistRefreshController = PlaylistRefreshController()
         self.serverConnectionController = ServerConnectionController(
             accountManager: accountManager,
             serverHealthChecker: serverHealthChecker,
@@ -818,19 +820,23 @@ public final class SyncCoordinator: ObservableObject {
             syncedServerKeys.insert(serverKey)
 
             do {
-                // Use incremental sync (falls back to full if never synced)
-                let playlistResult = try await provider.syncPlaylistsIncremental(
-                    to: playlistRepository,
-                    progressHandler: { _ in }
-                )
+                guard let result = try await playlistRefreshController.refreshServer(
+                    serverSourceKey: "plex:\(sourceId.accountId):\(sourceId.serverId)",
+                    providers: syncProviders,
+                    playlistRepository: playlistRepository,
+                    trigger: .playlistOnly,
+                    allowFullFallback: false
+                ) else {
+                    continue
+                }
                 // Cache playlist composite artwork so it's always available offline
-                await cachePlaylistArtwork(sourceId: sourceId, provider: provider)
+                await cachePlaylistArtwork(sourceId: result.sourceId, provider: provider)
                 publishContentChangeIfNeeded(
-                    for: sourceId,
-                    playlistResult: playlistResult,
+                    for: result.sourceId,
+                    playlistResult: result.playlistResult,
                     syncedAt: Date()
                 )
-                notifyPlaylistRefreshCompleted(serverSourceKey: "plex:\(sourceId.accountId):\(sourceId.serverId)")
+                notifyPlaylistRefreshCompleted(serverSourceKey: result.serverSourceKey)
             } catch is CancellationError {
                 EnsembleLogger.debug("⏹️ SyncCoordinator: Playlist-only sync cancelled for server \(serverKey)")
             } catch {
@@ -1945,38 +1951,32 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Refresh playlists for a specific server after a mutation so CoreData stays in sync.
     private func refreshServerPlaylists(serverSourceKey: String) async {
-        guard let parsed = parseServerSourceKey(serverSourceKey) else { return }
-        for (_, provider) in syncProviders where
-            provider.sourceIdentifier.accountId == parsed.accountId &&
-            provider.sourceIdentifier.serverId == parsed.serverId {
-            var didRefresh = false
-            var playlistResult: PlaylistSyncResult?
-            do {
-                playlistResult = try await provider.syncPlaylistsIncremental(to: playlistRepository, progressHandler: { _ in })
-                didRefresh = true
-            } catch is CancellationError {
-                EnsembleLogger.debug("⏹️ SyncCoordinator: Playlist refresh cancelled for \(serverSourceKey)")
+        do {
+            guard let result = try await playlistRefreshController.refreshServer(
+                serverSourceKey: serverSourceKey,
+                providers: syncProviders,
+                playlistRepository: playlistRepository,
+                trigger: .mutationRefresh,
+                allowFullFallback: true
+            ) else {
                 return
-            } catch {
-                // Fall back to full sync if incremental fails for any reason.
-                do {
-                    playlistResult = try await provider.syncPlaylists(to: playlistRepository, progressHandler: { _ in })
-                    didRefresh = true
-                } catch {
-                    EnsembleLogger.debug("⚠️ Failed to refresh playlists for \(serverSourceKey): \(error.localizedDescription)")
-                }
             }
-            if didRefresh {
-                // Cache playlist artwork after mutations (e.g. new playlist created)
-                await cachePlaylistArtwork(sourceId: provider.sourceIdentifier, provider: provider)
-                publishContentChangeIfNeeded(
-                    for: provider.sourceIdentifier,
-                    playlistResult: playlistResult,
-                    syncedAt: Date()
-                )
-                notifyPlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
+
+            if let provider = syncProviders.first(where: { _, provider in
+                provider.sourceIdentifier == result.sourceId
+            })?.value {
+                await cachePlaylistArtwork(sourceId: result.sourceId, provider: provider)
             }
-            return
+            publishContentChangeIfNeeded(
+                for: result.sourceId,
+                playlistResult: result.playlistResult,
+                syncedAt: Date()
+            )
+            notifyPlaylistRefreshCompleted(serverSourceKey: result.serverSourceKey)
+        } catch is CancellationError {
+            EnsembleLogger.debug("⏹️ SyncCoordinator: Playlist refresh cancelled for \(serverSourceKey)")
+        } catch {
+            EnsembleLogger.debug("⚠️ SyncCoordinator: Playlist refresh failed for \(serverSourceKey): \(error.localizedDescription)")
         }
     }
 
@@ -2611,35 +2611,39 @@ public final class SyncCoordinator: ObservableObject {
     /// Called by `PlexWebSocketCoordinator` when a playlist update notification arrives.
     /// Does not depend on `isSyncing` so it can run alongside library sync.
     public func syncServerPlaylistsIncremental(serverKey: String) async {
-        // Find a provider for this server
-        let matchingProvider = syncProviders.first { (_, provider) in
+        let serverSourceKey = "plex:\(serverKey)"
+        guard syncProviders.contains(where: { _, provider in
             let id = provider.sourceIdentifier
             return "\(id.accountId):\(id.serverId)" == serverKey
-        }
-
-        guard let (_, provider) = matchingProvider else {
+        }) else {
             EnsembleLogger.error("🔌 SyncCoordinator: No provider found for server \(serverKey) playlist sync")
             return
         }
 
         EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered playlist sync for server \(serverKey)")
 
-        let sourceId = provider.sourceIdentifier
         do {
-            let playlistResult = try await provider.syncPlaylistsIncremental(
-                to: playlistRepository,
-                progressHandler: { _ in }
-            )
-            // Cache playlist artwork so it's always available offline
-            await cachePlaylistArtwork(sourceId: sourceId, provider: provider)
-            let serverSourceKey = "plex:\(sourceId.accountId):\(sourceId.serverId)"
+            guard let result = try await playlistRefreshController.refreshServer(
+                serverSourceKey: serverSourceKey,
+                providers: syncProviders,
+                playlistRepository: playlistRepository,
+                trigger: .webSocket,
+                allowFullFallback: false
+            ) else {
+                return
+            }
+            if let provider = syncProviders.first(where: { _, provider in
+                provider.sourceIdentifier == result.sourceId
+            })?.value {
+                await cachePlaylistArtwork(sourceId: result.sourceId, provider: provider)
+            }
             publishContentChangeIfNeeded(
-                for: sourceId,
-                playlistResult: playlistResult,
+                for: result.sourceId,
+                playlistResult: result.playlistResult,
                 syncedAt: Date()
             )
             EnsembleLogger.debug("🔌 SyncCoordinator: Playlist sync completed for server \(serverKey), posting notification")
-            notifyPlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
+            notifyPlaylistRefreshCompleted(serverSourceKey: result.serverSourceKey)
         } catch is CancellationError {
             EnsembleLogger.debug("⏹️ SyncCoordinator: Playlist sync cancelled for server \(serverKey)")
         } catch {
