@@ -17,7 +17,14 @@ ensemble/
 |   +-- trace-analysis/            # Instruments .trace export + correlation workflow
 +-- scripts/
 |   +-- compile_coredata_model.sh # Compiles SwiftPM CoreData model bundle for package tests
+|   +-- verify_package_baseline.sh # Rebuilds the SwiftPM CoreData bundle, then runs package tests with pass/fail summary
+|   +-- capture_runtime_baseline.sh # Summarizes a trace + log pair for repeatable runtime baselines
+|   +-- plex_hls_spike.sh        # Bounded PMS music-HLS viability probe used before transport changes
 |   +-- update_build_number.sh    # Sets deterministic CFBundleVersion for app + Siri extension builds
+|
++-- docs/
+|   +-- investigations/
+|       +-- 2026-04-03-plex-hls-spike.md # Written verdict from the PMS music-HLS spike
 |
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/
@@ -88,7 +95,7 @@ Tests/
 Sources/
 +-- CoreData/
 |   +-- Ensemble.xcdatamodeld          # CoreData schema
-|   +-- Compiled/SwiftPMEnsemble.momd # Precompiled model copy used by SwiftPM tests
+|   +-- Compiled/SwiftPMEnsemble.momd # Precompiled model copy used by SwiftPM tests; refreshed by verify_package_baseline.sh
 |   +-- CoreDataStack.swift            # Singleton stack with background contexts
 |   +-- ManagedObjects.swift           # NSManagedObject subclasses (CD* prefix)
 +-- Downloads/
@@ -134,6 +141,7 @@ Sources/
 |   +-- PlexMusicSourceSyncProvider.swift # Plex implementation of sync protocol
 |   +-- NavigationCoordinator.swift    # Centralized navigation state management (MainActor)
 |   +-- PlaybackService.swift          # AVPlayer wrapper with queue/shuffle/repeat
+|   +-- PlaybackQueueStore.swift       # Queue/history restoration persistence extracted from PlaybackService
 |   +-- ProgressiveStreamLoader.swift  # AVAssetResourceLoaderDelegate bridge for chunked transcode streams
 |   +-- ArtworkLoader.swift            # Persistent artwork caching & loading
 |   +-- CacheManager.swift             # Cache size tracking & management (MainActor)
@@ -187,6 +195,7 @@ Sources/
 
 Tests/
 +-- PlaybackServiceTests.swift
++-- PlaybackQueueStoreTests.swift
 +-- NetworkMonitorTests.swift
 +-- SyncCoordinatorNetworkHealthTests.swift
 +-- OfflineDownloadServicePolicyTests.swift # Playback/background download work-mode policy coverage

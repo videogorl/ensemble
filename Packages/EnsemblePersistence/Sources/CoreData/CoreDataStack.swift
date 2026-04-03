@@ -113,15 +113,28 @@ public final class CoreDataStack: @unchecked Sendable {
         ]
 
         for candidate in (directCandidates + resourceRootCandidates).compactMap({ $0 }) {
-            if let model = NSManagedObjectModel(contentsOf: candidate) {
+            if let model = NSManagedObjectModel(contentsOf: candidate), isCurrentModel(model) {
                 return model
             }
         }
 
-        if let mergedModel = NSManagedObjectModel.mergedModel(from: [bundle]) {
+        if let mergedModel = NSManagedObjectModel.mergedModel(from: [bundle]), isCurrentModel(mergedModel) {
             return mergedModel
         }
 
-        fatalError("Failed to load CoreData model from Bundle.module (\(bundle.bundleURL.path))")
+        fatalError("""
+        Failed to load the current CoreData model from Bundle.module (\(bundle.bundleURL.path)).
+        Run scripts/verify_package_baseline.sh to rebuild the package-test baseline and confirm the SwiftPM model bundle is current.
+        """)
+    }
+
+    /// Reject stale compiled model bundles before Core Data boots.
+    /// `genreNames` was added after the initial SwiftPM compiled copy and is a reliable canary
+    /// that the loaded model matches the checked-in managed object subclasses.
+    private static func isCurrentModel(_ model: NSManagedObjectModel) -> Bool {
+        guard let trackEntity = model.entitiesByName["CDTrack"] else {
+            return false
+        }
+        return trackEntity.propertiesByName["genreNames"] != nil
     }
 }

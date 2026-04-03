@@ -903,6 +903,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let artworkLoader: ArtworkLoaderProtocol
     private let audioAnalyzer: AudioAnalyzerProtocol
     private let downloadManager: DownloadManagerProtocol
+    private let queueStore: PlaybackQueueStore
 
     /// Thread-safe check for aurora visualizer setting (reads UserDefaults directly
     /// to avoid @MainActor isolation issues with SettingsManager).
@@ -1020,6 +1021,35 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.artworkLoader = artworkLoader
         self.audioAnalyzer = audioAnalyzer
         self.downloadManager = downloadManager
+        self.queueStore = PlaybackQueueStore()
+        super.init()
+        setupAudioSession()
+        setupRemoteCommands()
+        setupPlayer()
+        refreshPresentationLatencyEstimate()
+        setupNetworkObservation()
+        setupHealthCheckObservation()
+        setupAccountSourcesObservation()
+        setupAudioAnalyzer()
+        setupVisualizerSettingObservation()
+        setupQueueQualityObservation()
+        setupDownloadChangeObservation()
+    }
+
+    init(
+        syncCoordinator: SyncCoordinator,
+        networkMonitor: NetworkMonitor,
+        artworkLoader: ArtworkLoaderProtocol,
+        audioAnalyzer: AudioAnalyzerProtocol,
+        downloadManager: DownloadManagerProtocol,
+        queueStore: PlaybackQueueStore
+    ) {
+        self.syncCoordinator = syncCoordinator
+        self.networkMonitor = networkMonitor
+        self.artworkLoader = artworkLoader
+        self.audioAnalyzer = audioAnalyzer
+        self.downloadManager = downloadManager
+        self.queueStore = queueStore
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -5267,91 +5297,43 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     
     // MARK: - State Restoration
     
-    private let queueKey = "com.ensemble.playback.queue"
-    private let historyKey = "com.ensemble.playback.history"
-    private let currentIndexKey = "com.ensemble.playback.currentIndex"
-    private let currentTimeKey = "com.ensemble.playback.currentTime"
-    
     /// Save playback state to UserDefaults.
     /// Captures a snapshot of the current queue on the calling thread, then
     /// offloads the JSON encoding and disk write to a background thread so the
     /// main/audio thread is never blocked.
     private func savePlaybackState() {
-        // Capture value-type snapshots immediately (cheap, no allocation of new memory).
-        let queueSnapshot = queue
-        let historySnapshot = playbackHistory
-        let indexSnapshot = currentQueueIndex
-        let timeSnapshot = currentTime
-
-        let queueKey = self.queueKey
-        let historyKey = self.historyKey
-        let currentIndexKey = self.currentIndexKey
-        let currentTimeKey = self.currentTimeKey
-
-        Task.detached(priority: .utility) {
-            guard !queueSnapshot.isEmpty || !historySnapshot.isEmpty else {
-                UserDefaults.standard.removeObject(forKey: queueKey)
-                UserDefaults.standard.removeObject(forKey: historyKey)
-                UserDefaults.standard.removeObject(forKey: currentIndexKey)
-                UserDefaults.standard.removeObject(forKey: currentTimeKey)
-                return
-            }
-
-            let encoder = JSONEncoder()
-
-            if let encodedQueue = try? encoder.encode(queueSnapshot) {
-                UserDefaults.standard.set(encodedQueue, forKey: queueKey)
-            }
-            if let encodedHistory = try? encoder.encode(historySnapshot) {
-                UserDefaults.standard.set(encodedHistory, forKey: historyKey)
-            }
-            UserDefaults.standard.set(indexSnapshot, forKey: currentIndexKey)
-            UserDefaults.standard.set(timeSnapshot, forKey: currentTimeKey)
-        }
+        queueStore.save(
+            queue: queue,
+            history: playbackHistory,
+            currentIndex: currentQueueIndex,
+            currentTime: currentTime
+        )
     }
     
     /// Restore playback state from UserDefaults
     public func restorePlaybackState() async {
         EnsembleLogger.debug("🔄 restorePlaybackState() called")
 
-        // Load History
-        if let historyData = UserDefaults.standard.data(forKey: historyKey),
-           let historyItems = try? JSONDecoder().decode([QueueItem].self, from: historyData) {
-            await MainActor.run {
-                playbackHistory = historyItems
-            }
-            EnsembleLogger.debug("🔄 Restored \(historyItems.count) history items")
-        }
-
-        guard let data = UserDefaults.standard.data(forKey: queueKey) else {
-            EnsembleLogger.debug("🔄 No queue data found in UserDefaults")
+        guard let snapshot = queueStore.load() else {
+            EnsembleLogger.debug("🔄 No queue snapshot found in queue store")
             return
         }
 
-        EnsembleLogger.debug("🔄 Found queue data, size: \(data.count) bytes")
-
-        let index = UserDefaults.standard.integer(forKey: currentIndexKey)
-        let time = UserDefaults.standard.double(forKey: currentTimeKey)
-
-        // Try new format first (QueueItem array with source tags)
-        if let items = try? JSONDecoder().decode([QueueItem].self, from: data), !items.isEmpty {
-            EnsembleLogger.debug("🔄 Decoded \(items.count) queue items (new format)")
-            EnsembleLogger.debug("🔄 Restoring: index \(index), time \(time)s")
-            await restoreQueueFromItems(items, index: index, time: time)
-            EnsembleLogger.debug("🔄 Restoration complete - paused at \(time)s")
+        await MainActor.run {
+            playbackHistory = snapshot.history
+        }
+        if !snapshot.history.isEmpty {
+            EnsembleLogger.debug("🔄 Restored \(snapshot.history.count) history items")
+        }
+        guard !snapshot.queue.isEmpty else {
+            EnsembleLogger.debug("🔄 Queue store contained history only")
             return
         }
 
-        // Fallback: old format (Track array) for migration
-        if let tracks = try? JSONDecoder().decode([Track].self, from: data), !tracks.isEmpty {
-            EnsembleLogger.debug("🔄 Decoded \(tracks.count) tracks (legacy format, migrating)")
-            let items = tracks.map { QueueItem(track: $0, source: .continuePlaying) }
-            await restoreQueueFromItems(items, index: index, time: time)
-            EnsembleLogger.debug("🔄 Restoration complete (migrated) - paused at \(time)s")
-            return
-        }
-
-        EnsembleLogger.debug("⚠️ [PlaybackService] Queue data unreadable in both formats; starting fresh")
+        EnsembleLogger.debug("🔄 Decoded \(snapshot.queue.count) queue items from queue store")
+        EnsembleLogger.debug("🔄 Restoring: index \(snapshot.currentIndex), time \(snapshot.currentTime)s")
+        await restoreQueueFromItems(snapshot.queue, index: snapshot.currentIndex, time: snapshot.currentTime)
+        EnsembleLogger.debug("🔄 Restoration complete - paused at \(snapshot.currentTime)s")
     }
 
     /// Restore queue from QueueItem array without starting playback.
