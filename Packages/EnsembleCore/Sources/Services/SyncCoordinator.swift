@@ -84,13 +84,6 @@ public final class SyncCoordinator: ObservableObject {
     /// The notification's `userInfo` contains `["serverSourceKey": String]`.
     public static let playlistsDidRefresh = Notification.Name("SyncCoordinatorPlaylistsDidRefresh")
 
-    private enum NetworkTransition {
-        case reconnect
-        case interfaceSwitch(from: NetworkType, to: NetworkType)
-        case disconnect
-        case none
-    }
-
     @Published public private(set) var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     @Published public private(set) var isSyncing = false
     @Published public private(set) var isOffline = false
@@ -112,14 +105,10 @@ public final class SyncCoordinator: ObservableObject {
     private let periodicSyncController: PeriodicSyncController
     private let playlistRefreshController: PlaylistRefreshController
     private let webSocketSyncController: WebSocketSyncController
+    private let networkLifecycleController: NetworkLifecycleController
     private var syncProviders: [String: MusicSourceSyncProvider] = [:]  // keyed by compositeKey
     private var cancellables = Set<AnyCancellable>()
     private var isCheckingHealth = false
-    private var lastObservedNetworkState: NetworkState?
-    /// Tracks whether the initial Unknown→Online transition at startup has occurred.
-    /// This transition is normal initialization, not a reconnect, so we skip the
-    /// expensive reconnect path (health refresh + connection invalidation).
-    private var hasCompletedInitialNetworkTransition = false
     /// Timestamp of last sourceStatuses progress update per source — used to throttle
     /// @Published updates during sync so SwiftUI doesn't re-render on every item.
     private var lastProgressUpdateTime: [MusicSourceIdentifier: CFAbsoluteTime] = [:]
@@ -182,6 +171,7 @@ public final class SyncCoordinator: ObservableObject {
         self.periodicSyncController = PeriodicSyncController()
         self.playlistRefreshController = PlaylistRefreshController()
         self.webSocketSyncController = WebSocketSyncController()
+        self.networkLifecycleController = NetworkLifecycleController(initialNetworkState: networkMonitor.networkState)
         self.serverConnectionController = ServerConnectionController(
             accountManager: accountManager,
             serverHealthChecker: serverHealthChecker,
@@ -2104,8 +2094,6 @@ public final class SyncCoordinator: ObservableObject {
     
     /// Set up observation of network state changes
     private func setupNetworkMonitoring() {
-        lastObservedNetworkState = networkMonitor.networkState
-
         networkMonitor.$networkState
             .dropFirst()
             .sink { [weak self] state in
@@ -2132,113 +2120,63 @@ public final class SyncCoordinator: ObservableObject {
 
         EnsembleLogger.debug("🌐 SyncCoordinator: App entering foreground with state \(currentState.description)")
 
-        switch currentState {
-        case .online:
-            // Only publish if value actually changes to avoid unnecessary
-            // view recomputation (e.g. HomeView sheet dismissal on foreground)
-            if isOffline { isOffline = false }
-            scheduleHealthRefresh(reason: .appForeground, forceServerRefresh: false)
-        case .offline, .limited:
-            if !isOffline { isOffline = true }
+        let decision = networkLifecycleController.foregroundDecision(for: currentState)
+        applyOfflineDecision(decision.offlineValue)
+
+        if let request = decision.healthRefreshRequest {
+            scheduleHealthRefresh(reason: request.reason, forceServerRefresh: request.forceServerRefresh)
+        } else if decision.offlineValue == true {
             updateSourceConnectionStates()
-        case .unknown:
-            break
         }
     }
 
     private func handleObservedNetworkState(_ state: NetworkState) async {
-        let previous = lastObservedNetworkState
-        lastObservedNetworkState = state
-
-        let transition = classifyNetworkTransition(from: previous, to: state)
+        let decision = networkLifecycleController.observeNetworkState(state)
 
         EnsembleLogger.debug(
-            "🌐 SyncCoordinator: Network transition \(previous?.description ?? "nil") -> \(state.description)"
+            "🌐 SyncCoordinator: Network transition \(decision.previousState?.description ?? "nil") -> \(state.description)"
         )
-        if case .interfaceSwitch(let from, let to) = transition {
+        if case .interfaceSwitch(let from, let to) = decision.transition {
             EnsembleLogger.debug("🌐 SyncCoordinator: Detected interface switch \(from.description) -> \(to.description)")
         }
 
-        switch state {
-        case .online:
-            if isOffline { isOffline = false }
-        case .offline, .limited:
-            if !isOffline { isOffline = true }
+        applyOfflineDecision(decision.offlineValue)
+        if decision.offlineValue == true {
             updateSourceConnectionStates()
-        case .unknown:
-            break
         }
 
-        // At startup, the first Unknown→Online transition is normal initialization,
-        // not a real reconnect. The early health checks in AppDelegate handle this case,
-        // so skip the expensive reconnect path (cache invalidation + health refresh).
-        if !hasCompletedInitialNetworkTransition, previous == .unknown || previous == nil {
-            if state.isConnected {
-                hasCompletedInitialNetworkTransition = true
-                return
-            }
+        if decision.skippedAsInitialTransition {
+            return
         }
 
-        switch transition {
-        case .reconnect:
+        if decision.shouldInvalidateConnectionHealth {
             // Invalidate connection health caches on reconnect.
             // Stale endpoints from before the network went down may no longer work
             // (e.g. if IP addresses changed or TLS state is corrupted).
             await serverHealthChecker.invalidateConnectionHealth()
+        }
 
+        if decision.shouldInvalidateArtworkConnections {
             // Immediately invalidate artwork URL cache on reconnect.
             // This prevents stale artwork requests that use old endpoint URLs while
             // health checks are still running.
-            EnsembleLogger.debug("🖼️ SyncCoordinator: Early artwork cache invalidation for reconnect")
+            EnsembleLogger.debug("🖼️ SyncCoordinator: Early artwork cache invalidation for network transition")
             await onConnectionsRefreshed?()
-            scheduleHealthRefresh(reason: .networkReconnect, forceServerRefresh: true)
-        case .interfaceSwitch(let from, let to):
-            // Invalidate connection health caches on interface switch.
-            // Without this, stale "preferred" endpoints from the previous network context
-            // (e.g. remote endpoints cached while on cellular) may be reused even when
-            // better local endpoints are now available (after switching to WiFi).
-            // This forces a full re-probe of all endpoints.
-            await serverHealthChecker.invalidateConnectionHealth()
+        }
 
-            // Immediately invalidate artwork URL cache on interface switch.
-            // This prevents stale artwork requests that use old endpoint URLs while
-            // health checks are still running. The cache will be invalidated again
-            // after health checks complete, but this early invalidation is critical
-            // for any artwork requests that happen before health checks finish.
-            EnsembleLogger.debug("🖼️ SyncCoordinator: Early artwork cache invalidation for interface switch")
-            await onConnectionsRefreshed?()
-            scheduleHealthRefresh(reason: .interfaceSwitch(from: from, to: to), forceServerRefresh: true)
-        case .disconnect, .none:
-            break
+        if let request = decision.healthRefreshRequest {
+            scheduleHealthRefresh(reason: request.reason, forceServerRefresh: request.forceServerRefresh)
         }
     }
 
-    private func classifyNetworkTransition(from previous: NetworkState?, to current: NetworkState) -> NetworkTransition {
-        let previousType = networkType(from: previous)
-        let currentType = networkType(from: current)
-        let previousConnected = previous?.isConnected ?? false
-        let currentConnected = current.isConnected
+    private func applyOfflineDecision(_ offlineValue: Bool?) {
+        guard let offlineValue else { return }
 
-        if !previousConnected && currentConnected {
-            return .reconnect
+        if offlineValue {
+            if !isOffline { isOffline = true }
+        } else if isOffline {
+            isOffline = false
         }
-
-        if previousConnected && !currentConnected {
-            return .disconnect
-        }
-
-        if let previousType, let currentType, previousType != currentType {
-            return .interfaceSwitch(from: previousType, to: currentType)
-        }
-
-        return .none
-    }
-
-    private func networkType(from state: NetworkState?) -> NetworkType? {
-        guard let state, case .online(let type) = state else {
-            return nil
-        }
-        return type
     }
 
     private func scheduleHealthRefresh(reason: RefreshOrchestrator.HealthRefreshReason, forceServerRefresh: Bool) {

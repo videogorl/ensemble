@@ -138,6 +138,7 @@ Sources/
 |   +-- AccountManager.swift           # Multi-account configuration (MainActor)
 |   +-- SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
 |   +-- RefreshOrchestrator.swift      # Health-refresh gating, cooldown/staleness policy, and startup-health ownership extracted from SyncCoordinator
+|   +-- NetworkLifecycleController.swift # App-foreground and network-transition policy extracted from SyncCoordinator
 |   +-- PeriodicSyncController.swift   # Foreground periodic-sync timer scheduling + WebSocket-aware interval policy extracted from SyncCoordinator
 |   +-- PlaylistRefreshController.swift # Server-scoped playlist refresh orchestration extracted from SyncCoordinator
 |   +-- WebSocketSyncController.swift  # WebSocket-triggered section resolution + playlist refresh routing extracted from SyncCoordinator
@@ -215,6 +216,7 @@ Tests/
 +-- NetworkMonitorTests.swift
 +-- SyncCoordinatorNetworkHealthTests.swift
 +-- RefreshOrchestratorTests.swift # Health-refresh coalescing, cooldown/staleness gating, and startup ownership coverage
++-- NetworkLifecycleControllerTests.swift # Foreground and network-transition policy coverage for SyncCoordinator lifecycle decisions
 +-- PeriodicSyncControllerTests.swift # Foreground timer scheduling and WebSocket-aware interval coverage
 +-- PlaylistRefreshControllerTests.swift # Server playlist refresh fallback and trigger-policy coverage
 +-- WebSocketSyncControllerTests.swift # WebSocket section resolution and playlist refresh routing coverage
