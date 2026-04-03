@@ -126,4 +126,35 @@ final class ServerConnectionControllerTests: XCTestCase {
         XCTAssertEqual(currentURL, "https://switched.example.com")
         XCTAssertEqual(refreshCount, 1)
     }
+
+    func testRefreshAPIClientConnectionsSkipsNotificationWhenEndpointUnchanged() async throws {
+        let accountManager = makeAccountManager()
+        let networkMonitor = makeNetworkMonitor()
+        let registry = ServerConnectionRegistry()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor,
+            connectionRegistry: registry
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: registry
+        )
+
+        await registry.updateEndpoint(
+            for: "account-1:server-1",
+            endpoint: PlexEndpointDescriptor(url: "https://initial.example.com", local: false, relay: false),
+            source: .healthCheck
+        )
+
+        var refreshCount = 0
+        controller.onConnectionsRefreshed = {
+            refreshCount += 1
+        }
+
+        await controller.refreshAPIClientConnections()
+
+        XCTAssertEqual(refreshCount, 0)
+    }
 }

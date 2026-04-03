@@ -109,6 +109,7 @@ public final class SyncCoordinator: ObservableObject {
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let refreshOrchestrator: RefreshOrchestrator
     private let serverConnectionController: ServerConnectionController
+    private let periodicSyncController: PeriodicSyncController
     private var syncProviders: [String: MusicSourceSyncProvider] = [:]  // keyed by compositeKey
     private var cancellables = Set<AnyCancellable>()
     private var isCheckingHealth = false
@@ -121,10 +122,6 @@ public final class SyncCoordinator: ObservableObject {
     /// @Published updates during sync so SwiftUI doesn't re-render on every item.
     private var lastProgressUpdateTime: [MusicSourceIdentifier: CFAbsoluteTime] = [:]
     private let progressThrottleInterval: CFAbsoluteTime = 0.2  // 200ms
-    // Periodic sync timers
-    private var incrementalSyncTimer: Timer?
-    private var lastIncrementalSyncTime: Date?
-    private let incrementalSyncInterval: TimeInterval = 60 * 60  // 1 hour
     private static let lastPlaylistIdKey = "NowPlaying.LastPlaylist.ID"
     private static let lastPlaylistTitleKey = "NowPlaying.LastPlaylist.Title"
     private static let lastPlaylistSourceKey = "NowPlaying.LastPlaylist.SourceKey"
@@ -180,6 +177,7 @@ public final class SyncCoordinator: ObservableObject {
         self.serverHealthChecker = serverHealthChecker
         self.connectionRegistry = connectionRegistry
         self.refreshOrchestrator = RefreshOrchestrator()
+        self.periodicSyncController = PeriodicSyncController()
         self.serverConnectionController = ServerConnectionController(
             accountManager: accountManager,
             serverHealthChecker: serverHealthChecker,
@@ -668,12 +666,7 @@ public final class SyncCoordinator: ObservableObject {
 
                     // Notify playlist views that data may have changed
                     let serverSourceKey = "\(sourceId.type.rawValue):\(sourceId.accountId):\(sourceId.serverId)"
-                    onPlaylistRefreshCompleted?(serverSourceKey)
-                    NotificationCenter.default.post(
-                        name: Self.playlistsDidRefresh,
-                        object: nil,
-                        userInfo: ["serverSourceKey": serverSourceKey]
-                    )
+                    notifyPlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
                 }
                 
                 let syncedAt = Date()
@@ -773,12 +766,7 @@ public final class SyncCoordinator: ObservableObject {
 
             // Notify playlist views that data may have changed (incremental sync includes playlists)
             let serverSourceKey = "\(source.type.rawValue):\(source.accountId):\(source.serverId)"
-            onPlaylistRefreshCompleted?(serverSourceKey)
-            NotificationCenter.default.post(
-                name: Self.playlistsDidRefresh,
-                object: nil,
-                userInfo: ["serverSourceKey": serverSourceKey]
-            )
+            notifyPlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
 
             EnsembleLogger.debug("⏱️ SyncCoordinator: incremental sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - overallStart))s for \(source.compositeKey)")
 
@@ -842,7 +830,7 @@ public final class SyncCoordinator: ObservableObject {
                     playlistResult: playlistResult,
                     syncedAt: Date()
                 )
-                onPlaylistRefreshCompleted?("plex:\(sourceId.accountId):\(sourceId.serverId)")
+                notifyPlaylistRefreshCompleted(serverSourceKey: "plex:\(sourceId.accountId):\(sourceId.serverId)")
             } catch is CancellationError {
                 EnsembleLogger.debug("⏹️ SyncCoordinator: Playlist-only sync cancelled for server \(serverKey)")
             } catch {
@@ -2002,12 +1990,7 @@ public final class SyncCoordinator: ObservableObject {
                     playlistResult: playlistResult,
                     syncedAt: Date()
                 )
-                onPlaylistRefreshCompleted?(serverSourceKey)
-                NotificationCenter.default.post(
-                    name: Self.playlistsDidRefresh,
-                    object: nil,
-                    userInfo: ["serverSourceKey": serverSourceKey]
-                )
+                notifyPlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
             }
             return
         }
@@ -2603,20 +2586,15 @@ public final class SyncCoordinator: ObservableObject {
     
     /// Start periodic incremental sync while app is active (every 1 hour)
     public func startPeriodicSync() {
-        stopPeriodicSync()  // Stop any existing timer
-        
         EnsembleLogger.debug("⏰ Starting periodic sync timer (every 1 hour)")
-        incrementalSyncTimer = Timer.scheduledTimer(withTimeInterval: incrementalSyncInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                await self?.performPeriodicSync()
-            }
+        periodicSyncController.start { [weak self] in
+            await self?.performPeriodicSync()
         }
     }
     
     /// Stop periodic sync
     public func stopPeriodicSync() {
-        incrementalSyncTimer?.invalidate()
-        incrementalSyncTimer = nil
+        periodicSyncController.stop()
         EnsembleLogger.debug("🛑 Stopped periodic sync timer")
     }
     
@@ -2646,7 +2624,6 @@ public final class SyncCoordinator: ObservableObject {
         
         EnsembleLogger.debug("🔄 Performing periodic incremental sync...")
         await syncAllIncremental()
-        lastIncrementalSyncTime = Date()
         EnsembleLogger.debug("✅ Periodic sync complete")
     }
 
@@ -2714,12 +2691,7 @@ public final class SyncCoordinator: ObservableObject {
                 syncedAt: Date()
             )
             EnsembleLogger.debug("🔌 SyncCoordinator: Playlist sync completed for server \(serverKey), posting notification")
-            onPlaylistRefreshCompleted?(serverSourceKey)
-            NotificationCenter.default.post(
-                name: Self.playlistsDidRefresh,
-                object: nil,
-                userInfo: ["serverSourceKey": serverSourceKey]
-            )
+            notifyPlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
         } catch is CancellationError {
             EnsembleLogger.debug("⏹️ SyncCoordinator: Playlist sync cancelled for server \(serverKey)")
         } catch {
@@ -2730,23 +2702,22 @@ public final class SyncCoordinator: ObservableObject {
     /// Adjust periodic sync intervals based on WebSocket availability.
     /// When WebSocket is active for servers, polling can be relaxed since updates arrive in real-time.
     public func adjustTimersForWebSocket(hasActiveWebSocket: Bool) {
-        stopPeriodicSync()
-
-        let interval: TimeInterval
+        periodicSyncController.adjustForWebSocket(hasActiveWebSocket: hasActiveWebSocket) { [weak self] in
+            await self?.performPeriodicSync()
+        }
         if hasActiveWebSocket {
-            // With WebSocket: relax polling to every 4 hours (WebSocket pushes updates)
-            interval = 4 * 60 * 60
             EnsembleLogger.debug("⏰ SyncCoordinator: WebSocket active — relaxed periodic sync to 4h")
         } else {
-            // Without WebSocket: use default 1 hour interval
-            interval = incrementalSyncInterval
             EnsembleLogger.debug("⏰ SyncCoordinator: No WebSocket — using default 1h periodic sync")
         }
+    }
 
-        incrementalSyncTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                await self?.performPeriodicSync()
-            }
-        }
+    private func notifyPlaylistRefreshCompleted(serverSourceKey: String) {
+        onPlaylistRefreshCompleted?(serverSourceKey)
+        NotificationCenter.default.post(
+            name: Self.playlistsDidRefresh,
+            object: nil,
+            userInfo: ["serverSourceKey": serverSourceKey]
+        )
     }
 }

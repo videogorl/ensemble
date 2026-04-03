@@ -50,6 +50,7 @@ final class ServerConnectionController {
 
     func refreshAPIClientConnections() async {
         EnsembleLogger.debug("🔄 ServerConnectionController: Updating API client connections...")
+        var didApplyEndpointChange = false
 
         for account in accountManager.plexAccounts {
             for server in account.servers {
@@ -58,10 +59,14 @@ final class ServerConnectionController {
                 if let registry = connectionRegistry,
                    let registryURL = await registry.currentURL(for: serverKey),
                    let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) {
-                    await apiClient.updateCurrentServerURL(registryURL)
-                    EnsembleLogger.debug(
-                        "✅ ServerConnectionController: Updated API client for server \(server.name) from registry: \(registryURL)"
-                    )
+                    let currentURL = await apiClient.getCurrentServerURL()
+                    if currentURL != registryURL {
+                        await apiClient.updateCurrentServerURL(registryURL)
+                        didApplyEndpointChange = true
+                        EnsembleLogger.debug(
+                            "✅ ServerConnectionController: Updated API client for server \(server.name) from registry: \(registryURL)"
+                        )
+                    }
                     continue
                 }
 
@@ -72,21 +77,31 @@ final class ServerConnectionController {
 
                 if case .connected(let workingURL) = connectionState,
                    let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) {
-                    await apiClient.updateCurrentServerURL(workingURL)
-                    EnsembleLogger.debug(
-                        "✅ ServerConnectionController: Updated API client for server \(server.name) to use: \(workingURL)"
-                    )
+                    let currentURL = await apiClient.getCurrentServerURL()
+                    if currentURL != workingURL {
+                        await apiClient.updateCurrentServerURL(workingURL)
+                        didApplyEndpointChange = true
+                        EnsembleLogger.debug(
+                            "✅ ServerConnectionController: Updated API client for server \(server.name) to use: \(workingURL)"
+                        )
+                    }
                 } else if case .degraded(let workingURL) = connectionState,
                           let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) {
-                    await apiClient.updateCurrentServerURL(workingURL)
-                    EnsembleLogger.debug(
-                        "⚠️ ServerConnectionController: Updated API client for server \(server.name) to use degraded connection: \(workingURL)"
-                    )
+                    let currentURL = await apiClient.getCurrentServerURL()
+                    if currentURL != workingURL {
+                        await apiClient.updateCurrentServerURL(workingURL)
+                        didApplyEndpointChange = true
+                        EnsembleLogger.debug(
+                            "⚠️ ServerConnectionController: Updated API client for server \(server.name) to use degraded connection: \(workingURL)"
+                        )
+                    }
                 }
             }
         }
 
-        await onConnectionsRefreshed?()
+        if didApplyEndpointChange {
+            await onConnectionsRefreshed?()
+        }
     }
 
     internal func awaitRegistryPropagationForTesting() async {
