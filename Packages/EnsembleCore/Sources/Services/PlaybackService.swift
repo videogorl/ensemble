@@ -3358,7 +3358,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Bump generation so any in-flight playback request knows it's been superseded
         playbackGenerationCounter &+= 1
-        let myGeneration = playbackGenerationCounter
 
         guard currentQueueIndex >= 0, currentQueueIndex < queue.count else {
             stop()
@@ -3367,7 +3366,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         let queuedTrack = queue[currentQueueIndex].track
         let track = await resolveTrackForPlaybackIfNeeded(queuedTrack)
-        let recoverySeekTime = validatedRecoverySeekTime(startTime, for: track)
+        let request = PlaybackSessionStateMachine.buildRequest(
+            generation: playbackGenerationCounter,
+            track: track,
+            forcingFreshItem: forcingFreshItem,
+            requestedSeekTime: startTime,
+            effectiveTrackDuration: max(track.duration, duration),
+            caller: caller
+        )
 
         let hasLocalFile = track.localFilePath != nil
         let quality = queue[currentQueueIndex].streamingQuality ?? "original"
@@ -3414,29 +3420,32 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // Check for cached URL first
                 var fileURL: URL
                 if let cachedURL = await MainActor.run(body: { getCachedFileURL(for: track.id) }),
-                   !forcingFreshItem,
+                   !request.forcingFreshItem,
                    FileManager.default.fileExists(atPath: cachedURL.path) {
                     fileURL = cachedURL
                 } else {
-                    fileURL = try await resolveAudioFile(for: track)
+                    fileURL = try await resolveAudioFile(for: request.track)
                 }
 
                 // Validate cached file isn't truncated (interrupted download or stale cache).
                 // A truncated file causes premature track completion and stale gapless state.
-                let expectedDuration = track.duration
+                let expectedDuration = request.track.duration
                 if expectedDuration > 10 {
                     let probeFile = try AVAudioFile(forReading: fileURL)
                     let fileDuration = Double(probeFile.length) / probeFile.processingFormat.sampleRate
                     if fileDuration < expectedDuration * 0.5 && fileDuration < expectedDuration - 10 {
-                        EnsembleLogger.debug("[playCurrentQueueItem] Truncated file for '\(track.title)': file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedDuration))s — re-downloading")
-                        await evictTruncatedFile(fileURL: fileURL, track: track, fileDuration: fileDuration, expectedDuration: expectedDuration)
-                        fileURL = try await resolveAudioFile(for: track)
+                        EnsembleLogger.debug("[playCurrentQueueItem] Truncated file for '\(request.track.title)': file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedDuration))s — re-downloading")
+                        await evictTruncatedFile(fileURL: fileURL, track: request.track, fileDuration: fileDuration, expectedDuration: expectedDuration)
+                        fileURL = try await resolveAudioFile(for: request.track)
                     }
                 }
 
                 // Check if this playback request has been superseded
-                guard myGeneration == playbackGenerationCounter else {
-                    EnsembleLogger.debug("[playCurrentQueueItem] Discarding stale result for \(track.title)")
+                guard !PlaybackSessionStateMachine.isSuperseded(
+                    requestGeneration: request.generation,
+                    currentGeneration: playbackGenerationCounter
+                ) else {
+                    EnsembleLogger.debug("[playCurrentQueueItem] Discarding stale result for \(request.track.title)")
                     endTrackTransitionBackgroundTask()
                     return
                 }
@@ -3455,9 +3464,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     } else {
                         priority = .userInitiated
                     }
-                    EnsembleLogger.debug("[Visualizer] Dispatching loadTimeline for '\(track.title)', url=\(fileURL.lastPathComponent), isFile=\(fileURL.isFileURL)")
+                    EnsembleLogger.debug("[Visualizer] Dispatching loadTimeline for '\(request.track.title)', url=\(fileURL.lastPathComponent), isFile=\(fileURL.isFileURL)")
                     Task.detached { [audioAnalyzer] in
-                        await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: priority, throttled: throttle)
+                        await audioAnalyzer.loadTimeline(for: request.track.id, fileURL: fileURL, priority: priority, throttled: throttle)
                     }
                 } else {
                     EnsembleLogger.debug("[Visualizer] Skipped: isVisualizerEnabled=false")
@@ -3465,11 +3474,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                 // Load and play the file through the audio engine
                 await MainActor.run {
-                    self.loadAndPlayFile(fileURL: fileURL, track: track)
+                    self.loadAndPlayFile(fileURL: fileURL, track: request.track)
                 }
 
                 // Apply recovery seek if needed
-                if let recoverySeekTime, recoverySeekTime > 0 {
+                if let recoverySeekTime = request.recoverySeekTime, recoverySeekTime > 0 {
                     await MainActor.run {
                         self.seek(to: recoverySeekTime)
                     }
@@ -3483,67 +3492,48 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 lastError = error
                 EnsembleLogger.debug("[playCurrentQueueItem] Failed (attempt \(attempt + 1)): \(error)")
 
-                let nsError = error as NSError
-                let isRetryable = nsError.domain == NSURLErrorDomain &&
-                    (nsError.code == NSURLErrorTimedOut ||
-                     nsError.code == NSURLErrorNetworkConnectionLost ||
-                     nsError.code == NSURLErrorNotConnectedToInternet ||
-                     nsError.code == NSURLErrorCannotConnectToHost)
-                if !isRetryable { break }
+                if !PlaybackSessionStateMachine.shouldRetryResolution(after: error, attempt: attempt) {
+                    break
+                }
             }
         }
 
-        // All retries exhausted — classify failure and dispatch to specialized handler
-        let nsError = lastError.map { $0 as NSError }
-        let isTLSError = nsError?.domain == NSURLErrorDomain &&
-            nsError?.code == NSURLErrorSecureConnectionFailed
-        let isConnectionError = nsError?.domain == NSURLErrorDomain &&
-            (nsError?.code == NSURLErrorTimedOut ||
-             nsError?.code == NSURLErrorNetworkConnectionLost ||
-             nsError?.code == NSURLErrorCannotConnectToHost ||
-             nsError?.code == NSURLErrorNotConnectedToInternet)
-
-        // TLS errors: refresh connection to find a working endpoint and retry.
-        // This handles transient TLS issues on relay endpoints by switching to
-        // a direct connection or a different relay.
-        if isTLSError {
+        switch PlaybackSessionStateMachine.classifyTerminalFailure(lastError, track: request.track) {
+        case .tls:
             loadingStateTask?.cancel()
             endTrackTransitionBackgroundTask()
             await handleTLSPlaybackFailure()
             return
-        }
-
-        if isConnectionError, let sourceKey = track.sourceCompositeKey {
-            await syncCoordinator.triggerServerHealthCheck(sourceKey: sourceKey)
-            if await !syncCoordinator.isServerAvailable(sourceKey: sourceKey) {
-                consecutivePlaybackFailures = maxConsecutiveFailuresBeforeStop
+        case .connection(let sourceCompositeKey):
+            if let sourceCompositeKey {
+                await syncCoordinator.triggerServerHealthCheck(sourceKey: sourceCompositeKey)
+                if await !syncCoordinator.isServerAvailable(sourceKey: sourceCompositeKey) {
+                    consecutivePlaybackFailures = maxConsecutiveFailuresBeforeStop
+                } else {
+                    consecutivePlaybackFailures += 1
+                }
             } else {
                 consecutivePlaybackFailures += 1
             }
-        } else {
+            loadingStateTask?.cancel()
+            endTrackTransitionBackgroundTask()
+            await MainActor.run {
+                self.isSkipTransitionInProgress = false
+                self.disarmSkipTransitionSafety()
+                self.audioEngine?.pause()
+                self.playbackState = .failed(lastError?.localizedDescription ?? "Failed to load track")
+            }
+        case .generic(let message):
             consecutivePlaybackFailures += 1
+            loadingStateTask?.cancel()
+            endTrackTransitionBackgroundTask()
+            await MainActor.run {
+                self.isSkipTransitionInProgress = false
+                self.disarmSkipTransitionSafety()
+                self.audioEngine?.pause()
+                self.playbackState = .failed(message)
+            }
         }
-
-        loadingStateTask?.cancel()
-        endTrackTransitionBackgroundTask()
-        let errorMessage = lastError?.localizedDescription ?? "Failed to load track"
-        await MainActor.run {
-            self.isSkipTransitionInProgress = false
-            self.disarmSkipTransitionSafety()
-            self.audioEngine?.pause()
-            self.playbackState = .failed(errorMessage)
-        }
-    }
-
-    private func validatedRecoverySeekTime(_ requestedTime: TimeInterval?, for track: Track) -> TimeInterval? {
-        guard let requestedTime else { return nil }
-        guard requestedTime.isFinite else { return nil }
-        guard requestedTime > 1 else { return nil }
-
-        // Keep recovery seeks slightly away from track end to avoid instant completion.
-        let effectiveTrackDuration = max(track.duration, duration)
-        let upperBound = max(1, effectiveTrackDuration - 2)
-        return min(requestedTime, upperBound)
     }
 
     

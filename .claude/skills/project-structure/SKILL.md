@@ -143,6 +143,7 @@ Sources/
 |   +-- PlaybackService.swift          # AVPlayer wrapper with queue/shuffle/repeat
 |   +-- PlaybackQueueStore.swift       # Queue/history restoration persistence extracted from PlaybackService
 |   +-- PlaybackRecoveryPolicy.swift   # Buffering/stall-recovery policy extracted from PlaybackService
+|   +-- PlaybackSessionStateMachine.swift # Playback session request/retry/failure policy extracted from PlaybackService
 |   +-- PlaybackTransportCoordinator.swift # Stream/local transport resolution + progressive-loader cache extracted from PlaybackService
 |   +-- ProgressiveStreamLoader.swift  # AVAssetResourceLoaderDelegate bridge for chunked transcode streams
 |   +-- ArtworkLoader.swift            # Persistent artwork caching & loading
@@ -198,6 +199,7 @@ Sources/
 Tests/
 +-- PlaybackServiceTests.swift
 +-- PlaybackRecoveryPolicyTests.swift
++-- PlaybackSessionStateMachineTests.swift
 +-- PlaybackTransportCoordinatorTests.swift
 +-- PlaybackQueueStoreTests.swift
 +-- NetworkMonitorTests.swift
