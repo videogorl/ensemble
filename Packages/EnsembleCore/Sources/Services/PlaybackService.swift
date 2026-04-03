@@ -241,7 +241,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         static let wifiOrWired = PlaybackBufferingProfile(
             waitsToMinimizeStalling: false,
             preferredForwardBufferDuration: 8,
-            prefetchDepth: 2,
+            prefetchDepth: 1,
             stallRecoveryTimeout: 8,
             label: "wifi/wired"
         )
@@ -249,7 +249,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         static let cellularOrOther = PlaybackBufferingProfile(
             waitsToMinimizeStalling: true,
             preferredForwardBufferDuration: 18,
-            prefetchDepth: 2,
+            prefetchDepth: 1,
             stallRecoveryTimeout: 12,
             label: "cellular/other"
         )
@@ -257,7 +257,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         static let conservative = PlaybackBufferingProfile(
             waitsToMinimizeStalling: true,
             preferredForwardBufferDuration: 20,
-            prefetchDepth: 2,
+            prefetchDepth: 1,
             stallRecoveryTimeout: 15,
             label: "conservative"
         )

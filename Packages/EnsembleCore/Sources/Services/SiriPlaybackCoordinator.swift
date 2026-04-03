@@ -197,7 +197,11 @@ public final class SiriPlaybackCoordinator {
             throw SiriPlaybackCoordinatorError.noPlayableTracks(.artist)
         }
 
-        await playbackService.shufflePlay(tracks: playableTracks)
+        if request.shuffle {
+            await playbackService.shufflePlay(tracks: playableTracks)
+        } else {
+            await playbackService.play(tracks: playableTracks, startingAt: 0)
+        }
     }
 
     /// Resolves a playlist and queues tracks using saved playlist ordering.

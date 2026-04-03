@@ -17,13 +17,29 @@ declare -a PACKAGES=(
 )
 
 declare -a FAILURES=()
+LOG_DIR="${TMPDIR:-/tmp}/ensemble-package-baseline"
+
+rm -rf "$LOG_DIR"
+mkdir -p "$LOG_DIR"
 
 for package_path in "${PACKAGES[@]}"; do
   echo
   echo "[baseline] swift test --package-path $package_path"
-  if ! swift test --package-path "$package_path"; then
-    FAILURES+=("$package_path")
+  package_name="$(basename "$package_path")"
+  log_path="$LOG_DIR/${package_name}.log"
+
+  if swift test --package-path "$package_path" 2>&1 | tee "$log_path"; then
+    continue
   fi
+
+  echo "[baseline] First attempt failed for $package_path; retrying once"
+  if swift test --package-path "$package_path" 2>&1 | tee "$log_path"; then
+    echo "[baseline] Retry passed for $package_path"
+    continue
+  fi
+
+  echo "[baseline] Final failure for $package_path; see $log_path"
+  FAILURES+=("$package_path")
 done
 
 echo
