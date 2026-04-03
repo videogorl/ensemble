@@ -142,6 +142,7 @@ Sources/
 |   +-- NavigationCoordinator.swift    # Centralized navigation state management (MainActor)
 |   +-- PlaybackService.swift          # AVPlayer wrapper with queue/shuffle/repeat
 |   +-- PlaybackQueueStore.swift       # Queue/history restoration persistence extracted from PlaybackService
+|   +-- PlaybackLaunchCoordinator.swift # Successful playback launch path (visualizer load, engine start, recovery seek, prefetch) extracted from PlaybackService
 |   +-- PlaybackRecoveryPolicy.swift   # Buffering/stall-recovery policy extracted from PlaybackService
 |   +-- PlaybackSessionStateMachine.swift # Playback session request/retry/failure policy extracted from PlaybackService
 |   +-- PlaybackTransportCoordinator.swift # Stream/local transport resolution + progressive-loader cache extracted from PlaybackService
@@ -199,6 +200,7 @@ Sources/
 Tests/
 +-- PlaybackServiceTests.swift
 +-- PlaybackRecoveryPolicyTests.swift
++-- PlaybackLaunchCoordinatorTests.swift
 +-- PlaybackSessionStateMachineTests.swift
 +-- PlaybackTransportCoordinatorTests.swift
 +-- PlaybackQueueStoreTests.swift

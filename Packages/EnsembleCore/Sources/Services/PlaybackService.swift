@@ -940,6 +940,34 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         )
     )
+    private lazy var launchCoordinator = PlaybackLaunchCoordinator(
+        dependencies: .init(
+            processorCount: { ProcessInfo.processInfo.processorCount },
+            isVisualizerEnabled: { [weak self] in self?.isVisualizerEnabled ?? false },
+            isInstrumentalModeActive: { [weak self] in self?.isInstrumentalModeActive ?? false },
+            enqueueVisualizerLoad: { [weak self] track, fileURL, plan in
+                guard let self else { return }
+                EnsembleLogger.debug("[Visualizer] Dispatching loadTimeline for '\(track.title)', url=\(fileURL.lastPathComponent), isFile=\(fileURL.isFileURL)")
+                Task.detached { [audioAnalyzer = self.audioAnalyzer] in
+                    await audioAnalyzer.loadTimeline(
+                        for: track.id,
+                        fileURL: fileURL,
+                        priority: plan.priority,
+                        throttled: plan.throttled
+                    )
+                }
+            },
+            loadAndPlay: { [weak self] fileURL, track in
+                self?.loadAndPlayFile(fileURL: fileURL, track: track)
+            },
+            seek: { [weak self] time in
+                self?.seek(to: time)
+            },
+            prefetchNext: { [weak self] in
+                await self?.prefetchNextItem()
+            }
+        )
+    )
 
     public var historyPublisher: AnyPublisher<[QueueItem], Never> { $playbackHistory.eraseToAnyPublisher() }
 
@@ -3450,43 +3478,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     return
                 }
 
-                // Pre-compute frequency analysis for the visualizer.
-                // Throttle when instrumental mode is active or on ≤2-core devices (A9)
-                // to reduce CPU cache contention and avoid saturating the main thread.
-                if isVisualizerEnabled {
-                    let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
-                    let throttle = isInstrumentalModeActive || isLowCoreDevice
-                    let priority: TaskPriority
-                    if isInstrumentalModeActive {
-                        priority = .background
-                    } else if isLowCoreDevice {
-                        priority = .utility
-                    } else {
-                        priority = .userInitiated
-                    }
-                    EnsembleLogger.debug("[Visualizer] Dispatching loadTimeline for '\(request.track.title)', url=\(fileURL.lastPathComponent), isFile=\(fileURL.isFileURL)")
-                    Task.detached { [audioAnalyzer] in
-                        await audioAnalyzer.loadTimeline(for: request.track.id, fileURL: fileURL, priority: priority, throttled: throttle)
-                    }
-                } else {
-                    EnsembleLogger.debug("[Visualizer] Skipped: isVisualizerEnabled=false")
-                }
-
-                // Load and play the file through the audio engine
-                await MainActor.run {
-                    self.loadAndPlayFile(fileURL: fileURL, track: request.track)
-                }
-
-                // Apply recovery seek if needed
-                if let recoverySeekTime = request.recoverySeekTime, recoverySeekTime > 0 {
-                    await MainActor.run {
-                        self.seek(to: recoverySeekTime)
-                    }
-                    EnsembleLogger.debug("[playCurrentQueueItem] Recovered position at \(recoverySeekTime)s")
-                }
-
-                // Prefetch next for gapless
-                Task { await prefetchNextItem() }
+                await launchCoordinator.completeLaunch(
+                    for: request.track,
+                    fileURL: fileURL,
+                    recoverySeekTime: request.recoverySeekTime
+                )
                 return
             } catch {
                 lastError = error
