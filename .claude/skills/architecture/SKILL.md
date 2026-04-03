@@ -109,6 +109,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `PlexRadioProvider` -- Plex Radio support implementing `RadioProvider` protocol
 - `PlexWebSocketCoordinator` (@MainActor) -- Routes WebSocket events from `PlexWebSocketManager` to `SyncCoordinator` and `ServerHealthChecker`
   - Coalesces section-level library updates with debounce + in-flight/cooldown guards so scans do not cascade into redundant incremental syncs
+  - Publishes aggregate WebSocket availability changes so periodic-sync timer policy can follow actual socket connectivity without app-layer polling
 - `TrackAvailabilityResolver` (@MainActor ObservableObject) -- Reactive per-track availability combining server connection state and download state; publishes `TrackAvailability` enum
 - `SiriMediaIndexStore` -- Builds/persists shared App Group Siri candidate index (track/album/artist/playlist)
 - `SiriPlaybackCoordinator` -- Executes Siri playback payloads in app process using existing playback queue entry points

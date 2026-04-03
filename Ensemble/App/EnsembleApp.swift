@@ -165,10 +165,6 @@ struct EnsembleApp: App {
                 // with network state transitions and cooldown/staleness guards.
                 await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
 
-                // Adjust periodic sync timers based on WebSocket availability.
-                let hasWebSocket = !DependencyContainer.shared.webSocketCoordinator.connectedServerKeys.isEmpty
-                DependencyContainer.shared.syncCoordinator.adjustTimersForWebSocket(hasActiveWebSocket: hasWebSocket)
-
                 // Drain any pending offline mutations now that connectivity may have resumed.
                 await DependencyContainer.shared.mutationCoordinator.drainQueue()
 

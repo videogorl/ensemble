@@ -221,6 +221,7 @@ Tests/
 +-- PlaylistRefreshControllerTests.swift # Server playlist refresh fallback and trigger-policy coverage
 +-- WebSocketSyncControllerTests.swift # WebSocket section resolution and playlist refresh routing coverage
 +-- ServerConnectionControllerTests.swift # Registry-update processing and API-client endpoint synchronization coverage
++-- PlexWebSocketCoordinatorTests.swift # Aggregate WebSocket availability callback coverage
 +-- OfflineDownloadServicePolicyTests.swift # Playback/background download work-mode policy coverage
 +-- DownloadQueueCoordinatorTests.swift # Queue lifecycle ownership, background wakeup, and restart coverage
 +-- DownloadRetryPolicyTests.swift # Transfer retry accounting and direct-fallback gating coverage

@@ -159,6 +159,9 @@ public final class DependencyContainer: @unchecked Sendable {
             wsc.onPlaylistUpdate = { [weak syncCoordinatorRef] serverKey in
                 await syncCoordinatorRef?.syncServerPlaylistsIncremental(serverKey: serverKey)
             }
+            wsc.onConnectionAvailabilityChanged = { [weak syncCoordinatorRef] hasActiveWebSocket in
+                syncCoordinatorRef?.adjustTimersForWebSocket(hasActiveWebSocket: hasActiveWebSocket)
+            }
             wsc.onServerOffline = { serverKey in
                 // Parse serverKey and trigger health check
                 let parts = serverKey.split(separator: ":", maxSplits: 1)
