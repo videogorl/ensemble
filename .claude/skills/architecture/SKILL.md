@@ -66,6 +66,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `PlexAccountDiscoveryService` -- Discovers account identity + normalized server/library inventory during add-account and reconciliation flows
 - `SyncCoordinator` (@MainActor) -- Orchestrates library syncing across all enabled sources; provides timeline reporting and scrobbling methods
   - Publishes `lastContentChange` for consumers that need actual library/playlist mutations; `sourceStatuses` remains the transport/progress surface
+  - Delegates health-refresh gating/coalescing to `RefreshOrchestrator` so foreground/network-triggered probes share one cooldown/staleness path
 - `NavigationCoordinator` (@MainActor) -- Manages cross-view navigation state (artist/album deep links from NowPlayingView)
   - Maintains per-tab navigation paths (homePath, artistsPath, etc.)
   - `visibleTabs: [TabItem]` -- Synced from MainTabView to enable fallback logic
@@ -91,6 +92,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `ArtworkLoader` -- Persistent artwork caching with local-first loading strategy
 - `CacheManager` (@MainActor) -- Tracks cache sizes and provides cache clearing functionality
 - `NetworkMonitor` (@MainActor) -- Proactive network connectivity monitoring using NWPathMonitor with 1s debouncing
+- `RefreshOrchestrator` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns health-refresh coalescing, cooldown/staleness checks, and startup-health claim tracking while `SyncCoordinator` remains the façade
 - `ServerHealthChecker` -- Concurrent health checks for all configured servers with automatic failover
 - `SettingsManager` (@MainActor) -- Manages accent colors, customizable tab configuration, and track swipe action layout settings
 - `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for hub refresh ~every 15min (system-controlled)

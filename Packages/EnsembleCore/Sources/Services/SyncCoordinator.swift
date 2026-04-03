@@ -91,26 +91,6 @@ public final class SyncCoordinator: ObservableObject {
         case none
     }
 
-    private enum HealthRefreshReason: Equatable {
-        case networkReconnect
-        case interfaceSwitch(from: NetworkType, to: NetworkType)
-        case appForeground
-        case accountInventoryRefresh
-
-        var description: String {
-            switch self {
-            case .networkReconnect:
-                return "network_reconnect"
-            case .interfaceSwitch(let from, let to):
-                return "interface_switch(\(from.description)->\(to.description))"
-            case .appForeground:
-                return "app_foreground"
-            case .accountInventoryRefresh:
-                return "account_inventory_refresh"
-            }
-        }
-    }
-
     @Published public private(set) var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     @Published public private(set) var isSyncing = false
     @Published public private(set) var isOffline = false
@@ -127,13 +107,11 @@ public final class SyncCoordinator: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
+    private let refreshOrchestrator: RefreshOrchestrator
     private var syncProviders: [String: MusicSourceSyncProvider] = [:]  // keyed by compositeKey
     private var cancellables = Set<AnyCancellable>()
     private var isCheckingHealth = false
     private var lastObservedNetworkState: NetworkState?
-    private var lastHealthRefreshAt: Date?
-    private var activeHealthRefreshTask: Task<Void, Never>?
-    private let healthRefreshCooldown: TimeInterval = 30
     /// Tracks whether the initial Unknown→Online transition at startup has occurred.
     /// This transition is normal initialization, not a reconnect, so we skip the
     /// expensive reconnect path (health refresh + connection invalidation).
@@ -142,11 +120,6 @@ public final class SyncCoordinator: ObservableObject {
     /// @Published updates during sync so SwiftUI doesn't re-render on every item.
     private var lastProgressUpdateTime: [MusicSourceIdentifier: CFAbsoluteTime] = [:]
     private let progressThrottleInterval: CFAbsoluteTime = 0.2  // 200ms
-    /// Set when any startup path begins running health checks, so
-    /// `performStartupHealthChecks()` can skip if already covered.
-    private var startupHealthChecksInitiated = false
-    private let foregroundHealthStalenessThreshold: TimeInterval = 60
-    private let foregroundHealthLoadDeferralThreshold: TimeInterval = 5 * 60
     private var registrySubscriptionTask: Task<Void, Never>?
     
     // Periodic sync timers
@@ -207,6 +180,7 @@ public final class SyncCoordinator: ObservableObject {
         self.networkMonitor = networkMonitor
         self.serverHealthChecker = serverHealthChecker
         self.connectionRegistry = connectionRegistry
+        self.refreshOrchestrator = RefreshOrchestrator()
         self.lastPlaylistTargetsByServer = Self.loadLastPlaylistTargetsByServer()
         self.lastPlaylistTarget = Self.loadLastPlaylistTarget()
 
@@ -1133,17 +1107,13 @@ public final class SyncCoordinator: ObservableObject {
         // Skip if performStartupHealthChecks() already started (e.g. from AppDelegate's
         // earlyHealthCheckTask) — avoids redundant probing while the early pass is in flight.
         let eligibleServers = enabledServerKeysForHealthChecks()
-        let healthChecksAlreadyCovered = startupHealthChecksInitiated || lastHealthRefreshAt != nil
-        if !eligibleServers.isEmpty && !healthChecksAlreadyCovered {
-            // Mark initiated before awaiting so performStartupHealthChecks()
-            // (which may fire concurrently from AppDelegate) skips immediately.
-            startupHealthChecksInitiated = true
-
+        let claimedStartupHealthChecks = !eligibleServers.isEmpty && refreshOrchestrator.beginStartupHealthChecksIfNeeded()
+        if !eligibleServers.isEmpty && claimedStartupHealthChecks {
             EnsembleLogger.debug("🏥 Running startup health checks for \(eligibleServers.count) server(s)...")
             let preCheckStates = serverHealthChecker.serverStates
             let summary = await runHealthChecks(forceServerRefresh: false, eligibleServerKeys: eligibleServers)
             updateSourceConnectionStates()
-            lastHealthRefreshAt = nowProviderForTesting()
+            refreshOrchestrator.markHealthRefreshCompleted(at: nowProviderForTesting())
 
             // Notify artwork views if servers became available after health checks
             let postCheckStates = serverHealthChecker.serverStates
@@ -1156,7 +1126,7 @@ public final class SyncCoordinator: ObservableObject {
             }
 
             EnsembleLogger.debug("🏥 Startup health checks complete: checked=\(summary.checkedCount), skipped=\(summary.skippedCount)")
-        } else if healthChecksAlreadyCovered {
+        } else if !eligibleServers.isEmpty && !claimedStartupHealthChecks {
             EnsembleLogger.debug("🏥 Skipping startup sync health checks — already handled by the early startup path")
             // Still update source states in case they weren't synced
             updateSourceConnectionStates()
@@ -2319,95 +2289,54 @@ public final class SyncCoordinator: ObservableObject {
         return type
     }
 
-    private func scheduleHealthRefresh(reason: HealthRefreshReason, forceServerRefresh: Bool) {
-        if activeHealthRefreshTask != nil {
-            EnsembleLogger.debug("🌐 SyncCoordinator: Coalescing health refresh request (\(reason.description))")
-            return
-        }
+    private func scheduleHealthRefresh(reason: RefreshOrchestrator.HealthRefreshReason, forceServerRefresh: Bool) {
+        let request = RefreshOrchestrator.HealthRefreshRequest(
+            reason: reason,
+            forceServerRefresh: forceServerRefresh
+        )
 
-        let now = nowProviderForTesting()
+        let didSchedule = refreshOrchestrator.scheduleHealthRefresh(
+            request: request,
+            now: nowProviderForTesting,
+            shouldDeferForegroundHealthRefresh: shouldDeferForegroundHealthRefresh,
+            eligibleServerKeysProvider: { self.enabledServerKeysForHealthChecks() },
+            runRefresh: { [weak self] request, eligibleServerKeys, startedAt in
+                guard let self else { return }
 
-        if reason == .appForeground,
-           let lastRefresh = lastHealthRefreshAt,
-           now.timeIntervalSince(lastRefresh) < foregroundHealthStalenessThreshold {
-            EnsembleLogger.debug(
-                "🌐 SyncCoordinator: Skipping foreground health refresh (last run \(String(format: "%.1f", now.timeIntervalSince(lastRefresh)))s ago)"
-            )
-            return
-        }
+                // Capture pre-check states to detect unknown→connected transitions.
+                let preCheckStates = self.serverHealthChecker.serverStates
 
-        if reason == .appForeground,
-           shouldDeferForegroundHealthRefresh?() == true,
-           let lastRefresh = lastHealthRefreshAt,
-           now.timeIntervalSince(lastRefresh) < foregroundHealthLoadDeferralThreshold {
-            EnsembleLogger.debug(
-                "🌐 SyncCoordinator: Deferring foreground health refresh due to active playback/download load (\(String(format: "%.1f", now.timeIntervalSince(lastRefresh)))s since last run)"
-            )
-            return
-        }
+                let summary = await self.runHealthChecks(
+                    forceServerRefresh: request.forceServerRefresh,
+                    eligibleServerKeys: eligibleServerKeys
+                )
+                self.updateSourceConnectionStates()
+                await self.runAPIClientConnectionRefresh()
 
-        // User-initiated inventory refreshes bypass cooldown. Network-triggered
-        // refreshes still honor the cooldown so brief flaps do not re-probe every
-        // server endpoint repeatedly on older devices.
-        let bypassCooldown: Bool
-        switch reason {
-        case .accountInventoryRefresh:
-            bypassCooldown = true
-        default:
-            bypassCooldown = false
-        }
+                // If any server transitioned from unknown/connecting to connected,
+                // notify artwork views to re-trigger loads that got local-file fallback.
+                let postCheckStates = self.serverHealthChecker.serverStates
+                let anyBecameAvailable = preCheckStates.contains { key, preState in
+                    guard !preState.isAvailable else { return false }
+                    return postCheckStates[key]?.isAvailable == true
+                }
+                if anyBecameAvailable {
+                    NotificationCenter.default.post(name: ArtworkLoader.serversBecameAvailable, object: nil)
+                }
 
-        if !bypassCooldown,
-           let lastRefresh = lastHealthRefreshAt,
-           now.timeIntervalSince(lastRefresh) < healthRefreshCooldown {
-            EnsembleLogger.debug(
-                "🌐 SyncCoordinator: Skipping health refresh due to cooldown (\(String(format: "%.1f", now.timeIntervalSince(lastRefresh)))s ago)"
-            )
-            return
-        }
-
-        let eligibleServerKeys = enabledServerKeysForHealthChecks()
-        guard !eligibleServerKeys.isEmpty else {
-            EnsembleLogger.debug("🌐 SyncCoordinator: No enabled-library servers eligible for health checks")
-            return
-        }
-
-        isCheckingHealth = true
-        let startedAt = nowProviderForTesting()
-
-        activeHealthRefreshTask = Task { @MainActor [weak self] in
-            guard let self = self else { return }
-
-            defer {
-                self.isCheckingHealth = false
-                let completionTime = self.nowProviderForTesting()
-                self.lastHealthRefreshAt = completionTime
-                self.lastHealthCheckCompletion = completionTime
-                self.activeHealthRefreshTask = nil
+                let duration = self.nowProviderForTesting().timeIntervalSince(startedAt)
+                EnsembleLogger.debug(
+                    "🌐 SyncCoordinator: Health refresh complete reason=\(request.reason.description), checked=\(summary.checkedCount), skipped=\(summary.skippedCount), duration=\(String(format: "%.2f", duration))s"
+                )
+            },
+            didComplete: { [weak self] completionTime in
+                self?.isCheckingHealth = false
+                self?.lastHealthCheckCompletion = completionTime
             }
+        )
 
-            // Capture pre-check states to detect unknown→connected transitions
-            let preCheckStates = self.serverHealthChecker.serverStates
-
-            let summary = await self.runHealthChecks(forceServerRefresh: forceServerRefresh, eligibleServerKeys: eligibleServerKeys)
-            self.updateSourceConnectionStates()
-            await self.runAPIClientConnectionRefresh()
-
-            // If any server transitioned from unknown/connecting to connected,
-            // notify artwork views to re-trigger loads that got local-file fallback
-            let postCheckStates = self.serverHealthChecker.serverStates
-            let anyBecameAvailable = preCheckStates.contains { key, preState in
-                guard !preState.isAvailable else { return false }
-                return postCheckStates[key]?.isAvailable == true
-            }
-            if anyBecameAvailable {
-                NotificationCenter.default.post(name: ArtworkLoader.serversBecameAvailable, object: nil)
-            }
-
-            let duration = self.nowProviderForTesting().timeIntervalSince(startedAt)
-            EnsembleLogger.debug(
-                "🌐 SyncCoordinator: Health refresh complete reason=\(reason.description), checked=\(summary.checkedCount), skipped=\(summary.skippedCount), duration=\(String(format: "%.2f", duration))s"
-            )
+        if didSchedule {
+            isCheckingHealth = true
         }
     }
 
@@ -2511,11 +2440,11 @@ public final class SyncCoordinator: ObservableObject {
     }
 
     internal func awaitHealthRefreshForTesting() async {
-        await activeHealthRefreshTask?.value
+        await refreshOrchestrator.awaitHealthRefreshForTesting()
     }
 
     internal func setLastHealthRefreshForTesting(_ date: Date?) {
-        lastHealthRefreshAt = date
+        refreshOrchestrator.setLastHealthRefreshForTesting(date)
     }
 
     internal func installSyncProviderForTesting(
@@ -2612,11 +2541,10 @@ public final class SyncCoordinator: ObservableObject {
         // Skip if startup sync already started or completed health checks.
         // startupHealthChecksInitiated is set before the await, so it catches
         // the case where startup sync's health checks are still in progress.
-        if startupHealthChecksInitiated || lastHealthRefreshAt != nil {
+        if !refreshOrchestrator.beginStartupHealthChecksIfNeeded() {
             EnsembleLogger.debug("🏥 SyncCoordinator: Skipping early health checks — startup sync already handling them")
             return
         }
-        startupHealthChecksInitiated = true
 
         let eligibleServers = enabledServerKeysForHealthChecks()
         guard !eligibleServers.isEmpty else { return }
@@ -2628,7 +2556,7 @@ public final class SyncCoordinator: ObservableObject {
         let summary = await runHealthChecks(forceServerRefresh: false, eligibleServerKeys: eligibleServers)
         updateSourceConnectionStates()
         // Set lastHealthRefreshAt so the 30s cooldown prevents duplicate passes
-        lastHealthRefreshAt = nowProviderForTesting()
+        refreshOrchestrator.markHealthRefreshCompleted(at: nowProviderForTesting())
 
         // Notify artwork views if servers became available
         let postCheckStates = serverHealthChecker.serverStates

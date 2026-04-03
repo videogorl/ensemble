@@ -137,6 +137,7 @@ Sources/
 +-- Services/
 |   +-- AccountManager.swift           # Multi-account configuration (MainActor)
 |   +-- SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
+|   +-- RefreshOrchestrator.swift      # Health-refresh gating, cooldown/staleness policy, and startup-health ownership extracted from SyncCoordinator
 |   +-- MusicSourceSyncProvider.swift  # Protocol for source-specific sync
 |   +-- PlexMusicSourceSyncProvider.swift # Plex implementation of sync protocol
 |   +-- NavigationCoordinator.swift    # Centralized navigation state management (MainActor)
@@ -209,6 +210,7 @@ Tests/
 +-- PlaybackQueueStoreTests.swift
 +-- NetworkMonitorTests.swift
 +-- SyncCoordinatorNetworkHealthTests.swift
++-- RefreshOrchestratorTests.swift # Health-refresh coalescing, cooldown/staleness gating, and startup ownership coverage
 +-- OfflineDownloadServicePolicyTests.swift # Playback/background download work-mode policy coverage
 +-- DownloadQueueCoordinatorTests.swift # Queue lifecycle ownership, background wakeup, and restart coverage
 +-- DownloadRetryPolicyTests.swift # Transfer retry accounting and direct-fallback gating coverage

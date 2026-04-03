@@ -1,0 +1,122 @@
+import XCTest
+@testable import EnsembleCore
+
+@MainActor
+final class RefreshOrchestratorTests: XCTestCase {
+    func testCoalescesConcurrentRefreshRequests() async {
+        let orchestrator = RefreshOrchestrator()
+        let request = RefreshOrchestrator.HealthRefreshRequest(
+            reason: .networkReconnect,
+            forceServerRefresh: true
+        )
+        let eligibleServerKeys = Set(["account-1:server-1"])
+        let now = Date(timeIntervalSince1970: 10_000)
+
+        var runCount = 0
+        let firstDidSchedule = orchestrator.scheduleHealthRefresh(
+            request: request,
+            now: { now },
+            shouldDeferForegroundHealthRefresh: nil,
+            eligibleServerKeysProvider: { eligibleServerKeys },
+            runRefresh: { _, _, _ in
+                runCount += 1
+                try? await Task.sleep(nanoseconds: 80_000_000)
+            },
+            didComplete: { _ in }
+        )
+
+        let secondDidSchedule = orchestrator.scheduleHealthRefresh(
+            request: request,
+            now: { now },
+            shouldDeferForegroundHealthRefresh: nil,
+            eligibleServerKeysProvider: { eligibleServerKeys },
+            runRefresh: { _, _, _ in
+                runCount += 1
+            },
+            didComplete: { _ in }
+        )
+
+        XCTAssertTrue(firstDidSchedule)
+        XCTAssertFalse(secondDidSchedule)
+        await orchestrator.awaitHealthRefreshForTesting()
+        XCTAssertEqual(runCount, 1)
+    }
+
+    func testForegroundRefreshHonorsStalenessThreshold() {
+        let orchestrator = RefreshOrchestrator()
+        let now = Date(timeIntervalSince1970: 20_000)
+        orchestrator.setLastHealthRefreshForTesting(now.addingTimeInterval(-30))
+
+        let didSchedule = orchestrator.scheduleHealthRefresh(
+            request: .init(reason: .appForeground, forceServerRefresh: false),
+            now: { now },
+            shouldDeferForegroundHealthRefresh: nil,
+            eligibleServerKeysProvider: { Set(["account-1:server-1"]) },
+            runRefresh: { _, _, _ in },
+            didComplete: { _ in }
+        )
+
+        XCTAssertFalse(didSchedule)
+    }
+
+    func testForegroundRefreshDefersDuringInteractiveLoadUntilStale() {
+        let orchestrator = RefreshOrchestrator()
+        let now = Date(timeIntervalSince1970: 30_000)
+
+        orchestrator.setLastHealthRefreshForTesting(now.addingTimeInterval(-120))
+        let deferredSchedule = orchestrator.scheduleHealthRefresh(
+            request: .init(reason: .appForeground, forceServerRefresh: false),
+            now: { now },
+            shouldDeferForegroundHealthRefresh: { true },
+            eligibleServerKeysProvider: { Set(["account-1:server-1"]) },
+            runRefresh: { _, _, _ in },
+            didComplete: { _ in }
+        )
+
+        orchestrator.setLastHealthRefreshForTesting(now.addingTimeInterval(-301))
+        let staleSchedule = orchestrator.scheduleHealthRefresh(
+            request: .init(reason: .appForeground, forceServerRefresh: false),
+            now: { now },
+            shouldDeferForegroundHealthRefresh: { true },
+            eligibleServerKeysProvider: { Set(["account-1:server-1"]) },
+            runRefresh: { _, _, _ in },
+            didComplete: { _ in }
+        )
+
+        XCTAssertFalse(deferredSchedule)
+        XCTAssertTrue(staleSchedule)
+    }
+
+    func testAccountInventoryRefreshBypassesCooldown() async {
+        let orchestrator = RefreshOrchestrator()
+        let now = Date(timeIntervalSince1970: 40_000)
+        orchestrator.setLastHealthRefreshForTesting(now.addingTimeInterval(-5))
+
+        var runCount = 0
+        let didSchedule = orchestrator.scheduleHealthRefresh(
+            request: .init(reason: .accountInventoryRefresh, forceServerRefresh: true),
+            now: { now },
+            shouldDeferForegroundHealthRefresh: nil,
+            eligibleServerKeysProvider: { Set(["account-1:server-1"]) },
+            runRefresh: { _, _, _ in
+                runCount += 1
+            },
+            didComplete: { _ in }
+        )
+
+        XCTAssertTrue(didSchedule)
+        await orchestrator.awaitHealthRefreshForTesting()
+        XCTAssertEqual(runCount, 1)
+    }
+
+    func testStartupHealthChecksCanOnlyBeClaimedOnce() {
+        let orchestrator = RefreshOrchestrator()
+
+        XCTAssertTrue(orchestrator.beginStartupHealthChecksIfNeeded())
+        XCTAssertFalse(orchestrator.beginStartupHealthChecksIfNeeded())
+
+        let freshOrchestrator = RefreshOrchestrator()
+        freshOrchestrator.markHealthRefreshCompleted(at: Date())
+        XCTAssertFalse(freshOrchestrator.beginStartupHealthChecksIfNeeded())
+    }
+}
