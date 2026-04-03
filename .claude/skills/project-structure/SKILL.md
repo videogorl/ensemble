@@ -157,6 +157,7 @@ Sources/
 |   +-- BackgroundSyncScheduler.swift  # iOS BGAppRefreshTask scheduling for background sync
 |   +-- OfflineDownloadService.swift   # Target-based offline queue, reconciliation, and progress tracking
 |   +-- DownloadQueueCoordinator.swift # Sole owner of offline queue task lifecycle and worker orchestration
+|   +-- DownloadRetryPolicy.swift      # Stateful offline retry and direct-fallback policy
 |   +-- OfflineBackgroundExecutionCoordinator.swift # Optional iOS 26+ BG continued-processing adapter
 |   +-- MoodRepository.swift           # Mood data persistence (CDMood)
 |   +-- LibraryVisibilityStore.swift   # Persisted visibility profiles + active profile state
@@ -209,6 +210,7 @@ Tests/
 +-- SyncCoordinatorNetworkHealthTests.swift
 +-- OfflineDownloadServicePolicyTests.swift # Playback/background download work-mode policy coverage
 +-- DownloadQueueCoordinatorTests.swift # Queue lifecycle ownership, background wakeup, and restart coverage
++-- DownloadRetryPolicyTests.swift # Transfer retry accounting and direct-fallback gating coverage
 +-- HomeViewModelRefreshPolicyTests.swift
 +-- ServerHealthCheckerClassificationTests.swift
 +-- SettingsManagerConnectionPolicyTests.swift

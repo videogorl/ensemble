@@ -143,16 +143,6 @@ public final class OfflineDownloadService: ObservableObject {
     private var qualityMismatchByTargetKey: [String: Int] = [:]
     private var failedTracksByTargetKey: [String: Int] = [:]
 
-    /// In-memory retry counter for truncated/incomplete downloads.
-    /// Prevents infinite retry loops when a track consistently fails transfer.
-    /// Cleared on successful completion; capped at maxTransferRetries.
-    private var transferRetryCount: [String: Int] = [:]
-    /// Session-level circuit breaker for direct-original fallback after the download
-    /// queue already failed. Prevents the same track from repeating a doomed fallback
-    /// path on every retry in one app session.
-    private var blockedDirectFallbackKeys = Set<String>()
-    private static let maxTransferRetries = 3
-
     /// Debounced notification task so individual download completions don't
     /// spam `downloadsDidChange` during bulk queue processing.
     private var downloadChangeNotificationTask: Task<Void, Never>?
@@ -169,6 +159,7 @@ public final class OfflineDownloadService: ObservableObject {
     private var isAppInBackground = false
     private var allowsBackgroundContinuation = false
     private var isPlaybackSensitive = false
+    private let retryPolicy = DownloadRetryPolicy()
     private lazy var queueCoordinator = DownloadQueueCoordinator(
         dependencies: .init(
             canRunAutomatically: { [weak self] in self?.canRunQueueAutomatically ?? false },
@@ -273,22 +264,6 @@ public final class OfflineDownloadService: ObservableObject {
     public func handleDownloadQueueCompleted() async {
         EnsembleLogger.debug("⬇️ WebSocket: download queue completed — queueTask=\(queueCoordinator.hasActiveTask ? "active" : "nil"), isQueueRunning=\(isQueueRunning)")
         startQueueIfNeeded()
-    }
-
-    private func directFallbackKey(for ctx: DownloadContext) -> String {
-        "\(ctx.trackRatingKey)|\(ctx.sourceCompositeKey)"
-    }
-
-    private func shouldSkipDirectFallback(for ctx: DownloadContext) -> Bool {
-        blockedDirectFallbackKeys.contains(directFallbackKey(for: ctx))
-    }
-
-    private func markDirectFallbackBlocked(for ctx: DownloadContext) {
-        blockedDirectFallbackKeys.insert(directFallbackKey(for: ctx))
-    }
-
-    private func clearDirectFallbackBlock(for ctx: DownloadContext) {
-        blockedDirectFallbackKeys.remove(directFallbackKey(for: ctx))
     }
 
     public func refreshState() async {
@@ -1292,57 +1267,55 @@ public final class OfflineDownloadService: ObservableObject {
                 )
             }
 
-            // Clear transfer retry counter on success
-            transferRetryCount.removeValue(forKey: ctx.trackRatingKey)
-            if attemptedDirectFallback {
-                clearDirectFallbackBlock(for: ctx)
-            }
+            retryPolicy.recordSuccess(
+                trackRatingKey: ctx.trackRatingKey,
+                sourceCompositeKey: ctx.sourceCompositeKey,
+                attemptedDirectFallback: attemptedDirectFallback
+            )
 
             // Notify track-displaying VMs so they re-fetch and reflect updated
             // offline state (e.g. dimming). Debounced to avoid spamming during
             // bulk queue processing.
             scheduleDownloadChangeNotification()
         } catch {
-            if Task.isCancelled {
-                // Reset to pending (not paused) so the worker picks it up again.
+            let resolution = retryPolicy.resolveFailure(
+                .init(
+                    trackRatingKey: ctx.trackRatingKey,
+                    sourceCompositeKey: ctx.sourceCompositeKey,
+                    attemptedDirectFallback: attemptedDirectFallback,
+                    updatedQuality: currentDownloadQuality(),
+                    isCancellation: Task.isCancelled,
+                    isNetworkLoss: isNetworkLossError(error),
+                    isRetryableTransfer: error is DownloadTransferError || isRetryableTruncation(error),
+                    errorDescription: error.localizedDescription
+                )
+            )
+
+            switch resolution {
+            case .resetToPending(let quality):
                 // Quality changes cancel in-flight downloads and re-queue at the
                 // new quality; .paused would leave the old-quality download stuck.
-                let updatedQuality = currentDownloadQuality()
-                try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: updatedQuality)
-            } else if isNetworkLossError(error) {
+                try? await downloadManager.updateDownloadStatus(
+                    ctx.downloadObjectID,
+                    status: .pending,
+                    quality: quality
+                )
+            case .pauseForNetworkLoss:
                 // Network dropped mid-transfer — pause so the download auto-resumes
-                // when connectivity returns, instead of marking as permanently failed
+                // when connectivity returns, instead of marking as permanently failed.
                 try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .paused, quality: nil)
                 EnsembleLogger.debug(
                     "⏸️ Offline download paused (network lost): track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey)"
                 )
-            } else if error is DownloadTransferError || isRetryableTruncation(error) {
-                if attemptedDirectFallback {
-                    markDirectFallbackBlocked(for: ctx)
-                }
+            case .retryPending(let attempt, let maxAttempts, _):
                 // Incomplete transfer or truncated payload — re-queue as pending so the
-                // download worker automatically retries. These are transient failures
-                // (app backgrounded, server timeout, FFmpeg crash) not permanent ones.
-                let retries = (transferRetryCount[ctx.trackRatingKey] ?? 0) + 1
-                transferRetryCount[ctx.trackRatingKey] = retries
-
-                if retries <= Self.maxTransferRetries {
-                    try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: nil)
-                    EnsembleLogger.debug(
-                        "🔄 Offline download re-queued (attempt \(retries)/\(Self.maxTransferRetries)): track=\(ctx.trackRatingKey) reason=\(error.localizedDescription)"
-                    )
-                } else {
-                    try? await downloadManager.failDownload(ctx.downloadObjectID, error: "Transfer incomplete after \(Self.maxTransferRetries) attempts")
-                    transferRetryCount.removeValue(forKey: ctx.trackRatingKey)
-                    EnsembleLogger.debug(
-                        "❌ Offline download failed (max retries): track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey) reason=\(error.localizedDescription)"
-                    )
-                }
-            } else {
-                if attemptedDirectFallback {
-                    markDirectFallbackBlocked(for: ctx)
-                }
-                try? await downloadManager.failDownload(ctx.downloadObjectID, error: error.localizedDescription)
+                // download worker automatically retries. These are transient failures.
+                try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: nil)
+                EnsembleLogger.debug(
+                    "🔄 Offline download re-queued (attempt \(attempt)/\(maxAttempts)): track=\(ctx.trackRatingKey) reason=\(error.localizedDescription)"
+                )
+            case .fail(let message, _):
+                try? await downloadManager.failDownload(ctx.downloadObjectID, error: message)
                 EnsembleLogger.debug(
                     "❌ Offline download failed: track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey) reason=\(error.localizedDescription)"
                 )
@@ -2297,23 +2270,38 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func shouldAttemptDirectFallback(after error: Error, for ctx: DownloadContext) -> Bool {
-        if shouldSkipDirectFallback(for: ctx) {
+        switch retryPolicy.directFallbackDecision(
+            for: .init(
+                trackRatingKey: ctx.trackRatingKey,
+                sourceCompositeKey: ctx.sourceCompositeKey,
+                isOffline: syncCoordinator.isOffline,
+                canExecuteDownloads: canExecuteDownloads,
+                canRunQueueAutomatically: canRunQueueAutomatically,
+                workMode: currentDownloadWorkMode
+            )
+        ) {
+        case .blockedAfterPriorFailure:
             EnsembleLogger.debug(
                 "⛔️ Skipping direct-original fallback for track=\(ctx.trackRatingKey) after an earlier fallback failure in this session"
             )
             return false
-        }
-
-        if isNetworkLossError(error) || syncCoordinator.isOffline || !canExecuteDownloads {
+        case .blockedByNetwork:
             EnsembleLogger.debug(
                 "⛔️ Skipping direct-original fallback for track=\(ctx.trackRatingKey) because the network is unavailable"
             )
             return false
-        }
-
-        if !canRunQueueAutomatically || currentDownloadWorkMode == .background {
+        case .blockedWhileSuspended:
             EnsembleLogger.debug(
                 "⛔️ Skipping direct-original fallback for track=\(ctx.trackRatingKey) while download work is suspended"
+            )
+            return false
+        case .attempt:
+            break
+        }
+
+        if isNetworkLossError(error) {
+            EnsembleLogger.debug(
+                "⛔️ Skipping direct-original fallback for track=\(ctx.trackRatingKey) because the request failed with a network-loss error"
             )
             return false
         }
