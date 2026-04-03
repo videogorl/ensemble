@@ -773,20 +773,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var resolvedFileURLs: [String: URL] = [:]
     private var resolvedFileURLsLRU: [String] = []
     private let maxCachedFileURLs = 10
-    /// Cached stream decisions keyed by trackId. Decisions are endpoint-independent and
-    /// survive network transitions — only the assembly step uses the current endpoint.
-    private var cachedStreamDecisions: [String: StreamDecision] = [:]
-    /// In-flight file resolution tasks keyed by trackId
-    private var fileResolutionTasks: [String: Task<URL, Error>] = [:]
     /// Track IDs currently being resolved for gapless prefetch.
     /// Guards against TOCTOU race where two concurrent prefetchUpcomingItems calls
     /// both pass the isTrackScheduled check before either completes scheduleNext().
     private var prefetchingTrackIds: Set<String> = []
     /// Combine subscription for engine time updates
     private var engineTimeCancellable: AnyCancellable?
-    /// Active progressive stream loaders keyed by trackId. Kept alive so the
-    /// download lifecycle is managed until the file is fully written.
-    private var streamLoaders: [String: ProgressiveStreamLoader] = [:]
     private var loadingStateTask: Task<Void, Never>?  // Delayed loading state transition
     private var isHandlingQueueExhaustion = false
     /// Set while handleServerUnreachablePlaybackFailure is running a health check.
@@ -901,6 +893,53 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var queueExhaustedTimestamps: [Date] = []
     /// Safety timer to force-reset isSkipTransitionInProgress if it gets stuck
     private var skipTransitionSafetyTask: Task<Void, Never>?
+    private lazy var transportCoordinator = PlaybackTransportCoordinator(
+        dependencies: .init(
+            networkState: { [weak self] in
+                await MainActor.run { self?.networkMonitor.networkState ?? .unknown }
+            },
+            preparedLocalPlaybackURL: { [weak self] path in
+                self?.preparedLocalPlaybackURL(forPath: path) ?? URL(fileURLWithPath: path)
+            },
+            isClearlyInvalidLocalPayload: { [weak self] fileURL in
+                self?.isClearlyInvalidLocalPayload(fileURL) ?? true
+            },
+            ensureServerConnection: { [weak self] track in
+                guard let self else {
+                    throw PlaybackError.unknown(NSError(domain: "PlaybackService", code: -1))
+                }
+                try await self.syncCoordinator.ensureServerConnection(for: track)
+            },
+            serverFailureMessage: { [weak self] track in
+                guard let self else { return nil }
+                return await self.syncCoordinator.serverFailureMessage(for: track)
+            },
+            makeStreamDecision: { [weak self] track, quality in
+                guard let self else {
+                    throw PlaybackError.unknown(NSError(domain: "PlaybackService", code: -1))
+                }
+                return try await self.syncCoordinator.makeStreamDecision(for: track, quality: quality)
+            },
+            assembleStreamResolution: { [weak self] track, decision in
+                guard let self else {
+                    throw PlaybackError.unknown(NSError(domain: "PlaybackService", code: -1))
+                }
+                return try await self.syncCoordinator.assembleStreamResolution(for: track, from: decision)
+            },
+            refreshConnection: { [weak self] in
+                guard let self else {
+                    throw PlaybackError.unknown(NSError(domain: "PlaybackService", code: -1))
+                }
+                try await self.syncCoordinator.refreshConnection()
+            },
+            shouldRetryStreamURLRequest: { [weak self] error in
+                self?.shouldRetryStreamURLRequest(after: error) ?? false
+            },
+            mapToPlaybackError: { [weak self] error in
+                self?.mapToPlaybackError(error) ?? .unknown(error)
+            }
+        )
+    )
 
     public var historyPublisher: AnyPublisher<[QueueItem], Never> { $playbackHistory.eraseToAnyPublisher() }
 
@@ -2381,9 +2420,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             setInstrumentalMode(false)
         }
 
-        // Cancel any in-flight progressive stream downloads
-        for loader in streamLoaders.values { loader.cancel() }
-        streamLoaders.removeAll()
+        // Cancel any in-flight transport work
+        transportCoordinator.clear(removeDecisions: false)
 
         endTrackTransitionBackgroundTask()
         cleanup()
@@ -3197,7 +3235,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         while resolvedFileURLsLRU.count > maxCachedFileURLs {
             if let evictedId = resolvedFileURLsLRU.popLast() {
                 resolvedFileURLs.removeValue(forKey: evictedId)
-                streamLoaders.removeValue(forKey: evictedId)?.cancel()
+                transportCoordinator.evict(trackId: evictedId, includeDecision: false, cancelTask: true)
             }
         }
         cleanupStreamCacheFiles()
@@ -3217,8 +3255,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func clearFileURLCache() {
         resolvedFileURLs.removeAll()
         resolvedFileURLsLRU.removeAll()
-        for loader in streamLoaders.values { loader.cancel() }
-        streamLoaders.removeAll()
+        transportCoordinator.clear(removeDecisions: false)
         cleanupStreamCacheFiles()
         EnsembleLogger.debug("[Cache] Cleared file URL cache")
     }
@@ -3234,8 +3271,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         for id in evictIds {
             resolvedFileURLs.removeValue(forKey: id)
-            streamLoaders.removeValue(forKey: id)?.cancel()
-            cachedStreamDecisions.removeValue(forKey: id)
+            transportCoordinator.evict(trackId: id, includeDecision: true, cancelTask: true)
         }
         resolvedFileURLsLRU.removeAll { evictIds.contains($0) }
         cleanupStreamCacheFiles()
@@ -3278,7 +3314,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         // Protect files with in-flight downloads to avoid deleting partially-written files
-        keepIds.formUnion(streamLoaders.keys)
+        keepIds.formUnion(transportCoordinator.activeLoaderTrackIDs())
 
         guard let files = try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path) else {
             try? FileManager.default.removeItem(at: cacheDir)
@@ -3303,7 +3339,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func removeCachedPlayerItem(for trackID: String) {
         resolvedFileURLs.removeValue(forKey: trackID)
-        streamLoaders.removeValue(forKey: trackID)?.cancel()
+        transportCoordinator.evict(trackId: trackID, includeDecision: false, cancelTask: true)
         resolvedFileURLsLRU.removeAll { $0 == trackID }
     }
 
@@ -3636,237 +3672,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Downloaded tracks return immediately. Streaming tracks download to a temp file first.
     /// Deduplicates concurrent requests for the same track.
     private func resolveAudioFile(for track: Track) async throws -> URL {
-        // Deduplication: if another call is already resolving this track, await it
-        if let existingTask = fileResolutionTasks[track.id] {
-            return try await existingTask.value
-        }
-
-        let task = Task<URL, Error> { [weak self] in
-            guard let self else { throw PlaybackError.unknown(NSError(domain: "PlaybackService", code: -1)) }
-            return try await self.resolveAudioFileImpl(for: track)
-        }
-        fileResolutionTasks[track.id] = task
-        do {
-            let result = try await task.value
-            fileResolutionTasks.removeValue(forKey: track.id)
-            await MainActor.run { cacheFileURL(result, for: track.id) }
-            return result
-        } catch {
-            fileResolutionTasks.removeValue(forKey: track.id)
-            throw error
-        }
-    }
-
-    /// Implementation: resolves a local file URL for AudioPlaybackEngine.
-    private func resolveAudioFileImpl(for track: Track) async throws -> URL {
-        let qualityString = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
-        let quality = StreamingQuality(rawValue: qualityString) ?? .high
-
-        let networkState = await MainActor.run(body: { networkMonitor.networkState })
-        let isDefinitelyOffline = networkState == .offline || networkState == .limited
-
-        // 1. Check downloaded file
-        if let localPath = track.localFilePath {
-            if FileManager.default.fileExists(atPath: localPath) {
-                let localPlaybackURL = preparedLocalPlaybackURL(forPath: localPath)
-                if !isClearlyInvalidLocalPayload(localPlaybackURL) {
-                    return localPlaybackURL
-                }
-                // Try original path if alias is invalid
-                if localPlaybackURL.path != localPath {
-                    try? FileManager.default.removeItem(at: localPlaybackURL)
-                    let originalURL = URL(fileURLWithPath: localPath)
-                    if !isClearlyInvalidLocalPayload(originalURL) {
-                        return originalURL
-                    }
-                }
-                if isDefinitelyOffline { throw PlaybackError.corruptLocalFile }
-            } else if isDefinitelyOffline {
-                throw PlaybackError.offline
-            }
-        } else if isDefinitelyOffline {
-            throw PlaybackError.offline
-        }
-
-        // 2. Check if stream loader already completed — discard failed prefetch loaders
-        // so we get a fresh resolution instead of re-throwing stale errors (fixes
-        // cross-server playback where a prefetch from server A fails when switching to B)
-        if let loader = streamLoaders[track.id], loader.isDownloadComplete {
-            if loader.completionError != nil {
-                EnsembleLogger.debug("[resolveAudioFile] Discarding failed prefetch loader for '\(track.title)'")
-                streamLoaders.removeValue(forKey: track.id)?.cancel()
-                cachedStreamDecisions.removeValue(forKey: track.id)
-                fileResolutionTasks.removeValue(forKey: track.id)
-                // Fall through to fresh resolution below
-            } else {
-                return loader.localFileURL
-            }
-        }
-
-        // 3. Ensure server connection
-        do {
-            try await syncCoordinator.ensureServerConnection(for: track)
-        } catch {
-            let failureMessage = await syncCoordinator.serverFailureMessage(for: track)
-            throw PlaybackError.serverUnavailable(message: failureMessage)
-        }
-
-        // 4. Get stream decision (cached or fresh).
-        // Decisions are endpoint-independent — they capture codec/quality/session params
-        // but NOT the server URL. Caching them avoids redundant /decision calls on
-        // network transitions.
-        let decision: StreamDecision
-        if let cached = cachedStreamDecisions[track.id] {
-            decision = cached
-            #if DEBUG
-            EnsembleLogger.debug("[resolveAudio] Using cached stream decision for '\(track.title)'")
-            #endif
-        } else {
-            do {
-                decision = try await syncCoordinator.makeStreamDecision(for: track, quality: quality)
-                cachedStreamDecisions[track.id] = decision
-            } catch {
-                if shouldRetryStreamURLRequest(after: error) {
-                    do {
-                        try await syncCoordinator.refreshConnection()
-                        let retried = try await syncCoordinator.makeStreamDecision(for: track, quality: quality)
-                        cachedStreamDecisions[track.id] = retried
-                        decision = retried
-                    } catch {
-                        throw mapToPlaybackError(error)
-                    }
-                } else {
-                    throw mapToPlaybackError(error)
-                }
-            }
-        }
-
-        // 5. Assemble resolution with current endpoint (reads fresh URL from registry)
-        let resolution: StreamResolution
-        do {
-            resolution = try await syncCoordinator.assembleStreamResolution(for: track, from: decision)
-        } catch {
-            throw mapToPlaybackError(error)
-        }
-
-        // 6. Handle resolution — download with stale-endpoint retry.
-        // If the download fails due to a network/endpoint error, refresh the connection
-        // and re-assemble the URL from the cached decision (which gets the fresh endpoint).
-        // This avoids redoing the /decision network call on transient endpoint failures.
-        do {
-            return try await handleStreamResolution(resolution, for: track, quality: quality)
-        } catch {
-            guard shouldRetryStreamURLRequest(after: error) else {
-                throw mapToPlaybackError(error)
-            }
-            #if DEBUG
-            EnsembleLogger.debug("[resolveAudio] Download failed (\(error)), retrying with fresh endpoint")
-            #endif
-            try await syncCoordinator.refreshConnection()
-            let freshResolution = try await syncCoordinator.assembleStreamResolution(for: track, from: decision)
-            return try await handleStreamResolution(freshResolution, for: track, quality: quality)
-        }
-    }
-
-    /// Route a StreamResolution to the appropriate download/return path.
-    private func handleStreamResolution(_ resolution: StreamResolution, for track: Track, quality: StreamingQuality) async throws -> URL {
-        switch resolution {
-        case .downloadedFile(let url):
-            return url
-        case .directStream(let url):
-            if url.isFileURL { return url }
-            return try await downloadStreamToTempFile(url: url, trackId: track.id)
-        case .progressiveTranscode(let config):
-            return try await startProgressiveDownload(for: track, config: config, quality: quality)
-        }
-    }
-
-    /// Start a progressive download and wait for completion.
-    private func startProgressiveDownload(for track: Track, config: ProgressiveStreamConfig, quality: StreamingQuality) async throws -> URL {
-        // Check if loader already exists
-        if let loader = streamLoaders[track.id] {
-            if loader.isDownloadComplete {
-                if let error = loader.completionError { throw error }
-                return loader.localFileURL
-            }
-            return try await waitForDownload(loader: loader, trackId: track.id, quality: quality)
-        }
-
-        // Create new loader
-        let loader = ProgressiveStreamLoader(
-            request: config.streamRequest,
-            ratingKey: config.ratingKey,
-            estimatedContentLength: config.estimatedContentLength,
-            metadataDuration: config.metadataDuration
-        )
-
-        await MainActor.run {
-            streamLoaders[track.id] = loader
-        }
-
-        return try await waitForDownload(loader: loader, trackId: track.id, quality: quality)
-    }
-
-    /// Wait for a ProgressiveStreamLoader to complete and return the file URL.
-    /// Wires both success and failure callbacks to prevent the continuation from hanging
-    /// if the download fails (e.g. HTTP 503 from unavailable storage).
-    private func waitForDownload(loader: ProgressiveStreamLoader, trackId: String, quality: StreamingQuality) async throws -> URL {
-        // If already finished before we start waiting, handle synchronously
-        if loader.isDownloadComplete {
-            if let error = loader.completionError { throw error }
-            return loader.localFileURL
-        }
-
-        return try await withCheckedThrowingContinuation { continuation in
-            var hasResumed = false
-            let resumeOnce: (Result<URL, Error>) -> Void = { result in
-                guard !hasResumed else { return }
-                hasResumed = true
-                continuation.resume(with: result)
-            }
-
-            let prevComplete = loader.onDownloadComplete
-            loader.onDownloadComplete = { fileURL, duration in
-                prevComplete?(fileURL, duration)
-                resumeOnce(.success(fileURL))
-            }
-            loader.onDownloadFailed = { error in
-                resumeOnce(.failure(error))
-            }
-
-            // Re-check: download may have completed between our check and callback wiring
-            if loader.isDownloadComplete {
-                if let error = loader.completionError {
-                    resumeOnce(.failure(error))
-                } else {
-                    resumeOnce(.success(loader.localFileURL))
-                }
-            }
-        }
-    }
-
-    /// Download a direct stream URL to a temp file for AudioPlaybackEngine.
-    /// Preserves the original file extension so AVAudioFile can detect the format.
-    private func downloadStreamToTempFile(url: URL, trackId: String) async throws -> URL {
-        let cacheDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
-        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-
-        // Use the extension from the source URL (e.g. .flac, .mp3, .m4a) so AVAudioFile
-        // can identify the format. Fall back to .mp3 for opaque URLs.
-        let ext = url.pathExtension.isEmpty ? "mp3" : url.pathExtension
-        let destURL = cacheDir.appendingPathComponent("\(trackId)_\(UUID().uuidString.prefix(8)).\(ext)")
-
-        let (data, response) = try await URLSession.shared.data(from: url)
-
-        // Check for HTTP errors (e.g. 503 from unavailable storage)
-        if let httpResponse = response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
-            let snippet = String(data: data.prefix(200), encoding: .utf8)
-            throw ProgressiveStreamError.httpError(statusCode: httpResponse.statusCode, bodySnippet: snippet)
-        }
-
-        try data.write(to: destURL)
-        return destURL
+        let result = try await transportCoordinator.resolveAudioFile(for: track)
+        await MainActor.run { cacheFileURL(result, for: track.id) }
+        return result
     }
 
     private func shouldRetryStreamURLRequest(after error: Error) -> Bool {
@@ -3957,9 +3765,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 return size
             }
             // Progressive transcode — get size from the loader's temp file
-            if let loader = streamLoaders[trackId] {
-                let size = loader.currentFileSize
-                return size > 0 ? size : nil
+            if let size = transportCoordinator.activeLoaderFileSize(for: trackId) {
+                return size
             }
             // Resolved file URL
             if let url = resolvedFileURLs[trackId],
@@ -4059,7 +3866,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func evictTruncatedFile(fileURL: URL, track: Track, fileDuration: Double, expectedDuration: Double) async {
         // Always clear in-memory caches so resolveAudioFile doesn't return the same file
         await MainActor.run { removeCachedPlayerItem(for: track.id) }
-        cachedStreamDecisions.removeValue(forKey: track.id)
+        transportCoordinator.evict(trackId: track.id, includeDecision: true, cancelTask: true)
 
         // Check if this is an offline download (vs a stream cache file)
         if track.localFilePath != nil {
@@ -4217,8 +4024,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // playback attempt gets a fresh resolution instead of hitting the
             // stale failed loader (fixes cross-server prefetch cascade failures)
             await MainActor.run { removeCachedPlayerItem(for: track.id) }
-            cachedStreamDecisions.removeValue(forKey: track.id)
-            fileResolutionTasks.removeValue(forKey: track.id)
+            transportCoordinator.evict(trackId: track.id, includeDecision: true, cancelTask: true)
         }
     }
 
@@ -4714,8 +4520,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 if i != currentQueueIndex {
                     await MainActor.run {
                         removeCachedPlayerItem(for: track.id)
-                        fileResolutionTasks[track.id]?.cancel()
-                        fileResolutionTasks.removeValue(forKey: track.id)
+                        transportCoordinator.cancelResolution(for: track.id)
                     }
                 }
             }
@@ -4980,7 +4785,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// so a network transition doesn't invalidate them. Only tracks still being downloaded
     /// (or not yet started) need their URLs evicted and re-resolved.
     ///
-    /// Stream decisions (`cachedStreamDecisions`) are intentionally preserved — they're
+    /// Stream decisions in PlaybackTransportCoordinator are intentionally preserved — they're
     /// endpoint-independent (codec, quality, session params) and survive network transitions.
     /// When `prefetchUpcomingItems()` re-resolves, it finds the cached decision and skips
     /// the `/decision` network call, assembling a fresh URL from the updated endpoint.
@@ -4997,13 +4802,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         for id in staleTrackIDs {
             resolvedFileURLs.removeValue(forKey: id)
             resolvedFileURLsLRU.removeAll { $0 == id }
-            streamLoaders.removeValue(forKey: id)?.cancel()
+            transportCoordinator.evict(trackId: id, includeDecision: false, cancelTask: true)
         }
 
         if staleTrackIDs.isEmpty {
             EnsembleLogger.debug("[rebuildQueue] Network transition — all upcoming tracks already scheduled, nothing to rebuild")
         } else {
-            EnsembleLogger.debug("[rebuildQueue] Evicted \(staleTrackIDs.count) stale URLs, kept \(alreadyScheduled.count) scheduled + \(cachedStreamDecisions.count) decisions")
+            EnsembleLogger.debug("[rebuildQueue] Evicted \(staleTrackIDs.count) stale URLs, kept \(alreadyScheduled.count) scheduled + \(transportCoordinator.cachedDecisionCount()) decisions")
             await prefetchUpcomingItems(depth: 2)
         }
     }
@@ -5023,7 +4828,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Clear caches
         resolvedFileURLs.removeAll()
         resolvedFileURLsLRU.removeAll()
-        cachedStreamDecisions.removeAll()
+        transportCoordinator.clear(removeDecisions: true)
 
         // Cancel network observations
         networkStateObservation?.cancel()
