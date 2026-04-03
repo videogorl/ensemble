@@ -35,18 +35,26 @@ final class RefreshOrchestrator {
     private let healthRefreshCooldown: TimeInterval
     private let foregroundHealthStalenessThreshold: TimeInterval
     private let foregroundHealthLoadDeferralThreshold: TimeInterval
+    private let postRatingPlaylistDebounceNanoseconds: UInt64
+    private let postRatingFavoritesDebounceNanoseconds: UInt64
     private var lastHealthRefreshAt: Date?
     private var activeHealthRefreshTask: Task<Void, Never>?
     private var startupHealthChecksInitiated = false
+    private var postRatingPlaylistSyncTasks: [String: Task<Void, Never>] = [:]
+    private var postRatingFavoritesReconciliationTask: Task<Void, Never>?
 
     init(
         healthRefreshCooldown: TimeInterval = 30,
         foregroundHealthStalenessThreshold: TimeInterval = 60,
-        foregroundHealthLoadDeferralThreshold: TimeInterval = 5 * 60
+        foregroundHealthLoadDeferralThreshold: TimeInterval = 5 * 60,
+        postRatingPlaylistDebounceNanoseconds: UInt64 = 5_000_000_000,
+        postRatingFavoritesDebounceNanoseconds: UInt64 = 2_000_000_000
     ) {
         self.healthRefreshCooldown = healthRefreshCooldown
         self.foregroundHealthStalenessThreshold = foregroundHealthStalenessThreshold
         self.foregroundHealthLoadDeferralThreshold = foregroundHealthLoadDeferralThreshold
+        self.postRatingPlaylistDebounceNanoseconds = postRatingPlaylistDebounceNanoseconds
+        self.postRatingFavoritesDebounceNanoseconds = postRatingFavoritesDebounceNanoseconds
     }
 
     @discardableResult
@@ -130,12 +138,51 @@ final class RefreshOrchestrator {
         lastHealthRefreshAt = date
     }
 
+    func schedulePostRatingPlaylistSync(
+        serverSourceKey: String,
+        action: @escaping @MainActor (String) async -> Void
+    ) {
+        let debounceDelay = postRatingPlaylistDebounceNanoseconds
+        postRatingPlaylistSyncTasks[serverSourceKey]?.cancel()
+        postRatingPlaylistSyncTasks[serverSourceKey] = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: debounceDelay)
+            guard !Task.isCancelled, let self else { return }
+
+            EnsembleLogger.debug("🔄 RefreshOrchestrator: Post-rating playlist sync for \(serverSourceKey)")
+            await action(serverSourceKey)
+            self.postRatingPlaylistSyncTasks.removeValue(forKey: serverSourceKey)
+        }
+    }
+
+    func schedulePostRatingFavoritesReconciliation(
+        action: @escaping @MainActor () async -> Void
+    ) {
+        let debounceDelay = postRatingFavoritesDebounceNanoseconds
+        postRatingFavoritesReconciliationTask?.cancel()
+        postRatingFavoritesReconciliationTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: debounceDelay)
+            guard !Task.isCancelled, let self else { return }
+
+            EnsembleLogger.debug("🔄 RefreshOrchestrator: Post-rating favorites reconciliation")
+            await action()
+            self.postRatingFavoritesReconciliationTask = nil
+        }
+    }
+
     internal func awaitHealthRefreshForTesting() async {
         await activeHealthRefreshTask?.value
     }
 
     internal func setLastHealthRefreshForTesting(_ date: Date?) {
         lastHealthRefreshAt = date
+    }
+
+    internal func awaitPostRatingPlaylistSyncForTesting(serverSourceKey: String) async {
+        await postRatingPlaylistSyncTasks[serverSourceKey]?.value
+    }
+
+    internal func awaitPostRatingFavoritesReconciliationForTesting() async {
+        await postRatingFavoritesReconciliationTask?.value
     }
 
     private func shouldHonorCooldown(for reason: HealthRefreshReason) -> Bool {

@@ -119,4 +119,40 @@ final class RefreshOrchestratorTests: XCTestCase {
         freshOrchestrator.markHealthRefreshCompleted(at: Date())
         XCTAssertFalse(freshOrchestrator.beginStartupHealthChecksIfNeeded())
     }
+
+    func testPostRatingPlaylistSyncCoalescesByServer() async {
+        let orchestrator = RefreshOrchestrator(
+            postRatingPlaylistDebounceNanoseconds: 10_000_000,
+            postRatingFavoritesDebounceNanoseconds: 10_000_000
+        )
+        var invocations: [String] = []
+
+        orchestrator.schedulePostRatingPlaylistSync(serverSourceKey: "plex:a:s1") { serverKey in
+            invocations.append(serverKey)
+        }
+        orchestrator.schedulePostRatingPlaylistSync(serverSourceKey: "plex:a:s1") { serverKey in
+            invocations.append("\(serverKey)-latest")
+        }
+
+        await orchestrator.awaitPostRatingPlaylistSyncForTesting(serverSourceKey: "plex:a:s1")
+        XCTAssertEqual(invocations, ["plex:a:s1-latest"])
+    }
+
+    func testPostRatingFavoritesReconciliationCoalesces() async {
+        let orchestrator = RefreshOrchestrator(
+            postRatingPlaylistDebounceNanoseconds: 10_000_000,
+            postRatingFavoritesDebounceNanoseconds: 10_000_000
+        )
+        var invocationCount = 0
+
+        orchestrator.schedulePostRatingFavoritesReconciliation {
+            invocationCount += 1
+        }
+        orchestrator.schedulePostRatingFavoritesReconciliation {
+            invocationCount += 1
+        }
+
+        await orchestrator.awaitPostRatingFavoritesReconciliationForTesting()
+        XCTAssertEqual(invocationCount, 1)
+    }
 }

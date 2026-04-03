@@ -134,10 +134,6 @@ public final class SyncCoordinator: ObservableObject {
     internal var playlistDeleteHandlerForTesting: ((PlexAPIClient, String) async throws -> Void)?
     internal var refreshServerPlaylistsHandlerForTesting: ((String) async -> Void)?
     internal var nowProviderForTesting: () -> Date = { Date() }
-    // Debounced playlist sync after rating changes (for smart playlist freshness)
-    private var postRatingPlaylistSyncTasks: [String: Task<Void, Never>] = [:]
-    // Debounced favorites download reconciliation after rating changes
-    private var postRatingFavoritesReconciliationTask: Task<Void, Never>?
     /// Backoff for repeated playlist artwork failures to avoid retrying the same bad payload every sync.
     private var playlistArtworkRetryAfter: [String: Date] = [:]
     private let playlistArtworkFailureBackoff: TimeInterval = 5 * 60
@@ -1533,37 +1529,19 @@ public final class SyncCoordinator: ObservableObject {
         try await provider.rateTrack(ratingKey: track.id, rating: rating)
 
         // Trigger debounced playlist sync so smart playlists reflect the new rating
-        triggerPostRatingPlaylistSync(serverSourceKey: sourceKey)
+        refreshOrchestrator.schedulePostRatingPlaylistSync(
+            serverSourceKey: sourceKey,
+            action: { [weak self] serverSourceKey in
+                await self?.refreshServerPlaylists(serverSourceKey: serverSourceKey)
+            }
+        )
 
         // Trigger debounced favorites download reconciliation
-        triggerPostRatingFavoritesReconciliation()
-    }
-
-    /// Debounced playlist sync after a rating change so smart playlists update.
-    /// Uses a 5s debounce to coalesce rapid rating changes (e.g. bulk favoriting).
-    private func triggerPostRatingPlaylistSync(serverSourceKey: String) {
-        postRatingPlaylistSyncTasks[serverSourceKey]?.cancel()
-        postRatingPlaylistSyncTasks[serverSourceKey] = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s debounce
-            guard !Task.isCancelled, let self else { return }
-            EnsembleLogger.debug("🔄 SyncCoordinator: Post-rating playlist sync for \(serverSourceKey)")
-            await self.refreshServerPlaylists(serverSourceKey: serverSourceKey)
-            self.postRatingPlaylistSyncTasks.removeValue(forKey: serverSourceKey)
-        }
-    }
-
-    /// Debounced favorites download reconciliation after a rating change.
-    /// Uses a 2s debounce — shorter than the 5s playlist debounce for responsiveness,
-    /// still coalesces rapid rating taps.
-    private func triggerPostRatingFavoritesReconciliation() {
-        postRatingFavoritesReconciliationTask?.cancel()
-        postRatingFavoritesReconciliationTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2s debounce
-            guard !Task.isCancelled, let self else { return }
-            EnsembleLogger.debug("🔄 SyncCoordinator: Post-rating favorites reconciliation")
-            await self.onFavoritesRatingChanged?()
-            self.postRatingFavoritesReconciliationTask = nil
-        }
+        refreshOrchestrator.schedulePostRatingFavoritesReconciliation(
+            action: { [weak self] in
+                await self?.onFavoritesRatingChanged?()
+            }
+        )
     }
 
     /// Report playback timeline to Plex server
