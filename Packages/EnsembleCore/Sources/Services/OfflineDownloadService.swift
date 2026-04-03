@@ -136,7 +136,6 @@ public final class OfflineDownloadService: ObservableObject {
     private let toastCenter: ToastCenter
     private let lyricsService: LyricsService
 
-    private var queueTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
     private var lastObservedSyncBySource: [String: Date] = [:]
 
@@ -170,10 +169,41 @@ public final class OfflineDownloadService: ObservableObject {
     private var isAppInBackground = false
     private var allowsBackgroundContinuation = false
     private var isPlaybackSensitive = false
+    private lazy var queueCoordinator = DownloadQueueCoordinator(
+        dependencies: .init(
+            canRunAutomatically: { [weak self] in self?.canRunQueueAutomatically ?? false },
+            setQueueRunning: { [weak self] value in self?.isQueueRunning = value },
+            refreshQueueStatus: { [weak self] in self?.refreshQueueStatusReason() },
+            fetchPendingCount: { [weak self] in
+                guard let self else { return 0 }
+                return (try? await self.downloadManager.fetchPendingDownloads().count) ?? 0
+            },
+            currentWorkMode: { [weak self] in self?.currentDownloadWorkMode ?? .foregroundIdle },
+            queueWorkerCount: { [weak self] pendingCount, workMode in
+                self?.queueWorkerCount(forPendingCount: pendingCount, workMode: workMode) ?? 1
+            },
+            runWorker: { [weak self] applyInteractiveCooldown in
+                guard let self else { return false }
+                return await self.workerLoop(applyInteractiveCooldown: applyInteractiveCooldown)
+            },
+            applyNetworkPolicy: { [weak self] in
+                try? await self?.applyNetworkPolicy()
+            },
+            finishBackgroundTask: { [weak self] success in
+                self?.backgroundExecutionCoordinator.finishCurrentTask(success: success)
+            },
+            showCompletionToast: { [weak self] in
+                self?.toastCenter.show(ToastPayload(
+                    style: .success,
+                    iconSystemName: "arrow.down.circle.fill",
+                    title: "Downloads Complete"
+                ))
+            }
+        )
+    )
 
     private static let maxConcurrentDownloads = 2
     private static let interactivePlaybackConcurrentDownloads = 1
-    private static let playbackBurstThreshold = 8
     private static let interactivePlaybackRefreshDelayNs: UInt64 = 1_500_000_000
     private static let foregroundIdleRefreshDelayNs: UInt64 = 250_000_000
     private static let backgroundRefreshDelayNs: UInt64 = 2_500_000_000
@@ -241,7 +271,7 @@ public final class OfflineDownloadService: ObservableObject {
     /// Called when PMS download queue completes an item (via WebSocket activity event).
     /// Restarts the download queue if it's idle, ensuring prepared downloads are picked up.
     public func handleDownloadQueueCompleted() async {
-        EnsembleLogger.debug("⬇️ WebSocket: download queue completed — queueTask=\(queueTask == nil ? "nil" : "active"), isQueueRunning=\(isQueueRunning)")
+        EnsembleLogger.debug("⬇️ WebSocket: download queue completed — queueTask=\(queueCoordinator.hasActiveTask ? "active" : "nil"), isQueueRunning=\(isQueueRunning)")
         startQueueIfNeeded()
     }
 
@@ -446,9 +476,8 @@ public final class OfflineDownloadService: ObservableObject {
 
     /// Remove all download targets, memberships, and downloaded files.
     public func removeAllDownloads() async {
-        // Stop the download queue first
-        queueTask?.cancel()
-        queueTask = nil
+        // Stop the download queue first.
+        queueCoordinator.cancelCurrentTask()
         isQueueRunning = false
         refreshQueueStatusReason()
 
@@ -979,119 +1008,21 @@ public final class OfflineDownloadService: ObservableObject {
     // MARK: - Queue Execution
 
     private func startQueueIfNeeded() {
-        guard queueTask == nil else { return }
-        guard canRunQueueAutomatically else {
-            isQueueRunning = false
-            refreshQueueStatusReason()
-            return
-        }
-
-        queueTask = Task { [weak self] in
-            guard let self else { return }
-            await self.runQueueLoop()
-        }
+        queueCoordinator.startIfNeeded()
     }
 
     private func handleBackgroundExecutionRequest() async {
         allowsBackgroundContinuation = true
-
-        if queueTask != nil {
-            refreshQueueStatusReason()
-            return
-        }
-
-        let pending = (try? await downloadManager.fetchPendingDownloads()) ?? []
-        if pending.isEmpty {
-            backgroundExecutionCoordinator.finishCurrentTask(success: true)
-            return
-        }
-
-        try? await applyNetworkPolicy()
-        refreshQueueStatusReason()
-        startQueueIfNeeded()
+        await queueCoordinator.handleBackgroundExecutionRequest()
     }
 
     private func handleBackgroundTaskExpiration() {
         allowsBackgroundContinuation = false
-        queueTask?.cancel()
-        queueTask = nil
-        isQueueRunning = false
+        queueCoordinator.cancelCurrentTask()
         Task {
             try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .paused)
             await refreshAllTargetProgresses()
             refreshQueueStatusReason()
-        }
-    }
-
-    private func runQueueLoop() async {
-        // Quick check: if no pending downloads, exit immediately without spawning workers.
-        // This avoids 3 unnecessary worker tasks + CoreData queries on app launch
-        // when there's nothing to download.
-        let initialPending = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
-        if initialPending == 0 {
-            EnsembleLogger.debug("📥 Queue loop: no pending downloads, skipping worker spawn")
-            queueTask = nil
-            isQueueRunning = false
-            refreshQueueStatusReason()
-            return
-        }
-
-        let workMode = currentDownloadWorkMode
-        let workerCount = queueWorkerCount(forPendingCount: initialPending, workMode: workMode)
-        let shouldApplyInteractiveCooldown = workMode == .interactivePlayback && initialPending >= Self.playbackBurstThreshold
-
-        // Spawn N independent workers that each pull the next pending download
-        // when they finish. This keeps all slots busy without batch-and-wait.
-        // Each worker returns whether it processed at least one download.
-        let didProcessAny = await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
-            for _ in 0..<workerCount {
-                group.addTask { await self.workerLoop(applyInteractiveCooldown: shouldApplyInteractiveCooldown) }
-            }
-            var anyProcessed = false
-            for await workerDidWork in group {
-                if workerDidWork { anyProcessed = true }
-            }
-            return anyProcessed
-        }
-
-        // All workers exited — queue is drained or cancelled
-        let wasCancelled = Task.isCancelled
-
-        // Clear queueTask BEFORE the re-check so that handleDownloadQueueCompleted()
-        // (via WebSocket) can restart the queue if a PMS download finishes during
-        // the grace period below.
-        queueTask = nil
-
-        // Grace period: PMS may still be preparing downloads (WebSocket
-        // media.download events arrive asynchronously). Wait briefly, then
-        // re-check for any newly pending downloads before declaring "complete".
-        if !wasCancelled && didProcessAny {
-            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms grace
-            let remainingPending = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
-
-            EnsembleLogger.debug("📥 Queue wind-down: wasCancelled=\(wasCancelled), didProcessAny=\(didProcessAny), remainingPending=\(remainingPending)")
-
-            if remainingPending > 0 {
-                // More work arrived while workers were finishing — restart
-                isQueueRunning = true
-                refreshQueueStatusReason()
-                startQueueIfNeeded()
-                return
-            }
-        }
-
-        isQueueRunning = false
-        refreshQueueStatusReason()
-        backgroundExecutionCoordinator.finishCurrentTask(success: true)
-
-        // Show toast when downloads complete naturally (not cancelled/expired)
-        // and at least one download was actually processed
-        if !wasCancelled && didProcessAny {
-            toastCenter.show(ToastPayload(
-                style: .success,
-                iconSystemName: "arrow.down.circle.fill",
-                title: "Downloads Complete"
-            ))
         }
     }
 
@@ -1961,7 +1892,7 @@ public final class OfflineDownloadService: ObservableObject {
 
     internal var shouldDeferForegroundHealthRefresh: Bool {
         currentDownloadWorkMode == .interactivePlayback
-            && (queueTask != nil || isQueueRunning || !activeDownloadRatingKeys.isEmpty || fullProgressRefreshTask != nil)
+            && (queueCoordinator.hasActiveTask || isQueueRunning || !activeDownloadRatingKeys.isEmpty || fullProgressRefreshTask != nil)
     }
 
     /// Maps current network state to a user-facing queue pause reason
@@ -2291,9 +2222,7 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func stopQueueForSuspension() async {
-        queueTask?.cancel()
-        queueTask = nil
-        isQueueRunning = false
+        queueCoordinator.cancelCurrentTask()
         backgroundExecutionCoordinator.finishCurrentTask(success: true)
         try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .paused)
     }
