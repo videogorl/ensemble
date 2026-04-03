@@ -1095,27 +1095,11 @@ public final class SyncCoordinator: ObservableObject {
         // and tracks from offline servers are correctly dimmed in the UI.
         // Skip if performStartupHealthChecks() already started (e.g. from AppDelegate's
         // earlyHealthCheckTask) — avoids redundant probing while the early pass is in flight.
-        let eligibleServers = enabledServerKeysForHealthChecks()
-        let claimedStartupHealthChecks = !eligibleServers.isEmpty && refreshOrchestrator.beginStartupHealthChecksIfNeeded()
-        if !eligibleServers.isEmpty && claimedStartupHealthChecks {
-            EnsembleLogger.debug("🏥 Running startup health checks for \(eligibleServers.count) server(s)...")
-            let preCheckStates = serverHealthChecker.serverStates
-            let summary = await runHealthChecks(forceServerRefresh: false, eligibleServerKeys: eligibleServers)
-            updateSourceConnectionStates()
-            refreshOrchestrator.markHealthRefreshCompleted(at: nowProviderForTesting())
-
-            // Notify artwork views if servers became available after health checks
-            let postCheckStates = serverHealthChecker.serverStates
-            let anyBecameAvailable = preCheckStates.contains { key, preState in
-                guard !preState.isAvailable else { return false }
-                return postCheckStates[key]?.isAvailable == true
-            }
-            if anyBecameAvailable {
-                NotificationCenter.default.post(name: ArtworkLoader.serversBecameAvailable, object: nil)
-            }
-
-            EnsembleLogger.debug("🏥 Startup health checks complete: checked=\(summary.checkedCount), skipped=\(summary.skippedCount)")
-        } else if !eligibleServers.isEmpty && !claimedStartupHealthChecks {
+        let ranStartupHealthChecks = await runStartupHealthChecksIfNeeded(
+            reason: "startup sync",
+            completionMessage: "🏥 Startup health checks complete"
+        )
+        if !enabledServerKeysForHealthChecks().isEmpty && !ranStartupHealthChecks {
             EnsembleLogger.debug("🏥 Skipping startup sync health checks — already handled by the early startup path")
             // Still update source states in case they weren't synced
             updateSourceConnectionStates()
@@ -2276,23 +2260,12 @@ public final class SyncCoordinator: ObservableObject {
                     forceServerRefresh: request.forceServerRefresh,
                     eligibleServerKeys: eligibleServerKeys
                 )
-                self.updateSourceConnectionStates()
-                await self.runAPIClientConnectionRefresh()
-
-                // If any server transitioned from unknown/connecting to connected,
-                // notify artwork views to re-trigger loads that got local-file fallback.
-                let postCheckStates = self.serverHealthChecker.serverStates
-                let anyBecameAvailable = preCheckStates.contains { key, preState in
-                    guard !preState.isAvailable else { return false }
-                    return postCheckStates[key]?.isAvailable == true
-                }
-                if anyBecameAvailable {
-                    NotificationCenter.default.post(name: ArtworkLoader.serversBecameAvailable, object: nil)
-                }
-
-                let duration = self.nowProviderForTesting().timeIntervalSince(startedAt)
-                EnsembleLogger.debug(
-                    "🌐 SyncCoordinator: Health refresh complete reason=\(request.reason.description), checked=\(summary.checkedCount), skipped=\(summary.skippedCount), duration=\(String(format: "%.2f", duration))s"
+                await self.completeHealthRefresh(
+                    preCheckStates: preCheckStates,
+                    reasonDescription: request.reason.description,
+                    summary: summary,
+                    startedAt: startedAt,
+                    completionMessage: "🌐 SyncCoordinator: Health refresh complete"
                 )
             },
             didComplete: { [weak self] completionTime in
@@ -2438,38 +2411,13 @@ public final class SyncCoordinator: ObservableObject {
     /// Routes through the same cooldown tracking as `scheduleHealthRefresh` so
     /// the initial Unknown→Online network transition won't trigger a duplicate pass.
     public func performStartupHealthChecks() async {
-        // Skip if startup sync already started or completed health checks.
-        // startupHealthChecksInitiated is set before the await, so it catches
-        // the case where startup sync's health checks are still in progress.
-        if !refreshOrchestrator.beginStartupHealthChecksIfNeeded() {
+        let didRun = await runStartupHealthChecksIfNeeded(
+            reason: "early health checks",
+            completionMessage: "🏥 SyncCoordinator: Startup health checks complete"
+        )
+        if !didRun {
             EnsembleLogger.debug("🏥 SyncCoordinator: Skipping early health checks — startup sync already handling them")
-            return
         }
-
-        let eligibleServers = enabledServerKeysForHealthChecks()
-        guard !eligibleServers.isEmpty else { return }
-
-        let healthCheckStart = Date()
-        EnsembleLogger.debug("🏥 SyncCoordinator: Running early health checks for \(eligibleServers.count) server(s)...")
-
-        let preCheckStates = serverHealthChecker.serverStates
-        let summary = await runHealthChecks(forceServerRefresh: false, eligibleServerKeys: eligibleServers)
-        updateSourceConnectionStates()
-        // Set lastHealthRefreshAt so the 30s cooldown prevents duplicate passes
-        refreshOrchestrator.markHealthRefreshCompleted(at: nowProviderForTesting())
-
-        // Notify artwork views if servers became available
-        let postCheckStates = serverHealthChecker.serverStates
-        let anyBecameAvailable = preCheckStates.contains { key, preState in
-            guard !preState.isAvailable else { return false }
-            return postCheckStates[key]?.isAvailable == true
-        }
-        if anyBecameAvailable {
-            NotificationCenter.default.post(name: ArtworkLoader.serversBecameAvailable, object: nil)
-        }
-
-        let healthCheckDuration = Date().timeIntervalSince(healthCheckStart)
-        EnsembleLogger.debug("🏥 SyncCoordinator: Startup health checks complete in \(String(format: "%.2f", healthCheckDuration))s — checked=\(summary.checkedCount), skipped=\(summary.skippedCount)")
     }
 
     /// Public entry point for callers outside SyncCoordinator (e.g. AppDelegate)
@@ -2718,6 +2666,70 @@ public final class SyncCoordinator: ObservableObject {
             name: Self.playlistsDidRefresh,
             object: nil,
             userInfo: ["serverSourceKey": serverSourceKey]
+        )
+    }
+
+    private func runStartupHealthChecksIfNeeded(
+        reason: String,
+        completionMessage: String
+    ) async -> Bool {
+        let eligibleServers = enabledServerKeysForHealthChecks()
+        guard !eligibleServers.isEmpty else { return false }
+        isCheckingHealth = true
+
+        let didRun = await refreshOrchestrator.runStartupHealthChecksIfNeeded(
+            now: nowProviderForTesting,
+            runRefresh: { [weak self] in
+                guard let self else { return }
+                let healthCheckStart = self.nowProviderForTesting()
+                EnsembleLogger.debug("🏥 SyncCoordinator: Running \(reason) for \(eligibleServers.count) server(s)...")
+
+                let preCheckStates = self.serverHealthChecker.serverStates
+                let summary = await self.runHealthChecks(
+                    forceServerRefresh: false,
+                    eligibleServerKeys: eligibleServers
+                )
+                await self.completeHealthRefresh(
+                    preCheckStates: preCheckStates,
+                    reasonDescription: reason,
+                    summary: summary,
+                    startedAt: healthCheckStart,
+                    completionMessage: completionMessage
+                )
+            },
+            didComplete: { [weak self] completionTime in
+                self?.isCheckingHealth = false
+                self?.lastHealthCheckCompletion = completionTime
+            }
+        )
+        if !didRun {
+            isCheckingHealth = false
+        }
+        return didRun
+    }
+
+    private func completeHealthRefresh(
+        preCheckStates: [String: ServerConnectionState],
+        reasonDescription: String,
+        summary: ServerHealthChecker.CheckSummary,
+        startedAt: Date,
+        completionMessage: String
+    ) async {
+        updateSourceConnectionStates()
+        await runAPIClientConnectionRefresh()
+
+        let postCheckStates = serverHealthChecker.serverStates
+        let anyBecameAvailable = preCheckStates.contains { key, preState in
+            guard !preState.isAvailable else { return false }
+            return postCheckStates[key]?.isAvailable == true
+        }
+        if anyBecameAvailable {
+            NotificationCenter.default.post(name: ArtworkLoader.serversBecameAvailable, object: nil)
+        }
+
+        let duration = nowProviderForTesting().timeIntervalSince(startedAt)
+        EnsembleLogger.debug(
+            "\(completionMessage) in \(String(format: "%.2f", duration))s — checked=\(summary.checkedCount), skipped=\(summary.skippedCount), reason=\(reasonDescription)"
         )
     }
 }

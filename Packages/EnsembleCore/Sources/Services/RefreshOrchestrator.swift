@@ -68,6 +68,34 @@ final class RefreshOrchestrator {
     }
 
     @discardableResult
+    func runStartupHealthChecksIfNeeded(
+        now: @escaping () -> Date,
+        runRefresh: @escaping @MainActor () async -> Void,
+        didComplete: @escaping CompletionHandler
+    ) async -> Bool {
+        guard beginStartupHealthChecksIfNeeded() else {
+            return false
+        }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            defer {
+                let completionTime = now()
+                self.lastHealthRefreshAt = completionTime
+                self.activeHealthRefreshTask = nil
+                didComplete(completionTime)
+            }
+
+            await runRefresh()
+        }
+
+        activeHealthRefreshTask = task
+        await task.value
+        return true
+    }
+
+    @discardableResult
     func scheduleHealthRefresh(
         request: HealthRefreshRequest,
         now: @escaping () -> Date,

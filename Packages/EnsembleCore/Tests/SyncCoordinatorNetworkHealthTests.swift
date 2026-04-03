@@ -381,6 +381,32 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         XCTAssertEqual(startedCount, 1)
     }
 
+    func testStartupHealthChecksCoalesceWithForegroundRefresh() async {
+        let (coordinator, networkMonitor) = makeCoordinator()
+        let now = Date(timeIntervalSince1970: 55_000)
+        coordinator.nowProviderForTesting = { now }
+        networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+
+        var healthRefreshCount = 0
+        coordinator.healthCheckRunnerForTesting = { _, keys in
+            healthRefreshCount += 1
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            return ServerHealthChecker.CheckSummary(checkedCount: keys.count, skippedCount: 0)
+        }
+        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
+
+        let startupTask = Task {
+            await coordinator.performStartupHealthChecks()
+        }
+
+        try? await Task.sleep(nanoseconds: 10_000_000)
+        await coordinator.handleAppWillEnterForeground()
+        await startupTask.value
+        await coordinator.awaitHealthRefreshForTesting()
+
+        XCTAssertEqual(healthRefreshCount, 1)
+    }
+
     func testSyncPublishesOnlyMaterialLibraryChanges() async {
         let (coordinator, _) = makeCoordinator()
         let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "lib-1")
