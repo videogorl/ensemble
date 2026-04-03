@@ -111,6 +111,7 @@ public final class SyncCoordinator: ObservableObject {
     private let serverConnectionController: ServerConnectionController
     private let periodicSyncController: PeriodicSyncController
     private let playlistRefreshController: PlaylistRefreshController
+    private let webSocketSyncController: WebSocketSyncController
     private var syncProviders: [String: MusicSourceSyncProvider] = [:]  // keyed by compositeKey
     private var cancellables = Set<AnyCancellable>()
     private var isCheckingHealth = false
@@ -180,6 +181,7 @@ public final class SyncCoordinator: ObservableObject {
         self.refreshOrchestrator = RefreshOrchestrator()
         self.periodicSyncController = PeriodicSyncController()
         self.playlistRefreshController = PlaylistRefreshController()
+        self.webSocketSyncController = WebSocketSyncController()
         self.serverConnectionController = ServerConnectionController(
             accountManager: accountManager,
             serverHealthChecker: serverHealthChecker,
@@ -2585,24 +2587,18 @@ public final class SyncCoordinator: ObservableObject {
             return
         }
 
-        // Find the provider that owns this section key
-        let matchingSource = syncProviders.first { (_, provider) in
-            (provider as? PlexMusicSourceSyncProvider)?.sectionKey == sectionKey
-        }
-
-        guard let (compositeKey, _) = matchingSource else {
+        guard let resolution = webSocketSyncController.resolveSection(
+            sectionKey: sectionKey,
+            providers: syncProviders,
+            knownSources: Set(sourceStatuses.keys)
+        ) else {
             EnsembleLogger.error("🔌 SyncCoordinator: No provider found for section \(sectionKey) — providers: \(syncProviders.keys.joined(separator: ", "))")
             return
         }
 
-        guard let sourceId = sourceStatuses.keys.first(where: { $0.compositeKey == compositeKey }) else {
-            EnsembleLogger.error("🔌 SyncCoordinator: No sourceStatus found for compositeKey=\(compositeKey)")
-            return
-        }
+        EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered incremental sync for section \(sectionKey) (source=\(resolution.compositeKey))")
 
-        EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered incremental sync for section \(sectionKey) (source=\(compositeKey))")
-
-        await syncIncremental(source: sourceId)
+        await syncIncremental(source: resolution.sourceId)
 
         EnsembleLogger.debug("🔌 SyncCoordinator: Incremental sync completed for section \(sectionKey)")
     }
@@ -2611,7 +2607,6 @@ public final class SyncCoordinator: ObservableObject {
     /// Called by `PlexWebSocketCoordinator` when a playlist update notification arrives.
     /// Does not depend on `isSyncing` so it can run alongside library sync.
     public func syncServerPlaylistsIncremental(serverKey: String) async {
-        let serverSourceKey = "plex:\(serverKey)"
         guard syncProviders.contains(where: { _, provider in
             let id = provider.sourceIdentifier
             return "\(id.accountId):\(id.serverId)" == serverKey
@@ -2623,20 +2618,15 @@ public final class SyncCoordinator: ObservableObject {
         EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered playlist sync for server \(serverKey)")
 
         do {
-            guard let result = try await playlistRefreshController.refreshServer(
-                serverSourceKey: serverSourceKey,
+            guard let result = try await webSocketSyncController.refreshServerPlaylists(
+                serverKey: serverKey,
                 providers: syncProviders,
                 playlistRepository: playlistRepository,
-                trigger: .webSocket,
-                allowFullFallback: false
+                playlistRefreshController: playlistRefreshController
             ) else {
                 return
             }
-            if let provider = syncProviders.first(where: { _, provider in
-                provider.sourceIdentifier == result.sourceId
-            })?.value {
-                await cachePlaylistArtwork(sourceId: result.sourceId, provider: provider)
-            }
+            await cachePlaylistArtwork(sourceId: result.sourceId, provider: result.provider)
             publishContentChangeIfNeeded(
                 for: result.sourceId,
                 playlistResult: result.playlistResult,

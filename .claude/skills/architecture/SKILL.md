@@ -96,6 +96,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `RefreshOrchestrator` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns health-refresh coalescing, cooldown/staleness checks, and startup-health claim tracking while `SyncCoordinator` remains the façade
 - `PeriodicSyncController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns foreground periodic-sync timer scheduling and WebSocket-aware polling interval changes while `SyncCoordinator` keeps the actual sync policy
 - `PlaylistRefreshController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns server-scoped playlist refresh resolution (incremental vs fallback full sync) for mutation refreshes, playlist-only sync, and WebSocket-triggered playlist updates
+- `WebSocketSyncController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns WebSocket-triggered section resolution and server playlist refresh routing so the coordinator does not inline provider lookup logic
 - `ServerHealthChecker` -- Concurrent health checks for all configured servers with automatic failover
 - `ServerConnectionController` (@MainActor) -- Internal network seam extracted from `SyncCoordinator`; owns registry-driven API-client URL updates and explicit endpoint refresh fan-out while `SyncCoordinator` remains the façade
 - `SettingsManager` (@MainActor) -- Manages accent colors, customizable tab configuration, and track swipe action layout settings
