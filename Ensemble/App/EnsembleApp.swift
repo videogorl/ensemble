@@ -44,6 +44,7 @@ struct EnsembleApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var hasPerformedStartupSync = false
     @State private var hasStartedLogSession = false
+    @State private var hasHandledInitialIOSActivePhase = false
     #if os(macOS)
     @State private var hasStartedPlaybackRestore = false
     @State private var hasCompletedPlaybackRestore = false
@@ -139,6 +140,11 @@ struct EnsembleApp: App {
         Task { @MainActor in
             switch phase {
             case .active:
+                let isInitialActivation = !hasHandledInitialIOSActivePhase
+                if isInitialActivation {
+                    hasHandledInitialIOSActivePhase = true
+                }
+
                 // Start persistent log session on first activation.
                 // Wire UI + App loggers here (Core/API/Persistence wired in DependencyContainer).
                 if !hasStartedLogSession {
@@ -157,9 +163,17 @@ struct EnsembleApp: App {
                     }
                 }
 
-                // Resume network monitoring and WebSocket connections
-                DependencyContainer.shared.networkMonitor.startMonitoring()
-                DependencyContainer.shared.webSocketCoordinator.start()
+                if isInitialActivation {
+                    // Cold-launch startup already started network monitoring and queued
+                    // WebSocket startup behind early health checks in AppDelegate.
+                    // Skipping the duplicate start here keeps launch sequencing owned by
+                    // one path instead of racing the scene activation hook.
+                    AppLogger.debug("📱 EnsembleApp: Initial active phase — launch pipeline owns monitor/WebSocket startup")
+                } else {
+                    // Resume network monitoring and WebSocket connections
+                    DependencyContainer.shared.networkMonitor.startMonitoring()
+                    DependencyContainer.shared.webSocketCoordinator.start()
+                }
 
                 // Route foreground refresh through SyncCoordinator to coalesce
                 // with network state transitions and cooldown/staleness guards.
