@@ -562,7 +562,6 @@ public struct SongsView: View {
                 }
             }
             .frame(height: height)
-            .padding(.horizontal)
             #else
             // macOS: uses List rows with native .swipeActions (applied in the wrapping List)
             ForEach(Array(section.tracks.enumerated()), id: \.element.id) { _, track in
@@ -605,7 +604,7 @@ public struct SongsView: View {
                 )
                 .listRowBackground(Color.clear)
                 .hideListRowSeparator()
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
             }
             #endif
         }
@@ -668,7 +667,6 @@ public struct SongsView: View {
         ) { _, index in
             nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
         }
-        .padding(.horizontal)
         #else
         // macOS: List with native .swipeActions for trackpad two-finger swipe support
         List {
@@ -710,7 +708,7 @@ public struct SongsView: View {
                 )
                 .listRowBackground(Color.clear)
                 .hideListRowSeparator()
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
             }
         }
         .listStyle(.plain)

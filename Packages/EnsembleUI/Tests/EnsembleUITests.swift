@@ -28,6 +28,15 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(TrackListLayoutMetrics.compactMiniPlayerBottomSpacing, 110)
     }
 
+    func testTrackListLayoutMetricsRowInsets() {
+        let insets = TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false)
+
+        XCTAssertEqual(insets.top, TrackListLayoutMetrics.rowVerticalPadding)
+        XCTAssertEqual(insets.leading, TrackListLayoutMetrics.rowHorizontalPadding)
+        XCTAssertEqual(insets.bottom, TrackListLayoutMetrics.rowVerticalPadding)
+        XCTAssertEqual(insets.trailing, TrackListLayoutMetrics.rowHorizontalPadding)
+    }
+
     func testTrackRowInteractionModelResolvesRecentPlaylistAndFavoriteState() {
         let track = Track(
             id: "track-1",

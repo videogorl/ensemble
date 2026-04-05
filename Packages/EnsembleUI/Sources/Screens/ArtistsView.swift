@@ -981,12 +981,12 @@ public struct ArtistDetailView: View {
                     ) {
                         nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
                     }
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+                    .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
 
                     if index < viewModel.favoritedTracks.count - 1 {
                         Divider()
-                            .padding(.leading, 68)
+                            .padding(.leading, TrackListLayoutMetrics.artworkLeadingInset)
                     }
                 }
             }

@@ -335,7 +335,6 @@ public struct FavoritesView: View {
                     nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
                 }
                 .frame(height: height)
-                .padding(.horizontal)
             }
         }
         .miniPlayerBottomSpacing()
@@ -381,7 +380,7 @@ public struct FavoritesView: View {
                 )
                 .listRowBackground(Color.clear)
                 .hideListRowSeparator()
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
             }
         }
         .listStyle(.plain)

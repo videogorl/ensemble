@@ -401,7 +401,7 @@ public struct TrackListView: View {
                     }
                 }
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-                .padding(.vertical, 8)
+                .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
 
                 if index < tracks.count - 1 {
                     Divider()

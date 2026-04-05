@@ -28,6 +28,7 @@ These are core design decisions that must be maintained throughout the app.
 - **Feature detection:** Always wrap iOS 16+ features in `@available(iOS 16.0, *)` checks
 - **Bottom spacing for mini player/tab bar:** Use `.miniPlayerBottomSpacing(...)` from `View+Extensions.swift` instead of ad-hoc per-screen spacer blocks
 - **Shared list spacing:** Use `TrackListLayoutMetrics` for standard row height, leading insets, divider alignment, and default mini-player clearance instead of repeating `68/54/16/140/70/52` across screens
+- **MediaTrackList padding:** Do not wrap `MediaTrackList` in an extra outer horizontal padding layer for normal full-width track lists; the rows already own their horizontal inset through `TrackListLayoutMetrics`
 - **Shared row actions:** Use `TrackRowInteractionModel` to resolve per-track context-menu availability, recent-playlist gating, and favorite state for both `TrackRow` and `MediaTrackList` paths instead of duplicating that logic per framework
 
 **NestedNavigationLink Pattern** (in `MainTabView.swift`):

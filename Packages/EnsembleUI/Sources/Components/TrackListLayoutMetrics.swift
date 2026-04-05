@@ -1,8 +1,10 @@
 import CoreGraphics
+import SwiftUI
 
 public enum TrackListLayoutMetrics {
     public static let rowHorizontalPadding: CGFloat = 16
     public static let rowInterItemSpacing: CGFloat = 12
+    public static let rowVerticalPadding: CGFloat = 8
 
     public static let defaultRowHeight: CGFloat = 68
     public static let compactRowHeightThreshold: CGFloat = 60
@@ -26,5 +28,14 @@ public enum TrackListLayoutMetrics {
         }
 
         return plainLeadingInset
+    }
+
+    public static func rowInsets(showArtwork: Bool, showTrackNumbers: Bool) -> EdgeInsets {
+        EdgeInsets(
+            top: rowVerticalPadding,
+            leading: rowHorizontalPadding,
+            bottom: rowVerticalPadding,
+            trailing: rowHorizontalPadding
+        )
     }
 }

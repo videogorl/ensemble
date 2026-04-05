@@ -1017,10 +1017,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 onPlayNext: resolvedActions.onPlayNext,
                 onPlayLast: resolvedActions.onPlayLast,
                 onAddToPlaylist: resolvedActions.onAddToPlaylist
-            )
-            .listRowBackground(Color.clear)
-            .hideListRowSeparator()
-            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                )
+                .listRowBackground(Color.clear)
+                .hideListRowSeparator()
+                .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: showArtwork, showTrackNumbers: showTrackNumbers))
         }
         #endif
     }
