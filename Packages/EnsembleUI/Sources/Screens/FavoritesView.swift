@@ -266,7 +266,51 @@ public struct FavoritesView: View {
         }
     }
     
+    @ViewBuilder
     private var trackListView: some View {
+        let interactionModel = TrackRowInteractionModel(
+            onPlayNext: { track in
+                nowPlayingVM.playNext(track)
+            },
+            onPlayLast: { track in
+                nowPlayingVM.playLast(track)
+            },
+            onAddToPlaylist: { track in
+                presentPlaylistPicker(with: [track])
+            },
+            onAddToRecentPlaylist: { track in
+                addToRecentPlaylist(track)
+            },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
+            onGoToAlbum: { track in
+                if let albumId = track.albumRatingKey {
+                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                }
+            },
+            onGoToArtist: { track in
+                if let artistId = track.artistRatingKey {
+                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                }
+            },
+            onShareLink: { track in
+                ShareActions.shareTrackLink(track, deps: deps)
+            },
+            onShareFile: { track in
+                ShareActions.shareTrackFile(track, deps: deps)
+            },
+            isTrackFavorited: { track in
+                nowPlayingVM.isTrackFavorited(track)
+            },
+            canAddToRecentPlaylist: { track in
+                recentPlaylistTitle(for: track) != nil
+            },
+            recentPlaylistTitle: nvmRecentPlaylistTitle
+        )
+
         #if os(iOS)
         // iOS: ScrollView with embedded UITableView (MediaTrackList)
         ScrollView {
@@ -286,46 +330,7 @@ public struct FavoritesView: View {
                     currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
                     activeDownloadRatingKeys: activeDownloadRatingKeys,
-                    onPlayNext: { track in
-                        nowPlayingVM.playNext(track)
-                    },
-                    onPlayLast: { track in
-                        nowPlayingVM.playLast(track)
-                    },
-                    onAddToPlaylist: { track in
-                        presentPlaylistPicker(with: [track])
-                    },
-                    onAddToRecentPlaylist: { track in
-                        addToRecentPlaylist(track)
-                    },
-                    onToggleFavorite: { track in
-                        Task {
-                            await nowPlayingVM.toggleTrackFavorite(track)
-                        }
-                    },
-                    onGoToAlbum: { track in
-                        if let albumId = track.albumRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                        }
-                    },
-                    onGoToArtist: { track in
-                        if let artistId = track.artistRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                        }
-                    },
-                    onShareLink: { track in
-                        ShareActions.shareTrackLink(track, deps: deps)
-                    },
-                    onShareFile: { track in
-                        ShareActions.shareTrackFile(track, deps: deps)
-                    },
-                    isTrackFavorited: { track in
-                        nowPlayingVM.isTrackFavorited(track)
-                    },
-                    canAddToRecentPlaylist: { track in
-                        recentPlaylistTitle(for: track) != nil
-                    },
-                    recentPlaylistTitle: nvmRecentPlaylistTitle
+                    interactionModel: interactionModel
                 ) { _, index in
                     nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
                 }
@@ -348,46 +353,31 @@ public struct FavoritesView: View {
 
             // Track rows with swipe actions
             ForEach(Array(viewModel.filteredTracks.enumerated()), id: \.element.id) { index, track in
+                let resolvedActions = interactionModel.resolve(for: track)
                 TrackRow(
                     track: track,
                     showArtwork: true,
                     isPlaying: track.id == currentTrackId,
-                    onPlayNext: { nowPlayingVM.playNext(track) },
-                    onPlayLast: { nowPlayingVM.playLast(track) },
-                    onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
-                    onAddToRecentPlaylist: { addToRecentPlaylist(track) },
-                    onToggleFavorite: {
-                        Task {
-                            await nowPlayingVM.toggleTrackFavorite(track)
-                        }
-                    },
-                    onGoToAlbum: {
-                        if let albumId = track.albumRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                        }
-                    },
-                    onGoToArtist: {
-                        if let artistId = track.artistRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                        }
-                    },
-                    onShareLink: {
-                        ShareActions.shareTrackLink(track, deps: deps)
-                    },
-                    onShareFile: {
-                        ShareActions.shareTrackFile(track, deps: deps)
-                    },
-                    isFavorited: nowPlayingVM.isTrackFavorited(track),
-                    recentPlaylistTitle: recentPlaylistTitle(for: track)
+                    onPlayNext: resolvedActions.onPlayNext,
+                    onPlayLast: resolvedActions.onPlayLast,
+                    onAddToPlaylist: resolvedActions.onAddToPlaylist,
+                    onAddToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
+                    onToggleFavorite: resolvedActions.onToggleFavorite,
+                    onGoToAlbum: resolvedActions.onGoToAlbum,
+                    onGoToArtist: resolvedActions.onGoToArtist,
+                    onShareLink: resolvedActions.onShareLink,
+                    onShareFile: resolvedActions.onShareFile,
+                    isFavorited: resolvedActions.isFavorited,
+                    recentPlaylistTitle: resolvedActions.recentPlaylistTitle
                 ) {
                     nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
                 }
                 .trackSwipeActions(
                     track: track,
                     nowPlayingVM: nowPlayingVM,
-                    onPlayNext: { nowPlayingVM.playNext(track) },
-                    onPlayLast: { nowPlayingVM.playLast(track) },
-                    onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
+                    onPlayNext: resolvedActions.onPlayNext,
+                    onPlayLast: resolvedActions.onPlayLast,
+                    onAddToPlaylist: resolvedActions.onAddToPlaylist
                 )
                 .listRowBackground(Color.clear)
                 .hideListRowSeparator()

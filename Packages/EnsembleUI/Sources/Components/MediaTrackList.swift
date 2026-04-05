@@ -411,6 +411,7 @@ public struct MediaTrackList: UIViewRepresentable {
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
+        interactionModel: TrackRowInteractionModel? = nil,
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
@@ -451,7 +452,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.isTrackFavorited = isTrackFavorited
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
-        self.interactionModel = TrackRowInteractionModel(
+        self.interactionModel = interactionModel ?? TrackRowInteractionModel(
             onPlayNext: onPlayNext,
             onPlayLast: onPlayLast,
             onAddToPlaylist: onAddToPlaylist,

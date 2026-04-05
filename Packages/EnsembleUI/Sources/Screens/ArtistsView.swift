@@ -901,19 +901,7 @@ public struct ArtistDetailView: View {
             .padding(.horizontal)
             .chromelessMediaControlButton()
 
-            // Track list (UIKit table for consistent swipe actions and row height)
-            #if os(iOS)
-            let trackCount = viewModel.favoritedTracks.count
-            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
-
-            MediaTrackList(
-                tracks: viewModel.favoritedTracks,
-                showArtwork: true,
-                showTrackNumbers: false,
-                groupByDisc: false,
-                currentTrackId: currentTrackId,
-                availabilityGeneration: availabilityGeneration,
-                activeDownloadRatingKeys: activeDownloadRatingKeys,
+            let interactionModel = TrackRowInteractionModel(
                 onPlayNext: { track in
                     nowPlayingVM.playNext(track)
                 },
@@ -936,7 +924,6 @@ public struct ArtistDetailView: View {
                         DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
                     }
                 },
-                onGoToArtist: nil, // Already in artist view
                 onShareLink: { track in
                     ShareActions.shareTrackLink(track, deps: dependencies)
                 },
@@ -950,6 +937,23 @@ public struct ArtistDetailView: View {
                     recentPlaylistTitle(for: track) != nil
                 },
                 recentPlaylistTitle: nvmRecentPlaylistTitle
+            )
+
+            // Track list (UIKit table for consistent swipe actions and row height)
+            #if os(iOS)
+            let trackCount = viewModel.favoritedTracks.count
+            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
+
+            MediaTrackList(
+                tracks: viewModel.favoritedTracks,
+                showArtwork: true,
+                showTrackNumbers: false,
+                groupByDisc: false,
+                currentTrackId: currentTrackId,
+                availabilityGeneration: availabilityGeneration,
+                activeDownloadRatingKeys: activeDownloadRatingKeys,
+                interactionModel: interactionModel,
+                onGoToArtist: nil // Already in artist view
             ) { track, index in
                 nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
             }
@@ -958,33 +962,22 @@ public struct ArtistDetailView: View {
             // Basic fallback for macOS
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(viewModel.favoritedTracks.enumerated()), id: \.element.id) { index, track in
+                    let resolvedActions = interactionModel.resolve(for: track)
                     TrackRow(
                         track: track,
                         showArtwork: true,
                         isPlaying: track.id == currentTrackId,
-                        onPlayNext: { nowPlayingVM.playNext(track) },
-                        onPlayLast: { nowPlayingVM.playLast(track) },
-                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
-                        onAddToRecentPlaylist: { addToRecentPlaylist(track) },
-                        onToggleFavorite: {
-                            Task {
-                                await nowPlayingVM.toggleTrackFavorite(track)
-                            }
-                        },
-                        onGoToAlbum: {
-                            if let albumId = track.albumRatingKey {
-                                DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                            }
-                        },
+                        onPlayNext: resolvedActions.onPlayNext,
+                        onPlayLast: resolvedActions.onPlayLast,
+                        onAddToPlaylist: resolvedActions.onAddToPlaylist,
+                        onAddToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
+                        onToggleFavorite: resolvedActions.onToggleFavorite,
+                        onGoToAlbum: resolvedActions.onGoToAlbum,
                         onGoToArtist: nil,
-                        onShareLink: {
-                            ShareActions.shareTrackLink(track, deps: dependencies)
-                        },
-                        onShareFile: {
-                            ShareActions.shareTrackFile(track, deps: dependencies)
-                        },
-                        isFavorited: nowPlayingVM.isTrackFavorited(track),
-                        recentPlaylistTitle: recentPlaylistTitle(for: track)
+                        onShareLink: resolvedActions.onShareLink,
+                        onShareFile: resolvedActions.onShareFile,
+                        isFavorited: resolvedActions.isFavorited,
+                        recentPlaylistTitle: resolvedActions.recentPlaylistTitle
                     ) {
                         nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
                     }
