@@ -363,6 +363,7 @@ public struct MediaTrackList: UIViewRepresentable {
     let isTrackFavorited: ((Track) -> Bool)?
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
+    let interactionModel: TrackRowInteractionModel
 
     /// Change token from TrackAvailabilityResolver — parent observes the singleton
     /// and passes the generation here so MediaTrackList doesn't subscribe itself.
@@ -450,6 +451,20 @@ public struct MediaTrackList: UIViewRepresentable {
         self.isTrackFavorited = isTrackFavorited
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
+        self.interactionModel = TrackRowInteractionModel(
+            onPlayNext: onPlayNext,
+            onPlayLast: onPlayLast,
+            onAddToPlaylist: onAddToPlaylist,
+            onAddToRecentPlaylist: onAddToRecentPlaylist,
+            onToggleFavorite: onToggleFavorite,
+            onGoToAlbum: onGoToAlbum,
+            onGoToArtist: onGoToArtist,
+            onShareLink: onShareLink,
+            onShareFile: onShareFile,
+            isTrackFavorited: isTrackFavorited,
+            canAddToRecentPlaylist: canAddToRecentPlaylist,
+            recentPlaylistTitle: recentPlaylistTitle
+        )
         self.onTrackTap = onTrackTap
     }
     
@@ -603,6 +618,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.isTrackFavorited = isTrackFavorited
         context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
+        context.coordinator.interactionModel = interactionModel
         context.coordinator.artworkLoader = dependencies.artworkLoader
         context.coordinator.toastCenter = dependencies.toastCenter
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
@@ -726,6 +742,7 @@ public struct MediaTrackList: UIViewRepresentable {
             isTrackFavorited: isTrackFavorited,
             canAddToRecentPlaylist: canAddToRecentPlaylist,
             recentPlaylistTitle: recentPlaylistTitle,
+            interactionModel: interactionModel,
             artworkLoader: dependencies.artworkLoader,
             toastCenter: dependencies.toastCenter,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
@@ -768,6 +785,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var isTrackFavorited: ((Track) -> Bool)?
         var canAddToRecentPlaylist: ((Track) -> Bool)?
         var recentPlaylistTitle: String?
+        var interactionModel: TrackRowInteractionModel
         var artworkLoader: ArtworkLoaderProtocol
         var toastCenter: ToastCenter
         var trackAvailabilityResolver: TrackAvailabilityResolver
@@ -809,6 +827,7 @@ public struct MediaTrackList: UIViewRepresentable {
             isTrackFavorited: ((Track) -> Bool)?,
             canAddToRecentPlaylist: ((Track) -> Bool)?,
             recentPlaylistTitle: String?,
+            interactionModel: TrackRowInteractionModel,
             artworkLoader: ArtworkLoaderProtocol,
             toastCenter: ToastCenter,
             trackAvailabilityResolver: TrackAvailabilityResolver,
@@ -835,6 +854,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.isTrackFavorited = isTrackFavorited
             self.canAddToRecentPlaylist = canAddToRecentPlaylist
             self.recentPlaylistTitle = recentPlaylistTitle
+            self.interactionModel = interactionModel
             self.artworkLoader = artworkLoader
             self.toastCenter = toastCenter
             self.trackAvailabilityResolver = trackAvailabilityResolver
@@ -951,72 +971,69 @@ public struct MediaTrackList: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
             guard let track = track(at: indexPath) else { return nil }
-            // Only show context menu if at least one callback is provided
-            guard onPlayNext != nil || onPlayLast != nil || onAddToPlaylist != nil || onAddToRecentPlaylist != nil || onToggleFavorite != nil || onGoToAlbum != nil || onGoToArtist != nil || onShareLink != nil || onShareFile != nil else { return nil }
+            let resolvedActions = interactionModel.resolve(for: track)
+            guard resolvedActions.hasContextMenu else { return nil }
             
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
                 var topActions: [UIAction] = []
                 
-                if let onPlayNext = self?.onPlayNext {
+                if let onPlayNext = resolvedActions.onPlayNext {
                     topActions.append(UIAction(title: "Play Next", image: UIImage(systemName: "text.insert")) { _ in
-                        onPlayNext(track)
+                        onPlayNext()
                     })
                 }
                 
-                if let onPlayLast = self?.onPlayLast {
+                if let onPlayLast = resolvedActions.onPlayLast {
                     topActions.append(UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
-                        onPlayLast(track)
+                        onPlayLast()
                     })
                 }
                 
                 var navigationActions: [UIAction] = []
-                if let onGoToAlbum = self?.onGoToAlbum, track.albumRatingKey != nil {
+                if let onGoToAlbum = resolvedActions.onGoToAlbum, track.albumRatingKey != nil {
                     navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: "square.stack")) { _ in
-                        onGoToAlbum(track)
+                        onGoToAlbum()
                     })
                 }
-                if let onGoToArtist = self?.onGoToArtist, track.artistRatingKey != nil {
+                if let onGoToArtist = resolvedActions.onGoToArtist, track.artistRatingKey != nil {
                     navigationActions.append(UIAction(title: "Go to Artist", image: UIImage(systemName: "person.circle")) { _ in
-                        onGoToArtist(track)
+                        onGoToArtist()
                     })
                 }
 
                 var bottomActions: [UIAction] = []
-                if let onAddToRecentPlaylist = self?.onAddToRecentPlaylist,
-                   let canAddToRecentPlaylist = self?.canAddToRecentPlaylist,
-                   canAddToRecentPlaylist(track),
-                   let recentPlaylistTitle = self?.recentPlaylistTitle {
+                if let onAddToRecentPlaylist = resolvedActions.onAddToRecentPlaylist,
+                   let recentPlaylistTitle = resolvedActions.recentPlaylistTitle {
                     bottomActions.append(UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: "clock.arrow.circlepath")) { _ in
-                        onAddToRecentPlaylist(track)
+                        onAddToRecentPlaylist()
                     })
                 }
 
-                if let onAddToPlaylist = self?.onAddToPlaylist {
+                if let onAddToPlaylist = resolvedActions.onAddToPlaylist {
                     bottomActions.append(UIAction(title: "Add to Playlist…", image: UIImage(systemName: "text.badge.plus")) { _ in
-                        onAddToPlaylist(track)
+                        onAddToPlaylist()
                     })
                 }
 
-                if let onToggleFavorite = self?.onToggleFavorite {
-                    let isFavorited = self?.isTrackFavorited?(track) ?? (track.rating >= 8)
+                if let onToggleFavorite = resolvedActions.onToggleFavorite {
                     bottomActions.append(UIAction(
-                        title: isFavorited ? "Unfavorite" : "Favorite",
-                        image: UIImage(systemName: isFavorited ? "heart.slash" : "heart")
+                        title: resolvedActions.isFavorited ? "Unfavorite" : "Favorite",
+                        image: UIImage(systemName: resolvedActions.isFavorited ? "heart.slash" : "heart")
                     ) { _ in
-                        onToggleFavorite(track)
+                        onToggleFavorite()
                     })
                 }
                 
                 // Share actions
                 var shareActions: [UIAction] = []
-                if let onShareLink = self?.onShareLink {
+                if let onShareLink = resolvedActions.onShareLink {
                     shareActions.append(UIAction(title: "Share Link…", image: UIImage(systemName: "link")) { _ in
-                        onShareLink(track)
+                        onShareLink()
                     })
                 }
-                if let onShareFile = self?.onShareFile {
+                if let onShareFile = resolvedActions.onShareFile {
                     shareActions.append(UIAction(title: "Share Audio File…", image: UIImage(systemName: "square.and.arrow.up")) { _ in
-                        onShareFile(track)
+                        onShareFile()
                     })
                 }
 
