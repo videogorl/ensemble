@@ -277,7 +277,7 @@ public struct SettingsView: View {
         #else
         .listStyle(.inset)
         #endif
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
         .navigationTitle("Settings")
         .alert("Remove Account", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) {

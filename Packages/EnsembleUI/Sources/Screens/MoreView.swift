@@ -37,7 +37,7 @@ public struct MoreView: View {
                 browseView
             }
         }
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
         .navigationTitle(isEditing ? "Edit Tabs" : "More")
         .toolbar {
             #if os(iOS)

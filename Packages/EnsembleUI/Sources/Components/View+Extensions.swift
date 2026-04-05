@@ -135,7 +135,7 @@ public extension View {
     /// `miniPlayerContainerInset()` in MainTabView, which sets additionalSafeAreaInsets
     /// on the TabView's hosting controller.
     @ViewBuilder
-    func miniPlayerBottomSpacing(_ height: CGFloat = 140) -> some View {
+    func miniPlayerBottomSpacing(_ height: CGFloat = TrackListLayoutMetrics.miniPlayerBottomSpacing) -> some View {
         #if os(iOS)
         if #available(iOS 16.0, *) {
             self.safeAreaInset(edge: .bottom) {

@@ -136,10 +136,10 @@ public class TrackTableViewCell: UITableViewCell {
             favoriteHeartView.widthAnchor.constraint(equalToConstant: 14),
             favoriteHeartView.heightAnchor.constraint(equalToConstant: 14),
 
-            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: TrackListLayoutMetrics.rowHorizontalPadding),
             artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
-            trackNumberLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            trackNumberLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: TrackListLayoutMetrics.rowHorizontalPadding),
             trackNumberLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             trackNumberLabel.widthAnchor.constraint(equalToConstant: 30),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -6),
@@ -153,11 +153,11 @@ public class TrackTableViewCell: UITableViewCell {
             downloadSpinner.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             downloadSpinner.centerXAnchor.constraint(equalTo: downloadIcon.centerXAnchor),
 
-            durationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            durationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.rowHorizontalPadding),
             durationLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
             
-            playingIndicator.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            playingIndicator.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.rowHorizontalPadding),
             playingIndicator.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             playingIndicator.widthAnchor.constraint(equalToConstant: 20),
             playingIndicator.heightAnchor.constraint(equalToConstant: 20)
@@ -203,7 +203,9 @@ public class TrackTableViewCell: UITableViewCell {
 
         // Configure leading constraint based on what's showing
         let leadingAnchor = showArtwork ? artworkImageView.trailingAnchor : (showTrackNumber ? trackNumberLabel.trailingAnchor : contentView.leadingAnchor)
-        let constant: CGFloat = showArtwork || showTrackNumber ? 12 : 16
+        let constant: CGFloat = showArtwork || showTrackNumber
+            ? TrackListLayoutMetrics.rowInterItemSpacing
+            : TrackListLayoutMetrics.rowHorizontalPadding
 
         titleLeadingConstraint = titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: constant)
         subtitleLeadingConstraint = subtitleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: constant)
@@ -314,7 +316,7 @@ public class TrackTableViewCell: UITableViewCell {
 
     /// Keeps StageFlow's compact rows balanced without changing the default density elsewhere.
     private func applyLayoutMetrics(for rowHeight: CGFloat) {
-        let isCompact = rowHeight <= 60
+        let isCompact = rowHeight <= TrackListLayoutMetrics.compactRowHeightThreshold
 
         artworkWidthConstraint?.constant = isCompact ? 40 : 44
         artworkHeightConstraint?.constant = isCompact ? 40 : 44
@@ -404,7 +406,7 @@ public struct MediaTrackList: UIViewRepresentable {
         activeDownloadRatingKeys: Set<String> = [],
         managesOwnScrolling: Bool = false,
         bottomContentInset: CGFloat = 0,
-        rowHeight: CGFloat = 68,
+        rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
@@ -466,7 +468,10 @@ public struct MediaTrackList: UIViewRepresentable {
         tableView.separatorStyle = .singleLine
         tableView.separatorInset = UIEdgeInsets(
             top: 0,
-            left: showArtwork ? 68 : (showTrackNumbers ? 54 : 16),
+            left: TrackListLayoutMetrics.contentLeadingInset(
+                showArtwork: showArtwork,
+                showTrackNumbers: showTrackNumbers
+            ),
             bottom: 0,
             right: 0
         )

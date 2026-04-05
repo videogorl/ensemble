@@ -120,7 +120,7 @@ public struct DownloadsView: View {
         #else
         .listStyle(.inset)
         #endif
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
     }
 
     // MARK: - Library Row

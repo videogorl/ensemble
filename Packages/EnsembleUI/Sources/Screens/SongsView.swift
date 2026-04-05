@@ -365,7 +365,7 @@ public struct SongsView: View {
                             )
                             indexedTrackListContent
                         }
-                        .miniPlayerBottomSpacing(140)
+                        .miniPlayerBottomSpacing()
 
                         if !libraryVM.filteredTracks.isEmpty {
                             ScrollIndex(
@@ -447,7 +447,7 @@ public struct SongsView: View {
                         }
                         .listStyle(.plain)
                         .modifier(ClearScrollContentBackgroundModifier())
-                        .miniPlayerBottomSpacing(140)
+                        .miniPlayerBottomSpacing()
 
                         if !libraryVM.filteredTracks.isEmpty {
                             ScrollIndex(
@@ -505,7 +505,7 @@ public struct SongsView: View {
     private func indexedSection(section: LibraryViewModel.TrackSection) -> some View {
         Section(header: sectionHeader(section.letter)) {
             let trackCount = section.tracks.count
-            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
+            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
 
             #if os(iOS)
             MediaTrackList(

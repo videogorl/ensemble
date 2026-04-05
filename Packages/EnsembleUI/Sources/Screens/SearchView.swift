@@ -60,7 +60,7 @@ public struct SearchView: View {
             await viewModel.loadExploreContentIfNeeded()
             await pinnedVM.loadPinnedItems()
         }
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
         .onReceive(nowPlayingVM.$currentTrack) { track in
             let id = track?.id
             if id != currentTrackId { currentTrackId = id }
@@ -941,7 +941,7 @@ public struct SearchView: View {
     #if os(iOS)
     private var iOSSongsResultsSection: some View {
         let tracks = Array(viewModel.trackResults.prefix(5))
-        let height: CGFloat = tracks.isEmpty ? 0 : CGFloat(tracks.count * 68)
+        let height: CGFloat = tracks.isEmpty ? 0 : CGFloat(tracks.count) * TrackListLayoutMetrics.defaultRowHeight
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack {

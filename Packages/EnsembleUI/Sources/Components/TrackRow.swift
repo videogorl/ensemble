@@ -106,7 +106,7 @@ public struct TrackRow: View {
     /// The row's visual content, extracted so it can be reused as the context menu preview
     @ViewBuilder
     private var rowContentView: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             if showTrackNumber {
                 trackNumberView
                     .frame(width: 30)
@@ -384,12 +384,18 @@ public struct TrackListView: View {
                         row
                     }
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
                 .padding(.vertical, 8)
 
                 if index < tracks.count - 1 {
                     Divider()
-                        .padding(.leading, showArtwork ? 68 : (showTrackNumbers ? 54 : 16))
+                        .padding(
+                            .leading,
+                            TrackListLayoutMetrics.contentLeadingInset(
+                                showArtwork: showArtwork,
+                                showTrackNumbers: showTrackNumbers
+                            )
+                        )
                 }
             }
         }

@@ -593,7 +593,7 @@ public struct QueueTableView: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-            68
+            TrackListLayoutMetrics.defaultRowHeight
         }
         
         // MARK: - UITableViewDelegate

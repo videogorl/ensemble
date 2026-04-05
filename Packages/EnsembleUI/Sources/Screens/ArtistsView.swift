@@ -272,7 +272,7 @@ public struct ArtistsView: View {
                         .padding(.vertical)
                     }
                 }
-                .miniPlayerBottomSpacing(140)
+                .miniPlayerBottomSpacing()
                 
                 if libraryVM.artistSortOption == .name && !libraryVM.filteredArtists.isEmpty {
                     ScrollIndex(
@@ -408,7 +408,7 @@ public struct ArtistDetailView: View {
             }
             #endif
         }
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
         }
@@ -904,7 +904,7 @@ public struct ArtistDetailView: View {
             // Track list (UIKit table for consistent swipe actions and row height)
             #if os(iOS)
             let trackCount = viewModel.favoritedTracks.count
-            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
+            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
 
             MediaTrackList(
                 tracks: viewModel.favoritedTracks,

@@ -516,7 +516,7 @@ public struct PlaylistsView: View {
             }
         }
         .listStyle(.plain)
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
     }
     
     private var stageFlowView: some View {

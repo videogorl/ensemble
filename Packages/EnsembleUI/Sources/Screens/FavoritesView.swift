@@ -276,7 +276,7 @@ public struct FavoritesView: View {
 
                 // Track list
                 let trackCount = viewModel.filteredTracks.count
-                let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
+                let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
 
                 MediaTrackList(
                     tracks: viewModel.filteredTracks,
@@ -333,7 +333,7 @@ public struct FavoritesView: View {
                 .padding(.horizontal)
             }
         }
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
         #else
         // macOS: List with header section + track rows with native swipe actions
         List {
@@ -396,7 +396,7 @@ public struct FavoritesView: View {
         }
         .listStyle(.plain)
         .modifier(ClearScrollContentBackgroundModifier())
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
         #endif
     }
 

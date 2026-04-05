@@ -238,7 +238,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         // iOS: MediaTrackList handles its own bottomContentInset for scroll-behind-chrome.
         // macOS: ScrollView-based layout uses miniPlayerBottomSpacing.
         #if !os(iOS)
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
         #endif
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }

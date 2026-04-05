@@ -181,7 +181,7 @@ public struct MusicSourceAccountDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
         .alert("Remove Source", isPresented: $showingRemoveSourceAlert) {
             Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) {
