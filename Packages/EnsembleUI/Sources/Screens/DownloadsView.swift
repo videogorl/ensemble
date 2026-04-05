@@ -144,7 +144,7 @@ public struct DownloadsView: View {
             .opacity(0)
 
             // Visible row content: label, toggle, then chevron on trailing edge
-            HStack(spacing: 12) {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 libraryRowLabel(for: library)
                 Spacer()
                 Toggle(
@@ -175,7 +175,7 @@ public struct DownloadsView: View {
 
     private func libraryRowLabel(for library: LibraryDownloadSummary) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 12) {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 // Library icon
                 Image(systemName: "building.columns")
                     .font(.title3)
@@ -224,7 +224,7 @@ public struct DownloadsView: View {
                     .progressViewStyle(.linear)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
     }
 
     private func libraryTrackCountText(for library: LibraryDownloadSummary) -> String {

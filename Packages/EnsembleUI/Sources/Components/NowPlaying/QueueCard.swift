@@ -309,7 +309,7 @@ public struct QueueCard: View {
 
     /// Single row for the macOS queue/history list
     private func macOSQueueRow(item: QueueItem, isAutoplay: Bool) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Artwork thumbnail
             ArtworkView(track: item.track, size: .tiny, cornerRadius: 4)
 
@@ -341,7 +341,7 @@ public struct QueueCard: View {
                 .foregroundColor(.secondary)
                 .monospacedDigit()
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
     }
 
     /// Context menu for queue items
@@ -489,4 +489,3 @@ public struct QueueCard: View {
         playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
     }
 }
-
