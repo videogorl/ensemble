@@ -443,6 +443,13 @@ public struct MainTabView: View {
             destinationView(for: destination)
                 .auroraBackgroundSupport()
         }
+        #if os(iOS)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                ProfileToolbarButton()
+            }
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -1025,10 +1032,7 @@ public struct SidebarView: View {
                 .help("Downloads")
             }
             ToolbarItem(placement: .automatic) {
-                Button { navigationCoordinator.openSettings() } label: {
-                    Image(systemName: "gear")
-                }
-                .help("Settings")
+                ProfileToolbarButton()
             }
         }
         .if_available_removeSidebarToggle()
