@@ -131,7 +131,7 @@ public struct LyricsCard: View {
     // MARK: - Loading State
 
     private var loadingView: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             ProgressView()
                 .scaleEffect(1.2)
         }
@@ -140,7 +140,7 @@ public struct LyricsCard: View {
     // MARK: - Not Available State
 
     private var notAvailableView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing + 4) {
             Image(systemName: "text.quote")
                 .font(.system(size: 48))
                 .foregroundColor(.primary.opacity(0.3))

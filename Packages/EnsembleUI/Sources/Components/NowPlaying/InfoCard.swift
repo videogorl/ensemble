@@ -97,7 +97,7 @@ public struct InfoCard: View {
 
                 // Divider
                 Divider()
-                    .padding(.vertical, 16)
+                    .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing + 4)
                     .padding(.horizontal, 40)
 
                 // File info section (codec, bitrate, sample rate, etc.)
@@ -105,7 +105,7 @@ public struct InfoCard: View {
 
                 // Divider
                 Divider()
-                    .padding(.vertical, 16)
+                    .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing + 4)
                     .padding(.horizontal, 40)
 
                 // Server info section
@@ -120,7 +120,7 @@ public struct InfoCard: View {
     // MARK: - Track Metadata Section
 
     private var trackMetadataSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Album (tappable)
             if let track = viewModel.currentTrack, track.albumName != nil {
                 infoRow(
@@ -183,7 +183,7 @@ public struct InfoCard: View {
     // MARK: - File Info Section
 
     private var fileInfoSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Section header
             HStack {
                 Text("File")
@@ -241,7 +241,7 @@ public struct InfoCard: View {
     // MARK: - Server Info Section
 
     private var serverInfoSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Section header
             HStack {
                 Text("Server")
@@ -331,7 +331,7 @@ public struct InfoCard: View {
         isTappable: Bool = false,
         action: (() -> Void)? = nil
     ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Text(label)
                 .font(.subheadline)
                 .foregroundColor(.secondary)

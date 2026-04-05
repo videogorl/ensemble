@@ -32,7 +32,7 @@ public struct PageIndicator: View {
     }
 
     public var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: TrackListLayoutMetrics.rowHorizontalPadding) {
             ForEach(NowPlayingPage.allCases, id: \.rawValue) { page in
                 pageIndicatorItem(for: page, isCurrent: page.rawValue == currentPage)
                     .onTapGesture {

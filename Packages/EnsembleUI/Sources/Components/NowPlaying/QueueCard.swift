@@ -115,7 +115,7 @@ public struct QueueCard: View {
             
             Spacer()
             
-            HStack(spacing: 16) {
+            HStack(spacing: TrackListLayoutMetrics.rowHorizontalPadding) {
                 // History toggle
                 Button(action: {
                     withAnimation(.spring()) {
@@ -228,7 +228,7 @@ public struct QueueCard: View {
                                 .font(.subheadline)
                         }
                         .foregroundColor(.secondary)
-                        .padding(.vertical, 16)
+                        .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing + 4)
                     }
                 }
                 #else
@@ -237,7 +237,7 @@ public struct QueueCard: View {
                 #endif
             } else {
                 // Empty state
-                VStack(spacing: 16) {
+                VStack(spacing: TrackListLayoutMetrics.rowHorizontalPadding) {
                     Image(systemName: "music.note.list")
                         .font(.system(size: 48))
                         .foregroundColor(.primary.opacity(0.3))
@@ -302,7 +302,7 @@ public struct QueueCard: View {
                         .font(.subheadline)
                 }
                 .foregroundColor(.secondary)
-                .padding(.vertical, 12)
+                .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing)
             }
         }
     }
