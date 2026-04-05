@@ -10,7 +10,7 @@ public struct PendingChangesRow: View {
     }
 
     public var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Image(systemName: "clock.arrow.circlepath")
                 .frame(width: 24)
                 .foregroundColor(.orange)
@@ -34,6 +34,6 @@ public struct PendingChangesRow: View {
                 .background(Color.orange)
                 .clipShape(Capsule())
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
     }
 }

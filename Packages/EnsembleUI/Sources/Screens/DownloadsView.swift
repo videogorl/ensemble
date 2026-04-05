@@ -406,7 +406,7 @@ private struct DownloadedItemRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 // Album/artist art thumbnail (circle for artists)
                 ArtworkView(
                     path: item.thumbPath,
@@ -446,7 +446,7 @@ private struct DownloadedItemRow: View {
                     .progressViewStyle(.linear)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
     }
 
     private var metadataText: String {
@@ -508,7 +508,7 @@ private struct RemovalProgressRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 ProgressView()
                     .frame(width: 48, height: 48)
 
@@ -529,6 +529,6 @@ private struct RemovalProgressRow: View {
                     .progressViewStyle(.linear)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
     }
 }
