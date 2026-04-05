@@ -1010,7 +1010,6 @@ public struct SearchView: View {
                 }
             }
             .frame(height: height)
-            .padding(.horizontal)
         }
     }
     #endif
@@ -1068,11 +1067,11 @@ public struct SearchView: View {
                     
                     if index < items.count - 1 {
                         Divider()
-                            .padding(.leading, 68)
+                            .padding(.leading, TrackListLayoutMetrics.artworkLeadingInset)
                     }
                 }
             }
-            .padding(.horizontal)
+            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         }
     }
 

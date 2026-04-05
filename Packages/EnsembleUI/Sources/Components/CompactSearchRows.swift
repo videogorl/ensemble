@@ -14,7 +14,7 @@ public struct CompactArtistRow: View {
     }
 
     public var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             ArtworkView(artist: artist, size: .tiny, cornerRadius: 22)
 
             Text(artist.name)
@@ -43,7 +43,7 @@ public struct CompactAlbumRow: View {
     }
 
     public var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             ArtworkView(album: album, size: .tiny, cornerRadius: 4)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -81,7 +81,7 @@ public struct CompactPlaylistRow: View {
     }
 
     public var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -129,7 +129,7 @@ public struct CompactTrackRow: View {
     }
 
     public var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             ZStack(alignment: .center) {
                 ArtworkView(track: track, size: .tiny, cornerRadius: 4)
                 
