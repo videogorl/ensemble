@@ -24,6 +24,8 @@ final class EnsembleUITests: XCTestCase {
             TrackListLayoutMetrics.contentLeadingInset(showArtwork: false, showTrackNumbers: false),
             TrackListLayoutMetrics.plainLeadingInset
         )
+        XCTAssertEqual(TrackListLayoutMetrics.miniPlayerBottomSpacing, 140)
+        XCTAssertEqual(TrackListLayoutMetrics.compactMiniPlayerBottomSpacing, 110)
     }
 
     func testTrackRowInteractionModelResolvesRecentPlaylistAndFavoriteState() {

@@ -222,7 +222,7 @@ struct LibraryDownloadDetailView: View {
 
                     if row.id != viewModel.tracks.last?.id {
                         Divider()
-                            .padding(.leading, 68)
+                            .padding(.leading, TrackListLayoutMetrics.artworkLeadingInset)
                     }
                 }
             }
@@ -234,7 +234,7 @@ struct LibraryDownloadDetailView: View {
             #endif
             .cornerRadius(12)
             .padding(.horizontal)
-            .padding(.bottom, 140)  // mini player clearance
+            .padding(.bottom, TrackListLayoutMetrics.miniPlayerBottomSpacing)
         }
     }
 

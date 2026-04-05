@@ -12,6 +12,7 @@ public enum TrackListLayoutMetrics {
     public static let plainLeadingInset: CGFloat = 16
 
     public static let miniPlayerBottomSpacing: CGFloat = 140
+    public static let compactMiniPlayerBottomSpacing: CGFloat = 110
     public static let miniPlayerContainerInset: CGFloat = 70
     public static let miniPlayerBottomLiftBase: CGFloat = 52
 

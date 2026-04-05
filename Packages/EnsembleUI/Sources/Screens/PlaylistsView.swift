@@ -1374,7 +1374,7 @@ public struct PlaylistDetailView: View {
         #if os(iOS)
         .environment(\.editMode, .constant(.active))
         #endif
-        .miniPlayerBottomSpacing(110)
+        .miniPlayerBottomSpacing(TrackListLayoutMetrics.compactMiniPlayerBottomSpacing)
     }
 }
 

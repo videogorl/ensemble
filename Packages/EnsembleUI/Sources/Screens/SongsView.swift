@@ -624,7 +624,7 @@ public struct SongsView: View {
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,
             managesOwnScrolling: true,
-            bottomContentInset: 140,
+            bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
             },
