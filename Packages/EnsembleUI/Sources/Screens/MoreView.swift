@@ -230,7 +230,7 @@ private struct EditTabsView: View {
             }
             .coordinateSpace(name: "tabBarDropTarget")
             .sectionBackground()
-            .padding(.horizontal, 16)
+            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
             .onDrop(of: [.text], delegate: TabBarSectionDropDelegate(
                 settingsManager: settingsManager,
                 draggedTab: $draggedTab,
@@ -254,7 +254,7 @@ private struct EditTabsView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 24)
                     .sectionBackground()
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
                     .onDrop(of: [.text], delegate: AvailableDropDelegate(
                         settingsManager: settingsManager,
                         draggedTab: $draggedTab,
@@ -281,7 +281,7 @@ private struct EditTabsView: View {
                     }
                 }
                 .sectionBackground()
-                .padding(.horizontal, 16)
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
                 .onDrop(of: [.text], delegate: AvailableDropDelegate(
                     settingsManager: settingsManager,
                     draggedTab: $draggedTab,
@@ -323,7 +323,7 @@ private struct EditTabsView: View {
                 .fill(Color.accentColor)
                 .frame(height: 2)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         .transition(.opacity)
     }
 
@@ -331,7 +331,7 @@ private struct EditTabsView: View {
         Text(text)
             .font(.footnote)
             .foregroundColor(.secondary)
-            .padding(.horizontal, 32)
+            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding * 2)
             .padding(.top, 24)
             .padding(.bottom, 8)
     }
