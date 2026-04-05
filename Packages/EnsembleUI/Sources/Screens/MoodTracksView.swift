@@ -310,7 +310,7 @@ public struct MoodTracksView: View {
     }
 
     private var actionButtons: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Button(action: {
                 if !nowPlayingVM.isAutoplayEnabled {
                     nowPlayingVM.toggleAutoplay()

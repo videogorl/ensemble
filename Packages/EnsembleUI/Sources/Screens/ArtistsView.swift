@@ -619,7 +619,7 @@ public struct ArtistDetailView: View {
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Button {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
             } label: {

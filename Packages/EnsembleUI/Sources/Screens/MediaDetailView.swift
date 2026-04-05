@@ -774,7 +774,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var actionButtons: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Play button
             Button {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
@@ -818,7 +818,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     /// Compact action buttons for the wide header layout — don't stretch to fill width.
     private var wideActionButtons: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Play button
             Button {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
