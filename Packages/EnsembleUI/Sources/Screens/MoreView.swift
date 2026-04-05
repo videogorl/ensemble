@@ -295,7 +295,7 @@ private struct EditTabsView: View {
     // MARK: - Row View
 
     private func tabEditRow(tab: TabItem) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Image(systemName: "line.3.horizontal")
                 .foregroundColor(.secondary)
                 .font(.body)
@@ -309,8 +309,8 @@ private struct EditTabsView: View {
 
             Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding + 4)
     }
 
     /// Visual indicator showing where a dragged item will be inserted

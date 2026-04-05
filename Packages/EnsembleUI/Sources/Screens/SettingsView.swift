@@ -356,7 +356,7 @@ struct MusicSourceAccountRow: View {
     let accountIdentifier: String
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Image(systemName: "music.note.list")
                 .font(.title2)
                 .foregroundColor(.accentColor)
