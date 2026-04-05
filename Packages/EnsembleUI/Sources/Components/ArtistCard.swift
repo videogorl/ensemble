@@ -43,7 +43,7 @@ public struct ArtistRow: View {
     }
 
     public var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             ArtworkView(artist: artist, size: .tiny, cornerRadius: 22)
 
             Text(artist.name)

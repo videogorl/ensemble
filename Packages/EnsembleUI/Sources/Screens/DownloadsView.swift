@@ -85,6 +85,7 @@ public struct DownloadsView: View {
                     } label: {
                         PendingChangesRow(count: viewModel.pendingMutationCount)
                     }
+                    .utilityListRowInsets(TrackListLayoutMetrics.rowVerticalPadding / 2)
                 }
             }
 
@@ -97,6 +98,7 @@ public struct DownloadsView: View {
                         if let progress = viewModel.removalInProgress[item.key] {
                             // Show removal progress indicator instead of normal row
                             RemovalProgressRow(progress: progress)
+                                .utilityListRowInsets(TrackListLayoutMetrics.rowVerticalPadding / 2)
                         } else {
                             targetRow(for: item)
                                 .standardDeleteSwipeAction {
@@ -104,6 +106,7 @@ public struct DownloadsView: View {
                                         await viewModel.removeDownloadTarget(key: item.key)
                                     }
                                 }
+                                .utilityListRowInsets(TrackListLayoutMetrics.rowVerticalPadding / 2)
                         }
                     }
                 }
@@ -120,7 +123,7 @@ public struct DownloadsView: View {
         #else
         .listStyle(.inset)
         #endif
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
     }
 
     // MARK: - Library Row
@@ -144,7 +147,7 @@ public struct DownloadsView: View {
             .opacity(0)
 
             // Visible row content: label, toggle, then chevron on trailing edge
-            HStack(spacing: 12) {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 libraryRowLabel(for: library)
                 Spacer()
                 Toggle(
@@ -169,13 +172,15 @@ public struct DownloadsView: View {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundColor(.secondary.opacity(0.5))
+                    .frame(width: 12, alignment: .trailing)
             }
         }
+        .utilityListRowInsets(TrackListLayoutMetrics.rowVerticalPadding / 2)
     }
 
     private func libraryRowLabel(for library: LibraryDownloadSummary) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 12) {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 // Library icon
                 Image(systemName: "building.columns")
                     .font(.title3)
@@ -224,7 +229,7 @@ public struct DownloadsView: View {
                     .progressViewStyle(.linear)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
     }
 
     private func libraryTrackCountText(for library: LibraryDownloadSummary) -> String {
@@ -406,7 +411,7 @@ private struct DownloadedItemRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 // Album/artist art thumbnail (circle for artists)
                 ArtworkView(
                     path: item.thumbPath,
@@ -446,7 +451,7 @@ private struct DownloadedItemRow: View {
                     .progressViewStyle(.linear)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
     }
 
     private var metadataText: String {
@@ -508,7 +513,7 @@ private struct RemovalProgressRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 ProgressView()
                     .frame(width: 48, height: 48)
 
@@ -529,6 +534,6 @@ private struct RemovalProgressRow: View {
                     .progressViewStyle(.linear)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
     }
 }

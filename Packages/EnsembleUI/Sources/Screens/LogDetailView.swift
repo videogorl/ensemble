@@ -113,7 +113,7 @@ public struct LogDetailView: View {
                         Text(line)
                             .font(.system(.caption2, design: .monospaced))
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12)
+                            .padding(.horizontal, TrackListLayoutMetrics.rowInterItemSpacing)
                             .padding(.vertical, 1)
                             .id("line-\(allLines.count - visibleLineCount + index)")
                     }
@@ -130,7 +130,7 @@ public struct LogDetailView: View {
     }
 
     private var toolbarButtons: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Button {
                 Task { await refreshLogContent() }
             } label: {

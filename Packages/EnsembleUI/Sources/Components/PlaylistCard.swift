@@ -118,7 +118,7 @@ public struct PlaylistRow: View {
     }
 
     private var playlistRowContent: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             PlaylistArtwork(displayPlaylist: displayPlaylist, size: .tiny, cornerRadius: 4)
 
             VStack(alignment: .leading, spacing: 4) {

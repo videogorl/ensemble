@@ -115,7 +115,7 @@ public struct QueueCard: View {
             
             Spacer()
             
-            HStack(spacing: 16) {
+            HStack(spacing: TrackListLayoutMetrics.rowHorizontalPadding) {
                 // History toggle
                 Button(action: {
                     withAnimation(.spring()) {
@@ -151,7 +151,7 @@ public struct QueueCard: View {
             .chromelessMediaControlButton()
             .chromelessMediaControlMenu()
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
         .frame(minHeight: 36) // Consistent height across all NPV card headers
     }
 
@@ -228,7 +228,7 @@ public struct QueueCard: View {
                                 .font(.subheadline)
                         }
                         .foregroundColor(.secondary)
-                        .padding(.vertical, 16)
+                        .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing + 4)
                     }
                 }
                 #else
@@ -237,7 +237,7 @@ public struct QueueCard: View {
                 #endif
             } else {
                 // Empty state
-                VStack(spacing: 16) {
+                VStack(spacing: TrackListLayoutMetrics.rowHorizontalPadding) {
                     Image(systemName: "music.note.list")
                         .font(.system(size: 48))
                         .foregroundColor(.primary.opacity(0.3))
@@ -302,14 +302,14 @@ public struct QueueCard: View {
                         .font(.subheadline)
                 }
                 .foregroundColor(.secondary)
-                .padding(.vertical, 12)
+                .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing)
             }
         }
     }
 
     /// Single row for the macOS queue/history list
     private func macOSQueueRow(item: QueueItem, isAutoplay: Bool) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Artwork thumbnail
             ArtworkView(track: item.track, size: .tiny, cornerRadius: 4)
 
@@ -341,7 +341,7 @@ public struct QueueCard: View {
                 .foregroundColor(.secondary)
                 .monospacedDigit()
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
     }
 
     /// Context menu for queue items
@@ -489,4 +489,3 @@ public struct QueueCard: View {
         playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
     }
 }
-

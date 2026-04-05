@@ -195,7 +195,7 @@ private struct MiniPlayerTrackInfo: View {
 
             if let track = viewModel.currentTrack {
                 // Content
-                HStack(spacing: 12) {
+                HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                     // Artwork
                     ZStack {
                         ArtworkView(
@@ -281,11 +281,11 @@ private struct MiniPlayerTrackInfo: View {
                     // Playback controls (scoped sub-view for play state changes)
                     MiniPlayerControls(viewModel: viewModel)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+                .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
             } else {
                 // Nothing Playing state
-                HStack(spacing: 12) {
+                HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(Color.primary.opacity(0.1))
                         .frame(width: 32, height: 32)
@@ -300,8 +300,8 @@ private struct MiniPlayerTrackInfo: View {
 
                     Spacer()
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+                .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
             }
         }
         // Keep layout tightly bound to rendered content height to avoid oversized touch regions.

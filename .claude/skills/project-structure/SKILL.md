@@ -17,7 +17,14 @@ ensemble/
 |   +-- trace-analysis/            # Instruments .trace export + correlation workflow
 +-- scripts/
 |   +-- compile_coredata_model.sh # Compiles SwiftPM CoreData model bundle for package tests
+|   +-- verify_package_baseline.sh # Rebuilds the SwiftPM CoreData bundle, then runs package tests with pass/fail summary
+|   +-- capture_runtime_baseline.sh # Summarizes a trace + log pair for repeatable runtime baselines
+|   +-- plex_hls_spike.sh        # Bounded PMS music-HLS viability probe used before transport changes
 |   +-- update_build_number.sh    # Sets deterministic CFBundleVersion for app + Siri extension builds
+|
++-- docs/
+|   +-- investigations/
+|       +-- 2026-04-03-plex-hls-spike.md # Written verdict from the PMS music-HLS spike
 |
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/
@@ -88,7 +95,7 @@ Tests/
 Sources/
 +-- CoreData/
 |   +-- Ensemble.xcdatamodeld          # CoreData schema
-|   +-- Compiled/SwiftPMEnsemble.momd # Precompiled model copy used by SwiftPM tests
+|   +-- Compiled/SwiftPMEnsemble.momd # Precompiled model copy used by SwiftPM tests; refreshed by verify_package_baseline.sh
 |   +-- CoreDataStack.swift            # Singleton stack with background contexts
 |   +-- ManagedObjects.swift           # NSManagedObject subclasses (CD* prefix)
 +-- Downloads/
@@ -130,20 +137,34 @@ Sources/
 +-- Services/
 |   +-- AccountManager.swift           # Multi-account configuration (MainActor)
 |   +-- SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
+|   +-- RefreshOrchestrator.swift      # Health-refresh gating, cooldown/staleness policy, and startup-health ownership extracted from SyncCoordinator
+|   +-- NetworkLifecycleController.swift # App-foreground and network-transition policy extracted from SyncCoordinator
+|   +-- PeriodicSyncController.swift   # Foreground periodic-sync timer scheduling + WebSocket-aware interval policy extracted from SyncCoordinator
+|   +-- PlaylistRefreshController.swift # Server-scoped playlist refresh orchestration extracted from SyncCoordinator
+|   +-- WebSocketSyncController.swift  # WebSocket-triggered section resolution + playlist refresh routing extracted from SyncCoordinator
 |   +-- MusicSourceSyncProvider.swift  # Protocol for source-specific sync
 |   +-- PlexMusicSourceSyncProvider.swift # Plex implementation of sync protocol
 |   +-- NavigationCoordinator.swift    # Centralized navigation state management (MainActor)
 |   +-- PlaybackService.swift          # AVPlayer wrapper with queue/shuffle/repeat
+|   +-- PlaybackQueueStore.swift       # Queue/history restoration persistence extracted from PlaybackService
+|   +-- PlaybackLaunchCoordinator.swift # Successful playback launch path (visualizer load, engine start, recovery seek, prefetch) extracted from PlaybackService
+|   +-- PlaybackRecoveryPolicy.swift   # Buffering/stall-recovery policy extracted from PlaybackService
+|   +-- PlaybackSessionStateMachine.swift # Playback session request/retry/failure policy extracted from PlaybackService
+|   +-- PlaybackTransportCoordinator.swift # Stream/local transport resolution + progressive-loader cache extracted from PlaybackService
 |   +-- ProgressiveStreamLoader.swift  # AVAssetResourceLoaderDelegate bridge for chunked transcode streams
 |   +-- ArtworkLoader.swift            # Persistent artwork caching & loading
 |   +-- CacheManager.swift             # Cache size tracking & management (MainActor)
 |   +-- NetworkMonitor.swift           # Network connectivity monitoring (NWPathMonitor)
 |   +-- ServerHealthChecker.swift      # Concurrent server health checks
+|   +-- ServerConnectionController.swift # Registry subscription + API-client endpoint synchronization extracted from SyncCoordinator
 |   +-- SettingsManager.swift          # App settings (accent colors, customizable tabs)
 |   +-- HubRepository.swift            # Hub data persistence (CDHub/CDHubItem)
 |   +-- HubOrderManager.swift          # User-customizable hub section ordering
 |   +-- BackgroundSyncScheduler.swift  # iOS BGAppRefreshTask scheduling for background sync
 |   +-- OfflineDownloadService.swift   # Target-based offline queue, reconciliation, and progress tracking
+|   +-- DownloadQueueCoordinator.swift # Sole owner of offline queue task lifecycle and worker orchestration
+|   +-- DownloadRetryPolicy.swift      # Stateful offline retry and direct-fallback policy
+|   +-- DownloadTargetReconciler.swift # Membership resolution and orphan cleanup for offline targets
 |   +-- OfflineBackgroundExecutionCoordinator.swift # Optional iOS 26+ BG continued-processing adapter
 |   +-- MoodRepository.swift           # Mood data persistence (CDMood)
 |   +-- LibraryVisibilityStore.swift   # Persisted visibility profiles + active profile state
@@ -187,9 +208,24 @@ Sources/
 
 Tests/
 +-- PlaybackServiceTests.swift
++-- PlaybackRecoveryPolicyTests.swift
++-- PlaybackLaunchCoordinatorTests.swift
++-- PlaybackSessionStateMachineTests.swift
++-- PlaybackTransportCoordinatorTests.swift
++-- PlaybackQueueStoreTests.swift
 +-- NetworkMonitorTests.swift
 +-- SyncCoordinatorNetworkHealthTests.swift
++-- RefreshOrchestratorTests.swift # Health-refresh coalescing, cooldown/staleness gating, and startup ownership coverage
++-- NetworkLifecycleControllerTests.swift # Foreground and network-transition policy coverage for SyncCoordinator lifecycle decisions
++-- PeriodicSyncControllerTests.swift # Foreground timer scheduling and WebSocket-aware interval coverage
++-- PlaylistRefreshControllerTests.swift # Server playlist refresh fallback and trigger-policy coverage
++-- WebSocketSyncControllerTests.swift # WebSocket section resolution and playlist refresh routing coverage
++-- ServerConnectionControllerTests.swift # Registry-update processing and API-client endpoint synchronization coverage
++-- PlexWebSocketCoordinatorTests.swift # Aggregate WebSocket availability callback coverage
 +-- OfflineDownloadServicePolicyTests.swift # Playback/background download work-mode policy coverage
++-- DownloadQueueCoordinatorTests.swift # Queue lifecycle ownership, background wakeup, and restart coverage
++-- DownloadRetryPolicyTests.swift # Transfer retry accounting and direct-fallback gating coverage
++-- DownloadTargetReconcilerTests.swift # Target membership resolution and orphan cleanup coverage
 +-- HomeViewModelRefreshPolicyTests.swift
 +-- ServerHealthCheckerClassificationTests.swift
 +-- SettingsManagerConnectionPolicyTests.swift
@@ -256,6 +292,8 @@ Sources/
 |   +-- ScrollIndex.swift             # A-Z index for fast scrolling
 |   +-- ToastView.swift               # Toast notification overlay component
 |   +-- TrackRow.swift                # Single track row with artwork
+|   +-- TrackListLayoutMetrics.swift  # Shared row spacing, separator insets, and mini-player clearance tokens
+|   +-- TrackRowInteractionModel.swift # Shared per-track action/favorite/recent-playlist resolver for SwiftUI + UIKit rows
 |   +-- TrackSwipeContainer.swift     # Shared swipe gesture container for track row actions on large-screen + iOS
 |   +-- View+Extensions.swift         # SwiftUI view extensions and helpers
 |   +-- WaveformView.swift            # Audio waveform visualization

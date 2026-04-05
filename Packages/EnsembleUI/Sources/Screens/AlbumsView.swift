@@ -368,7 +368,7 @@ public struct AlbumsView: View {
                             .padding(.vertical)
                     }
                 }
-                .miniPlayerBottomSpacing(140)
+                .miniPlayerBottomSpacing()
                 
                 if isSortIndexed && !libraryVM.filteredAlbums.isEmpty {
                     ScrollIndex(

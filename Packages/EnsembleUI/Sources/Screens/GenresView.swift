@@ -125,6 +125,6 @@ public struct GenresView: View {
             }
         }
         .listStyle(.plain)
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
     }
 }

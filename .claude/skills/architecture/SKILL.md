@@ -66,6 +66,9 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `PlexAccountDiscoveryService` -- Discovers account identity + normalized server/library inventory during add-account and reconciliation flows
 - `SyncCoordinator` (@MainActor) -- Orchestrates library syncing across all enabled sources; provides timeline reporting and scrobbling methods
   - Publishes `lastContentChange` for consumers that need actual library/playlist mutations; `sourceStatuses` remains the transport/progress surface
+  - Delegates health-refresh gating/coalescing to `RefreshOrchestrator` so foreground/network-triggered probes share one cooldown/staleness path
+  - Delegates app-foreground and network-transition policy to `NetworkLifecycleController` so lifecycle events produce explicit refresh/invalidation plans before side effects run
+  - Delegates API-client endpoint synchronization and registry observation to `ServerConnectionController` so sync flow no longer owns registry subscription tasks directly
 - `NavigationCoordinator` (@MainActor) -- Manages cross-view navigation state (artist/album deep links from NowPlayingView)
   - Maintains per-tab navigation paths (homePath, artistsPath, etc.)
   - `visibleTabs: [TabItem]` -- Synced from MainTabView to enable fallback logic
@@ -75,6 +78,11 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - `activeAuxiliaryPresentation` / `auxiliaryWindowRequest` -- Root-level modal/window routing state; screens should request presentation through the coordinator instead of owning duplicated sheet state
 - Large-screen Now Playing presentation is split at the UI layer: `NowPlayingSheetView` remains the phone sheet container, `NowPlayingViewportRoot` owns the iPad/macOS viewport layout, and macOS window chrome is coordinated separately through `WindowChromeBridge` so toolbar content can swap without moving the titlebar/traffic lights
 - `PlaybackService` -- AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion). Publishes both raw transport time (`currentTime`) and presentation-adjusted time (`presentationTime`) so lyrics/Aurora can compensate for AirPlay/Bluetooth output delay without affecting seek/reporting semantics. `frequencyBands` uses `CurrentValueSubject` (not `@Published`) to avoid firing `objectWillChange` at 30Hz. Uses `ProgressiveStreamLoader` for transcode streams and `streamLoaders` dict for lifecycle management
+- `PlaybackQueueStore` -- Persists queue/history restoration state outside `PlaybackService`; writes a single snapshot plus legacy keys so queue-restoration refactors can proceed without breaking existing installs
+- `PlaybackLaunchCoordinator` -- Internal playback-launch seam extracted from `PlaybackService`; owns the successful-resolution path (visualizer planning, engine load, recovery seek application, and prefetch kickoff) while the façade still owns queue mutation and transport retry loops
+- `PlaybackRecoveryPolicy` -- Internal playback buffering/stall policy seam extracted from `PlaybackService`; owns buffering profiles, conservative-mode escalation, prefetch throttling, and unexpected-pause recovery decisions while `PlaybackService` remains the façade
+- `PlaybackSessionStateMachine` -- Internal playback-session seam extracted from `PlaybackService`; owns request validation, retry policy, supersession checks, and terminal failure classification for `playCurrentQueueItem` while queue mutation and engine control remain in the façade
+- `PlaybackTransportCoordinator` -- Internal transport seam extracted from `PlaybackService`; owns stream-decision caching, in-flight resolution deduplication, and progressive-loader lifecycle for local-file vs streaming resolution without changing playback queue semantics
 - `ProgressiveStreamLoader` -- AVAssetResourceLoaderDelegate + URLSessionDataDelegate bridge. Proxies PMS's chunked transcode stream (via custom `ensemble-transcode://` scheme) to AVPlayer progressively, writing to a growing temp file. Post-download callbacks: `onDownloadComplete` for frequency analysis, `onDownloadFailed` for HTTP errors and invalid payloads. Validates HTTP status (non-2xx → `ProgressiveStreamError.httpError`) and payload size (< 256 bytes → `.invalidPayload`). Error body captured to diagnostic buffer (not written to audio file)
 - `ProgressiveStreamError` -- Error type for stream download failures: `.httpError(statusCode:bodySnippet:)` and `.invalidPayload(bytesReceived:)`. Mapped to `PlaybackError` in `PlaybackService.mapToPlaybackError`
 - `HubRepository` -- Repository for hub data persistence (implements `HubRepositoryProtocol`); manages CDHub/CDHubItem entities
@@ -86,7 +94,13 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `ArtworkLoader` -- Persistent artwork caching with local-first loading strategy
 - `CacheManager` (@MainActor) -- Tracks cache sizes and provides cache clearing functionality
 - `NetworkMonitor` (@MainActor) -- Proactive network connectivity monitoring using NWPathMonitor with 1s debouncing
+- `RefreshOrchestrator` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns health-refresh coalescing, cooldown/staleness checks, and startup-health claim tracking while `SyncCoordinator` remains the façade
+- `NetworkLifecycleController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns app-foreground and observed-network transition policy (offline state, refresh triggers, and startup-transition skipping) while the coordinator applies side effects
+- `PeriodicSyncController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns foreground periodic-sync timer scheduling and WebSocket-aware polling interval changes while `SyncCoordinator` keeps the actual sync policy
+- `PlaylistRefreshController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns server-scoped playlist refresh resolution (incremental vs fallback full sync) for mutation refreshes, playlist-only sync, and WebSocket-triggered playlist updates
+- `WebSocketSyncController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns WebSocket-triggered section resolution and server playlist refresh routing so the coordinator does not inline provider lookup logic
 - `ServerHealthChecker` -- Concurrent health checks for all configured servers with automatic failover
+- `ServerConnectionController` (@MainActor) -- Internal network seam extracted from `SyncCoordinator`; owns registry-driven API-client URL updates and explicit endpoint refresh fan-out while `SyncCoordinator` remains the façade
 - `SettingsManager` (@MainActor) -- Manages accent colors, customizable tab configuration, and track swipe action layout settings
 - `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for hub refresh ~every 15min (system-controlled)
 - `MoodRepository` -- Mood data persistence (CDMood)
@@ -95,11 +109,15 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `PlexRadioProvider` -- Plex Radio support implementing `RadioProvider` protocol
 - `PlexWebSocketCoordinator` (@MainActor) -- Routes WebSocket events from `PlexWebSocketManager` to `SyncCoordinator` and `ServerHealthChecker`
   - Coalesces section-level library updates with debounce + in-flight/cooldown guards so scans do not cascade into redundant incremental syncs
+  - Publishes aggregate WebSocket availability changes so periodic-sync timer policy can follow actual socket connectivity without app-layer polling
 - `TrackAvailabilityResolver` (@MainActor ObservableObject) -- Reactive per-track availability combining server connection state and download state; publishes `TrackAvailability` enum
 - `SiriMediaIndexStore` -- Builds/persists shared App Group Siri candidate index (track/album/artist/playlist)
 - `SiriPlaybackCoordinator` -- Executes Siri playback payloads in app process using existing playback queue entry points
-- `OfflineDownloadService` (@MainActor) -- Target-based offline orchestration (reconciliation, queue execution, progress, reference-counted cleanup)
+- `OfflineDownloadService` (@MainActor) -- Target-based offline orchestration (reconciliation, progress publishing, reference-counted cleanup, façade for queue control)
   - Uses an internal `DownloadWorkMode` policy (`interactivePlayback`, `foregroundIdle`, `background`) so playback-sensitive sessions throttle queue concurrency and coalesce expensive target-progress publishes instead of treating every queue/network event as full-speed work
+- `DownloadQueueCoordinator` (@MainActor) -- Sole owner of offline queue task lifecycle, worker fan-out, background wakeup handling, and queue wind-down/restart decisions
+- `DownloadRetryPolicy` (@MainActor) -- Stateful transfer retry accounting and direct-original fallback gating for offline downloads
+- `DownloadTargetReconciler` -- Resolves offline target memberships, queues missing downloads, and deletes orphaned download files when targets change
 - `OfflineBackgroundExecutionCoordinator` (@MainActor) -- Optional iOS 26+ `BGContinuedProcessingTask` adapter; no-op on unsupported platforms/OS versions
 - `FrequencyAnalysisService` -- Pre-computed audio frequency analysis using Accelerate FFT; produces `FrequencyTimeline` data for visualizer display decoupled from the audio pipeline
 - `PowerStateMonitor` (@MainActor ObservableObject) -- Observes iOS Low Power Mode via `NSProcessInfoPowerStateDidChange` and publishes `isLowPowerMode: Bool`. Consumers (Aurora visualizer, LyricsCard, download service) read this to reduce GPU passes, frame rates, and network work when the device is in LPM

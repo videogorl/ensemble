@@ -277,7 +277,7 @@ public struct SettingsView: View {
         #else
         .listStyle(.inset)
         #endif
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
         .navigationTitle("Settings")
         .alert("Remove Account", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) {
@@ -356,7 +356,7 @@ struct MusicSourceAccountRow: View {
     let accountIdentifier: String
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Image(systemName: "music.note.list")
                 .font(.title2)
                 .foregroundColor(.accentColor)

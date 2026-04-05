@@ -196,7 +196,7 @@ public struct HomeView: View {
                     viewModel.handleScrollInteraction(isInteracting: false)
                 }
         )
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
     }
 }
 

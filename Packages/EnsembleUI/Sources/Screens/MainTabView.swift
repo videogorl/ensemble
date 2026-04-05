@@ -114,9 +114,9 @@ public struct MainTabView: View {
             // Keep mini-player spacing aligned with the active tab bar style.
             let miniPlayerBottomLift: CGFloat = {
                 if #available(iOS 18.0, *) {
-                    return 52
+                    return TrackListLayoutMetrics.miniPlayerBottomLiftBase
                 } else {
-                    return 52 + geometry.safeAreaInsets.bottom
+                    return TrackListLayoutMetrics.miniPlayerBottomLiftBase + geometry.safeAreaInsets.bottom
                 }
             }()
 
@@ -147,7 +147,7 @@ public struct MainTabView: View {
                 // so content scrolls behind the tab bar with proper mini player clearance.
                 // The 70pt covers the mini player height + spacing above the tab bar.
                 .miniPlayerContainerInset(
-                    70,
+                    TrackListLayoutMetrics.miniPlayerContainerInset,
                     isVisible: !isShowingNowPlaying && !isKeyboardVisible && !isImmersiveMode
                 )
                 .zIndex(0)

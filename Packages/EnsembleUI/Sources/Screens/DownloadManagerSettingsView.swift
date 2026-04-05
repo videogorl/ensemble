@@ -78,7 +78,7 @@ public struct DownloadManagerSettingsView: View {
         #else
         .listStyle(.inset)
         #endif
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
         .alert("Remove All Downloads?", isPresented: $showRemoveAllConfirmation) {
             Button("Remove All", role: .destructive) {
                 Task {

@@ -365,7 +365,7 @@ public struct SongsView: View {
                             )
                             indexedTrackListContent
                         }
-                        .miniPlayerBottomSpacing(140)
+                        .miniPlayerBottomSpacing()
 
                         if !libraryVM.filteredTracks.isEmpty {
                             ScrollIndex(
@@ -447,7 +447,7 @@ public struct SongsView: View {
                         }
                         .listStyle(.plain)
                         .modifier(ClearScrollContentBackgroundModifier())
-                        .miniPlayerBottomSpacing(140)
+                        .miniPlayerBottomSpacing()
 
                         if !libraryVM.filteredTracks.isEmpty {
                             ScrollIndex(
@@ -505,7 +505,7 @@ public struct SongsView: View {
     private func indexedSection(section: LibraryViewModel.TrackSection) -> some View {
         Section(header: sectionHeader(section.letter)) {
             let trackCount = section.tracks.count
-            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
+            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
 
             #if os(iOS)
             MediaTrackList(
@@ -562,7 +562,6 @@ public struct SongsView: View {
                 }
             }
             .frame(height: height)
-            .padding(.horizontal)
             #else
             // macOS: uses List rows with native .swipeActions (applied in the wrapping List)
             ForEach(Array(section.tracks.enumerated()), id: \.element.id) { _, track in
@@ -605,7 +604,7 @@ public struct SongsView: View {
                 )
                 .listRowBackground(Color.clear)
                 .hideListRowSeparator()
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
             }
             #endif
         }
@@ -624,7 +623,7 @@ public struct SongsView: View {
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,
             managesOwnScrolling: true,
-            bottomContentInset: 140,
+            bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
             },
@@ -668,7 +667,6 @@ public struct SongsView: View {
         ) { _, index in
             nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
         }
-        .padding(.horizontal)
         #else
         // macOS: List with native .swipeActions for trackpad two-finger swipe support
         List {
@@ -710,7 +708,7 @@ public struct SongsView: View {
                 )
                 .listRowBackground(Color.clear)
                 .hideListRowSeparator()
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
             }
         }
         .listStyle(.plain)

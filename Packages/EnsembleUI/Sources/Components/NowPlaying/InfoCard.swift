@@ -83,7 +83,7 @@ public struct InfoCard: View {
 
             Spacer()
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
         .frame(minHeight: 36) // Consistent height across all NPV card headers
     }
 
@@ -97,16 +97,16 @@ public struct InfoCard: View {
 
                 // Divider
                 Divider()
-                    .padding(.vertical, 16)
-                    .padding(.horizontal, 40)
+                    .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing + 4)
+                    .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
 
                 // File info section (codec, bitrate, sample rate, etc.)
                 fileInfoSection
 
                 // Divider
                 Divider()
-                    .padding(.vertical, 16)
-                    .padding(.horizontal, 40)
+                    .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing + 4)
+                    .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
 
                 // Server info section
                 serverInfoSection
@@ -120,7 +120,7 @@ public struct InfoCard: View {
     // MARK: - Track Metadata Section
 
     private var trackMetadataSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Album (tappable)
             if let track = viewModel.currentTrack, track.albumName != nil {
                 infoRow(
@@ -177,13 +177,13 @@ public struct InfoCard: View {
             }
 
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
     }
 
     // MARK: - File Info Section
 
     private var fileInfoSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Section header
             HStack {
                 Text("File")
@@ -235,13 +235,13 @@ public struct InfoCard: View {
                 }
             }
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
     }
 
     // MARK: - Server Info Section
 
     private var serverInfoSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Section header
             HStack {
                 Text("Server")
@@ -287,7 +287,7 @@ public struct InfoCard: View {
             // Network type
             infoRow(label: "Network", value: formatNetworkState(deps.networkMonitor.networkState))
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
     }
 
     /// Lyrics source/status indicator with format info when available
@@ -331,7 +331,7 @@ public struct InfoCard: View {
         isTappable: Bool = false,
         action: (() -> Void)? = nil
     ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Text(label)
                 .font(.subheadline)
                 .foregroundColor(.secondary)

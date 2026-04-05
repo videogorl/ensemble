@@ -50,7 +50,7 @@ public struct PlaylistPickerSheet: View {
                         Button {
                             Task { await addToPlaylist(playlist) }
                         } label: {
-                            HStack(spacing: 12) {
+                            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                                 ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)
 
                                 VStack(alignment: .leading, spacing: 4) {
@@ -107,7 +107,7 @@ public struct PlaylistPickerSheet: View {
                     Color.black.opacity(0.12)
                         .ignoresSafeArea()
                     ProgressView("Updating playlist...")
-                        .padding(12)
+                        .padding(TrackListLayoutMetrics.rowInterItemSpacing)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                 }
             }

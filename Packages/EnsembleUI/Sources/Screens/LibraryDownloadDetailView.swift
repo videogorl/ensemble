@@ -119,7 +119,7 @@ struct LibraryDownloadDetailView: View {
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Button {
                 nowPlayingVM.play(tracks: viewModel.playableTracks)
             } label: {
@@ -187,7 +187,7 @@ struct LibraryDownloadDetailView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
-        .padding(.horizontal)
+        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         .padding(.vertical, 10)
     }
 
@@ -222,7 +222,7 @@ struct LibraryDownloadDetailView: View {
 
                     if row.id != viewModel.tracks.last?.id {
                         Divider()
-                            .padding(.leading, 68)
+                            .padding(.leading, TrackListLayoutMetrics.artworkLeadingInset)
                     }
                 }
             }
@@ -234,7 +234,7 @@ struct LibraryDownloadDetailView: View {
             #endif
             .cornerRadius(12)
             .padding(.horizontal)
-            .padding(.bottom, 140)  // mini player clearance
+            .padding(.bottom, TrackListLayoutMetrics.miniPlayerBottomSpacing)
         }
     }
 

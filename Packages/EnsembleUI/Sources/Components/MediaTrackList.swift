@@ -136,10 +136,10 @@ public class TrackTableViewCell: UITableViewCell {
             favoriteHeartView.widthAnchor.constraint(equalToConstant: 14),
             favoriteHeartView.heightAnchor.constraint(equalToConstant: 14),
 
-            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: TrackListLayoutMetrics.rowHorizontalPadding),
             artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
-            trackNumberLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            trackNumberLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: TrackListLayoutMetrics.rowHorizontalPadding),
             trackNumberLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             trackNumberLabel.widthAnchor.constraint(equalToConstant: 30),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -6),
@@ -153,11 +153,11 @@ public class TrackTableViewCell: UITableViewCell {
             downloadSpinner.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             downloadSpinner.centerXAnchor.constraint(equalTo: downloadIcon.centerXAnchor),
 
-            durationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            durationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.rowHorizontalPadding),
             durationLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
             
-            playingIndicator.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            playingIndicator.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.rowHorizontalPadding),
             playingIndicator.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             playingIndicator.widthAnchor.constraint(equalToConstant: 20),
             playingIndicator.heightAnchor.constraint(equalToConstant: 20)
@@ -203,7 +203,9 @@ public class TrackTableViewCell: UITableViewCell {
 
         // Configure leading constraint based on what's showing
         let leadingAnchor = showArtwork ? artworkImageView.trailingAnchor : (showTrackNumber ? trackNumberLabel.trailingAnchor : contentView.leadingAnchor)
-        let constant: CGFloat = showArtwork || showTrackNumber ? 12 : 16
+        let constant: CGFloat = showArtwork || showTrackNumber
+            ? TrackListLayoutMetrics.rowInterItemSpacing
+            : TrackListLayoutMetrics.rowHorizontalPadding
 
         titleLeadingConstraint = titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: constant)
         subtitleLeadingConstraint = subtitleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: constant)
@@ -314,7 +316,7 @@ public class TrackTableViewCell: UITableViewCell {
 
     /// Keeps StageFlow's compact rows balanced without changing the default density elsewhere.
     private func applyLayoutMetrics(for rowHeight: CGFloat) {
-        let isCompact = rowHeight <= 60
+        let isCompact = rowHeight <= TrackListLayoutMetrics.compactRowHeightThreshold
 
         artworkWidthConstraint?.constant = isCompact ? 40 : 44
         artworkHeightConstraint?.constant = isCompact ? 40 : 44
@@ -361,6 +363,7 @@ public struct MediaTrackList: UIViewRepresentable {
     let isTrackFavorited: ((Track) -> Bool)?
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
+    let interactionModel: TrackRowInteractionModel
 
     /// Change token from TrackAvailabilityResolver — parent observes the singleton
     /// and passes the generation here so MediaTrackList doesn't subscribe itself.
@@ -404,10 +407,11 @@ public struct MediaTrackList: UIViewRepresentable {
         activeDownloadRatingKeys: Set<String> = [],
         managesOwnScrolling: Bool = false,
         bottomContentInset: CGFloat = 0,
-        rowHeight: CGFloat = 68,
+        rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
+        interactionModel: TrackRowInteractionModel? = nil,
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
@@ -448,6 +452,20 @@ public struct MediaTrackList: UIViewRepresentable {
         self.isTrackFavorited = isTrackFavorited
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
+        self.interactionModel = interactionModel ?? TrackRowInteractionModel(
+            onPlayNext: onPlayNext,
+            onPlayLast: onPlayLast,
+            onAddToPlaylist: onAddToPlaylist,
+            onAddToRecentPlaylist: onAddToRecentPlaylist,
+            onToggleFavorite: onToggleFavorite,
+            onGoToAlbum: onGoToAlbum,
+            onGoToArtist: onGoToArtist,
+            onShareLink: onShareLink,
+            onShareFile: onShareFile,
+            isTrackFavorited: isTrackFavorited,
+            canAddToRecentPlaylist: canAddToRecentPlaylist,
+            recentPlaylistTitle: recentPlaylistTitle
+        )
         self.onTrackTap = onTrackTap
     }
     
@@ -466,7 +484,10 @@ public struct MediaTrackList: UIViewRepresentable {
         tableView.separatorStyle = .singleLine
         tableView.separatorInset = UIEdgeInsets(
             top: 0,
-            left: showArtwork ? 68 : (showTrackNumbers ? 54 : 16),
+            left: TrackListLayoutMetrics.contentLeadingInset(
+                showArtwork: showArtwork,
+                showTrackNumbers: showTrackNumbers
+            ),
             bottom: 0,
             right: 0
         )
@@ -598,6 +619,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.isTrackFavorited = isTrackFavorited
         context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
+        context.coordinator.interactionModel = interactionModel
         context.coordinator.artworkLoader = dependencies.artworkLoader
         context.coordinator.toastCenter = dependencies.toastCenter
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
@@ -721,6 +743,7 @@ public struct MediaTrackList: UIViewRepresentable {
             isTrackFavorited: isTrackFavorited,
             canAddToRecentPlaylist: canAddToRecentPlaylist,
             recentPlaylistTitle: recentPlaylistTitle,
+            interactionModel: interactionModel,
             artworkLoader: dependencies.artworkLoader,
             toastCenter: dependencies.toastCenter,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
@@ -763,6 +786,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var isTrackFavorited: ((Track) -> Bool)?
         var canAddToRecentPlaylist: ((Track) -> Bool)?
         var recentPlaylistTitle: String?
+        var interactionModel: TrackRowInteractionModel
         var artworkLoader: ArtworkLoaderProtocol
         var toastCenter: ToastCenter
         var trackAvailabilityResolver: TrackAvailabilityResolver
@@ -804,6 +828,7 @@ public struct MediaTrackList: UIViewRepresentable {
             isTrackFavorited: ((Track) -> Bool)?,
             canAddToRecentPlaylist: ((Track) -> Bool)?,
             recentPlaylistTitle: String?,
+            interactionModel: TrackRowInteractionModel,
             artworkLoader: ArtworkLoaderProtocol,
             toastCenter: ToastCenter,
             trackAvailabilityResolver: TrackAvailabilityResolver,
@@ -830,6 +855,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.isTrackFavorited = isTrackFavorited
             self.canAddToRecentPlaylist = canAddToRecentPlaylist
             self.recentPlaylistTitle = recentPlaylistTitle
+            self.interactionModel = interactionModel
             self.artworkLoader = artworkLoader
             self.toastCenter = toastCenter
             self.trackAvailabilityResolver = trackAvailabilityResolver
@@ -946,72 +972,69 @@ public struct MediaTrackList: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
             guard let track = track(at: indexPath) else { return nil }
-            // Only show context menu if at least one callback is provided
-            guard onPlayNext != nil || onPlayLast != nil || onAddToPlaylist != nil || onAddToRecentPlaylist != nil || onToggleFavorite != nil || onGoToAlbum != nil || onGoToArtist != nil || onShareLink != nil || onShareFile != nil else { return nil }
+            let resolvedActions = interactionModel.resolve(for: track)
+            guard resolvedActions.hasContextMenu else { return nil }
             
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
                 var topActions: [UIAction] = []
                 
-                if let onPlayNext = self?.onPlayNext {
+                if let onPlayNext = resolvedActions.onPlayNext {
                     topActions.append(UIAction(title: "Play Next", image: UIImage(systemName: "text.insert")) { _ in
-                        onPlayNext(track)
+                        onPlayNext()
                     })
                 }
                 
-                if let onPlayLast = self?.onPlayLast {
+                if let onPlayLast = resolvedActions.onPlayLast {
                     topActions.append(UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
-                        onPlayLast(track)
+                        onPlayLast()
                     })
                 }
                 
                 var navigationActions: [UIAction] = []
-                if let onGoToAlbum = self?.onGoToAlbum, track.albumRatingKey != nil {
+                if let onGoToAlbum = resolvedActions.onGoToAlbum, track.albumRatingKey != nil {
                     navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: "square.stack")) { _ in
-                        onGoToAlbum(track)
+                        onGoToAlbum()
                     })
                 }
-                if let onGoToArtist = self?.onGoToArtist, track.artistRatingKey != nil {
+                if let onGoToArtist = resolvedActions.onGoToArtist, track.artistRatingKey != nil {
                     navigationActions.append(UIAction(title: "Go to Artist", image: UIImage(systemName: "person.circle")) { _ in
-                        onGoToArtist(track)
+                        onGoToArtist()
                     })
                 }
 
                 var bottomActions: [UIAction] = []
-                if let onAddToRecentPlaylist = self?.onAddToRecentPlaylist,
-                   let canAddToRecentPlaylist = self?.canAddToRecentPlaylist,
-                   canAddToRecentPlaylist(track),
-                   let recentPlaylistTitle = self?.recentPlaylistTitle {
+                if let onAddToRecentPlaylist = resolvedActions.onAddToRecentPlaylist,
+                   let recentPlaylistTitle = resolvedActions.recentPlaylistTitle {
                     bottomActions.append(UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: "clock.arrow.circlepath")) { _ in
-                        onAddToRecentPlaylist(track)
+                        onAddToRecentPlaylist()
                     })
                 }
 
-                if let onAddToPlaylist = self?.onAddToPlaylist {
+                if let onAddToPlaylist = resolvedActions.onAddToPlaylist {
                     bottomActions.append(UIAction(title: "Add to Playlist…", image: UIImage(systemName: "text.badge.plus")) { _ in
-                        onAddToPlaylist(track)
+                        onAddToPlaylist()
                     })
                 }
 
-                if let onToggleFavorite = self?.onToggleFavorite {
-                    let isFavorited = self?.isTrackFavorited?(track) ?? (track.rating >= 8)
+                if let onToggleFavorite = resolvedActions.onToggleFavorite {
                     bottomActions.append(UIAction(
-                        title: isFavorited ? "Unfavorite" : "Favorite",
-                        image: UIImage(systemName: isFavorited ? "heart.slash" : "heart")
+                        title: resolvedActions.isFavorited ? "Unfavorite" : "Favorite",
+                        image: UIImage(systemName: resolvedActions.isFavorited ? "heart.slash" : "heart")
                     ) { _ in
-                        onToggleFavorite(track)
+                        onToggleFavorite()
                     })
                 }
                 
                 // Share actions
                 var shareActions: [UIAction] = []
-                if let onShareLink = self?.onShareLink {
+                if let onShareLink = resolvedActions.onShareLink {
                     shareActions.append(UIAction(title: "Share Link…", image: UIImage(systemName: "link")) { _ in
-                        onShareLink(track)
+                        onShareLink()
                     })
                 }
-                if let onShareFile = self?.onShareFile {
+                if let onShareFile = resolvedActions.onShareFile {
                     shareActions.append(UIAction(title: "Share Audio File…", image: UIImage(systemName: "square.and.arrow.up")) { _ in
-                        onShareFile(track)
+                        onShareFile()
                     })
                 }
 
@@ -1075,10 +1098,15 @@ public struct MediaTrackList: UIViewRepresentable {
         }
 
         private func swipeActions(from configured: [TrackSwipeAction?], track: Track) -> [UIContextualAction] {
-            configured.compactMap { candidate in
-                guard let action = candidate, isSwipeActionSupported(action) else { return nil }
+            let resolvedActions = interactionModel.resolve(for: track)
+            return configured.compactMap { candidate -> UIContextualAction? in
+                guard let action = candidate, isSwipeActionSupported(action, resolvedActions: resolvedActions) else { return nil }
                 let contextual = UIContextualAction(style: .normal, title: swipeTitle(for: action, track: track)) { [weak self] _, _, completion in
-                    self?.executeSwipeAction(action, track: track)
+                    guard let self else {
+                        completion(false)
+                        return
+                    }
+                    self.executeSwipeAction(action, track: track)
                     completion(true)
                 }
                 contextual.backgroundColor = UIColor(swipeTint(for: action, track: track))
@@ -1087,34 +1115,39 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
 
-        private func isSwipeActionSupported(_ action: TrackSwipeAction) -> Bool {
+        private func isSwipeActionSupported(
+            _ action: TrackSwipeAction,
+            resolvedActions: TrackRowInteractionModel.ResolvedActions
+        ) -> Bool {
             switch action {
             case .playNext:
-                return onPlayNext != nil
+                return resolvedActions.onPlayNext != nil
             case .playLast:
-                return onPlayLast != nil
+                return resolvedActions.onPlayLast != nil
             case .addToPlaylist:
-                return onAddToPlaylist != nil
+                return resolvedActions.onAddToPlaylist != nil
             case .favoriteToggle:
-                return onToggleFavorite != nil
+                return resolvedActions.onToggleFavorite != nil
             }
         }
 
         private func executeSwipeAction(_ action: TrackSwipeAction, track: Track) {
+            let resolvedActions = interactionModel.resolve(for: track)
+
             switch action {
             case .playNext:
-                onPlayNext?(track)
+                resolvedActions.onPlayNext?()
                 showSwipeConfirmation(for: action, track: track)
             case .playLast:
-                onPlayLast?(track)
+                resolvedActions.onPlayLast?()
                 showSwipeConfirmation(for: action, track: track)
             case .addToPlaylist:
-                onAddToPlaylist?(track)
+                resolvedActions.onAddToPlaylist?()
                 showSwipeConfirmation(for: action, track: track)
             case .favoriteToggle:
-                let isFavorited = isTrackFavorited?(track) ?? (track.rating >= 8)
+                let isFavorited = resolvedActions.isFavorited
                 showFavoriteLoadingToast(for: track, willFavorite: !isFavorited)
-                onToggleFavorite?(track)
+                resolvedActions.onToggleFavorite?()
             }
         }
 
@@ -1173,8 +1206,8 @@ public struct MediaTrackList: UIViewRepresentable {
         private func swipeTitle(for action: TrackSwipeAction, track: Track) -> String {
             switch action {
             case .favoriteToggle:
-                let isFavorited = isTrackFavorited?(track) ?? (track.rating >= 8)
-                return isFavorited ? "Unfavorite" : "Favorite"
+                let resolvedActions = interactionModel.resolve(for: track)
+                return resolvedActions.isFavorited ? "Unfavorite" : "Favorite"
             default:
                 return action.title
             }
@@ -1183,8 +1216,8 @@ public struct MediaTrackList: UIViewRepresentable {
         private func swipeIcon(for action: TrackSwipeAction, track: Track) -> String {
             switch action {
             case .favoriteToggle:
-                let isFavorited = isTrackFavorited?(track) ?? (track.rating >= 8)
-                return isFavorited ? "heart.slash.fill" : "heart.fill"
+                let resolvedActions = interactionModel.resolve(for: track)
+                return resolvedActions.isFavorited ? "heart.slash.fill" : "heart.fill"
             default:
                 return action.systemImage
             }
@@ -1193,8 +1226,8 @@ public struct MediaTrackList: UIViewRepresentable {
         private func swipeTint(for action: TrackSwipeAction, track: Track) -> Color {
             switch action {
             case .favoriteToggle:
-                let isFavorited = isTrackFavorited?(track) ?? (track.rating >= 8)
-                return isFavorited ? .gray : .pink
+                let resolvedActions = interactionModel.resolve(for: track)
+                return resolvedActions.isFavorited ? .gray : .pink
             default:
                 return action.tint
             }

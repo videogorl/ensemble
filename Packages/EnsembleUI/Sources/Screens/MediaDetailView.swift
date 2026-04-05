@@ -238,7 +238,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         // iOS: MediaTrackList handles its own bottomContentInset for scroll-behind-chrome.
         // macOS: ScrollView-based layout uses miniPlayerBottomSpacing.
         #if !os(iOS)
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
         #endif
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
@@ -774,7 +774,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var actionButtons: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Play button
             Button {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
@@ -818,7 +818,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     /// Compact action buttons for the wide header layout — don't stretch to fill width.
     private var wideActionButtons: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Play button
             Button {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
@@ -911,29 +911,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
     }
 
-    @ViewBuilder
-    private var tracksSection: some View {
-        #if os(iOS)
-        // Self-scrolling UITableView with the header embedded as tableHeaderView.
-        // Header (album art + action buttons) scrolls naturally with the tracks
-        // while preserving UIKit cell recycling for large track lists.
-        MediaTrackList(
-            tracks: viewModel.filteredTracks,
-            showArtwork: showArtwork,
-            showTrackNumbers: showTrackNumbers,
-            showAlbumName: !(viewModel is AlbumDetailViewModel),
-            groupByDisc: groupByDisc,
-            currentTrackId: currentTrackId,
-            availabilityGeneration: availabilityGeneration,
-            activeDownloadRatingKeys: activeDownloadRatingKeys,
-            managesOwnScrolling: true,
-            bottomContentInset: 140,
-            tableHeaderContent: AnyView(tableHeaderForTrackList),
-            tableFooterContent: AnyView(VStack(spacing: 0) {
-                emptyStateFooter
-                if let additionalFooterContent { additionalFooterContent }
-            }),
-            searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
+    /// Keeps track-row actions aligned between UIKit and SwiftUI list paths.
+    private var trackInteractionModel: TrackRowInteractionModel {
+        TrackRowInteractionModel(
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
             },
@@ -979,68 +959,68 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 return nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0
             },
             recentPlaylistTitle: lastPlaylistQuickTarget?.title
+        )
+    }
+
+    @ViewBuilder
+    private var tracksSection: some View {
+        #if os(iOS)
+        // Self-scrolling UITableView with the header embedded as tableHeaderView.
+        // Header (album art + action buttons) scrolls naturally with the tracks
+        // while preserving UIKit cell recycling for large track lists.
+        MediaTrackList(
+            tracks: viewModel.filteredTracks,
+            showArtwork: showArtwork,
+            showTrackNumbers: showTrackNumbers,
+            showAlbumName: !(viewModel is AlbumDetailViewModel),
+            groupByDisc: groupByDisc,
+            currentTrackId: currentTrackId,
+            availabilityGeneration: availabilityGeneration,
+            activeDownloadRatingKeys: activeDownloadRatingKeys,
+            managesOwnScrolling: true,
+            bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+            tableHeaderContent: AnyView(tableHeaderForTrackList),
+            tableFooterContent: AnyView(VStack(spacing: 0) {
+                emptyStateFooter
+                if let additionalFooterContent { additionalFooterContent }
+            }),
+            searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
+            interactionModel: trackInteractionModel
         ) { track, index in
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
         #else
         // macOS: List with native .swipeActions for trackpad two-finger swipe support
         ForEach(Array(viewModel.filteredTracks.enumerated()), id: \.element.id) { index, track in
+            let resolvedActions = trackInteractionModel.resolve(for: track)
             TrackRow(
                 track: track,
                 showArtwork: showArtwork,
                 isPlaying: track.id == currentTrackId,
-                onPlayNext: { nowPlayingVM.playNext(track) },
-                onPlayLast: { nowPlayingVM.playLast(track) },
-                onAddToPlaylist: {
-                    presentPlaylistPicker(with: [track], title: "Add to Playlist")
-                },
-                onAddToRecentPlaylist: {
-                    guard let lastPlaylistQuickTarget,
-                          nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return }
-                    Task {
-                        _ = try? await nowPlayingVM.addTracks([track], to: lastPlaylistQuickTarget)
-                    }
-                },
-                onToggleFavorite: {
-                    Task {
-                        await nowPlayingVM.toggleTrackFavorite(track)
-                    }
-                },
-                onGoToAlbum: (viewModel is AlbumDetailViewModel) ? nil : {
-                    if let albumId = track.albumRatingKey {
-                        DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                    }
-                },
-                onGoToArtist: {
-                    if let artistId = track.artistRatingKey {
-                        DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                    }
-                },
-                onShareLink: {
-                    ShareActions.shareTrackLink(track, deps: deps)
-                },
-                onShareFile: {
-                    ShareActions.shareTrackFile(track, deps: deps)
-                },
-                isFavorited: nowPlayingVM.isTrackFavorited(track),
-                recentPlaylistTitle: {
-                    guard let lastPlaylistQuickTarget,
-                          nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return nil }
-                    return lastPlaylistQuickTarget.title
-                }()
+                onPlayNext: resolvedActions.onPlayNext,
+                onPlayLast: resolvedActions.onPlayLast,
+                onAddToPlaylist: resolvedActions.onAddToPlaylist,
+                onAddToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
+                onToggleFavorite: resolvedActions.onToggleFavorite,
+                onGoToAlbum: resolvedActions.onGoToAlbum,
+                onGoToArtist: resolvedActions.onGoToArtist,
+                onShareLink: resolvedActions.onShareLink,
+                onShareFile: resolvedActions.onShareFile,
+                isFavorited: resolvedActions.isFavorited,
+                recentPlaylistTitle: resolvedActions.recentPlaylistTitle
             ) {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
             }
             .trackSwipeActions(
                 track: track,
                 nowPlayingVM: nowPlayingVM,
-                onPlayNext: { nowPlayingVM.playNext(track) },
-                onPlayLast: { nowPlayingVM.playLast(track) },
-                onAddToPlaylist: { presentPlaylistPicker(with: [track], title: "Add to Playlist") }
-            )
-            .listRowBackground(Color.clear)
-            .hideListRowSeparator()
-            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                onPlayNext: resolvedActions.onPlayNext,
+                onPlayLast: resolvedActions.onPlayLast,
+                onAddToPlaylist: resolvedActions.onAddToPlaylist
+                )
+                .listRowBackground(Color.clear)
+                .hideListRowSeparator()
+                .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: showArtwork, showTrackNumbers: showTrackNumbers))
         }
         #endif
     }

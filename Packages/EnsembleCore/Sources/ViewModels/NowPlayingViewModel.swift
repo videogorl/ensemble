@@ -704,7 +704,11 @@ public final class NowPlayingViewModel: ObservableObject {
     /// scrubber pins at 100% and remaining time shows -0:00 until the track
     /// actually ends and advances.
     public var scrubberDuration: TimeInterval {
-        max(0, duration)
+        // Read the live playback duration as a backstop for publisher ordering.
+        // Tests and some startup transitions can observe the view model before the
+        // async duration synchronization has caught up, even though the playback
+        // service already knows the effective item duration.
+        max(0, max(duration, playbackService.duration))
     }
 
     public var progress: Double {

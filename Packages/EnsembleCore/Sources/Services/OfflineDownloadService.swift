@@ -136,23 +136,12 @@ public final class OfflineDownloadService: ObservableObject {
     private let toastCenter: ToastCenter
     private let lyricsService: LyricsService
 
-    private var queueTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
     private var lastObservedSyncBySource: [String: Date] = [:]
 
     private var downloadedBytesByTargetKey: [String: Int64] = [:]
     private var qualityMismatchByTargetKey: [String: Int] = [:]
     private var failedTracksByTargetKey: [String: Int] = [:]
-
-    /// In-memory retry counter for truncated/incomplete downloads.
-    /// Prevents infinite retry loops when a track consistently fails transfer.
-    /// Cleared on successful completion; capped at maxTransferRetries.
-    private var transferRetryCount: [String: Int] = [:]
-    /// Session-level circuit breaker for direct-original fallback after the download
-    /// queue already failed. Prevents the same track from repeating a doomed fallback
-    /// path on every retry in one app session.
-    private var blockedDirectFallbackKeys = Set<String>()
-    private static let maxTransferRetries = 3
 
     /// Debounced notification task so individual download completions don't
     /// spam `downloadsDidChange` during bulk queue processing.
@@ -170,10 +159,51 @@ public final class OfflineDownloadService: ObservableObject {
     private var isAppInBackground = false
     private var allowsBackgroundContinuation = false
     private var isPlaybackSensitive = false
+    private let retryPolicy = DownloadRetryPolicy()
+    private lazy var targetReconciler = DownloadTargetReconciler(
+        dependencies: .init(
+            targetRepository: targetRepository,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            downloadManager: downloadManager,
+            currentDownloadQuality: { [weak self] in self?.currentDownloadQuality() ?? "original" }
+        )
+    )
+    private lazy var queueCoordinator = DownloadQueueCoordinator(
+        dependencies: .init(
+            canRunAutomatically: { [weak self] in self?.canRunQueueAutomatically ?? false },
+            setQueueRunning: { [weak self] value in self?.isQueueRunning = value },
+            refreshQueueStatus: { [weak self] in self?.refreshQueueStatusReason() },
+            fetchPendingCount: { [weak self] in
+                guard let self else { return 0 }
+                return (try? await self.downloadManager.fetchPendingDownloads().count) ?? 0
+            },
+            currentWorkMode: { [weak self] in self?.currentDownloadWorkMode ?? .foregroundIdle },
+            queueWorkerCount: { [weak self] pendingCount, workMode in
+                self?.queueWorkerCount(forPendingCount: pendingCount, workMode: workMode) ?? 1
+            },
+            runWorker: { [weak self] applyInteractiveCooldown in
+                guard let self else { return false }
+                return await self.workerLoop(applyInteractiveCooldown: applyInteractiveCooldown)
+            },
+            applyNetworkPolicy: { [weak self] in
+                try? await self?.applyNetworkPolicy()
+            },
+            finishBackgroundTask: { [weak self] success in
+                self?.backgroundExecutionCoordinator.finishCurrentTask(success: success)
+            },
+            showCompletionToast: { [weak self] in
+                self?.toastCenter.show(ToastPayload(
+                    style: .success,
+                    iconSystemName: "arrow.down.circle.fill",
+                    title: "Downloads Complete"
+                ))
+            }
+        )
+    )
 
     private static let maxConcurrentDownloads = 2
     private static let interactivePlaybackConcurrentDownloads = 1
-    private static let playbackBurstThreshold = 8
     private static let interactivePlaybackRefreshDelayNs: UInt64 = 1_500_000_000
     private static let foregroundIdleRefreshDelayNs: UInt64 = 250_000_000
     private static let backgroundRefreshDelayNs: UInt64 = 2_500_000_000
@@ -241,24 +271,8 @@ public final class OfflineDownloadService: ObservableObject {
     /// Called when PMS download queue completes an item (via WebSocket activity event).
     /// Restarts the download queue if it's idle, ensuring prepared downloads are picked up.
     public func handleDownloadQueueCompleted() async {
-        EnsembleLogger.debug("⬇️ WebSocket: download queue completed — queueTask=\(queueTask == nil ? "nil" : "active"), isQueueRunning=\(isQueueRunning)")
+        EnsembleLogger.debug("⬇️ WebSocket: download queue completed — queueTask=\(queueCoordinator.hasActiveTask ? "active" : "nil"), isQueueRunning=\(isQueueRunning)")
         startQueueIfNeeded()
-    }
-
-    private func directFallbackKey(for ctx: DownloadContext) -> String {
-        "\(ctx.trackRatingKey)|\(ctx.sourceCompositeKey)"
-    }
-
-    private func shouldSkipDirectFallback(for ctx: DownloadContext) -> Bool {
-        blockedDirectFallbackKeys.contains(directFallbackKey(for: ctx))
-    }
-
-    private func markDirectFallbackBlocked(for ctx: DownloadContext) {
-        blockedDirectFallbackKeys.insert(directFallbackKey(for: ctx))
-    }
-
-    private func clearDirectFallbackBlock(for ctx: DownloadContext) {
-        blockedDirectFallbackKeys.remove(directFallbackKey(for: ctx))
     }
 
     public func refreshState() async {
@@ -446,9 +460,8 @@ public final class OfflineDownloadService: ObservableObject {
 
     /// Remove all download targets, memberships, and downloaded files.
     public func removeAllDownloads() async {
-        // Stop the download queue first
-        queueTask?.cancel()
-        queueTask = nil
+        // Stop the download queue first.
+        queueCoordinator.cancelCurrentTask()
         isQueueRunning = false
         refreshQueueStatusReason()
 
@@ -761,99 +774,22 @@ public final class OfflineDownloadService: ObservableObject {
             return
         }
 
-        let previousReferences = try await targetRepository.fetchTrackReferences(targetKey: key)
-        let trackReferences = try await resolveTrackReferences(for: target)
-        try await targetRepository.replaceMemberships(targetKey: key, trackReferences: trackReferences)
-
-        // Queue missing tracks at the selected download quality.
-        // batchCreateDownloads handles existing records (skips if quality satisfies)
-        // and returns the count of newly created/re-queued pending downloads.
-        let downloadQuality = currentDownloadQuality()
-        let newPendingCount = try await downloadManager.batchCreateDownloads(
-            references: trackReferences,
-            quality: downloadQuality
-        )
-        if newPendingCount > 0 {
-            EnsembleLogger.debug(
-                "📥 reconcileTarget: key=\(key) totalRefs=\(trackReferences.count) newPending=\(newPendingCount) quality=\(downloadQuality)"
+        let result = try await targetReconciler.reconcileTarget(
+            .init(
+                key: key,
+                kind: target.targetKind,
+                ratingKey: target.ratingKey,
+                sourceCompositeKey: target.sourceCompositeKey
             )
-        }
+        )
 
-        // Drop orphaned files no longer referenced by any target.
-        let removedReferences = Set(previousReferences).subtracting(Set(trackReferences))
-        for reference in removedReferences {
-            let count = try await targetRepository.membershipCount(for: reference)
-            if count == 0 {
-                try await downloadManager.deleteDownload(
-                    forTrackRatingKey: reference.trackRatingKey,
-                    sourceCompositeKey: reference.trackSourceCompositeKey
-                )
-            }
+        if result.newPendingCount > 0 {
+            EnsembleLogger.debug(
+                "📥 reconcileTarget: key=\(key) totalRefs=\(result.trackReferenceCount) newPending=\(result.newPendingCount) quality=\(result.downloadQuality)"
+            )
         }
 
         await refreshTargetProgress(forTargetKey: key)
-    }
-
-    private func resolveTrackReferences(for target: CDOfflineDownloadTarget) async throws -> [OfflineTrackReference] {
-        let kind = target.targetKind
-
-        switch kind {
-        case .library:
-            guard let sourceKey = target.sourceCompositeKey else { return [] }
-            let tracks = try await libraryRepository.fetchTracks(forSource: sourceKey)
-            return normalizedTrackReferences(from: tracks)
-
-        case .album:
-            guard let ratingKey = target.ratingKey else { return [] }
-            let tracks: [CDTrack]
-            if let sourceKey = target.sourceCompositeKey {
-                tracks = try await libraryRepository.fetchTracks(forAlbum: ratingKey, sourceCompositeKey: sourceKey)
-            } else {
-                tracks = try await libraryRepository.fetchTracks(forAlbum: ratingKey)
-            }
-            return normalizedTrackReferences(from: tracks)
-
-        case .artist:
-            guard let ratingKey = target.ratingKey else { return [] }
-            let tracks: [CDTrack]
-            if let sourceKey = target.sourceCompositeKey {
-                tracks = try await libraryRepository.fetchTracks(forArtist: ratingKey, sourceCompositeKey: sourceKey)
-            } else {
-                tracks = try await libraryRepository.fetchTracks(forArtist: ratingKey)
-            }
-            return normalizedTrackReferences(from: tracks)
-
-        case .playlist:
-            guard let ratingKey = target.ratingKey else { return [] }
-            guard let playlist = try await playlistRepository.fetchPlaylist(
-                ratingKey: ratingKey,
-                sourceCompositeKey: target.sourceCompositeKey
-            ) else {
-                return []
-            }
-            return normalizedTrackReferences(from: playlist.tracksArray)
-
-        case .favorites:
-            let tracks = try await libraryRepository.fetchFavoriteTracks()
-            return normalizedTrackReferences(from: tracks)
-        }
-    }
-
-    private func normalizedTrackReferences(from tracks: [CDTrack]) -> [OfflineTrackReference] {
-        let references = tracks.compactMap { track -> OfflineTrackReference? in
-            guard let sourceCompositeKey = track.sourceCompositeKey else { return nil }
-            return OfflineTrackReference(
-                trackRatingKey: track.ratingKey,
-                trackSourceCompositeKey: sourceCompositeKey
-            )
-        }
-
-        return Array(Set(references)).sorted {
-            if $0.trackSourceCompositeKey != $1.trackSourceCompositeKey {
-                return $0.trackSourceCompositeKey < $1.trackSourceCompositeKey
-            }
-            return $0.trackRatingKey < $1.trackRatingKey
-        }
     }
 
     // MARK: - Queue Control
@@ -979,119 +915,21 @@ public final class OfflineDownloadService: ObservableObject {
     // MARK: - Queue Execution
 
     private func startQueueIfNeeded() {
-        guard queueTask == nil else { return }
-        guard canRunQueueAutomatically else {
-            isQueueRunning = false
-            refreshQueueStatusReason()
-            return
-        }
-
-        queueTask = Task { [weak self] in
-            guard let self else { return }
-            await self.runQueueLoop()
-        }
+        queueCoordinator.startIfNeeded()
     }
 
     private func handleBackgroundExecutionRequest() async {
         allowsBackgroundContinuation = true
-
-        if queueTask != nil {
-            refreshQueueStatusReason()
-            return
-        }
-
-        let pending = (try? await downloadManager.fetchPendingDownloads()) ?? []
-        if pending.isEmpty {
-            backgroundExecutionCoordinator.finishCurrentTask(success: true)
-            return
-        }
-
-        try? await applyNetworkPolicy()
-        refreshQueueStatusReason()
-        startQueueIfNeeded()
+        await queueCoordinator.handleBackgroundExecutionRequest()
     }
 
     private func handleBackgroundTaskExpiration() {
         allowsBackgroundContinuation = false
-        queueTask?.cancel()
-        queueTask = nil
-        isQueueRunning = false
+        queueCoordinator.cancelCurrentTask()
         Task {
             try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .paused)
             await refreshAllTargetProgresses()
             refreshQueueStatusReason()
-        }
-    }
-
-    private func runQueueLoop() async {
-        // Quick check: if no pending downloads, exit immediately without spawning workers.
-        // This avoids 3 unnecessary worker tasks + CoreData queries on app launch
-        // when there's nothing to download.
-        let initialPending = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
-        if initialPending == 0 {
-            EnsembleLogger.debug("📥 Queue loop: no pending downloads, skipping worker spawn")
-            queueTask = nil
-            isQueueRunning = false
-            refreshQueueStatusReason()
-            return
-        }
-
-        let workMode = currentDownloadWorkMode
-        let workerCount = queueWorkerCount(forPendingCount: initialPending, workMode: workMode)
-        let shouldApplyInteractiveCooldown = workMode == .interactivePlayback && initialPending >= Self.playbackBurstThreshold
-
-        // Spawn N independent workers that each pull the next pending download
-        // when they finish. This keeps all slots busy without batch-and-wait.
-        // Each worker returns whether it processed at least one download.
-        let didProcessAny = await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
-            for _ in 0..<workerCount {
-                group.addTask { await self.workerLoop(applyInteractiveCooldown: shouldApplyInteractiveCooldown) }
-            }
-            var anyProcessed = false
-            for await workerDidWork in group {
-                if workerDidWork { anyProcessed = true }
-            }
-            return anyProcessed
-        }
-
-        // All workers exited — queue is drained or cancelled
-        let wasCancelled = Task.isCancelled
-
-        // Clear queueTask BEFORE the re-check so that handleDownloadQueueCompleted()
-        // (via WebSocket) can restart the queue if a PMS download finishes during
-        // the grace period below.
-        queueTask = nil
-
-        // Grace period: PMS may still be preparing downloads (WebSocket
-        // media.download events arrive asynchronously). Wait briefly, then
-        // re-check for any newly pending downloads before declaring "complete".
-        if !wasCancelled && didProcessAny {
-            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms grace
-            let remainingPending = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
-
-            EnsembleLogger.debug("📥 Queue wind-down: wasCancelled=\(wasCancelled), didProcessAny=\(didProcessAny), remainingPending=\(remainingPending)")
-
-            if remainingPending > 0 {
-                // More work arrived while workers were finishing — restart
-                isQueueRunning = true
-                refreshQueueStatusReason()
-                startQueueIfNeeded()
-                return
-            }
-        }
-
-        isQueueRunning = false
-        refreshQueueStatusReason()
-        backgroundExecutionCoordinator.finishCurrentTask(success: true)
-
-        // Show toast when downloads complete naturally (not cancelled/expired)
-        // and at least one download was actually processed
-        if !wasCancelled && didProcessAny {
-            toastCenter.show(ToastPayload(
-                style: .success,
-                iconSystemName: "arrow.down.circle.fill",
-                title: "Downloads Complete"
-            ))
         }
     }
 
@@ -1361,57 +1199,55 @@ public final class OfflineDownloadService: ObservableObject {
                 )
             }
 
-            // Clear transfer retry counter on success
-            transferRetryCount.removeValue(forKey: ctx.trackRatingKey)
-            if attemptedDirectFallback {
-                clearDirectFallbackBlock(for: ctx)
-            }
+            retryPolicy.recordSuccess(
+                trackRatingKey: ctx.trackRatingKey,
+                sourceCompositeKey: ctx.sourceCompositeKey,
+                attemptedDirectFallback: attemptedDirectFallback
+            )
 
             // Notify track-displaying VMs so they re-fetch and reflect updated
             // offline state (e.g. dimming). Debounced to avoid spamming during
             // bulk queue processing.
             scheduleDownloadChangeNotification()
         } catch {
-            if Task.isCancelled {
-                // Reset to pending (not paused) so the worker picks it up again.
+            let resolution = retryPolicy.resolveFailure(
+                .init(
+                    trackRatingKey: ctx.trackRatingKey,
+                    sourceCompositeKey: ctx.sourceCompositeKey,
+                    attemptedDirectFallback: attemptedDirectFallback,
+                    updatedQuality: currentDownloadQuality(),
+                    isCancellation: Task.isCancelled,
+                    isNetworkLoss: isNetworkLossError(error),
+                    isRetryableTransfer: error is DownloadTransferError || isRetryableTruncation(error),
+                    errorDescription: error.localizedDescription
+                )
+            )
+
+            switch resolution {
+            case .resetToPending(let quality):
                 // Quality changes cancel in-flight downloads and re-queue at the
                 // new quality; .paused would leave the old-quality download stuck.
-                let updatedQuality = currentDownloadQuality()
-                try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: updatedQuality)
-            } else if isNetworkLossError(error) {
+                try? await downloadManager.updateDownloadStatus(
+                    ctx.downloadObjectID,
+                    status: .pending,
+                    quality: quality
+                )
+            case .pauseForNetworkLoss:
                 // Network dropped mid-transfer — pause so the download auto-resumes
-                // when connectivity returns, instead of marking as permanently failed
+                // when connectivity returns, instead of marking as permanently failed.
                 try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .paused, quality: nil)
                 EnsembleLogger.debug(
                     "⏸️ Offline download paused (network lost): track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey)"
                 )
-            } else if error is DownloadTransferError || isRetryableTruncation(error) {
-                if attemptedDirectFallback {
-                    markDirectFallbackBlocked(for: ctx)
-                }
+            case .retryPending(let attempt, let maxAttempts, _):
                 // Incomplete transfer or truncated payload — re-queue as pending so the
-                // download worker automatically retries. These are transient failures
-                // (app backgrounded, server timeout, FFmpeg crash) not permanent ones.
-                let retries = (transferRetryCount[ctx.trackRatingKey] ?? 0) + 1
-                transferRetryCount[ctx.trackRatingKey] = retries
-
-                if retries <= Self.maxTransferRetries {
-                    try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: nil)
-                    EnsembleLogger.debug(
-                        "🔄 Offline download re-queued (attempt \(retries)/\(Self.maxTransferRetries)): track=\(ctx.trackRatingKey) reason=\(error.localizedDescription)"
-                    )
-                } else {
-                    try? await downloadManager.failDownload(ctx.downloadObjectID, error: "Transfer incomplete after \(Self.maxTransferRetries) attempts")
-                    transferRetryCount.removeValue(forKey: ctx.trackRatingKey)
-                    EnsembleLogger.debug(
-                        "❌ Offline download failed (max retries): track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey) reason=\(error.localizedDescription)"
-                    )
-                }
-            } else {
-                if attemptedDirectFallback {
-                    markDirectFallbackBlocked(for: ctx)
-                }
-                try? await downloadManager.failDownload(ctx.downloadObjectID, error: error.localizedDescription)
+                // download worker automatically retries. These are transient failures.
+                try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: nil)
+                EnsembleLogger.debug(
+                    "🔄 Offline download re-queued (attempt \(attempt)/\(maxAttempts)): track=\(ctx.trackRatingKey) reason=\(error.localizedDescription)"
+                )
+            case .fail(let message, _):
+                try? await downloadManager.failDownload(ctx.downloadObjectID, error: message)
                 EnsembleLogger.debug(
                     "❌ Offline download failed: track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey) reason=\(error.localizedDescription)"
                 )
@@ -1961,7 +1797,7 @@ public final class OfflineDownloadService: ObservableObject {
 
     internal var shouldDeferForegroundHealthRefresh: Bool {
         currentDownloadWorkMode == .interactivePlayback
-            && (queueTask != nil || isQueueRunning || !activeDownloadRatingKeys.isEmpty || fullProgressRefreshTask != nil)
+            && (queueCoordinator.hasActiveTask || isQueueRunning || !activeDownloadRatingKeys.isEmpty || fullProgressRefreshTask != nil)
     }
 
     /// Maps current network state to a user-facing queue pause reason
@@ -2291,9 +2127,7 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func stopQueueForSuspension() async {
-        queueTask?.cancel()
-        queueTask = nil
-        isQueueRunning = false
+        queueCoordinator.cancelCurrentTask()
         backgroundExecutionCoordinator.finishCurrentTask(success: true)
         try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .paused)
     }
@@ -2368,23 +2202,38 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func shouldAttemptDirectFallback(after error: Error, for ctx: DownloadContext) -> Bool {
-        if shouldSkipDirectFallback(for: ctx) {
+        switch retryPolicy.directFallbackDecision(
+            for: .init(
+                trackRatingKey: ctx.trackRatingKey,
+                sourceCompositeKey: ctx.sourceCompositeKey,
+                isOffline: syncCoordinator.isOffline,
+                canExecuteDownloads: canExecuteDownloads,
+                canRunQueueAutomatically: canRunQueueAutomatically,
+                workMode: currentDownloadWorkMode
+            )
+        ) {
+        case .blockedAfterPriorFailure:
             EnsembleLogger.debug(
                 "⛔️ Skipping direct-original fallback for track=\(ctx.trackRatingKey) after an earlier fallback failure in this session"
             )
             return false
-        }
-
-        if isNetworkLossError(error) || syncCoordinator.isOffline || !canExecuteDownloads {
+        case .blockedByNetwork:
             EnsembleLogger.debug(
                 "⛔️ Skipping direct-original fallback for track=\(ctx.trackRatingKey) because the network is unavailable"
             )
             return false
-        }
-
-        if !canRunQueueAutomatically || currentDownloadWorkMode == .background {
+        case .blockedWhileSuspended:
             EnsembleLogger.debug(
                 "⛔️ Skipping direct-original fallback for track=\(ctx.trackRatingKey) while download work is suspended"
+            )
+            return false
+        case .attempt:
+            break
+        }
+
+        if isNetworkLossError(error) {
+            EnsembleLogger.debug(
+                "⛔️ Skipping direct-original fallback for track=\(ctx.trackRatingKey) because the request failed with a network-loss error"
             )
             return false
         }

@@ -92,7 +92,7 @@ public struct FilterSheet: View {
                                 }
                                 .foregroundColor(.red)
                             } else {
-                                HStack(alignment: .top, spacing: 12) {
+                                HStack(alignment: .top, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                                     VStack(alignment: .leading, spacing: 6) {
                                         Text("Min Year")
                                             .font(.caption)
@@ -135,7 +135,7 @@ public struct FilterSheet: View {
                                 }
                             }
 
-                            HStack(spacing: 12) {
+                            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                                 Button(filterOptions.selectedArtists.isEmpty ? "Select Artists…" : "Edit Selection…") {
                                     showingArtistSelection = true
                                 }
@@ -167,7 +167,7 @@ public struct FilterSheet: View {
                                 }
                             }
 
-                            HStack(spacing: 12) {
+                            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                                 Button(filterOptions.selectedGenres.isEmpty ? "Select Genres…" : "Edit Selection…") {
                                     showingGenreSelection = true
                                 }
@@ -437,7 +437,7 @@ public struct FilterSheet: View {
         footer: String?,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Text(title)
                 .font(.headline)
 
