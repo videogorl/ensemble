@@ -2,12 +2,11 @@ import EnsembleCore
 import SwiftUI
 
 /// Circular profile image + name header, modeled after Apple's iCloud Settings panel.
-/// Tappable image opens photo picker; tappable name opens edit sheet.
+/// Tappable image opens photo picker; tappable name pushes to an edit view.
 public struct ProfileHeaderView: View {
     @ObservedObject var profileStore: UserProfileStore
     @State private var showingImageSourcePicker = false
     @State private var showingNameEditor = false
-    @State private var editedName: String = ""
     @State private var showingImagePicker = false
 
     public init(profileStore: UserProfileStore) {
@@ -22,12 +21,31 @@ public struct ProfileHeaderView: View {
                     showingImageSourcePicker = true
                 }
 
-            // Name + edit affordance
+            // Name + edit affordance — pushes to TextInputView
             nameView
                 .onTapGesture {
-                    editedName = profileStore.profile.displayName ?? ""
                     showingNameEditor = true
                 }
+
+            // Hidden NavigationLink driven by showingNameEditor state.
+            // Pushing replaces the root nav bar (which has scroll pocket tracking)
+            // with an inline-title bar, so the keyboard won't trigger the iOS 26
+            // ScrollPocketCollectorModel feedback loop.
+            NavigationLink(isActive: $showingNameEditor) {
+                TextInputView(
+                    title: "Edit Name",
+                    placeholder: "Your Name",
+                    initialText: profileStore.profile.displayName ?? "",
+                    actionTitle: "Save",
+                    onSubmit: { newName in
+                        profileStore.updateName(newName)
+                    }
+                )
+            } label: {
+                EmptyView()
+            }
+            .hidden()
+            .frame(width: 0, height: 0)
         }
         .padding(.vertical, 24)
         .frame(maxWidth: .infinity)
@@ -69,17 +87,6 @@ public struct ProfileHeaderView: View {
             }
         }
         #endif
-        // Use a sheet instead of .alert with TextField to avoid the iOS 26
-        // ScrollPocketCollectorModel observation tracking feedback loop.
-        // UIAlertController + keyboard triggers 279+ cascading layout invalidations.
-        .sheet(isPresented: $showingNameEditor) {
-            ProfileNameEditorSheet(
-                name: editedName,
-                onSave: { newName in
-                    profileStore.updateName(newName)
-                }
-            )
-        }
     }
 
     // MARK: - Subviews
@@ -149,77 +156,6 @@ private struct LocalProfileImage: View {
             image = Image(nsImage: nsImage)
         }
         #endif
-    }
-}
-
-// MARK: - Profile Name Editor Sheet
-
-/// Dedicated sheet for editing the profile name.
-/// Avoids the iOS 26 ScrollPocketCollectorModel feedback loop caused by
-/// UIAlertController + TextField + keyboard inside a navigation hierarchy.
-private struct ProfileNameEditorSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var name: String
-    let onSave: (String) -> Void
-
-    init(name: String, onSave: @escaping (String) -> Void) {
-        _name = State(initialValue: name)
-        self.onSave = onSave
-    }
-
-    var body: some View {
-        sheetContent
-    }
-
-    @ViewBuilder
-    private var sheetContent: some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationStack {
-                formContent
-            }
-            .presentationDetents([.medium])
-        } else {
-            NavigationView {
-                formContent
-            }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
-        }
-    }
-
-    private var formContent: some View {
-        Form {
-            Section {
-                TextField("Your Name", text: $name)
-                    #if os(iOS)
-                    .textInputAutocapitalization(.words)
-                    #endif
-                    .disableAutocorrection(true)
-            } header: {
-                Text("Display Name")
-            } footer: {
-                Text("This name is shown on your profile and synced across devices.")
-            }
-        }
-        .navigationTitle("Edit Name")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    dismiss()
-                }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
-                    onSave(name)
-                    dismiss()
-                }
-                .font(.body.bold())
-            }
-        }
     }
 }
 
