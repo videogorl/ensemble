@@ -6,7 +6,7 @@ public struct ProfilePresentationContainer: View {
 
     public var body: some View {
         navigationContainer {
-            SettingsView()  // Will be replaced by ProfileView in Phase 2
+            ProfileView()
         }
     }
 }
