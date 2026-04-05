@@ -1,15 +1,18 @@
 import EnsembleCore
 import SwiftUI
 
-public struct SettingsPresentationContainer: View {
+public struct ProfilePresentationContainer: View {
     public init() {}
 
     public var body: some View {
         navigationContainer {
-            SettingsView()
+            SettingsView()  // Will be replaced by ProfileView in Phase 2
         }
     }
 }
+
+/// Legacy alias for backwards compatibility
+public typealias SettingsPresentationContainer = ProfilePresentationContainer
 
 public struct DownloadsPresentationContainer: View {
     @StateObject private var nowPlayingVM: NowPlayingViewModel
@@ -34,8 +37,8 @@ public struct AuxiliaryPresentationView: View {
 
     public var body: some View {
         switch destination {
-        case .settings:
-            SettingsPresentationContainer()
+        case .profile:
+            ProfilePresentationContainer()
         case .downloads:
             DownloadsPresentationContainer()
         }

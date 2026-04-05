@@ -121,8 +121,8 @@ struct EnsembleApp: App {
         }
         #if os(macOS)
         if #available(macOS 13.0, *) {
-            Window("Settings", id: NavigationCoordinator.AuxiliaryPresentation.settings.windowID) {
-                SettingsPresentationContainer()
+            Window("Profile", id: NavigationCoordinator.AuxiliaryPresentation.profile.windowID) {
+                ProfilePresentationContainer()
                     .environment(\.dependencies, DependencyContainer.shared)
                     .frame(minWidth: 720, minHeight: 560)
             }

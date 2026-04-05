@@ -57,6 +57,11 @@ public final class DependencyContainer: @unchecked Sendable {
     public let powerStateMonitor: PowerStateMonitor
     public let persistentLogService: PersistentLogService
 
+    // MARK: - Profile & Cloud Sync
+
+    public let userProfileStore: UserProfileStore
+    public let cloudSyncService: CloudSyncService
+
     // MARK: - Network Infrastructure
 
     /// Single source of truth for per-server active endpoints.
@@ -255,6 +260,41 @@ public final class DependencyContainer: @unchecked Sendable {
         let logServiceRef = MainActor.assumeIsolated { PersistentLogService() }
         persistentLogService = logServiceRef
         MainActor.assumeIsolated { logServiceRef.installHandlers() }
+
+        // User profile store — local persistence for profile name + avatar
+        let profileStoreRef = MainActor.assumeIsolated { UserProfileStore() }
+        userProfileStore = profileStoreRef
+
+        // Cloud sync service — CloudKit sync for profile data (and future sync targets)
+        let cloudSyncRef = CloudSyncService()
+        cloudSyncService = cloudSyncRef
+
+        // Wire profile updates to CloudKit push
+        MainActor.assumeIsolated {
+            profileStoreRef.onProfileUpdated = { [weak profileStoreRef] profile in
+                let imageData = profileStoreRef?.getProfileImageData()
+                Task {
+                    await cloudSyncRef.pushProfile(profile, imageData: imageData)
+                }
+            }
+        }
+
+        // Wire CloudKit remote changes to local profile store
+        Task {
+            await cloudSyncRef.setRemoteChangeHandler { [weak profileStoreRef] profile, imageData in
+                await MainActor.run {
+                    profileStoreRef?.applyRemoteProfile(profile, imageData: imageData)
+                }
+            }
+
+            // Initial pull from CloudKit + subscribe to future changes
+            if let remote = await cloudSyncRef.pullProfile() {
+                await MainActor.run {
+                    profileStoreRef.applyRemoteProfile(remote.profile, imageData: remote.imageData)
+                }
+            }
+            await cloudSyncRef.subscribeToChanges()
+        }
 
         // Pause/resume downloads when Low Power Mode is toggled
         let offlineServiceForPower = offlineServiceRef
