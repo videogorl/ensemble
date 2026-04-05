@@ -83,7 +83,7 @@ public struct InfoCard: View {
 
             Spacer()
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
         .frame(minHeight: 36) // Consistent height across all NPV card headers
     }
 
@@ -98,7 +98,7 @@ public struct InfoCard: View {
                 // Divider
                 Divider()
                     .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing + 4)
-                    .padding(.horizontal, 40)
+                    .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
 
                 // File info section (codec, bitrate, sample rate, etc.)
                 fileInfoSection
@@ -106,7 +106,7 @@ public struct InfoCard: View {
                 // Divider
                 Divider()
                     .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing + 4)
-                    .padding(.horizontal, 40)
+                    .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
 
                 // Server info section
                 serverInfoSection
@@ -177,7 +177,7 @@ public struct InfoCard: View {
             }
 
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
     }
 
     // MARK: - File Info Section
@@ -235,7 +235,7 @@ public struct InfoCard: View {
                 }
             }
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
     }
 
     // MARK: - Server Info Section
@@ -287,7 +287,7 @@ public struct InfoCard: View {
             // Network type
             infoRow(label: "Network", value: formatNetworkState(deps.networkMonitor.networkState))
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
     }
 
     /// Lyrics source/status indicator with format info when available

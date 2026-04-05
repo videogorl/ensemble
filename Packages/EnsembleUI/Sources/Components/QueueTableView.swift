@@ -85,7 +85,7 @@ public class QueueItemCell: UITableViewCell {
         self.autoplayWidthConstraint = widthConstraint
         
         NSLayoutConstraint.activate([
-            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 40),
+            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: TrackListLayoutMetrics.detailHorizontalPadding),
             artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             artworkImageView.widthAnchor.constraint(equalToConstant: 44),
             artworkImageView.heightAnchor.constraint(equalToConstant: 44),
@@ -111,7 +111,7 @@ public class QueueItemCell: UITableViewCell {
             autoplayIndicator.heightAnchor.constraint(equalToConstant: 14),
             widthConstraint,
             
-            dragHandleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -40),
+            dragHandleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.detailHorizontalPadding),
             dragHandleView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             dragHandleView.widthAnchor.constraint(equalToConstant: 20),
             dragHandleView.heightAnchor.constraint(equalToConstant: 20)
@@ -308,7 +308,12 @@ public struct QueueTableView: UIViewRepresentable {
         tableView.dropDelegate = context.coordinator
         tableView.register(QueueItemCell.self, forCellReuseIdentifier: "QueueItemCell")
         tableView.separatorStyle = .singleLine
-        tableView.separatorInset = UIEdgeInsets(top: 0, left: 40, bottom: 0, right: 40)
+        tableView.separatorInset = UIEdgeInsets(
+            top: 0,
+            left: TrackListLayoutMetrics.detailHorizontalPadding,
+            bottom: 0,
+            right: TrackListLayoutMetrics.detailHorizontalPadding
+        )
         tableView.backgroundColor = .clear
         tableView.isScrollEnabled = true // Table manages its own scrolling
         tableView.dragInteractionEnabled = true

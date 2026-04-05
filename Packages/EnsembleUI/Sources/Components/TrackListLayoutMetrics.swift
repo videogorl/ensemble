@@ -5,6 +5,8 @@ public enum TrackListLayoutMetrics {
     public static let rowHorizontalPadding: CGFloat = 16
     public static let rowInterItemSpacing: CGFloat = 12
     public static let rowVerticalPadding: CGFloat = 8
+    public static let detailHorizontalPadding: CGFloat = 40
+    public static let utilitySectionOuterPadding: CGFloat = detailHorizontalPadding - rowHorizontalPadding
 
     public static let defaultRowHeight: CGFloat = 68
     public static let compactRowHeightThreshold: CGFloat = 60
@@ -36,6 +38,15 @@ public enum TrackListLayoutMetrics {
             leading: rowHorizontalPadding,
             bottom: rowVerticalPadding,
             trailing: rowHorizontalPadding
+        )
+    }
+
+    public static func utilityListRowInsets(verticalPadding: CGFloat = rowVerticalPadding) -> EdgeInsets {
+        EdgeInsets(
+            top: verticalPadding,
+            leading: detailHorizontalPadding,
+            bottom: verticalPadding,
+            trailing: detailHorizontalPadding
         )
     }
 }

@@ -151,7 +151,7 @@ public struct QueueCard: View {
             .chromelessMediaControlButton()
             .chromelessMediaControlMenu()
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
         .frame(minHeight: 36) // Consistent height across all NPV card headers
     }
 

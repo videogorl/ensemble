@@ -36,6 +36,7 @@ public struct SettingsView: View {
                             accountIdentifier: preferredAccountSubtitle(for: account)
                         )
                     }
+                    .utilityListRowInsets()
                 }
                 .onDelete { indexSet in
                     guard let index = indexSet.first else { return }
@@ -55,6 +56,7 @@ public struct SettingsView: View {
                         Text("Add Plex Account")
                     }
                 }
+                .utilityListRowInsets()
             } header: {
                 Text("Music Sources")
                     .foregroundColor(.accentColor)
@@ -87,6 +89,7 @@ public struct SettingsView: View {
                     .padding(.vertical, 4)
                 }
                 .padding(.vertical, 4)
+                .utilityListRowInsets()
 
                 Toggle(isOn: $settingsManager.auroraVisualizationEnabled) {
                     HStack {
@@ -100,6 +103,7 @@ public struct SettingsView: View {
                         }
                     }
                 }
+                .utilityListRowInsets()
             } header: {
                 Text("Accent Color: \(settingsManager.accentColor.rawValue.capitalized)")
                     .foregroundColor(.accentColor)
@@ -120,6 +124,7 @@ public struct SettingsView: View {
                         }
                     }
                 }
+                .utilityListRowInsets()
                 .onChange(of: isAutoplayEnabled) { _ in
                     playbackService.toggleAutoplay()
                 }
@@ -136,6 +141,7 @@ public struct SettingsView: View {
                         }
                     }
                 }
+                .utilityListRowInsets()
 
                 NavigationLink {
                     AudioQualitySettingsView()
@@ -146,6 +152,7 @@ public struct SettingsView: View {
                         Text("Audio Quality")
                     }
                 }
+                .utilityListRowInsets()
 
                 NavigationLink {
                     ConnectionPolicySettingsView()
@@ -156,6 +163,7 @@ public struct SettingsView: View {
                         Text("Connection Security")
                     }
                 }
+                .utilityListRowInsets()
 
                 NavigationLink {
                     TrackSwipeActionsSettingsView()
@@ -166,6 +174,7 @@ public struct SettingsView: View {
                         Text("Track Swipe Actions")
                     }
                 }
+                .utilityListRowInsets()
             }
 
             // Storage section
@@ -180,6 +189,7 @@ public struct SettingsView: View {
                             .foregroundColor(.red)
                     }
                 }
+                .utilityListRowInsets()
             }
             
             // Debug section
@@ -197,6 +207,7 @@ public struct SettingsView: View {
                             .foregroundColor(.red)
                     }
                 }
+                .utilityListRowInsets()
             }
 
             // Developer section — always visible; debug-only tools gated
@@ -210,6 +221,7 @@ public struct SettingsView: View {
                         Text("Logs")
                     }
                 }
+                .utilityListRowInsets()
 
                 #if DEBUG
                 Toggle(isOn: $debugSimulateOffline) {
@@ -224,6 +236,7 @@ public struct SettingsView: View {
                         }
                     }
                 }
+                .utilityListRowInsets()
                 .onChange(of: debugSimulateOffline) { simulating in
                     DependencyContainer.shared.networkMonitor.simulateOffline(simulating)
                 }
@@ -245,6 +258,7 @@ public struct SettingsView: View {
                         Text("Send Test Toast")
                     }
                 }
+                .utilityListRowInsets()
                 #endif
             }
 
@@ -258,6 +272,7 @@ public struct SettingsView: View {
                     Text(Bundle.main.appVersion)
                         .foregroundColor(.secondary)
                 }
+                .utilityListRowInsets()
 
                 Link(destination: Self.supportURL) {
                     HStack {
@@ -270,6 +285,7 @@ public struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                 }
+                .utilityListRowInsets()
             }
         }
         #if os(iOS)

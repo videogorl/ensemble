@@ -24,6 +24,8 @@ final class EnsembleUITests: XCTestCase {
             TrackListLayoutMetrics.contentLeadingInset(showArtwork: false, showTrackNumbers: false),
             TrackListLayoutMetrics.plainLeadingInset
         )
+        XCTAssertEqual(TrackListLayoutMetrics.detailHorizontalPadding, 40)
+        XCTAssertEqual(TrackListLayoutMetrics.utilitySectionOuterPadding, 24)
         XCTAssertEqual(TrackListLayoutMetrics.miniPlayerBottomSpacing, 140)
         XCTAssertEqual(TrackListLayoutMetrics.compactMiniPlayerBottomSpacing, 110)
     }
@@ -35,6 +37,15 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(insets.leading, TrackListLayoutMetrics.rowHorizontalPadding)
         XCTAssertEqual(insets.bottom, TrackListLayoutMetrics.rowVerticalPadding)
         XCTAssertEqual(insets.trailing, TrackListLayoutMetrics.rowHorizontalPadding)
+    }
+
+    func testTrackListLayoutMetricsUtilityListRowInsets() {
+        let insets = TrackListLayoutMetrics.utilityListRowInsets(verticalPadding: 4)
+
+        XCTAssertEqual(insets.top, 4)
+        XCTAssertEqual(insets.leading, TrackListLayoutMetrics.detailHorizontalPadding)
+        XCTAssertEqual(insets.bottom, 4)
+        XCTAssertEqual(insets.trailing, TrackListLayoutMetrics.detailHorizontalPadding)
     }
 
     func testTrackRowInteractionModelResolvesRecentPlaylistAndFavoriteState() {

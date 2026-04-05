@@ -85,6 +85,7 @@ public struct DownloadsView: View {
                     } label: {
                         PendingChangesRow(count: viewModel.pendingMutationCount)
                     }
+                    .utilityListRowInsets(TrackListLayoutMetrics.rowVerticalPadding / 2)
                 }
             }
 
@@ -97,6 +98,7 @@ public struct DownloadsView: View {
                         if let progress = viewModel.removalInProgress[item.key] {
                             // Show removal progress indicator instead of normal row
                             RemovalProgressRow(progress: progress)
+                                .utilityListRowInsets(TrackListLayoutMetrics.rowVerticalPadding / 2)
                         } else {
                             targetRow(for: item)
                                 .standardDeleteSwipeAction {
@@ -104,6 +106,7 @@ public struct DownloadsView: View {
                                         await viewModel.removeDownloadTarget(key: item.key)
                                     }
                                 }
+                                .utilityListRowInsets(TrackListLayoutMetrics.rowVerticalPadding / 2)
                         }
                     }
                 }
@@ -169,8 +172,10 @@ public struct DownloadsView: View {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundColor(.secondary.opacity(0.5))
+                    .frame(width: 12, alignment: .trailing)
             }
         }
+        .utilityListRowInsets(TrackListLayoutMetrics.rowVerticalPadding / 2)
     }
 
     private func libraryRowLabel(for library: LibraryDownloadSummary) -> some View {

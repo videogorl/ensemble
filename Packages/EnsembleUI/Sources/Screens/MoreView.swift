@@ -230,7 +230,7 @@ private struct EditTabsView: View {
             }
             .coordinateSpace(name: "tabBarDropTarget")
             .sectionBackground()
-            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+            .padding(.horizontal, TrackListLayoutMetrics.utilitySectionOuterPadding)
             .onDrop(of: [.text], delegate: TabBarSectionDropDelegate(
                 settingsManager: settingsManager,
                 draggedTab: $draggedTab,
@@ -254,7 +254,7 @@ private struct EditTabsView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 24)
                     .sectionBackground()
-                    .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+                    .padding(.horizontal, TrackListLayoutMetrics.utilitySectionOuterPadding)
                     .onDrop(of: [.text], delegate: AvailableDropDelegate(
                         settingsManager: settingsManager,
                         draggedTab: $draggedTab,
@@ -281,7 +281,7 @@ private struct EditTabsView: View {
                     }
                 }
                 .sectionBackground()
-                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+                .padding(.horizontal, TrackListLayoutMetrics.utilitySectionOuterPadding)
                 .onDrop(of: [.text], delegate: AvailableDropDelegate(
                     settingsManager: settingsManager,
                     draggedTab: $draggedTab,
@@ -309,7 +309,7 @@ private struct EditTabsView: View {
 
             Spacer()
         }
-        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+        .padding(.horizontal, TrackListLayoutMetrics.utilitySectionOuterPadding)
         .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding + 4)
     }
 
@@ -331,7 +331,7 @@ private struct EditTabsView: View {
         Text(text)
             .font(.footnote)
             .foregroundColor(.secondary)
-            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding * 2)
+            .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
             .padding(.top, 24)
             .padding(.bottom, 8)
     }

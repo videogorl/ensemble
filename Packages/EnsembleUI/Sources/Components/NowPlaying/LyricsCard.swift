@@ -89,7 +89,7 @@ public struct LyricsCard: View {
                     : "Enable instrumental mode")
             }
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
         .frame(minHeight: 36) // Consistent height across all NPV card headers
     }
 
@@ -240,7 +240,7 @@ public struct LyricsCard: View {
                     Spacer()
                         .frame(height: 200)
                 }
-                .padding(.horizontal, 40)
+                .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
             }
             // Detect vertical scrolls to suppress auto-scroll temporarily.
             // Uses a UIKit gesture recognizer that only activates for vertical pans,
