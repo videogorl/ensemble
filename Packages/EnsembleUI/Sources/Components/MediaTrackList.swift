@@ -1098,10 +1098,15 @@ public struct MediaTrackList: UIViewRepresentable {
         }
 
         private func swipeActions(from configured: [TrackSwipeAction?], track: Track) -> [UIContextualAction] {
-            configured.compactMap { candidate in
-                guard let action = candidate, isSwipeActionSupported(action) else { return nil }
+            let resolvedActions = interactionModel.resolve(for: track)
+            return configured.compactMap { candidate -> UIContextualAction? in
+                guard let action = candidate, isSwipeActionSupported(action, resolvedActions: resolvedActions) else { return nil }
                 let contextual = UIContextualAction(style: .normal, title: swipeTitle(for: action, track: track)) { [weak self] _, _, completion in
-                    self?.executeSwipeAction(action, track: track)
+                    guard let self else {
+                        completion(false)
+                        return
+                    }
+                    self.executeSwipeAction(action, track: track)
                     completion(true)
                 }
                 contextual.backgroundColor = UIColor(swipeTint(for: action, track: track))
@@ -1110,34 +1115,39 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
 
-        private func isSwipeActionSupported(_ action: TrackSwipeAction) -> Bool {
+        private func isSwipeActionSupported(
+            _ action: TrackSwipeAction,
+            resolvedActions: TrackRowInteractionModel.ResolvedActions
+        ) -> Bool {
             switch action {
             case .playNext:
-                return onPlayNext != nil
+                return resolvedActions.onPlayNext != nil
             case .playLast:
-                return onPlayLast != nil
+                return resolvedActions.onPlayLast != nil
             case .addToPlaylist:
-                return onAddToPlaylist != nil
+                return resolvedActions.onAddToPlaylist != nil
             case .favoriteToggle:
-                return onToggleFavorite != nil
+                return resolvedActions.onToggleFavorite != nil
             }
         }
 
         private func executeSwipeAction(_ action: TrackSwipeAction, track: Track) {
+            let resolvedActions = interactionModel.resolve(for: track)
+
             switch action {
             case .playNext:
-                onPlayNext?(track)
+                resolvedActions.onPlayNext?()
                 showSwipeConfirmation(for: action, track: track)
             case .playLast:
-                onPlayLast?(track)
+                resolvedActions.onPlayLast?()
                 showSwipeConfirmation(for: action, track: track)
             case .addToPlaylist:
-                onAddToPlaylist?(track)
+                resolvedActions.onAddToPlaylist?()
                 showSwipeConfirmation(for: action, track: track)
             case .favoriteToggle:
-                let isFavorited = isTrackFavorited?(track) ?? (track.rating >= 8)
+                let isFavorited = resolvedActions.isFavorited
                 showFavoriteLoadingToast(for: track, willFavorite: !isFavorited)
-                onToggleFavorite?(track)
+                resolvedActions.onToggleFavorite?()
             }
         }
 
@@ -1196,8 +1206,8 @@ public struct MediaTrackList: UIViewRepresentable {
         private func swipeTitle(for action: TrackSwipeAction, track: Track) -> String {
             switch action {
             case .favoriteToggle:
-                let isFavorited = isTrackFavorited?(track) ?? (track.rating >= 8)
-                return isFavorited ? "Unfavorite" : "Favorite"
+                let resolvedActions = interactionModel.resolve(for: track)
+                return resolvedActions.isFavorited ? "Unfavorite" : "Favorite"
             default:
                 return action.title
             }
@@ -1206,8 +1216,8 @@ public struct MediaTrackList: UIViewRepresentable {
         private func swipeIcon(for action: TrackSwipeAction, track: Track) -> String {
             switch action {
             case .favoriteToggle:
-                let isFavorited = isTrackFavorited?(track) ?? (track.rating >= 8)
-                return isFavorited ? "heart.slash.fill" : "heart.fill"
+                let resolvedActions = interactionModel.resolve(for: track)
+                return resolvedActions.isFavorited ? "heart.slash.fill" : "heart.fill"
             default:
                 return action.systemImage
             }
@@ -1216,8 +1226,8 @@ public struct MediaTrackList: UIViewRepresentable {
         private func swipeTint(for action: TrackSwipeAction, track: Track) -> Color {
             switch action {
             case .favoriteToggle:
-                let isFavorited = isTrackFavorited?(track) ?? (track.rating >= 8)
-                return isFavorited ? .gray : .pink
+                let resolvedActions = interactionModel.resolve(for: track)
+                return resolvedActions.isFavorited ? .gray : .pink
             default:
                 return action.tint
             }
