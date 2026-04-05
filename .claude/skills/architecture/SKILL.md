@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, frequency visualizer, hubs, filtering, network resilience, playback tracking, playlist mutations, playlist merging, incremental sync, Siri media intents, pinned content, persistent session logging)"
+description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, frequency visualizer, hubs, filtering, network resilience, playback tracking, playlist mutations, playlist merging, incremental sync, Siri media intents, pinned content, persistent session logging, user profile & CloudKit sync)"
 ---
 
 # Ensemble Architecture
@@ -651,6 +651,22 @@ Real-time dual-write logging for TestFlight diagnostics. Each `EnsembleLogger` m
 
 - **Key types:** `PersistentLogService`, `LogFileWriter` (private), `LogSession`
 - **Key files:** `PersistentLogService.swift`, all `EnsembleLogger.swift` files, `DependencyContainer.swift`, `EnsembleApp.swift`
+
+## Subsystem: User Profile & CloudKit Sync
+
+User-editable profile (display name, profile image) with iCloud private database sync:
+
+1. **UserProfile** (`EnsembleCore/Models`) -- Data model with `displayName`, `profileImagePath`, and `lastModified` fields.
+2. **UserProfileStore** (`EnsembleCore/Services`, @MainActor ObservableObject) -- Local profile persistence and image processing. Publishes the current profile for UI binding.
+3. **CloudSyncService** (`EnsembleCore/Services`, actor) -- CloudKit private database sync using container `iCloud.com.videogorl.ensemble`, record type `UserProfile`. Supports push, pull, and subscription for remote change notifications. Uses last-writer-wins conflict resolution based on `lastModified`.
+4. **ProfileView** (`EnsembleUI/Screens`) -- Full profile screen replacing the previous SettingsView content. Settings are migrated into ProfileView; SettingsView redirects here.
+5. **ProfileHeaderView** (`EnsembleUI/Components`) -- Circular profile image + display name header with photo picker integration.
+6. **ProfileToolbarButton** (`EnsembleUI/Components`) -- 28×28pt circular profile image button shown in toolbar across all top-level views.
+7. **Navigation change:** `AuxiliaryPresentation.settings` renamed to `.profile`; `openSettings()` renamed to `openProfile()` (legacy alias kept for backward compatibility).
+8. **DependencyContainer** wires `UserProfileStore` and `CloudSyncService` as singleton services.
+
+- **Key types:** `UserProfile`, `UserProfileStore`, `CloudSyncService`
+- **Key files:** `UserProfile.swift`, `UserProfileStore.swift`, `CloudSyncService.swift`, `ProfileView.swift`, `ProfileHeaderView.swift`, `ProfileToolbarButton.swift`, `DependencyContainer.swift`
 
 ## Multi-Source Architecture
 

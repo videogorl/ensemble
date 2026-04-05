@@ -134,6 +134,7 @@ Sources/
 |   +-- FilterOptions.swift            # Filter/sort configuration with persistence
 |   +-- NetworkModels.swift            # Network state & connectivity models
 |   +-- PinnedItem.swift               # Pinned content model (albums, artists, playlists)
+|   +-- UserProfile.swift              # Profile data model (displayName, profileImagePath, lastModified)
 +-- Services/
 |   +-- AccountManager.swift           # Multi-account configuration (MainActor)
 |   +-- SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
@@ -184,6 +185,8 @@ Sources/
 |   +-- ShareService.swift             # Share payload coordinator (link/file/text) with temp download support
 |   +-- LyricsService.swift            # LRC parser, lyrics models (LyricsLine/ParsedLyrics/LyricsState), LyricsService fetch pipeline + offline sidecar
 |   +-- PersistentLogService.swift     # Persistent session logging with real-time file writes for TestFlight diagnostics
+|   +-- UserProfileStore.swift        # @MainActor ObservableObject for local profile persistence + image processing
+|   +-- CloudSyncService.swift        # CloudKit actor for private database sync (push/pull/subscribe)
 +-- EnsembleLogger.swift               # Package logger categories
 +-- ViewModels/
 |   +-- AddPlexAccountViewModel.swift
@@ -237,6 +240,7 @@ Tests/
 +-- SongLinkServiceTests.swift         # Song.link URL resolution + caching + fallback tests
 +-- ShareServiceTests.swift            # Share payload assembly + file detection tests
 +-- LyricsServiceTests.swift           # LRC parser timestamp parsing + line lookup coverage
++-- UserProfileTests.swift            # Unit tests for UserProfile model
 ```
 
 ## EnsembleUI (Presentation Layer)
@@ -295,6 +299,8 @@ Sources/
 |   +-- TrackListLayoutMetrics.swift  # Shared row spacing, separator insets, and mini-player clearance tokens
 |   +-- TrackRowInteractionModel.swift # Shared per-track action/favorite/recent-playlist resolver for SwiftUI + UIKit rows
 |   +-- TrackSwipeContainer.swift     # Shared swipe gesture container for track row actions on large-screen + iOS
+|   +-- ProfileHeaderView.swift      # Circular profile image + name header with photo picker
+|   +-- ProfileToolbarButton.swift   # 28×28pt toolbar profile button for all top-level views
 |   +-- View+Extensions.swift         # SwiftUI view extensions and helpers
 |   +-- WaveformView.swift            # Audio waveform visualization
 +-- Screens/
@@ -320,7 +326,8 @@ Sources/
 |   +-- OfflineServersView.swift      # (Legacy) Server-grouped sync-enabled library toggles
 |   +-- RootView.swift                # Platform-adaptive root (tabs vs sidebar)
 |   +-- SearchView.swift              # Search interface
-|   +-- SettingsView.swift            # App settings with customizable tabs & accent colors
+|   +-- ProfileView.swift             # Full profile view (replaces SettingsView content; includes all settings)
+|   +-- SettingsView.swift            # Legacy redirect to ProfileView
 |   +-- TrackSwipeActionsSettingsView.swift # Settings UI for configuring track swipe action slots
 |   +-- SongsView.swift               # All songs list
 |   +-- LogsSettingsView.swift        # Log session management (toggle, session list, delete)
