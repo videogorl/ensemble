@@ -63,6 +63,12 @@ public struct ProfileView: View {
         #endif
         .miniPlayerBottomSpacing()
         .navigationTitle("Profile")
+        #if os(iOS)
+        // Force inline title to prevent scroll pocket tracking in the sheet's nav bar.
+        // Without this, iOS 26's scroll pocket system in the sheet conflicts with the
+        // parent tab view's scroll pocket system, causing a feedback loop (279+ invalidations).
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .alert("Remove Account", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) {
                 accountToDelete = nil
