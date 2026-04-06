@@ -280,16 +280,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         await withCheckedContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
-                // Manually refresh each registered object instead of calling
-                // reset() (which invalidates ALL managed objects and can crash
-                // download workers / cause EXC_BAD_ACCESS during sync callbacks)
-                // or refreshAllObjects() (which can crash on nil entries from
-                // background deletion merges).
                 context.stalenessInterval = 0
-                let objects = Array(context.registeredObjects)
-                for object in objects where !object.isFault {
-                    context.refresh(object, mergeChanges: false)
-                }
+                context.refreshAllObjects()
                 context.stalenessInterval = 5.0
                 continuation.resume()
             }
