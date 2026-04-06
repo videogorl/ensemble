@@ -171,7 +171,9 @@ public struct SearchView: View {
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
-                                SearchAlbumContextMenu(album: album, nowPlayingVM: nowPlayingVM, playlistPickerPayload: $playlistPickerPayload)
+                                AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
+                                    playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                                }
                             }
                         } else {
                             NavigationLink {
@@ -181,7 +183,9 @@ public struct SearchView: View {
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
-                                SearchAlbumContextMenu(album: album, nowPlayingVM: nowPlayingVM, playlistPickerPayload: $playlistPickerPayload)
+                                AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
+                                    playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                                }
                             }
                         }
                     }
@@ -357,7 +361,9 @@ public struct SearchView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        SearchAlbumContextMenu(album: album, nowPlayingVM: nowPlayingVM, playlistPickerPayload: $playlistPickerPayload)
+                        AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
+                            playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                        }
                     }
                 } else {
                     NavigationLink {
@@ -367,7 +373,9 @@ public struct SearchView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        SearchAlbumContextMenu(album: album, nowPlayingVM: nowPlayingVM, playlistPickerPayload: $playlistPickerPayload)
+                        AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
+                            playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                        }
                     }
                 }
             } else if let artist = item.artist {
@@ -377,7 +385,7 @@ public struct SearchView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        SearchArtistContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
+                        ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
                     }
                 } else {
                     NavigationLink {
@@ -387,7 +395,7 @@ public struct SearchView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        SearchArtistContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
+                        ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
                     }
                 }
             } else if let playlist = item.playlist {
@@ -397,7 +405,7 @@ public struct SearchView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        SearchPlaylistContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM)
+                        PlaylistActionsContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM)
                     }
                 } else {
                     NavigationLink {
@@ -411,7 +419,7 @@ public struct SearchView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        SearchPlaylistContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM)
+                        PlaylistActionsContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM)
                     }
                 }
             }
@@ -757,7 +765,7 @@ public struct SearchView: View {
                             viewModel.commitCurrentSearch()
                         })
                         .contextMenu {
-                            SearchArtistContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
+                            ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
                         }
                     } else {
                         NavigationLink {
@@ -770,7 +778,7 @@ public struct SearchView: View {
                             viewModel.commitCurrentSearch()
                         })
                         .contextMenu {
-                            SearchArtistContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
+                            ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
                         }
                     }
                 }
@@ -792,7 +800,9 @@ public struct SearchView: View {
                             viewModel.commitCurrentSearch()
                         })
                         .contextMenu {
-                            SearchAlbumContextMenu(album: album, nowPlayingVM: nowPlayingVM, playlistPickerPayload: $playlistPickerPayload)
+                            AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
+                                playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                            }
                         }
                     } else {
                         NavigationLink {
@@ -805,7 +815,9 @@ public struct SearchView: View {
                             viewModel.commitCurrentSearch()
                         })
                         .contextMenu {
-                            SearchAlbumContextMenu(album: album, nowPlayingVM: nowPlayingVM, playlistPickerPayload: $playlistPickerPayload)
+                            AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
+                                playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                            }
                         }
                     }
                 }
@@ -827,7 +839,7 @@ public struct SearchView: View {
                             viewModel.commitCurrentSearch()
                         })
                         .contextMenu {
-                            SearchPlaylistContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM)
+                            PlaylistActionsContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM)
                         }
                     } else {
                         NavigationLink {
@@ -844,7 +856,7 @@ public struct SearchView: View {
                             viewModel.commitCurrentSearch()
                         })
                         .contextMenu {
-                            SearchPlaylistContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM)
+                            PlaylistActionsContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM)
                         }
                     }
                 }
@@ -1165,385 +1177,5 @@ public struct SearchView: View {
         viewModel.recommendedItems.filter { item in
             item.album != nil || item.artist != nil || item.playlist != nil
         }
-    }
-}
-
-// MARK: - Search Context Menus
-// Extracted into separate View structs so @ObservedObject pinManager is scoped
-// per-menu rather than triggering full SearchView re-renders on pin changes.
-
-private struct SearchAlbumContextMenu: View {
-    let album: Album
-    let nowPlayingVM: NowPlayingViewModel
-    @Binding var playlistPickerPayload: SearchView.PlaylistPickerPayload?
-
-    @Environment(\.dependencies) private var deps
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
-
-    var body: some View {
-        let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
-
-        Button {
-            withAlbumTracks(album) { tracks in
-                nowPlayingVM.play(tracks: tracks)
-            }
-        } label: {
-            Label("Play", systemImage: "play.fill")
-        }
-
-        Button {
-            withAlbumTracks(album) { tracks in
-                nowPlayingVM.shufflePlay(tracks: tracks)
-            }
-        } label: {
-            Label("Shuffle", systemImage: "shuffle")
-        }
-
-        Button {
-            withAlbumTracks(album) { tracks in
-                nowPlayingVM.playNext(tracks)
-            }
-        } label: {
-            Label("Play Next", systemImage: "text.insert")
-        }
-
-        Button {
-            withAlbumTracks(album) { tracks in
-                nowPlayingVM.playLast(tracks)
-            }
-        } label: {
-            Label("Play Last", systemImage: "text.append")
-        }
-
-        Button {
-            withAlbumTracks(album) { tracks in
-                nowPlayingVM.enableRadio(tracks: tracks)
-            }
-        } label: {
-            Label("Radio", systemImage: "dot.radiowaves.left.and.right")
-        }
-
-        Button {
-            withAlbumTracks(album) { tracks in
-                playlistPickerPayload = SearchView.PlaylistPickerPayload(tracks: tracks, title: "Add Album to Playlist")
-            }
-        } label: {
-            Label("Add to Playlist…", systemImage: "text.badge.plus")
-        }
-
-        Button {
-            Task {
-                await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
-            }
-        } label: {
-            Label(
-                isDownloaded ? "Remove Download" : "Download",
-                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-            )
-        }
-
-        if let artistId = album.artistRatingKey {
-            Button {
-                DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-            } label: {
-                Label("Go to Artist", systemImage: "person.circle")
-            }
-        }
-
-        if let recentTarget = nowPlayingVM.lastPlaylistTarget {
-            Button {
-                addAlbumToRecentPlaylist(album, expectedTitle: recentTarget.title)
-            } label: {
-                Label("Add to \(recentTarget.title)", systemImage: "clock.arrow.circlepath")
-            }
-        }
-
-        Button {
-            ShareActions.shareAlbumLink(album, deps: deps)
-        } label: {
-            Label("Share Link…", systemImage: "link")
-        }
-
-        let isPinned = pinManager.isPinned(id: album.id)
-        Button {
-            if isPinned {
-                pinManager.unpin(id: album.id)
-            } else {
-                pinManager.pin(
-                    id: album.id,
-                    sourceKey: album.sourceCompositeKey ?? "",
-                    type: .album,
-                    title: album.title
-                )
-            }
-        } label: {
-            if isPinned {
-                Label("Unpin", systemImage: "pin.slash")
-            } else {
-                Label("Pin", systemImage: "pin.fill")
-            }
-        }
-    }
-
-    private func withAlbumTracks(_ album: Album, perform action: @escaping ([Track]) -> Void) {
-        Task {
-            let tracks = await resolveTracks(for: album)
-            guard !tracks.isEmpty else {
-                await MainActor.run {
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
-                            title: "No tracks available",
-                            message: "Try again after the album finishes loading.",
-                            dedupeKey: "search-album-empty-\(album.id)"
-                        )
-                    )
-                }
-                return
-            }
-            await MainActor.run {
-                action(tracks)
-            }
-        }
-    }
-
-    private func resolveTracks(for album: Album) async -> [Track] {
-        if let cached = try? await deps.libraryRepository.fetchTracks(forAlbum: album.id),
-           !cached.isEmpty {
-            return cached.map { Track(from: $0) }
-        }
-        guard let sourceKey = album.sourceCompositeKey else { return [] }
-        return (try? await deps.syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)) ?? []
-    }
-
-    private func addAlbumToRecentPlaylist(_ album: Album, expectedTitle: String) {
-        withAlbumTracks(album) { tracks in
-            Task {
-                guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: tracks) else {
-                    await MainActor.run {
-                        deps.toastCenter.show(
-                            ToastPayload(
-                                style: .warning,
-                                iconSystemName: "exclamationmark.triangle.fill",
-                                title: "Can't add to \(expectedTitle)",
-                                message: "This album isn't compatible with that playlist.",
-                                dedupeKey: "search-album-recent-playlist-incompatible-\(album.id)"
-                            )
-                        )
-                    }
-                    return
-                }
-
-                _ = try? await nowPlayingVM.addTracks(tracks, to: playlist)
-            }
-        }
-    }
-}
-
-private struct SearchArtistContextMenu: View {
-    let artist: Artist
-    let nowPlayingVM: NowPlayingViewModel
-
-    @Environment(\.dependencies) private var deps
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
-
-    var body: some View {
-        let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
-
-        Button {
-            withArtistTracks(artist) { tracks in
-                nowPlayingVM.play(tracks: tracks)
-            }
-        } label: {
-            Label("Play", systemImage: "play.fill")
-        }
-
-        Button {
-            withArtistTracks(artist) { tracks in
-                nowPlayingVM.shufflePlay(tracks: tracks)
-            }
-        } label: {
-            Label("Shuffle", systemImage: "shuffle")
-        }
-
-        Button {
-            withArtistTracks(artist) { tracks in
-                nowPlayingVM.enableRadio(tracks: tracks)
-            }
-        } label: {
-            Label("Radio", systemImage: "dot.radiowaves.left.and.right")
-        }
-
-        Button {
-            Task {
-                await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
-            }
-        } label: {
-            Label(
-                isDownloaded ? "Remove Download" : "Download",
-                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-            )
-        }
-
-        let isPinned = pinManager.isPinned(id: artist.id)
-        Button {
-            if isPinned {
-                pinManager.unpin(id: artist.id)
-            } else {
-                pinManager.pin(
-                    id: artist.id,
-                    sourceKey: artist.sourceCompositeKey ?? "",
-                    type: .artist,
-                    title: artist.name
-                )
-            }
-        } label: {
-            if isPinned {
-                Label("Unpin", systemImage: "pin.slash")
-            } else {
-                Label("Pin", systemImage: "pin.fill")
-            }
-        }
-    }
-
-    private func withArtistTracks(_ artist: Artist, perform action: @escaping ([Track]) -> Void) {
-        Task {
-            let tracks = await resolveTracks(for: artist)
-            guard !tracks.isEmpty else {
-                await MainActor.run {
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
-                            title: "No tracks available",
-                            message: "Try again after the artist finishes loading.",
-                            dedupeKey: "search-artist-empty-\(artist.id)"
-                        )
-                    )
-                }
-                return
-            }
-            await MainActor.run {
-                action(tracks)
-            }
-        }
-    }
-
-    private func resolveTracks(for artist: Artist) async -> [Track] {
-        if let cached = try? await deps.libraryRepository.fetchTracks(forArtist: artist.id),
-           !cached.isEmpty {
-            return cached.map { Track(from: $0) }
-        }
-        guard let sourceKey = artist.sourceCompositeKey else { return [] }
-        return (try? await deps.syncCoordinator.getArtistTracks(artistId: artist.id, sourceKey: sourceKey)) ?? []
-    }
-}
-
-private struct SearchPlaylistContextMenu: View {
-    let playlist: Playlist
-    let nowPlayingVM: NowPlayingViewModel
-
-    @Environment(\.dependencies) private var deps
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
-
-    var body: some View {
-        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.play(tracks: tracks)
-            }
-        } label: {
-            Label("Play", systemImage: "play.fill")
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.shufflePlay(tracks: tracks)
-            }
-        } label: {
-            Label("Shuffle", systemImage: "shuffle")
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.playNext(tracks)
-            }
-        } label: {
-            Label("Play Next", systemImage: "text.insert")
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.playLast(tracks)
-            }
-        } label: {
-            Label("Play Last", systemImage: "text.append")
-        }
-
-        Button {
-            Task {
-                await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
-            }
-        } label: {
-            Label(
-                isDownloaded ? "Remove Download" : "Download",
-                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-            )
-        }
-
-        let isPinned = pinManager.isPinned(id: playlist.id)
-        Button {
-            if isPinned {
-                pinManager.unpin(id: playlist.id)
-            } else {
-                pinManager.pin(
-                    id: playlist.id,
-                    sourceKey: playlist.sourceCompositeKey ?? "",
-                    type: .playlist,
-                    title: playlist.title
-                )
-            }
-        } label: {
-            if isPinned {
-                Label("Unpin", systemImage: "pin.slash")
-            } else {
-                Label("Pin", systemImage: "pin.fill")
-            }
-        }
-    }
-
-    private func withPlaylistTracks(_ playlist: Playlist, perform action: @escaping ([Track]) -> Void) {
-        Task {
-            let tracks = await resolveTracks(for: playlist)
-            guard !tracks.isEmpty else {
-                await MainActor.run {
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
-                            title: "No tracks available",
-                            message: "Try again after this playlist finishes syncing.",
-                            dedupeKey: "search-playlist-empty-\(playlist.id)"
-                        )
-                    )
-                }
-                return
-            }
-            await MainActor.run {
-                action(tracks)
-            }
-        }
-    }
-
-    private func resolveTracks(for playlist: Playlist) async -> [Track] {
-        if let cachedPlaylist = try? await deps.playlistRepository.fetchPlaylist(
-            ratingKey: playlist.id,
-            sourceCompositeKey: playlist.sourceCompositeKey
-        ) {
-            return cachedPlaylist.tracksArray.map { Track(from: $0) }
-        }
-        return []
     }
 }

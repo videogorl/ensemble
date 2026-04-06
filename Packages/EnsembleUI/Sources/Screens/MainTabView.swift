@@ -649,6 +649,13 @@ public struct SidebarView: View {
         let compositePath: String?
     }
 
+    /// Sheet payload for sidebar album actions that need playlist selection.
+    private struct PlaylistPickerPayload: Identifiable {
+        let id = UUID()
+        let tracks: [Track]
+        let title: String
+    }
+
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
@@ -658,6 +665,7 @@ public struct SidebarView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     // Observation-extracted: only isLowPowerMode is used from this monitor
     private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    private let pinManager = DependencyContainer.shared.pinManager
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @Environment(\.presentViewportNowPlaying) private var presentViewportNowPlaying
@@ -671,6 +679,12 @@ public struct SidebarView: View {
     @State private var selection: SidebarSelection? = .library(.home)
     @State private var showingSheetNowPlaying = false
     @State private var sidebarColumnWidth: CGFloat = 260
+    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var playlistForEditSheet: Playlist?
+    @State private var playlistPendingRename: Playlist?
+    @State private var mergedPlaylistPendingRename: DisplayPlaylist?
+    @State private var playlistPendingDelete: Playlist?
+    @State private var mergedPlaylistPendingDelete: DisplayPlaylist?
     // Extracted observation state — avoids full root invalidation from powerStateMonitor
     @State private var isLowPowerMode: Bool = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
@@ -873,6 +887,109 @@ public struct SidebarView: View {
         return "Untitled Playlist"
     }
 
+    private func handlePinnedSelectionRemoval(ids: Set<String>, fallback: SidebarSelection) {
+        guard case .pin(let selectedID, _) = selection, ids.contains(selectedID) else { return }
+        selection = fallback
+    }
+
+    private func navigateFromPinnedMenu(to destination: NavigationCoordinator.Destination) {
+        selection = sidebarSelection(for: destination)
+        DispatchQueue.main.async {
+            navigationCoordinator.push(destination, in: targetTab(for: destination))
+        }
+    }
+
+    private func startPinnedPlaylistDelete(for playlist: Playlist) {
+        guard !playlist.isSmart else { return }
+
+        let deletingToast = ToastPayload(
+            style: .info,
+            iconSystemName: "trash",
+            title: "Deleting \(playlist.title)...",
+            isPersistent: true,
+            dedupeKey: "sidebar-playlist-delete-pending-\(playlist.id)",
+            showsActivityIndicator: true
+        )
+        deps.toastCenter.show(deletingToast)
+
+        Task {
+            let didDelete = await playlistsVM.deletePlaylist(playlist)
+            deps.toastCenter.dismiss(id: deletingToast.id)
+
+            if didDelete {
+                handlePinnedSelectionRemoval(ids: [playlist.id], fallback: .library(.playlists))
+                pinManager.unpin(id: playlist.id)
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: .success,
+                        iconSystemName: "checkmark.circle.fill",
+                        title: "Deleted \(playlist.title)",
+                        dedupeKey: "sidebar-playlist-delete-success-\(playlist.id)"
+                    )
+                )
+            } else {
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: .error,
+                        iconSystemName: "xmark.octagon.fill",
+                        title: "Could not delete \(playlist.title)",
+                        message: playlistsVM.error ?? "Try again later.",
+                        dedupeKey: "sidebar-playlist-delete-error-\(playlist.id)"
+                    )
+                )
+            }
+        }
+    }
+
+    private func renamePinnedPlaylist(_ playlist: Playlist, to newTitle: String) {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let renamingToast = ToastPayload(
+            style: .info,
+            iconSystemName: "pencil",
+            title: "Renaming \(playlist.title)...",
+            isPersistent: true,
+            dedupeKey: "sidebar-playlist-rename-pending-\(playlist.id)",
+            showsActivityIndicator: true
+        )
+        playlistsVM.applyOptimisticRename(for: playlist, newTitle: trimmed)
+        deps.toastCenter.show(renamingToast)
+
+        Task {
+            do {
+                let outcome = try await deps.mutationCoordinator.renamePlaylist(playlist, to: trimmed)
+                if outcome == .completed {
+                    await playlistsVM.awaitRenamedPlaylistMaterialization(for: playlist.id, expectedTitle: trimmed)
+                    pinManager.updateTitle(id: playlist.id, title: trimmed)
+                }
+
+                deps.toastCenter.dismiss(id: renamingToast.id)
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: outcome == .queued ? .info : .success,
+                        iconSystemName: outcome == .queued ? "clock.arrow.circlepath" : "pencil.circle.fill",
+                        title: outcome == .queued ? "Rename queued — will sync when online" : "Renamed playlist",
+                        dedupeKey: "sidebar-playlist-rename-success-\(playlist.id)"
+                    )
+                )
+            } catch {
+                playlistsVM.clearOptimisticRename(for: playlist.id)
+                await playlistsVM.loadPlaylists()
+                deps.toastCenter.dismiss(id: renamingToast.id)
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: .error,
+                        iconSystemName: "xmark.octagon.fill",
+                        title: "Could not rename playlist",
+                        message: error.localizedDescription,
+                        dedupeKey: "sidebar-playlist-rename-error-\(playlist.id)"
+                    )
+                )
+            }
+        }
+    }
+
     public var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .bottomLeading) {
@@ -951,6 +1068,83 @@ public struct SidebarView: View {
             #if os(macOS)
                 .frame(width: 720, height: 560)
             #endif
+        }
+        .sheet(item: $playlistPickerPayload) { payload in
+            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
+        }
+        .sheet(item: $playlistForEditSheet) { playlist in
+            NavigationView {
+                PlaylistDetailView(
+                    playlist: playlist,
+                    nowPlayingVM: nowPlayingVM,
+                    startInEditMode: true
+                )
+            }
+        }
+        .sheet(item: $playlistPendingRename) { playlist in
+            NavigationView {
+                TextInputView(
+                    title: "Rename Playlist",
+                    placeholder: "Playlist name",
+                    initialText: playlist.title,
+                    actionTitle: "Save"
+                ) { name in
+                    renamePinnedPlaylist(playlist, to: name)
+                }
+            }
+        }
+        .sheet(item: $mergedPlaylistPendingRename) { displayPlaylist in
+            NavigationView {
+                TextInputView(
+                    title: "Rename Playlist",
+                    message: "This will rename on \(displayPlaylist.playlists.count) server\(displayPlaylist.playlists.count == 1 ? "" : "s").",
+                    placeholder: "Playlist name",
+                    initialText: displayPlaylist.title,
+                    actionTitle: "Save"
+                ) { name in
+                    playlistsVM.applyOptimisticRenameForMerged(displayPlaylist, newTitle: name)
+                    for playlist in displayPlaylist.playlists {
+                        renamePinnedPlaylist(playlist, to: name)
+                    }
+                }
+            }
+        }
+        .alert("Delete Playlist?", isPresented: Binding(
+            get: { playlistPendingDelete != nil },
+            set: { if !$0 { playlistPendingDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) {
+                playlistPendingDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                guard let playlist = playlistPendingDelete else { return }
+                playlistPendingDelete = nil
+                startPinnedPlaylistDelete(for: playlist)
+            }
+        } message: {
+            Text("This will permanently delete \"\(playlistPendingDelete?.title ?? "this playlist")\" from Plex.")
+        }
+        .alert("Delete Merged Playlist?", isPresented: Binding(
+            get: { mergedPlaylistPendingDelete != nil },
+            set: { if !$0 { mergedPlaylistPendingDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) {
+                mergedPlaylistPendingDelete = nil
+            }
+            Button("Delete All", role: .destructive) {
+                guard let displayPlaylist = mergedPlaylistPendingDelete else { return }
+                mergedPlaylistPendingDelete = nil
+                handlePinnedSelectionRemoval(
+                    ids: Set(displayPlaylist.playlists.map(\.id)),
+                    fallback: .library(.playlists)
+                )
+                for playlist in displayPlaylist.playlists {
+                    startPinnedPlaylistDelete(for: playlist)
+                }
+            }
+        } message: {
+            let count = mergedPlaylistPendingDelete?.playlists.count ?? 0
+            Text("This will permanently delete \"\(mergedPlaylistPendingDelete?.title ?? "")\" from \(count) server\(count == 1 ? "" : "s").")
         }
         .onAppear {
             // Register the active NowPlayingViewModel so the external display
@@ -1324,6 +1518,26 @@ public struct SidebarView: View {
                     .frame(width: 22, height: 22)
             }
             .tag(SidebarSelection.pin(id: pinnedItem.id, type: pinnedItem.type))
+            .contextMenu {
+                ArtistActionsContextMenu(
+                    artist: artist,
+                    nowPlayingVM: nowPlayingVM,
+                    toastNamespace: "sidebar-artist-menu",
+                    customPinAction: { isPinned in
+                        if isPinned {
+                            handlePinnedSelectionRemoval(ids: [pinnedItem.id], fallback: .library(.artists))
+                            pinManager.unpin(id: pinnedItem.id)
+                        } else {
+                            pinManager.pin(
+                                id: artist.id,
+                                sourceKey: artist.sourceCompositeKey ?? "",
+                                type: .artist,
+                                title: artist.name
+                            )
+                        }
+                    }
+                )
+            }
 
         case .album(let album, let pinnedItem):
             Label {
@@ -1333,6 +1547,32 @@ public struct SidebarView: View {
                     .frame(width: 22, height: 22)
             }
             .tag(SidebarSelection.pin(id: pinnedItem.id, type: pinnedItem.type))
+            .contextMenu {
+                AlbumActionsContextMenu(
+                    album: album,
+                    nowPlayingVM: nowPlayingVM,
+                    presentPlaylistPicker: { tracks, title in
+                        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                    },
+                    toastNamespace: "sidebar-album-menu",
+                    navigateToArtist: { artistID in
+                        navigateFromPinnedMenu(to: .artist(id: artistID))
+                    },
+                    customPinAction: { isPinned in
+                        if isPinned {
+                            handlePinnedSelectionRemoval(ids: [pinnedItem.id], fallback: .library(.albums))
+                            pinManager.unpin(id: pinnedItem.id)
+                        } else {
+                            pinManager.pin(
+                                id: album.id,
+                                sourceKey: album.sourceCompositeKey ?? "",
+                                type: .album,
+                                title: album.title
+                            )
+                        }
+                    }
+                )
+            }
 
         case .playlist(let playlist, let pinnedItem):
             Label {
@@ -1342,6 +1582,35 @@ public struct SidebarView: View {
                     .frame(width: 22, height: 22)
             }
             .tag(SidebarSelection.pin(id: pinnedItem.id, type: pinnedItem.type))
+            .contextMenu {
+                PlaylistActionsContextMenu(
+                    playlist: playlist,
+                    nowPlayingVM: nowPlayingVM,
+                    toastNamespace: "sidebar-playlist-menu",
+                    onRename: {
+                        playlistPendingRename = playlist
+                    },
+                    onEdit: {
+                        playlistForEditSheet = playlist
+                    },
+                    onDelete: {
+                        playlistPendingDelete = playlist
+                    },
+                    customPinAction: { isPinned in
+                        if isPinned {
+                            handlePinnedSelectionRemoval(ids: [pinnedItem.id], fallback: .library(.playlists))
+                            pinManager.unpin(id: pinnedItem.id)
+                        } else {
+                            pinManager.pin(
+                                id: playlist.id,
+                                sourceKey: playlist.sourceCompositeKey ?? "",
+                                type: .playlist,
+                                title: playlist.title
+                            )
+                        }
+                    }
+                )
+            }
 
         case .mergedPlaylist(let displayPlaylist, let pinnedItems):
             Label {
@@ -1357,6 +1626,31 @@ public struct SidebarView: View {
                 .frame(width: 22, height: 22)
             }
             .tag(SidebarSelection.pin(id: pinnedItems[0].id, type: pinnedItems[0].type))
+            .contextMenu {
+                MergedPlaylistActionsContextMenu(
+                    displayPlaylist: displayPlaylist,
+                    nowPlayingVM: nowPlayingVM,
+                    toastNamespace: "sidebar-merged-playlist-menu",
+                    onRename: {
+                        mergedPlaylistPendingRename = displayPlaylist
+                    },
+                    onDelete: {
+                        mergedPlaylistPendingDelete = displayPlaylist
+                    }
+                )
+
+                Divider()
+
+                Button(role: .destructive) {
+                    handlePinnedSelectionRemoval(
+                        ids: Set(pinnedItems.map(\.id)),
+                        fallback: .library(.playlists)
+                    )
+                    pinManager.unpinAll(ids: Set(pinnedItems.map(\.id)))
+                } label: {
+                    Label("Unpin All", systemImage: "pin.slash")
+                }
+            }
         }
     }
 

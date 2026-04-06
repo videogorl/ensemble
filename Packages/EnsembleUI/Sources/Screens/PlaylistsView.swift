@@ -484,7 +484,7 @@ public struct PlaylistsView: View {
                         if !isPendingCreation {
                             if dp.isMerged {
                                 // Merged playlist context menu — actions apply to all constituents
-                                MergedPlaylistContextMenu(
+                                MergedPlaylistActionsContextMenu(
                                     displayPlaylist: dp,
                                     nowPlayingVM: nowPlayingVM,
                                     onRename: {
@@ -493,7 +493,7 @@ public struct PlaylistsView: View {
                                     onDelete: { displayPlaylistPendingDelete = dp }
                                 )
                             } else {
-                                PlaylistViewContextMenu(
+                                PlaylistActionsContextMenu(
                                     playlist: dp.primaryPlaylist,
                                     nowPlayingVM: nowPlayingVM,
                                     onRename: {
@@ -620,6 +620,7 @@ public struct PlaylistsView: View {
         Task {
             let didDelete = await viewModel.deletePlaylist(playlist)
             if didDelete {
+                DependencyContainer.shared.pinManager.unpin(id: playlist.id)
                 NotificationCenter.default.post(
                     name: .playlistDeletionSucceeded,
                     object: nil,
@@ -745,6 +746,7 @@ public struct PlaylistsView: View {
                         for: playlist.id,
                         expectedTitle: trimmed
                     )
+                    DependencyContainer.shared.pinManager.updateTitle(id: playlist.id, title: trimmed)
                 }
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
@@ -789,251 +791,6 @@ private struct PlaylistsNewButton: View {
             Label("New Playlist", systemImage: "plus")
         }
         .disabled(syncCoordinator.isOffline)
-    }
-}
-
-// MARK: - Playlist Context Menu
-
-/// Dedicated View struct for playlist context menus. Scopes @ObservedObject pinManager
-/// to each menu instance rather than the entire PlaylistsView list.
-private struct PlaylistViewContextMenu: View {
-    let playlist: Playlist
-    let nowPlayingVM: NowPlayingViewModel
-    var onRename: (() -> Void)?
-    var onEdit: (() -> Void)?
-    var onDelete: (() -> Void)?
-
-    @Environment(\.dependencies) private var deps
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
-
-    var body: some View {
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.play(tracks: tracks)
-            }
-        } label: {
-            Label("Play", systemImage: "play.fill")
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.shufflePlay(tracks: tracks)
-            }
-        } label: {
-            Label("Shuffle", systemImage: "shuffle")
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.playNext(tracks)
-            }
-        } label: {
-            Label("Play Next", systemImage: "text.insert")
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.playLast(tracks)
-            }
-        } label: {
-            Label("Play Last", systemImage: "text.append")
-        }
-
-        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
-        Button {
-            Task {
-                await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
-            }
-        } label: {
-            Label(
-                isDownloaded ? "Remove Download" : "Download",
-                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-            )
-        }
-
-        let isPinned = pinManager.isPinned(id: playlist.id)
-        Button {
-            if isPinned {
-                pinManager.unpin(id: playlist.id)
-            } else {
-                pinManager.pin(
-                    id: playlist.id,
-                    sourceKey: playlist.sourceCompositeKey ?? "",
-                    type: .playlist,
-                    title: playlist.title
-                )
-            }
-        } label: {
-            if isPinned {
-                Label("Unpin", systemImage: "pin.slash")
-            } else {
-                Label("Pin", systemImage: "pin.fill")
-            }
-        }
-
-        if !playlist.isSmart {
-            Button {
-                onRename?()
-            } label: {
-                Label("Rename…", systemImage: "pencil")
-            }
-
-            Button {
-                onEdit?()
-            } label: {
-                Label("Edit Playlist", systemImage: "slider.horizontal.3")
-            }
-
-            Button(role: .destructive) {
-                onDelete?()
-            } label: {
-                Label("Delete Playlist", systemImage: "trash")
-            }
-        }
-    }
-
-    private func withPlaylistTracks(_ playlist: Playlist, perform action: @escaping ([Track]) -> Void) {
-        Task {
-            let tracks = await resolveTracks(for: playlist)
-            guard !tracks.isEmpty else {
-                await MainActor.run {
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
-                            title: "No tracks available",
-                            message: "Try again after this playlist finishes syncing.",
-                            dedupeKey: "playlist-menu-empty-\(playlist.id)"
-                        )
-                    )
-                }
-                return
-            }
-            await MainActor.run {
-                action(tracks)
-            }
-        }
-    }
-
-    private func resolveTracks(for playlist: Playlist) async -> [Track] {
-        if let cachedPlaylist = try? await deps.playlistRepository.fetchPlaylist(
-            ratingKey: playlist.id,
-            sourceCompositeKey: playlist.sourceCompositeKey
-        ) {
-            return cachedPlaylist.tracksArray.map { Track(from: $0) }
-        }
-        return []
-    }
-}
-
-// MARK: - Merged Playlist Context Menu
-
-/// Context menu for merged playlist entries — actions apply to all constituent playlists.
-private struct MergedPlaylistContextMenu: View {
-    let displayPlaylist: DisplayPlaylist
-    let nowPlayingVM: NowPlayingViewModel
-    var onRename: (() -> Void)?
-    var onDelete: (() -> Void)?
-
-    @Environment(\.dependencies) private var deps
-
-    var body: some View {
-        Button {
-            withMergedTracks { tracks in nowPlayingVM.play(tracks: tracks) }
-        } label: {
-            Label("Play", systemImage: "play.fill")
-        }
-
-        Button {
-            withMergedTracks { tracks in nowPlayingVM.shufflePlay(tracks: tracks) }
-        } label: {
-            Label("Shuffle", systemImage: "shuffle")
-        }
-
-        Button {
-            withMergedTracks { tracks in nowPlayingVM.playNext(tracks) }
-        } label: {
-            Label("Play Next", systemImage: "text.insert")
-        }
-
-        Button {
-            withMergedTracks { tracks in nowPlayingVM.playLast(tracks) }
-        } label: {
-            Label("Play Last", systemImage: "text.append")
-        }
-
-        // Download/remove all constituent playlists
-        if isAnyConstituentDownloaded {
-            Button {
-                Task {
-                    for playlist in displayPlaylist.playlists {
-                        await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: false)
-                    }
-                }
-            } label: {
-                Label("Remove Downloads", systemImage: "xmark.circle")
-            }
-        } else {
-            Button {
-                Task {
-                    for playlist in displayPlaylist.playlists {
-                        await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: true)
-                    }
-                }
-            } label: {
-                Label("Download All", systemImage: "arrow.down.circle")
-            }
-        }
-
-        if !displayPlaylist.isSmart {
-            Button {
-                onRename?()
-            } label: {
-                Label("Rename All...", systemImage: "pencil")
-            }
-
-            Button(role: .destructive) {
-                onDelete?()
-            } label: {
-                Label("Delete All", systemImage: "trash")
-            }
-        }
-    }
-
-    /// Whether any constituent playlist is already marked for download
-    private var isAnyConstituentDownloaded: Bool {
-        displayPlaylist.playlists.contains { deps.offlineDownloadService.isPlaylistDownloadEnabled($0) }
-    }
-
-    /// Loads and interleaves tracks from all constituent playlists
-    private func withMergedTracks(perform action: @escaping ([Track]) -> Void) {
-        Task {
-            var trackSets: [[Track]] = []
-            for playlist in displayPlaylist.playlists {
-                if let cached = try? await deps.playlistRepository.fetchPlaylist(
-                    ratingKey: playlist.id,
-                    sourceCompositeKey: playlist.sourceCompositeKey
-                ) {
-                    trackSets.append(cached.tracksArray.map { Track(from: $0) })
-                }
-            }
-            let interleaved = DisplayPlaylist.interleave(trackSets)
-            guard !interleaved.isEmpty else {
-                await MainActor.run {
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
-                            title: "No tracks available",
-                            message: "Try again after playlists finish syncing.",
-                            dedupeKey: "merged-playlist-menu-empty-\(displayPlaylist.id)"
-                        )
-                    )
-                }
-                return
-            }
-            await MainActor.run { action(interleaved) }
-        }
     }
 }
 

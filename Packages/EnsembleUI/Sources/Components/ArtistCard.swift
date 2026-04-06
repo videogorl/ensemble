@@ -97,7 +97,7 @@ public struct ArtistGrid: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        ArtistContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
+                        ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
                     }
                 } else {
                     // iOS 15 fallback: using legacy NavigationLink for nested navigation support
@@ -108,7 +108,7 @@ public struct ArtistGrid: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        ArtistContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
+                        ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
                     }
                 }
             }
@@ -128,108 +128,5 @@ public struct ArtistGrid: View {
                 .foregroundColor(.primary)
         }
         .frame(width: ArtworkSize.thumbnail.cgSize.width)
-    }
-}
-
-// MARK: - Artist Context Menu
-
-/// Dedicated View struct for artist context menus. Scopes @ObservedObject pinManager
-/// to each menu instance rather than the entire ArtistGrid.
-private struct ArtistContextMenu: View {
-    let artist: Artist
-    let nowPlayingVM: NowPlayingViewModel
-
-    @Environment(\.dependencies) private var deps
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
-
-    var body: some View {
-        let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
-
-        Button {
-            withArtistTracks(artist) { tracks in
-                nowPlayingVM.play(tracks: tracks)
-            }
-        } label: {
-            Label("Play", systemImage: "play.fill")
-        }
-
-        Button {
-            withArtistTracks(artist) { tracks in
-                nowPlayingVM.shufflePlay(tracks: tracks)
-            }
-        } label: {
-            Label("Shuffle", systemImage: "shuffle")
-        }
-
-        Button {
-            withArtistTracks(artist) { tracks in
-                nowPlayingVM.enableRadio(tracks: tracks)
-            }
-        } label: {
-            Label("Radio", systemImage: "dot.radiowaves.left.and.right")
-        }
-
-        Button {
-            Task {
-                await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
-            }
-        } label: {
-            Label(
-                isDownloaded ? "Remove Download" : "Download",
-                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-            )
-        }
-
-        let isPinned = pinManager.isPinned(id: artist.id)
-        Button {
-            if isPinned {
-                pinManager.unpin(id: artist.id)
-            } else {
-                pinManager.pin(
-                    id: artist.id,
-                    sourceKey: artist.sourceCompositeKey ?? "",
-                    type: .artist,
-                    title: artist.name
-                )
-            }
-        } label: {
-            if isPinned {
-                Label("Unpin", systemImage: "pin.slash")
-            } else {
-                Label("Pin", systemImage: "pin.fill")
-            }
-        }
-    }
-
-    private func withArtistTracks(_ artist: Artist, perform action: @escaping ([Track]) -> Void) {
-        Task {
-            let tracks = await resolveTracks(for: artist)
-            guard !tracks.isEmpty else {
-                await MainActor.run {
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
-                            title: "No tracks available",
-                            message: "Try again after the artist finishes loading.",
-                            dedupeKey: "artist-menu-empty-\(artist.id)"
-                        )
-                    )
-                }
-                return
-            }
-            await MainActor.run {
-                action(tracks)
-            }
-        }
-    }
-
-    private func resolveTracks(for artist: Artist) async -> [Track] {
-        if let cached = try? await deps.libraryRepository.fetchTracks(forArtist: artist.id),
-           !cached.isEmpty {
-            return cached.map { Track(from: $0) }
-        }
-        guard let sourceKey = artist.sourceCompositeKey else { return [] }
-        return (try? await deps.syncCoordinator.getArtistTracks(artistId: artist.id, sourceKey: sourceKey)) ?? []
     }
 }
