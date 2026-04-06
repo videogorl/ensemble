@@ -1,4 +1,5 @@
 import EnsembleCore
+import Combine
 import SwiftUI
 
 // MARK: - Tab View Factory
@@ -65,16 +66,15 @@ public struct MainTabView: View {
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
     
-    #if os(iOS)
-    @StateObject private var keyboard = KeyboardObserver()
-    #endif
-
     @State private var showingSheetNowPlaying = false
     @State private var didSetInitialTab = false
     @State private var isImmersiveMode = false
     // Extracted observation state — avoids full root invalidation from singleton publishers
     @State private var networkState: NetworkState = DependencyContainer.shared.networkMonitor.networkState
     @State private var isLowPowerMode: Bool = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
+    #if os(iOS)
+    @State private var keyboardVisible = false
+    #endif
 
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
@@ -99,7 +99,7 @@ public struct MainTabView: View {
 
     private var isKeyboardVisible: Bool {
         #if os(iOS)
-        return keyboard.isVisible
+        return keyboardVisible
         #else
         return false
         #endif
@@ -205,6 +205,22 @@ public struct MainTabView: View {
             .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
                 isLowPowerMode = newValue
             }
+            #if os(iOS)
+            .onReceive(Publishers.keyboardHeight.map { $0 > 0 }.removeDuplicates()) { newValue in
+                // Keep the presenting shell stable while the profile auxiliary sheet
+                // owns the keyboard-driven layout changes for its editor stack.
+                if navigationCoordinator.activeAuxiliaryPresentation == nil {
+                    keyboardVisible = newValue
+                } else if !newValue {
+                    keyboardVisible = false
+                }
+            }
+            .onChange(of: navigationCoordinator.activeAuxiliaryPresentation != nil) { isPresented in
+                if isPresented {
+                    keyboardVisible = false
+                }
+            }
+            #endif
             .onChange(of: isShowingNowPlaying) { isShowing in
                 // Execute pending navigation after the sheet fully dismisses.
                 // The 0.35s delay lets the NavigationStack settle after the

@@ -871,6 +871,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var lastTimelineReportTime: TimeInterval = 0  // Track last timeline report
     private var consecutiveTimelineFailures = 0  // Backoff counter for offline periods
     private var hasScrobbled: Bool = false  // Track if current track has been scrobbled
+    private var lastPlaybackSnapshotTime: TimeInterval = 0
     private var isScrobblingEnabled: Bool {
         UserDefaults.standard.bool(forKey: "scrobblingEnabled")
     }
@@ -1158,6 +1159,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 guard let self else { return }
                 guard self.playbackState == .playing else { return }
                 self.updatePlaybackTimes(rawTime: time)
+                self.reconcileEngineTrackStateIfNeeded()
+                self.persistPlaybackSnapshotIfNeeded(forObservedTime: time)
                 Task { @MainActor in
                     self.audioAnalyzer.updatePlaybackPosition(self.presentationTime)
                 }
@@ -1282,6 +1285,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         Task { await checkAndRefreshAutoplayQueue() }
 
         EnsembleLogger.debug("[AudioEngine] Gapless advance to '\(newTrack.title)' (index \(index))")
+    }
+
+    private func reconcileEngineTrackStateIfNeeded() {
+        guard let engineTrackID = audioEngine?.currentTrackId else { return }
+        guard Self.shouldReconcileEngineTrack(
+            currentTrackID: currentTrack?.id,
+            engineTrackID: engineTrackID,
+            isSkipTransitionInProgress: isSkipTransitionInProgress
+        ) else {
+            return
+        }
+
+        EnsembleLogger.debug("[AudioEngine] Reconciling UI to engine trackId=\(engineTrackID)")
+        handleEngineTrackAdvance(trackId: engineTrackID)
     }
 
     /// Handles natural playback completion when AVQueuePlayer has no current item left.
@@ -1628,6 +1645,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let clampedRawTime = max(0, rawTime)
         currentTime = clampedRawTime
         presentationTime = presentationTime(for: clampedRawTime)
+    }
+
+    static func shouldPersistPlaybackSnapshot(
+        observedTime: TimeInterval,
+        lastSavedTime: TimeInterval,
+        interval: TimeInterval = 15
+    ) -> Bool {
+        observedTime > 0 && (lastSavedTime == 0 || observedTime - lastSavedTime >= interval)
+    }
+
+    static func shouldReconcileEngineTrack(
+        currentTrackID: String?,
+        engineTrackID: String?,
+        isSkipTransitionInProgress: Bool
+    ) -> Bool {
+        guard !isSkipTransitionInProgress, let engineTrackID else { return false }
+        return currentTrackID != engineTrackID
     }
 
     private func refreshPresentationTime() {
@@ -3517,7 +3551,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // do not briefly point at the previous item during a skip.
         await MainActor.run {
             self.currentTrack = track
-            self.updatePlaybackTimes(rawTime: 0)
+            self.updatePlaybackTimes(rawTime: request.recoverySeekTime ?? 0)
             self.bufferedProgress = 0
             self.waveformHeights = []
             self.updateNowPlayingInfo()
@@ -5156,12 +5190,29 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// offloads the JSON encoding and disk write to a background thread so the
     /// main/audio thread is never blocked.
     private func savePlaybackState() {
+        lastPlaybackSnapshotTime = currentTime
         queueStore.save(
             queue: queue,
             history: playbackHistory,
             currentIndex: currentQueueIndex,
             currentTime: currentTime
         )
+    }
+
+    private func persistPlaybackSnapshotIfNeeded(forObservedTime time: TimeInterval) {
+        guard Self.shouldPersistPlaybackSnapshot(
+            observedTime: time,
+            lastSavedTime: lastPlaybackSnapshotTime
+        ) else {
+            return
+        }
+
+        savePlaybackState()
+    }
+
+    @MainActor
+    public func persistPlaybackStateSnapshot() {
+        savePlaybackState()
     }
     
     /// Restore playback state from UserDefaults

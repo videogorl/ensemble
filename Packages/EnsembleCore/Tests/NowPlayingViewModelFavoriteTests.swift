@@ -385,8 +385,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         await Task.yield()
         viewModel.currentRating = .loved
 
-        viewModel.toggleRating()
-        try? await Task.sleep(nanoseconds: 300_000_000)
+        await viewModel.toggleRatingForTesting()
 
         XCTAssertFalse(viewModel.isTrackFavorited(track))
     }

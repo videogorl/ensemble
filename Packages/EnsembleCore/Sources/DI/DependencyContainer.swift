@@ -999,6 +999,11 @@ public final class DependencyContainer: @unchecked Sendable {
     /// can observe the same instance for AirPlay screen mirroring.
     @MainActor public var activeNowPlayingViewModel: NowPlayingViewModel?
 
+    @MainActor
+    public func persistPlaybackStateSnapshot() {
+        playbackService.persistPlaybackStateSnapshot()
+    }
+
     // MARK: - View Model Factories
 
     @MainActor

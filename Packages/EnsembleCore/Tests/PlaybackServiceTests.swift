@@ -256,6 +256,44 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertFalse(shouldIgnore)
     }
 
+    func testPlaybackSnapshotPersistsAfterInterval() {
+        XCTAssertTrue(
+            PlaybackService.shouldPersistPlaybackSnapshot(
+                observedTime: 30,
+                lastSavedTime: 10
+            )
+        )
+    }
+
+    func testPlaybackSnapshotSkipsFrequentWrites() {
+        XCTAssertFalse(
+            PlaybackService.shouldPersistPlaybackSnapshot(
+                observedTime: 20,
+                lastSavedTime: 10
+            )
+        )
+    }
+
+    func testEngineTrackReconciliationTriggersWhenEngineAndUIDiverge() {
+        XCTAssertTrue(
+            PlaybackService.shouldReconcileEngineTrack(
+                currentTrackID: "8877",
+                engineTrackID: "8878",
+                isSkipTransitionInProgress: false
+            )
+        )
+    }
+
+    func testEngineTrackReconciliationSkipsDuringManualTransitions() {
+        XCTAssertFalse(
+            PlaybackService.shouldReconcileEngineTrack(
+                currentTrackID: "8877",
+                engineTrackID: "8878",
+                isSkipTransitionInProgress: true
+            )
+        )
+    }
+
     func testBaseBufferingProfileForWifiUsesLowLatencyAndDepthOne() {
         let profile = PlaybackService.baseBufferingProfile(for: .online(.wifi))
         XCTAssertFalse(profile.waitsToMinimizeStalling)
