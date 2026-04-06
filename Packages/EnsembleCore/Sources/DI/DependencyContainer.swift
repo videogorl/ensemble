@@ -1,5 +1,6 @@
 import EnsembleAPI
 import EnsemblePersistence
+import Combine
 import Foundation
 
 /// Central dependency container that creates and wires all services and view models
@@ -63,6 +64,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let cloudSyncService: CloudSyncService
     public let syncSettingsManager: SyncSettingsManager
     public let kvsSyncService: KVSSyncService
+    private var kvsSyncCancellables = Set<AnyCancellable>()
 
     // MARK: - Network Infrastructure
 
@@ -504,6 +506,51 @@ public final class DependencyContainer: @unchecked Sendable {
                 // Remove download stubs and offline targets for the removed source
                 try? await offlineTargetRepoRef.deleteTargets(forSourceCompositeKey: sourceKey)
                 try? await downloadManagerRef.deleteDownloads(forSourceCompositeKey: sourceKey)
+            }
+        }
+
+        // Wire KVS sync for accent color + swipe layout
+        MainActor.assumeIsolated {
+            let settings = settingsManager
+            let kvs = kvsRef
+            let syncToggles = syncSettingsRef
+
+            // Push accent color on local change
+            kvsRef.onRemoteAccentColorChanged = { colorName in
+                guard syncToggles.isFeatureEnabled(.accentColor) else { return }
+                settings.setAccentColor(AppAccentColor(rawValue: colorName) ?? .blue)
+            }
+
+            // Push swipe layout on remote change
+            kvsRef.onRemoteSwipeLayoutChanged = { data in
+                guard syncToggles.isFeatureEnabled(.swipeActions) else { return }
+                if let layout = try? JSONDecoder().decode(TrackSwipeLayout.self, from: data) {
+                    settings.trackSwipeLayout = layout
+                }
+            }
+
+            // Observe local accent color changes → push to KVS
+            settings.objectWillChange
+                .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+                .sink { [weak settings, weak kvs, weak syncToggles] _ in
+                    guard let settings = settings, let kvs = kvs, let syncToggles = syncToggles else { return }
+                    guard syncToggles.isFeatureEnabled(.accentColor) else { return }
+                    kvs.pushString(settings.accentColorName, forKey: KVSSyncService.KVSKey.accentColor)
+
+                    guard syncToggles.isFeatureEnabled(.swipeActions) else { return }
+                    if let data = try? JSONEncoder().encode(settings.trackSwipeLayout) {
+                        kvs.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
+                    }
+                }
+                .store(in: &kvsSyncCancellables)
+
+            // Initial push of current values to KVS (if sync is on)
+            if syncToggles.isFeatureEnabled(.accentColor) {
+                kvs.pushString(settings.accentColorName, forKey: KVSSyncService.KVSKey.accentColor)
+            }
+            if syncToggles.isFeatureEnabled(.swipeActions),
+               let data = try? JSONEncoder().encode(settings.trackSwipeLayout) {
+                kvs.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
             }
         }
     }
