@@ -51,7 +51,7 @@ final class PlexAccountDiscoveryServiceTests: XCTestCase {
               "uuid": "user-uuid",
               "username": "felicity",
               "title": "Felicity",
-              "email": "felicity@nysics.com"
+              "email": "user@example.com"
             }
             """
         )
@@ -126,7 +126,7 @@ final class PlexAccountDiscoveryServiceTests: XCTestCase {
         let result = try await service.discoverAccount(authToken: "auth-token")
 
         XCTAssertEqual(result.identity.id, "user-uuid")
-        XCTAssertEqual(result.identity.email, "felicity@nysics.com")
+        XCTAssertEqual(result.identity.email, "user@example.com")
         XCTAssertEqual(result.identity.plexUsername, "felicity")
         XCTAssertEqual(result.identity.displayTitle, "Felicity")
 
@@ -150,7 +150,7 @@ final class PlexAccountDiscoveryServiceTests: XCTestCase {
               "uuid": "user-uuid",
               "username": "felicity",
               "title": "Felicity",
-              "email": "felicity@nysics.com"
+              "email": "user@example.com"
             }
             """
         )
@@ -232,7 +232,7 @@ final class PlexAccountDiscoveryServiceTests: XCTestCase {
               "uuid": "user-uuid",
               "username": "felicity",
               "title": "Felicity",
-              "email": "felicity@nysics.com"
+              "email": "user@example.com"
             }
             """
         )

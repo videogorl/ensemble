@@ -59,7 +59,7 @@ final class AddPlexAccountViewModelTests: XCTestCase {
 
         let identity = PlexAccountIdentity(
             id: "user-1",
-            email: "felicity@nysics.com",
+            email: "user@example.com",
             plexUsername: "felicity",
             displayTitle: "Felicity"
         )
@@ -99,7 +99,7 @@ final class AddPlexAccountViewModelTests: XCTestCase {
 
         let identity = PlexAccountIdentity(
             id: "user-1",
-            email: "felicity@nysics.com",
+            email: "user@example.com",
             plexUsername: "felicity",
             displayTitle: "Felicity"
         )
@@ -120,7 +120,7 @@ final class AddPlexAccountViewModelTests: XCTestCase {
             return
         }
         XCTAssertEqual(account.id, "user-1")
-        XCTAssertEqual(account.email, "felicity@nysics.com")
+        XCTAssertEqual(account.email, "user@example.com")
         XCTAssertEqual(account.plexUsername, "felicity")
         XCTAssertEqual(account.displayTitle, "Felicity")
         XCTAssertEqual(account.servers.count, 2)

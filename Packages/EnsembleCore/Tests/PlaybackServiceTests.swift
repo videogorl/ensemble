@@ -503,7 +503,7 @@ final class PlaybackServiceTests: XCTestCase {
         let accounts = [
             PlexAccountConfig(
                 id: "account-1",
-                email: "felicity@nysics.com",
+                email: "user@example.com",
                 plexUsername: "felicity",
                 displayTitle: "Felicity",
                 authToken: "token",

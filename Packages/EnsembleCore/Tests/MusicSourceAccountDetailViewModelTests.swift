@@ -222,7 +222,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         harness.discoveryService.result = PlexAccountDiscoveryResult(
             identity: PlexAccountIdentity(
                 id: "account-1",
-                email: "felicity@nysics.com",
+                email: "user@example.com",
                 plexUsername: "felicity",
                 displayTitle: "Felicity"
             ),
@@ -325,7 +325,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         harness.discoveryService.result = PlexAccountDiscoveryResult(
             identity: PlexAccountIdentity(
                 id: "account-1",
-                email: "felicity@nysics.com",
+                email: "user@example.com",
                 plexUsername: "felicity",
                 displayTitle: "Felicity"
             ),
@@ -351,7 +351,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         harness.discoveryService.result = PlexAccountDiscoveryResult(
             identity: PlexAccountIdentity(
                 id: "account-1",
-                email: "felicity@nysics.com",
+                email: "user@example.com",
                 plexUsername: "felicity",
                 displayTitle: "Felicity"
             ),
@@ -382,7 +382,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         let harness = makeHarness()
         let expiredAccount = PlexAccountConfig(
             id: "account-1",
-            email: "felicity@nysics.com",
+            email: "user@example.com",
             plexUsername: "felicity",
             displayTitle: "Felicity",
             authToken: "auth-token",
@@ -492,7 +492,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             PlexAccountDiscoveryResult(
                 identity: PlexAccountIdentity(
                     id: "account-1",
-                    email: "felicity@nysics.com",
+                    email: "user@example.com",
                     plexUsername: "felicity",
                     displayTitle: "Felicity"
                 ),
@@ -605,7 +605,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
     ) -> PlexAccountConfig {
         PlexAccountConfig(
             id: accountId,
-            email: "felicity@nysics.com",
+            email: "user@example.com",
             plexUsername: "felicity",
             displayTitle: "Felicity",
             authToken: "auth-token",
