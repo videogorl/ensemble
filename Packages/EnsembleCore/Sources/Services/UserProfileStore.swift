@@ -42,10 +42,12 @@ public final class UserProfileStore: ObservableObject {
 
     // MARK: - Initialization
 
-    public init() {
-        // Set up profile directory
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        profileDirectory = appSupport.appendingPathComponent("Ensemble/Profile")
+    public convenience init() {
+        self.init(profileDirectory: Self.defaultProfileDirectory())
+    }
+
+    init(profileDirectory: URL) {
+        self.profileDirectory = profileDirectory
 
         // Load existing profile or create empty one
         profile = UserProfile()
@@ -149,6 +151,11 @@ public final class UserProfileStore: ObservableObject {
 
     private func createDirectoryIfNeeded() {
         try? FileManager.default.createDirectory(at: profileDirectory, withIntermediateDirectories: true)
+    }
+
+    private static func defaultProfileDirectory() -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("Ensemble/Profile")
     }
 
     private func loadProfile() {
