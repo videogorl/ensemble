@@ -12,7 +12,16 @@ public struct RootView: View {
 
     public var body: some View {
         ZStack {
+            #if os(macOS)
+            if #available(macOS 13.0, *) {
+                mainContentView
+                    .toolbar(isViewportNowPlayingPresented ? .hidden : .visible, for: .windowToolbar)
+            } else {
+                mainContentView
+            }
+            #else
             mainContentView
+            #endif
 
             if supportsViewportNowPlayingPresentation,
                isViewportNowPlayingPresented,

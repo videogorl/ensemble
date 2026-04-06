@@ -1019,16 +1019,16 @@ public struct SidebarView: View {
                     sidebarColumn
                 } detail: {
                     detailContainerView
+                        .macEditorToolbarRoleIfAvailable()
                 }
                 .navigationSplitViewStyle(.balanced)
-                .macEditorToolbarRoleIfAvailable()
 
                 // Aurora visualization — placed in the outer ZStack so it renders
                 // above NavigationStack pushed views (macOS NavigationStack creates
                 // opaque compositing layers that paint over parent overlays).
                 if settingsManager.auroraVisualizationEnabled {
                     detailColumnAurora(totalSize: proxy.size)
-                        .zIndex(1)
+                        .zIndex(-1)
                 }
 
                 if !isShowingNowPlaying {
@@ -1252,8 +1252,9 @@ public struct SidebarView: View {
 
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 220, ideal: 260)
+        .navigationSplitViewColumnWidth(min: 260, ideal: 260, max: 260)
         .toolbar {
+            ToolbarItem { Spacer() }
             ToolbarItemGroup(placement: .primaryActionIfAvailable) {
                 Button { navigationCoordinator.openDownloads() } label: {
                     Image(systemName: "arrow.down.circle")
@@ -1262,7 +1263,6 @@ public struct SidebarView: View {
                 ProfileToolbarButton()
             }
         }
-        .macEditorToolbarRoleIfAvailable()
         .if_available_removeSidebarToggle()
         // Sync cached sidebar playlists from VM publisher. Using @State + .onReceive
         // instead of computed properties ensures updates survive NavigationSplitView
@@ -1397,7 +1397,6 @@ public struct SidebarView: View {
                     .auroraBackgroundSupport()
             }
         }
-        .macEditorToolbarRoleIfAvailable()
         .id("playlist-detail-\(playlistID)-\(sourceKey ?? "none")")
     }
 
@@ -1414,7 +1413,6 @@ public struct SidebarView: View {
                     .auroraBackgroundSupport()
             }
         }
-        .macEditorToolbarRoleIfAvailable()
         .id("merged-playlist-detail-\(title)-\(isSmart)")
     }
 
@@ -1426,7 +1424,6 @@ public struct SidebarView: View {
         NavigationStack(path: sidebarPathBinding(for: tab)) {
             sidebarContentView(for: tab)
         }
-        .macEditorToolbarRoleIfAvailable()
     }
 
     private func sidebarPathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
@@ -1453,7 +1450,6 @@ public struct SidebarView: View {
                         .auroraBackgroundSupport()
                 }
         }
-        .macEditorToolbarRoleIfAvailable()
         .id("pin-\(id)-\(type)")
     }
 
@@ -1512,8 +1508,6 @@ public struct SidebarView: View {
     /// Uses the same sidebar-width offset as the mini player so the aurora
     /// covers only the detail area, not the sidebar.
     private func detailColumnAurora(totalSize: CGSize) -> some View {
-        let clampedSidebarWidth = min(max(sidebarColumnWidth, 0), totalSize.width)
-
         return AuroraVisualizationView(
             playbackService: DependencyContainer.shared.playbackService,
             accentColor: settingsManager.accentColor.color,
@@ -1521,7 +1515,6 @@ public struct SidebarView: View {
             isLowPowerMode: isLowPowerMode
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .padding(.leading, clampedSidebarWidth)
         .ignoresSafeArea(.all)
         .allowsHitTesting(false)
     }

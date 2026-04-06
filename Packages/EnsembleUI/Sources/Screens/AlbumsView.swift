@@ -95,100 +95,98 @@ public struct AlbumsView: View {
                 await libraryVM.refreshFromServer()
             }
         .profileToolbar()
-        .if(!isViewportNowPlayingPresented) { content in
-            content.toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if !libraryVM.albums.isEmpty && !isStageFlowActive {
-                        HStack(spacing: 16) {
-                            Button {
-                                showFilterSheet = true
-                            } label: {
-                                ZStack(alignment: .topTrailing) {
-                                    Image(systemName: "line.3.horizontal.decrease.circle")
+                .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !libraryVM.albums.isEmpty && !isStageFlowActive {
+                    HStack(spacing: 16) {
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
 
-                                    // Badge indicator when filters are active
-                                    if libraryVM.albumsFilterOptions.hasActiveFilters {
-                                        Circle()
-                                            .fill(Color.red)
-                                            .frame(width: 8, height: 8)
-                                            .offset(x: 2, y: -2)
-                                    }
+                                // Badge indicator when filters are active
+                                if libraryVM.albumsFilterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
                                 }
                             }
+                        }
 
-                            Menu {
-                                ForEach(AlbumSortOption.allCases, id: \.self) { option in
-                                    Button {
+                        Menu {
+                            ForEach(AlbumSortOption.allCases, id: \.self) { option in
+                                Button {
+                                    if libraryVM.albumSortOption == option {
+                                        libraryVM.albumsFilterOptions.sortDirection =
+                                            libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                                    } else {
+                                        libraryVM.albumSortOption = option
+                                        libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(option.rawValue)
                                         if libraryVM.albumSortOption == option {
-                                            libraryVM.albumsFilterOptions.sortDirection =
-                                                libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                                        } else {
-                                            libraryVM.albumSortOption = option
-                                            libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
-                                        }
-                                    } label: {
-                                        HStack {
-                                            Text(option.rawValue)
-                                            if libraryVM.albumSortOption == option {
-                                                Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
-                                                      ? "chevron.up" : "chevron.down")
-                                            }
+                                            Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
+                                                  ? "chevron.up" : "chevron.down")
                                         }
                                     }
                                 }
-                            } label: {
-                                Label("Sort By", systemImage: "arrow.up.arrow.down")
                             }
+                        } label: {
+                            Label("Sort By", systemImage: "arrow.up.arrow.down")
                         }
                     }
                 }
-                #else
-                ToolbarItem(placement: .primaryActionIfAvailable) {
-                    if !libraryVM.albums.isEmpty && !isStageFlowActive {
-                        HStack(spacing: 16) {
-                            Button {
-                                showFilterSheet = true
-                            } label: {
-                                ZStack(alignment: .topTrailing) {
-                                    Image(systemName: "line.3.horizontal.decrease.circle")
-                                    if libraryVM.albumsFilterOptions.hasActiveFilters {
-                                        Circle()
-                                            .fill(Color.red)
-                                            .frame(width: 8, height: 8)
-                                            .offset(x: 2, y: -2)
-                                    }
-                                }
-                            }
-
-                            Menu {
-                                ForEach(AlbumSortOption.allCases, id: \.self) { option in
-                                    Button {
-                                        if libraryVM.albumSortOption == option {
-                                            libraryVM.albumsFilterOptions.sortDirection =
-                                                libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                                        } else {
-                                            libraryVM.albumSortOption = option
-                                            libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
-                                        }
-                                    } label: {
-                                        HStack {
-                                            Text(option.rawValue)
-                                            if libraryVM.albumSortOption == option {
-                                                Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
-                                                      ? "chevron.up" : "chevron.down")
-                                            }
-                                        }
-                                    }
-                                }
-                            } label: {
-                                Label("Sort By", systemImage: "arrow.up.arrow.down")
-                            }
-                        }
-                    }
-                }
-                #endif
             }
+            #else
+            ToolbarItem(placement: .primaryActionIfAvailable) {
+                if !libraryVM.albums.isEmpty && !isStageFlowActive {
+                    HStack(spacing: 16) {
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                if libraryVM.albumsFilterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
+                        }
+
+                        Menu {
+                            ForEach(AlbumSortOption.allCases, id: \.self) { option in
+                                Button {
+                                    if libraryVM.albumSortOption == option {
+                                        libraryVM.albumsFilterOptions.sortDirection =
+                                            libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                                    } else {
+                                        libraryVM.albumSortOption = option
+                                        libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(option.rawValue)
+                                        if libraryVM.albumSortOption == option {
+                                            Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
+                                                  ? "chevron.up" : "chevron.down")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("Sort By", systemImage: "arrow.up.arrow.down")
+                        }
+                    }
+                }
+            }
+            #endif
         }
             .onReceive(libraryVM.$filteredAlbums) { albums in
                 // Compute sections off main thread to avoid blocking UI during search
@@ -359,6 +357,7 @@ public struct AlbumsView: View {
                             ForEach(cachedAlbumSections) { section in
                                 Section(header: sectionHeader(section.letter)) {
                                     AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
+                                        .padding(.horizontal)
                                         .id(section.letter)
                                 }
                             }
@@ -366,6 +365,7 @@ public struct AlbumsView: View {
                         .padding(.vertical)
                     } else {
                         AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
+                            .padding(.horizontal)
                             .padding(.vertical)
                     }
                 }

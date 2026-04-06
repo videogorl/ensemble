@@ -12,7 +12,7 @@ public enum AlbumCardLayoutMetrics {
         case .compact:
             return .thumbnail
         case .prominent:
-            return .card
+            return .small // 200px allows grid stretching, previously .card (160)
         }
     }
 
@@ -24,16 +24,16 @@ public enum AlbumCardLayoutMetrics {
         case .compact:
             return 100
         case .prominent:
-            return 150
+            return 160 // ensures 2-column layout on iPhone
         }
     }
 
     public var columnMaximum: CGFloat {
         switch self {
         case .compact:
-            return 120
+            return 140
         case .prominent:
-            return 180
+            return 220
         }
     }
 
@@ -57,7 +57,7 @@ public struct AlbumCard: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ArtworkView(album: album, size: layout.artworkSize)
+            ArtworkView(album: album, size: layout.artworkSize, isResponsive: true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(album.title)
@@ -80,7 +80,7 @@ public struct AlbumCard: View {
                 }
             }
         }
-        .frame(width: layout.artworkSize.cgSize.width)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .multilineTextAlignment(.leading)
     }
 }

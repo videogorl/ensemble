@@ -24,34 +24,32 @@ public struct DownloadsView: View {
         }
         .navigationTitle("Downloads")
         .profileToolbar()
-        .if(!isViewportNowPlayingPresented) { content in
-            content.toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink {
-                        DownloadManagerSettingsView()
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                    }
+                .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                NavigationLink {
+                    DownloadManagerSettingsView()
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
                 }
-
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    queueControlButton
-                }
-                #else
-                ToolbarItem(placement: .primaryActionIfAvailable) {
-                    NavigationLink {
-                        DownloadManagerSettingsView()
-                    } label: {
-                        Label("Settings", systemImage: "slider.horizontal.3")
-                    }
-                }
-
-                ToolbarItem(placement: .primaryActionIfAvailable) {
-                    queueControlButton
-                }
-                #endif
             }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
+                queueControlButton
+            }
+            #else
+            ToolbarItem(placement: .primaryActionIfAvailable) {
+                NavigationLink {
+                    DownloadManagerSettingsView()
+                } label: {
+                    Label("Settings", systemImage: "slider.horizontal.3")
+                }
+            }
+
+            ToolbarItem(placement: .primaryActionIfAvailable) {
+                queueControlButton
+            }
+            #endif
         }
         .task {
             await viewModel.refresh()
