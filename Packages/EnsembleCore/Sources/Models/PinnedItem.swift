@@ -35,6 +35,10 @@ public final class PinManager: ObservableObject {
 
     @Published public private(set) var pinnedItems: [PinnedItem] = []
 
+    /// Set during remote sync application to suppress re-pushing to KVS.
+    /// Uses a timestamp so the debounced push (500ms later) still sees the flag.
+    public private(set) var lastRemoteApplyTime: Date?
+
     public init() {
         loadPins()
     }
@@ -115,5 +119,24 @@ public final class PinManager: ObservableObject {
             pinnedItemsData = encoded
         }
         objectWillChange.send()
+    }
+
+    // MARK: - Sync Support
+
+    /// Replace local pins with the remote snapshot from iCloud.
+    /// This keeps pin removals and reordering consistent across devices.
+    public func applyRemotePins(_ remotePins: [PinnedItem]) {
+        lastRemoteApplyTime = Date()
+
+        // Skip save if nothing actually changed (avoids echo-loop triggers)
+        guard remotePins != pinnedItems else { return }
+
+        pinnedItems = remotePins
+        savePins()
+    }
+
+    /// Export current pins as JSON Data for KVS push
+    public func exportPinsData() -> Data? {
+        try? JSONEncoder().encode(pinnedItems)
     }
 }

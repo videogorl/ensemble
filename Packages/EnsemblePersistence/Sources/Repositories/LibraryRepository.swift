@@ -280,12 +280,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         await withCheckedContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
-                // refreshAllObjects() iterates registeredObjects internally,
-                // which can crash if a background deletion merged a nil entry.
-                // reset() clears all registered objects without iterating them.
-                // Callers re-fetch immediately after this call, so this is safe.
                 context.stalenessInterval = 0
-                context.reset()
+                context.refreshAllObjects()
                 context.stalenessInterval = 5.0
                 continuation.resume()
             }

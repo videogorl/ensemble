@@ -26,7 +26,8 @@ public struct MoreView: View {
     }
 
     private var moreTabs: [TabItem] {
-        TabItem.allCases.filter { !barTabs.contains($0) }
+        // Exclude .settings — now accessed via profile toolbar button
+        TabItem.allCases.filter { $0 != .settings && !barTabs.contains($0) }
     }
 
     public var body: some View {
@@ -39,6 +40,7 @@ public struct MoreView: View {
         }
         .miniPlayerBottomSpacing()
         .navigationTitle(isEditing ? "Edit Tabs" : "More")
+        .profileToolbar()
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {

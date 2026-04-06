@@ -5,15 +5,15 @@ import Combine
 @MainActor
 public final class NavigationCoordinator: ObservableObject {
     public enum AuxiliaryPresentation: String, Identifiable {
-        case settings
+        case profile
         case downloads
 
         public var id: String { rawValue }
 
         public var windowID: String {
             switch self {
-            case .settings:
-                return "settings-window"
+            case .profile:
+                return "profile-window"
             case .downloads:
                 return "downloads-window"
             }
@@ -174,8 +174,14 @@ public final class NavigationCoordinator: ObservableObject {
         return true
     }
 
+    /// Open the profile sheet/window (replaces legacy openSettings)
+    public func openProfile() {
+        requestAuxiliaryPresentation(.profile)
+    }
+
+    /// Legacy alias — routes to openProfile()
     public func openSettings() {
-        requestAuxiliaryPresentation(.settings)
+        openProfile()
     }
 
     public func openDownloads() {

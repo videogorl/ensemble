@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, frequency visualizer, hubs, filtering, network resilience, playback tracking, playlist mutations, playlist merging, incremental sync, Siri media intents, pinned content, persistent session logging)"
+description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, frequency visualizer, hubs, filtering, network resilience, playback tracking, playlist mutations, playlist merging, incremental sync, Siri media intents, pinned content, persistent session logging, user profile & CloudKit sync)"
 ---
 
 # Ensemble Architecture
@@ -651,6 +651,61 @@ Real-time dual-write logging for TestFlight diagnostics. Each `EnsembleLogger` m
 
 - **Key types:** `PersistentLogService`, `LogFileWriter` (private), `LogSession`
 - **Key files:** `PersistentLogService.swift`, all `EnsembleLogger.swift` files, `DependencyContainer.swift`, `EnsembleApp.swift`
+
+## Subsystem: User Profile & CloudKit Sync
+
+User-editable profile (display name, profile image) with iCloud private database sync:
+
+1. **UserProfile** (`EnsembleCore/Models`) -- Data model with `displayName`, `profileImagePath`, and `lastModified` fields.
+2. **UserProfileStore** (`EnsembleCore/Services`, @MainActor ObservableObject) -- Local profile persistence and image processing. Publishes the current profile for UI binding.
+3. **CloudSyncService** (`EnsembleCore/Services`, actor) -- CloudKit private database sync using container `iCloud.com.videogorl.ensemble`, record type `UserProfile`. Supports push, pull, and subscription for remote change notifications. Uses last-writer-wins conflict resolution based on `lastModified`.
+4. **ProfileView** (`EnsembleUI/Screens`) -- Full profile screen replacing the previous SettingsView content. Settings are migrated into ProfileView; SettingsView redirects here.
+5. **ProfileHeaderView** (`EnsembleUI/Components`) -- Circular profile image + display name header with photo picker integration.
+6. **ProfileToolbarButton** (`EnsembleUI/Components`) -- 28×28pt circular profile image button rendered by `MainTabView` on iPhone root tab destinations and by the sidebar toolbar on iPad/macOS.
+7. **Navigation change:** `AuxiliaryPresentation.settings` renamed to `.profile`; `openSettings()` renamed to `openProfile()` (legacy alias kept for backward compatibility).
+8. **DependencyContainer** wires `UserProfileStore` and `CloudSyncService` as singleton services.
+
+- **Key types:** `UserProfile`, `UserProfileStore`, `CloudSyncService`
+- **Key files:** `UserProfile.swift`, `UserProfileStore.swift`, `CloudSyncService.swift`, `ProfileView.swift`, `ProfileHeaderView.swift`, `ProfileToolbarButton.swift`, `DependencyContainer.swift`
+
+## Subsystem: iCloud Sync (Phase 2 — KVS + Keychain)
+
+Hybrid sync architecture for cross-device settings and credential sharing:
+
+```
+┌──────────────────────────────────────────────────────┐
+│  iCloud Sync Mechanisms                              │
+├──────────────┬──────────────────┬─────────────────────┤
+│  KVS         │  iCloud Keychain │  CloudKit           │
+│  (small data)│  (credentials)   │  (profile)          │
+├──────────────┼──────────────────┼─────────────────────┤
+│ Accent color │ Plex tokens      │ Display name        │
+│ Swipe layout │ Server URLs      │ Profile image       │
+│ Pins         │ Account IDs      │                     │
+│ Library flags│                  │                     │
+└──────────────┴──────────────────┴─────────────────────┘
+```
+
+**Sync mechanisms:**
+1. **KVS (`KVSSyncService`)** — `NSUbiquitousKeyValueStore` wrapper for small settings. Push/pull/observe with echo-loop suppression (1s window after pushing). Each KVS key maps to a feature toggle in `SyncSettingsManager`. Library flags are encoded in canonical sorted order so identical state does not generate false remote changes from dictionary key reordering.
+2. **iCloud Keychain (`KeychainService`)** — Synchronizable keychain items for Plex credentials. Uses `saveSynchronizable`/`getSynchronizable`/`deleteSynchronizable` APIs with `KeychainKey.plexAccountsSync`.
+3. **CloudKit (`CloudSyncService`)** — Private database sync for user profile (existing, see User Profile subsystem).
+
+**Key behaviors:**
+- **Dependency cascade:** Libraries toggle auto-disables when Sources is turned off.
+- **Bootstrap flow:** On first iCloud connection or when a feature is re-enabled, existing cloud state wins. If the cloud has no payload for that feature yet, the current device seeds the cloud instead of waiting for a later local edit.
+- **Ongoing updates:** Local edits push their latest full snapshot; other devices apply the remote snapshot when it changes.
+- **Pins:** Remote pin sync is snapshot-based, not union-based, so pin deletions and reorderings propagate across devices.
+
+**Sync settings toggles (per-device, UserDefaults):**
+- `sources` — account credentials via iCloud Keychain
+- `libraries` — library enabled/disabled flags (depends on `sources`)
+- `pins` — pinned content
+- `accentColor` — app accent color
+- `swipeActions` — track swipe action layout
+
+- **Key types:** `SyncSettingsManager`, `KVSSyncService`, `SyncableAccountCredential`, `SyncableServerCredential`, `SyncableLibraryRef`
+- **Key files:** `SyncSettingsManager.swift`, `KVSSyncService.swift`, `SyncSettingsView.swift`, `DependencyContainer.swift`, `AccountManager.swift`, `KeychainService.swift`, `PlexAccountConfig.swift`, `PinnedItem.swift`
 
 ## Multi-Source Architecture
 

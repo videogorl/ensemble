@@ -94,6 +94,7 @@ public struct AlbumsView: View {
             .refreshable {
                 await libraryVM.refreshFromServer()
             }
+        .profileToolbar()
         .if(!isViewportNowPlayingPresented) { content in
             content.toolbar {
                 #if os(iOS)

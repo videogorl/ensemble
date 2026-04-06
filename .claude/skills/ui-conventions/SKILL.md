@@ -100,6 +100,12 @@ Button("Remove", role: .destructive) { remove() }
 
 Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
+### Profile Toolbar Button
+- **iPhone:** `ProfileToolbarButton` (28×28pt circular profile image) is owned by `MainTabView` and shown only on root tab destinations: the visible tab-bar tabs plus the root `More` view. Do not add it per-screen, or it will leak into pushed `More` destinations and can disappear on iOS 15 when trailing toolbar items compete.
+- **iPad/macOS:** `ProfileToolbarButton` placed in sidebar toolbar, replacing the previous gear icon
+- Tapping opens `ProfileView` via `AuxiliaryPresentation.profile` (formerly `.settings`)
+- The button displays the user's profile image if set, otherwise falls back to a person icon
+
 ### System Integration
 - Leverage native SwiftUI components and iOS system features (e.g., `AVRoutePickerView` for AirPlay, `MPRemoteCommandCenter` for lock screen)
 - Views should adapt to platform idioms (tab bar on iPhone, sidebar on iPad/macOS)

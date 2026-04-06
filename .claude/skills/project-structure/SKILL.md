@@ -64,7 +64,7 @@ ensemble/
 ```
 Sources/
 +-- Auth/
-|   +-- KeychainService.swift          # Secure token storage wrapper
+|   +-- KeychainService.swift          # Secure token storage wrapper + synchronizable iCloud Keychain support (saveSynchronizable/getSynchronizable/deleteSynchronizable)
 |   +-- PlexAuthService.swift          # PIN-based OAuth flow (actor)
 |   +-- PlexAuthTokenMetadata.swift    # JWT metadata parsing/helpers (iat/exp)
 +-- Client/
@@ -126,16 +126,17 @@ Sources/
 |   +-- DomainModels.swift             # UI-facing models (Track, Album, Artist, Hub, etc.)
 |   +-- ModelMappers.swift             # CD* <-> Domain model conversions
 |   +-- MusicSource.swift              # Multi-account source identification
-|   +-- PlexAccountConfig.swift        # Account/server/library configuration
+|   +-- PlexAccountConfig.swift        # Account/server/library configuration + SyncableAccountCredential, SyncableServerCredential, SyncableLibraryRef models
 |   +-- SiriIntentPayload.swift        # Siri extension->app payload codec + schema
 |   +-- SiriMediaIndex.swift           # Siri media index model used by extension lookup
 |   +-- LibraryVisibilityProfile.swift # Source visibility profile model (non-sync filtering)
 |   +-- ConnectionPolicy.swift         # Core-level aliases/UI labels for API connection policy types
 |   +-- FilterOptions.swift            # Filter/sort configuration with persistence
 |   +-- NetworkModels.swift            # Network state & connectivity models
-|   +-- PinnedItem.swift               # Pinned content model (albums, artists, playlists)
+|   +-- PinnedItem.swift               # Pinned content model (albums, artists, playlists) + applyRemotePins merge + exportPinsData
+|   +-- UserProfile.swift              # Profile data model (displayName, profileImagePath, lastModified)
 +-- Services/
-|   +-- AccountManager.swift           # Multi-account configuration (MainActor)
+|   +-- AccountManager.swift           # Multi-account configuration (MainActor) + pushSyncCredentials/pullSyncCredentials/exportLibraryFlags/applyLibraryFlags
 |   +-- SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
 |   +-- RefreshOrchestrator.swift      # Health-refresh gating, cooldown/staleness policy, and startup-health ownership extracted from SyncCoordinator
 |   +-- NetworkLifecycleController.swift # App-foreground and network-transition policy extracted from SyncCoordinator
@@ -184,6 +185,10 @@ Sources/
 |   +-- ShareService.swift             # Share payload coordinator (link/file/text) with temp download support
 |   +-- LyricsService.swift            # LRC parser, lyrics models (LyricsLine/ParsedLyrics/LyricsState), LyricsService fetch pipeline + offline sidecar
 |   +-- PersistentLogService.swift     # Persistent session logging with real-time file writes for TestFlight diagnostics
+|   +-- UserProfileStore.swift        # @MainActor ObservableObject for local profile persistence + image processing
+|   +-- CloudSyncService.swift        # CloudKit actor for private database sync (push/pull/subscribe)
+|   +-- SyncSettingsManager.swift    # Master + per-feature iCloud sync toggles (UserDefaults, per-device)
+|   +-- KVSSyncService.swift         # NSUbiquitousKeyValueStore wrapper for iCloud KVS sync (push/pull/observe, echo-loop suppression)
 +-- EnsembleLogger.swift               # Package logger categories
 +-- ViewModels/
 |   +-- AddPlexAccountViewModel.swift
@@ -230,6 +235,7 @@ Tests/
 +-- ServerHealthCheckerClassificationTests.swift
 +-- SettingsManagerConnectionPolicyTests.swift
 +-- AccountManagerAuthPolicyTests.swift
++-- AccountManagerLibrarySyncTests.swift
 +-- SearchSectionOrderingTests.swift   # Deterministic search section tie-break ordering
 +-- LibraryVisibilityProfileTests.swift # Visibility profile persistence + filtering seams
 +-- SiriIntentPayloadTests.swift       # Siri payload serialization + userInfo contract
@@ -237,6 +243,9 @@ Tests/
 +-- SongLinkServiceTests.swift         # Song.link URL resolution + caching + fallback tests
 +-- ShareServiceTests.swift            # Share payload assembly + file detection tests
 +-- LyricsServiceTests.swift           # LRC parser timestamp parsing + line lookup coverage
++-- UserProfileTests.swift            # Unit tests for UserProfile model
++-- SyncSettingsManagerTests.swift    # Unit tests for SyncSettingsManager toggle logic + dependency cascade
++-- PinManagerSyncTests.swift         # Unit tests for PinManager merge logic (union, remote-wins conflict)
 ```
 
 ## EnsembleUI (Presentation Layer)
@@ -295,6 +304,8 @@ Sources/
 |   +-- TrackListLayoutMetrics.swift  # Shared row spacing, separator insets, and mini-player clearance tokens
 |   +-- TrackRowInteractionModel.swift # Shared per-track action/favorite/recent-playlist resolver for SwiftUI + UIKit rows
 |   +-- TrackSwipeContainer.swift     # Shared swipe gesture container for track row actions on large-screen + iOS
+|   +-- ProfileHeaderView.swift      # Circular profile image + name header with photo picker
+|   +-- ProfileToolbarButton.swift   # 28×28pt toolbar profile button for all top-level views
 |   +-- View+Extensions.swift         # SwiftUI view extensions and helpers
 |   +-- WaveformView.swift            # Audio waveform visualization
 +-- Screens/
@@ -320,7 +331,9 @@ Sources/
 |   +-- OfflineServersView.swift      # (Legacy) Server-grouped sync-enabled library toggles
 |   +-- RootView.swift                # Platform-adaptive root (tabs vs sidebar)
 |   +-- SearchView.swift              # Search interface
-|   +-- SettingsView.swift            # App settings with customizable tabs & accent colors
+|   +-- ProfileView.swift             # Full profile view (replaces SettingsView content; includes all settings)
+|   +-- SettingsView.swift            # Legacy redirect to ProfileView
+|   +-- SyncSettingsView.swift       # Toggle UI for iCloud sync features (shown in ProfileView)
 |   +-- TrackSwipeActionsSettingsView.swift # Settings UI for configuring track swipe action slots
 |   +-- SongsView.swift               # All songs list
 |   +-- LogsSettingsView.swift        # Log session management (toggle, session list, delete)

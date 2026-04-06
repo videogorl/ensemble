@@ -28,6 +28,7 @@ public struct HomeView: View {
             }
         }
         .navigationTitle("Feed")
+        .profileToolbar()
         .if(!isViewportNowPlayingPresented) { content in
             content.toolbar {
                 ToolbarItem(placement: .primaryActionIfAvailable) {

@@ -12,8 +12,13 @@ public struct AddPlexAccountView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.dependencies) private var deps
 
-    public init() {
+    /// When true, the view is pushed inside an existing NavigationStack
+    /// and should not wrap itself in another NavigationView.
+    private let isEmbedded: Bool
+
+    public init(embedded: Bool = false) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeAddPlexAccountViewModel())
+        self.isEmbedded = embedded
     }
 
     public var body: some View {
@@ -53,31 +58,66 @@ public struct AddPlexAccountView: View {
     #endif
 
     private var iOSBody: some View {
-        NavigationView {
-            ScrollView {
-                contentStack
-            }
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
+        Group {
+            if isEmbedded {
+                // Pushed inside an existing NavigationStack (e.g. profile sheet).
+                // Skip wrapping in NavigationView; use Cancel as a simple dismiss button.
+                ScrollView {
+                    contentStack
+                }
                 #if os(iOS)
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-                #else
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
+                .navigationBarTitleDisplayMode(.inline)
+                .navigationBarBackButtonHidden(true)
                 #endif
-            }
-            .onChange(of: viewModel.state) { newState in
-                if newState == .complete {
-                    dismiss()
+                .toolbar {
+                    #if os(iOS)
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button("Cancel") {
+                            dismiss()
+                        }
+                    }
+                    #else
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            dismiss()
+                        }
+                    }
+                    #endif
+                }
+                .onChange(of: viewModel.state) { newState in
+                    if newState == .complete {
+                        dismiss()
+                    }
+                }
+            } else {
+                // Presented as a standalone sheet — wrap in its own NavigationView.
+                NavigationView {
+                    ScrollView {
+                        contentStack
+                    }
+                    #if os(iOS)
+                    .navigationBarTitleDisplayMode(.inline)
+                    #endif
+                    .toolbar {
+                        #if os(iOS)
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button("Cancel") {
+                                dismiss()
+                            }
+                        }
+                        #else
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") {
+                                dismiss()
+                            }
+                        }
+                        #endif
+                    }
+                    .onChange(of: viewModel.state) { newState in
+                        if newState == .complete {
+                            dismiss()
+                        }
+                    }
                 }
             }
         }
