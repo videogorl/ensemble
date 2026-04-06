@@ -661,7 +661,7 @@ User-editable profile (display name, profile image) with iCloud private database
 3. **CloudSyncService** (`EnsembleCore/Services`, actor) -- CloudKit private database sync using container `iCloud.com.videogorl.ensemble`, record type `UserProfile`. Supports push, pull, and subscription for remote change notifications. Uses last-writer-wins conflict resolution based on `lastModified`.
 4. **ProfileView** (`EnsembleUI/Screens`) -- Full profile screen replacing the previous SettingsView content. Settings are migrated into ProfileView; SettingsView redirects here.
 5. **ProfileHeaderView** (`EnsembleUI/Components`) -- Circular profile image + display name header with photo picker integration.
-6. **ProfileToolbarButton** (`EnsembleUI/Components`) -- 28×28pt circular profile image button shown in toolbar across all top-level views.
+6. **ProfileToolbarButton** (`EnsembleUI/Components`) -- 28×28pt circular profile image button rendered by `MainTabView` on iPhone root tab destinations and by the sidebar toolbar on iPad/macOS.
 7. **Navigation change:** `AuxiliaryPresentation.settings` renamed to `.profile`; `openSettings()` renamed to `openProfile()` (legacy alias kept for backward compatibility).
 8. **DependencyContainer** wires `UserProfileStore` and `CloudSyncService` as singleton services.
 
@@ -687,15 +687,15 @@ Hybrid sync architecture for cross-device settings and credential sharing:
 ```
 
 **Sync mechanisms:**
-1. **KVS (`KVSSyncService`)** — `NSUbiquitousKeyValueStore` wrapper for small settings. Push/pull/observe with echo-loop suppression (1s window after pushing). Each KVS key maps to a feature toggle in `SyncSettingsManager`.
+1. **KVS (`KVSSyncService`)** — `NSUbiquitousKeyValueStore` wrapper for small settings. Push/pull/observe with echo-loop suppression (1s window after pushing). Each KVS key maps to a feature toggle in `SyncSettingsManager`. Library flags are encoded in canonical sorted order so identical state does not generate false remote changes from dictionary key reordering.
 2. **iCloud Keychain (`KeychainService`)** — Synchronizable keychain items for Plex credentials. Uses `saveSynchronizable`/`getSynchronizable`/`deleteSynchronizable` APIs with `KeychainKey.plexAccountsSync`.
 3. **CloudKit (`CloudSyncService`)** — Private database sync for user profile (existing, see User Profile subsystem).
 
 **Key behaviors:**
 - **Dependency cascade:** Libraries toggle auto-disables when Sources is turned off.
-- **First-connect flow:** On first iCloud connection, all data is pulled from iCloud.
-- **Re-enable flow:** Turning a toggle back on pulls from iCloud and overwrites local.
-- **Pin merge:** Union by `(id, sourceCompositeKey)`, remote wins on conflict. Implemented in `PinnedItem.applyRemotePins` + `PinManager.exportPinsData`.
+- **Bootstrap flow:** On first iCloud connection or when a feature is re-enabled, existing cloud state wins. If the cloud has no payload for that feature yet, the current device seeds the cloud instead of waiting for a later local edit.
+- **Ongoing updates:** Local edits push their latest full snapshot; other devices apply the remote snapshot when it changes.
+- **Pins:** Remote pin sync is snapshot-based, not union-based, so pin deletions and reorderings propagate across devices.
 
 **Sync settings toggles (per-device, UserDefaults):**
 - `sources` — account credentials via iCloud Keychain

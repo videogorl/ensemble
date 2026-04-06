@@ -21,6 +21,8 @@ public final class KVSSyncService: ObservableObject {
 
     private let store: NSUbiquitousKeyValueStore
     private var cancellables = Set<AnyCancellable>()
+    private var lastDeliveredStringValues: [String: String] = [:]
+    private var lastDeliveredDataValues: [String: Data] = [:]
 
     /// Callbacks for when remote changes arrive for each key
     public var onRemoteAccentColorChanged: ((String) -> Void)?
@@ -54,6 +56,9 @@ public final class KVSSyncService: ObservableObject {
     /// Push a string value to KVS
     public func pushString(_ value: String, forKey key: String) {
         guard isAvailable else { return }
+        if store.string(forKey: key) == value {
+            return
+        }
         suppressedKeys.insert(key)
         store.set(value, forKey: key)
         store.synchronize()
@@ -67,6 +72,9 @@ public final class KVSSyncService: ObservableObject {
     /// Push raw Data to KVS
     public func pushData(_ data: Data, forKey key: String) {
         guard isAvailable else { return }
+        if store.data(forKey: key) == data {
+            return
+        }
         suppressedKeys.insert(key)
         store.set(data, forKey: key)
         store.synchronize()
@@ -86,6 +94,11 @@ public final class KVSSyncService: ObservableObject {
     /// Pull raw Data from KVS (returns nil if not set)
     public func pullData(forKey key: String) -> Data? {
         store.data(forKey: key)
+    }
+
+    /// Force a refresh from iCloud before reading bootstrap state.
+    public func synchronize() {
+        _ = store.synchronize()
     }
 
     // MARK: - Remote Change Observation
@@ -132,24 +145,32 @@ public final class KVSSyncService: ObservableObject {
             switch key {
             case KVSKey.accentColor:
                 if let value = store.string(forKey: key) {
+                    guard lastDeliveredStringValues[key] != value else { continue }
+                    lastDeliveredStringValues[key] = value
                     EnsembleLogger.info("KVS: remote accent color change → \(value)")
                     onRemoteAccentColorChanged?(value)
                 }
 
             case KVSKey.swipeLayout:
                 if let data = store.data(forKey: key) {
+                    guard lastDeliveredDataValues[key] != data else { continue }
+                    lastDeliveredDataValues[key] = data
                     EnsembleLogger.info("KVS: remote swipe layout change (\(data.count) bytes)")
                     onRemoteSwipeLayoutChanged?(data)
                 }
 
             case KVSKey.pins:
                 if let data = store.data(forKey: key) {
+                    guard lastDeliveredDataValues[key] != data else { continue }
+                    lastDeliveredDataValues[key] = data
                     EnsembleLogger.info("KVS: remote pins change (\(data.count) bytes)")
                     onRemotePinsChanged?(data)
                 }
 
             case KVSKey.libraryFlags:
                 if let data = store.data(forKey: key) {
+                    guard lastDeliveredDataValues[key] != data else { continue }
+                    lastDeliveredDataValues[key] = data
                     EnsembleLogger.info("KVS: remote library flags change (\(data.count) bytes)")
                     onRemoteLibraryFlagsChanged?(data)
                 }

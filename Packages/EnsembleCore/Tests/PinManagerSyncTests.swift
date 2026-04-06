@@ -4,7 +4,7 @@ import XCTest
 final class PinManagerSyncTests: XCTestCase {
 
     @MainActor
-    func testApplyRemotePinsMergesUnique() {
+    func testApplyRemotePinsReplacesLocalSnapshot() {
         let manager = PinManager()
 
         // Clear any leftover pins
@@ -24,14 +24,10 @@ final class PinManagerSyncTests: XCTestCase {
 
         manager.applyRemotePins(remotePins)
 
-        // Should have 3 pins: remote1, shared (remote wins), local1
-        XCTAssertEqual(manager.pinnedItems.count, 3)
-
-        // Remote pins come first (they take priority in ordering)
+        XCTAssertEqual(manager.pinnedItems.count, 2)
         XCTAssertEqual(manager.pinnedItems[0].id, "remote1")
         XCTAssertEqual(manager.pinnedItems[1].id, "shared")
         XCTAssertEqual(manager.pinnedItems[1].title, "Shared Artist Remote", "Remote should win on conflict")
-        XCTAssertEqual(manager.pinnedItems[2].id, "local1")
     }
 
     @MainActor
@@ -58,7 +54,7 @@ final class PinManagerSyncTests: XCTestCase {
     }
 
     @MainActor
-    func testApplyEmptyRemotePinsKeepsLocal() {
+    func testApplyEmptyRemotePinsClearsLocalPins() {
         let manager = PinManager()
 
         while !manager.pinnedItems.isEmpty {
@@ -69,8 +65,6 @@ final class PinManagerSyncTests: XCTestCase {
 
         manager.applyRemotePins([])
 
-        // Local pins are preserved as local-only additions
-        XCTAssertEqual(manager.pinnedItems.count, 1)
-        XCTAssertEqual(manager.pinnedItems[0].id, "local1")
+        XCTAssertTrue(manager.pinnedItems.isEmpty)
     }
 }

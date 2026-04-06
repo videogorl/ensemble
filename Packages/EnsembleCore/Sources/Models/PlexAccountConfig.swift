@@ -213,6 +213,22 @@ public struct SyncableAccountCredential: Codable, Equatable, Sendable {
     public let authToken: String
     public let servers: [SyncableServerCredential]
 
+    public init(
+        accountId: String,
+        email: String?,
+        plexUsername: String?,
+        displayTitle: String?,
+        authToken: String,
+        servers: [SyncableServerCredential]
+    ) {
+        self.accountId = accountId
+        self.email = email
+        self.plexUsername = plexUsername
+        self.displayTitle = displayTitle
+        self.authToken = authToken
+        self.servers = servers
+    }
+
     public init(from account: PlexAccountConfig) {
         self.accountId = account.id
         self.email = account.email
@@ -230,6 +246,18 @@ public struct SyncableServerCredential: Codable, Equatable, Sendable {
     public let serverToken: String
     public let libraries: [SyncableLibraryRef]
 
+    public init(
+        serverId: String,
+        serverName: String,
+        serverToken: String,
+        libraries: [SyncableLibraryRef]
+    ) {
+        self.serverId = serverId
+        self.serverName = serverName
+        self.serverToken = serverToken
+        self.libraries = libraries
+    }
+
     public init(from server: PlexServerConfig) {
         self.serverId = server.id
         self.serverName = server.name
@@ -244,6 +272,13 @@ public struct SyncableLibraryRef: Codable, Equatable, Sendable {
     public let key: String
     public let title: String
     public let isEnabled: Bool
+
+    public init(id: String, key: String, title: String, isEnabled: Bool) {
+        self.id = id
+        self.key = key
+        self.title = title
+        self.isEnabled = isEnabled
+    }
 
     public init(from library: PlexLibraryConfig) {
         self.id = library.id

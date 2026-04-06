@@ -28,7 +28,10 @@ public struct ProfileToolbarButton: View {
     @ViewBuilder
     private var profileImage: some View {
         if let imageURL = profileStore.profileImageURL {
-            LocalToolbarProfileImage(url: imageURL)
+            LocalToolbarProfileImage(
+                url: imageURL,
+                reloadToken: profileStore.profile.lastModified
+            )
                 .frame(width: 28, height: 28)
                 .clipShape(Circle())
         } else {
@@ -38,15 +41,67 @@ public struct ProfileToolbarButton: View {
     }
 }
 
+// MARK: - Profile Toolbar Modifier
+
+private struct ShowsProfileToolbarKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var showsProfileToolbar: Bool {
+        get { self[ShowsProfileToolbarKey.self] }
+        set { self[ShowsProfileToolbarKey.self] = newValue }
+    }
+}
+
+/// Adds the profile button on iPhone root tab views only.
+/// iOS 15 uses `navigationBarItems` because stacked `.toolbar` modifiers
+/// can drop trailing items in `NavigationView`.
+struct ProfileToolbarModifier: ViewModifier {
+    @Environment(\.showsProfileToolbar) private var showsProfileToolbar
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            content.toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if showsProfileToolbar {
+                        ProfileToolbarButton()
+                    }
+                }
+            }
+        } else {
+            content.navigationBarItems(
+                trailing: Group {
+                    if showsProfileToolbar {
+                        ProfileToolbarButton()
+                    }
+                }
+            )
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+extension View {
+    func profileToolbar() -> some View {
+        modifier(ProfileToolbarModifier())
+    }
+}
+
 /// Loads a small profile image for toolbar display using platform-native APIs
 private struct LocalToolbarProfileImage: View {
     let url: URL
+    let reloadToken: Date
     @State private var image: Image?
 
     var body: some View {
         Group {
             if let image = image {
                 image
+                    .renderingMode(.original)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
@@ -56,64 +111,22 @@ private struct LocalToolbarProfileImage: View {
         }
         .onAppear { loadImage() }
         .onChange(of: url) { _ in loadImage() }
+        .onChange(of: reloadToken) { _ in loadImage() }
     }
 
     private func loadImage() {
         #if canImport(UIKit)
         if let uiImage = UIImage(contentsOfFile: url.path) {
             image = Image(uiImage: uiImage)
+        } else {
+            image = nil
         }
         #elseif canImport(AppKit)
         if let nsImage = NSImage(contentsOf: url) {
             image = Image(nsImage: nsImage)
+        } else {
+            image = nil
         }
         #endif
-    }
-}
-
-// MARK: - Profile Toolbar Modifier
-
-/// Environment key tracking whether the NavigationStack is at its root view.
-/// Set by tabContentView in MainTabView based on the navigation path depth.
-private struct IsNavigationAtRootKey: EnvironmentKey {
-    static let defaultValue = true
-}
-
-extension EnvironmentValues {
-    /// Whether the current view is at the NavigationStack root (path is empty).
-    var isNavigationAtRoot: Bool {
-        get { self[IsNavigationAtRootKey.self] }
-        set { self[IsNavigationAtRootKey.self] = newValue }
-    }
-}
-
-/// View modifier that adds the profile button as the rightmost trailing toolbar item.
-/// Only shows when the NavigationStack is at root depth (no pushed views).
-/// Apply this BEFORE other `.toolbar` modifiers — SwiftUI renders later-declared
-/// toolbar items leftmost, so the first modifier's items end up rightmost.
-struct ProfileToolbarModifier: ViewModifier {
-    @Environment(\.isNavigationAtRoot) private var isAtRoot
-
-    func body(content: Content) -> some View {
-        #if os(iOS)
-        content.toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if isAtRoot {
-                    ProfileToolbarButton()
-                }
-            }
-        }
-        #else
-        content
-        #endif
-    }
-}
-
-extension View {
-    /// Adds a profile toolbar button as the rightmost trailing item (iOS only).
-    /// Only visible when the NavigationStack is at root (no pushed views).
-    /// Apply this BEFORE other toolbar modifiers to guarantee rightmost placement.
-    func profileToolbar() -> some View {
-        modifier(ProfileToolbarModifier())
     }
 }

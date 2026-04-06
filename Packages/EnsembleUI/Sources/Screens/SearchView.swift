@@ -88,7 +88,6 @@ public struct SearchView: View {
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
         .profileToolbar()
-
         if #available(iOS 18.0, macOS 15.0, *) {
             content.searchFocused($isSearchFieldFocused)
         } else {

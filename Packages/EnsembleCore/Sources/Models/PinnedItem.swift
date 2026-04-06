@@ -123,43 +123,20 @@ public final class PinManager: ObservableObject {
 
     // MARK: - Sync Support
 
-    /// Merge remote pins from iCloud with local pins.
-    /// Uses union by (id, sourceCompositeKey); remote wins on conflict.
+    /// Replace local pins with the remote snapshot from iCloud.
+    /// This keeps pin removals and reordering consistent across devices.
     public func applyRemotePins(_ remotePins: [PinnedItem]) {
         lastRemoteApplyTime = Date()
 
-        // Build a lookup of remote pins by composite key
-        let remoteByKey = Dictionary(
-            remotePins.map { (PinManager.compositeKey(for: $0), $0) },
-            uniquingKeysWith: { _, last in last }
-        )
-        let localByKey = Dictionary(
-            pinnedItems.map { (PinManager.compositeKey(for: $0), $0) },
-            uniquingKeysWith: { _, last in last }
-        )
-
-        // Start with remote pins (they take priority), then add local-only pins
-        var merged: [PinnedItem] = remotePins
-        for (key, localPin) in localByKey where remoteByKey[key] == nil {
-            merged.append(localPin)
-        }
-
         // Skip save if nothing actually changed (avoids echo-loop triggers)
-        let mergedIds = merged.map { $0.id }
-        let currentIds = pinnedItems.map { $0.id }
-        guard mergedIds != currentIds else { return }
+        guard remotePins != pinnedItems else { return }
 
-        pinnedItems = merged
+        pinnedItems = remotePins
         savePins()
     }
 
     /// Export current pins as JSON Data for KVS push
     public func exportPinsData() -> Data? {
         try? JSONEncoder().encode(pinnedItems)
-    }
-
-    /// Composite key for deduplication
-    private static func compositeKey(for pin: PinnedItem) -> String {
-        "\(pin.id):\(pin.sourceCompositeKey)"
     }
 }

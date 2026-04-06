@@ -369,6 +369,7 @@ public struct MainTabView: View {
                         searchVM: searchVM,
                         isMoreRoot: isMoreRoot
                     )
+                    .environment(\.showsProfileToolbar, shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
                     .auroraBackgroundSupport()
                     .background(
                         NestedNavigationLink(
@@ -443,13 +444,17 @@ public struct MainTabView: View {
             destinationView(for: destination)
                 .auroraBackgroundSupport()
         }
-        // Pass the tab's navigation depth as an environment value so root views
-        // can conditionally show the profile toolbar button only at depth 0.
-        .environment(\.isNavigationAtRoot, pathForTab(tab).isEmpty)
+        .environment(\.showsProfileToolbar, shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
     }
 
     @ViewBuilder
     private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
+        destinationContentView(for: destination)
+            .environment(\.showsProfileToolbar, false)
+    }
+
+    @ViewBuilder
+    private func destinationContentView(for destination: NavigationCoordinator.Destination) -> some View {
         switch destination {
         case .artist(let id):
             ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
@@ -469,6 +474,16 @@ public struct MainTabView: View {
                 searchVM: searchVM,
             )
         }
+    }
+
+    private func shouldShowProfileButton(for tab: TabItem, isMoreRoot: Bool) -> Bool {
+        #if os(iOS)
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
+        guard pathForTab(tab).isEmpty else { return false }
+        return isMoreRoot || barTabs.contains(tab)
+        #else
+        return false
+        #endif
     }
 }
 

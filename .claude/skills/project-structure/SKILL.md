@@ -235,6 +235,7 @@ Tests/
 +-- ServerHealthCheckerClassificationTests.swift
 +-- SettingsManagerConnectionPolicyTests.swift
 +-- AccountManagerAuthPolicyTests.swift
++-- AccountManagerLibrarySyncTests.swift
 +-- SearchSectionOrderingTests.swift   # Deterministic search section tie-break ordering
 +-- LibraryVisibilityProfileTests.swift # Visibility profile persistence + filtering seams
 +-- SiriIntentPayloadTests.swift       # Siri payload serialization + userInfo contract

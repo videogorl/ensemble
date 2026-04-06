@@ -95,7 +95,10 @@ public struct ProfileHeaderView: View {
     private var profileImageView: some View {
         if let imageURL = profileStore.profileImageURL {
             // Load local image from file URL
-            LocalProfileImage(url: imageURL)
+            LocalProfileImage(
+                url: imageURL,
+                reloadToken: profileStore.profile.lastModified
+            )
                 .frame(width: 120, height: 120)
                 .clipShape(Circle())
         } else {
@@ -130,12 +133,14 @@ public struct ProfileHeaderView: View {
 /// Loads a profile image from a local file URL using platform-native APIs
 private struct LocalProfileImage: View {
     let url: URL
+    let reloadToken: Date
     @State private var image: Image?
 
     var body: some View {
         Group {
             if let image = image {
                 image
+                    .renderingMode(.original)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
@@ -144,16 +149,21 @@ private struct LocalProfileImage: View {
         }
         .onAppear { loadImage() }
         .onChange(of: url) { _ in loadImage() }
+        .onChange(of: reloadToken) { _ in loadImage() }
     }
 
     private func loadImage() {
         #if canImport(UIKit)
         if let uiImage = UIImage(contentsOfFile: url.path) {
             image = Image(uiImage: uiImage)
+        } else {
+            image = nil
         }
         #elseif canImport(AppKit)
         if let nsImage = NSImage(contentsOf: url) {
             image = Image(nsImage: nsImage)
+        } else {
+            image = nil
         }
         #endif
     }
