@@ -553,12 +553,17 @@ public final class DependencyContainer: @unchecked Sendable {
                 }
             }
 
-            // Push pins when they change locally
+            // Push pins when they change locally (skip if recently applied remote to avoid echo loop)
             pins.objectWillChange
                 .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
                 .sink { [weak pins, weak kvs, weak syncToggles] _ in
                     guard let pins = pins, let kvs = kvs, let syncToggles = syncToggles else { return }
                     guard syncToggles.isFeatureEnabled(.pins) else { return }
+                    // Skip push if we just applied remote pins (within 2s window)
+                    if let lastApply = pins.lastRemoteApplyTime,
+                       Date().timeIntervalSince(lastApply) < 2.0 {
+                        return
+                    }
                     if let data = pins.exportPinsData() {
                         kvs.pushData(data, forKey: KVSSyncService.KVSKey.pins)
                     }

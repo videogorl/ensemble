@@ -35,6 +35,10 @@ public final class PinManager: ObservableObject {
 
     @Published public private(set) var pinnedItems: [PinnedItem] = []
 
+    /// Set during remote sync application to suppress re-pushing to KVS.
+    /// Uses a timestamp so the debounced push (500ms later) still sees the flag.
+    public private(set) var lastRemoteApplyTime: Date?
+
     public init() {
         loadPins()
     }
@@ -122,6 +126,8 @@ public final class PinManager: ObservableObject {
     /// Merge remote pins from iCloud with local pins.
     /// Uses union by (id, sourceCompositeKey); remote wins on conflict.
     public func applyRemotePins(_ remotePins: [PinnedItem]) {
+        lastRemoteApplyTime = Date()
+
         // Build a lookup of remote pins by composite key
         let remoteByKey = Dictionary(
             remotePins.map { (PinManager.compositeKey(for: $0), $0) },
@@ -137,6 +143,11 @@ public final class PinManager: ObservableObject {
         for (key, localPin) in localByKey where remoteByKey[key] == nil {
             merged.append(localPin)
         }
+
+        // Skip save if nothing actually changed (avoids echo-loop triggers)
+        let mergedIds = merged.map { $0.id }
+        let currentIds = pinnedItems.map { $0.id }
+        guard mergedIds != currentIds else { return }
 
         pinnedItems = merged
         savePins()
