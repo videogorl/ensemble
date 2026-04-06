@@ -640,6 +640,64 @@ public final class DependencyContainer: @unchecked Sendable {
             if syncToggles.isFeatureEnabled(.libraries), let data = acctMgr.exportLibraryFlags() {
                 kvs.pushData(data, forKey: KVSSyncService.KVSKey.libraryFlags)
             }
+
+            // Wire master sync re-enable → pull all from iCloud
+            syncSettingsRef.onMasterSyncEnabled = { [weak kvs, weak acctMgr, weak syncToggles] in
+                guard let kvs = kvs, let syncToggles = syncToggles else { return }
+                kvs.pullAll()
+
+                // Also pull synced account credentials
+                if syncToggles.isFeatureEnabled(.sources), let acctMgr = acctMgr {
+                    let newAccounts = acctMgr.pullSyncCredentials()
+                    if !newAccounts.isEmpty {
+                        acctMgr.onNewAccountsFromSync?(newAccounts)
+                    }
+                }
+            }
+
+            // Wire per-feature re-enable → pull that feature from iCloud
+            syncSettingsRef.onFeatureReEnabled = { [weak kvs, weak settings, weak pins, weak acctMgr] feature in
+                guard let kvs = kvs else { return }
+                switch feature {
+                case .accentColor:
+                    if let value = kvs.pullString(forKey: KVSSyncService.KVSKey.accentColor) {
+                        settings?.setAccentColor(AppAccentColor(rawValue: value) ?? .blue)
+                    }
+                case .swipeActions:
+                    if let data = kvs.pullData(forKey: KVSSyncService.KVSKey.swipeLayout),
+                       let layout = try? JSONDecoder().decode(TrackSwipeLayout.self, from: data) {
+                        settings?.trackSwipeLayout = layout
+                    }
+                case .pins:
+                    if let data = kvs.pullData(forKey: KVSSyncService.KVSKey.pins),
+                       let remotePins = try? JSONDecoder().decode([PinnedItem].self, from: data) {
+                        pins?.applyRemotePins(remotePins)
+                    }
+                case .sources:
+                    if let acctMgr = acctMgr {
+                        let newAccounts = acctMgr.pullSyncCredentials()
+                        if !newAccounts.isEmpty {
+                            acctMgr.onNewAccountsFromSync?(newAccounts)
+                        }
+                    }
+                case .libraries:
+                    if let data = kvs.pullData(forKey: KVSSyncService.KVSKey.libraryFlags) {
+                        acctMgr?.applyLibraryFlags(data)
+                    }
+                }
+            }
+
+            // First-connect: if this device has never synced, pull everything from iCloud
+            if !syncToggles.hasCompletedFirstConnect && syncToggles.isMasterSyncEnabled {
+                kvs.pullAll()
+
+                if syncToggles.isFeatureEnabled(.sources), let newAccounts = acctMgr.pullSyncCredentials() as [SyncableAccountCredential]?,
+                   !newAccounts.isEmpty {
+                    acctMgr.onNewAccountsFromSync?(newAccounts)
+                }
+
+                syncToggles.markFirstConnectComplete()
+            }
         }
     }
 
