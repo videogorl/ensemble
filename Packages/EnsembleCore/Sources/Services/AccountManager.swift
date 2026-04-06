@@ -40,6 +40,36 @@ public final class AccountManager: ObservableObject {
               let json = String(data: data, encoding: .utf8) else { return }
         try? keychain.save(json, forKey: KeychainKey.plexAccounts)
         SiriMediaIndexNotifications.postRebuildRequest(reason: "account_configuration_changed")
+
+        // Push stripped credentials to iCloud Keychain for cross-device sync
+        pushSyncCredentials()
+    }
+
+    // MARK: - iCloud Keychain Sync
+
+    /// Callback invoked when synced credentials arrive with new account IDs
+    /// not present locally. DependencyContainer wires this to account discovery.
+    public var onNewAccountsFromSync: (([SyncableAccountCredential]) -> Void)?
+
+    /// Push current account credentials (stripped of connections) to iCloud Keychain
+    private func pushSyncCredentials() {
+        let syncable = plexAccounts.map { SyncableAccountCredential(from: $0) }
+        guard let data = try? JSONEncoder().encode(syncable),
+              let json = String(data: data, encoding: .utf8) else { return }
+        try? keychain.saveSynchronizable(json, forKey: KeychainKey.plexAccountsSync)
+    }
+
+    /// Pull credentials from iCloud Keychain and reconcile with local accounts.
+    /// Returns new accounts that need discovery, if any.
+    public func pullSyncCredentials() -> [SyncableAccountCredential] {
+        guard let json = try? keychain.getSynchronizable(KeychainKey.plexAccountsSync),
+              let data = json.data(using: .utf8),
+              let synced = try? JSONDecoder().decode([SyncableAccountCredential].self, from: data) else {
+            return []
+        }
+
+        let localIds = Set(plexAccounts.map(\.id))
+        return synced.filter { !localIds.contains($0.accountId) }
     }
 
     // MARK: - Account Management
