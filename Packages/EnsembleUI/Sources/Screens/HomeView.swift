@@ -28,6 +28,7 @@ public struct HomeView: View {
             }
         }
         .navigationTitle("Feed")
+        .profileToolbar()
         .if(!isViewportNowPlayingPresented) { content in
             content.toolbar {
                 ToolbarItem(placement: .primaryActionIfAvailable) {
@@ -40,7 +41,6 @@ public struct HomeView: View {
                 }
             }
         }
-        .profileToolbar()
         .sheet(isPresented: $viewModel.isEditingOrder) {
             HubOrderingSheet(viewModel: viewModel)
         }

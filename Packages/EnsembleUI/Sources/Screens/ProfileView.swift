@@ -135,7 +135,7 @@ public struct ProfileView: View {
             // iOS doesn't allow stacking sheets — the add-account sheet won't appear
             // while the profile sheet is already presented.
             NavigationLink {
-                AddPlexAccountView()
+                AddPlexAccountView(embedded: true)
             } label: {
                 HStack {
                     Image(systemName: "plus.circle.fill")

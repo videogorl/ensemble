@@ -297,6 +297,7 @@ public struct PlaylistsView: View {
             .refreshable {
                 await viewModel.refreshFromServer()
             }
+            .profileToolbar()
             .if(!isViewportNowPlayingPresented) { content in
                 content.toolbar {
                 #if os(iOS)
@@ -390,7 +391,6 @@ public struct PlaylistsView: View {
                 #endif
                 }
             }
-        .profileToolbar()
     }
 
     /// StageFlow carousel for landscape mode.

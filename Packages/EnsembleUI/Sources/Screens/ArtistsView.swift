@@ -33,6 +33,7 @@ public struct ArtistsView: View {
         .refreshable {
             await libraryVM.refreshFromServer()
         }
+        .profileToolbar()
         .if(!isViewportNowPlayingPresented) { content in
             content.toolbar {
                 #if os(iOS)
@@ -128,7 +129,6 @@ public struct ArtistsView: View {
                 #endif
             }
         }
-        .profileToolbar()
         .onReceive(libraryVM.$filteredArtists) { artists in
             // Compute sections off main thread to avoid blocking UI during search
             let oldSections = cachedArtistSections

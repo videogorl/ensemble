@@ -115,6 +115,7 @@ public struct SongsView: View {
         .refreshable {
             await libraryVM.refreshFromServer()
         }
+        .profileToolbar()
         .if(!isViewportNowPlayingPresented) { content in
             content.toolbar {
                 #if os(iOS)
@@ -246,7 +247,6 @@ public struct SongsView: View {
                 #endif
             }
         }
-        .profileToolbar()
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
         }

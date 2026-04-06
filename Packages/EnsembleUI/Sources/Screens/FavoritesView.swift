@@ -56,6 +56,7 @@ public struct FavoritesView: View {
         }
         .navigationTitle("Favorites")
         .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter favorites")
+        .profileToolbar()
         .if(!isViewportNowPlayingPresented) { content in
             content.toolbar {
                 #if os(iOS)
@@ -110,7 +111,6 @@ public struct FavoritesView: View {
                 #endif
             }
         }
-        .profileToolbar()
         .onReceive(nowPlayingVM.$currentTrack) { track in
             let id = track?.id
             if id != currentTrackId { currentTrackId = id }

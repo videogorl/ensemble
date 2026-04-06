@@ -74,8 +74,8 @@ private struct LocalToolbarProfileImage: View {
 // MARK: - Profile Toolbar Modifier
 
 /// View modifier that adds the profile button as the rightmost trailing toolbar item.
-/// Apply this as the LAST `.toolbar` modifier on any view to ensure the profile
-/// button appears after all other trailing items.
+/// Apply this BEFORE other `.toolbar` modifiers — SwiftUI renders later-declared
+/// toolbar items leftmost, so the first modifier's items end up rightmost.
 struct ProfileToolbarModifier: ViewModifier {
     func body(content: Content) -> some View {
         #if os(iOS)
@@ -92,7 +92,7 @@ struct ProfileToolbarModifier: ViewModifier {
 
 extension View {
     /// Adds a profile toolbar button as the rightmost trailing item (iOS only).
-    /// Apply this as the LAST toolbar modifier to guarantee rightmost placement.
+    /// Apply this BEFORE other toolbar modifiers to guarantee rightmost placement.
     func profileToolbar() -> some View {
         modifier(ProfileToolbarModifier())
     }

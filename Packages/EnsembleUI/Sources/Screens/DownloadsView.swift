@@ -23,6 +23,7 @@ public struct DownloadsView: View {
             }
         }
         .navigationTitle("Downloads")
+        .profileToolbar()
         .if(!isViewportNowPlayingPresented) { content in
             content.toolbar {
                 #if os(iOS)
@@ -52,7 +53,6 @@ public struct DownloadsView: View {
                 #endif
             }
         }
-        .profileToolbar()
         .task {
             await viewModel.refresh()
         }
