@@ -51,12 +51,17 @@ public final class AccountManager: ObservableObject {
     /// not present locally. DependencyContainer wires this to account discovery.
     public var onNewAccountsFromSync: (([SyncableAccountCredential]) -> Void)?
 
-    /// Push current account credentials (stripped of connections) to iCloud Keychain
+    /// Push current account credentials (stripped of connections) to iCloud Keychain.
+    /// Guarded — silently skips if encoding or keychain write fails.
     private func pushSyncCredentials() {
         let syncable = plexAccounts.map { SyncableAccountCredential(from: $0) }
         guard let data = try? JSONEncoder().encode(syncable),
               let json = String(data: data, encoding: .utf8) else { return }
-        try? keychain.saveSynchronizable(json, forKey: KeychainKey.plexAccountsSync)
+        do {
+            try keychain.saveSynchronizable(json, forKey: KeychainKey.plexAccountsSync)
+        } catch {
+            EnsembleLogger.error("Failed to push sync credentials to iCloud Keychain: \(error)")
+        }
     }
 
     /// Pull credentials from iCloud Keychain and reconcile with local accounts.

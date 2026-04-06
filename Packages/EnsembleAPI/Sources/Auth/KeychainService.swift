@@ -29,7 +29,8 @@ public final class KeychainService: KeychainServiceProtocol, Sendable {
     public init(service: String = "com.ensemble.plex") {
         self.keychain = Keychain(service: service)
             .accessibility(.afterFirstUnlock)
-        self.syncKeychain = Keychain(service: service)
+        // Use a separate service for sync to avoid attribute conflicts
+        self.syncKeychain = Keychain(service: "\(service).sync")
             .accessibility(.afterFirstUnlock)
             .synchronizable(true)
     }

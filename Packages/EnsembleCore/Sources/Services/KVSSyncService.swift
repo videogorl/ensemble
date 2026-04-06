@@ -33,18 +33,27 @@ public final class KVSSyncService: ObservableObject {
 
     // MARK: - Initialization
 
+    /// Whether KVS is available (entitlement present and iCloud configured)
+    public private(set) var isAvailable: Bool = true
+
     public init(store: NSUbiquitousKeyValueStore = .default) {
         self.store = store
         observeRemoteChanges()
 
-        // Force an initial sync pull from iCloud
-        store.synchronize()
+        // Force an initial sync pull from iCloud.
+        // synchronize() returns false if KVS is unavailable (no iCloud account, etc.)
+        let synced = store.synchronize()
+        if !synced {
+            isAvailable = false
+            EnsembleLogger.info("KVS: iCloud key-value store unavailable (no iCloud account or missing entitlement)")
+        }
     }
 
     // MARK: - Push (Local → iCloud)
 
     /// Push a string value to KVS
     public func pushString(_ value: String, forKey key: String) {
+        guard isAvailable else { return }
         suppressedKeys.insert(key)
         store.set(value, forKey: key)
         store.synchronize()
@@ -57,6 +66,7 @@ public final class KVSSyncService: ObservableObject {
 
     /// Push raw Data to KVS
     public func pushData(_ data: Data, forKey key: String) {
+        guard isAvailable else { return }
         suppressedKeys.insert(key)
         store.set(data, forKey: key)
         store.synchronize()
