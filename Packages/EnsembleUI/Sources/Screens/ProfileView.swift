@@ -131,8 +131,11 @@ public struct ProfileView: View {
                 showingDeleteAlert = true
             }
 
-            Button {
-                navigationCoordinator.showingAddAccount = true
+            // Navigate within the profile sheet rather than opening a second sheet.
+            // iOS doesn't allow stacking sheets — the add-account sheet won't appear
+            // while the profile sheet is already presented.
+            NavigationLink {
+                AddPlexAccountView()
             } label: {
                 HStack {
                     Image(systemName: "plus.circle.fill")

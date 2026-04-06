@@ -443,13 +443,6 @@ public struct MainTabView: View {
             destinationView(for: destination)
                 .auroraBackgroundSupport()
         }
-        #if os(iOS)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                ProfileToolbarButton()
-            }
-        }
-        #endif
     }
 
     @ViewBuilder

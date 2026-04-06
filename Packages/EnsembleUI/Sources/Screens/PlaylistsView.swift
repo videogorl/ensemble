@@ -390,6 +390,7 @@ public struct PlaylistsView: View {
                 #endif
                 }
             }
+        .profileToolbar()
     }
 
     /// StageFlow carousel for landscape mode.

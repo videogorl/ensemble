@@ -110,6 +110,7 @@ public struct FavoritesView: View {
                 #endif
             }
         }
+        .profileToolbar()
         .onReceive(nowPlayingVM.$currentTrack) { track in
             let id = track?.id
             if id != currentTrackId { currentTrackId = id }

@@ -52,6 +52,7 @@ public struct DownloadsView: View {
                 #endif
             }
         }
+        .profileToolbar()
         .task {
             await viewModel.refresh()
         }

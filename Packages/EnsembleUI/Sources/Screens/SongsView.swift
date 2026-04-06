@@ -246,6 +246,7 @@ public struct SongsView: View {
                 #endif
             }
         }
+        .profileToolbar()
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
         }

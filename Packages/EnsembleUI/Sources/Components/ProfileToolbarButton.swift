@@ -70,3 +70,30 @@ private struct LocalToolbarProfileImage: View {
         #endif
     }
 }
+
+// MARK: - Profile Toolbar Modifier
+
+/// View modifier that adds the profile button as the rightmost trailing toolbar item.
+/// Apply this as the LAST `.toolbar` modifier on any view to ensure the profile
+/// button appears after all other trailing items.
+struct ProfileToolbarModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                ProfileToolbarButton()
+            }
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+extension View {
+    /// Adds a profile toolbar button as the rightmost trailing item (iOS only).
+    /// Apply this as the LAST toolbar modifier to guarantee rightmost placement.
+    func profileToolbar() -> some View {
+        modifier(ProfileToolbarModifier())
+    }
+}

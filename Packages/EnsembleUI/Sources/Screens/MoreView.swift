@@ -59,6 +59,7 @@ public struct MoreView: View {
             }
             #endif
         }
+        .profileToolbar()
     }
 
     // MARK: - Browse Mode

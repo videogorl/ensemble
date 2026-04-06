@@ -40,6 +40,7 @@ public struct HomeView: View {
                 }
             }
         }
+        .profileToolbar()
         .sheet(isPresented: $viewModel.isEditingOrder) {
             HubOrderingSheet(viewModel: viewModel)
         }

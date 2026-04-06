@@ -128,6 +128,7 @@ public struct ArtistsView: View {
                 #endif
             }
         }
+        .profileToolbar()
         .onReceive(libraryVM.$filteredArtists) { artists in
             // Compute sections off main thread to avoid blocking UI during search
             let oldSections = cachedArtistSections

@@ -189,6 +189,7 @@ public struct AlbumsView: View {
                 #endif
             }
         }
+        .profileToolbar()
             .onReceive(libraryVM.$filteredAlbums) { albums in
                 // Compute sections off main thread to avoid blocking UI during search
                 let sortOption = libraryVM.albumSortOption

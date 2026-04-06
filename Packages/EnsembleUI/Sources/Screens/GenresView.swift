@@ -37,6 +37,7 @@ public struct GenresView: View {
         .refreshable {
             await libraryVM.refreshFromServer()
         }
+        .profileToolbar()
     }
 
     private var loadingView: some View {
