@@ -29,7 +29,10 @@ public struct HomeView: View {
         }
         .navigationTitle("Feed")
         .profileToolbar()
-                .toolbar {
+        .toolbar {
+            #if os(macOS)
+            ToolbarItem { Spacer() }
+            #endif
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 Button("Edit") {
                     viewModel.enterEditMode()

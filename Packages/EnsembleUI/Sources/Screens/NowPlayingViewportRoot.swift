@@ -71,7 +71,12 @@ struct NowPlayingViewportRoot: View {
             #endif
         }()
 
+        let baseBackgroundColor = colorScheme == .dark ? Color.black : lightOverlayColor
+
         return ZStack {
+            baseBackgroundColor
+                .ignoresSafeArea()
+
             BlurredArtworkBackground(
                 image: viewModel.artworkImage,
                 preBlurredImage: viewModel.blurredArtworkImage,

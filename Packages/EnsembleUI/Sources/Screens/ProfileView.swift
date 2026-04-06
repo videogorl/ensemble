@@ -79,7 +79,10 @@ public struct ProfileView: View {
         .listStyle(.inset)
         #endif
         .miniPlayerBottomSpacing()
-        .background(nameEditorPushLink)
+        .background {
+            nameEditorPushLink
+                .ignoresSafeArea(.all)
+        }
         .navigationTitle("Profile")
         #if os(iOS)
         // Force inline title to prevent scroll pocket tracking in the sheet's nav bar.

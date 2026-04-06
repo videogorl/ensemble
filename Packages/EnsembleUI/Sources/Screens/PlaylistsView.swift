@@ -154,7 +154,7 @@ public struct PlaylistsView: View {
             // which uses inline title and doesn't have scroll pocket collapse tracking.
             // This avoids the iOS 26 ScrollPocketCollectorModel feedback loop that hangs
             // the app when a keyboard appears over a root tab view's navigation bar.
-            .background(
+            .background {
                 NavigationLink(
                     destination: CreatePlaylistView(
                         serverOptions: nowPlayingVM.playlistServerOptions(),
@@ -165,8 +165,9 @@ public struct PlaylistsView: View {
                     isActive: $showCreatePlaylistPush
                 ) { EmptyView() }
                     .hidden()
-            )
-            .background(
+                    .ignoresSafeArea(.all)
+            }
+            .background {
                 NavigationLink(
                     destination: Group {
                         if let playlist = renamePushPlaylist {
@@ -186,8 +187,9 @@ public struct PlaylistsView: View {
                     )
                 ) { EmptyView() }
                     .hidden()
-            )
-            .background(
+                    .ignoresSafeArea(.all)
+            }
+            .background {
                 NavigationLink(
                     destination: Group {
                         if let dp = renamePushDP {
@@ -211,7 +213,8 @@ public struct PlaylistsView: View {
                     )
                 ) { EmptyView() }
                     .hidden()
-            )
+                    .ignoresSafeArea(.all)
+            }
             .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             .task {
                 await viewModel.loadPlaylists()
