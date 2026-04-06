@@ -552,6 +552,32 @@ public final class DependencyContainer: @unchecked Sendable {
                let data = try? JSONEncoder().encode(settings.trackSwipeLayout) {
                 kvs.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
             }
+
+            // Wire pins sync
+            let pins = pinManager
+            kvsRef.onRemotePinsChanged = { [weak pins] data in
+                guard syncToggles.isFeatureEnabled(.pins), let pins = pins else { return }
+                if let remotePins = try? JSONDecoder().decode([PinnedItem].self, from: data) {
+                    pins.applyRemotePins(remotePins)
+                }
+            }
+
+            // Push pins when they change locally
+            pins.objectWillChange
+                .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+                .sink { [weak pins, weak kvs, weak syncToggles] _ in
+                    guard let pins = pins, let kvs = kvs, let syncToggles = syncToggles else { return }
+                    guard syncToggles.isFeatureEnabled(.pins) else { return }
+                    if let data = pins.exportPinsData() {
+                        kvs.pushData(data, forKey: KVSSyncService.KVSKey.pins)
+                    }
+                }
+                .store(in: &kvsSyncCancellables)
+
+            // Initial push of pins
+            if syncToggles.isFeatureEnabled(.pins), let data = pins.exportPinsData() {
+                kvs.pushData(data, forKey: KVSSyncService.KVSKey.pins)
+            }
         }
     }
 
