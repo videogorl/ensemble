@@ -13,7 +13,7 @@ private struct PresentViewportNowPlayingKey: EnvironmentKey {
 }
 
 private struct DismissViewportNowPlayingKey: EnvironmentKey {
-    static let defaultValue: () -> Void = {}
+    static let defaultValue: (() -> Void)? = nil
 }
 
 public extension EnvironmentValues {
@@ -27,7 +27,7 @@ public extension EnvironmentValues {
         set { self[PresentViewportNowPlayingKey.self] = newValue }
     }
 
-    var dismissViewportNowPlaying: () -> Void {
+    var dismissViewportNowPlaying: (() -> Void)? {
         get { self[DismissViewportNowPlayingKey.self] }
         set { self[DismissViewportNowPlayingKey.self] = newValue }
     }

@@ -6,11 +6,15 @@ import SwiftUI
 public struct ProfileHeaderView: View {
     @ObservedObject var profileStore: UserProfileStore
     @State private var showingImageSourcePicker = false
-    @State private var showingNameEditor = false
     @State private var showingImagePicker = false
+    let onEditName: () -> Void
 
-    public init(profileStore: UserProfileStore) {
+    public init(
+        profileStore: UserProfileStore,
+        onEditName: @escaping () -> Void = {}
+    ) {
         self.profileStore = profileStore
+        self.onEditName = onEditName
     }
 
     public var body: some View {
@@ -21,31 +25,12 @@ public struct ProfileHeaderView: View {
                     showingImageSourcePicker = true
                 }
 
-            // Name + edit affordance — pushes to TextInputView
+            // Name + edit affordance — navigation is owned by the parent screen
+            // so the push originates from the profile root instead of the list row.
             nameView
                 .onTapGesture {
-                    showingNameEditor = true
+                    onEditName()
                 }
-
-            // Hidden NavigationLink driven by showingNameEditor state.
-            // Pushing replaces the root nav bar (which has scroll pocket tracking)
-            // with an inline-title bar, so the keyboard won't trigger the iOS 26
-            // ScrollPocketCollectorModel feedback loop.
-            NavigationLink(isActive: $showingNameEditor) {
-                TextInputView(
-                    title: "Edit Name",
-                    placeholder: "Your Name",
-                    initialText: profileStore.profile.displayName ?? "",
-                    actionTitle: "Save",
-                    onSubmit: { newName in
-                        profileStore.updateName(newName)
-                    }
-                )
-            } label: {
-                EmptyView()
-            }
-            .hidden()
-            .frame(width: 0, height: 0)
         }
         .padding(.vertical, 24)
         .frame(maxWidth: .infinity)

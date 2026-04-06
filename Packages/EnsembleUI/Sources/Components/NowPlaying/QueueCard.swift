@@ -13,6 +13,7 @@ public struct QueueCard: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
     @Environment(\.dependencies) private var deps
+    @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss
     
     @State private var playlistPickerPayload: PlaylistPickerPayload?
@@ -193,14 +194,12 @@ public struct QueueCard: View {
                     },
                     onGoToAlbum: { track in
                         if let albumId = track.albumRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
-                            dismiss()
+                            navigateFromNowPlaying(to: .album(id: albumId))
                         }
                     },
                     onGoToArtist: { track in
                         if let artistId = track.artistRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
-                            dismiss()
+                            navigateFromNowPlaying(to: .artist(id: artistId))
                         }
                     },
                     canAddToRecentPlaylist: { track in
@@ -370,16 +369,14 @@ public struct QueueCard: View {
         Divider()
         if let albumId = item.track.albumRatingKey {
             Button {
-                DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
-                dismiss()
+                navigateFromNowPlaying(to: .album(id: albumId))
             } label: {
                 Label("Go to Album", systemImage: "square.stack")
             }
         }
         if let artistId = item.track.artistRatingKey {
             Button {
-                DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
-                dismiss()
+                navigateFromNowPlaying(to: .artist(id: artistId))
             } label: {
                 Label("Go to Artist", systemImage: "music.mic")
             }
@@ -406,16 +403,14 @@ public struct QueueCard: View {
         Divider()
         if let albumId = item.track.albumRatingKey {
             Button {
-                DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
-                dismiss()
+                navigateFromNowPlaying(to: .album(id: albumId))
             } label: {
                 Label("Go to Album", systemImage: "square.stack")
             }
         }
         if let artistId = item.track.artistRatingKey {
             Button {
-                DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
-                dismiss()
+                navigateFromNowPlaying(to: .artist(id: artistId))
             } label: {
                 Label("Go to Artist", systemImage: "music.mic")
             }
@@ -487,5 +482,14 @@ public struct QueueCard: View {
             return
         }
         playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+    }
+
+    private func navigateFromNowPlaying(to destination: NavigationCoordinator.Destination) {
+        deps.navigationCoordinator.navigateFromNowPlaying(to: destination)
+        if let dismissNowPlaying {
+            dismissNowPlaying()
+        } else {
+            dismiss()
+        }
     }
 }

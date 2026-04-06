@@ -15,6 +15,7 @@ public struct ProfileView: View {
 
     @State private var showingDeleteAlert = false
     @State private var showingClearDataAlert = false
+    @State private var showingNameEditor = false
     @State private var accountToDelete: PlexAccountConfig?
     @State private var isAutoplayEnabled = DependencyContainer.shared.playbackService.isAutoplayEnabled
 
@@ -30,7 +31,10 @@ public struct ProfileView: View {
         List {
             // Profile header — image + name
             Section {
-                ProfileHeaderView(profileStore: profileStore)
+                ProfileHeaderView(
+                    profileStore: profileStore,
+                    onEditName: { showingNameEditor = true }
+                )
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
             }
@@ -75,6 +79,7 @@ public struct ProfileView: View {
         .listStyle(.inset)
         #endif
         .miniPlayerBottomSpacing()
+        .background(nameEditorPushLink)
         .navigationTitle("Profile")
         #if os(iOS)
         // Force inline title to prevent scroll pocket tracking in the sheet's nav bar.
@@ -120,6 +125,26 @@ public struct ProfileView: View {
         } message: {
             Text("This will delete all synced music data (tracks, albums, artists, playlists). Your account settings will be preserved. You'll need to re-sync after clearing.")
         }
+    }
+
+    /// Own the profile-name editor push at the screen root so keyboard presentation
+    /// is decoupled from the header row's list hierarchy inside the sheet.
+    private var nameEditorPushLink: some View {
+        NavigationLink(
+            destination: TextInputView(
+                title: "Edit Name",
+                placeholder: "Your Name",
+                initialText: profileStore.profile.displayName ?? "",
+                actionTitle: "Save",
+                onSubmit: { newName in
+                    profileStore.updateName(newName)
+                }
+            ),
+            isActive: $showingNameEditor
+        ) {
+            EmptyView()
+        }
+        .hidden()
     }
 
     // MARK: - Music Sources

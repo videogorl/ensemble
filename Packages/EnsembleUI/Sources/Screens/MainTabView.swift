@@ -244,6 +244,9 @@ public struct MainTabView: View {
                         }
                     )
                     .accentColor(settingsManager.accentColor.color)
+                    .environment(\.dismissViewportNowPlaying, {
+                        showingSheetNowPlaying = false
+                    })
                 }
             }
             #if os(iOS)
@@ -694,6 +697,7 @@ public struct SidebarView: View {
 
     @State private var selection: SidebarSelection? = .library(.home)
     @State private var showingSheetNowPlaying = false
+    @State private var pinnedDetailPath: [NavigationCoordinator.Destination] = []
     @State private var sidebarColumnWidth: CGFloat = 260
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var playlistForEditSheet: Playlist?
@@ -1075,6 +1079,9 @@ public struct SidebarView: View {
                     }
                 )
                 .accentColor(deps.settingsManager.accentColor.color)
+                .environment(\.dismissViewportNowPlaying, {
+                    showingSheetNowPlaying = false
+                })
             }
         }
         // Add account sheet presented at root level so it survives
@@ -1185,6 +1192,7 @@ public struct SidebarView: View {
             if let tab = newSelection?.correspondingTab {
                 navigationCoordinator.selectedTab = tab
             }
+            pinnedDetailPath.removeAll()
         }
     }
 
@@ -1366,18 +1374,7 @@ public struct SidebarView: View {
             case .mergedPlaylist(let title, let isSmart):
                 mergedPlaylistDetailNavigationStack(title: title, isSmart: isSmart)
             case .pin(let id, let type):
-                // Navigate directly to the pinned item's detail view
-                NavigationStack {
-                    switch type {
-                    case .album:
-                        AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
-                    case .artist:
-                        ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
-                    case .playlist:
-                        PlaylistDetailLoader(playlistId: id, playlistSourceKey: nil, nowPlayingVM: nowPlayingVM)
-                    }
-                }
-                .id("pin-\(id)-\(type)")
+                pinnedDetailNavigationStack(id: id, type: type)
             case .none:
                 // Fallback when nothing is selected — show Home
                 sidebarNavigationStack(for: .home)
@@ -1445,6 +1442,30 @@ public struct SidebarView: View {
         case .search: return $navigationCoordinator.searchPath
         case .downloads: return $navigationCoordinator.downloadsPath
         case .settings: return $navigationCoordinator.settingsPath
+        }
+    }
+
+    @ViewBuilder
+    private func pinnedDetailNavigationStack(id: String, type: PinnedItemType) -> some View {
+        NavigationStack(path: $pinnedDetailPath) {
+            pinnedDetailRootView(id: id, type: type)
+                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                    destinationView(for: destination)
+                        .auroraBackgroundSupport()
+                }
+        }
+        .id("pin-\(id)-\(type)")
+    }
+
+    @ViewBuilder
+    private func pinnedDetailRootView(id: String, type: PinnedItemType) -> some View {
+        switch type {
+        case .album:
+            AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
+        case .artist:
+            ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
+        case .playlist:
+            PlaylistDetailLoader(playlistId: id, playlistSourceKey: nil, nowPlayingVM: nowPlayingVM)
         }
     }
 
