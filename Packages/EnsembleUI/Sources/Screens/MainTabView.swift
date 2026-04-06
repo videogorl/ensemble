@@ -991,6 +991,9 @@ public struct SidebarView: View {
                     ForEach(pinnedVM.resolvedPins) { pin in
                         sidebarPinRow(pin)
                     }
+                    .onMove { source, destination in
+                        pinnedVM.move(fromOffsets: source, toOffset: destination)
+                    }
                 }
             }
 
