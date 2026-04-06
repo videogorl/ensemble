@@ -544,15 +544,6 @@ public final class DependencyContainer: @unchecked Sendable {
                 }
                 .store(in: &kvsSyncCancellables)
 
-            // Initial push of current values to KVS (if sync is on)
-            if syncToggles.isFeatureEnabled(.accentColor) {
-                kvs.pushString(settings.accentColorName, forKey: KVSSyncService.KVSKey.accentColor)
-            }
-            if syncToggles.isFeatureEnabled(.swipeActions),
-               let data = try? JSONEncoder().encode(settings.trackSwipeLayout) {
-                kvs.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
-            }
-
             // Wire pins sync
             let pins = pinManager
             kvsRef.onRemotePinsChanged = { [weak pins] data in
@@ -573,11 +564,6 @@ public final class DependencyContainer: @unchecked Sendable {
                     }
                 }
                 .store(in: &kvsSyncCancellables)
-
-            // Initial push of pins
-            if syncToggles.isFeatureEnabled(.pins), let data = pins.exportPinsData() {
-                kvs.pushData(data, forKey: KVSSyncService.KVSKey.pins)
-            }
 
             // Wire source credential sync reconciliation
             let acctMgr = accountManager
@@ -610,14 +596,6 @@ public final class DependencyContainer: @unchecked Sendable {
                 }
             }
 
-            // Check for synced credentials on launch
-            if syncToggles.isFeatureEnabled(.sources) {
-                let newAccounts = acctMgr.pullSyncCredentials()
-                if !newAccounts.isEmpty {
-                    acctMgr.onNewAccountsFromSync?(newAccounts)
-                }
-            }
-
             // Wire library flags sync via KVS
             kvsRef.onRemoteLibraryFlagsChanged = { [weak acctMgr] data in
                 guard syncToggles.isFeatureEnabled(.libraries), let acctMgr = acctMgr else { return }
@@ -635,11 +613,6 @@ public final class DependencyContainer: @unchecked Sendable {
                     }
                 }
                 .store(in: &kvsSyncCancellables)
-
-            // Initial push of library flags
-            if syncToggles.isFeatureEnabled(.libraries), let data = acctMgr.exportLibraryFlags() {
-                kvs.pushData(data, forKey: KVSSyncService.KVSKey.libraryFlags)
-            }
 
             // Wire master sync re-enable → pull all from iCloud
             syncSettingsRef.onMasterSyncEnabled = { [weak kvs, weak acctMgr, weak syncToggles] in
