@@ -160,6 +160,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
             #else
+            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 if shouldShowStandaloneFilterButton {
                     Button {
@@ -220,6 +221,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
             #else
+            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 if let mediaType = mediaType,
                    let ratingKey = headerData.ratingKey {

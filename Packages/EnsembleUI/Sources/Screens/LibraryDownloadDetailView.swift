@@ -47,6 +47,7 @@ struct LibraryDownloadDetailView: View {
                 retryAllButton
             }
             #else
+            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 retryAllButton
             }

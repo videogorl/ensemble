@@ -38,6 +38,7 @@ public struct DownloadsView: View {
                 queueControlButton
             }
             #else
+            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 NavigationLink {
                     DownloadManagerSettingsView()

@@ -143,6 +143,7 @@ public struct AlbumsView: View {
                 }
             }
             #else
+            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 if !libraryVM.albums.isEmpty && !isStageFlowActive {
                     HStack(spacing: 16) {

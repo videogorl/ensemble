@@ -38,6 +38,7 @@ public struct PendingMutationsView: View {
                 clearAllButton
             }
             #else
+            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 clearAllButton
             }

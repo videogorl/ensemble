@@ -51,6 +51,7 @@ public struct MoreView: View {
                 }
             }
             #else
+            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 Button(isEditing ? "Done" : "Edit") {
                     withAnimation {

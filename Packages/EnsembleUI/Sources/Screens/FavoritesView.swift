@@ -84,6 +84,7 @@ public struct FavoritesView: View {
                 }
             }
             #else
+            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 if !viewModel.tracks.isEmpty {
                     HStack(spacing: 16) {

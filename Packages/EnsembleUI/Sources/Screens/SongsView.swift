@@ -182,6 +182,7 @@ public struct SongsView: View {
                 }
             }
             #else
+            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 if !libraryVM.tracks.isEmpty && !isStageFlowActive {
                     HStack(spacing: 16) {
