@@ -48,7 +48,7 @@ public struct ArtworkView: View {
         switch size {
         case .tiny:
             return .high
-        case .thumbnail, .small:
+        case .thumbnail, .card, .small:
             return .low
         case .medium, .large, .extraLarge:
             return .normal

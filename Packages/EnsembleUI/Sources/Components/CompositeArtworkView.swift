@@ -86,6 +86,7 @@ struct CompositeArtworkView: View {
         switch size {
         case .tiny: return .tiny
         case .thumbnail: return .tiny
+        case .card: return .thumbnail
         case .small: return .thumbnail
         case .medium: return .small
         case .large: return .medium

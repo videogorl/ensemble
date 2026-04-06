@@ -89,6 +89,9 @@ struct EnsembleApp: App {
                     // This registers a user activity so we can track if the app becomes active
                     activity.title = "Ensemble Active"
                 }
+                #if os(macOS)
+                .frame(minWidth: 980, minHeight: 700)
+                #endif
         }
         #if os(macOS)
         .windowStyle(.hiddenTitleBar)

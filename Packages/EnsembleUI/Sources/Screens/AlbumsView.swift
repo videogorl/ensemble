@@ -144,7 +144,7 @@ public struct AlbumsView: View {
                     }
                 }
                 #else
-                ToolbarItem(placement: .automatic) {
+                ToolbarItem(placement: .primaryActionIfAvailable) {
                     if !libraryVM.albums.isEmpty && !isStageFlowActive {
                         HStack(spacing: 16) {
                             Button {
@@ -664,8 +664,8 @@ public struct AlbumDetailView: View {
                 }
             }
         }
-        // Fixed height: 100pt artwork + ~60pt text = ~160pt
-        .frame(height: 170)
+        // Fixed height keeps horizontal album shelves from collapsing under the larger card size.
+        .frame(height: AlbumCardLayoutMetrics.horizontalScrollHeight)
     }
 
     private var moreByArtistSection: some View {

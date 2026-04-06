@@ -51,7 +51,7 @@ public struct MoreView: View {
                 }
             }
             #else
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem(placement: .primaryActionIfAvailable) {
                 Button(isEditing ? "Done" : "Edit") {
                     withAnimation {
                         isEditing.toggle()

@@ -1252,18 +1252,12 @@ public struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .navigationSplitViewColumnWidth(min: 220, ideal: 260)
-        // Downloads + Settings in the sidebar toolbar, pushed to trailing edge
         .toolbar {
-            ToolbarItem(placement: .automatic) {
-                Spacer()
-            }
-            ToolbarItem(placement: .automatic) {
+            ToolbarItemGroup(placement: .primaryActionIfAvailable) {
                 Button { navigationCoordinator.openDownloads() } label: {
                     Image(systemName: "arrow.down.circle")
                 }
                 .help("Downloads")
-            }
-            ToolbarItem(placement: .automatic) {
                 ProfileToolbarButton()
             }
         }

@@ -1,6 +1,21 @@
 import EnsembleCore
 import SwiftUI
 
+/// Shared sizing rules for album-focused card grids so the larger artwork stays
+/// consistent between shelves and full-screen album browsing surfaces.
+public enum AlbumCardLayoutMetrics {
+    public static let artworkSize: ArtworkSize = .card
+    public static let gridSpacing: CGFloat = 16
+    public static let rowSpacing: CGFloat = 20
+    public static let columnMinimum: CGFloat = 150
+    public static let columnMaximum: CGFloat = 180
+    public static let horizontalScrollHeight: CGFloat = artworkSize.cgSize.height + 78
+
+    public static var gridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: columnMinimum, maximum: columnMaximum), spacing: gridSpacing, alignment: .top)]
+    }
+}
+
 public struct AlbumCard: View {
     let album: Album
 
@@ -10,7 +25,7 @@ public struct AlbumCard: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ArtworkView(album: album, size: .thumbnail)
+            ArtworkView(album: album, size: AlbumCardLayoutMetrics.artworkSize)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(album.title)
@@ -33,7 +48,7 @@ public struct AlbumCard: View {
                 }
             }
         }
-        .frame(width: ArtworkSize.thumbnail.cgSize.width)
+        .frame(width: AlbumCardLayoutMetrics.artworkSize.cgSize.width)
         .multilineTextAlignment(.leading)
     }
 }
@@ -54,10 +69,6 @@ public struct AlbumGrid: View {
     @Environment(\.dependencies) private var deps
     @State private var playlistPickerPayload: PlaylistPickerPayload?
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16, alignment: .top)
-    ]
-
     public init(albums: [Album], nowPlayingVM: NowPlayingViewModel, onAlbumTap: ((Album) -> Void)? = nil) {
         self.albums = albums
         self.nowPlayingVM = nowPlayingVM
@@ -65,7 +76,7 @@ public struct AlbumGrid: View {
     }
 
     public var body: some View {
-        LazyVGrid(columns: columns, spacing: 20) {
+        LazyVGrid(columns: AlbumCardLayoutMetrics.gridColumns, spacing: AlbumCardLayoutMetrics.rowSpacing) {
             ForEach(albums) { album in
                 if #available(iOS 16.0, macOS 13.0, *) {
                     NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id)) {

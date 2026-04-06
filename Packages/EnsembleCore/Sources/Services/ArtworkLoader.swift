@@ -501,6 +501,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
 public enum ArtworkSize: Int {
     case tiny = 44
     case thumbnail = 100
+    case card = 140
     case small = 200
     case medium = 300
     case large = 500

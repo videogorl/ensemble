@@ -346,7 +346,7 @@ public struct PlaylistsView: View {
                     }
                 }
                 #else
-                ToolbarItem(placement: .automatic) {
+                ToolbarItem(placement: .primaryActionIfAvailable) {
                     if !isStageFlowActive {
                         HStack(spacing: 16) {
                             Button {
@@ -897,7 +897,7 @@ public struct PlaylistDetailView: View {
                 }
             }
             #else
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem(placement: .primaryActionIfAvailable) {
                 if isEditingPlaylist {
                     Button("Save") {
                         let editedSnapshot = editedTracks
@@ -913,7 +913,7 @@ public struct PlaylistDetailView: View {
                     .disabled(isSavingPlaylistEdits)
                 }
             }
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem(placement: .primaryActionIfAvailable) {
                 if isEditingPlaylist {
                     Button("Cancel") {
                         if startedInEditMode {

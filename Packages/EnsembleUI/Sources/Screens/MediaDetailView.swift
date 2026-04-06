@@ -161,7 +161,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     }
                 }
                 #else
-                ToolbarItem(placement: .automatic) {
+                ToolbarItem(placement: .primaryActionIfAvailable) {
                     if shouldShowStandaloneFilterButton {
                         Button {
                             showFilterSheet = true
@@ -221,7 +221,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     }
                 }
                 #else
-                ToolbarItem(placement: .automatic) {
+                ToolbarItem(placement: .primaryActionIfAvailable) {
                     if let mediaType = mediaType,
                        let ratingKey = headerData.ratingKey {
                         pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)

@@ -83,7 +83,7 @@ public struct ArtistsView: View {
                     }
                 }
                 #else
-                ToolbarItem(placement: .automatic) {
+                ToolbarItem(placement: .primaryActionIfAvailable) {
                     if !libraryVM.artists.isEmpty {
                         HStack(spacing: 16) {
                             Button {
@@ -404,7 +404,7 @@ public struct ArtistDetailView: View {
                 artistPinMenuButton
             }
             #else
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem(placement: .primaryActionIfAvailable) {
                 artistPinMenuButton
             }
             #endif

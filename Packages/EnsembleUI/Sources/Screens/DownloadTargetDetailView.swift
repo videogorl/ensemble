@@ -48,10 +48,10 @@ public struct DownloadTargetDetailView: View {
                 retryAllButton
             }
             #else
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem(placement: .primaryActionIfAvailable) {
                 refreshTargetButton
             }
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem(placement: .primaryActionIfAvailable) {
                 retryAllButton
             }
             #endif

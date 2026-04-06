@@ -85,7 +85,7 @@ public struct FavoritesView: View {
                     }
                 }
                 #else
-                ToolbarItem(placement: .automatic) {
+                ToolbarItem(placement: .primaryActionIfAvailable) {
                     if !viewModel.tracks.isEmpty {
                         HStack(spacing: 16) {
                             sortMenu

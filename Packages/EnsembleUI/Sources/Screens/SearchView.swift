@@ -1162,7 +1162,7 @@ public struct SearchView: View {
     // MARK: - Grid Configuration
     
     private var gridColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16, alignment: .top)]
+        AlbumCardLayoutMetrics.gridColumns
     }
 
     private static func computeHasEnabledLibraries() -> Bool {
