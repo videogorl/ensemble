@@ -911,13 +911,14 @@ public final class AudioPlaybackEngine {
     /// `engine.stop()` does NOT detach nodes or reset the player node's paused position.
     /// On resume, `engine.start()` + `playerNode.play()` picks up where we left off.
     func pause() {
+        let position = snapshotPlaybackPositionBeforeStopping()
         playerNode.pause()
         wasPlaying = false
         stopTimeUpdates()
         if engine.isRunning {
             engine.stop()
         }
-        EnsembleLogger.debug("[AudioEngine] Paused (engine stopped)")
+        EnsembleLogger.debug("[AudioEngine] Paused (engine stopped) at \(String(format: "%.1f", position))s")
     }
 
     /// Resume playback after pause.
@@ -1014,12 +1015,19 @@ public final class AudioPlaybackEngine {
     func currentTime() -> TimeInterval {
         guard let nodeTime = playerNode.lastRenderTime,
               let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
-            return TimeInterval(seekFrameOffset) / sampleRate
+            return Self.resolvedPlaybackPosition(
+                renderSampleTime: nil,
+                playerTimeBaseOffset: playerTimeBaseOffset,
+                seekFrameOffset: seekFrameOffset,
+                sampleRate: sampleRate
+            )
         }
-        // playerTime.sampleTime accumulates across gapless segments (playerNode never stops).
-        // Subtract playerTimeBaseOffset to get frames within the current segment only.
-        let framePosition = playerTime.sampleTime - playerTimeBaseOffset + seekFrameOffset
-        return max(0, TimeInterval(framePosition) / sampleRate)
+        return Self.resolvedPlaybackPosition(
+            renderSampleTime: playerTime.sampleTime,
+            playerTimeBaseOffset: playerTimeBaseOffset,
+            seekFrameOffset: seekFrameOffset,
+            sampleRate: sampleRate
+        )
     }
 
     /// Start periodic time updates at ~10Hz using wall-clock estimation.
@@ -1066,6 +1074,35 @@ public final class AudioPlaybackEngine {
     private func stopTimeUpdates() {
         timeUpdateTimer?.cancel()
         timeUpdateTimer = nil
+    }
+
+    /// Persist the current user-visible playhead before stopping the engine.
+    /// Route changes often pause first and deliver the config-change callback later,
+    /// after `lastRenderTime` is gone. Updating `seekFrameOffset` here gives route
+    /// recovery and resume a durable source of truth for the paused position.
+    private func snapshotPlaybackPositionBeforeStopping() -> TimeInterval {
+        let position = currentTime()
+        seekFrameOffset = AVAudioFramePosition(position * sampleRate)
+        playerTimeBaseOffset = 0
+        captureWallTimeBase(position: position)
+        currentTimeSubject.send(position)
+        return position
+    }
+
+    static func resolvedPlaybackPosition(
+        renderSampleTime: AVAudioFramePosition?,
+        playerTimeBaseOffset: AVAudioFramePosition,
+        seekFrameOffset: AVAudioFramePosition,
+        sampleRate: Double
+    ) -> TimeInterval {
+        guard let renderSampleTime else {
+            return max(0, TimeInterval(seekFrameOffset) / sampleRate)
+        }
+
+        // playerTime.sampleTime accumulates across gapless segments (playerNode never stops).
+        // Subtract playerTimeBaseOffset to get frames within the current segment only.
+        let framePosition = renderSampleTime - playerTimeBaseOffset + seekFrameOffset
+        return max(0, TimeInterval(framePosition) / sampleRate)
     }
 
     // MARK: - Completion Handling

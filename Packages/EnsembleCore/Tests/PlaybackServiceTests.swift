@@ -3,6 +3,28 @@ import XCTest
 @testable import EnsembleCore
 
 final class PlaybackServiceTests: XCTestCase {
+    func testAudioPlaybackEngineResolvedPlaybackPositionFallsBackToSeekOffsetWithoutRenderSample() {
+        let time = AudioPlaybackEngine.resolvedPlaybackPosition(
+            renderSampleTime: nil,
+            playerTimeBaseOffset: 0,
+            seekFrameOffset: 3_282_300,
+            sampleRate: 44_100
+        )
+
+        XCTAssertEqual(time, 74.428571, accuracy: 0.0001)
+    }
+
+    func testAudioPlaybackEngineResolvedPlaybackPositionSubtractsGaplessBaseOffset() {
+        let time = AudioPlaybackEngine.resolvedPlaybackPosition(
+            renderSampleTime: 350,
+            playerTimeBaseOffset: 100,
+            seekFrameOffset: 25,
+            sampleRate: 10
+        )
+
+        XCTAssertEqual(time, 27.5, accuracy: 0.0001)
+    }
+
     func testPresentationRouteKindPrefersAirPlayOverBluetooth() {
         let routeKind = PlaybackService.inferPresentationRouteKind(
             hasAirPlay: true,
