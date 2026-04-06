@@ -38,6 +38,9 @@ public struct ProfileView: View {
             // Music Sources
             sourcesSection
 
+            // iCloud Sync
+            SyncSettingsView()
+
             // Appearance
             appearanceSection
 

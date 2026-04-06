@@ -61,6 +61,8 @@ public final class DependencyContainer: @unchecked Sendable {
 
     public let userProfileStore: UserProfileStore
     public let cloudSyncService: CloudSyncService
+    public let syncSettingsManager: SyncSettingsManager
+    public let kvsSyncService: KVSSyncService
 
     // MARK: - Network Infrastructure
 
@@ -268,6 +270,14 @@ public final class DependencyContainer: @unchecked Sendable {
         // Cloud sync service — CloudKit sync for profile data (and future sync targets)
         let cloudSyncRef = CloudSyncService()
         cloudSyncService = cloudSyncRef
+
+        // Sync settings — per-device toggle control for iCloud sync features
+        let syncSettingsRef = MainActor.assumeIsolated { SyncSettingsManager() }
+        syncSettingsManager = syncSettingsRef
+
+        // KVS sync service — NSUbiquitousKeyValueStore for settings, pins, library flags
+        let kvsRef = MainActor.assumeIsolated { KVSSyncService() }
+        kvsSyncService = kvsRef
 
         // Wire profile updates to CloudKit push
         MainActor.assumeIsolated {
