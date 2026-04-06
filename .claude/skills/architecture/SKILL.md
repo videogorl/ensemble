@@ -668,6 +668,45 @@ User-editable profile (display name, profile image) with iCloud private database
 - **Key types:** `UserProfile`, `UserProfileStore`, `CloudSyncService`
 - **Key files:** `UserProfile.swift`, `UserProfileStore.swift`, `CloudSyncService.swift`, `ProfileView.swift`, `ProfileHeaderView.swift`, `ProfileToolbarButton.swift`, `DependencyContainer.swift`
 
+## Subsystem: iCloud Sync (Phase 2 — KVS + Keychain)
+
+Hybrid sync architecture for cross-device settings and credential sharing:
+
+```
+┌──────────────────────────────────────────────────────┐
+│  iCloud Sync Mechanisms                              │
+├──────────────┬──────────────────┬─────────────────────┤
+│  KVS         │  iCloud Keychain │  CloudKit           │
+│  (small data)│  (credentials)   │  (profile)          │
+├──────────────┼──────────────────┼─────────────────────┤
+│ Accent color │ Plex tokens      │ Display name        │
+│ Swipe layout │ Server URLs      │ Profile image       │
+│ Pins         │ Account IDs      │                     │
+│ Library flags│                  │                     │
+└──────────────┴──────────────────┴─────────────────────┘
+```
+
+**Sync mechanisms:**
+1. **KVS (`KVSSyncService`)** — `NSUbiquitousKeyValueStore` wrapper for small settings. Push/pull/observe with echo-loop suppression (1s window after pushing). Each KVS key maps to a feature toggle in `SyncSettingsManager`.
+2. **iCloud Keychain (`KeychainService`)** — Synchronizable keychain items for Plex credentials. Uses `saveSynchronizable`/`getSynchronizable`/`deleteSynchronizable` APIs with `KeychainKey.plexAccountsSync`.
+3. **CloudKit (`CloudSyncService`)** — Private database sync for user profile (existing, see User Profile subsystem).
+
+**Key behaviors:**
+- **Dependency cascade:** Libraries toggle auto-disables when Sources is turned off.
+- **First-connect flow:** On first iCloud connection, all data is pulled from iCloud.
+- **Re-enable flow:** Turning a toggle back on pulls from iCloud and overwrites local.
+- **Pin merge:** Union by `(id, sourceCompositeKey)`, remote wins on conflict. Implemented in `PinnedItem.applyRemotePins` + `PinManager.exportPinsData`.
+
+**Sync settings toggles (per-device, UserDefaults):**
+- `sources` — account credentials via iCloud Keychain
+- `libraries` — library enabled/disabled flags (depends on `sources`)
+- `pins` — pinned content
+- `accentColor` — app accent color
+- `swipeActions` — track swipe action layout
+
+- **Key types:** `SyncSettingsManager`, `KVSSyncService`, `SyncableAccountCredential`, `SyncableServerCredential`, `SyncableLibraryRef`
+- **Key files:** `SyncSettingsManager.swift`, `KVSSyncService.swift`, `SyncSettingsView.swift`, `DependencyContainer.swift`, `AccountManager.swift`, `KeychainService.swift`, `PlexAccountConfig.swift`, `PinnedItem.swift`
+
 ## Multi-Source Architecture
 
 When adding new music sources:
