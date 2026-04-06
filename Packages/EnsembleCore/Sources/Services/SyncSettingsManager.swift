@@ -7,6 +7,17 @@ import Combine
 @MainActor
 public final class SyncSettingsManager: ObservableObject {
 
+    /// Runtime state for a sync feature's bootstrap and recovery lifecycle.
+    public enum SyncFeatureState: Equatable {
+        case idle
+        case bootstrapping
+        case appliedRemote
+        case seededLocal
+        case waitingForTransport
+        case transportUnavailable
+        case error
+    }
+
     // MARK: - Sync Feature Identifiers
 
     /// Features available for iCloud sync
@@ -81,6 +92,9 @@ public final class SyncSettingsManager: ObservableObject {
     /// Whether the device has completed first iCloud connect
     @Published public private(set) var hasCompletedFirstConnect: Bool
 
+    /// Tracks bootstrap state per feature so transports can degrade independently.
+    @Published private var featureStates: [SyncFeature: SyncFeatureState]
+
     // MARK: - Callbacks
 
     /// Called when master sync is re-enabled (triggers first-connect or full pull)
@@ -104,6 +118,9 @@ public final class SyncSettingsManager: ObservableObject {
 
         self.isMasterSyncEnabled = defaults.bool(forKey: Keys.masterSync)
         self.hasCompletedFirstConnect = defaults.bool(forKey: Keys.hasCompletedFirstConnect)
+        self.featureStates = Dictionary(
+            uniqueKeysWithValues: SyncFeature.allCases.map { ($0, .idle) }
+        )
     }
 
     // MARK: - Feature Toggle API
@@ -132,8 +149,10 @@ public final class SyncSettingsManager: ObservableObject {
 
         // If disabling a feature that others depend on, cascade-disable dependents
         if !enabled {
+            setFeatureState(.idle, for: feature)
             for dependent in SyncFeature.allCases where dependent.dependencies.contains(feature) {
                 UserDefaults.standard.set(false, forKey: Keys.feature(dependent))
+                setFeatureState(.idle, for: dependent)
             }
         }
 
@@ -167,7 +186,21 @@ public final class SyncSettingsManager: ObservableObject {
 
     /// Mark that first iCloud connect has been completed
     public func markFirstConnectComplete() {
+        guard !hasCompletedFirstConnect else { return }
         hasCompletedFirstConnect = true
         UserDefaults.standard.set(true, forKey: Keys.hasCompletedFirstConnect)
+    }
+
+    /// Returns the current bootstrap/recovery state for a feature.
+    public func featureState(for feature: SyncFeature) -> SyncFeatureState {
+        featureStates[feature] ?? .idle
+    }
+
+    /// Updates the runtime state for a feature when transport/bootstrap conditions change.
+    public func setFeatureState(_ state: SyncFeatureState, for feature: SyncFeature) {
+        guard featureStates[feature] != state else { return }
+        var updatedStates = featureStates
+        updatedStates[feature] = state
+        featureStates = updatedStates
     }
 }

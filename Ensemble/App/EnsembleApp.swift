@@ -178,6 +178,7 @@ struct EnsembleApp: App {
                 // Route foreground refresh through SyncCoordinator to coalesce
                 // with network state transitions and cooldown/staleness guards.
                 await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
+                await DependencyContainer.shared.reconcileSyncOnForeground()
 
                 // Drain any pending offline mutations now that connectivity may have resumed.
                 await DependencyContainer.shared.mutationCoordinator.drainQueue()
@@ -238,6 +239,7 @@ struct EnsembleApp: App {
                 // Start monitoring when app becomes active (macOS)
                 DependencyContainer.shared.networkMonitor.startMonitoring()
                 await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
+                await DependencyContainer.shared.reconcileSyncOnForeground()
 
                 // Start periodic sync timer
                 DependencyContainer.shared.syncCoordinator.startPeriodicSync()

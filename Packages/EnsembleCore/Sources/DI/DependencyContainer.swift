@@ -65,6 +65,10 @@ public final class DependencyContainer: @unchecked Sendable {
     public let syncSettingsManager: SyncSettingsManager
     public let kvsSyncService: KVSSyncService
     private var kvsSyncCancellables = Set<AnyCancellable>()
+    private var lastSyncedAccentColor: String = AppAccentColor.blue.rawValue
+    private var lastSyncedSwipeLayout: TrackSwipeLayout = .default
+    private var lastSyncedPinsData: Data?
+    private var syncBootstrapTask: Task<Void, Never>?
 
     // MARK: - Network Infrastructure
 
@@ -292,10 +296,11 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         // Wire CloudKit remote changes to local profile store
+        let profileStoreForCloud = profileStoreRef
         Task {
-            await cloudSyncRef.setRemoteChangeHandler { [weak profileStoreRef] profile, imageData in
+            await cloudSyncRef.setRemoteChangeHandler { [profileStoreForCloud] profile, imageData in
                 await MainActor.run {
-                    profileStoreRef?.applyRemoteProfile(profile, imageData: imageData)
+                    profileStoreForCloud.applyRemoteProfile(profile, imageData: imageData)
                 }
             }
 
@@ -509,89 +514,87 @@ public final class DependencyContainer: @unchecked Sendable {
             }
         }
 
-        // Wire KVS sync for accent color + swipe layout
+        // Wire KVS sync for settings, pins, and library flags with deferred bootstrap.
         MainActor.assumeIsolated {
             let settings = settingsManager
             let kvs = kvsRef
             let syncToggles = syncSettingsRef
-            var lastSyncedAccentColor = settings.accentColorName
-            var lastSyncedSwipeLayout = settings.trackSwipeLayout
-            var lastSyncedPinsData = pinManager.exportPinsData()
+            let pins = pinManager
+            let acctMgr = accountManager
+            let discovery = accountDiscoveryService
 
-            // Push accent color on local change
-            kvsRef.onRemoteAccentColorChanged = { colorName in
+            kvsRef.onRemoteAccentColorChanged = { [weak self] colorName in
+                guard let self else { return }
                 guard syncToggles.isFeatureEnabled(.accentColor) else { return }
-                lastSyncedAccentColor = colorName
+                self.lastSyncedAccentColor = colorName
+                syncToggles.setFeatureState(.appliedRemote, for: .accentColor)
                 guard settings.accentColorName != colorName else { return }
                 settings.setAccentColor(AppAccentColor(rawValue: colorName) ?? .blue)
             }
 
-            // Push swipe layout on remote change
-            kvsRef.onRemoteSwipeLayoutChanged = { data in
+            kvsRef.onRemoteSwipeLayoutChanged = { [weak self] data in
+                guard let self else { return }
                 guard syncToggles.isFeatureEnabled(.swipeActions) else { return }
-                if let layout = try? JSONDecoder().decode(TrackSwipeLayout.self, from: data) {
-                    lastSyncedSwipeLayout = layout
-                    guard settings.trackSwipeLayout != layout else { return }
-                    settings.trackSwipeLayout = layout
-                }
+                guard let layout = try? JSONDecoder().decode(TrackSwipeLayout.self, from: data) else { return }
+                self.lastSyncedSwipeLayout = layout
+                syncToggles.setFeatureState(.appliedRemote, for: .swipeActions)
+                guard settings.trackSwipeLayout != layout else { return }
+                settings.trackSwipeLayout = layout
             }
 
-            // Observe local accent color changes → push to KVS
             settings.objectWillChange
                 .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-                .sink { [weak settings, weak kvs, weak syncToggles] _ in
-                    guard let settings = settings, let kvs = kvs, let syncToggles = syncToggles else { return }
-                    guard syncToggles.isFeatureEnabled(.accentColor) else { return }
-                    if settings.accentColorName != lastSyncedAccentColor {
-                        lastSyncedAccentColor = settings.accentColorName
+                .sink { [weak self, weak settings, weak kvs, weak syncToggles] _ in
+                    guard let self, let settings, let kvs, let syncToggles else { return }
+                    if syncToggles.isFeatureEnabled(.accentColor),
+                       settings.accentColorName != self.lastSyncedAccentColor {
+                        self.lastSyncedAccentColor = settings.accentColorName
+                        syncToggles.setFeatureState(.seededLocal, for: .accentColor)
                         kvs.pushString(settings.accentColorName, forKey: KVSSyncService.KVSKey.accentColor)
                     }
 
                     guard syncToggles.isFeatureEnabled(.swipeActions) else { return }
                     let currentLayout = settings.trackSwipeLayout
-                    guard currentLayout != lastSyncedSwipeLayout else { return }
-                    lastSyncedSwipeLayout = currentLayout
+                    guard currentLayout != self.lastSyncedSwipeLayout else { return }
+                    self.lastSyncedSwipeLayout = currentLayout
+                    syncToggles.setFeatureState(.seededLocal, for: .swipeActions)
                     if let data = try? JSONEncoder().encode(currentLayout) {
                         kvs.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
                     }
                 }
                 .store(in: &kvsSyncCancellables)
 
-            // Wire pins sync
-            let pins = pinManager
-            kvsRef.onRemotePinsChanged = { [weak pins] data in
-                guard syncToggles.isFeatureEnabled(.pins), let pins = pins else { return }
-                lastSyncedPinsData = data
+            kvsRef.onRemotePinsChanged = { [weak self, weak pins] data in
+                guard let self, let pins else { return }
+                guard syncToggles.isFeatureEnabled(.pins) else { return }
+                self.lastSyncedPinsData = data
+                syncToggles.setFeatureState(.appliedRemote, for: .pins)
                 if let remotePins = try? JSONDecoder().decode([PinnedItem].self, from: data) {
                     pins.applyRemotePins(remotePins)
                 }
             }
 
-            // Push pins when they change locally (skip if recently applied remote to avoid echo loop)
             pins.objectWillChange
                 .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-                .sink { [weak pins, weak kvs, weak syncToggles] _ in
-                    guard let pins = pins, let kvs = kvs, let syncToggles = syncToggles else { return }
+                .sink { [weak self, weak pins, weak kvs, weak syncToggles] _ in
+                    guard let self, let pins, let kvs, let syncToggles else { return }
                     guard syncToggles.isFeatureEnabled(.pins) else { return }
-                    // Skip push if we just applied remote pins (within 2s window)
                     if let lastApply = pins.lastRemoteApplyTime,
                        Date().timeIntervalSince(lastApply) < 2.0 {
                         return
                     }
-                    guard let data = pins.exportPinsData(), data != lastSyncedPinsData else { return }
-                    lastSyncedPinsData = data
+                    guard let data = pins.exportPinsData(), data != self.lastSyncedPinsData else { return }
+                    self.lastSyncedPinsData = data
+                    syncToggles.setFeatureState(.seededLocal, for: .pins)
                     kvs.pushData(data, forKey: KVSSyncService.KVSKey.pins)
                 }
                 .store(in: &kvsSyncCancellables)
 
-            // Wire source credential sync reconciliation
-            let acctMgr = accountManager
-            let discovery = accountDiscoveryService
             acctMgr.onNewAccountsFromSync = { [weak acctMgr, weak syncToggles] newCredentials in
-                guard let acctMgr = acctMgr, let syncToggles = syncToggles else { return }
+                guard let acctMgr, let syncToggles else { return }
                 guard syncToggles.isFeatureEnabled(.sources) else { return }
+                syncToggles.setFeatureState(.appliedRemote, for: .sources)
 
-                // Discover connections for each new synced account
                 for credential in newCredentials {
                     Task {
                         do {
@@ -631,17 +634,21 @@ public final class DependencyContainer: @unchecked Sendable {
                                 }
                             }
                         } catch {
+                            await MainActor.run {
+                                syncToggles.setFeatureState(.error, for: .sources)
+                            }
                             EnsembleLogger.error("Sync: failed to discover account \(credential.accountId): \(error)")
                         }
                     }
                 }
             }
 
-            // Wire library flags sync via KVS
-            let applyRemoteLibraryFlags: (Data) -> Void = { [weak acctMgr] data in
-                guard syncToggles.isFeatureEnabled(.libraries), let acctMgr = acctMgr else { return }
+            kvsRef.onRemoteLibraryFlagsChanged = { [weak acctMgr] data in
+                guard let acctMgr else { return }
+                guard syncToggles.isFeatureEnabled(.libraries) else { return }
                 Task { @MainActor in
                     let result = acctMgr.applyLibraryFlags(data)
+                    syncToggles.setFeatureState(.appliedRemote, for: .libraries)
                     guard result.hasChanges else { return }
 
                     syncCoordinatorRef.refreshProviders()
@@ -662,120 +669,327 @@ public final class DependencyContainer: @unchecked Sendable {
                     }
                 }
             }
-            kvsRef.onRemoteLibraryFlagsChanged = applyRemoteLibraryFlags
 
-            let bootstrapSourcesFromCloudOrLocal = { [weak acctMgr, weak syncToggles] in
-                guard let acctMgr = acctMgr, let syncToggles = syncToggles else { return }
-                guard syncToggles.isFeatureEnabled(.sources) else { return }
-
-                if acctMgr.hasSyncedCloudCredentials() {
-                    let newAccounts = acctMgr.pullSyncCredentials()
-                    if !newAccounts.isEmpty {
-                        acctMgr.onNewAccountsFromSync?(newAccounts)
-                    }
-                } else {
-                    acctMgr.seedCloudSyncCredentialsFromLocal()
-                }
-            }
-
-            let bootstrapAccentColorFromCloudOrLocal = { [weak kvs, weak settings, weak syncToggles] in
-                guard let kvs = kvs, let settings = settings, let syncToggles = syncToggles else { return }
-                guard syncToggles.isFeatureEnabled(.accentColor) else { return }
-
-                kvs.synchronize()
-                if let value = kvs.pullString(forKey: KVSSyncService.KVSKey.accentColor) {
-                    kvs.onRemoteAccentColorChanged?(value)
-                } else {
-                    lastSyncedAccentColor = settings.accentColorName
-                    kvs.pushString(settings.accentColorName, forKey: KVSSyncService.KVSKey.accentColor)
-                }
-            }
-
-            let bootstrapSwipeLayoutFromCloudOrLocal = { [weak kvs, weak settings, weak syncToggles] in
-                guard let kvs = kvs, let settings = settings, let syncToggles = syncToggles else { return }
-                guard syncToggles.isFeatureEnabled(.swipeActions) else { return }
-
-                kvs.synchronize()
-                if let data = kvs.pullData(forKey: KVSSyncService.KVSKey.swipeLayout) {
-                    kvs.onRemoteSwipeLayoutChanged?(data)
-                } else if let data = try? JSONEncoder().encode(settings.trackSwipeLayout) {
-                    lastSyncedSwipeLayout = settings.trackSwipeLayout
-                    kvs.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
-                }
-            }
-
-            let bootstrapPinsFromCloudOrLocal = { [weak kvs, weak pins, weak syncToggles] in
-                guard let kvs = kvs, let pins = pins, let syncToggles = syncToggles else { return }
-                guard syncToggles.isFeatureEnabled(.pins) else { return }
-
-                kvs.synchronize()
-                if let data = kvs.pullData(forKey: KVSSyncService.KVSKey.pins) {
-                    kvs.onRemotePinsChanged?(data)
-                } else if let data = pins.exportPinsData(), !pins.pinnedItems.isEmpty {
-                    lastSyncedPinsData = data
-                    kvs.pushData(data, forKey: KVSSyncService.KVSKey.pins)
-                }
-            }
-
-            let bootstrapLibraryFlagsFromCloudOrLocal = { [weak kvs, weak acctMgr, weak syncToggles] in
-                guard let kvs = kvs, let acctMgr = acctMgr, let syncToggles = syncToggles else { return }
-                guard syncToggles.isFeatureEnabled(.libraries) else { return }
-
-                kvs.synchronize()
-                if let data = kvs.pullData(forKey: KVSSyncService.KVSKey.libraryFlags) {
-                    applyRemoteLibraryFlags(data)
-                } else if acctMgr.hasAnySources, let data = acctMgr.exportLibraryFlags() {
-                    kvs.pushData(data, forKey: KVSSyncService.KVSKey.libraryFlags)
-                }
-            }
-
-            // Push library flags when accounts change
             acctMgr.objectWillChange
                 .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
                 .sink { [weak acctMgr, weak kvs, weak syncToggles] _ in
-                    guard let acctMgr = acctMgr, let kvs = kvs, let syncToggles = syncToggles else { return }
+                    guard let acctMgr, let kvs, let syncToggles else { return }
                     guard syncToggles.isFeatureEnabled(.libraries) else { return }
                     if let data = acctMgr.exportLibraryFlags() {
+                        syncToggles.setFeatureState(.seededLocal, for: .libraries)
                         kvs.pushData(data, forKey: KVSSyncService.KVSKey.libraryFlags)
                     }
                 }
                 .store(in: &kvsSyncCancellables)
 
-            // Wire master sync re-enable → pull all from iCloud
-            syncSettingsRef.onMasterSyncEnabled = {
-                bootstrapAccentColorFromCloudOrLocal()
-                bootstrapSwipeLayoutFromCloudOrLocal()
-                bootstrapPinsFromCloudOrLocal()
-                bootstrapSourcesFromCloudOrLocal()
-                bootstrapLibraryFlagsFromCloudOrLocal()
+            kvsRef.onInitialSyncCompleted = { [weak self, weak syncToggles] in
+                guard let self, let syncToggles else { return }
+                guard syncToggles.isMasterSyncEnabled, !syncToggles.hasCompletedFirstConnect else { return }
+                self.scheduleSyncBootstrap(reason: "kvs-initial-sync")
             }
 
-            // Wire per-feature re-enable → pull that feature from iCloud
-            syncSettingsRef.onFeatureReEnabled = { feature in
-                switch feature {
-                case .accentColor:
-                    bootstrapAccentColorFromCloudOrLocal()
-                case .swipeActions:
-                    bootstrapSwipeLayoutFromCloudOrLocal()
-                case .pins:
-                    bootstrapPinsFromCloudOrLocal()
-                case .sources:
-                    bootstrapSourcesFromCloudOrLocal()
-                case .libraries:
-                    bootstrapLibraryFlagsFromCloudOrLocal()
-                }
+            syncSettingsRef.onMasterSyncEnabled = { [weak self] in
+                self?.scheduleSyncBootstrap(reason: "master-enabled")
             }
 
-            // First-connect: if this device has never synced, pull everything from iCloud
+            syncSettingsRef.onFeatureReEnabled = { [weak self] feature in
+                self?.scheduleSyncBootstrap(reason: "feature-reenabled", feature: feature)
+            }
+
             if !syncToggles.hasCompletedFirstConnect && syncToggles.isMasterSyncEnabled {
-                bootstrapAccentColorFromCloudOrLocal()
-                bootstrapSwipeLayoutFromCloudOrLocal()
-                bootstrapPinsFromCloudOrLocal()
-                bootstrapSourcesFromCloudOrLocal()
-                bootstrapLibraryFlagsFromCloudOrLocal()
-                syncToggles.markFirstConnectComplete()
+                self.scheduleSyncBootstrap(reason: "first-connect")
             }
         }
+
+        MainActor.assumeIsolated {
+            lastSyncedAccentColor = settingsManager.accentColorName
+            lastSyncedSwipeLayout = settingsManager.trackSwipeLayout
+            lastSyncedPinsData = pinManager.exportPinsData()
+        }
+    }
+
+    @MainActor
+    public func reconcileSyncOnForeground() async {
+        if syncSettingsManager.isFeatureEnabled(.sources) {
+            let newAccounts = accountManager.pullSyncCredentials()
+            if !newAccounts.isEmpty {
+                syncSettingsManager.setFeatureState(.appliedRemote, for: .sources)
+                accountManager.onNewAccountsFromSync?(newAccounts)
+            }
+        }
+
+        await cloudSyncService.refreshProfileFromCloud()
+
+        if syncSettingsManager.isMasterSyncEnabled && !syncSettingsManager.hasCompletedFirstConnect {
+            await performSyncBootstrap(reason: "foreground")
+        }
+    }
+
+    @MainActor
+    private func scheduleSyncBootstrap(reason: String, feature: SyncSettingsManager.SyncFeature? = nil) {
+        syncBootstrapTask?.cancel()
+        syncBootstrapTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performSyncBootstrap(reason: reason, feature: feature)
+        }
+    }
+
+    @MainActor
+    private func performSyncBootstrap(reason: String, feature: SyncSettingsManager.SyncFeature? = nil) async {
+        guard syncSettingsManager.isMasterSyncEnabled else { return }
+
+        let featuresToBootstrap: [SyncSettingsManager.SyncFeature]
+        if let feature {
+            featuresToBootstrap = [feature]
+        } else {
+            featuresToBootstrap = SyncSettingsManager.SyncFeature.allCases.filter {
+                syncSettingsManager.isFeatureEnabled($0)
+            }
+        }
+
+        for feature in featuresToBootstrap {
+            guard !Task.isCancelled else { return }
+            _ = await bootstrapFeature(feature, reason: reason)
+        }
+
+        guard !syncSettingsManager.hasCompletedFirstConnect else { return }
+        guard enabledFeaturesAreSettled else { return }
+
+        EnsembleLogger.info("Sync bootstrap: first-connect settled after \(reason)")
+        syncSettingsManager.markFirstConnectComplete()
+    }
+
+    @MainActor
+    private var enabledFeaturesAreSettled: Bool {
+        SyncSettingsManager.SyncFeature.allCases
+            .filter { syncSettingsManager.isFeatureEnabled($0) }
+            .allSatisfy { feature in
+                switch syncSettingsManager.featureState(for: feature) {
+                case .idle, .appliedRemote, .seededLocal, .transportUnavailable:
+                    return true
+                case .bootstrapping, .waitingForTransport, .error:
+                    return false
+                }
+            }
+    }
+
+    @MainActor
+    @discardableResult
+    private func bootstrapFeature(
+        _ feature: SyncSettingsManager.SyncFeature,
+        reason: String
+    ) async -> Bool {
+        switch feature {
+        case .accentColor:
+            return await bootstrapAccentColor(reason: reason)
+        case .swipeActions:
+            return await bootstrapSwipeActions(reason: reason)
+        case .pins:
+            return await bootstrapPins(reason: reason)
+        case .sources:
+            return bootstrapSources(reason: reason)
+        case .libraries:
+            return await bootstrapLibraryFlags(reason: reason)
+        }
+    }
+
+    @MainActor
+    private func bootstrapSources(reason: String) -> Bool {
+        guard syncSettingsManager.isFeatureEnabled(.sources) else {
+            syncSettingsManager.setFeatureState(.idle, for: .sources)
+            return true
+        }
+
+        syncSettingsManager.setFeatureState(.bootstrapping, for: .sources)
+
+        if accountManager.hasSyncedCloudCredentials() {
+            let newAccounts = accountManager.pullSyncCredentials()
+            syncSettingsManager.setFeatureState(.appliedRemote, for: .sources)
+            if !newAccounts.isEmpty {
+                accountManager.onNewAccountsFromSync?(newAccounts)
+            }
+            return true
+        }
+
+        guard accountManager.hasAnySources else {
+            syncSettingsManager.setFeatureState(.idle, for: .sources)
+            return true
+        }
+
+        EnsembleLogger.info("Sync bootstrap: seeding local sources after \(reason)")
+        accountManager.seedCloudSyncCredentialsFromLocal()
+        syncSettingsManager.setFeatureState(.seededLocal, for: .sources)
+        return true
+    }
+
+    @MainActor
+    private func bootstrapAccentColor(reason: String) async -> Bool {
+        guard syncSettingsManager.isFeatureEnabled(.accentColor) else {
+            syncSettingsManager.setFeatureState(.idle, for: .accentColor)
+            return true
+        }
+
+        guard kvsSyncService.isAvailable else {
+            syncSettingsManager.setFeatureState(.transportUnavailable, for: .accentColor)
+            return true
+        }
+
+        syncSettingsManager.setFeatureState(.bootstrapping, for: .accentColor)
+        kvsSyncService.synchronize()
+
+        if let value = kvsSyncService.pullString(forKey: KVSSyncService.KVSKey.accentColor) {
+            kvsSyncService.onRemoteAccentColorChanged?(value)
+            return true
+        }
+
+        let didSettleInitialSync = await kvsSyncService.waitForInitialSync()
+        if let value = kvsSyncService.pullString(forKey: KVSSyncService.KVSKey.accentColor) {
+            kvsSyncService.onRemoteAccentColorChanged?(value)
+            return true
+        }
+
+        guard didSettleInitialSync else {
+            EnsembleLogger.info("Sync bootstrap: waiting for KVS accent color after \(reason)")
+            syncSettingsManager.setFeatureState(.waitingForTransport, for: .accentColor)
+            return false
+        }
+
+        lastSyncedAccentColor = settingsManager.accentColorName
+        EnsembleLogger.info("Sync bootstrap: seeding local accent color after \(reason)")
+        syncSettingsManager.setFeatureState(.seededLocal, for: .accentColor)
+        kvsSyncService.pushString(settingsManager.accentColorName, forKey: KVSSyncService.KVSKey.accentColor)
+        return true
+    }
+
+    @MainActor
+    private func bootstrapSwipeActions(reason: String) async -> Bool {
+        guard syncSettingsManager.isFeatureEnabled(.swipeActions) else {
+            syncSettingsManager.setFeatureState(.idle, for: .swipeActions)
+            return true
+        }
+
+        guard kvsSyncService.isAvailable else {
+            syncSettingsManager.setFeatureState(.transportUnavailable, for: .swipeActions)
+            return true
+        }
+
+        syncSettingsManager.setFeatureState(.bootstrapping, for: .swipeActions)
+        kvsSyncService.synchronize()
+
+        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.swipeLayout) {
+            kvsSyncService.onRemoteSwipeLayoutChanged?(data)
+            return true
+        }
+
+        let didSettleInitialSync = await kvsSyncService.waitForInitialSync()
+        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.swipeLayout) {
+            kvsSyncService.onRemoteSwipeLayoutChanged?(data)
+            return true
+        }
+
+        guard didSettleInitialSync else {
+            EnsembleLogger.info("Sync bootstrap: waiting for KVS swipe layout after \(reason)")
+            syncSettingsManager.setFeatureState(.waitingForTransport, for: .swipeActions)
+            return false
+        }
+
+        lastSyncedSwipeLayout = settingsManager.trackSwipeLayout
+        guard let data = try? JSONEncoder().encode(settingsManager.trackSwipeLayout) else {
+            syncSettingsManager.setFeatureState(.error, for: .swipeActions)
+            return false
+        }
+
+        EnsembleLogger.info("Sync bootstrap: seeding local swipe layout after \(reason)")
+        syncSettingsManager.setFeatureState(.seededLocal, for: .swipeActions)
+        kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
+        return true
+    }
+
+    @MainActor
+    private func bootstrapPins(reason: String) async -> Bool {
+        guard syncSettingsManager.isFeatureEnabled(.pins) else {
+            syncSettingsManager.setFeatureState(.idle, for: .pins)
+            return true
+        }
+
+        guard kvsSyncService.isAvailable else {
+            syncSettingsManager.setFeatureState(.transportUnavailable, for: .pins)
+            return true
+        }
+
+        syncSettingsManager.setFeatureState(.bootstrapping, for: .pins)
+        kvsSyncService.synchronize()
+
+        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.pins) {
+            kvsSyncService.onRemotePinsChanged?(data)
+            return true
+        }
+
+        let didSettleInitialSync = await kvsSyncService.waitForInitialSync()
+        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.pins) {
+            kvsSyncService.onRemotePinsChanged?(data)
+            return true
+        }
+
+        guard didSettleInitialSync else {
+            EnsembleLogger.info("Sync bootstrap: waiting for KVS pins after \(reason)")
+            syncSettingsManager.setFeatureState(.waitingForTransport, for: .pins)
+            return false
+        }
+
+        guard !pinManager.pinnedItems.isEmpty, let data = pinManager.exportPinsData() else {
+            syncSettingsManager.setFeatureState(.idle, for: .pins)
+            return true
+        }
+
+        lastSyncedPinsData = data
+        EnsembleLogger.info("Sync bootstrap: seeding local pins after \(reason)")
+        syncSettingsManager.setFeatureState(.seededLocal, for: .pins)
+        kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.pins)
+        return true
+    }
+
+    @MainActor
+    private func bootstrapLibraryFlags(reason: String) async -> Bool {
+        guard syncSettingsManager.isFeatureEnabled(.libraries) else {
+            syncSettingsManager.setFeatureState(.idle, for: .libraries)
+            return true
+        }
+
+        guard kvsSyncService.isAvailable else {
+            syncSettingsManager.setFeatureState(.transportUnavailable, for: .libraries)
+            return true
+        }
+
+        syncSettingsManager.setFeatureState(.bootstrapping, for: .libraries)
+        kvsSyncService.synchronize()
+
+        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.libraryFlags) {
+            kvsSyncService.onRemoteLibraryFlagsChanged?(data)
+            return true
+        }
+
+        let didSettleInitialSync = await kvsSyncService.waitForInitialSync()
+        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.libraryFlags) {
+            kvsSyncService.onRemoteLibraryFlagsChanged?(data)
+            return true
+        }
+
+        guard didSettleInitialSync else {
+            EnsembleLogger.info("Sync bootstrap: waiting for KVS library flags after \(reason)")
+            syncSettingsManager.setFeatureState(.waitingForTransport, for: .libraries)
+            return false
+        }
+
+        guard accountManager.hasAnySources, let data = accountManager.exportLibraryFlags() else {
+            syncSettingsManager.setFeatureState(.idle, for: .libraries)
+            return true
+        }
+
+        EnsembleLogger.info("Sync bootstrap: seeding local library flags after \(reason)")
+        syncSettingsManager.setFeatureState(.seededLocal, for: .libraries)
+        kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.libraryFlags)
+        return true
     }
 
     // MARK: - Shared ViewModel State

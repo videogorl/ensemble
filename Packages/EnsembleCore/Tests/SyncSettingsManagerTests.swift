@@ -78,6 +78,26 @@ final class SyncSettingsManagerTests: XCTestCase {
         XCTAssertEqual(calledFeature, .pins)
     }
 
+    @MainActor
+    func testFeatureStateDefaultsToIdle() {
+        let manager = SyncSettingsManager()
+
+        for feature in SyncSettingsManager.SyncFeature.allCases {
+            XCTAssertEqual(manager.featureState(for: feature), .idle)
+        }
+    }
+
+    @MainActor
+    func testFeatureStateCanBeUpdated() {
+        let manager = SyncSettingsManager()
+
+        manager.setFeatureState(.bootstrapping, for: .accentColor)
+        XCTAssertEqual(manager.featureState(for: .accentColor), .bootstrapping)
+
+        manager.setFeatureState(.appliedRemote, for: .accentColor)
+        XCTAssertEqual(manager.featureState(for: .accentColor), .appliedRemote)
+    }
+
     // MARK: - Dependency Cascade
 
     @MainActor
@@ -85,8 +105,13 @@ final class SyncSettingsManagerTests: XCTestCase {
         let manager = SyncSettingsManager()
         XCTAssertTrue(manager.isFeatureEnabled(.libraries))
 
+        manager.setFeatureState(.waitingForTransport, for: .sources)
+        manager.setFeatureState(.bootstrapping, for: .libraries)
+
         manager.setFeatureEnabled(.sources, enabled: false)
         XCTAssertFalse(manager.isFeatureEnabled(.libraries), "Libraries should be disabled when Sources is off")
+        XCTAssertEqual(manager.featureState(for: .sources), .idle)
+        XCTAssertEqual(manager.featureState(for: .libraries), .idle)
     }
 
     @MainActor
