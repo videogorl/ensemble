@@ -650,14 +650,14 @@ public struct AlbumDetailView: View {
                 ForEach(albums) { scrollAlbum in
                     if #available(iOS 16.0, macOS 13.0, *) {
                         NavigationLink(value: NavigationCoordinator.Destination.album(id: scrollAlbum.id)) {
-                            AlbumCard(album: scrollAlbum)
+                            AlbumCard(album: scrollAlbum, layout: .prominent)
                         }
                         .buttonStyle(.plain)
                     } else {
                         NavigationLink {
                             AlbumDetailView(album: scrollAlbum, nowPlayingVM: nowPlayingVM)
                         } label: {
-                            AlbumCard(album: scrollAlbum)
+                            AlbumCard(album: scrollAlbum, layout: .prominent)
                         }
                         .buttonStyle(.plain)
                     }
@@ -665,7 +665,7 @@ public struct AlbumDetailView: View {
             }
         }
         // Fixed height keeps horizontal album shelves from collapsing under the larger card size.
-        .frame(height: AlbumCardLayoutMetrics.horizontalScrollHeight)
+        .frame(height: AlbumCardLayoutMetrics.prominent.horizontalScrollHeight)
     }
 
     private var moreByArtistSection: some View {

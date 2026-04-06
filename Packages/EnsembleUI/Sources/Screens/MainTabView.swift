@@ -1021,6 +1021,7 @@ public struct SidebarView: View {
                     detailContainerView
                 }
                 .navigationSplitViewStyle(.balanced)
+                .macEditorToolbarRoleIfAvailable()
 
                 // Aurora visualization — placed in the outer ZStack so it renders
                 // above NavigationStack pushed views (macOS NavigationStack creates
@@ -1261,6 +1262,7 @@ public struct SidebarView: View {
                 ProfileToolbarButton()
             }
         }
+        .macEditorToolbarRoleIfAvailable()
         .if_available_removeSidebarToggle()
         // Sync cached sidebar playlists from VM publisher. Using @State + .onReceive
         // instead of computed properties ensures updates survive NavigationSplitView
@@ -1395,6 +1397,7 @@ public struct SidebarView: View {
                     .auroraBackgroundSupport()
             }
         }
+        .macEditorToolbarRoleIfAvailable()
         .id("playlist-detail-\(playlistID)-\(sourceKey ?? "none")")
     }
 
@@ -1411,6 +1414,7 @@ public struct SidebarView: View {
                     .auroraBackgroundSupport()
             }
         }
+        .macEditorToolbarRoleIfAvailable()
         .id("merged-playlist-detail-\(title)-\(isSmart)")
     }
 
@@ -1422,6 +1426,7 @@ public struct SidebarView: View {
         NavigationStack(path: sidebarPathBinding(for: tab)) {
             sidebarContentView(for: tab)
         }
+        .macEditorToolbarRoleIfAvailable()
     }
 
     private func sidebarPathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
@@ -1448,6 +1453,7 @@ public struct SidebarView: View {
                         .auroraBackgroundSupport()
                 }
         }
+        .macEditorToolbarRoleIfAvailable()
         .id("pin-\(id)-\(type)")
     }
 

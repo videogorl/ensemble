@@ -403,3 +403,20 @@ public extension ToolbarItemPlacement {
         #endif
     }
 }
+
+extension View {
+    /// Applies the editor toolbar role on macOS 13+ so primary actions land on
+    /// the trailing edge instead of clustering beside the sidebar/title area.
+    @ViewBuilder
+    func macEditorToolbarRoleIfAvailable() -> some View {
+        #if os(macOS)
+        if #available(macOS 13.0, *) {
+            self.toolbarRole(.editor)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+}

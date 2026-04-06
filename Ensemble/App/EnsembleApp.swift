@@ -89,9 +89,6 @@ struct EnsembleApp: App {
                     // This registers a user activity so we can track if the app becomes active
                     activity.title = "Ensemble Active"
                 }
-                #if os(macOS)
-                .frame(minWidth: 980, minHeight: 700)
-                #endif
         }
         #if os(macOS)
         .windowStyle(.hiddenTitleBar)
@@ -524,6 +521,8 @@ class MacAppDelegate: NSObject, NSApplicationDelegate {
               let splitVC = splitView.delegate as? NSSplitViewController,
               let sidebarItem = splitVC.splitViewItems.first else { return }
 
+        window.contentMinSize = NSSize(width: 980, height: 700)
+
         // Skip if already configured to avoid redundant work
         guard sidebarItem.canCollapse else { return }
 
@@ -531,10 +530,6 @@ class MacAppDelegate: NSObject, NSApplicationDelegate {
         sidebarItem.canCollapseFromWindowResize = false
         sidebarItem.minimumThickness = 220
         sidebarItem.holdingPriority = .init(999)
-
-        #if DEBUG
-        print("[MacAppDelegate] ✅ Configured non-collapsible sidebar (window: \(window.title))")
-        #endif
     }
 
     /// Recursively search the view hierarchy for an NSSplitView.
