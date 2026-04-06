@@ -45,6 +45,14 @@ public final class AccountManager: ObservableObject {
         pushSyncCredentials()
     }
 
+    /// Persist accounts to keychain without pushing to iCloud sync.
+    /// Used when applying remote changes to avoid echo loops and cascading reloads.
+    private func saveAccountsFromSync() {
+        guard let data = try? JSONEncoder().encode(plexAccounts),
+              let json = String(data: data, encoding: .utf8) else { return }
+        try? keychain.save(json, forKey: KeychainKey.plexAccounts)
+    }
+
     // MARK: - iCloud Keychain Sync
 
     /// Callback invoked when synced credentials arrive with new account IDs
@@ -149,7 +157,7 @@ public final class AccountManager: ObservableObject {
         }
 
         if didChange {
-            saveAccounts()
+            saveAccountsFromSync()
         }
     }
 
