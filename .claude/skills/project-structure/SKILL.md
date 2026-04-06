@@ -147,6 +147,7 @@ Sources/
 |   +-- PlexMusicSourceSyncProvider.swift # Plex implementation of sync protocol
 |   +-- NavigationCoordinator.swift    # Centralized navigation state management (MainActor)
 |   +-- PlaybackService.swift          # AVPlayer wrapper with queue/shuffle/repeat
+|   +-- PlaybackHandoffCoordinator.swift # Disconnect/interruption/remote-command handoff reducer extracted from PlaybackService
 |   +-- PlaybackQueueStore.swift       # Queue/history restoration persistence extracted from PlaybackService
 |   +-- PlaybackLaunchCoordinator.swift # Successful playback launch path (visualizer load, engine start, recovery seek, prefetch) extracted from PlaybackService
 |   +-- PlaybackRecoveryPolicy.swift   # Buffering/stall-recovery policy extracted from PlaybackService
@@ -213,6 +214,7 @@ Sources/
 
 Tests/
 +-- PlaybackServiceTests.swift
++-- PlaybackHandoffCoordinatorTests.swift
 +-- PlaybackRecoveryPolicyTests.swift
 +-- PlaybackLaunchCoordinatorTests.swift
 +-- PlaybackSessionStateMachineTests.swift

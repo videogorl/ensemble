@@ -688,6 +688,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard playbackState != oldValue else { return }
             let trackTitle = currentTrack?.title ?? "nil"
             EnsembleLogger.playback("STATE: \(oldValue) → \(playbackState), track='\(trackTitle)'")
+            syncHandoffStateWithPlaybackState()
             refreshPresentationTime()
         }
     }
@@ -812,10 +813,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var skipTransitionTask: Task<Void, Never>?
     private var isInterrupted = false
     private var isRouteChangeInProgress = false
-    private var lastRouteChangeAt: Date?
-    private var lastDeviceDisconnectAt: Date?
+    private var handoffCoordinator = PlaybackHandoffCoordinator()
+    private var handoffSettleTask: Task<Void, Never>?
+    private var handoffEventCounter: UInt64 = 0
     private var lastUnexpectedPauseAt: Date?
-    private var lastSuccessfulPlayAt: Date?
     private var unexpectedPauseCount = 0
     private var audioSessionInterruptionObserver: Any?
     private var audioSessionRouteChangeObserver: Any?
@@ -1670,6 +1671,153 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #endif
     }
 
+    private var currentPauseReason: PlaybackHandoffCoordinator.PauseReason? {
+        handoffCoordinator.state.pauseReason
+    }
+
+    private func syncHandoffStateWithPlaybackState() {
+        switch playbackState {
+        case .playing:
+            handoffCoordinator.handlePlaybackStarted()
+        case .stopped, .failed:
+            handoffCoordinator.handlePlaybackStopped()
+        default:
+            break
+        }
+    }
+
+    private func handoffStateSnapshot() -> String {
+        let pauseReason = currentPauseReason?.rawValue ?? "none"
+        let interruption = handoffCoordinator.state.interruption.logValue
+        let routeTransition = handoffCoordinator.state.routeTransition.logValue
+        let trackID = currentTrack?.id ?? "nil"
+        let trackTitle = currentTrack?.title ?? "nil"
+        return "pauseReason=\(pauseReason) interruption=\(interruption) routeTransition=\(routeTransition) playbackState=\(playbackState) trackId=\(trackID) track='\(trackTitle)' time=\(String(format: "%.1f", currentTime)) routeKind=\(presentationRouteKind)"
+    }
+
+    #if os(iOS) || os(tvOS) || os(watchOS)
+    private func routeChangeReasonDescription(_ reason: AVAudioSession.RouteChangeReason) -> String {
+        switch reason {
+        case .unknown:
+            return "unknown"
+        case .newDeviceAvailable:
+            return "newDeviceAvailable"
+        case .oldDeviceUnavailable:
+            return "oldDeviceUnavailable"
+        case .categoryChange:
+            return "categoryChange"
+        case .override:
+            return "override"
+        case .wakeFromSleep:
+            return "wakeFromSleep"
+        case .noSuitableRouteForCategory:
+            return "noSuitableRouteForCategory"
+        case .routeConfigurationChange:
+            return "routeConfigurationChange"
+        @unknown default:
+            return "unknown(\(reason.rawValue))"
+        }
+    }
+
+    private func handoffRouteEventReason(
+        from reason: AVAudioSession.RouteChangeReason
+    ) -> PlaybackHandoffCoordinator.RouteEventReason {
+        switch reason {
+        case .oldDeviceUnavailable:
+            return .oldDeviceUnavailable
+        case .newDeviceAvailable:
+            return .newDeviceAvailable
+        default:
+            return .other
+        }
+    }
+    #endif
+
+    private func logHandoff(event: String, outcome: PlaybackHandoffCoordinator.Outcome) {
+        handoffEventCounter &+= 1
+        let actionSummary = outcome.actions.map { "\($0)" }.joined(separator: ",")
+        EnsembleLogger.debug("[Handoff #\(handoffEventCounter)] event=\(event) summary=\(outcome.summary) actions=[\(actionSummary)] \(handoffStateSnapshot())")
+    }
+
+    @MainActor
+    private func applyHandoffOutcome(
+        _ outcome: PlaybackHandoffCoordinator.Outcome,
+        event: String
+    ) {
+        logHandoff(event: event, outcome: outcome)
+
+        for action in outcome.actions {
+            switch action {
+            case .refreshPresentationLatency:
+                refreshPresentationLatencyEstimate()
+
+            case .setRouteChangeInProgress(let isInProgress):
+                isRouteChangeInProgress = isInProgress
+
+            case .setInterrupted(let isInterrupted):
+                self.isInterrupted = isInterrupted
+
+            case .pausePlayback(let reason):
+                applyPauseForHandoff(reason: reason)
+
+            case .beginInterruption:
+                if playbackState == .playing || playbackState == .buffering {
+                    playbackState = .buffering
+                }
+
+            case .scheduleSettleWindow(let until):
+                handoffSettleTask?.cancel()
+                handoffSettleTask = Task { @MainActor [weak self] in
+                    let duration = max(0, until.timeIntervalSinceNow)
+                    if duration > 0 {
+                        try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+                    }
+                    guard let self, !Task.isCancelled else { return }
+                    let settleOutcome = self.handoffCoordinator.handleSettleWindowFinished(now: Date())
+                    self.applyHandoffOutcome(settleOutcome, event: "settleWindowFinished")
+                    self.unexpectedPauseCount = 0
+                    self.lastUnexpectedPauseAt = nil
+                    EnsembleLogger.debug("🎧 Route handover settle window finished; pause counters reset")
+                }
+
+            case .resumePlayback(let source):
+                applyResumeForHandoff(source: source)
+            }
+        }
+    }
+
+    private func applyPauseForHandoff(reason: PlaybackHandoffCoordinator.PauseReason) {
+        let wasActive = playbackState == .playing || playbackState == .buffering
+        guard wasActive || reason == .user || reason == .system else { return }
+
+        audioEngine?.pause()
+        playbackState = .paused
+        isInterrupted = false
+        updateNowPlayingInfo()
+        MPNowPlayingInfoCenter.default().playbackState = .paused
+
+        Task { @MainActor in
+            audioAnalyzer.pauseUpdates()
+        }
+
+        if let track = currentTrack {
+            Task {
+                await syncCoordinator.reportTimeline(track: track, state: "paused", time: currentTime)
+            }
+        }
+
+        if reason == .user || reason == .system {
+            Task {
+                await checkAndRefreshAutoplayQueue()
+            }
+        }
+    }
+
+    private func applyResumeForHandoff(source: PlaybackHandoffCoordinator.CommandSource) {
+        EnsembleLogger.debug("[Handoff] executing resume for source=\(source.rawValue)")
+        resumeCore()
+    }
+
     @MainActor
     private func handleAudioSessionInterruption(_ notification: Notification) {
         #if os(iOS) || os(tvOS) || os(watchOS)
@@ -1681,35 +1829,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         switch type {
         case .began:
-            EnsembleLogger.debug("🔇 Audio session interruption BEGAN")
-            // iOS fires interruption BEGAN alongside old-device-unavailable route
-            // changes. If we already handled the disconnect (paused explicitly),
-            // skip setting isInterrupted — no matching ENDED will arrive.
-            if let disconnectAt = lastDeviceDisconnectAt,
-               Date().timeIntervalSince(disconnectAt) < 1.0 {
-                EnsembleLogger.debug("🔇 Ignoring interruption — caused by device disconnect (already paused)")
-                lastDeviceDisconnectAt = nil
-                return
-            }
-            isInterrupted = true
-            // When interruption begins, the system pauses audio.
-            // Update internal state so we know to resume when interruption ends.
-            if playbackState == .playing || playbackState == .buffering {
-                playbackState = .buffering
-            }
+            let outcome = handoffCoordinator.handleInterruptionBegan(
+                now: Date(),
+                playbackState: playbackState
+            )
+            applyHandoffOutcome(outcome, event: "interruptionBegan")
             
         case .ended:
-            EnsembleLogger.debug("🔊 Audio session interruption ENDED")
-            isInterrupted = false
-            
             guard let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-            if options.contains(.shouldResume) {
-                EnsembleLogger.debug("▶️ Interruption options specify SHOULD RESUME")
-                if playbackState == .buffering {
-                    resume()
-                }
-            }
+            let outcome = handoffCoordinator.handleInterruptionEnded(
+                shouldResume: options.contains(.shouldResume),
+                playbackState: playbackState
+            )
+            applyHandoffOutcome(outcome, event: "interruptionEnded")
         @unknown default:
             break
         }
@@ -1726,66 +1859,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         let now = Date()
-        lastRouteChangeAt = now
-        isRouteChangeInProgress = true
-        refreshPresentationLatencyEstimate()
-
-        EnsembleLogger.debug("🎧 Audio route change detected: \(reason.rawValue)")
-
-        switch reason {
-        case .newDeviceAvailable:
-            // AirPlay (HomePod) needs a longer settle window than Bluetooth/wired because
-            // the Wi-Fi handshake and AirPlay 2 buffer negotiation can take several seconds.
+        let settleUntil: Date?
+        if reason == .newDeviceAvailable {
             let newOutputs = AVAudioSession.sharedInstance().currentRoute.outputs
             let isAirPlay = newOutputs.contains { $0.portType == .airPlay }
-            let settleNanoseconds: UInt64 = isAirPlay ? 4_000_000_000 : 2_000_000_000
-            EnsembleLogger.debug("🎧 New audio device available — isAirPlay=\(isAirPlay), settle=\(settleNanoseconds / 1_000_000_000)s")
-            // Give the system time to settle the new route before allowing
-            // the unexpected-pause counter to start accumulating again.
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: settleNanoseconds)
-                if self.lastRouteChangeAt == now {
-                    self.refreshPresentationLatencyEstimate()
-                    self.isRouteChangeInProgress = false
-                    // Reset pause loop counters so that normal AirPlay buffer
-                    // negotiation after the settle window doesn't trip the backoff.
-                    self.unexpectedPauseCount = 0
-                    self.lastUnexpectedPauseAt = nil
-                    EnsembleLogger.debug("🎧 Route handover settle window finished; pause counters reset")
-                    if self.playbackState == .buffering {
-                        self.resume()
-                    }
-                }
-            }
-        case .oldDeviceUnavailable:
-            EnsembleLogger.debug("🎧 Audio device unavailable (e.g. disconnected)")
-            isRouteChangeInProgress = false
-            lastDeviceDisconnectAt = Date()
-            // Bluetooth/headphones disconnected. iOS auto-pauses the audio session,
-            // but our AudioEngine would auto-resume on the upcoming config change
-            // notification. Explicitly stop the engine so wasPlaying becomes false
-            // and the config change handler won't restart playback on the speaker.
-            if playbackState == .playing || playbackState == .buffering {
-                audioEngine?.pause()
-                playbackState = .paused
-                isInterrupted = false
-                updateNowPlayingInfo()
-                MPNowPlayingInfoCenter.default().playbackState = .paused
-                // Pause frequency analysis
-                Task { @MainActor in
-                    audioAnalyzer.pauseUpdates()
-                }
-                // Report pause to Plex
-                if let track = currentTrack {
-                    Task {
-                        await syncCoordinator.reportTimeline(track: track, state: "paused", time: currentTime)
-                    }
-                }
-                EnsembleLogger.debug("🎧 Paused playback after device disconnect")
-            }
-        default:
-            isRouteChangeInProgress = false
+            let settleDuration: TimeInterval = isAirPlay ? 4 : 2
+            settleUntil = now.addingTimeInterval(settleDuration)
+        } else {
+            settleUntil = nil
         }
+
+        let outcome = handoffCoordinator.handleRouteChange(
+            reason: handoffRouteEventReason(from: reason),
+            now: now,
+            settleUntil: settleUntil,
+            playbackState: playbackState
+        )
+        applyHandoffOutcome(outcome, event: "routeChange(\(routeChangeReasonDescription(reason)))")
         #endif
     }
 
@@ -1795,20 +1885,29 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let commandCenter = MPRemoteCommandCenter.shared()
 
         commandCenter.playCommand.addTarget { [weak self] _ in
-            self?.resume()
+            EnsembleLogger.debug("[Handoff] remote play command received")
+            Task { @MainActor [weak self] in
+                self?.resumeInternally(source: .system)
+            }
             return .success
         }
 
         commandCenter.pauseCommand.addTarget { [weak self] _ in
-            self?.pause()
+            EnsembleLogger.debug("[Handoff] remote pause command received")
+            Task { @MainActor [weak self] in
+                self?.pauseInternally(source: .system)
+            }
             return .success
         }
 
         commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
-            if self?.playbackState == .playing {
-                self?.pause()
-            } else {
-                self?.resume()
+            EnsembleLogger.debug("[Handoff] remote toggle command received")
+            Task { @MainActor [weak self] in
+                if self?.playbackState == .playing {
+                    self?.pauseInternally(source: .system)
+                } else {
+                    self?.resumeInternally(source: .system)
+                }
             }
             return .success
         }
@@ -2298,34 +2397,36 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func pause() {
-        guard playbackState == .playing else { return }
-
-        audioEngine?.pause()
-        playbackState = .paused
-        updateNowPlayingInfo()
-        // Explicitly re-assert paused state after updateNowPlayingInfo,
-        // as a belt-and-suspenders measure for the lock screen button.
-        MPNowPlayingInfoCenter.default().playbackState = .paused
-
-        // Pause frequency analysis
-        Task { @MainActor in
-            audioAnalyzer.pauseUpdates()
-        }
-
-        // Report pause state to Plex
-        if let track = currentTrack {
-            Task {
-                await syncCoordinator.reportTimeline(track: track, state: "paused", time: currentTime)
-            }
-        }
-
-        // Check queue population on pause
-        Task {
-            await checkAndRefreshAutoplayQueue()
+        Task { @MainActor [weak self] in
+            self?.pauseInternally(source: .user)
         }
     }
 
+    @MainActor
+    private func pauseInternally(source: PlaybackHandoffCoordinator.CommandSource) {
+        let outcome = handoffCoordinator.handlePauseRequest(
+            source: source,
+            playbackState: playbackState
+        )
+        applyHandoffOutcome(outcome, event: "pauseRequest(\(source.rawValue))")
+    }
+
     public func resume() {
+        Task { @MainActor [weak self] in
+            self?.resumeInternally(source: .user)
+        }
+    }
+
+    @MainActor
+    private func resumeInternally(source: PlaybackHandoffCoordinator.CommandSource) {
+        let outcome = handoffCoordinator.handleResumeRequest(
+            source: source,
+            playbackState: playbackState
+        )
+        applyHandoffOutcome(outcome, event: "resumeRequest(\(source.rawValue))")
+    }
+
+    private func resumeCore() {
         guard playbackState == .paused || playbackState == .buffering else { return }
 
         // Clear pre-buffer flag — user is taking action now
@@ -2419,6 +2520,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// when `playbackState == .playing` — it resets the pause loop counters and
     /// re-invokes `player.play()` so AVQueuePlayer re-negotiates its output to the
     /// new route without interrupting the user-visible state.
+    @MainActor
     public func nudgeForAirPlayRoute() {
         guard currentTrack != nil, audioEngine?.currentTrackId != nil else {
             EnsembleLogger.debug("🎧 nudgeForAirPlayRoute: no active track, skipping")
@@ -2431,7 +2533,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // AudioPlaybackEngine handles route changes via AVAudioEngineConfigurationChange
         // notification internally. For paused state, resume normally.
         if playbackState == .paused || playbackState == .buffering {
-            resume()
+            resumeInternally(source: .system)
         }
     }
 
@@ -4671,7 +4773,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 await playCurrentQueueItem(forcingFreshItem: true, caller: "sourcePrune-playing")
             case .paused:
                 await playCurrentQueueItem(forcingFreshItem: true, caller: "sourcePrune-paused")
-                pause()
+                applyPauseForHandoff(reason: currentPauseReason ?? .system)
             case .stopped, .failed:
                 currentTrack = queue[currentQueueIndex].track
                 updatePlaybackTimes(rawTime: 0)
@@ -4800,6 +4902,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func cleanup() {
+        handoffSettleTask?.cancel()
+        handoffSettleTask = nil
+
         // Stop audio analysis
         Task { @MainActor in
             self.audioAnalyzer.stopAnalysis()
