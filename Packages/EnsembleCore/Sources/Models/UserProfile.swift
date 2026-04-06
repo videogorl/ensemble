@@ -12,7 +12,7 @@ public struct UserProfile: Codable, Equatable {
     /// Last time the profile was modified (used for conflict resolution)
     public var lastModified: Date
 
-    public init(displayName: String? = nil, profileImagePath: String? = nil, lastModified: Date = Date()) {
+    public init(displayName: String? = nil, profileImagePath: String? = nil, lastModified: Date = .distantPast) {
         self.displayName = displayName
         self.profileImagePath = profileImagePath
         self.lastModified = lastModified

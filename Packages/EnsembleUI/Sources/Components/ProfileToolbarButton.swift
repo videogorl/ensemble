@@ -73,15 +73,34 @@ private struct LocalToolbarProfileImage: View {
 
 // MARK: - Profile Toolbar Modifier
 
+/// Environment key tracking whether the NavigationStack is at its root view.
+/// Set by tabContentView in MainTabView based on the navigation path depth.
+private struct IsNavigationAtRootKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    /// Whether the current view is at the NavigationStack root (path is empty).
+    var isNavigationAtRoot: Bool {
+        get { self[IsNavigationAtRootKey.self] }
+        set { self[IsNavigationAtRootKey.self] = newValue }
+    }
+}
+
 /// View modifier that adds the profile button as the rightmost trailing toolbar item.
+/// Only shows when the NavigationStack is at root depth (no pushed views).
 /// Apply this BEFORE other `.toolbar` modifiers — SwiftUI renders later-declared
 /// toolbar items leftmost, so the first modifier's items end up rightmost.
 struct ProfileToolbarModifier: ViewModifier {
+    @Environment(\.isNavigationAtRoot) private var isAtRoot
+
     func body(content: Content) -> some View {
         #if os(iOS)
         content.toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                ProfileToolbarButton()
+                if isAtRoot {
+                    ProfileToolbarButton()
+                }
             }
         }
         #else
@@ -92,6 +111,7 @@ struct ProfileToolbarModifier: ViewModifier {
 
 extension View {
     /// Adds a profile toolbar button as the rightmost trailing item (iOS only).
+    /// Only visible when the NavigationStack is at root (no pushed views).
     /// Apply this BEFORE other toolbar modifiers to guarantee rightmost placement.
     func profileToolbar() -> some View {
         modifier(ProfileToolbarModifier())

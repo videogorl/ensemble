@@ -105,8 +105,15 @@ public final class UserProfileStore: ObservableObject {
 
     /// Apply a profile received from CloudKit (does not trigger onProfileUpdated callback)
     public func applyRemoteProfile(_ remoteProfile: UserProfile, imageData: Data?) {
-        // Only apply if remote is newer
-        guard remoteProfile.lastModified > profile.lastModified else { return }
+        // Apply if remote is newer, OR if local profile is empty (fresh install).
+        // A fresh install sets lastModified = Date() which is newer than the remote,
+        // so we must also check isEmpty to handle the first-sync case.
+        guard profile.isEmpty || remoteProfile.lastModified > profile.lastModified else {
+            EnsembleLogger.info("Skipping remote profile (local is newer or equal)")
+            return
+        }
+
+        EnsembleLogger.info("Applying remote profile (name: \(remoteProfile.displayName ?? "nil"), hasImage: \(imageData != nil))")
 
         profile.displayName = remoteProfile.displayName
         profile.lastModified = remoteProfile.lastModified

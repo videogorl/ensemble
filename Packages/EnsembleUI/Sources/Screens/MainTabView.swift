@@ -443,6 +443,9 @@ public struct MainTabView: View {
             destinationView(for: destination)
                 .auroraBackgroundSupport()
         }
+        // Pass the tab's navigation depth as an environment value so root views
+        // can conditionally show the profile toolbar button only at depth 0.
+        .environment(\.isNavigationAtRoot, pathForTab(tab).isEmpty)
     }
 
     @ViewBuilder
