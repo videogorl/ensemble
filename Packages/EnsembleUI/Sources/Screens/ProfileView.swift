@@ -39,7 +39,17 @@ public struct ProfileView: View {
             sourcesSection
 
             // iCloud Sync
-            SyncSettingsView()
+            Section {
+                NavigationLink {
+                    SyncSettingsView()
+                } label: {
+                    Label {
+                        Text("iCloud Sync")
+                    } icon: {
+                        Image(systemName: "icloud")
+                    }
+                }
+            }
 
             // Appearance
             appearanceSection
