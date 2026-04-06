@@ -72,6 +72,82 @@ public final class AccountManager: ObservableObject {
         return synced.filter { !localIds.contains($0.accountId) }
     }
 
+    // MARK: - Library Flags Sync
+
+    /// Export library enabled flags as a JSON-serializable dictionary.
+    /// Key format: "accountId:serverId:libraryKey" → Bool
+    public func exportLibraryFlags() -> Data? {
+        var flags: [String: Bool] = [:]
+        for account in plexAccounts {
+            for server in account.servers {
+                for library in server.libraries {
+                    let key = "\(account.id):\(server.id):\(library.key)"
+                    flags[key] = library.isEnabled
+                }
+            }
+        }
+        return try? JSONEncoder().encode(flags)
+    }
+
+    /// Apply synced library flags from iCloud KVS.
+    /// Only updates flags for libraries that already exist locally.
+    public func applyLibraryFlags(_ data: Data) {
+        guard let flags = try? JSONDecoder().decode([String: Bool].self, from: data) else { return }
+        var didChange = false
+
+        for i in plexAccounts.indices {
+            for j in plexAccounts[i].servers.indices {
+                let server = plexAccounts[i].servers[j]
+                var updatedLibraries = server.libraries
+                var serverChanged = false
+
+                for k in updatedLibraries.indices {
+                    let key = "\(plexAccounts[i].id):\(server.id):\(updatedLibraries[k].key)"
+                    if let remoteEnabled = flags[key],
+                       updatedLibraries[k].isEnabled != remoteEnabled {
+                        updatedLibraries[k] = PlexLibraryConfig(
+                            id: updatedLibraries[k].id,
+                            key: updatedLibraries[k].key,
+                            title: updatedLibraries[k].title,
+                            isEnabled: remoteEnabled,
+                            allowSync: updatedLibraries[k].allowSync
+                        )
+                        serverChanged = true
+                    }
+                }
+
+                if serverChanged {
+                    var updatedServers = plexAccounts[i].servers
+                    updatedServers[j] = PlexServerConfig(
+                        id: server.id,
+                        name: server.name,
+                        url: server.url,
+                        connections: server.connections,
+                        token: server.token,
+                        platform: server.platform,
+                        capabilities: server.capabilities,
+                        libraries: updatedLibraries
+                    )
+                    plexAccounts[i] = PlexAccountConfig(
+                        id: plexAccounts[i].id,
+                        email: plexAccounts[i].email,
+                        plexUsername: plexAccounts[i].plexUsername,
+                        displayTitle: plexAccounts[i].displayTitle,
+                        authToken: plexAccounts[i].authToken,
+                        authTokenMetadata: plexAccounts[i].authTokenMetadata,
+                        subscription: plexAccounts[i].subscription,
+                        servers: updatedServers
+                    )
+                    didChange = true
+                }
+            }
+        }
+
+        if didChange {
+            saveAccounts()
+        }
+    }
+
     // MARK: - Account Management
 
     public func addPlexAccount(_ account: PlexAccountConfig) {

@@ -578,6 +578,68 @@ public final class DependencyContainer: @unchecked Sendable {
             if syncToggles.isFeatureEnabled(.pins), let data = pins.exportPinsData() {
                 kvs.pushData(data, forKey: KVSSyncService.KVSKey.pins)
             }
+
+            // Wire source credential sync reconciliation
+            let acctMgr = accountManager
+            let discovery = accountDiscoveryService
+            acctMgr.onNewAccountsFromSync = { [weak acctMgr, weak syncToggles] newCredentials in
+                guard let acctMgr = acctMgr, let syncToggles = syncToggles else { return }
+                guard syncToggles.isFeatureEnabled(.sources) else { return }
+
+                // Discover connections for each new synced account
+                for credential in newCredentials {
+                    Task {
+                        do {
+                            let result = try await discovery.discoverAccount(authToken: credential.authToken)
+                            await MainActor.run {
+                                let config = PlexAccountConfig(
+                                    id: credential.accountId,
+                                    email: credential.email,
+                                    plexUsername: credential.plexUsername,
+                                    displayTitle: credential.displayTitle,
+                                    authToken: credential.authToken,
+                                    servers: result.servers
+                                )
+                                acctMgr.addPlexAccount(config)
+                                EnsembleLogger.info("Sync: discovered account \(credential.accountId) with \(result.servers.count) servers")
+                            }
+                        } catch {
+                            EnsembleLogger.error("Sync: failed to discover account \(credential.accountId): \(error)")
+                        }
+                    }
+                }
+            }
+
+            // Check for synced credentials on launch
+            if syncToggles.isFeatureEnabled(.sources) {
+                let newAccounts = acctMgr.pullSyncCredentials()
+                if !newAccounts.isEmpty {
+                    acctMgr.onNewAccountsFromSync?(newAccounts)
+                }
+            }
+
+            // Wire library flags sync via KVS
+            kvsRef.onRemoteLibraryFlagsChanged = { [weak acctMgr] data in
+                guard syncToggles.isFeatureEnabled(.libraries), let acctMgr = acctMgr else { return }
+                acctMgr.applyLibraryFlags(data)
+            }
+
+            // Push library flags when accounts change
+            acctMgr.objectWillChange
+                .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+                .sink { [weak acctMgr, weak kvs, weak syncToggles] _ in
+                    guard let acctMgr = acctMgr, let kvs = kvs, let syncToggles = syncToggles else { return }
+                    guard syncToggles.isFeatureEnabled(.libraries) else { return }
+                    if let data = acctMgr.exportLibraryFlags() {
+                        kvs.pushData(data, forKey: KVSSyncService.KVSKey.libraryFlags)
+                    }
+                }
+                .store(in: &kvsSyncCancellables)
+
+            // Initial push of library flags
+            if syncToggles.isFeatureEnabled(.libraries), let data = acctMgr.exportLibraryFlags() {
+                kvs.pushData(data, forKey: KVSSyncService.KVSKey.libraryFlags)
+            }
         }
     }
 
