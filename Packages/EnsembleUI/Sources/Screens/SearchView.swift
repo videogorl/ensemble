@@ -1,5 +1,8 @@
 import EnsembleCore
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 public struct SearchView: View {
     fileprivate struct PlaylistPickerPayload: Identifiable {
@@ -13,6 +16,7 @@ public struct SearchView: View {
     @FocusState private var isSearchFieldFocused: Bool
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var pinnedVM: PinnedViewModel
+    private let navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @State private var isPinnedExpanded = false
     @State private var isEditingPins = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
@@ -26,6 +30,8 @@ public struct SearchView: View {
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
+    @State private var isSearchTabActive = DependencyContainer.shared.navigationCoordinator.selectedTab == .search
+    @State private var isSearchPathEmpty = DependencyContainer.shared.navigationCoordinator.searchPath.isEmpty
     @Environment(\.dependencies) private var deps
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
@@ -36,7 +42,7 @@ public struct SearchView: View {
     }
 
     public var body: some View {
-        let content = VStack(spacing: 0) {
+        let baseContent = VStack(spacing: 0) {
             // Content - either explore or search results
             if viewModel.searchQuery.isEmpty {
                 exploreView
@@ -48,11 +54,8 @@ public struct SearchView: View {
                 searchResultsView
             }
         }
-        .searchable(text: $viewModel.searchQuery, prompt: "Songs, artists, albums, playlists")
-        .onSubmit(of: .search) {
-            viewModel.commitCurrentSearch()
-        }
         .onReceive(viewModel.focusRequested) {
+            guard shouldShowSearchChrome else { return }
             isSearchFieldFocused = true
         }
         .task {
@@ -84,15 +87,63 @@ public struct SearchView: View {
         .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
             if gen != availabilityGeneration { availabilityGeneration = gen }
         }
+        .onReceive(navigationCoordinator.$selectedTab) { tab in
+            let isActive = tab == .search
+            if isActive != isSearchTabActive { isSearchTabActive = isActive }
+        }
+        .onReceive(navigationCoordinator.$searchPath) { path in
+            let isEmpty = path.isEmpty
+            if isEmpty != isSearchPathEmpty { isSearchPathEmpty = isEmpty }
+        }
+        .onChange(of: shouldShowSearchChrome) { shouldShow in
+            EnsembleLogger.debug(
+                "🔎 SearchView search chrome active=\(shouldShow) (tabActive: \(isSearchTabActive), pathEmpty: \(isSearchPathEmpty))"
+            )
+            if !shouldShow {
+                collapseSearchPresentation()
+            }
+        }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
         .profileToolbar()
+        // Search chrome belongs to the active root Search screen only.
+        // Leaving it attached while Search is offscreen or pushed into detail
+        // leaks stale toolbar/search-controller state into other tabs/destinations.
+        let content = baseContent.if(shouldShowSearchChrome) { view in
+            view
+                .searchable(text: $viewModel.searchQuery, prompt: "Songs, artists, albums, playlists")
+                .onSubmit(of: .search) {
+                    viewModel.commitCurrentSearch()
+                }
+        }
         if #available(iOS 18.0, macOS 15.0, *) {
-            content.searchFocused($isSearchFieldFocused)
+            if shouldShowSearchChrome {
+                content.searchFocused($isSearchFieldFocused)
+            } else {
+                content
+            }
         } else {
             content
         }
+    }
+
+    private var shouldShowSearchChrome: Bool {
+        isSearchTabActive && isSearchPathEmpty
+    }
+
+    private func handleSearchResultNavigation() {
+        viewModel.commitCurrentSearch()
+        collapseSearchPresentation()
+    }
+
+    private func collapseSearchPresentation() {
+        if #available(iOS 18.0, macOS 15.0, *) {
+            isSearchFieldFocused = false
+        }
+        #if os(iOS)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        #endif
     }
 
     // MARK: - Explore View (Empty State)
@@ -762,7 +813,7 @@ public struct SearchView: View {
                         }
                         .buttonStyle(.plain)
                         .simultaneousGesture(TapGesture().onEnded {
-                            viewModel.commitCurrentSearch()
+                            handleSearchResultNavigation()
                         })
                         .contextMenu {
                             ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
@@ -775,7 +826,7 @@ public struct SearchView: View {
                         }
                         .buttonStyle(.plain)
                         .simultaneousGesture(TapGesture().onEnded {
-                            viewModel.commitCurrentSearch()
+                            handleSearchResultNavigation()
                         })
                         .contextMenu {
                             ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
@@ -797,7 +848,7 @@ public struct SearchView: View {
                         }
                         .buttonStyle(.plain)
                         .simultaneousGesture(TapGesture().onEnded {
-                            viewModel.commitCurrentSearch()
+                            handleSearchResultNavigation()
                         })
                         .contextMenu {
                             AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
@@ -812,7 +863,7 @@ public struct SearchView: View {
                         }
                         .buttonStyle(.plain)
                         .simultaneousGesture(TapGesture().onEnded {
-                            viewModel.commitCurrentSearch()
+                            handleSearchResultNavigation()
                         })
                         .contextMenu {
                             AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
@@ -836,7 +887,7 @@ public struct SearchView: View {
                         }
                         .buttonStyle(.plain)
                         .simultaneousGesture(TapGesture().onEnded {
-                            viewModel.commitCurrentSearch()
+                            handleSearchResultNavigation()
                         })
                         .contextMenu {
                             PlaylistActionsContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM)
@@ -853,7 +904,7 @@ public struct SearchView: View {
                         }
                         .buttonStyle(.plain)
                         .simultaneousGesture(TapGesture().onEnded {
-                            viewModel.commitCurrentSearch()
+                            handleSearchResultNavigation()
                         })
                         .contextMenu {
                             PlaylistActionsContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM)
@@ -1016,7 +1067,7 @@ public struct SearchView: View {
                 },
                 recentPlaylistTitle: nvmRecentPlaylistTitle
             ) { track, _ in
-                viewModel.commitCurrentSearch()
+                handleSearchResultNavigation()
                 if let index = viewModel.trackResults.firstIndex(where: { $0.id == track.id }) {
                     nowPlayingVM.play(tracks: viewModel.trackResults, startingAt: index)
                 }

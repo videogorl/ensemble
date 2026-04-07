@@ -16,6 +16,7 @@ These are core design decisions that must be maintained throughout the app.
 - **More tab support:** First 4 enabled tabs in tab bar, remaining tabs via "More" tab (5th position)
 - **Tab customization:** Users enable/disable tabs via Settings; disabled tabs hidden from tab bar
 - **Visible tabs sync:** `NavigationCoordinator.visibleTabs` synced from MainTabView for fallback logic
+- **Search chrome ownership:** In tab-based navigation, attach `.searchable` only while that tab is the active root screen. Collapse/remove search chrome before pushing detail or switching away so stale `UISearchController` state doesn't leak padding, keyboard state, or toolbar behavior into pushed views or other tabs.
 
 ### Deep Linking
 - **NavigationCoordinator.Destination:** Use typed destinations (artist, album, playlist, view) for all deep links
@@ -38,6 +39,7 @@ These are core design decisions that must be maintained throughout the app.
 ### Keyboard-Heavy Editors (iPhone)
 - Present rename/create text editors with `keyboardSafeEditorPresentation(...)` from `View+Extensions.swift`
 - On iPhone, that helper must use `fullScreenCover` so the presenting navigation/search container stays out of the keyboard layout pass
+- Root tab shells should own keyboard/search avoidance decisions. Child detail views should not inherit an active search or keyboard presenter from an offscreen tab.
 - Root auxiliary flows that can lead into keyboard editors, such as Profile, should also prefer a full-screen cover on iPhone instead of a sheet for the same reason
 - Full-screen auxiliary flows on iPhone need their own explicit dismiss control; do not rely on sheet affordances that no longer exist
 - Do not pre-hide root tab, mini-player, or searchable-header chrome for the entire auxiliary transition; only suppress root chrome for the actual keyboard editor presentation or other immersive modes
