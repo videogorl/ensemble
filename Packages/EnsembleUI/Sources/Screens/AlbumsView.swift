@@ -4,6 +4,7 @@ import SwiftUI
 public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @State private var showFilterSheet = false
@@ -32,6 +33,14 @@ public struct AlbumsView: View {
         #else
         false
         #endif
+    }
+
+    private var isAuxiliaryPresentationActive: Bool {
+        navigationCoordinator.activeAuxiliaryPresentation != nil
+    }
+
+    private var isPresenterChromeHidden: Bool {
+        isStageFlowActive || isAuxiliaryPresentationActive
     }
 
     public var body: some View {
@@ -86,11 +95,20 @@ public struct AlbumsView: View {
             .stageFlowImmersiveMode(isActive: isStageFlowActive)
             #if os(iOS)
             .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
-            .navigationBarHidden(isStageFlowActive)
+            .navigationBarHidden(isPresenterChromeHidden)
+            .if(isPresenterChromeHidden) { view in
+                if #available(iOS 16.0, *) {
+                    view.toolbar(.hidden, for: .navigationBar)
+                } else {
+                    view
+                }
+            }
             .statusBar(hidden: isStageFlowActive)
             #endif
-            .navigationTitle(isStageFlowActive ? "" : "Albums")
-            .searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
+            .navigationTitle(isPresenterChromeHidden ? "" : "Albums")
+            .if(!isAuxiliaryPresentationActive) { view in
+                view.searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
+            }
             .refreshable {
                 await libraryVM.refreshFromServer()
             }
@@ -98,7 +116,7 @@ public struct AlbumsView: View {
                 .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
-                if !libraryVM.albums.isEmpty && !isStageFlowActive {
+                if !libraryVM.albums.isEmpty && !isPresenterChromeHidden {
                     HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
@@ -145,7 +163,7 @@ public struct AlbumsView: View {
             #else
             ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
-                if !libraryVM.albums.isEmpty && !isStageFlowActive {
+                if !libraryVM.albums.isEmpty && !isPresenterChromeHidden {
                     HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true

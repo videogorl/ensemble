@@ -79,17 +79,29 @@ public struct ProfileView: View {
         .listStyle(.inset)
         #endif
         .miniPlayerBottomSpacing()
-        .background {
-            nameEditorPushLink
-                .ignoresSafeArea(.all)
+        #if os(iOS)
+        .ignoresSafeArea(.keyboard)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarHidden(showingNameEditor)
+        .if(showingNameEditor) { view in
+            if #available(iOS 16.0, *) {
+                view.toolbar(.hidden, for: .navigationBar)
+            } else {
+                view
+            }
+        }
+        #endif
+        .keyboardSafeEditorPresentation(isPresented: $showingNameEditor) {
+            TextInputView(
+                title: "Edit Name",
+                placeholder: "Your Name",
+                initialText: profileStore.profile.displayName ?? "",
+                actionTitle: "Save"
+            ) { newName in
+                profileStore.updateName(newName)
+            }
         }
         .navigationTitle("Profile")
-        #if os(iOS)
-        // Force inline title to prevent scroll pocket tracking in the sheet's nav bar.
-        // Without this, iOS 26's scroll pocket system in the sheet conflicts with the
-        // parent tab view's scroll pocket system, causing a feedback loop (279+ invalidations).
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
         .alert("Remove Account", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) {
                 accountToDelete = nil
@@ -128,26 +140,6 @@ public struct ProfileView: View {
         } message: {
             Text("This will delete all synced music data (tracks, albums, artists, playlists). Your account settings will be preserved. You'll need to re-sync after clearing.")
         }
-    }
-
-    /// Own the profile-name editor push at the screen root so keyboard presentation
-    /// is decoupled from the header row's list hierarchy inside the sheet.
-    private var nameEditorPushLink: some View {
-        NavigationLink(
-            destination: TextInputView(
-                title: "Edit Name",
-                placeholder: "Your Name",
-                initialText: profileStore.profile.displayName ?? "",
-                actionTitle: "Save",
-                onSubmit: { newName in
-                    profileStore.updateName(newName)
-                }
-            ),
-            isActive: $showingNameEditor
-        ) {
-            EmptyView()
-        }
-        .hidden()
     }
 
     // MARK: - Music Sources

@@ -1,10 +1,9 @@
+import EnsembleCore
 import SwiftUI
 
-/// A pushed view with a text field for name input.
-/// Used instead of `.alert()` + `TextField` to avoid the iOS 26 ScrollPocketCollectorModel
-/// feedback loop: pushed views replace the root navigation bar (which has active
-/// scroll pocket tracking) with their own inline-title bar (no collapse tracking),
-/// so the keyboard can appear without triggering the cascade.
+/// A focused text-input editor used for short rename flows.
+/// On iPhone this is presented in a full-screen cover so the underlying
+/// NavigationStack or searchable drawer stays out of the keyboard layout pass.
 struct TextInputView: View {
     let title: String
     var message: String = ""
@@ -18,46 +17,71 @@ struct TextInputView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        Form {
-            if !message.isEmpty {
-                Section {
+        VStack(spacing: 0) {
+            // Custom Navigation Bar to avoid iOS 26 UIObservationTrackingFeedbackLoopDetected
+            // when a keyboard pushes a sheet with a real UINavigationBar.
+            HStack {
+                Button("Cancel") { dismissAfterKeyboard() }
+                    .foregroundColor(.accentColor)
+                Spacer()
+                Text(title)
+                    .font(.headline.weight(.semibold))
+                Spacer()
+                Button(actionTitle) { submit() }
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .font(.body.weight(.semibold))
+                    .foregroundColor(.accentColor)
+            }
+            .padding()
+            #if os(iOS)
+            .background(Color(uiColor: .secondarySystemGroupedBackground).ignoresSafeArea(edges: .top))
+            #else
+            .background(Color.secondary.opacity(0.1))
+            #endif
+            
+            Divider()
+
+            VStack(spacing: 20) {
+                if !message.isEmpty {
                     Text(message)
                         .foregroundColor(.secondary)
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
                 }
-            }
-            Section {
+
                 TextField(placeholder, text: $text)
                     .focused($isFocused)
                     .submitLabel(.done)
                     .onSubmit { submit() }
+                    .padding()
+                    #if os(iOS)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    #else
+                    .background(Color.secondary.opacity(0.1))
+                    #endif
+                    .cornerRadius(10)
+                    .padding(.horizontal)
+                
+                Spacer()
             }
+            .padding(.top, 20)
         }
-        .navigationTitle(title)
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)
+        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         #endif
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismissAfterKeyboard() }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button(actionTitle) { submit() }
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
         .onAppear {
             text = initialText
-            // Delay focus so the push animation completes first
+            // Delay focus so the modal presentation settles before the keyboard animates.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 isFocused = true
             }
         }
     }
 
-    /// Dismiss keyboard first, then pop — prevents the keyboard dismissal animation
-    /// from overlapping with the root navigation bar restoration, which triggers
-    /// the iOS 26 ScrollPocket feedback loop.
+    /// Dismiss keyboard first, then dismiss the modal so the keyboard animation
+    /// doesn't overlap with the presentation teardown.
     private func dismissAfterKeyboard() {
         isFocused = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {

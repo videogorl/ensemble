@@ -16,6 +16,48 @@ private struct DismissViewportNowPlayingKey: EnvironmentKey {
     static let defaultValue: (() -> Void)? = nil
 }
 
+/// Registers keyboard-heavy editor presentation state from the presenting view
+/// so root chrome can settle before the editor enters the hierarchy.
+private struct KeyboardEditorPresentationStateModifier: ViewModifier {
+    let isActive: Bool
+
+    @State private var isRegistered = false
+    private let navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                syncRegistration(with: isActive)
+            }
+            .onChange(of: isActive) { newValue in
+                syncRegistration(with: newValue)
+            }
+            .onDisappear {
+                unregisterIfNeeded()
+            }
+    }
+
+    private func syncRegistration(with isActive: Bool) {
+        if isActive {
+            registerIfNeeded()
+        } else {
+            unregisterIfNeeded()
+        }
+    }
+
+    private func registerIfNeeded() {
+        guard !isRegistered else { return }
+        isRegistered = true
+        navigationCoordinator.beginKeyboardEditorPresentation()
+    }
+
+    private func unregisterIfNeeded() {
+        guard isRegistered else { return }
+        isRegistered = false
+        navigationCoordinator.endKeyboardEditorPresentation()
+    }
+}
+
 public extension EnvironmentValues {
     var isViewportNowPlayingPresented: Bool {
         get { self[ViewportNowPlayingPresentedKey.self] }
@@ -178,6 +220,68 @@ public extension View {
         }
         #else
         self
+        #endif
+    }
+
+    /// Presents keyboard-heavy editors in a full-screen cover on iPhone so the
+    /// underlying navigation/search container stays out of the keyboard layout pass.
+    @ViewBuilder
+    func keyboardSafeEditorPresentation<Content: View>(
+        isPresented: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        let presentingView = self.modifier(
+            KeyboardEditorPresentationStateModifier(isActive: isPresented.wrappedValue)
+        )
+
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            presentingView.fullScreenCover(isPresented: isPresented, content: content)
+        } else {
+            presentingView.sheet(isPresented: isPresented, content: content)
+        }
+        #else
+        presentingView.sheet(isPresented: isPresented, content: content)
+        #endif
+    }
+
+    /// Item-based variant of keyboardSafeEditorPresentation.
+    @ViewBuilder
+    func keyboardSafeEditorPresentation<Item: Identifiable, Content: View>(
+        item: Binding<Item?>,
+        @ViewBuilder content: @escaping (Item) -> Content
+    ) -> some View {
+        let presentingView = self.modifier(
+            KeyboardEditorPresentationStateModifier(isActive: item.wrappedValue != nil)
+        )
+
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            presentingView.fullScreenCover(item: item, content: content)
+        } else {
+            presentingView.sheet(item: item, content: content)
+        }
+        #else
+        presentingView.sheet(item: item, content: content)
+        #endif
+    }
+
+    /// Presents root auxiliary flows full-screen on iPhone so the underlying
+    /// tab/navigation/search chrome stays out of interactive keyboard updates.
+    @ViewBuilder
+    func phoneSafeAuxiliaryPresentation<Item: Identifiable, Content: View>(
+        item: Binding<Item?>,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder content: @escaping (Item) -> Content
+    ) -> some View {
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            self.fullScreenCover(item: item, onDismiss: onDismiss, content: content)
+        } else {
+            self.sheet(item: item, onDismiss: onDismiss, content: content)
+        }
+        #else
+        self.sheet(item: item, onDismiss: onDismiss, content: content)
         #endif
     }
 

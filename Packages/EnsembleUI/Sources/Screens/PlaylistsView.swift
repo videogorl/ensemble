@@ -20,7 +20,8 @@ public struct PlaylistsView: View {
     @State private var creatingPlaylistToastID: UUID?
     @State private var playlistForEditSheet: Playlist?
     @State private var displayPlaylistPendingDelete: DisplayPlaylist?
-    // Push-based text input — avoids keyboard over root nav bar (iOS 26 scroll pocket bug)
+    // Keyboard-heavy editors are presented separately so the underlying navigation
+    // and searchable containers stay out of iOS 26's keyboard layout feedback path.
     @State private var showCreatePlaylistPush = false
     @State private var renamePushPlaylist: Playlist?
     @State private var renamePushDP: DisplayPlaylist?
@@ -39,6 +40,10 @@ public struct PlaylistsView: View {
         #else
         false
         #endif
+    }
+
+    private var isKeyboardEditorActive: Bool {
+        showCreatePlaylistPush || renamePushPlaylist != nil || renamePushDP != nil
     }
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: PlaylistViewModel? = nil) {
@@ -146,76 +151,63 @@ public struct PlaylistsView: View {
             .stageFlowImmersiveMode(isActive: isStageFlowActive)
             #if os(iOS)
             .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
-            .navigationBarHidden(isStageFlowActive)
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarHidden(isStageFlowActive || isKeyboardEditorActive)
+            .if(isStageFlowActive || isKeyboardEditorActive) { view in
+                if #available(iOS 16.0, *) {
+                    view.toolbar(.hidden, for: .navigationBar)
+                } else {
+                    view
+                }
+            }
             .statusBar(hidden: isStageFlowActive)
             #endif
             .navigationTitle(isStageFlowActive ? "" : "Playlists")
-            // Push-based text input — keyboard appears in the PUSHED view's context,
-            // which uses inline title and doesn't have scroll pocket collapse tracking.
-            // This avoids the iOS 26 ScrollPocketCollectorModel feedback loop that hangs
-            // the app when a keyboard appears over a root tab view's navigation bar.
-            .background {
-                NavigationLink(
-                    destination: CreatePlaylistView(
-                        serverOptions: nowPlayingVM.playlistServerOptions(),
-                        isMergeEnabled: viewModel.isMergeEnabled
-                    ) { name, serverKeys in
-                        createPlaylistOnServers(named: name, serverSourceKeys: serverKeys)
-                    },
-                    isActive: $showCreatePlaylistPush
-                ) { EmptyView() }
-                    .hidden()
-                    .ignoresSafeArea(.all)
+            #if os(iOS)
+            .ignoresSafeArea(.keyboard)
+            #endif
+            // Text input editors
+            .keyboardSafeEditorPresentation(isPresented: $showCreatePlaylistPush) {
+                CreatePlaylistView(
+                    serverOptions: nowPlayingVM.playlistServerOptions(),
+                    isMergeEnabled: viewModel.isMergeEnabled
+                ) { name, serverKeys in
+                    createPlaylistOnServers(named: name, serverSourceKeys: serverKeys)
+                }
             }
-            .background {
-                NavigationLink(
-                    destination: Group {
-                        if let playlist = renamePushPlaylist {
-                            TextInputView(
-                                title: "Rename Playlist",
-                                placeholder: "Playlist name",
-                                initialText: playlist.title,
-                                actionTitle: "Save"
-                            ) { name in
-                                renamePlaylist(playlist, to: name)
-                            }
-                        }
-                    },
-                    isActive: Binding(
-                        get: { renamePushPlaylist != nil },
-                        set: { if !$0 { renamePushPlaylist = nil } }
-                    )
-                ) { EmptyView() }
-                    .hidden()
-                    .ignoresSafeArea(.all)
+            .keyboardSafeEditorPresentation(item: Binding(
+                get: { renamePushPlaylist },
+                set: { if $0 == nil { renamePushPlaylist = nil } }
+            )) { playlist in
+                TextInputView(
+                    title: "Rename Playlist",
+                    placeholder: "Playlist name",
+                    initialText: playlist.title,
+                    actionTitle: "Save"
+                ) { name in
+                    renamePlaylist(playlist, to: name)
+                }
             }
-            .background {
-                NavigationLink(
-                    destination: Group {
-                        if let dp = renamePushDP {
-                            TextInputView(
-                                title: "Rename Playlist",
-                                message: "This will rename on \(dp.playlists.count) server\(dp.playlists.count == 1 ? "" : "s").",
-                                placeholder: "Playlist name",
-                                initialText: dp.title,
-                                actionTitle: "Save"
-                            ) { name in
-                                viewModel.applyOptimisticRenameForMerged(dp, newTitle: name)
-                                for playlist in dp.playlists {
-                                    renamePlaylist(playlist, to: name)
-                                }
-                            }
-                        }
-                    },
-                    isActive: Binding(
-                        get: { renamePushDP != nil },
-                        set: { if !$0 { renamePushDP = nil } }
-                    )
-                ) { EmptyView() }
-                    .hidden()
-                    .ignoresSafeArea(.all)
+            .keyboardSafeEditorPresentation(item: Binding(
+                get: { renamePushDP },
+                set: { if $0 == nil { renamePushDP = nil } }
+            )) { dp in
+                TextInputView(
+                    title: "Rename Playlist",
+                    message: "This will rename on \(dp.playlists.count) server\(dp.playlists.count == 1 ? "" : "s").",
+                    placeholder: "Playlist name",
+                    initialText: dp.title,
+                    actionTitle: "Save"
+                ) { name in
+                    viewModel.applyOptimisticRenameForMerged(dp, newTitle: name)
+                    for playlist in dp.playlists {
+                        renamePlaylist(playlist, to: name)
+                    }
+                }
             }
-            .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
+            .if(!isKeyboardEditorActive) { view in
+                view.searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
+            }
             .task {
                 await viewModel.loadPlaylists()
             }
@@ -1163,59 +1155,104 @@ private struct CreatePlaylistView: View {
     }
 
     var body: some View {
-        Form {
-            Section {
-                TextField("Playlist name", text: $playlistName)
+        VStack(spacing: 0) {
+            // Custom Navigation Bar completely bypassing UIKitNavigationBar
+            HStack {
+                Button("Cancel") { dismissAfterKeyboard() }
+                    .foregroundColor(.accentColor)
+                Spacer()
+                Text("New Playlist")
+                    .font(.headline.weight(.semibold))
+                Spacer()
+                Button("Create") { submit() }
+                    .disabled(isCreateDisabled)
+                    .font(.body.weight(.semibold))
+                    .foregroundColor(.accentColor)
+            }
+            .padding()
+            #if os(iOS)
+            .background(Color(uiColor: .secondarySystemGroupedBackground).ignoresSafeArea(edges: .top))
+            #else
+            .background(Color.secondary.opacity(0.1))
+            #endif
+            
+            Divider()
+
+            ScrollView {
+                VStack(spacing: 30) {
+                    TextField("Playlist name", text: $playlistName)
                     .focused($isFocused)
                     .submitLabel(serverOptions.count <= 1 ? .done : .next)
                     .onSubmit {
                         if serverOptions.count <= 1 { submit() }
                     }
-            }
+                    .padding()
+                    #if os(iOS)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    #else
+                    .background(Color.secondary.opacity(0.1))
+                    #endif
+                    .cornerRadius(10)
 
-            // Multi-server picker — only shown when more than one server is available
-            if serverOptions.count > 1 {
-                Section {
-                    ForEach(serverOptions) { option in
-                        Button {
-                            if selectedServerIDs.contains(option.id) {
-                                selectedServerIDs.remove(option.id)
-                            } else {
-                                selectedServerIDs.insert(option.id)
-                            }
-                        } label: {
-                            HStack {
-                                Text(option.name)
-                                    .foregroundColor(.primary)
-                                Spacer()
-                                if selectedServerIDs.contains(option.id) {
-                                    Image(systemName: "checkmark")
-                                        .foregroundColor(.accentColor)
+                // Multi-server picker — only shown when more than one server is available
+                if serverOptions.count > 1 {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Servers")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 5)
+
+                        VStack(spacing: 0) {
+                            ForEach(serverOptions) { option in
+                                Button {
+                                    if selectedServerIDs.contains(option.id) {
+                                        selectedServerIDs.remove(option.id)
+                                    } else {
+                                        selectedServerIDs.insert(option.id)
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(option.name)
+                                            .foregroundColor(.primary)
+                                        Spacer()
+                                        if selectedServerIDs.contains(option.id) {
+                                            Image(systemName: "checkmark")
+                                                .foregroundColor(.accentColor)
+                                                .font(.body.weight(.bold))
+                                        }
+                                    }
+                                    .padding()
+                                    #if os(iOS)
+                                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                                    #else
+                                    .background(Color.secondary.opacity(0.1))
+                                    #endif
+                                }
+                                .buttonStyle(.plain)
+                                
+                                if option.id != serverOptions.last?.id {
+                                    Divider()
+                                        .padding(.leading)
                                 }
                             }
                         }
+                        .cornerRadius(10)
+
+                        Text("Select which servers to create this playlist on.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 5)
+                            .padding(.top, 5)
                     }
-                } header: {
-                    Text("Servers")
-                } footer: {
-                    Text("Select which servers to create this playlist on.")
                 }
             }
+            .padding(20)
         }
-        .navigationTitle("New Playlist")
+        }
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)
+        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         #endif
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismissAfterKeyboard() }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Create") { submit() }
-                    .disabled(isCreateDisabled)
-            }
-        }
         .onAppear {
             // Default: select all servers when merge is enabled, first server otherwise
             if serverOptions.count > 1 {

@@ -109,6 +109,14 @@ public struct MainTabView: View {
         usesViewportNowPlayingPresentation ? isViewportNowPlayingPresented : showingSheetNowPlaying
     }
 
+    private var isAuxiliaryPresentationActive: Bool {
+        navigationCoordinator.activeAuxiliaryPresentation != nil
+    }
+
+    private var isRootChromeSuppressed: Bool {
+        isImmersiveMode || isAuxiliaryPresentationActive || navigationCoordinator.isKeyboardEditorPresented
+    }
+
     public var body: some View {
         GeometryReader { geometry in
             // Keep mini-player spacing aligned with the active tab bar style.
@@ -139,7 +147,7 @@ public struct MainTabView: View {
                                     Label("More", systemImage: "ellipsis")
                                 }
                         },
-                        isHidden: isImmersiveMode
+                                    isHidden: isRootChromeSuppressed
                     )
                     .applyTabViewStyle(sidebarAdaptable: useSidebarAdaptable)
                 }
@@ -148,7 +156,7 @@ public struct MainTabView: View {
                 // The 70pt covers the mini player height + spacing above the tab bar.
                 .miniPlayerContainerInset(
                     TrackListLayoutMetrics.miniPlayerContainerInset,
-                    isVisible: !isShowingNowPlaying && !isKeyboardVisible && !isImmersiveMode
+                    isVisible: !isShowingNowPlaying && !isKeyboardVisible && !isAuxiliaryPresentationActive && !isImmersiveMode && !navigationCoordinator.isKeyboardEditorPresented
                 )
                 .zIndex(0)
 
@@ -172,6 +180,8 @@ public struct MainTabView: View {
                     ),
                     isImmersiveMode: isImmersiveMode,
                     isKeyboardVisible: isKeyboardVisible,
+                    isAuxiliaryPresentationPresented: isAuxiliaryPresentationActive,
+                    isKeyboardEditorPresented: navigationCoordinator.isKeyboardEditorPresented,
                     namespace: playerNamespace,
                     animationID: artworkAnimationID,
                     accentColor: settingsManager.accentColor.color,
@@ -207,15 +217,16 @@ public struct MainTabView: View {
             }
             #if os(iOS)
             .onReceive(Publishers.keyboardHeight.map { $0 > 0 }.removeDuplicates()) { newValue in
-                // Keep the presenting shell stable while the profile auxiliary sheet
-                // owns the keyboard-driven layout changes for its editor stack.
-                if navigationCoordinator.activeAuxiliaryPresentation == nil {
+                // Keep the presenting shell stable while an auxiliary sheet or
+                // keyboard-heavy editor owns the keyboard-driven layout changes.
+                if navigationCoordinator.activeAuxiliaryPresentation == nil &&
+                    !navigationCoordinator.isKeyboardEditorPresented {
                     keyboardVisible = newValue
                 } else if !newValue {
                     keyboardVisible = false
                 }
             }
-            .onChange(of: navigationCoordinator.activeAuxiliaryPresentation != nil) { isPresented in
+            .onChange(of: navigationCoordinator.activeAuxiliaryPresentation != nil || navigationCoordinator.isKeyboardEditorPresented) { isPresented in
                 if isPresented {
                     keyboardVisible = false
                 }
@@ -250,7 +261,7 @@ public struct MainTabView: View {
                 }
             }
             #if os(iOS)
-            .sheet(item: $navigationCoordinator.activeAuxiliaryPresentation, onDismiss: {
+            .phoneSafeAuxiliaryPresentation(item: $navigationCoordinator.activeAuxiliaryPresentation, onDismiss: {
                 navigationCoordinator.dismissAuxiliaryPresentation()
             }) { destination in
                 AuxiliaryPresentationView(destination: destination)
@@ -404,7 +415,10 @@ public struct MainTabView: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if settingsManager.auroraVisualizationEnabled && !isImmersiveMode {
+            if settingsManager.auroraVisualizationEnabled &&
+                    !isAuxiliaryPresentationActive &&
+                !isImmersiveMode &&
+                !navigationCoordinator.isKeyboardEditorPresented {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
                     accentColor: settingsManager.accentColor.color,
@@ -516,6 +530,8 @@ private struct MainTabNowPlayingOverlay: View {
     @Binding var showingNowPlaying: Bool
     let isImmersiveMode: Bool
     let isKeyboardVisible: Bool
+    let isAuxiliaryPresentationPresented: Bool
+    let isKeyboardEditorPresented: Bool
     var namespace: Namespace.ID
     let animationID: String
     let accentColor: Color
@@ -523,7 +539,7 @@ private struct MainTabNowPlayingOverlay: View {
 
     var body: some View {
         // Persistent MiniPlayer (above tab bar)
-        if !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode {
+        if !showingNowPlaying && !isKeyboardVisible && !isAuxiliaryPresentationPresented && !isImmersiveMode && !isKeyboardEditorPresented {
             let isFloating: Bool = {
                 #if os(iOS)
                 if #available(iOS 18.0, *) {
@@ -1042,7 +1058,7 @@ public struct SidebarView: View {
             sidebarColumnWidth = width
         }
         #if os(iOS)
-        .sheet(item: $navigationCoordinator.activeAuxiliaryPresentation, onDismiss: {
+        .phoneSafeAuxiliaryPresentation(item: $navigationCoordinator.activeAuxiliaryPresentation, onDismiss: {
             navigationCoordinator.dismissAuxiliaryPresentation()
         }) { destination in
             AuxiliaryPresentationView(destination: destination)
@@ -1105,31 +1121,27 @@ public struct SidebarView: View {
                 )
             }
         }
-        .sheet(item: $playlistPendingRename) { playlist in
-            NavigationView {
-                TextInputView(
-                    title: "Rename Playlist",
-                    placeholder: "Playlist name",
-                    initialText: playlist.title,
-                    actionTitle: "Save"
-                ) { name in
-                    renamePinnedPlaylist(playlist, to: name)
-                }
+        .keyboardSafeEditorPresentation(item: $playlistPendingRename) { playlist in
+            TextInputView(
+                title: "Rename Playlist",
+                placeholder: "Playlist name",
+                initialText: playlist.title,
+                actionTitle: "Save"
+            ) { name in
+                renamePinnedPlaylist(playlist, to: name)
             }
         }
-        .sheet(item: $mergedPlaylistPendingRename) { displayPlaylist in
-            NavigationView {
-                TextInputView(
-                    title: "Rename Playlist",
-                    message: "This will rename on \(displayPlaylist.playlists.count) server\(displayPlaylist.playlists.count == 1 ? "" : "s").",
-                    placeholder: "Playlist name",
-                    initialText: displayPlaylist.title,
-                    actionTitle: "Save"
-                ) { name in
-                    playlistsVM.applyOptimisticRenameForMerged(displayPlaylist, newTitle: name)
-                    for playlist in displayPlaylist.playlists {
-                        renamePinnedPlaylist(playlist, to: name)
-                    }
+        .keyboardSafeEditorPresentation(item: $mergedPlaylistPendingRename) { displayPlaylist in
+            TextInputView(
+                title: "Rename Playlist",
+                message: "This will rename on \(displayPlaylist.playlists.count) server\(displayPlaylist.playlists.count == 1 ? "" : "s").",
+                placeholder: "Playlist name",
+                initialText: displayPlaylist.title,
+                actionTitle: "Save"
+            ) { name in
+                playlistsVM.applyOptimisticRenameForMerged(displayPlaylist, newTitle: name)
+                for playlist in displayPlaylist.playlists {
+                    renamePinnedPlaylist(playlist, to: name)
                 }
             }
         }
