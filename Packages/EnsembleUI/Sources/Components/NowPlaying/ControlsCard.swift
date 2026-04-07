@@ -17,6 +17,7 @@ public struct ControlsCard: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
     @Environment(\.dependencies) private var deps
+    @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss
     
     // Custom slider state
@@ -545,7 +546,7 @@ public struct ControlsCard: View {
     private func handleArtistTap(track: Track) {
         if let artistId = track.artistRatingKey {
             deps.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
-            dismiss()
+            closeNowPlaying()
         }
     }
 
@@ -553,6 +554,14 @@ public struct ControlsCard: View {
     private func handleAlbumTap(track: Track) {
         if let albumId = track.albumRatingKey {
             deps.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
+            closeNowPlaying()
+        }
+    }
+
+    private func closeNowPlaying() {
+        if let dismissNowPlaying {
+            dismissNowPlaying()
+        } else {
             dismiss()
         }
     }

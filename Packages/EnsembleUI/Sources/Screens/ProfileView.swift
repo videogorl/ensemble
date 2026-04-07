@@ -6,7 +6,6 @@ import SwiftUI
 /// Modeled after Apple's iCloud Settings panel aesthetic.
 public struct ProfileView: View {
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
     private let playbackService = DependencyContainer.shared.playbackService
@@ -15,6 +14,7 @@ public struct ProfileView: View {
 
     @State private var showingDeleteAlert = false
     @State private var showingClearDataAlert = false
+    @State private var showingNameEditor = false
     @State private var accountToDelete: PlexAccountConfig?
     @State private var isAutoplayEnabled = DependencyContainer.shared.playbackService.isAutoplayEnabled
 
@@ -30,7 +30,10 @@ public struct ProfileView: View {
         List {
             // Profile header — image + name
             Section {
-                ProfileHeaderView(profileStore: profileStore)
+                ProfileHeaderView(
+                    profileStore: profileStore,
+                    onEditName: { showingNameEditor = true }
+                )
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
             }
@@ -75,13 +78,29 @@ public struct ProfileView: View {
         .listStyle(.inset)
         #endif
         .miniPlayerBottomSpacing()
-        .navigationTitle("Profile")
         #if os(iOS)
-        // Force inline title to prevent scroll pocket tracking in the sheet's nav bar.
-        // Without this, iOS 26's scroll pocket system in the sheet conflicts with the
-        // parent tab view's scroll pocket system, causing a feedback loop (279+ invalidations).
+        .ignoresSafeArea(.keyboard)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarHidden(showingNameEditor)
+        .if(showingNameEditor) { view in
+            if #available(iOS 16.0, *) {
+                view.toolbar(.hidden, for: .navigationBar)
+            } else {
+                view
+            }
+        }
         #endif
+        .keyboardSafeEditorPresentation(isPresented: $showingNameEditor) {
+            TextInputView(
+                title: "Edit Name",
+                placeholder: "Your Name",
+                initialText: profileStore.profile.displayName ?? "",
+                actionTitle: "Save"
+            ) { newName in
+                profileStore.updateName(newName)
+            }
+        }
+        .navigationTitle("Profile")
         .alert("Remove Account", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) {
                 accountToDelete = nil

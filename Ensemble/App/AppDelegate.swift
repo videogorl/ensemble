@@ -73,6 +73,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Register optional iOS 26+ continued processing handler for offline downloads.
         DependencyContainer.shared.offlineBackgroundExecutionCoordinator.register()
 
+        // CloudKit profile sync relies on silent push delivery for live updates.
+        application.registerForRemoteNotifications()
+
         // Load accounts synchronously before any Siri/playback code runs.
         // This is critical for cold launches from Siri where the coordinator
         // needs accounts loaded before RootView.task has a chance to run.
@@ -195,6 +198,31 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         
         AppLogger.debug("📱 AppDelegate: didFinishLaunching returning at \(Date())")
         return true
+    }
+
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        AppLogger.debug("📱 AppDelegate: Registered for remote notifications")
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        AppLogger.debug("📱 AppDelegate: Remote notification registration failed: \(error.localizedDescription)")
+    }
+
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        Task {
+            let didHandle = await DependencyContainer.shared.cloudSyncService.handleRemoteNotification(userInfo: userInfo)
+            completionHandler(didHandle ? .newData : .noData)
+        }
     }
 
     deinit {

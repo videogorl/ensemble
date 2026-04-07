@@ -133,7 +133,7 @@ Sources/
 |   +-- ConnectionPolicy.swift         # Core-level aliases/UI labels for API connection policy types
 |   +-- FilterOptions.swift            # Filter/sort configuration with persistence
 |   +-- NetworkModels.swift            # Network state & connectivity models
-|   +-- PinnedItem.swift               # Pinned content model (albums, artists, playlists) + applyRemotePins merge + exportPinsData
+|   +-- PinnedItem.swift               # Pinned content model (albums, artists, playlists) + applyRemotePins merge + exportPinsData + updateTitle
 |   +-- UserProfile.swift              # Profile data model (displayName, profileImagePath, lastModified)
 +-- Services/
 |   +-- AccountManager.swift           # Multi-account configuration (MainActor) + pushSyncCredentials/pullSyncCredentials/exportLibraryFlags/applyLibraryFlags
@@ -147,6 +147,7 @@ Sources/
 |   +-- PlexMusicSourceSyncProvider.swift # Plex implementation of sync protocol
 |   +-- NavigationCoordinator.swift    # Centralized navigation state management (MainActor)
 |   +-- PlaybackService.swift          # AVPlayer wrapper with queue/shuffle/repeat
+|   +-- PlaybackHandoffCoordinator.swift # Disconnect/interruption/remote-command handoff reducer extracted from PlaybackService
 |   +-- PlaybackQueueStore.swift       # Queue/history restoration persistence extracted from PlaybackService
 |   +-- PlaybackLaunchCoordinator.swift # Successful playback launch path (visualizer load, engine start, recovery seek, prefetch) extracted from PlaybackService
 |   +-- PlaybackRecoveryPolicy.swift   # Buffering/stall-recovery policy extracted from PlaybackService
@@ -213,6 +214,7 @@ Sources/
 
 Tests/
 +-- PlaybackServiceTests.swift
++-- PlaybackHandoffCoordinatorTests.swift
 +-- PlaybackRecoveryPolicyTests.swift
 +-- PlaybackLaunchCoordinatorTests.swift
 +-- PlaybackSessionStateMachineTests.swift
@@ -287,6 +289,7 @@ Sources/
 |   +-- HubOrderingSheet.swift        # Sheet for reordering hub sections with drag & drop
 |   +-- KeyboardObserver.swift        # iOS-specific keyboard height tracking with view modifier
 |   +-- MarqueeText.swift             # Auto-scrolling text component for long titles
+|   +-- MediaContextMenus.swift       # Shared album/artist/playlist/merged-playlist context menu actions for grids, search, and sidebar pins
 |   +-- MediaTrackList.swift          # Reusable track list with context menu
 |   +-- MiniPlayer.swift              # Compact persistent player overlay
 |   +-- ExternalDisplayNowPlayingView.swift # Non-interactive Now Playing for AirPlay screen mirroring (TV)

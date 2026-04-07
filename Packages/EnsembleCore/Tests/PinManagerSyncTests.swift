@@ -67,4 +67,18 @@ final class PinManagerSyncTests: XCTestCase {
 
         XCTAssertTrue(manager.pinnedItems.isEmpty)
     }
+
+    @MainActor
+    func testUpdateTitleChangesPinnedDisplayName() {
+        let manager = PinManager()
+
+        while !manager.pinnedItems.isEmpty {
+            manager.unpin(id: manager.pinnedItems[0].id)
+        }
+
+        manager.pin(id: "playlist-1", sourceKey: "src1", type: .playlist, title: "Old Title")
+        manager.updateTitle(id: "playlist-1", title: "New Title")
+
+        XCTAssertEqual(manager.pinnedItems.first?.title, "New Title")
+    }
 }

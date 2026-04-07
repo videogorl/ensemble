@@ -178,6 +178,7 @@ struct EnsembleApp: App {
                 // Route foreground refresh through SyncCoordinator to coalesce
                 // with network state transitions and cooldown/staleness guards.
                 await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
+                await DependencyContainer.shared.reconcileSyncOnForeground()
 
                 // Drain any pending offline mutations now that connectivity may have resumed.
                 await DependencyContainer.shared.mutationCoordinator.drainQueue()
@@ -195,6 +196,7 @@ struct EnsembleApp: App {
                 // Flush log session to disk but keep the file handle open so
                 // logs continue capturing during background audio playback.
                 DependencyContainer.shared.persistentLogService.flushSession()
+                DependencyContainer.shared.persistPlaybackStateSnapshot()
 
                 // Stop the frequency display timer to prevent it from burning main thread
                 // CPU during background audio playback (~3ms/sec saved on main thread).
@@ -238,6 +240,7 @@ struct EnsembleApp: App {
                 // Start monitoring when app becomes active (macOS)
                 DependencyContainer.shared.networkMonitor.startMonitoring()
                 await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
+                await DependencyContainer.shared.reconcileSyncOnForeground()
 
                 // Start periodic sync timer
                 DependencyContainer.shared.syncCoordinator.startPeriodicSync()
@@ -518,6 +521,8 @@ class MacAppDelegate: NSObject, NSApplicationDelegate {
               let splitVC = splitView.delegate as? NSSplitViewController,
               let sidebarItem = splitVC.splitViewItems.first else { return }
 
+        window.contentMinSize = NSSize(width: 980, height: 700)
+
         // Skip if already configured to avoid redundant work
         guard sidebarItem.canCollapse else { return }
 
@@ -525,10 +530,6 @@ class MacAppDelegate: NSObject, NSApplicationDelegate {
         sidebarItem.canCollapseFromWindowResize = false
         sidebarItem.minimumThickness = 220
         sidebarItem.holdingPriority = .init(999)
-
-        #if DEBUG
-        print("[MacAppDelegate] ✅ Configured non-collapsible sidebar (window: \(window.title))")
-        #endif
     }
 
     /// Recursively search the view hierarchy for an NSSplitView.

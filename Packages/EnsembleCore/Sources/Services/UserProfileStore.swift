@@ -42,10 +42,12 @@ public final class UserProfileStore: ObservableObject {
 
     // MARK: - Initialization
 
-    public init() {
-        // Set up profile directory
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        profileDirectory = appSupport.appendingPathComponent("Ensemble/Profile")
+    public convenience init() {
+        self.init(profileDirectory: Self.defaultProfileDirectory())
+    }
+
+    init(profileDirectory: URL) {
+        self.profileDirectory = profileDirectory
 
         // Load existing profile or create empty one
         profile = UserProfile()
@@ -105,10 +107,16 @@ public final class UserProfileStore: ObservableObject {
 
     /// Apply a profile received from CloudKit (does not trigger onProfileUpdated callback)
     public func applyRemoteProfile(_ remoteProfile: UserProfile, imageData: Data?) {
-        // Apply if remote is newer, OR if local profile is empty (fresh install).
-        // A fresh install sets lastModified = Date() which is newer than the remote,
-        // so we must also check isEmpty to handle the first-sync case.
-        guard profile.isEmpty || remoteProfile.lastModified > profile.lastModified else {
+        let remoteContentDiffers =
+            remoteProfile.displayName != profile.displayName ||
+            remoteProfile.profileImagePath != profile.profileImagePath
+
+        // Apply if remote is newer, OR if local profile is empty (fresh install),
+        // OR if CloudKit gives us an equally-dated profile with different content.
+        // The equal-timestamp case helps recover when previous writes used device time.
+        guard profile.isEmpty ||
+                remoteProfile.lastModified > profile.lastModified ||
+                (remoteProfile.lastModified == profile.lastModified && remoteContentDiffers) else {
             EnsembleLogger.info("Skipping remote profile (local is newer or equal)")
             return
         }
@@ -143,6 +151,11 @@ public final class UserProfileStore: ObservableObject {
 
     private func createDirectoryIfNeeded() {
         try? FileManager.default.createDirectory(at: profileDirectory, withIntermediateDirectories: true)
+    }
+
+    private static func defaultProfileDirectory() -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("Ensemble/Profile")
     }
 
     private func loadProfile() {

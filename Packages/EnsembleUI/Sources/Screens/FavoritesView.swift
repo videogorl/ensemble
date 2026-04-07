@@ -57,59 +57,58 @@ public struct FavoritesView: View {
         .navigationTitle("Favorites")
         .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter favorites")
         .profileToolbar()
-        .if(!isViewportNowPlayingPresented) { content in
-            content.toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if !viewModel.tracks.isEmpty {
-                        HStack(spacing: 16) {
-                            sortMenu
+                .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !viewModel.tracks.isEmpty {
+                    HStack(spacing: 16) {
+                        sortMenu
 
-                            Button {
-                                showFilterSheet = true
-                            } label: {
-                                ZStack(alignment: .topTrailing) {
-                                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
 
-                                    if viewModel.filterOptions.hasActiveFilters {
-                                        Circle()
-                                            .fill(Color.red)
-                                            .frame(width: 8, height: 8)
-                                            .offset(x: 2, y: -2)
-                                    }
+                                if viewModel.filterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
                                 }
                             }
-
-                            moreMenu
                         }
+
+                        moreMenu
                     }
                 }
-                #else
-                ToolbarItem(placement: .automatic) {
-                    if !viewModel.tracks.isEmpty {
-                        HStack(spacing: 16) {
-                            sortMenu
-
-                            Button {
-                                showFilterSheet = true
-                            } label: {
-                                ZStack(alignment: .topTrailing) {
-                                    Image(systemName: "line.3.horizontal.decrease.circle")
-                                    if viewModel.filterOptions.hasActiveFilters {
-                                        Circle()
-                                            .fill(Color.red)
-                                            .frame(width: 8, height: 8)
-                                            .offset(x: 2, y: -2)
-                                    }
-                                }
-                            }
-
-                            moreMenu
-                        }
-                    }
-                }
-                #endif
             }
+            #else
+            ToolbarItem { Spacer() }
+            ToolbarItem(placement: .primaryActionIfAvailable) {
+                if !viewModel.tracks.isEmpty {
+                    HStack(spacing: 16) {
+                        sortMenu
+
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                if viewModel.filterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
+                        }
+
+                        moreMenu
+                    }
+                }
+            }
+            #endif
         }
         .onReceive(nowPlayingVM.$currentTrack) { track in
             let id = track?.id

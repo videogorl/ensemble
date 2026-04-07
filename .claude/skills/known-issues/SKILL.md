@@ -20,6 +20,14 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Known Limitations
 
+### iOS 26 Simulator Keyboard Haptics Log Noise (Apr 7, 2026)
+- **Location:** Simulator runtime only, triggered while opening text-input flows such as the Profile name editor
+- **Issue:** The iOS 26 simulator logs repeated CoreHaptics errors like `_UIKBFeedbackGenerator: Error creating CHHapticPattern` and `hapticpatternlibrary.plist couldn’t be opened` when the software keyboard appears
+- **Root cause:** This is UIKit's keyboard haptics path (`_UIKBFeedbackGenerator`), not Ensemble's own haptics code. The simulator is missing `/Library/Audio/Tunings/Generic/Haptics/Library/hapticpatternlibrary.plist`, so CoreHaptics fails while trying to build the keyboard feedback patterns
+- **Impact:** Console noise only in the simulator. No known app behavior regression, and this should not affect physical devices with normal system haptics assets
+- **Verification:** Code search showed no direct `CHHapticPattern`/`CoreHaptics` usage in the Profile editor path; the only app-owned feedback calls are standard `UISelectionFeedbackGenerator`/`UIImpactFeedbackGenerator` usages outside startup text-input presentation
+- **Workarounds:** Ignore in simulator logs, use a connected hardware keyboard, or disable keyboard haptics in the simulator's Settings app if available
+
 ### External Display (AirPlay) Pixelation (Mar 30, 2026)
 - **Location:** `ExternalDisplayNowPlayingView.swift`, `ExternalDisplaySceneDelegate.swift`
 - **Issue:** Some UI elements on the AirPlay external display appear slightly soft/pixelated — particularly MarqueeText labels, play/pause button, and panel header actions. UIKit-rendered elements (QueueTableView rows) and images render at full resolution.

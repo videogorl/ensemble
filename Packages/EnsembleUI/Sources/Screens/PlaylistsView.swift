@@ -20,7 +20,8 @@ public struct PlaylistsView: View {
     @State private var creatingPlaylistToastID: UUID?
     @State private var playlistForEditSheet: Playlist?
     @State private var displayPlaylistPendingDelete: DisplayPlaylist?
-    // Push-based text input — avoids keyboard over root nav bar (iOS 26 scroll pocket bug)
+    // Keyboard-heavy editors are lifted into their own presentation so the
+    // current navigation/search container stays out of iOS 26's feedback path.
     @State private var showCreatePlaylistPush = false
     @State private var renamePushPlaylist: Playlist?
     @State private var renamePushDP: DisplayPlaylist?
@@ -39,6 +40,10 @@ public struct PlaylistsView: View {
         #else
         false
         #endif
+    }
+
+    private var isKeyboardEditorActive: Bool {
+        showCreatePlaylistPush || renamePushPlaylist != nil || renamePushDP != nil
     }
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: PlaylistViewModel? = nil) {
@@ -146,73 +151,63 @@ public struct PlaylistsView: View {
             .stageFlowImmersiveMode(isActive: isStageFlowActive)
             #if os(iOS)
             .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
-            .navigationBarHidden(isStageFlowActive)
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarHidden(isStageFlowActive || isKeyboardEditorActive)
+            .if(isStageFlowActive || isKeyboardEditorActive) { view in
+                if #available(iOS 16.0, *) {
+                    view.toolbar(.hidden, for: .navigationBar)
+                } else {
+                    view
+                }
+            }
             .statusBar(hidden: isStageFlowActive)
             #endif
             .navigationTitle(isStageFlowActive ? "" : "Playlists")
-            // Push-based text input — keyboard appears in the PUSHED view's context,
-            // which uses inline title and doesn't have scroll pocket collapse tracking.
-            // This avoids the iOS 26 ScrollPocketCollectorModel feedback loop that hangs
-            // the app when a keyboard appears over a root tab view's navigation bar.
-            .background(
-                NavigationLink(
-                    destination: CreatePlaylistView(
-                        serverOptions: nowPlayingVM.playlistServerOptions(),
-                        isMergeEnabled: viewModel.isMergeEnabled
-                    ) { name, serverKeys in
-                        createPlaylistOnServers(named: name, serverSourceKeys: serverKeys)
-                    },
-                    isActive: $showCreatePlaylistPush
-                ) { EmptyView() }
-                    .hidden()
-            )
-            .background(
-                NavigationLink(
-                    destination: Group {
-                        if let playlist = renamePushPlaylist {
-                            TextInputView(
-                                title: "Rename Playlist",
-                                placeholder: "Playlist name",
-                                initialText: playlist.title,
-                                actionTitle: "Save"
-                            ) { name in
-                                renamePlaylist(playlist, to: name)
-                            }
-                        }
-                    },
-                    isActive: Binding(
-                        get: { renamePushPlaylist != nil },
-                        set: { if !$0 { renamePushPlaylist = nil } }
-                    )
-                ) { EmptyView() }
-                    .hidden()
-            )
-            .background(
-                NavigationLink(
-                    destination: Group {
-                        if let dp = renamePushDP {
-                            TextInputView(
-                                title: "Rename Playlist",
-                                message: "This will rename on \(dp.playlists.count) server\(dp.playlists.count == 1 ? "" : "s").",
-                                placeholder: "Playlist name",
-                                initialText: dp.title,
-                                actionTitle: "Save"
-                            ) { name in
-                                viewModel.applyOptimisticRenameForMerged(dp, newTitle: name)
-                                for playlist in dp.playlists {
-                                    renamePlaylist(playlist, to: name)
-                                }
-                            }
-                        }
-                    },
-                    isActive: Binding(
-                        get: { renamePushDP != nil },
-                        set: { if !$0 { renamePushDP = nil } }
-                    )
-                ) { EmptyView() }
-                    .hidden()
-            )
-            .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
+            #if os(iOS)
+            .ignoresSafeArea(.keyboard)
+            #endif
+            // Text input editors
+            .keyboardSafeEditorPresentation(isPresented: $showCreatePlaylistPush) {
+                CreatePlaylistView(
+                    serverOptions: nowPlayingVM.playlistServerOptions(),
+                    isMergeEnabled: viewModel.isMergeEnabled
+                ) { name, serverKeys in
+                    createPlaylistOnServers(named: name, serverSourceKeys: serverKeys)
+                }
+            }
+            .keyboardSafeEditorPresentation(item: Binding(
+                get: { renamePushPlaylist },
+                set: { if $0 == nil { renamePushPlaylist = nil } }
+            )) { playlist in
+                TextInputView(
+                    title: "Rename Playlist",
+                    placeholder: "Playlist name",
+                    initialText: playlist.title,
+                    actionTitle: "Save"
+                ) { name in
+                    renamePlaylist(playlist, to: name)
+                }
+            }
+            .keyboardSafeEditorPresentation(item: Binding(
+                get: { renamePushDP },
+                set: { if $0 == nil { renamePushDP = nil } }
+            )) { dp in
+                TextInputView(
+                    title: "Rename Playlist",
+                    message: "This will rename on \(dp.playlists.count) server\(dp.playlists.count == 1 ? "" : "s").",
+                    placeholder: "Playlist name",
+                    initialText: dp.title,
+                    actionTitle: "Save"
+                ) { name in
+                    viewModel.applyOptimisticRenameForMerged(dp, newTitle: name)
+                    for playlist in dp.playlists {
+                        renamePlaylist(playlist, to: name)
+                    }
+                }
+            }
+            .if(!isKeyboardEditorActive) { view in
+                view.searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
+            }
             .task {
                 await viewModel.loadPlaylists()
             }
@@ -298,98 +293,97 @@ public struct PlaylistsView: View {
                 await viewModel.refreshFromServer()
             }
             .profileToolbar()
-            .if(!isViewportNowPlayingPresented) { content in
-                content.toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if !isStageFlowActive {
-                        HStack(spacing: 16) {
-                            // Merge toggle — controls cross-server playlist grouping
-                            Button {
-                                viewModel.toggleMerge()
-                            } label: {
-                                Image(systemName: viewModel.isMergeEnabled
-                                      ? "arrow.triangle.merge"
-                                      : "arrow.triangle.branch")
-                            }
-                            .accessibilityLabel(viewModel.isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
+                        .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !isStageFlowActive {
+                    HStack(spacing: 16) {
+                        // Merge toggle — controls cross-server playlist grouping
+                        Button {
+                            viewModel.toggleMerge()
+                        } label: {
+                            Image(systemName: viewModel.isMergeEnabled
+                                  ? "arrow.triangle.merge"
+                                  : "arrow.triangle.branch")
+                        }
+                        .accessibilityLabel(viewModel.isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
 
-                            // Extracted to scope syncCoordinator observation to just the button
-                            PlaylistsNewButton {
-                                showCreatePlaylistPush = true
-                            }
+                        // Extracted to scope syncCoordinator observation to just the button
+                        PlaylistsNewButton {
+                            showCreatePlaylistPush = true
+                        }
 
-                            Menu {
-                                ForEach(PlaylistSortOption.allCases, id: \.self) { option in
-                                    Button {
+                        Menu {
+                            ForEach(PlaylistSortOption.allCases, id: \.self) { option in
+                                Button {
+                                    if viewModel.playlistSortOption == option {
+                                        viewModel.filterOptions.sortDirection =
+                                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
+                                    } else {
+                                        viewModel.playlistSortOption = option
+                                        viewModel.filterOptions.sortDirection = option.defaultDirection
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(option.rawValue)
                                         if viewModel.playlistSortOption == option {
-                                            viewModel.filterOptions.sortDirection =
-                                                viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
-                                        } else {
-                                            viewModel.playlistSortOption = option
-                                            viewModel.filterOptions.sortDirection = option.defaultDirection
-                                        }
-                                    } label: {
-                                        HStack {
-                                            Text(option.rawValue)
-                                            if viewModel.playlistSortOption == option {
-                                                Image(systemName: viewModel.filterOptions.sortDirection == .ascending
-                                                      ? "chevron.up" : "chevron.down")
-                                            }
+                                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
+                                                  ? "chevron.up" : "chevron.down")
                                         }
                                     }
                                 }
-                            } label: {
-                                Label("Sort By", systemImage: "arrow.up.arrow.down")
                             }
+                        } label: {
+                            Label("Sort By", systemImage: "arrow.up.arrow.down")
                         }
                     }
                 }
-                #else
-                ToolbarItem(placement: .automatic) {
-                    if !isStageFlowActive {
-                        HStack(spacing: 16) {
-                            Button {
-                                viewModel.toggleMerge()
-                            } label: {
-                                Image(systemName: viewModel.isMergeEnabled
-                                      ? "arrow.triangle.merge"
-                                      : "arrow.triangle.branch")
-                            }
-                            .accessibilityLabel(viewModel.isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
+            }
+            #else
+            ToolbarItem { Spacer() }
+            ToolbarItem(placement: .primaryActionIfAvailable) {
+                if !isStageFlowActive {
+                    HStack(spacing: 16) {
+                        Button {
+                            viewModel.toggleMerge()
+                        } label: {
+                            Image(systemName: viewModel.isMergeEnabled
+                                  ? "arrow.triangle.merge"
+                                  : "arrow.triangle.branch")
+                        }
+                        .accessibilityLabel(viewModel.isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
 
-                            PlaylistsNewButton {
-                                showCreatePlaylistPush = true
-                            }
+                        PlaylistsNewButton {
+                            showCreatePlaylistPush = true
+                        }
 
-                            Menu {
-                                ForEach(PlaylistSortOption.allCases, id: \.self) { option in
-                                    Button {
+                        Menu {
+                            ForEach(PlaylistSortOption.allCases, id: \.self) { option in
+                                Button {
+                                    if viewModel.playlistSortOption == option {
+                                        viewModel.filterOptions.sortDirection =
+                                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
+                                    } else {
+                                        viewModel.playlistSortOption = option
+                                        viewModel.filterOptions.sortDirection = option.defaultDirection
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(option.rawValue)
                                         if viewModel.playlistSortOption == option {
-                                            viewModel.filterOptions.sortDirection =
-                                                viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
-                                        } else {
-                                            viewModel.playlistSortOption = option
-                                            viewModel.filterOptions.sortDirection = option.defaultDirection
-                                        }
-                                    } label: {
-                                        HStack {
-                                            Text(option.rawValue)
-                                            if viewModel.playlistSortOption == option {
-                                                Image(systemName: viewModel.filterOptions.sortDirection == .ascending
-                                                      ? "chevron.up" : "chevron.down")
-                                            }
+                                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
+                                                  ? "chevron.up" : "chevron.down")
                                         }
                                     }
                                 }
-                            } label: {
-                                Label("Sort By", systemImage: "arrow.up.arrow.down")
                             }
+                        } label: {
+                            Label("Sort By", systemImage: "arrow.up.arrow.down")
                         }
                     }
                 }
-                #endif
-                }
+            }
+            #endif
             }
     }
 
@@ -484,7 +478,7 @@ public struct PlaylistsView: View {
                         if !isPendingCreation {
                             if dp.isMerged {
                                 // Merged playlist context menu — actions apply to all constituents
-                                MergedPlaylistContextMenu(
+                                MergedPlaylistActionsContextMenu(
                                     displayPlaylist: dp,
                                     nowPlayingVM: nowPlayingVM,
                                     onRename: {
@@ -493,7 +487,7 @@ public struct PlaylistsView: View {
                                     onDelete: { displayPlaylistPendingDelete = dp }
                                 )
                             } else {
-                                PlaylistViewContextMenu(
+                                PlaylistActionsContextMenu(
                                     playlist: dp.primaryPlaylist,
                                     nowPlayingVM: nowPlayingVM,
                                     onRename: {
@@ -620,6 +614,7 @@ public struct PlaylistsView: View {
         Task {
             let didDelete = await viewModel.deletePlaylist(playlist)
             if didDelete {
+                DependencyContainer.shared.pinManager.unpin(id: playlist.id)
                 NotificationCenter.default.post(
                     name: .playlistDeletionSucceeded,
                     object: nil,
@@ -745,6 +740,7 @@ public struct PlaylistsView: View {
                         for: playlist.id,
                         expectedTitle: trimmed
                     )
+                    DependencyContainer.shared.pinManager.updateTitle(id: playlist.id, title: trimmed)
                 }
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
@@ -789,251 +785,6 @@ private struct PlaylistsNewButton: View {
             Label("New Playlist", systemImage: "plus")
         }
         .disabled(syncCoordinator.isOffline)
-    }
-}
-
-// MARK: - Playlist Context Menu
-
-/// Dedicated View struct for playlist context menus. Scopes @ObservedObject pinManager
-/// to each menu instance rather than the entire PlaylistsView list.
-private struct PlaylistViewContextMenu: View {
-    let playlist: Playlist
-    let nowPlayingVM: NowPlayingViewModel
-    var onRename: (() -> Void)?
-    var onEdit: (() -> Void)?
-    var onDelete: (() -> Void)?
-
-    @Environment(\.dependencies) private var deps
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
-
-    var body: some View {
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.play(tracks: tracks)
-            }
-        } label: {
-            Label("Play", systemImage: "play.fill")
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.shufflePlay(tracks: tracks)
-            }
-        } label: {
-            Label("Shuffle", systemImage: "shuffle")
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.playNext(tracks)
-            }
-        } label: {
-            Label("Play Next", systemImage: "text.insert")
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.playLast(tracks)
-            }
-        } label: {
-            Label("Play Last", systemImage: "text.append")
-        }
-
-        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
-        Button {
-            Task {
-                await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
-            }
-        } label: {
-            Label(
-                isDownloaded ? "Remove Download" : "Download",
-                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-            )
-        }
-
-        let isPinned = pinManager.isPinned(id: playlist.id)
-        Button {
-            if isPinned {
-                pinManager.unpin(id: playlist.id)
-            } else {
-                pinManager.pin(
-                    id: playlist.id,
-                    sourceKey: playlist.sourceCompositeKey ?? "",
-                    type: .playlist,
-                    title: playlist.title
-                )
-            }
-        } label: {
-            if isPinned {
-                Label("Unpin", systemImage: "pin.slash")
-            } else {
-                Label("Pin", systemImage: "pin.fill")
-            }
-        }
-
-        if !playlist.isSmart {
-            Button {
-                onRename?()
-            } label: {
-                Label("Rename…", systemImage: "pencil")
-            }
-
-            Button {
-                onEdit?()
-            } label: {
-                Label("Edit Playlist", systemImage: "slider.horizontal.3")
-            }
-
-            Button(role: .destructive) {
-                onDelete?()
-            } label: {
-                Label("Delete Playlist", systemImage: "trash")
-            }
-        }
-    }
-
-    private func withPlaylistTracks(_ playlist: Playlist, perform action: @escaping ([Track]) -> Void) {
-        Task {
-            let tracks = await resolveTracks(for: playlist)
-            guard !tracks.isEmpty else {
-                await MainActor.run {
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
-                            title: "No tracks available",
-                            message: "Try again after this playlist finishes syncing.",
-                            dedupeKey: "playlist-menu-empty-\(playlist.id)"
-                        )
-                    )
-                }
-                return
-            }
-            await MainActor.run {
-                action(tracks)
-            }
-        }
-    }
-
-    private func resolveTracks(for playlist: Playlist) async -> [Track] {
-        if let cachedPlaylist = try? await deps.playlistRepository.fetchPlaylist(
-            ratingKey: playlist.id,
-            sourceCompositeKey: playlist.sourceCompositeKey
-        ) {
-            return cachedPlaylist.tracksArray.map { Track(from: $0) }
-        }
-        return []
-    }
-}
-
-// MARK: - Merged Playlist Context Menu
-
-/// Context menu for merged playlist entries — actions apply to all constituent playlists.
-private struct MergedPlaylistContextMenu: View {
-    let displayPlaylist: DisplayPlaylist
-    let nowPlayingVM: NowPlayingViewModel
-    var onRename: (() -> Void)?
-    var onDelete: (() -> Void)?
-
-    @Environment(\.dependencies) private var deps
-
-    var body: some View {
-        Button {
-            withMergedTracks { tracks in nowPlayingVM.play(tracks: tracks) }
-        } label: {
-            Label("Play", systemImage: "play.fill")
-        }
-
-        Button {
-            withMergedTracks { tracks in nowPlayingVM.shufflePlay(tracks: tracks) }
-        } label: {
-            Label("Shuffle", systemImage: "shuffle")
-        }
-
-        Button {
-            withMergedTracks { tracks in nowPlayingVM.playNext(tracks) }
-        } label: {
-            Label("Play Next", systemImage: "text.insert")
-        }
-
-        Button {
-            withMergedTracks { tracks in nowPlayingVM.playLast(tracks) }
-        } label: {
-            Label("Play Last", systemImage: "text.append")
-        }
-
-        // Download/remove all constituent playlists
-        if isAnyConstituentDownloaded {
-            Button {
-                Task {
-                    for playlist in displayPlaylist.playlists {
-                        await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: false)
-                    }
-                }
-            } label: {
-                Label("Remove Downloads", systemImage: "xmark.circle")
-            }
-        } else {
-            Button {
-                Task {
-                    for playlist in displayPlaylist.playlists {
-                        await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: true)
-                    }
-                }
-            } label: {
-                Label("Download All", systemImage: "arrow.down.circle")
-            }
-        }
-
-        if !displayPlaylist.isSmart {
-            Button {
-                onRename?()
-            } label: {
-                Label("Rename All...", systemImage: "pencil")
-            }
-
-            Button(role: .destructive) {
-                onDelete?()
-            } label: {
-                Label("Delete All", systemImage: "trash")
-            }
-        }
-    }
-
-    /// Whether any constituent playlist is already marked for download
-    private var isAnyConstituentDownloaded: Bool {
-        displayPlaylist.playlists.contains { deps.offlineDownloadService.isPlaylistDownloadEnabled($0) }
-    }
-
-    /// Loads and interleaves tracks from all constituent playlists
-    private func withMergedTracks(perform action: @escaping ([Track]) -> Void) {
-        Task {
-            var trackSets: [[Track]] = []
-            for playlist in displayPlaylist.playlists {
-                if let cached = try? await deps.playlistRepository.fetchPlaylist(
-                    ratingKey: playlist.id,
-                    sourceCompositeKey: playlist.sourceCompositeKey
-                ) {
-                    trackSets.append(cached.tracksArray.map { Track(from: $0) })
-                }
-            }
-            let interleaved = DisplayPlaylist.interleave(trackSets)
-            guard !interleaved.isEmpty else {
-                await MainActor.run {
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
-                            title: "No tracks available",
-                            message: "Try again after playlists finish syncing.",
-                            dedupeKey: "merged-playlist-menu-empty-\(displayPlaylist.id)"
-                        )
-                    )
-                }
-                return
-            }
-            await MainActor.run { action(interleaved) }
-        }
     }
 }
 
@@ -1140,7 +891,8 @@ public struct PlaylistDetailView: View {
                 }
             }
             #else
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem { Spacer() }
+            ToolbarItem(placement: .primaryActionIfAvailable) {
                 if isEditingPlaylist {
                     Button("Save") {
                         let editedSnapshot = editedTracks
@@ -1156,7 +908,7 @@ public struct PlaylistDetailView: View {
                     .disabled(isSavingPlaylistEdits)
                 }
             }
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem(placement: .primaryActionIfAvailable) {
                 if isEditingPlaylist {
                     Button("Cancel") {
                         if startedInEditMode {
@@ -1403,6 +1155,42 @@ private struct CreatePlaylistView: View {
     }
 
     var body: some View {
+        navigationContainer
+        #if os(iOS)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        #endif
+        .onAppear {
+            // Default: select all servers when merge is enabled, first server otherwise
+            if serverOptions.count > 1 {
+                if isMergeEnabled {
+                    selectedServerIDs = Set(serverOptions.map(\.id))
+                } else if let first = serverOptions.first {
+                    selectedServerIDs = [first.id]
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                isFocused = true
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var navigationContainer: some View {
+        if #available(iOS 16.0, macOS 13.0, *) {
+            NavigationStack {
+                formContent
+            }
+        } else {
+            NavigationView {
+                formContent
+            }
+            #if os(iOS)
+            .navigationViewStyle(.stack)
+            #endif
+        }
+    }
+
+    private var formContent: some View {
         Form {
             Section {
                 TextField("Playlist name", text: $playlistName)
@@ -1413,7 +1201,6 @@ private struct CreatePlaylistView: View {
                     }
             }
 
-            // Multi-server picker — only shown when more than one server is available
             if serverOptions.count > 1 {
                 Section {
                     ForEach(serverOptions) { option in
@@ -1451,22 +1238,10 @@ private struct CreatePlaylistView: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismissAfterKeyboard() }
             }
+
             ToolbarItem(placement: .confirmationAction) {
                 Button("Create") { submit() }
                     .disabled(isCreateDisabled)
-            }
-        }
-        .onAppear {
-            // Default: select all servers when merge is enabled, first server otherwise
-            if serverOptions.count > 1 {
-                if isMergeEnabled {
-                    selectedServerIDs = Set(serverOptions.map(\.id))
-                } else if let first = serverOptions.first {
-                    selectedServerIDs = [first.id]
-                }
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                isFocused = true
             }
         }
     }

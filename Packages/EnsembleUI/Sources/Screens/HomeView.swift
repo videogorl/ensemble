@@ -29,16 +29,17 @@ public struct HomeView: View {
         }
         .navigationTitle("Feed")
         .profileToolbar()
-        .if(!isViewportNowPlayingPresented) { content in
-            content.toolbar {
-                ToolbarItem(placement: .primaryActionIfAvailable) {
-                    Button("Edit") {
-                        viewModel.enterEditMode()
-                        viewModel.isEditingOrder = true
-                    }
-                    .disabled(!viewModel.hasEnabledLibraries || viewModel.hubs.isEmpty)
-                    .opacity(viewModel.hasEnabledLibraries && !viewModel.hubs.isEmpty ? 1 : 0)
+        .toolbar {
+            #if os(macOS)
+            ToolbarItem { Spacer() }
+            #endif
+            ToolbarItem(placement: .primaryActionIfAvailable) {
+                Button("Edit") {
+                    viewModel.enterEditMode()
+                    viewModel.isEditingOrder = true
                 }
+                .disabled(!viewModel.hasEnabledLibraries || viewModel.hubs.isEmpty)
+                .opacity(viewModel.hasEnabledLibraries && !viewModel.hubs.isEmpty ? 1 : 0)
             }
         }
         .sheet(isPresented: $viewModel.isEditingOrder) {

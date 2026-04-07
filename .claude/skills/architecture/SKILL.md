@@ -78,6 +78,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - `activeAuxiliaryPresentation` / `auxiliaryWindowRequest` -- Root-level modal/window routing state; screens should request presentation through the coordinator instead of owning duplicated sheet state
 - Large-screen Now Playing presentation is split at the UI layer: `NowPlayingSheetView` remains the phone sheet container, `NowPlayingViewportRoot` owns the iPad/macOS viewport layout, and macOS window chrome is coordinated separately through `WindowChromeBridge` so toolbar content can swap without moving the titlebar/traffic lights
 - `PlaybackService` -- AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion). Publishes both raw transport time (`currentTime`) and presentation-adjusted time (`presentationTime`) so lyrics/Aurora can compensate for AirPlay/Bluetooth output delay without affecting seek/reporting semantics. `frequencyBands` uses `CurrentValueSubject` (not `@Published`) to avoid firing `objectWillChange` at 30Hz. Uses `ProgressiveStreamLoader` for transcode streams and `streamLoaders` dict for lifecycle management
+- `PlaybackHandoffCoordinator` -- Internal playback-handoff reducer extracted from `PlaybackService`; owns disconnect/interruption/remote-command pause intent, settle-window policy, and handoff logging decisions while the service remains the side-effect boundary
 - `PlaybackQueueStore` -- Persists queue/history restoration state outside `PlaybackService`; writes a single snapshot plus legacy keys so queue-restoration refactors can proceed without breaking existing installs
 - `PlaybackLaunchCoordinator` -- Internal playback-launch seam extracted from `PlaybackService`; owns the successful-resolution path (visualizer planning, engine load, recovery seek application, and prefetch kickoff) while the façade still owns queue mutation and transport retry loops
 - `PlaybackRecoveryPolicy` -- Internal playback buffering/stall policy seam extracted from `PlaybackService`; owns buffering profiles, conservative-mode escalation, prefetch throttling, and unexpected-pause recovery decisions while `PlaybackService` remains the façade
@@ -658,12 +659,12 @@ User-editable profile (display name, profile image) with iCloud private database
 
 1. **UserProfile** (`EnsembleCore/Models`) -- Data model with `displayName`, `profileImagePath`, and `lastModified` fields.
 2. **UserProfileStore** (`EnsembleCore/Services`, @MainActor ObservableObject) -- Local profile persistence and image processing. Publishes the current profile for UI binding.
-3. **CloudSyncService** (`EnsembleCore/Services`, actor) -- CloudKit private database sync using container `iCloud.com.videogorl.ensemble`, record type `UserProfile`. Supports push, pull, and subscription for remote change notifications. Uses last-writer-wins conflict resolution based on `lastModified`.
+3. **CloudSyncService** (`EnsembleCore/Services`, actor) -- CloudKit private database sync using container `iCloud.com.videogorl.ensemble`, record type `UserProfile`. Supports push, pull, subscription setup, silent-push delivery handling, and foreground recovery refresh. Prefers CloudKit server `modificationDate` when ordering pulled profile changes, and exposes transport state (`available`, `notAuthenticated`, `networkUnavailable`, etc.) so profile sync can degrade independently from KVS-backed features.
 4. **ProfileView** (`EnsembleUI/Screens`) -- Full profile screen replacing the previous SettingsView content. Settings are migrated into ProfileView; SettingsView redirects here.
 5. **ProfileHeaderView** (`EnsembleUI/Components`) -- Circular profile image + display name header with photo picker integration.
 6. **ProfileToolbarButton** (`EnsembleUI/Components`) -- 28×28pt circular profile image button rendered by `MainTabView` on iPhone root tab destinations and by the sidebar toolbar on iPad/macOS.
 7. **Navigation change:** `AuxiliaryPresentation.settings` renamed to `.profile`; `openSettings()` renamed to `openProfile()` (legacy alias kept for backward compatibility).
-8. **DependencyContainer** wires `UserProfileStore` and `CloudSyncService` as singleton services.
+8. **DependencyContainer** wires `UserProfileStore` and `CloudSyncService` as singleton services and triggers a foreground profile reconcile path on iOS/macOS activation so missed silent pushes self-heal quickly.
 
 - **Key types:** `UserProfile`, `UserProfileStore`, `CloudSyncService`
 - **Key files:** `UserProfile.swift`, `UserProfileStore.swift`, `CloudSyncService.swift`, `ProfileView.swift`, `ProfileHeaderView.swift`, `ProfileToolbarButton.swift`, `DependencyContainer.swift`
@@ -687,13 +688,14 @@ Hybrid sync architecture for cross-device settings and credential sharing:
 ```
 
 **Sync mechanisms:**
-1. **KVS (`KVSSyncService`)** — `NSUbiquitousKeyValueStore` wrapper for small settings. Push/pull/observe with echo-loop suppression (1s window after pushing). Each KVS key maps to a feature toggle in `SyncSettingsManager`. Library flags are encoded in canonical sorted order so identical state does not generate false remote changes from dictionary key reordering.
-2. **iCloud Keychain (`KeychainService`)** — Synchronizable keychain items for Plex credentials. Uses `saveSynchronizable`/`getSynchronizable`/`deleteSynchronizable` APIs with `KeychainKey.plexAccountsSync`.
+1. **KVS (`KVSSyncService`)** — `NSUbiquitousKeyValueStore` wrapper for small settings. Push/pull/observe with echo-loop suppression (1s window after pushing). Tracks whether initial iCloud KVS delivery has actually settled so bootstrap code can defer seeding local defaults until remote absence is authoritative. Each KVS key maps to a feature toggle in `SyncSettingsManager`. Library flags are encoded in canonical sorted order so identical state does not generate false remote changes from dictionary key reordering.
+2. **iCloud Keychain (`KeychainService`)** — Synchronizable keychain items for Plex credentials. Uses `saveSynchronizable`/`getSynchronizable`/`deleteSynchronizable` APIs with `KeychainKey.plexAccountsSync`. No live observer exists, so `DependencyContainer` runs a foreground reconciliation pass that re-checks synced credentials and discovers any newly arrived accounts.
 3. **CloudKit (`CloudSyncService`)** — Private database sync for user profile (existing, see User Profile subsystem).
 
 **Key behaviors:**
 - **Dependency cascade:** Libraries toggle auto-disables when Sources is turned off.
-- **Bootstrap flow:** On first iCloud connection or when a feature is re-enabled, existing cloud state wins. If the cloud has no payload for that feature yet, the current device seeds the cloud instead of waiting for a later local edit.
+- **Bootstrap flow:** `DependencyContainer` owns a shared per-feature bootstrap path (`accentColor`, `swipeActions`, `pins`, `sources`, `libraries`). On first iCloud connection or feature re-enable, existing cloud state wins. KVS-backed features now wait for authoritative initial-sync settlement before treating `nil` as "remote absent"; only then do they seed local state.
+- **Runtime feature state:** `SyncSettingsManager` tracks in-memory per-feature state (`idle`, `bootstrapping`, `appliedRemote`, `seededLocal`, `waitingForTransport`, `transportUnavailable`, `error`). `hasCompletedFirstConnect` is now only set once all enabled features have settled into a terminal state instead of being marked optimistically at launch.
 - **Ongoing updates:** Local edits push their latest full snapshot; other devices apply the remote snapshot when it changes.
 - **Pins:** Remote pin sync is snapshot-based, not union-based, so pin deletions and reorderings propagate across devices.
 

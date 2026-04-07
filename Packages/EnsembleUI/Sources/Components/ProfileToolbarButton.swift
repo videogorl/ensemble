@@ -22,6 +22,7 @@ public struct ProfileToolbarButton: View {
         } label: {
             profileImage
         }
+        .buttonStyle(.plain)
         .help("Profile")
     }
 

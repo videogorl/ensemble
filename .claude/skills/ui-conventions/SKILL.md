@@ -35,6 +35,17 @@ These are core design decisions that must be maintained throughout the app.
 - **Detail action strips:** Reuse `TrackListLayoutMetrics.rowInterItemSpacing` and `rowHorizontalPadding` for repeated Play/Shuffle-style button rows and lightweight status banners in media/detail screens
 - **Shared row actions:** Use `TrackRowInteractionModel` to resolve per-track context-menu availability, recent-playlist gating, and favorite state for both `TrackRow` and `MediaTrackList` paths instead of duplicating that logic per framework
 
+### Keyboard-Heavy Editors (iPhone)
+- Present rename/create text editors with `keyboardSafeEditorPresentation(...)` from `View+Extensions.swift`
+- On iPhone, that helper must use `fullScreenCover` so the presenting navigation/search container stays out of the keyboard layout pass
+- Root auxiliary flows that can lead into keyboard editors, such as Profile, should also prefer a full-screen cover on iPhone instead of a sheet for the same reason
+- Full-screen auxiliary flows on iPhone need their own explicit dismiss control; do not rely on sheet affordances that no longer exist
+- Do not pre-hide root tab, mini-player, or searchable-header chrome for the entire auxiliary transition; only suppress root chrome for the actual keyboard editor presentation or other immersive modes
+- Searchable root presenters can still need their own local navigation/search suppression during the actual keyboard editor presentation; Albums specifically must hide its navigation/search chrome while `navigationCoordinator.isKeyboardEditorPresented` is true
+- The helper owns keyboard-editor registration timing; do not duplicate `beginKeyboardEditorPresentation()` or `endKeyboardEditorPresentation()` inside the editor view itself
+- Keyboard editors can use a local `NavigationStack`/`NavigationView` plus system toolbar actions for a native look, as long as the presentation is isolated with `keyboardSafeEditorPresentation(...)`
+- When the presenting screen still lives inside a navigation container, hide that navigation bar while the editor is active; prefer `.toolbar(.hidden, for: .navigationBar)` on iOS 16+
+
 **NestedNavigationLink Pattern** (in `MainTabView.swift`):
 ```swift
 struct NestedNavigationLink<Content: View>: View {

@@ -11,6 +11,7 @@ public struct ArtworkView: View {
     let fallbackRatingKey: String?
     let size: ArtworkSize
     let cornerRadius: CGFloat
+    let isResponsive: Bool
 
     @Environment(\.dependencies) private var dependencies
     @State private var artworkURL: URL?
@@ -48,7 +49,7 @@ public struct ArtworkView: View {
         switch size {
         case .tiny:
             return .high
-        case .thumbnail, .small:
+        case .thumbnail, .card, .small:
             return .low
         case .medium, .large, .extraLarge:
             return .normal
@@ -62,7 +63,8 @@ public struct ArtworkView: View {
         fallbackPath: String? = nil,
         fallbackRatingKey: String? = nil,
         size: ArtworkSize = .medium,
-        cornerRadius: CGFloat = 8
+        cornerRadius: CGFloat = 8,
+        isResponsive: Bool = false
     ) {
         self.path = path
         self.sourceKey = sourceKey
@@ -71,6 +73,7 @@ public struct ArtworkView: View {
         self.fallbackRatingKey = fallbackRatingKey
         self.size = size
         self.cornerRadius = cornerRadius
+        self.isResponsive = isResponsive
     }
 
     public var body: some View {
@@ -109,8 +112,9 @@ public struct ArtworkView: View {
         }
         .processors([.resize(size: frameSize, contentMode: .aspectFill, upscale: true)])
         .priority(imagePriority)
-        .aspectRatio(1, contentMode: .fill)
-        .frame(maxWidth: frameSize.width, maxHeight: frameSize.height)
+        .aspectRatio(1, contentMode: .fit)
+        .frame(width: isResponsive ? nil : frameSize.width, height: isResponsive ? nil : frameSize.height)
+        .frame(maxWidth: isResponsive ? .infinity : nil)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .task(id: "\(loadID)|\(invalidationToken)") {
             await loadArtworkURL()
@@ -185,8 +189,8 @@ public extension ArtworkView {
         )
     }
 
-    init(album: Album, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
-        self.init(path: album.thumbPath, sourceKey: album.sourceCompositeKey, ratingKey: album.id, size: size, cornerRadius: cornerRadius)
+    init(album: Album, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8, isResponsive: Bool = false) {
+        self.init(path: album.thumbPath, sourceKey: album.sourceCompositeKey, ratingKey: album.id, fallbackPath: nil, fallbackRatingKey: nil, size: size, cornerRadius: cornerRadius, isResponsive: isResponsive)
     }
 
     init(artist: Artist, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {

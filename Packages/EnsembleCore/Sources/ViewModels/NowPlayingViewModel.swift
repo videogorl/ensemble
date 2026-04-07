@@ -1325,87 +1325,80 @@ public final class NowPlayingViewModel: ObservableObject {
     
     /// Toggle rating through three states: none → loved → disliked → none
     public func toggleRating() {
-        guard !isUpdatingRating else { return }
-        Task {
-            guard let track = currentTrack else { return }
-            
-            let newRating: TrackRating
-            switch currentRating {
-            case .none:
-                newRating = .loved
-            case .loved:
-                newRating = .disliked
-            case .disliked:
-                newRating = .none
-            }
-            
-            let previousRating = trackDisplayRating(for: track)
-            let nextPlexRating = newRating.plexRating
-            let nextDisplayRating = nextPlexRating ?? 0
+        Task { @MainActor [weak self] in
+            await self?.toggleRatingOnMainActor()
+        }
+    }
 
-            // Mark that we're updating to prevent overwriting
-            await MainActor.run {
-                self.isUpdatingRating = true
-                self.currentRating = newRating
-                self.optimisticTrackRatings[track.id] = nextDisplayRating
-            }
-            
-            // Apply optimistic local update for immediate consistency with swipe-driven state.
-            do {
-                try await storeTrackRating(trackId: track.id, rating: nextDisplayRating)
-                applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: nextDisplayRating)
+    @MainActor
+    internal func toggleRatingForTesting() async {
+        await toggleRatingOnMainActor()
+    }
 
-                // Route through MutationCoordinator — handles offline queuing automatically
-                if let trackRatingMutationHandlerForTesting {
-                    try await trackRatingMutationHandlerForTesting(track, nextPlexRating)
-                } else {
-                    let outcome = try await mutationCoordinator.rateTrack(track, rating: nextPlexRating)
-                    if outcome == .queued {
-                        toastCenter.show(
-                            ToastPayload(
-                                style: .info,
-                                iconSystemName: newRating.icon,
-                                title: "Rating saved — will sync when online",
-                                message: track.title,
-                                dedupeKey: "rating-toggle-queued-\(track.id)"
-                            )
+    @MainActor
+    private func toggleRatingOnMainActor() async {
+        guard !isUpdatingRating, let track = currentTrack else { return }
+
+        let newRating: TrackRating
+        switch currentRating {
+        case .none:
+            newRating = .loved
+        case .loved:
+            newRating = .disliked
+        case .disliked:
+            newRating = .none
+        }
+
+        let previousRating = trackDisplayRating(for: track)
+        let nextPlexRating = newRating.plexRating
+        let nextDisplayRating = nextPlexRating ?? 0
+
+        isUpdatingRating = true
+        currentRating = newRating
+        optimisticTrackRatings[track.id] = nextDisplayRating
+
+        do {
+            try await storeTrackRating(trackId: track.id, rating: nextDisplayRating)
+            applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: nextDisplayRating)
+
+            // Route through MutationCoordinator — handles offline queuing automatically
+            if let trackRatingMutationHandlerForTesting {
+                try await trackRatingMutationHandlerForTesting(track, nextPlexRating)
+            } else {
+                let outcome = try await mutationCoordinator.rateTrack(track, rating: nextPlexRating)
+                if outcome == .queued {
+                    toastCenter.show(
+                        ToastPayload(
+                            style: .info,
+                            iconSystemName: newRating.icon,
+                            title: "Rating saved — will sync when online",
+                            message: track.title,
+                            dedupeKey: "rating-toggle-queued-\(track.id)"
                         )
-                        await MainActor.run { self.isUpdatingRating = false }
-                        return
-                    }
+                    )
+                    isUpdatingRating = false
+                    return
                 }
-
-                // Refresh the track to get updated data
-                if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
-                    let refreshedTrack = Track(from: updatedTrack)
-                    await MainActor.run {
-                        self.optimisticTrackRatings[track.id] = refreshedTrack.rating
-                        // Update currentTrack if it's still the same track
-                        if self.currentTrack?.id == track.id {
-                            self.currentTrack = refreshedTrack
-                        }
-                    }
-                } else {
-                    await MainActor.run {
-                        self.optimisticTrackRatings[track.id] = nextDisplayRating
-                    }
-                }
-
-                // Clear the updating flag
-                await MainActor.run {
-                    self.isUpdatingRating = false
-                }
-            } catch {
-                EnsembleLogger.debug("Failed to update rating: \(error)")
-                // Revert on error
-                await MainActor.run {
-                    self.optimisticTrackRatings[track.id] = previousRating
-                    self.isUpdatingRating = false
-                    self.currentRating = TrackRating.from(rating: previousRating)
-                }
-                try? await storeTrackRating(trackId: track.id, rating: previousRating)
-                applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: previousRating)
             }
+
+            if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
+                let refreshedTrack = Track(from: updatedTrack)
+                optimisticTrackRatings[track.id] = refreshedTrack.rating
+                if currentTrack?.id == track.id {
+                    currentTrack = refreshedTrack
+                }
+            } else {
+                optimisticTrackRatings[track.id] = nextDisplayRating
+            }
+
+            isUpdatingRating = false
+        } catch {
+            EnsembleLogger.debug("Failed to update rating: \(error)")
+            optimisticTrackRatings[track.id] = previousRating
+            isUpdatingRating = false
+            currentRating = TrackRating.from(rating: previousRating)
+            try? await storeTrackRating(trackId: track.id, rating: previousRating)
+            applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: previousRating)
         }
     }
     

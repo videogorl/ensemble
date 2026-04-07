@@ -3,6 +3,28 @@ import XCTest
 @testable import EnsembleCore
 
 final class PlaybackServiceTests: XCTestCase {
+    func testAudioPlaybackEngineResolvedPlaybackPositionFallsBackToSeekOffsetWithoutRenderSample() {
+        let time = AudioPlaybackEngine.resolvedPlaybackPosition(
+            renderSampleTime: nil,
+            playerTimeBaseOffset: 0,
+            seekFrameOffset: 3_282_300,
+            sampleRate: 44_100
+        )
+
+        XCTAssertEqual(time, 74.428571, accuracy: 0.0001)
+    }
+
+    func testAudioPlaybackEngineResolvedPlaybackPositionSubtractsGaplessBaseOffset() {
+        let time = AudioPlaybackEngine.resolvedPlaybackPosition(
+            renderSampleTime: 350,
+            playerTimeBaseOffset: 100,
+            seekFrameOffset: 25,
+            sampleRate: 10
+        )
+
+        XCTAssertEqual(time, 27.5, accuracy: 0.0001)
+    }
+
     func testPresentationRouteKindPrefersAirPlayOverBluetooth() {
         let routeKind = PlaybackService.inferPresentationRouteKind(
             hasAirPlay: true,
@@ -232,6 +254,44 @@ final class PlaybackServiceTests: XCTestCase {
         )
 
         XCTAssertFalse(shouldIgnore)
+    }
+
+    func testPlaybackSnapshotPersistsAfterInterval() {
+        XCTAssertTrue(
+            PlaybackService.shouldPersistPlaybackSnapshot(
+                observedTime: 30,
+                lastSavedTime: 10
+            )
+        )
+    }
+
+    func testPlaybackSnapshotSkipsFrequentWrites() {
+        XCTAssertFalse(
+            PlaybackService.shouldPersistPlaybackSnapshot(
+                observedTime: 20,
+                lastSavedTime: 10
+            )
+        )
+    }
+
+    func testEngineTrackReconciliationTriggersWhenEngineAndUIDiverge() {
+        XCTAssertTrue(
+            PlaybackService.shouldReconcileEngineTrack(
+                currentTrackID: "8877",
+                engineTrackID: "8878",
+                isSkipTransitionInProgress: false
+            )
+        )
+    }
+
+    func testEngineTrackReconciliationSkipsDuringManualTransitions() {
+        XCTAssertFalse(
+            PlaybackService.shouldReconcileEngineTrack(
+                currentTrackID: "8877",
+                engineTrackID: "8878",
+                isSkipTransitionInProgress: true
+            )
+        )
     }
 
     func testBaseBufferingProfileForWifiUsesLowLatencyAndDepthOne() {

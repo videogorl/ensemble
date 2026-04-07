@@ -59,6 +59,22 @@ public final class PinManager: ObservableObject {
         savePins()
     }
 
+    /// Update a pinned item's display title after the underlying media is renamed.
+    public func updateTitle(id: String, title: String) {
+        guard let index = pinnedItems.firstIndex(where: { $0.id == id }) else { return }
+        guard pinnedItems[index].title != title else { return }
+
+        let item = pinnedItems[index]
+        pinnedItems[index] = PinnedItem(
+            id: item.id,
+            sourceCompositeKey: item.sourceCompositeKey,
+            type: item.type,
+            title: title,
+            pinnedDate: item.pinnedDate
+        )
+        savePins()
+    }
+
     /// Check if an item is currently pinned
     public func isPinned(id: String) -> Bool {
         pinnedItems.contains { $0.id == id }

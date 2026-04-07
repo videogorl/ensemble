@@ -62,6 +62,7 @@ public final class NavigationCoordinator: ObservableObject {
     @Published public var showingAddAccount = false
     @Published public var activeAuxiliaryPresentation: AuxiliaryPresentation?
     @Published public var auxiliaryWindowRequest: AuxiliaryWindowRequest?
+    @Published private(set) public var keyboardEditorPresentationDepth = 0
 
     /// For NowPlaying flow: pending navigation to execute after sheet dismissal
     public struct PendingNavigation {
@@ -75,6 +76,10 @@ public final class NavigationCoordinator: ObservableObject {
     }
     
     @Published public var pendingNavigation: PendingNavigation?
+
+    public var isKeyboardEditorPresented: Bool {
+        keyboardEditorPresentationDepth > 0
+    }
 
     public init() {}
     
@@ -194,6 +199,16 @@ public final class NavigationCoordinator: ObservableObject {
 
     public func consumeAuxiliaryWindowRequest() {
         auxiliaryWindowRequest = nil
+    }
+
+    /// Marks a keyboard-heavy editor as active so root containers can ignore
+    /// keyboard-driven layout updates behind that presentation.
+    public func beginKeyboardEditorPresentation() {
+        keyboardEditorPresentationDepth += 1
+    }
+
+    public func endKeyboardEditorPresentation() {
+        keyboardEditorPresentationDepth = max(0, keyboardEditorPresentationDepth - 1)
     }
     
     // MARK: - Helper Methods

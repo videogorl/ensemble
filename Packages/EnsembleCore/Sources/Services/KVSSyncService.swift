@@ -7,6 +7,12 @@ import Combine
 @MainActor
 public final class KVSSyncService: ObservableObject {
 
+    public enum InitialSyncState: Equatable {
+        case pending
+        case completed
+        case unavailable
+    }
+
     // MARK: - KVS Keys
 
     /// Namespaced keys for each synced feature
@@ -29,6 +35,7 @@ public final class KVSSyncService: ObservableObject {
     public var onRemoteSwipeLayoutChanged: ((Data) -> Void)?
     public var onRemotePinsChanged: ((Data) -> Void)?
     public var onRemoteLibraryFlagsChanged: ((Data) -> Void)?
+    public var onInitialSyncCompleted: (() -> Void)?
 
     /// Guards against echo loops when pushing a value that just arrived remotely
     private var suppressedKeys = Set<String>()
@@ -37,6 +44,9 @@ public final class KVSSyncService: ObservableObject {
 
     /// Whether KVS is available (entitlement present and iCloud configured)
     public private(set) var isAvailable: Bool = true
+    public private(set) var initialSyncState: InitialSyncState = .pending
+
+    private var initialSyncWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
 
     public init(store: NSUbiquitousKeyValueStore = .default) {
         self.store = store
@@ -47,6 +57,7 @@ public final class KVSSyncService: ObservableObject {
         let synced = store.synchronize()
         if !synced {
             isAvailable = false
+            initialSyncState = .unavailable
             EnsembleLogger.info("KVS: iCloud key-value store unavailable (no iCloud account or missing entitlement)")
         }
     }
@@ -101,6 +112,31 @@ public final class KVSSyncService: ObservableObject {
         _ = store.synchronize()
     }
 
+    /// Waits for KVS to report that initial cloud delivery has settled.
+    /// Returns false when KVS is unavailable or the wait times out.
+    public func waitForInitialSync(timeout: TimeInterval = 5.0) async -> Bool {
+        switch initialSyncState {
+        case .completed:
+            return true
+        case .unavailable:
+            return false
+        case .pending:
+            break
+        }
+
+        let waiterID = UUID()
+        return await withCheckedContinuation { continuation in
+            initialSyncWaiters[waiterID] = continuation
+
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                guard let self else { return }
+                guard let waiter = self.initialSyncWaiters.removeValue(forKey: waiterID) else { return }
+                waiter.resume(returning: false)
+            }
+        }
+    }
+
     // MARK: - Remote Change Observation
 
     /// Observe NSUbiquitousKeyValueStoreDidChangeExternallyNotification
@@ -132,6 +168,8 @@ public final class KVSSyncService: ObservableObject {
             }
             return
         }
+
+        markInitialSyncCompleted()
 
         // Get the changed keys
         guard let changedKeys = userInfo[NSUbiquitousKeyValueStoreChangedKeysKey] as? [String] else {
@@ -200,5 +238,16 @@ public final class KVSSyncService: ObservableObject {
         if let data = store.data(forKey: KVSKey.libraryFlags) {
             onRemoteLibraryFlagsChanged?(data)
         }
+    }
+
+    private func markInitialSyncCompleted() {
+        guard initialSyncState == .pending else { return }
+        initialSyncState = .completed
+
+        let waiters = initialSyncWaiters
+        initialSyncWaiters.removeAll()
+        waiters.values.forEach { $0.resume(returning: true) }
+
+        onInitialSyncCompleted?()
     }
 }

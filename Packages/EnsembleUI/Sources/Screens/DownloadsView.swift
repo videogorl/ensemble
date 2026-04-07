@@ -24,34 +24,33 @@ public struct DownloadsView: View {
         }
         .navigationTitle("Downloads")
         .profileToolbar()
-        .if(!isViewportNowPlayingPresented) { content in
-            content.toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink {
-                        DownloadManagerSettingsView()
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                    }
+                .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                NavigationLink {
+                    DownloadManagerSettingsView()
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
                 }
-
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    queueControlButton
-                }
-                #else
-                ToolbarItem(placement: .automatic) {
-                    NavigationLink {
-                        DownloadManagerSettingsView()
-                    } label: {
-                        Label("Settings", systemImage: "slider.horizontal.3")
-                    }
-                }
-
-                ToolbarItem(placement: .automatic) {
-                    queueControlButton
-                }
-                #endif
             }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
+                queueControlButton
+            }
+            #else
+            ToolbarItem { Spacer() }
+            ToolbarItem(placement: .primaryActionIfAvailable) {
+                NavigationLink {
+                    DownloadManagerSettingsView()
+                } label: {
+                    Label("Settings", systemImage: "slider.horizontal.3")
+                }
+            }
+
+            ToolbarItem(placement: .primaryActionIfAvailable) {
+                queueControlButton
+            }
+            #endif
         }
         .task {
             await viewModel.refresh()
@@ -86,7 +85,6 @@ public struct DownloadsView: View {
                     } label: {
                         PendingChangesRow(count: viewModel.pendingMutationCount)
                     }
-                    .utilityListRowInsets(TrackListLayoutMetrics.rowVerticalPadding / 2)
                 }
             }
 
@@ -99,7 +97,6 @@ public struct DownloadsView: View {
                         if let progress = viewModel.removalInProgress[item.key] {
                             // Show removal progress indicator instead of normal row
                             RemovalProgressRow(progress: progress)
-                                .utilityListRowInsets(TrackListLayoutMetrics.rowVerticalPadding / 2)
                         } else {
                             targetRow(for: item)
                                 .standardDeleteSwipeAction {
@@ -107,7 +104,6 @@ public struct DownloadsView: View {
                                         await viewModel.removeDownloadTarget(key: item.key)
                                     }
                                 }
-                                .utilityListRowInsets(TrackListLayoutMetrics.rowVerticalPadding / 2)
                         }
                     }
                 }
@@ -176,7 +172,6 @@ public struct DownloadsView: View {
                     .frame(width: 12, alignment: .trailing)
             }
         }
-        .utilityListRowInsets(TrackListLayoutMetrics.rowVerticalPadding / 2)
     }
 
     private func libraryRowLabel(for library: LibraryDownloadSummary) -> some View {
