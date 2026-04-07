@@ -149,6 +149,7 @@ public struct ExternalDisplayNowPlayingView: View {
         ZStack {
             BlurredArtworkBackground(
                 image: viewModel.artworkImage,
+                preBlurredImage: viewModel.blurredArtworkImage,
                 overlayColor: .black
             )
             .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
@@ -156,6 +157,16 @@ public struct ExternalDisplayNowPlayingView: View {
             // Dark overlay for readability on TV
             Color.black.opacity(0.45)
                 .allowsHitTesting(false)
+
+            if settingsManager.auroraVisualizationEnabled {
+                AuroraVisualizationView(
+                    playbackService: DependencyContainer.shared.playbackService,
+                    accentColor: settingsManager.accentColor.color,
+                    isLowPowerMode: powerStateMonitor.isLowPowerMode
+                )
+                .allowsHitTesting(false)
+                .opacity(0.7)
+            }
         }
         .ignoresSafeArea()
     }
