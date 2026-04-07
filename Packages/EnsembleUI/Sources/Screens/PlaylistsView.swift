@@ -20,8 +20,8 @@ public struct PlaylistsView: View {
     @State private var creatingPlaylistToastID: UUID?
     @State private var playlistForEditSheet: Playlist?
     @State private var displayPlaylistPendingDelete: DisplayPlaylist?
-    // Keyboard-heavy editors are presented separately so the underlying navigation
-    // and searchable containers stay out of iOS 26's keyboard layout feedback path.
+    // Keyboard-heavy editors are lifted into their own presentation so the
+    // current navigation/search container stays out of iOS 26's feedback path.
     @State private var showCreatePlaylistPush = false
     @State private var renamePushPlaylist: Playlist?
     @State private var renamePushDP: DisplayPlaylist?

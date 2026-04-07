@@ -114,7 +114,7 @@ public struct MainTabView: View {
     }
 
     private var isRootChromeSuppressed: Bool {
-        isImmersiveMode || isAuxiliaryPresentationActive || navigationCoordinator.isKeyboardEditorPresented
+        isImmersiveMode || navigationCoordinator.isKeyboardEditorPresented
     }
 
     public var body: some View {
@@ -156,7 +156,7 @@ public struct MainTabView: View {
                 // The 70pt covers the mini player height + spacing above the tab bar.
                 .miniPlayerContainerInset(
                     TrackListLayoutMetrics.miniPlayerContainerInset,
-                    isVisible: !isShowingNowPlaying && !isKeyboardVisible && !isAuxiliaryPresentationActive && !isImmersiveMode && !navigationCoordinator.isKeyboardEditorPresented
+                    isVisible: !isShowingNowPlaying && !isKeyboardVisible && !isImmersiveMode && !navigationCoordinator.isKeyboardEditorPresented
                 )
                 .zIndex(0)
 
@@ -180,7 +180,6 @@ public struct MainTabView: View {
                     ),
                     isImmersiveMode: isImmersiveMode,
                     isKeyboardVisible: isKeyboardVisible,
-                    isAuxiliaryPresentationPresented: isAuxiliaryPresentationActive,
                     isKeyboardEditorPresented: navigationCoordinator.isKeyboardEditorPresented,
                     namespace: playerNamespace,
                     animationID: artworkAnimationID,
@@ -530,7 +529,6 @@ private struct MainTabNowPlayingOverlay: View {
     @Binding var showingNowPlaying: Bool
     let isImmersiveMode: Bool
     let isKeyboardVisible: Bool
-    let isAuxiliaryPresentationPresented: Bool
     let isKeyboardEditorPresented: Bool
     var namespace: Namespace.ID
     let animationID: String
@@ -539,7 +537,7 @@ private struct MainTabNowPlayingOverlay: View {
 
     var body: some View {
         // Persistent MiniPlayer (above tab bar)
-        if !showingNowPlaying && !isKeyboardVisible && !isAuxiliaryPresentationPresented && !isImmersiveMode && !isKeyboardEditorPresented {
+        if !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode && !isKeyboardEditorPresented {
             let isFloating: Bool = {
                 #if os(iOS)
                 if #available(iOS 18.0, *) {

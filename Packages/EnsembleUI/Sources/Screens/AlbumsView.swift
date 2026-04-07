@@ -6,7 +6,6 @@ public struct AlbumsView: View {
     let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @Environment(\.dependencies) private var deps
-    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
@@ -35,12 +34,12 @@ public struct AlbumsView: View {
         #endif
     }
 
-    private var isAuxiliaryPresentationActive: Bool {
-        navigationCoordinator.activeAuxiliaryPresentation != nil
+    private var isKeyboardEditorActive: Bool {
+        navigationCoordinator.isKeyboardEditorPresented
     }
 
     private var isPresenterChromeHidden: Bool {
-        isStageFlowActive || isAuxiliaryPresentationActive
+        isStageFlowActive || isKeyboardEditorActive
     }
 
     public var body: some View {
@@ -106,7 +105,7 @@ public struct AlbumsView: View {
             .statusBar(hidden: isStageFlowActive)
             #endif
             .navigationTitle(isPresenterChromeHidden ? "" : "Albums")
-            .if(!isAuxiliaryPresentationActive) { view in
+            .if(!isPresenterChromeHidden) { view in
                 view.searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
             }
             .refreshable {

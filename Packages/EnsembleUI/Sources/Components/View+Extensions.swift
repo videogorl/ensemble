@@ -16,9 +16,9 @@ private struct DismissViewportNowPlayingKey: EnvironmentKey {
     static let defaultValue: (() -> Void)? = nil
 }
 
-/// Registers keyboard-heavy editor presentation state from the presenting view
-/// so root chrome can settle before the editor enters the hierarchy.
-private struct KeyboardEditorPresentationStateModifier: ViewModifier {
+/// Tracks keyboard-heavy editor presentation from the presenting view so root
+/// chrome can settle before the editor enters the hierarchy.
+private struct KeyboardEditorPresentationTracker: ViewModifier {
     let isActive: Bool
 
     @State private var isRegistered = false
@@ -231,7 +231,7 @@ public extension View {
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         let presentingView = self.modifier(
-            KeyboardEditorPresentationStateModifier(isActive: isPresented.wrappedValue)
+            KeyboardEditorPresentationTracker(isActive: isPresented.wrappedValue)
         )
 
         #if os(iOS)
@@ -252,7 +252,7 @@ public extension View {
         @ViewBuilder content: @escaping (Item) -> Content
     ) -> some View {
         let presentingView = self.modifier(
-            KeyboardEditorPresentationStateModifier(isActive: item.wrappedValue != nil)
+            KeyboardEditorPresentationTracker(isActive: item.wrappedValue != nil)
         )
 
         #if os(iOS)

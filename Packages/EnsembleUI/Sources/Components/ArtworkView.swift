@@ -113,7 +113,8 @@ public struct ArtworkView: View {
         .processors([.resize(size: frameSize, contentMode: .aspectFill, upscale: true)])
         .priority(imagePriority)
         .aspectRatio(1, contentMode: .fit)
-        .frame(maxWidth: isResponsive ? .infinity : frameSize.width, maxHeight: isResponsive ? nil : frameSize.height)
+        .frame(width: isResponsive ? nil : frameSize.width, height: isResponsive ? nil : frameSize.height)
+        .frame(maxWidth: isResponsive ? .infinity : nil)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .task(id: "\(loadID)|\(invalidationToken)") {
             await loadArtworkURL()
