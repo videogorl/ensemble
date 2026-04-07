@@ -15,7 +15,6 @@
 	<key>com.apple.developer.icloud-services</key>
 	<array>
 		<string>CloudKit</string>
-		<string>key-value-store</string>
 	</array>
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
