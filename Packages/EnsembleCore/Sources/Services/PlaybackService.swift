@@ -1655,6 +1655,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         observedTime > 0 && (lastSavedTime == 0 || observedTime - lastSavedTime >= interval)
     }
 
+    static func restoredPausedSeekTime(
+        savedTime: TimeInterval,
+        duration: TimeInterval,
+        endPadding: TimeInterval = 0.001
+    ) -> TimeInterval {
+        let clampedSavedTime = max(0, savedTime)
+        guard duration.isFinite, duration > 0 else { return clampedSavedTime }
+
+        let safeUpperBound = max(0, duration - endPadding)
+        return min(clampedSavedTime, safeUpperBound)
+    }
+
     static func shouldReconcileEngineTrack(
         currentTrackID: String?,
         engineTrackID: String?,
@@ -4397,11 +4409,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             // Load into engine without playing
             try audioEngine?.load(fileURL: fileURL, trackId: track.id)
+            let restoredTime = Self.restoredPausedSeekTime(
+                savedTime: savedTime,
+                duration: audioEngine?.fileDuration ?? track.duration
+            )
 
             // Seek to saved position
-            if savedTime > 0 {
-                try audioEngine?.seek(to: savedTime)
-                updatePlaybackTimes(rawTime: savedTime)
+            if restoredTime > 0 {
+                try audioEngine?.seek(to: restoredTime)
+                updatePlaybackTimes(rawTime: restoredTime)
             }
 
             // Pre-load frequency timeline (throttle during instrumental mode or on low-core devices)
@@ -5253,6 +5269,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // All @Published property mutations must happen on the main thread
         await MainActor.run {
+            let restoredTime = Self.restoredPausedSeekTime(savedTime: time, duration: track.duration)
+
             // If playback has already been initiated (e.g. by a Siri intent that raced
             // ahead of restoration), don't overwrite the active queue.
             if playbackState == .playing || playbackState == .loading || !queue.isEmpty {
@@ -5271,7 +5289,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             originalQueue = items
             currentQueueIndex = index
             currentTrack = track
-            updatePlaybackTimes(rawTime: time)
+            updatePlaybackTimes(rawTime: restoredTime)
             waveformHeights = []  // Clear old waveform immediately
 
             generateWaveform(for: track.id)
@@ -5282,7 +5300,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // For local files or if the server is already confirmed reachable,
             // pre-buffer immediately. Otherwise handleHealthCheckCompletion()
             // will trigger it when the next health check passes.
-            pendingPreBufferTime = time
+            pendingPreBufferTime = restoredTime
         }
 
         // Pre-buffer immediately for local files (instant, no network).
@@ -5395,9 +5413,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         do {
             try engine.load(fileURL: fileURL, trackId: track.id)
-            if time > 0 {
-                try engine.seek(to: time)
-                updatePlaybackTimes(rawTime: time)
+            let restoredTime = Self.restoredPausedSeekTime(savedTime: time, duration: engine.fileDuration)
+            if restoredTime > 0 {
+                try engine.seek(to: restoredTime)
+                updatePlaybackTimes(rawTime: restoredTime)
             }
         } catch {
             EnsembleLogger.playback("ENGINE: loadAndPrepare failed -- \(error.localizedDescription)")

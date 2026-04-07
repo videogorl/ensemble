@@ -203,14 +203,29 @@ public final class AudioPlaybackEngine {
     func prepareForRouteChange() {
         guard currentFile != nil else { return }
 
-        let position = Self.resolvedRouteRecoveryPosition(
-            livePosition: currentTime(),
-            observedPosition: currentTimeSubject.value,
+        let renderClockPosition = currentRenderClockPosition()
+        let observedPosition = currentTimeSubject.value
+        let fallbackPosition = Self.resolvedPlaybackPosition(
+            renderSampleTime: nil,
+            playerTimeBaseOffset: playerTimeBaseOffset,
+            seekFrameOffset: seekFrameOffset,
+            sampleRate: sampleRate
+        )
+        let position = Self.resolvedPreparedRouteRecoveryPosition(
+            renderClockPosition: renderClockPosition,
+            observedPosition: observedPosition,
+            fallbackPosition: fallbackPosition,
             duration: fileDuration
         )
         pendingRouteRecoveryPosition = position
+        let renderClockDescription = renderClockPosition.map { String($0) } ?? "nil"
 
-        EnsembleLogger.debug("[AudioEngine] Prepared route recovery snapshot at \(position)s")
+        EnsembleLogger.debug(
+            "[AudioEngine] Prepared route recovery snapshot at \(position)s"
+            + " render=\(renderClockDescription)"
+            + " observed=\(observedPosition)s"
+            + " fallback=\(fallbackPosition)s"
+        )
     }
 
     /// Handle AVAudioEngine configuration changes (route switches like AirPlay, headphones).
@@ -1050,8 +1065,7 @@ public final class AudioPlaybackEngine {
 
     /// Compute current playback time from player node render position.
     func currentTime() -> TimeInterval {
-        guard let nodeTime = playerNode.lastRenderTime,
-              let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
+        guard let renderClockPosition = currentRenderClockPosition() else {
             return Self.resolvedPlaybackPosition(
                 renderSampleTime: nil,
                 playerTimeBaseOffset: playerTimeBaseOffset,
@@ -1059,6 +1073,18 @@ public final class AudioPlaybackEngine {
                 sampleRate: sampleRate
             )
         }
+        return renderClockPosition
+    }
+
+    /// Returns the current playhead from AVAudioPlayerNode's live render clock.
+    /// This becomes unavailable during route transitions before our fallback state
+    /// has been updated, so callers must handle `nil` explicitly.
+    private func currentRenderClockPosition() -> TimeInterval? {
+        guard let nodeTime = playerNode.lastRenderTime,
+              let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
+            return nil
+        }
+
         return Self.resolvedPlaybackPosition(
             renderSampleTime: playerTime.sampleTime,
             playerTimeBaseOffset: playerTimeBaseOffset,
@@ -1153,6 +1179,29 @@ public final class AudioPlaybackEngine {
         }
 
         return clampedObserved
+    }
+
+    static func resolvedPreparedRouteRecoveryPosition(
+        renderClockPosition: TimeInterval?,
+        observedPosition: TimeInterval,
+        fallbackPosition: TimeInterval,
+        duration: TimeInterval
+    ) -> TimeInterval {
+        if let renderClockPosition {
+            return resolvedRouteRecoveryPosition(
+                livePosition: renderClockPosition,
+                observedPosition: observedPosition,
+                duration: duration
+            )
+        }
+
+        let upperBound = duration > 0 ? duration : max(observedPosition, fallbackPosition)
+        let clampedObserved = min(max(observedPosition, 0), upperBound)
+        if clampedObserved > 0.25 {
+            return clampedObserved
+        }
+
+        return min(max(fallbackPosition, 0), upperBound)
     }
 
     static func resolvedPlaybackPosition(

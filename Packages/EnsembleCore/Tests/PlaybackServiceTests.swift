@@ -56,6 +56,46 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(time, 161.0, accuracy: 0.0001)
     }
 
+    func testPreparedRouteRecoveryUsesObservedTimeWhenRenderClockIsUnavailable() {
+        let time = AudioPlaybackEngine.resolvedPreparedRouteRecoveryPosition(
+            renderClockPosition: nil,
+            observedPosition: 116.1,
+            fallbackPosition: 75.3696,
+            duration: 249.9
+        )
+
+        XCTAssertEqual(time, 116.1, accuracy: 0.0001)
+    }
+
+    func testPreparedRouteRecoveryFallsBackWhenObservedTimeIsUnavailable() {
+        let time = AudioPlaybackEngine.resolvedPreparedRouteRecoveryPosition(
+            renderClockPosition: nil,
+            observedPosition: 0.0,
+            fallbackPosition: 75.3696,
+            duration: 249.9
+        )
+
+        XCTAssertEqual(time, 75.3696, accuracy: 0.0001)
+    }
+
+    func testRestoredPausedSeekTimeClampsExactTrackEnd() {
+        let restored = PlaybackService.restoredPausedSeekTime(
+            savedTime: 270.85061224489795,
+            duration: 270.85061224489795
+        )
+
+        XCTAssertEqual(restored, 270.8496122448979, accuracy: 0.0001)
+    }
+
+    func testRestoredPausedSeekTimeLeavesInteriorPositionsUntouched() {
+        let restored = PlaybackService.restoredPausedSeekTime(
+            savedTime: 108.09313673675985,
+            duration: 289.1861224489796
+        )
+
+        XCTAssertEqual(restored, 108.09313673675985, accuracy: 0.0001)
+    }
+
     func testPresentationRouteKindPrefersAirPlayOverBluetooth() {
         let routeKind = PlaybackService.inferPresentationRouteKind(
             hasAirPlay: true,
