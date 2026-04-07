@@ -327,6 +327,16 @@ public final class LyricsService: ObservableObject {
         currentLyricsSource = .none
     }
 
+    /// Force a fresh lyrics fetch for the current track by evicting any cached
+    /// negative result before re-running the normal load pipeline.
+    public func retryLyrics(for track: Track) {
+        let cacheKey = Self.cacheKey(for: track)
+        loadTask?.cancel()
+        cache.removeValue(forKey: cacheKey)
+        negativeCacheTimestamps.removeValue(forKey: cacheKey)
+        loadLyrics(for: track)
+    }
+
     #if DEBUG
     /// Test seam for view-model timing coverage without hitting the network/cache pipeline.
     func setLyricsStateForTesting(_ state: LyricsState, source: LyricsSource = .server) {

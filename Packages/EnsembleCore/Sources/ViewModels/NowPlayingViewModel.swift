@@ -457,6 +457,11 @@ public final class NowPlayingViewModel: ObservableObject {
         }
     }
 
+    public func retryLyrics() {
+        guard let currentTrack else { return }
+        lyricsService.retryLyrics(for: currentTrack)
+    }
+
     /// Pre-compute which line indices have instrumental gaps after them.
     /// Also determines intro/outro gap presence. Called when lyrics change.
     /// Uses the lyrics' adaptive threshold so songs with naturally long phrase

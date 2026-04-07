@@ -148,6 +148,13 @@ public struct LyricsCard: View {
             Text("No Lyrics Available")
                 .font(.headline)
                 .foregroundColor(.primary.opacity(0.6))
+
+            Button {
+                viewModel.retryLyrics()
+            } label: {
+                Label("Retry", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
         }
     }
 

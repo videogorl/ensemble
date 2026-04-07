@@ -220,7 +220,8 @@ public final class AudioPlaybackEngine {
         let position = Self.resolvedRouteRecoveryPosition(
             livePosition: livePosition,
             observedPosition: pendingRouteRecoveryPosition ?? currentTimeSubject.value,
-            duration: fileDuration
+            duration: fileDuration,
+            preferredSnapshot: pendingRouteRecoveryPosition
         )
         let wasActive = wasPlaying
         pendingRouteRecoveryPosition = nil
@@ -1129,11 +1130,17 @@ public final class AudioPlaybackEngine {
     static func resolvedRouteRecoveryPosition(
         livePosition: TimeInterval,
         observedPosition: TimeInterval,
-        duration: TimeInterval
+        duration: TimeInterval,
+        preferredSnapshot: TimeInterval? = nil
     ) -> TimeInterval {
         let upperBound = duration > 0 ? duration : max(livePosition, observedPosition)
         let clampedLive = min(max(livePosition, 0), upperBound)
         let clampedObserved = min(max(observedPosition, 0), upperBound)
+        let clampedSnapshot = preferredSnapshot.map { min(max($0, 0), upperBound) }
+
+        if let clampedSnapshot {
+            return clampedSnapshot
+        }
 
         // Route changes can transiently zero the engine's render position while
         // the wall-clock observer still has the correct in-flight playhead.

@@ -630,67 +630,75 @@ public struct QueueTableView: UIViewRepresentable {
         // MARK: - Context Menu
         
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
-            guard !showHistory else { return nil } // No menu on history
-            
             let item = self.item(at: indexPath)
-            guard let absoluteIndex = absoluteQueueIndex(for: indexPath) else { return nil }
+            let section = sections[indexPath.section]
+            let absoluteIndex = absoluteQueueIndex(for: indexPath)
+            if section.type != .history, absoluteIndex == nil {
+                return nil
+            }
             
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-                guard let self = self else { return nil }
-                
-                var topActions: [UIAction] = []
-                topActions.append(UIAction(title: "Play Next", image: UIImage(systemName: "text.insert")) { _ in
-                    self.onPlayNext(item.track)
-                })
-                topActions.append(UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
-                    self.onPlayLast(item.track)
-                })
+                self?.contextMenu(for: item.track, absoluteIndex: absoluteIndex)
+            }
+        }
 
-                var navigationActions: [UIAction] = []
-                if let onGoToAlbum = self.onGoToAlbum, item.track.albumRatingKey != nil {
-                    navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: "square.stack")) { _ in
-                        onGoToAlbum(item.track)
-                    })
-                }
-                if let onGoToArtist = self.onGoToArtist, item.track.artistRatingKey != nil {
-                    navigationActions.append(UIAction(title: "Go to Artist", image: UIImage(systemName: "person.circle")) { _ in
-                        onGoToArtist(item.track)
-                    })
-                }
+        private func contextMenu(for track: Track, absoluteIndex: Int?) -> UIMenu {
+            var topActions: [UIAction] = []
+            topActions.append(UIAction(title: "Play Next", image: UIImage(systemName: "text.insert")) { _ in
+                self.onPlayNext(track)
+            })
+            topActions.append(UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
+                self.onPlayLast(track)
+            })
 
-                var bottomActions: [UIAction] = []
-                if let onAddToRecentPlaylist = self.onAddToRecentPlaylist,
-                   let canAddToRecentPlaylist = self.canAddToRecentPlaylist,
-                   canAddToRecentPlaylist(item.track),
-                   let recentPlaylistTitle = self.recentPlaylistTitle {
-                    bottomActions.append(
-                        UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: "clock.arrow.circlepath")) { _ in
-                            onAddToRecentPlaylist(item.track)
-                        }
-                    )
-                }
-                if let onAddToPlaylist = self.onAddToPlaylist {
-                    bottomActions.append(
-                        UIAction(title: "Add to Playlist...", image: UIImage(systemName: "text.badge.plus")) { _ in
-                            onAddToPlaylist(item.track)
-                        }
-                    )
-                }
-                
+            var navigationActions: [UIAction] = []
+            if let onGoToAlbum = self.onGoToAlbum, track.albumRatingKey != nil {
+                navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: "square.stack")) { _ in
+                    onGoToAlbum(track)
+                })
+            }
+            if let onGoToArtist = self.onGoToArtist, track.artistRatingKey != nil {
+                navigationActions.append(UIAction(title: "Go to Artist", image: UIImage(systemName: "person.circle")) { _ in
+                    onGoToArtist(track)
+                })
+            }
+
+            var bottomActions: [UIAction] = []
+            if let onAddToRecentPlaylist = self.onAddToRecentPlaylist,
+               let canAddToRecentPlaylist = self.canAddToRecentPlaylist,
+               canAddToRecentPlaylist(track),
+               let recentPlaylistTitle = self.recentPlaylistTitle {
+                bottomActions.append(
+                    UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: "clock.arrow.circlepath")) { _ in
+                        onAddToRecentPlaylist(track)
+                    }
+                )
+            }
+            if let onAddToPlaylist = self.onAddToPlaylist {
+                bottomActions.append(
+                    UIAction(title: "Add to Playlist...", image: UIImage(systemName: "text.badge.plus")) { _ in
+                        onAddToPlaylist(track)
+                    }
+                )
+            }
+
+            if let absoluteIndex {
                 let remove = UIAction(title: "Remove from Queue", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
                     self.onRemoveFromQueue(absoluteIndex)
                 }
                 bottomActions.append(remove)
-                
-                var children: [UIMenuElement] = []
-                children.append(UIMenu(title: "", options: .displayInline, children: topActions))
-                if !navigationActions.isEmpty {
-                    children.append(UIMenu(title: "", options: .displayInline, children: navigationActions))
-                }
-                children.append(UIMenu(title: "", options: .displayInline, children: bottomActions))
-                
-                return UIMenu(children: children)
             }
+
+            var children: [UIMenuElement] = []
+            children.append(UIMenu(title: "", options: .displayInline, children: topActions))
+            if !navigationActions.isEmpty {
+                children.append(UIMenu(title: "", options: .displayInline, children: navigationActions))
+            }
+            if !bottomActions.isEmpty {
+                children.append(UIMenu(title: "", options: .displayInline, children: bottomActions))
+            }
+
+            return UIMenu(children: children)
         }
         
         // MARK: - Drag & Drop
