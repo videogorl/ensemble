@@ -708,6 +708,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var headerArtwork: some View {
         if let playlists = headerData.artworkPlaylists, playlists.count > 1 {
             CompositeArtworkView(playlists: playlists, size: .medium, cornerRadius: 12)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         } else {
             ArtworkView(
                 path: headerData.artworkPath,
@@ -716,6 +717,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 size: .medium,
                 cornerRadius: 12
             )
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
     }
 

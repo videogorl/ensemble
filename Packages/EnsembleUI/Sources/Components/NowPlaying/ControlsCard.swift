@@ -89,21 +89,21 @@ public struct ControlsCard: View {
     private func contentView(track: Track, geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
             // Dynamic artwork sizing for small screens
-            let maxWidth = geometry.size.width - 48  // 24pt padding each side
-            let maxHeight = geometry.size.height * 0.4  // Max 40% of available height
-            let artworkSize = min(maxWidth, maxHeight, 400)  // Cap at 400pt
+            let maxWidth = geometry.size.width - 48
+            let maxHeight = geometry.size.height * 0.4
+            let artworkSize = min(maxWidth, maxHeight, 400)
+            let artworkCornerRadius = min(20, max(12, artworkSize * 0.08))
 
             // Artwork
-            ArtworkView(track: track, size: .medium, cornerRadius: 12)
+            ArtworkView(track: track, size: .medium, cornerRadius: artworkCornerRadius, isResponsive: true)
                 .frame(width: artworkSize, height: artworkSize)
-                .clipped()
                 .contrast(1.1)
                 .shadow(color: .black.opacity(0.3), radius: 15, x: 0, y: 8)
                 .ifLet(namespace, animationID) { view, ns, id in
                     view.matchedGeometryEffect(id: id, in: ns)
                 }
                 .padding(.top, 20)
-                .padding(.bottom, geometry.size.height > 700 ? 40 : 20)  // Reduce spacing on small screens
+                .padding(.bottom, geometry.size.height > 700 ? 40 : 20)
 
             // Scrubber/waveform
             progressView(track: track)
@@ -134,8 +134,9 @@ public struct ControlsCard: View {
             let maxWidth = geometry.size.width - 48
             let maxHeight = geometry.size.height * 0.4
             let artworkSize = min(maxWidth, maxHeight, 400)
+            let artworkCornerRadius = min(20, max(12, artworkSize * 0.08))
             
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous)
                 .fill(Color.primary.opacity(0.05))
                 .overlay(
                     Image(systemName: "music.note")

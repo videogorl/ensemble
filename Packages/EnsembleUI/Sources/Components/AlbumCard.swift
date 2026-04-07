@@ -5,12 +5,15 @@ import SwiftUI
 /// consistent between shelves and full-screen album browsing surfaces.
 public enum AlbumCardLayoutMetrics {
     case compact
+    case shelf
     case prominent
 
     public var artworkSize: ArtworkSize {
         switch self {
         case .compact:
             return .thumbnail
+        case .shelf:
+            return .card
         case .prominent:
             return .small // 200px allows grid stretching, previously .card (160)
         }
@@ -23,6 +26,8 @@ public enum AlbumCardLayoutMetrics {
         switch self {
         case .compact:
             return 100
+        case .shelf:
+            return 140
         case .prominent:
             return 160 // ensures 2-column layout on iPhone
         }
@@ -32,6 +37,8 @@ public enum AlbumCardLayoutMetrics {
         switch self {
         case .compact:
             return 140
+        case .shelf:
+            return 180
         case .prominent:
             return 220
         }
@@ -57,7 +64,8 @@ public struct AlbumCard: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ArtworkView(album: album, size: layout.artworkSize, isResponsive: true)
+            ArtworkView(album: album, size: layout.artworkSize, cornerRadius: 8, isResponsive: true)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(album.title)
