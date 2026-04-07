@@ -25,6 +25,26 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(time, 27.5, accuracy: 0.0001)
     }
 
+    func testRouteRecoveryPrefersObservedPositionWhenLiveTimeDropsToZero() {
+        let time = AudioPlaybackEngine.resolvedRouteRecoveryPosition(
+            livePosition: 0,
+            observedPosition: 87.8,
+            duration: 201.4
+        )
+
+        XCTAssertEqual(time, 87.8, accuracy: 0.0001)
+    }
+
+    func testRouteRecoveryKeepsLivePositionWhenObservedPositionIsStale() {
+        let time = AudioPlaybackEngine.resolvedRouteRecoveryPosition(
+            livePosition: 10.0,
+            observedPosition: 87.8,
+            duration: 201.4
+        )
+
+        XCTAssertEqual(time, 10.0, accuracy: 0.0001)
+    }
+
     func testPresentationRouteKindPrefersAirPlayOverBluetooth() {
         let routeKind = PlaybackService.inferPresentationRouteKind(
             hasAirPlay: true,

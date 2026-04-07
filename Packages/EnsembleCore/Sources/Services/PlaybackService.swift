@@ -1892,6 +1892,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
+        audioEngine?.prepareForRouteChange()
+
         let now = Date()
         let settleUntil: Date?
         if reason == .newDeviceAvailable {

@@ -115,6 +115,10 @@ public final class AudioPlaybackEngine {
         var duration: TimeInterval = 0      // Duration of the current file
     }
     private var timeBase = TimeBase()
+    /// Route-change notifications can arrive before AVAudioEngine tears down its
+    /// render state. We capture the last stable playhead here so config-change
+    /// recovery can ignore transient 0.0s reports during AirPlay switches.
+    private var pendingRouteRecoveryPosition: TimeInterval?
 
     // MARK: - Route Change Recovery
 
@@ -194,13 +198,39 @@ public final class AudioPlaybackEngine {
 
     // MARK: - Route Change Recovery
 
+    /// Capture the last stable playhead before AVAudioEngineConfigurationChange
+    /// invalidates render timing during a route transition.
+    func prepareForRouteChange() {
+        guard currentFile != nil else { return }
+
+        let position = Self.resolvedRouteRecoveryPosition(
+            livePosition: currentTime(),
+            observedPosition: currentTimeSubject.value,
+            duration: fileDuration
+        )
+        pendingRouteRecoveryPosition = position
+
+        EnsembleLogger.debug("[AudioEngine] Prepared route recovery snapshot at \(position)s")
+    }
+
     /// Handle AVAudioEngine configuration changes (route switches like AirPlay, headphones).
     /// The engine stops itself on route change -- we must rebuild and reschedule.
     private func handleConfigurationChange() {
-        let position = currentTime()
+        let livePosition = currentTime()
+        let position = Self.resolvedRouteRecoveryPosition(
+            livePosition: livePosition,
+            observedPosition: pendingRouteRecoveryPosition ?? currentTimeSubject.value,
+            duration: fileDuration
+        )
         let wasActive = wasPlaying
+        pendingRouteRecoveryPosition = nil
 
-        EnsembleLogger.debug("[AudioEngine] Configuration change detected at \(String(format: "%.1f", position))s, wasPlaying=\(wasActive)")
+        EnsembleLogger.debug(
+            "[AudioEngine] Configuration change detected"
+            + " live=\(livePosition)s"
+            + " recover=\(position)s"
+            + ", wasPlaying=\(wasActive)"
+        )
 
         // Rebuild the graph with current file's format
         buildGraph(format: currentFile?.processingFormat)
@@ -251,6 +281,8 @@ public final class AudioPlaybackEngine {
                 // that the route-change handler already pushed to NowPlayingInfoCenter.
                 engine.stop()
             }
+
+            currentTimeSubject.send(position)
 
             EnsembleLogger.debug("[AudioEngine] Route change recovery complete (wasActive=\(wasActive))")
         } catch {
@@ -645,6 +677,7 @@ public final class AudioPlaybackEngine {
         currentFile = file
         currentTrackId = trackId
         sampleRate = file.processingFormat.sampleRate
+        pendingRouteRecoveryPosition = nil
 
         // Read encoder delay/padding for gapless-accurate scheduling.
         // MP3 files have priming frames (encoder delay, ~576 for LAME) at the start
@@ -857,6 +890,7 @@ public final class AudioPlaybackEngine {
         guard let file = currentFile else {
             throw AudioPlaybackEngineError.noFileLoaded
         }
+        pendingRouteRecoveryPosition = nil
 
         // Convert user-visible time to file frame space
         let userFrame = AVAudioFramePosition(time * sampleRate)
@@ -950,6 +984,7 @@ public final class AudioPlaybackEngine {
         playerTimeBaseOffset = 0
         currentContentStartFrame = 0
         currentContentFrameCount = 0
+        pendingRouteRecoveryPosition = nil
         scheduledFiles.removeAll()
         currentTimeSubject.send(0)
         EnsembleLogger.debug("[AudioEngine] Stopped")
@@ -958,6 +993,7 @@ public final class AudioPlaybackEngine {
     /// Seek to a new position within the current file (in user-visible seconds).
     func seek(to time: TimeInterval) throws {
         guard let file = currentFile else { return }
+        pendingRouteRecoveryPosition = nil
 
         let wasPlayingBeforeSeek = wasPlaying || playerNode.isPlaying
 
@@ -1086,7 +1122,30 @@ public final class AudioPlaybackEngine {
         playerTimeBaseOffset = 0
         captureWallTimeBase(position: position)
         currentTimeSubject.send(position)
+        pendingRouteRecoveryPosition = nil
         return position
+    }
+
+    static func resolvedRouteRecoveryPosition(
+        livePosition: TimeInterval,
+        observedPosition: TimeInterval,
+        duration: TimeInterval
+    ) -> TimeInterval {
+        let upperBound = duration > 0 ? duration : max(livePosition, observedPosition)
+        let clampedLive = min(max(livePosition, 0), upperBound)
+        let clampedObserved = min(max(observedPosition, 0), upperBound)
+
+        // Route changes can transiently zero the engine's render position while
+        // the wall-clock observer still has the correct in-flight playhead.
+        if clampedLive <= 0.25, clampedObserved > 1.0 {
+            return clampedObserved
+        }
+
+        if clampedLive > 0 {
+            return clampedLive
+        }
+
+        return clampedObserved
     }
 
     static func resolvedPlaybackPosition(
