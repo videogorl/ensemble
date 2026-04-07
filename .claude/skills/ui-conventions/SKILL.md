@@ -48,6 +48,7 @@ These are core design decisions that must be maintained throughout the app.
 - The helper owns keyboard-editor registration timing; do not duplicate `beginKeyboardEditorPresentation()` or `endKeyboardEditorPresentation()` inside the editor view itself
 - Keyboard editors can use a local `NavigationStack`/`NavigationView` plus system toolbar actions for a native look, as long as the presentation is isolated with `keyboardSafeEditorPresentation(...)`
 - When the presenting screen still lives inside a navigation container, hide that navigation bar while the editor is active; prefer `.toolbar(.hidden, for: .navigationBar)` on iOS 16+
+- For any modal text-input flow with an explicit Done/Cancel action, dismiss the focused field first and delay the modal dismissal slightly so the keyboard animation completes before the presentation tears down
 
 **NestedNavigationLink Pattern** (in `MainTabView.swift`):
 ```swift

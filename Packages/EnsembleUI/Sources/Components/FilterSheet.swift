@@ -3,6 +3,11 @@ import SwiftUI
 
 /// Filter sheet for advanced filtering options
 public struct FilterSheet: View {
+    private enum YearField: Hashable {
+        case min
+        case max
+    }
+
     @Binding var filterOptions: FilterOptions
     @Environment(\.dismiss) private var dismiss
     
@@ -16,6 +21,7 @@ public struct FilterSheet: View {
 
     @State private var minYear: String = ""
     @State private var maxYear: String = ""
+    @FocusState private var focusedYearField: YearField?
     #if os(macOS)
     @State private var showingArtistSelection = false
     @State private var showingGenreSelection = false
@@ -264,7 +270,7 @@ public struct FilterSheet: View {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
-                        dismiss()
+                        dismissAfterKeyboard()
                     }
                 }
                 #else
@@ -317,6 +323,7 @@ public struct FilterSheet: View {
                     } else {
                         HStack {
                             TextField("Min Year", text: $minYear)
+                                .focused($focusedYearField, equals: .min)
                                 #if os(iOS)
                                 .keyboardType(.numberPad)
                                 #endif
@@ -326,6 +333,7 @@ public struct FilterSheet: View {
                                 .foregroundColor(.secondary)
                             
                             TextField("Max Year", text: $maxYear)
+                                .focused($focusedYearField, equals: .max)
                                 #if os(iOS)
                                 .keyboardType(.numberPad)
                                 #endif
@@ -449,6 +457,17 @@ public struct FilterSheet: View {
             return
         }
         filterOptions.yearRange = min...max
+    }
+
+    private func dismissAfterKeyboard() {
+        #if os(iOS)
+        focusedYearField = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            dismiss()
+        }
+        #else
+        dismiss()
+        #endif
     }
 
     #if os(macOS)
