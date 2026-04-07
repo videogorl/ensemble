@@ -1555,8 +1555,9 @@ public struct SidebarView: View {
             Label {
                 Text(pinnedItem.title)
             } icon: {
-                ArtworkView(artist: artist, size: .tiny, cornerRadius: cornerRadius)
+                ArtworkView(artist: artist, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
                     .frame(width: 22, height: 22)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .tag(SidebarSelection.pin(id: pinnedItem.id, type: pinnedItem.type))
             .contextMenu {
@@ -1584,8 +1585,9 @@ public struct SidebarView: View {
             Label {
                 Text(pinnedItem.title)
             } icon: {
-                ArtworkView(album: album, size: .tiny, cornerRadius: cornerRadius)
+                ArtworkView(album: album, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
                     .frame(width: 22, height: 22)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .tag(SidebarSelection.pin(id: pinnedItem.id, type: pinnedItem.type))
             .contextMenu {
@@ -1619,8 +1621,9 @@ public struct SidebarView: View {
             Label {
                 Text(pinnedItem.title)
             } icon: {
-                ArtworkView(playlist: playlist, size: .tiny, cornerRadius: cornerRadius)
+                ArtworkView(playlist: playlist, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
                     .frame(width: 22, height: 22)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .tag(SidebarSelection.pin(id: pinnedItem.id, type: pinnedItem.type))
             .contextMenu {
@@ -1662,9 +1665,11 @@ public struct SidebarView: View {
                     sourceKey: displayPlaylist.primaryPlaylist.sourceCompositeKey,
                     ratingKey: displayPlaylist.primaryPlaylist.id,
                     size: .tiny,
-                    cornerRadius: 4
+                    cornerRadius: 4,
+                    isResponsive: true
                 )
                 .frame(width: 22, height: 22)
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             }
             .tag(SidebarSelection.pin(id: pinnedItems[0].id, type: pinnedItems[0].type))
             .contextMenu {
@@ -1706,9 +1711,11 @@ public struct SidebarView: View {
                 sourceKey: playlist.sourceKey,
                 ratingKey: playlist.playlistID,
                 size: .tiny,
-                cornerRadius: 4
+                cornerRadius: 4,
+                isResponsive: true
             )
             .frame(width: 22, height: 22)
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         }
 
         if playlist.isMerged {
