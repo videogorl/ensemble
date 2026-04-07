@@ -231,8 +231,31 @@ public struct FilterSheet: View {
     #endif
 
     private var iOSBody: some View {
-        NavigationView {
-            filterForm
+        navigationContainer
+        .onAppear(perform: initializeYearRange)
+        #if os(iOS)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        #endif
+    }
+
+    @ViewBuilder
+    private var navigationContainer: some View {
+        if #available(iOS 16.0, macOS 13.0, *) {
+            NavigationStack {
+                filterContent
+            }
+        } else {
+            NavigationView {
+                filterContent
+            }
+            #if os(iOS)
+            .navigationViewStyle(.stack)
+            #endif
+        }
+    }
+
+    private var filterContent: some View {
+        filterForm
             .navigationTitle("Filters")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -252,8 +275,6 @@ public struct FilterSheet: View {
                 }
                 #endif
             }
-        }
-        .onAppear(perform: initializeYearRange)
     }
 
     private var filterForm: some View {

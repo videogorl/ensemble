@@ -139,7 +139,7 @@ public struct ArtistsView: View {
                 }
             }
         }
-        .sheet(isPresented: $showFilterSheet) {
+        .keyboardSafeEditorPresentation(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.artistsFilterOptions,
                 availableGenres: libraryVM.availableArtistGenres,

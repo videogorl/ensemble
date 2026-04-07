@@ -796,7 +796,6 @@ public struct PlaylistDetailView: View {
 
     @State private var showRenamePrompt = false
     @State private var showDeleteConfirmation = false
-    @State private var renameTitle = ""
     @State private var isEditingPlaylist: Bool
     @State private var editedTracks: [Track] = []
     @State private var isSavingPlaylistEdits = false
@@ -840,7 +839,6 @@ public struct PlaylistDetailView: View {
                         canEdit: !viewModel.playlist.isSmart && !viewModel.tracks.isEmpty,
                         canDelete: !viewModel.playlist.isSmart,
                         onRename: {
-                            renameTitle = viewModel.playlist.title
                             showRenamePrompt = true
                         },
                         onEdit: {
@@ -922,12 +920,24 @@ public struct PlaylistDetailView: View {
             }
             #endif
         }
-        .alert("Rename Playlist", isPresented: $showRenamePrompt) {
-            TextField("Playlist name", text: $renameTitle)
-            Button("Cancel", role: .cancel) {}
-            Button("Save") {
-                let trimmed = renameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return }
+        #if os(iOS)
+        .navigationBarHidden(showRenamePrompt)
+        .if(showRenamePrompt) { view in
+            if #available(iOS 16.0, *) {
+                view.toolbar(.hidden, for: .navigationBar)
+            } else {
+                view
+            }
+        }
+        #endif
+        .keyboardSafeEditorPresentation(isPresented: $showRenamePrompt) {
+            TextInputView(
+                title: "Rename Playlist",
+                message: "Choose a new playlist name.",
+                placeholder: "Playlist name",
+                initialText: viewModel.playlist.title,
+                actionTitle: "Save"
+            ) { name in
                 let previousTitle = viewModel.playlist.title
                 let playlistID = viewModel.playlist.id
                 let renamingToast = ToastPayload(
@@ -944,11 +954,11 @@ public struct PlaylistDetailView: View {
                     object: nil,
                     userInfo: [
                         "playlistID": playlistID,
-                        "newTitle": trimmed
+                        "newTitle": name
                     ]
                 )
                 Task {
-                    let didRename = await viewModel.renamePlaylist(to: trimmed)
+                    let didRename = await viewModel.renamePlaylist(to: name)
                     deps.toastCenter.dismiss(id: renamingToast.id)
                     if didRename {
                         NotificationCenter.default.post(
@@ -956,7 +966,7 @@ public struct PlaylistDetailView: View {
                             object: nil,
                             userInfo: [
                                 "playlistID": playlistID,
-                                "newTitle": trimmed
+                                "newTitle": name
                             ]
                         )
                         deps.toastCenter.show(
@@ -985,8 +995,6 @@ public struct PlaylistDetailView: View {
                     }
                 }
             }
-        } message: {
-            Text("Choose a new playlist name.")
         }
         .alert("Delete Playlist?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {}

@@ -10,7 +10,6 @@ public struct MergedPlaylistDetailView: View {
     @State private var showRenamePrompt = false
     @State private var showDeleteConfirmation = false
     @State private var showEditPicker = false
-    @State private var renameTitle = ""
     @State private var isDeletingPlaylist = false
     @State private var editTarget: Playlist?
     @Environment(\.dismiss) private var dismiss
@@ -53,7 +52,6 @@ public struct MergedPlaylistDetailView: View {
                 canEdit: !viewModel.displayPlaylist.isSmart && !viewModel.tracks.isEmpty,
                 canDelete: !viewModel.displayPlaylist.isSmart,
                 onRename: {
-                    renameTitle = viewModel.displayPlaylist.title
                     showRenamePrompt = true
                 },
                 onEdit: {
@@ -85,13 +83,25 @@ public struct MergedPlaylistDetailView: View {
                 return pinManager.areAllPinned(ids: ids)
             }
         )
+        #if os(iOS)
+        .navigationBarHidden(showRenamePrompt)
+        .if(showRenamePrompt) { view in
+            if #available(iOS 16.0, *) {
+                view.toolbar(.hidden, for: .navigationBar)
+            } else {
+                view
+            }
+        }
+        #endif
         // Rename all constituent playlists
-        .alert("Rename Playlist", isPresented: $showRenamePrompt) {
-            TextField("Playlist name", text: $renameTitle)
-            Button("Cancel", role: .cancel) {}
-            Button("Save") {
-                let trimmed = renameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return }
+        .keyboardSafeEditorPresentation(isPresented: $showRenamePrompt) {
+            TextInputView(
+                title: "Rename Playlist",
+                message: "This will rename the playlist on \(viewModel.displayPlaylist.playlists.count) server\(viewModel.displayPlaylist.playlists.count == 1 ? "" : "s").",
+                placeholder: "Playlist name",
+                initialText: viewModel.displayPlaylist.title,
+                actionTitle: "Save"
+            ) { name in
                 let count = viewModel.displayPlaylist.playlists.count
                 let renamingToast = ToastPayload(
                     style: .info,
@@ -103,7 +113,7 @@ public struct MergedPlaylistDetailView: View {
                 )
                 deps.toastCenter.show(renamingToast)
                 Task {
-                    let didRename = await viewModel.renameAll(to: trimmed)
+                    let didRename = await viewModel.renameAll(to: name)
                     deps.toastCenter.dismiss(id: renamingToast.id)
                     deps.toastCenter.show(
                         ToastPayload(
@@ -115,9 +125,6 @@ public struct MergedPlaylistDetailView: View {
                     )
                 }
             }
-        } message: {
-            let count = viewModel.displayPlaylist.playlists.count
-            Text("This will rename the playlist on \(count) server\(count == 1 ? "" : "s").")
         }
         // Delete all constituent playlists
         .alert("Delete Playlist?", isPresented: $showDeleteConfirmation) {
