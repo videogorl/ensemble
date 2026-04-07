@@ -1155,102 +1155,8 @@ private struct CreatePlaylistView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Custom Navigation Bar completely bypassing UIKitNavigationBar
-            HStack {
-                Button("Cancel") { dismissAfterKeyboard() }
-                    .foregroundColor(.accentColor)
-                Spacer()
-                Text("New Playlist")
-                    .font(.headline.weight(.semibold))
-                Spacer()
-                Button("Create") { submit() }
-                    .disabled(isCreateDisabled)
-                    .font(.body.weight(.semibold))
-                    .foregroundColor(.accentColor)
-            }
-            .padding()
-            #if os(iOS)
-            .background(Color(uiColor: .secondarySystemGroupedBackground).ignoresSafeArea(edges: .top))
-            #else
-            .background(Color.secondary.opacity(0.1))
-            #endif
-            
-            Divider()
-
-            ScrollView {
-                VStack(spacing: 30) {
-                    TextField("Playlist name", text: $playlistName)
-                    .focused($isFocused)
-                    .submitLabel(serverOptions.count <= 1 ? .done : .next)
-                    .onSubmit {
-                        if serverOptions.count <= 1 { submit() }
-                    }
-                    .padding()
-                    #if os(iOS)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground))
-                    #else
-                    .background(Color.secondary.opacity(0.1))
-                    #endif
-                    .cornerRadius(10)
-
-                // Multi-server picker — only shown when more than one server is available
-                if serverOptions.count > 1 {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Servers")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .padding(.leading, 5)
-
-                        VStack(spacing: 0) {
-                            ForEach(serverOptions) { option in
-                                Button {
-                                    if selectedServerIDs.contains(option.id) {
-                                        selectedServerIDs.remove(option.id)
-                                    } else {
-                                        selectedServerIDs.insert(option.id)
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(option.name)
-                                            .foregroundColor(.primary)
-                                        Spacer()
-                                        if selectedServerIDs.contains(option.id) {
-                                            Image(systemName: "checkmark")
-                                                .foregroundColor(.accentColor)
-                                                .font(.body.weight(.bold))
-                                        }
-                                    }
-                                    .padding()
-                                    #if os(iOS)
-                                    .background(Color(uiColor: .secondarySystemGroupedBackground))
-                                    #else
-                                    .background(Color.secondary.opacity(0.1))
-                                    #endif
-                                }
-                                .buttonStyle(.plain)
-                                
-                                if option.id != serverOptions.last?.id {
-                                    Divider()
-                                        .padding(.leading)
-                                }
-                            }
-                        }
-                        .cornerRadius(10)
-
-                        Text("Select which servers to create this playlist on.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .padding(.leading, 5)
-                            .padding(.top, 5)
-                    }
-                }
-            }
-            .padding(20)
-        }
-        }
+        navigationContainer
         #if os(iOS)
-        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .ignoresSafeArea(.keyboard, edges: .bottom)
         #endif
         .onAppear {
@@ -1264,6 +1170,78 @@ private struct CreatePlaylistView: View {
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 isFocused = true
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var navigationContainer: some View {
+        if #available(iOS 16.0, macOS 13.0, *) {
+            NavigationStack {
+                formContent
+            }
+        } else {
+            NavigationView {
+                formContent
+            }
+            #if os(iOS)
+            .navigationViewStyle(.stack)
+            #endif
+        }
+    }
+
+    private var formContent: some View {
+        Form {
+            Section {
+                TextField("Playlist name", text: $playlistName)
+                    .focused($isFocused)
+                    .submitLabel(serverOptions.count <= 1 ? .done : .next)
+                    .onSubmit {
+                        if serverOptions.count <= 1 { submit() }
+                    }
+            }
+
+            if serverOptions.count > 1 {
+                Section {
+                    ForEach(serverOptions) { option in
+                        Button {
+                            if selectedServerIDs.contains(option.id) {
+                                selectedServerIDs.remove(option.id)
+                            } else {
+                                selectedServerIDs.insert(option.id)
+                            }
+                        } label: {
+                            HStack {
+                                Text(option.name)
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                if selectedServerIDs.contains(option.id) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Servers")
+                } footer: {
+                    Text("Select which servers to create this playlist on.")
+                }
+            }
+        }
+        .navigationTitle("New Playlist")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { dismissAfterKeyboard() }
+            }
+
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Create") { submit() }
+                    .disabled(isCreateDisabled)
             }
         }
     }

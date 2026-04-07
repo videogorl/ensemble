@@ -42,7 +42,7 @@ These are core design decisions that must be maintained throughout the app.
 - Full-screen auxiliary flows on iPhone need their own explicit dismiss control; do not rely on sheet affordances that no longer exist
 - Searchable root tabs that launch a keyboard-heavy auxiliary flow should hide their own navigation/search chrome while that auxiliary presentation is active
 - The helper owns keyboard-editor registration timing; do not duplicate `beginKeyboardEditorPresentation()` or `endKeyboardEditorPresentation()` inside the editor view itself
-- Keep keyboard editors on custom in-view headers rather than embedding a UIKit navigation bar in the editor presentation
+- Keyboard editors can use a local `NavigationStack`/`NavigationView` plus system toolbar actions for a native look, as long as the presentation is isolated with `keyboardSafeEditorPresentation(...)`
 - When the presenting screen still lives inside a navigation container, hide that navigation bar while the editor is active; prefer `.toolbar(.hidden, for: .navigationBar)` on iOS 16+
 
 **NestedNavigationLink Pattern** (in `MainTabView.swift`):

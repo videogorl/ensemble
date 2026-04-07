@@ -1,4 +1,3 @@
-import EnsembleCore
 import SwiftUI
 
 /// A focused text-input editor used for short rename flows.
@@ -17,58 +16,8 @@ struct TextInputView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Custom Navigation Bar to avoid iOS 26 UIObservationTrackingFeedbackLoopDetected
-            // when a keyboard pushes a sheet with a real UINavigationBar.
-            HStack {
-                Button("Cancel") { dismissAfterKeyboard() }
-                    .foregroundColor(.accentColor)
-                Spacer()
-                Text(title)
-                    .font(.headline.weight(.semibold))
-                Spacer()
-                Button(actionTitle) { submit() }
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .font(.body.weight(.semibold))
-                    .foregroundColor(.accentColor)
-            }
-            .padding()
-            #if os(iOS)
-            .background(Color(uiColor: .secondarySystemGroupedBackground).ignoresSafeArea(edges: .top))
-            #else
-            .background(Color.secondary.opacity(0.1))
-            #endif
-            
-            Divider()
-
-            VStack(spacing: 20) {
-                if !message.isEmpty {
-                    Text(message)
-                        .foregroundColor(.secondary)
-                        .font(.subheadline)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal)
-                }
-
-                TextField(placeholder, text: $text)
-                    .focused($isFocused)
-                    .submitLabel(.done)
-                    .onSubmit { submit() }
-                    .padding()
-                    #if os(iOS)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground))
-                    #else
-                    .background(Color.secondary.opacity(0.1))
-                    #endif
-                    .cornerRadius(10)
-                    .padding(.horizontal)
-                
-                Spacer()
-            }
-            .padding(.top, 20)
-        }
+        navigationContainer
         #if os(iOS)
-        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .ignoresSafeArea(.keyboard, edges: .bottom)
         #endif
         .onAppear {
@@ -76,6 +25,55 @@ struct TextInputView: View {
             // Delay focus so the modal presentation settles before the keyboard animates.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 isFocused = true
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var navigationContainer: some View {
+        if #available(iOS 16.0, macOS 13.0, *) {
+            NavigationStack {
+                formContent
+            }
+        } else {
+            NavigationView {
+                formContent
+            }
+            #if os(iOS)
+            .navigationViewStyle(.stack)
+            #endif
+        }
+    }
+
+    private var formContent: some View {
+        Form {
+            if !message.isEmpty {
+                Section {
+                    Text(message)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Section {
+                TextField(placeholder, text: $text)
+                    .focused($isFocused)
+                    .submitLabel(.done)
+                    .onSubmit { submit() }
+            }
+        }
+        .navigationTitle(title)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { dismissAfterKeyboard() }
+            }
+
+            ToolbarItem(placement: .confirmationAction) {
+                Button(actionTitle) { submit() }
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
     }
