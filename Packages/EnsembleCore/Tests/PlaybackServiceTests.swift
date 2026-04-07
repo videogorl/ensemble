@@ -778,6 +778,65 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(result, 195)  // 8.3% over, within 10% threshold
     }
 
+    func testPruneDuplicateFutureAutoplayItemsRemovesAlternateAlbumVersion() {
+        let current = QueueItem(
+            id: "current",
+            track: makeTrack(id: "12728", title: "Telephone", artist: "Lady Gaga", duration: 221.0),
+            source: .continuePlaying
+        )
+        let manualTeeth = QueueItem(
+            id: "manual-teeth",
+            track: makeTrack(id: "12730", title: "Teeth", artist: "Lady Gaga", duration: 220.693),
+            source: .continuePlaying
+        )
+        let duplicateAutoplayTeeth = QueueItem(
+            id: "duplicate-teeth",
+            track: makeTrack(id: "11979", title: "Teeth", artist: "Lady Gaga", duration: 220.693),
+            source: .autoplay
+        )
+        let bang = QueueItem(
+            id: "bang",
+            track: makeTrack(id: "11980", title: "Bang!", artist: "AJR", duration: 170),
+            source: .autoplay
+        )
+
+        let result = PlaybackService.pruneDuplicateFutureAutoplayItems(
+            queue: [current, manualTeeth, duplicateAutoplayTeeth, bang],
+            currentQueueIndex: 0
+        )
+
+        XCTAssertEqual(result.queue.map(\.id), ["current", "manual-teeth", "bang"])
+        XCTAssertEqual(result.removedTrackIds, ["11979"])
+        XCTAssertEqual(result.removedItemCount, 1)
+    }
+
+    func testPruneDuplicateFutureAutoplayItemsKeepsManualDuplicates() {
+        let current = QueueItem(
+            id: "current",
+            track: makeTrack(id: "12728", title: "Telephone", artist: "Lady Gaga", duration: 221.0),
+            source: .continuePlaying
+        )
+        let manualTeeth = QueueItem(
+            id: "manual-teeth",
+            track: makeTrack(id: "12730", title: "Teeth", artist: "Lady Gaga", duration: 220.693),
+            source: .continuePlaying
+        )
+        let alternateManualTeeth = QueueItem(
+            id: "alternate-manual-teeth",
+            track: makeTrack(id: "11979", title: "Teeth", artist: "Lady Gaga", duration: 220.693),
+            source: .continuePlaying
+        )
+
+        let result = PlaybackService.pruneDuplicateFutureAutoplayItems(
+            queue: [current, manualTeeth, alternateManualTeeth],
+            currentQueueIndex: 0
+        )
+
+        XCTAssertEqual(result.queue.map(\.id), ["current", "manual-teeth", "alternate-manual-teeth"])
+        XCTAssertTrue(result.removedTrackIds.isEmpty)
+        XCTAssertEqual(result.removedItemCount, 0)
+    }
+
     // MARK: - Queue pruning
 
     func testPruneQueueKeepsCurrentIndexWhenCurrentSourceStillEnabled() {
@@ -824,5 +883,22 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(result.nextCurrentQueueIndex, 0)
         XCTAssertFalse(result.removedCurrentQueueItem)
         XCTAssertEqual(result.removedQueueItemCount, 1)
+    }
+
+    private func makeTrack(
+        id: String,
+        title: String,
+        artist: String,
+        duration: TimeInterval
+    ) -> Track {
+        Track(
+            id: id,
+            key: "/library/metadata/\(id)",
+            title: title,
+            artistName: artist,
+            albumArtistName: artist,
+            duration: duration,
+            sourceCompositeKey: "plex:account:server:library"
+        )
     }
 }
