@@ -9,6 +9,7 @@ import AppKit
 /// needed to keep split-view chrome out of the presentation.
 struct NowPlayingViewportRoot: View {
     @ObservedObject var viewModel: NowPlayingViewModel
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.colorScheme) private var colorScheme
 
@@ -83,6 +84,15 @@ struct NowPlayingViewportRoot: View {
                 overlayColor: colorScheme == .dark ? .black : lightOverlayColor
             )
             .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
+
+            if settingsManager.auroraVisualizationEnabled {
+                AuroraVisualizationView(
+                    playbackService: DependencyContainer.shared.playbackService,
+                    accentColor: settingsManager.accentColor.color,
+                    isLowPowerMode: powerStateMonitor.isLowPowerMode
+                )
+                .allowsHitTesting(false)
+            }
 
             if colorScheme == .dark {
                 Color.black.opacity(0.45)

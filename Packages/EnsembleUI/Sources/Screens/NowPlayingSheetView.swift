@@ -5,6 +5,8 @@ import SwiftUI
 /// Large-screen viewport presentation lives in `NowPlayingViewportRoot`.
 public struct NowPlayingSheetView: View {
     @ObservedObject var viewModel: NowPlayingViewModel
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
 
@@ -68,6 +70,16 @@ public struct NowPlayingSheetView: View {
             } else {
                 lightOverlayColor.opacity(0.7)
                     .allowsHitTesting(false)
+            }
+
+            if settingsManager.auroraVisualizationEnabled {
+                AuroraVisualizationView(
+                    playbackService: DependencyContainer.shared.playbackService,
+                    accentColor: settingsManager.accentColor.color,
+                    isLowPowerMode: powerStateMonitor.isLowPowerMode
+                )
+                .allowsHitTesting(false)
+                .opacity(0.7)
             }
         }
         .ignoresSafeArea()

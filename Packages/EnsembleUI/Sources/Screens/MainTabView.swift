@@ -415,6 +415,7 @@ public struct MainTabView: View {
         }
         .overlay(alignment: .bottom) {
             if settingsManager.auroraVisualizationEnabled &&
+                    !isShowingNowPlaying &&
                     !isAuxiliaryPresentationActive &&
                 !isImmersiveMode &&
                 !navigationCoordinator.isKeyboardEditorPresented {
@@ -1040,7 +1041,7 @@ public struct SidebarView: View {
                 // Aurora visualization — placed in the outer ZStack so it renders
                 // above NavigationStack pushed views (macOS NavigationStack creates
                 // opaque compositing layers that paint over parent overlays).
-                if settingsManager.auroraVisualizationEnabled {
+                if settingsManager.auroraVisualizationEnabled && !isShowingNowPlaying {
                     detailColumnAurora(totalSize: proxy.size)
                         .zIndex(-1)
                 }
