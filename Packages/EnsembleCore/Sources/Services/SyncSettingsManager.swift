@@ -6,6 +6,10 @@ import Combine
 /// Settings are stored in UserDefaults (per-device, NOT synced).
 @MainActor
 public final class SyncSettingsManager: ObservableObject {
+    public enum SyncDirection: Equatable {
+        case pulledFromICloud
+        case pushedFromThisDevice
+    }
 
     /// Runtime state for a sync feature's bootstrap and recovery lifecycle.
     public enum SyncFeatureState: Equatable {
@@ -16,6 +20,43 @@ public final class SyncSettingsManager: ObservableObject {
         case waitingForTransport
         case transportUnavailable
         case error
+    }
+
+    public struct SyncFeatureActivity: Equatable {
+        public let direction: SyncDirection?
+        public let detail: String
+        public let date: Date
+
+        public init(direction: SyncDirection?, detail: String, date: Date = Date()) {
+            self.direction = direction
+            self.detail = detail
+            self.date = date
+        }
+    }
+
+    public enum ProfileSyncPhase: Equatable {
+        case unknown
+        case noRecord
+        case transport(CloudSyncService.ProfileTransportState)
+    }
+
+    public struct ProfileSyncStatus: Equatable {
+        public let phase: ProfileSyncPhase
+        public let direction: SyncDirection?
+        public let detail: String
+        public let date: Date?
+
+        public init(
+            phase: ProfileSyncPhase = .unknown,
+            direction: SyncDirection? = nil,
+            detail: String = "Profile sync has not run yet.",
+            date: Date? = nil
+        ) {
+            self.phase = phase
+            self.direction = direction
+            self.detail = detail
+            self.date = date
+        }
     }
 
     // MARK: - Sync Feature Identifiers
@@ -95,6 +136,17 @@ public final class SyncSettingsManager: ObservableObject {
     /// Tracks bootstrap state per feature so transports can degrade independently.
     @Published private var featureStates: [SyncFeature: SyncFeatureState]
 
+    /// Stores the last observed direction/result for each feature so the UI can
+    /// explain whether a value was pulled or pushed successfully.
+    @Published private var featureActivities: [SyncFeature: SyncFeatureActivity]
+
+    /// Profile sync uses CloudKit rather than KVS, so it gets a separate status surface.
+    @Published public private(set) var profileStatus: ProfileSyncStatus
+
+    /// Manual refresh state for the iCloud Sync screen.
+    @Published public private(set) var isManualSyncInProgress = false
+    @Published public private(set) var lastManualSyncDate: Date?
+
     // MARK: - Callbacks
 
     /// Called when master sync is re-enabled (triggers first-connect or full pull)
@@ -121,6 +173,8 @@ public final class SyncSettingsManager: ObservableObject {
         self.featureStates = Dictionary(
             uniqueKeysWithValues: SyncFeature.allCases.map { ($0, .idle) }
         )
+        self.featureActivities = [:]
+        self.profileStatus = ProfileSyncStatus()
     }
 
     // MARK: - Feature Toggle API
@@ -196,11 +250,63 @@ public final class SyncSettingsManager: ObservableObject {
         featureStates[feature] ?? .idle
     }
 
+    public func featureActivity(for feature: SyncFeature) -> SyncFeatureActivity? {
+        featureActivities[feature]
+    }
+
     /// Updates the runtime state for a feature when transport/bootstrap conditions change.
     public func setFeatureState(_ state: SyncFeatureState, for feature: SyncFeature) {
         guard featureStates[feature] != state else { return }
         var updatedStates = featureStates
         updatedStates[feature] = state
         featureStates = updatedStates
+    }
+
+    /// Records the latest user-visible outcome for a sync feature.
+    public func recordFeatureActivity(
+        for feature: SyncFeature,
+        state: SyncFeatureState? = nil,
+        direction: SyncDirection?,
+        detail: String,
+        date: Date = Date()
+    ) {
+        if let state {
+            setFeatureState(state, for: feature)
+        }
+
+        let activity = SyncFeatureActivity(direction: direction, detail: detail, date: date)
+        guard featureActivities[feature] != activity else { return }
+
+        var updatedActivities = featureActivities
+        updatedActivities[feature] = activity
+        featureActivities = updatedActivities
+    }
+
+    /// Updates the last known CloudKit profile sync outcome.
+    public func setProfileStatus(
+        phase: ProfileSyncPhase,
+        direction: SyncDirection?,
+        detail: String,
+        date: Date? = Date()
+    ) {
+        let status = ProfileSyncStatus(
+            phase: phase,
+            direction: direction,
+            detail: detail,
+            date: date
+        )
+        guard profileStatus != status else { return }
+        profileStatus = status
+    }
+
+    public func beginManualSync() {
+        guard !isManualSyncInProgress else { return }
+        isManualSyncInProgress = true
+    }
+
+    public func finishManualSync() {
+        guard isManualSyncInProgress else { return }
+        isManualSyncInProgress = false
+        lastManualSyncDate = Date()
     }
 }
