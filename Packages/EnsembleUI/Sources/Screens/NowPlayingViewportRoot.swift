@@ -85,6 +85,14 @@ struct NowPlayingViewportRoot: View {
             )
             .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
 
+            if colorScheme == .dark {
+                Color.black.opacity(0.45)
+                    .allowsHitTesting(false)
+            } else {
+                lightOverlayColor.opacity(0.7)
+                    .allowsHitTesting(false)
+            }
+
             if settingsManager.auroraVisualizationEnabled {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
@@ -92,14 +100,7 @@ struct NowPlayingViewportRoot: View {
                     isLowPowerMode: powerStateMonitor.isLowPowerMode
                 )
                 .allowsHitTesting(false)
-            }
-
-            if colorScheme == .dark {
-                Color.black.opacity(0.45)
-                    .allowsHitTesting(false)
-            } else {
-                lightOverlayColor.opacity(0.7)
-                    .allowsHitTesting(false)
+                .opacity(0.7)
             }
         }
         .ignoresSafeArea()
