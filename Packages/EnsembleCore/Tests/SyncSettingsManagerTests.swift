@@ -98,6 +98,25 @@ final class SyncSettingsManagerTests: XCTestCase {
         XCTAssertEqual(manager.featureState(for: .accentColor), .appliedRemote)
     }
 
+    @MainActor
+    func testFeatureActivityStoresDirectionDetailAndDate() {
+        let manager = SyncSettingsManager()
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+
+        manager.recordFeatureActivity(
+            for: .pins,
+            state: .appliedRemote,
+            direction: .pulledFromICloud,
+            detail: "Pulled pins from iCloud.",
+            date: date
+        )
+
+        XCTAssertEqual(manager.featureState(for: .pins), .appliedRemote)
+        XCTAssertEqual(manager.featureActivity(for: .pins)?.direction, .pulledFromICloud)
+        XCTAssertEqual(manager.featureActivity(for: .pins)?.detail, "Pulled pins from iCloud.")
+        XCTAssertEqual(manager.featureActivity(for: .pins)?.date, date)
+    }
+
     // MARK: - Dependency Cascade
 
     @MainActor
@@ -119,6 +138,51 @@ final class SyncSettingsManagerTests: XCTestCase {
         let manager = SyncSettingsManager()
         manager.setFeatureEnabled(.sources, enabled: false)
         XCTAssertFalse(manager.isFeatureToggleable(.libraries))
+    }
+
+    // MARK: - Profile Status
+
+    @MainActor
+    func testProfileStatusDefaultsToUnknown() {
+        let manager = SyncSettingsManager()
+
+        XCTAssertEqual(manager.profileStatus.phase, .unknown)
+        XCTAssertEqual(manager.profileStatus.detail, "Profile sync has not run yet.")
+    }
+
+    @MainActor
+    func testProfileStatusCanBeUpdated() {
+        let manager = SyncSettingsManager()
+        let date = Date(timeIntervalSince1970: 1_800_000_000)
+
+        manager.setProfileStatus(
+            phase: .transport(.available),
+            direction: .pushedFromThisDevice,
+            detail: "Pushed local profile to iCloud.",
+            date: date
+        )
+
+        XCTAssertEqual(manager.profileStatus.phase, .transport(.available))
+        XCTAssertEqual(manager.profileStatus.direction, .pushedFromThisDevice)
+        XCTAssertEqual(manager.profileStatus.detail, "Pushed local profile to iCloud.")
+        XCTAssertEqual(manager.profileStatus.date, date)
+    }
+
+    // MARK: - Manual Sync
+
+    @MainActor
+    func testManualSyncStateTracksProgressAndCompletionTime() {
+        let manager = SyncSettingsManager()
+
+        XCTAssertFalse(manager.isManualSyncInProgress)
+        XCTAssertNil(manager.lastManualSyncDate)
+
+        manager.beginManualSync()
+        XCTAssertTrue(manager.isManualSyncInProgress)
+
+        manager.finishManualSync()
+        XCTAssertFalse(manager.isManualSyncInProgress)
+        XCTAssertNotNil(manager.lastManualSyncDate)
     }
 
     // MARK: - First Connect

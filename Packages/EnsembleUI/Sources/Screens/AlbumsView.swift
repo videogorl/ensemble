@@ -229,7 +229,7 @@ public struct AlbumsView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showFilterSheet) {
+            .keyboardSafeEditorPresentation(isPresented: $showFilterSheet) {
                 FilterSheet(
                     filterOptions: $libraryVM.albumsFilterOptions,
                     availableArtists: availableArtists,

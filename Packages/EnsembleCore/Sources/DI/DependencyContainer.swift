@@ -291,6 +291,14 @@ public final class DependencyContainer: @unchecked Sendable {
                 let imageData = profileStoreRef?.getProfileImageData()
                 Task {
                     await cloudSyncRef.pushProfile(profile, imageData: imageData)
+                    let transportState = await cloudSyncRef.currentProfileTransportState()
+                    await MainActor.run {
+                        syncSettingsRef.setProfileStatus(
+                            phase: .transport(transportState),
+                            direction: .pushedFromThisDevice,
+                            detail: "Pushed profile changes from this device."
+                        )
+                    }
                 }
             }
         }
@@ -301,15 +309,14 @@ public final class DependencyContainer: @unchecked Sendable {
             await cloudSyncRef.setRemoteChangeHandler { [profileStoreForCloud] profile, imageData in
                 await MainActor.run {
                     profileStoreForCloud.applyRemoteProfile(profile, imageData: imageData)
+                    syncSettingsRef.setProfileStatus(
+                        phase: .transport(.available),
+                        direction: .pulledFromICloud,
+                        detail: "Pulled profile changes from iCloud."
+                    )
                 }
             }
 
-            // Initial pull from CloudKit + subscribe to future changes
-            if let remote = await cloudSyncRef.pullProfile() {
-                await MainActor.run {
-                    profileStoreRef.applyRemoteProfile(remote.profile, imageData: remote.imageData)
-                }
-            }
             await cloudSyncRef.subscribeToChanges()
         }
 
@@ -527,7 +534,12 @@ public final class DependencyContainer: @unchecked Sendable {
                 guard let self else { return }
                 guard syncToggles.isFeatureEnabled(.accentColor) else { return }
                 self.lastSyncedAccentColor = colorName
-                syncToggles.setFeatureState(.appliedRemote, for: .accentColor)
+                syncToggles.recordFeatureActivity(
+                    for: .accentColor,
+                    state: .appliedRemote,
+                    direction: .pulledFromICloud,
+                    detail: "Pulled accent color from iCloud."
+                )
                 guard settings.accentColorName != colorName else { return }
                 settings.setAccentColor(AppAccentColor(rawValue: colorName) ?? .blue)
             }
@@ -537,7 +549,12 @@ public final class DependencyContainer: @unchecked Sendable {
                 guard syncToggles.isFeatureEnabled(.swipeActions) else { return }
                 guard let layout = try? JSONDecoder().decode(TrackSwipeLayout.self, from: data) else { return }
                 self.lastSyncedSwipeLayout = layout
-                syncToggles.setFeatureState(.appliedRemote, for: .swipeActions)
+                syncToggles.recordFeatureActivity(
+                    for: .swipeActions,
+                    state: .appliedRemote,
+                    direction: .pulledFromICloud,
+                    detail: "Pulled swipe actions from iCloud."
+                )
                 guard settings.trackSwipeLayout != layout else { return }
                 settings.trackSwipeLayout = layout
             }
@@ -549,7 +566,12 @@ public final class DependencyContainer: @unchecked Sendable {
                     if syncToggles.isFeatureEnabled(.accentColor),
                        settings.accentColorName != self.lastSyncedAccentColor {
                         self.lastSyncedAccentColor = settings.accentColorName
-                        syncToggles.setFeatureState(.seededLocal, for: .accentColor)
+                        syncToggles.recordFeatureActivity(
+                            for: .accentColor,
+                            state: .seededLocal,
+                            direction: .pushedFromThisDevice,
+                            detail: "Pushed accent color from this device."
+                        )
                         kvs.pushString(settings.accentColorName, forKey: KVSSyncService.KVSKey.accentColor)
                     }
 
@@ -557,7 +579,12 @@ public final class DependencyContainer: @unchecked Sendable {
                     let currentLayout = settings.trackSwipeLayout
                     guard currentLayout != self.lastSyncedSwipeLayout else { return }
                     self.lastSyncedSwipeLayout = currentLayout
-                    syncToggles.setFeatureState(.seededLocal, for: .swipeActions)
+                    syncToggles.recordFeatureActivity(
+                        for: .swipeActions,
+                        state: .seededLocal,
+                        direction: .pushedFromThisDevice,
+                        detail: "Pushed swipe actions from this device."
+                    )
                     if let data = try? JSONEncoder().encode(currentLayout) {
                         kvs.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
                     }
@@ -568,7 +595,12 @@ public final class DependencyContainer: @unchecked Sendable {
                 guard let self, let pins else { return }
                 guard syncToggles.isFeatureEnabled(.pins) else { return }
                 self.lastSyncedPinsData = data
-                syncToggles.setFeatureState(.appliedRemote, for: .pins)
+                syncToggles.recordFeatureActivity(
+                    for: .pins,
+                    state: .appliedRemote,
+                    direction: .pulledFromICloud,
+                    detail: "Pulled pins from iCloud."
+                )
                 if let remotePins = try? JSONDecoder().decode([PinnedItem].self, from: data) {
                     pins.applyRemotePins(remotePins)
                 }
@@ -585,7 +617,12 @@ public final class DependencyContainer: @unchecked Sendable {
                     }
                     guard let data = pins.exportPinsData(), data != self.lastSyncedPinsData else { return }
                     self.lastSyncedPinsData = data
-                    syncToggles.setFeatureState(.seededLocal, for: .pins)
+                    syncToggles.recordFeatureActivity(
+                        for: .pins,
+                        state: .seededLocal,
+                        direction: .pushedFromThisDevice,
+                        detail: "Pushed pins from this device."
+                    )
                     kvs.pushData(data, forKey: KVSSyncService.KVSKey.pins)
                 }
                 .store(in: &kvsSyncCancellables)
@@ -593,7 +630,12 @@ public final class DependencyContainer: @unchecked Sendable {
             acctMgr.onNewAccountsFromSync = { [weak acctMgr, weak syncToggles] newCredentials in
                 guard let acctMgr, let syncToggles else { return }
                 guard syncToggles.isFeatureEnabled(.sources) else { return }
-                syncToggles.setFeatureState(.appliedRemote, for: .sources)
+                syncToggles.recordFeatureActivity(
+                    for: .sources,
+                    state: .appliedRemote,
+                    direction: .pulledFromICloud,
+                    detail: "Pulled sources from iCloud."
+                )
 
                 for credential in newCredentials {
                     Task {
@@ -635,7 +677,12 @@ public final class DependencyContainer: @unchecked Sendable {
                             }
                         } catch {
                             await MainActor.run {
-                                syncToggles.setFeatureState(.error, for: .sources)
+                                syncToggles.recordFeatureActivity(
+                                    for: .sources,
+                                    state: .error,
+                                    direction: nil,
+                                    detail: "Failed to pull sources from iCloud."
+                                )
                             }
                             EnsembleLogger.error("Sync: failed to discover account \(credential.accountId): \(error)")
                         }
@@ -648,7 +695,12 @@ public final class DependencyContainer: @unchecked Sendable {
                 guard syncToggles.isFeatureEnabled(.libraries) else { return }
                 Task { @MainActor in
                     let result = acctMgr.applyLibraryFlags(data)
-                    syncToggles.setFeatureState(.appliedRemote, for: .libraries)
+                    syncToggles.recordFeatureActivity(
+                        for: .libraries,
+                        state: .appliedRemote,
+                        direction: .pulledFromICloud,
+                        detail: "Pulled library selection from iCloud."
+                    )
                     guard result.hasChanges else { return }
 
                     syncCoordinatorRef.refreshProviders()
@@ -676,7 +728,12 @@ public final class DependencyContainer: @unchecked Sendable {
                     guard let acctMgr, let kvs, let syncToggles else { return }
                     guard syncToggles.isFeatureEnabled(.libraries) else { return }
                     if let data = acctMgr.exportLibraryFlags() {
-                        syncToggles.setFeatureState(.seededLocal, for: .libraries)
+                        syncToggles.recordFeatureActivity(
+                            for: .libraries,
+                            state: .seededLocal,
+                            direction: .pushedFromThisDevice,
+                            detail: "Pushed library selection from this device."
+                        )
                         kvs.pushData(data, forKey: KVSSyncService.KVSKey.libraryFlags)
                     }
                 }
@@ -695,10 +752,6 @@ public final class DependencyContainer: @unchecked Sendable {
             syncSettingsRef.onFeatureReEnabled = { [weak self] feature in
                 self?.scheduleSyncBootstrap(reason: "feature-reenabled", feature: feature)
             }
-
-            if !syncToggles.hasCompletedFirstConnect && syncToggles.isMasterSyncEnabled {
-                self.scheduleSyncBootstrap(reason: "first-connect")
-            }
         }
 
         MainActor.assumeIsolated {
@@ -706,22 +759,100 @@ public final class DependencyContainer: @unchecked Sendable {
             lastSyncedSwipeLayout = settingsManager.trackSwipeLayout
             lastSyncedPinsData = pinManager.exportPinsData()
         }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.refreshSyncState(reason: "launch")
+        }
     }
 
     @MainActor
     public func reconcileSyncOnForeground() async {
-        if syncSettingsManager.isFeatureEnabled(.sources) {
-            let newAccounts = accountManager.pullSyncCredentials()
-            if !newAccounts.isEmpty {
-                syncSettingsManager.setFeatureState(.appliedRemote, for: .sources)
-                accountManager.onNewAccountsFromSync?(newAccounts)
-            }
+        await refreshSyncState(reason: "foreground")
+    }
+
+    @MainActor
+    public func runManualSync() async {
+        syncSettingsManager.beginManualSync()
+        defer { syncSettingsManager.finishManualSync() }
+        await refreshSyncState(reason: "manual")
+    }
+
+    @MainActor
+    private func refreshSyncState(reason: String) async {
+        if syncSettingsManager.isMasterSyncEnabled {
+            await performSyncBootstrap(reason: reason)
         }
 
-        await cloudSyncService.refreshProfileFromCloud()
+        await reconcileProfileSync(reason: reason)
+    }
 
-        if syncSettingsManager.isMasterSyncEnabled && !syncSettingsManager.hasCompletedFirstConnect {
-            await performSyncBootstrap(reason: "foreground")
+    @MainActor
+    private func reconcileProfileSync(reason: String) async {
+        if let remote = await cloudSyncService.pullProfile() {
+            userProfileStore.applyRemoteProfile(remote.profile, imageData: remote.imageData)
+            syncSettingsManager.setProfileStatus(
+                phase: .transport(.available),
+                direction: .pulledFromICloud,
+                detail: "Pulled profile from iCloud."
+            )
+            return
+        }
+
+        let transportState = await cloudSyncService.currentProfileTransportState()
+        guard transportState == .available else {
+            syncSettingsManager.setProfileStatus(
+                phase: .transport(transportState),
+                direction: nil,
+                detail: profileTransportDetail(for: transportState)
+            )
+            return
+        }
+
+        guard !userProfileStore.profile.isEmpty else {
+            syncSettingsManager.setProfileStatus(
+                phase: .noRecord,
+                direction: nil,
+                detail: "No profile found in iCloud yet."
+            )
+            return
+        }
+
+        EnsembleLogger.info("Sync profile: seeding local profile after \(reason)")
+        await cloudSyncService.pushProfile(
+            userProfileStore.profile,
+            imageData: userProfileStore.getProfileImageData()
+        )
+
+        let updatedTransportState = await cloudSyncService.currentProfileTransportState()
+        syncSettingsManager.setProfileStatus(
+            phase: .transport(updatedTransportState),
+            direction: updatedTransportState == .available ? .pushedFromThisDevice : nil,
+            detail: updatedTransportState == .available
+                ? "Pushed local profile to iCloud."
+                : profileTransportDetail(for: updatedTransportState)
+        )
+    }
+
+    @MainActor
+    private func profileTransportDetail(
+        for state: CloudSyncService.ProfileTransportState
+    ) -> String {
+        switch state {
+        case .unknown:
+            return "Profile sync has not run yet."
+        case .available:
+            return "CloudKit is available."
+        case .notAuthenticated:
+            return "Sign in to iCloud to sync the profile."
+        case .networkUnavailable:
+            return "Profile sync is waiting for a network connection."
+        case .quotaExceeded:
+            return "iCloud storage is full for profile sync."
+        case .rateLimited:
+            return "CloudKit rate-limited the profile sync. Try again shortly."
+        case .error:
+            return "Profile sync hit a CloudKit error."
         }
     }
 
@@ -804,7 +935,12 @@ public final class DependencyContainer: @unchecked Sendable {
 
         if accountManager.hasSyncedCloudCredentials() {
             let newAccounts = accountManager.pullSyncCredentials()
-            syncSettingsManager.setFeatureState(.appliedRemote, for: .sources)
+            syncSettingsManager.recordFeatureActivity(
+                for: .sources,
+                state: .appliedRemote,
+                direction: .pulledFromICloud,
+                detail: "Pulled sources from iCloud."
+            )
             if !newAccounts.isEmpty {
                 accountManager.onNewAccountsFromSync?(newAccounts)
             }
@@ -818,7 +954,12 @@ public final class DependencyContainer: @unchecked Sendable {
 
         EnsembleLogger.info("Sync bootstrap: seeding local sources after \(reason)")
         accountManager.seedCloudSyncCredentialsFromLocal()
-        syncSettingsManager.setFeatureState(.seededLocal, for: .sources)
+        syncSettingsManager.recordFeatureActivity(
+            for: .sources,
+            state: .seededLocal,
+            direction: .pushedFromThisDevice,
+            detail: "Pushed sources from this device."
+        )
         return true
     }
 
@@ -856,7 +997,12 @@ public final class DependencyContainer: @unchecked Sendable {
 
         lastSyncedAccentColor = settingsManager.accentColorName
         EnsembleLogger.info("Sync bootstrap: seeding local accent color after \(reason)")
-        syncSettingsManager.setFeatureState(.seededLocal, for: .accentColor)
+        syncSettingsManager.recordFeatureActivity(
+            for: .accentColor,
+            state: .seededLocal,
+            direction: .pushedFromThisDevice,
+            detail: "Pushed accent color from this device."
+        )
         kvsSyncService.pushString(settingsManager.accentColorName, forKey: KVSSyncService.KVSKey.accentColor)
         return true
     }
@@ -900,7 +1046,12 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         EnsembleLogger.info("Sync bootstrap: seeding local swipe layout after \(reason)")
-        syncSettingsManager.setFeatureState(.seededLocal, for: .swipeActions)
+        syncSettingsManager.recordFeatureActivity(
+            for: .swipeActions,
+            state: .seededLocal,
+            direction: .pushedFromThisDevice,
+            detail: "Pushed swipe actions from this device."
+        )
         kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
         return true
     }
@@ -944,7 +1095,12 @@ public final class DependencyContainer: @unchecked Sendable {
 
         lastSyncedPinsData = data
         EnsembleLogger.info("Sync bootstrap: seeding local pins after \(reason)")
-        syncSettingsManager.setFeatureState(.seededLocal, for: .pins)
+        syncSettingsManager.recordFeatureActivity(
+            for: .pins,
+            state: .seededLocal,
+            direction: .pushedFromThisDevice,
+            detail: "Pushed pins from this device."
+        )
         kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.pins)
         return true
     }
@@ -987,7 +1143,12 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         EnsembleLogger.info("Sync bootstrap: seeding local library flags after \(reason)")
-        syncSettingsManager.setFeatureState(.seededLocal, for: .libraries)
+        syncSettingsManager.recordFeatureActivity(
+            for: .libraries,
+            state: .seededLocal,
+            direction: .pushedFromThisDevice,
+            detail: "Pushed library selection from this device."
+        )
         kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.libraryFlags)
         return true
     }

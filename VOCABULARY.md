@@ -551,6 +551,27 @@ Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterize
 
 ---
 
+## SyncSettingsView
+
+- **View name:** `SyncSettingsView`
+- **Canonical name:** SyncSettingsView
+- **Area:** Settings
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Sync this device toggle | control | Master iCloud sync toggle for the device | `Toggle`, `isMasterSyncEnabled` |
+| Sync now button | action | Manual refresh button that re-checks iCloud settings, sources, libraries, and profile state | `Sync Now`, `runManualSync()` |
+| Last manual sync row | text | Timestamp of the most recent manual refresh | `lastManualSyncDate` |
+| Profile status row | indicator | CloudKit profile sync status, including pull/push direction or transport errors | `profileStatusPresentation` |
+| Feature status row | indicator | Per-feature sync status row showing the latest pull/push direction and fallback transport state | `featureStatusPresentation(for:)` |
+| Features section | region | Toggle list for sources, libraries, pins, accent color, and swipe actions | `ForEach(SyncFeature.allCases)` |
+
+---
+
 ## MusicSourceAccountDetailView
 
 - **View name:** `MusicSourceAccountDetailView`

@@ -38,6 +38,7 @@ These are core design decisions that must be maintained throughout the app.
 
 ### Keyboard-Heavy Editors (iPhone)
 - Present rename/create text editors with `keyboardSafeEditorPresentation(...)` from `View+Extensions.swift`
+- Any modal flow that contains a plain `TextField` or other keyboard-driven form input, including filter sheets with year fields, should also use `keyboardSafeEditorPresentation(...)` on iPhone instead of a raw `.sheet` or `.alert`
 - On iPhone, that helper must use `fullScreenCover` so the presenting navigation/search container stays out of the keyboard layout pass
 - Root tab shells should own keyboard/search avoidance decisions. Child detail views should not inherit an active search or keyboard presenter from an offscreen tab.
 - Root auxiliary flows that can lead into keyboard editors, such as Profile, should also prefer a full-screen cover on iPhone instead of a sheet for the same reason
@@ -47,6 +48,7 @@ These are core design decisions that must be maintained throughout the app.
 - The helper owns keyboard-editor registration timing; do not duplicate `beginKeyboardEditorPresentation()` or `endKeyboardEditorPresentation()` inside the editor view itself
 - Keyboard editors can use a local `NavigationStack`/`NavigationView` plus system toolbar actions for a native look, as long as the presentation is isolated with `keyboardSafeEditorPresentation(...)`
 - When the presenting screen still lives inside a navigation container, hide that navigation bar while the editor is active; prefer `.toolbar(.hidden, for: .navigationBar)` on iOS 16+
+- For any modal text-input flow with an explicit Done/Cancel action, dismiss the focused field first and delay the modal dismissal slightly so the keyboard animation completes before the presentation tears down
 
 **NestedNavigationLink Pattern** (in `MainTabView.swift`):
 ```swift
