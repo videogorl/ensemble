@@ -5,6 +5,17 @@ description: "Load before writing tests or after implementing a major feature. T
 
 # Ensemble Testing Guide
 
+## Definition Of Done
+
+For this project, "done" requires both automated tests and runtime verification:
+
+- Run the affected Swift package tests after any non-trivial code change.
+- For any user-visible change, bug fix, navigation change, playback fix, or workflow update, validate the affected flow in the iOS Simulator before marking the task done.
+- Use the iOS Simulator MCP server for that runtime validation so the agent can drive the app directly instead of asking the user to click through the UI.
+- If runtime verification is blocked by credentials, third-party service availability, or an environment limitation the agent cannot overcome, call out the blocker explicitly and do not present the task as finished.
+
+Load `simulator-test` alongside this skill whenever the change needs runtime confirmation.
+
 ## When to Write Tests
 
 **Required:**
@@ -41,6 +52,30 @@ xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
 ```
 
 If tests fail, fix them before committing. Do not commit a broken test suite.
+
+**Tests alone are not enough for UI-facing work.** After the relevant package tests pass, run simulator verification for the affected flow and confirm the observed behavior matches the intended result.
+
+---
+
+## Runtime Verification With The iOS Simulator MCP Server
+
+Use the simulator MCP tools when you need to prove a change works in the running app:
+
+- `open_simulator` to open Simulator
+- `get_booted_sim_id` to target the current device
+- `install_app` to install the built `.app`
+- `launch_app` to start the app
+- `ui_describe_all` to inspect the accessibility tree and locate controls
+- `ui_tap`, `ui_type`, and `ui_swipe` to drive the UI
+- `ui_view` and `screenshot` to visually confirm the current state
+
+Typical expectations:
+
+- Bug fixes: reproduce the old path if possible, apply the fix, then verify the corrected path in simulator.
+- New UI: navigate to the new surface, exercise the key interactions, and confirm the expected labels/state.
+- Playback/networking flows: combine simulator interaction with log capture from `simulator-test` so you have both UI and runtime evidence.
+
+If the user asks for a feature and the agent cannot verify the visible result in simulator, the task is still incomplete.
 
 ---
 

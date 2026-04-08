@@ -159,6 +159,8 @@ swift test --package-path Packages/EnsembleCore
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble test
 ```
 
+For agent-driven development, passing tests are only part of verification. User-visible changes should also be validated in the running app with the iOS Simulator MCP server so the agent can launch the app, interact with the UI, and confirm behavior without manual user input.
+
 ### Code Guidelines
 - **Target:** iOS 15+ devices with 2GB RAM
 - Use clear, descriptive names
