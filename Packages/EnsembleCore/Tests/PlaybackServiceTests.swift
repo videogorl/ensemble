@@ -96,6 +96,33 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(restored, 108.09313673675985, accuracy: 0.0001)
     }
 
+    func testAudioEnginePreparationCreatesMissingEngineAfterStop() {
+        let action = PlaybackService.audioEnginePreparation(
+            hasAudioEngine: false,
+            playbackState: .stopped
+        )
+
+        XCTAssertEqual(action, .createMissing)
+    }
+
+    func testAudioEnginePreparationRecreatesFailedEngine() {
+        let action = PlaybackService.audioEnginePreparation(
+            hasAudioEngine: true,
+            playbackState: .failed("Audio engine not initialized")
+        )
+
+        XCTAssertEqual(action, .recreateFailed)
+    }
+
+    func testAudioEnginePreparationReusesHealthyEngine() {
+        let action = PlaybackService.audioEnginePreparation(
+            hasAudioEngine: true,
+            playbackState: .paused
+        )
+
+        XCTAssertEqual(action, .reuseExisting)
+    }
+
     func testPresentationRouteKindPrefersAirPlayOverBluetooth() {
         let routeKind = PlaybackService.inferPresentationRouteKind(
             hasAirPlay: true,
