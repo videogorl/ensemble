@@ -26,9 +26,9 @@
 	</array>
 	<key>WKApplication</key>
 	<true/>
+	<key>WKCompanionAppBundleIdentifier</key>
+	<string>com.videogorl.ensemble</string>
 	<key>WKRunsIndependentlyOfCompanionApp</key>
-	<true/>
-	<key>WKWatchOnly</key>
 	<true/>
 </dict>
 </plist>

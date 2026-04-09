@@ -664,6 +664,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 86QFS2R7RZ;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EnsembleWatch/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -671,7 +672,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.ensemble.app.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.videogorl.ensemble.watchkitapp;
 				PRODUCT_NAME = "Ensemble Watch";
 					SDKROOT = watchos;
 					SKIP_INSTALL = YES;
@@ -694,6 +695,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 86QFS2R7RZ;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EnsembleWatch/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -701,7 +703,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.ensemble.app.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.videogorl.ensemble.watchkitapp;
 				PRODUCT_NAME = "Ensemble Watch";
 					SDKROOT = watchos;
 					SKIP_INSTALL = YES;

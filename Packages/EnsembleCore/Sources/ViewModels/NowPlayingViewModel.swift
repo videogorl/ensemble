@@ -3,6 +3,9 @@ import Foundation
 import EnsemblePersistence
 import Nuke
 import SwiftUI
+#if canImport(CoreImage) && !os(watchOS)
+import CoreImage
+#endif
 
 #if os(iOS) || os(tvOS) || os(watchOS)
 import UIKit
@@ -660,7 +663,12 @@ public final class NowPlayingViewModel: ObservableObject {
     /// saturation 1.9, brightness -0.05) to match BlurredArtworkBackground's
     /// live SwiftUI modifiers, computed once on a background thread.
     nonisolated private static func generateBlurredImage(from source: PlatformImage) -> PlatformImage? {
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(watchOS)
+        // The watch shell keeps artwork presentation intentionally simple and
+        // does not need the phone/tablet blurred-background preprocessing path.
+        return nil
+        #else
+        #if os(iOS) || os(tvOS)
         guard let ciImage = CIImage(image: source) else { return nil }
         #elseif os(macOS)
         guard let tiffData = source.tiffRepresentation,
@@ -694,6 +702,7 @@ public final class NowPlayingViewModel: ObservableObject {
         return UIImage(cgImage: cgImage)
         #elseif os(macOS)
         return NSImage(cgImage: cgImage, size: source.size)
+        #endif
         #endif
     }
 

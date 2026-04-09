@@ -25,7 +25,7 @@ public final class KVSSyncService: ObservableObject {
 
     // MARK: - State
 
-    private let store: NSUbiquitousKeyValueStore
+    private let store: AnyObject?
     private var cancellables = Set<AnyCancellable>()
     private var lastDeliveredStringValues: [String: String] = [:]
     private var lastDeliveredDataValues: [String: Data] = [:]
@@ -48,13 +48,13 @@ public final class KVSSyncService: ObservableObject {
 
     private var initialSyncWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
 
-    public init(store: NSUbiquitousKeyValueStore = .default) {
-        self.store = store
+    public init(store: AnyObject? = nil) {
+        self.store = store ?? KVSSyncService.makeDefaultStore()
         observeRemoteChanges()
 
         // Force an initial sync pull from iCloud.
         // synchronize() returns false if KVS is unavailable (no iCloud account, etc.)
-        let synced = store.synchronize()
+        let synced = synchronizeStore()
         if !synced {
             isAvailable = false
             initialSyncState = .unavailable
@@ -67,12 +67,12 @@ public final class KVSSyncService: ObservableObject {
     /// Push a string value to KVS
     public func pushString(_ value: String, forKey key: String) {
         guard isAvailable else { return }
-        if store.string(forKey: key) == value {
+        if storeString(forKey: key) == value {
             return
         }
         suppressedKeys.insert(key)
-        store.set(value, forKey: key)
-        store.synchronize()
+        setStoreString(value, forKey: key)
+        _ = synchronizeStore()
 
         // Remove suppression after a brief delay to allow the echo to pass
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
@@ -83,12 +83,12 @@ public final class KVSSyncService: ObservableObject {
     /// Push raw Data to KVS
     public func pushData(_ data: Data, forKey key: String) {
         guard isAvailable else { return }
-        if store.data(forKey: key) == data {
+        if storeData(forKey: key) == data {
             return
         }
         suppressedKeys.insert(key)
-        store.set(data, forKey: key)
-        store.synchronize()
+        setStoreData(data, forKey: key)
+        _ = synchronizeStore()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.suppressedKeys.remove(key)
@@ -99,17 +99,17 @@ public final class KVSSyncService: ObservableObject {
 
     /// Pull a string value from KVS (returns nil if not set)
     public func pullString(forKey key: String) -> String? {
-        store.string(forKey: key)
+        storeString(forKey: key)
     }
 
     /// Pull raw Data from KVS (returns nil if not set)
     public func pullData(forKey key: String) -> Data? {
-        store.data(forKey: key)
+        storeData(forKey: key)
     }
 
     /// Force a refresh from iCloud before reading bootstrap state.
     public func synchronize() {
-        _ = store.synchronize()
+        _ = synchronizeStore()
     }
 
     /// Waits for KVS to report that initial cloud delivery has settled.
@@ -141,8 +141,9 @@ public final class KVSSyncService: ObservableObject {
 
     /// Observe NSUbiquitousKeyValueStoreDidChangeExternallyNotification
     private func observeRemoteChanges() {
+        guard let notificationName = kvsDidChangeNotification else { return }
         NotificationCenter.default.publisher(
-            for: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            for: notificationName,
             object: store
         )
         .receive(on: DispatchQueue.main)
@@ -182,7 +183,7 @@ public final class KVSSyncService: ObservableObject {
 
             switch key {
             case KVSKey.accentColor:
-                if let value = store.string(forKey: key) {
+                if let value = storeString(forKey: key) {
                     guard lastDeliveredStringValues[key] != value else { continue }
                     lastDeliveredStringValues[key] = value
                     EnsembleLogger.info("KVS: remote accent color change → \(value)")
@@ -190,7 +191,7 @@ public final class KVSSyncService: ObservableObject {
                 }
 
             case KVSKey.swipeLayout:
-                if let data = store.data(forKey: key) {
+                if let data = storeData(forKey: key) {
                     guard lastDeliveredDataValues[key] != data else { continue }
                     lastDeliveredDataValues[key] = data
                     EnsembleLogger.info("KVS: remote swipe layout change (\(data.count) bytes)")
@@ -198,7 +199,7 @@ public final class KVSSyncService: ObservableObject {
                 }
 
             case KVSKey.pins:
-                if let data = store.data(forKey: key) {
+                if let data = storeData(forKey: key) {
                     guard lastDeliveredDataValues[key] != data else { continue }
                     lastDeliveredDataValues[key] = data
                     EnsembleLogger.info("KVS: remote pins change (\(data.count) bytes)")
@@ -206,7 +207,7 @@ public final class KVSSyncService: ObservableObject {
                 }
 
             case KVSKey.libraryFlags:
-                if let data = store.data(forKey: key) {
+                if let data = storeData(forKey: key) {
                     guard lastDeliveredDataValues[key] != data else { continue }
                     lastDeliveredDataValues[key] = data
                     EnsembleLogger.info("KVS: remote library flags change (\(data.count) bytes)")
@@ -224,20 +225,100 @@ public final class KVSSyncService: ObservableObject {
     /// Pull all synced values from KVS and invoke their callbacks.
     /// Used during first iCloud connect or when master sync is re-enabled.
     public func pullAll() {
-        store.synchronize()
+        _ = synchronizeStore()
 
-        if let color = store.string(forKey: KVSKey.accentColor) {
+        if let color = storeString(forKey: KVSKey.accentColor) {
             onRemoteAccentColorChanged?(color)
         }
-        if let data = store.data(forKey: KVSKey.swipeLayout) {
+        if let data = storeData(forKey: KVSKey.swipeLayout) {
             onRemoteSwipeLayoutChanged?(data)
         }
-        if let data = store.data(forKey: KVSKey.pins) {
+        if let data = storeData(forKey: KVSKey.pins) {
             onRemotePinsChanged?(data)
         }
-        if let data = store.data(forKey: KVSKey.libraryFlags) {
+        if let data = storeData(forKey: KVSKey.libraryFlags) {
             onRemoteLibraryFlagsChanged?(data)
         }
+    }
+
+    private static func makeDefaultStore() -> AnyObject? {
+        #if os(watchOS)
+        if #available(watchOS 9.0, *) {
+            return NSUbiquitousKeyValueStore.default
+        }
+        return nil
+        #else
+        return NSUbiquitousKeyValueStore.default
+        #endif
+    }
+
+    private var kvsDidChangeNotification: Notification.Name? {
+        #if os(watchOS)
+        if #available(watchOS 9.0, *) {
+            return NSUbiquitousKeyValueStore.didChangeExternallyNotification
+        }
+        return nil
+        #else
+        return NSUbiquitousKeyValueStore.didChangeExternallyNotification
+        #endif
+    }
+
+    private func synchronizeStore() -> Bool {
+        #if os(watchOS)
+        if #available(watchOS 9.0, *),
+           let store = store as? NSUbiquitousKeyValueStore {
+            return store.synchronize()
+        }
+        return false
+        #else
+        return (store as? NSUbiquitousKeyValueStore)?.synchronize() ?? false
+        #endif
+    }
+
+    private func storeString(forKey key: String) -> String? {
+        #if os(watchOS)
+        if #available(watchOS 9.0, *),
+           let store = store as? NSUbiquitousKeyValueStore {
+            return store.string(forKey: key)
+        }
+        return nil
+        #else
+        return (store as? NSUbiquitousKeyValueStore)?.string(forKey: key)
+        #endif
+    }
+
+    private func storeData(forKey key: String) -> Data? {
+        #if os(watchOS)
+        if #available(watchOS 9.0, *),
+           let store = store as? NSUbiquitousKeyValueStore {
+            return store.data(forKey: key)
+        }
+        return nil
+        #else
+        return (store as? NSUbiquitousKeyValueStore)?.data(forKey: key)
+        #endif
+    }
+
+    private func setStoreString(_ value: String, forKey key: String) {
+        #if os(watchOS)
+        if #available(watchOS 9.0, *),
+           let store = store as? NSUbiquitousKeyValueStore {
+            store.set(value, forKey: key)
+        }
+        #else
+        (store as? NSUbiquitousKeyValueStore)?.set(value, forKey: key)
+        #endif
+    }
+
+    private func setStoreData(_ data: Data, forKey key: String) {
+        #if os(watchOS)
+        if #available(watchOS 9.0, *),
+           let store = store as? NSUbiquitousKeyValueStore {
+            store.set(data, forKey: key)
+        }
+        #else
+        (store as? NSUbiquitousKeyValueStore)?.set(data, forKey: key)
+        #endif
     }
 
     private func markInitialSyncCompleted() {

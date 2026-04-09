@@ -140,7 +140,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         config.imageCache = memoryCache
         
         // Enable aggressive memory cache trimming on warnings
-        #if canImport(UIKit)
+        #if os(iOS)
         NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil,

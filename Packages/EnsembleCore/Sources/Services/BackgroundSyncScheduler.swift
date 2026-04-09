@@ -1,10 +1,12 @@
-import BackgroundTasks
 import Foundation
+#if canImport(BackgroundTasks)
+import BackgroundTasks
+#endif
 #if canImport(UIKit)
 import UIKit
 #endif
 
-#if os(iOS)
+#if os(iOS) && canImport(BackgroundTasks)
 /// Manages iOS background app refresh for syncing
 @available(iOS 13.0, *)
 public final class BackgroundSyncScheduler {

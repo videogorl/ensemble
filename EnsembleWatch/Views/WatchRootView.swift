@@ -666,7 +666,7 @@ private struct WatchDownloadsView: View {
         }
         .navigationTitle("Downloads")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem {
                 Button(viewModel.isQueueRunning ? "Pause" : "Resume") {
                     Task {
                         if viewModel.isQueueRunning {
@@ -778,6 +778,8 @@ private struct WatchSearchView: View {
 
 private struct WatchNowPlayingView: View {
     @ObservedObject var playbackHub: WatchPlaybackHub
+    @State private var showsTargetPicker = false
+    @State private var showsQueueActions = false
 
     var body: some View {
         ScrollView {
@@ -836,36 +838,45 @@ private struct WatchNowPlayingView: View {
         }
         .navigationTitle("Now Playing")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Picker("Playback Target", selection: Binding(
-                        get: { playbackHub.selectedTarget },
-                        set: { playbackHub.selectTarget($0) }
-                    )) {
-                        ForEach(playbackHub.availableTargets) { target in
-                            Label(target.displayName, systemImage: target.systemImage)
-                                .tag(target)
-                        }
-                    }
+            ToolbarItem {
+                Button {
+                    showsTargetPicker = true
                 } label: {
                     Image(systemName: "airplayaudio")
                 }
+                .accessibilityLabel("Playback Target")
             }
 
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button(playbackHub.isShuffleEnabled ? "Disable Shuffle" : "Enable Shuffle") {
-                        playbackHub.toggleShuffle()
-                    }
-                    Button(repeatTitle) {
-                        playbackHub.cycleRepeatMode()
-                    }
-                    Button("Clear Queue", role: .destructive) {
-                        playbackHub.clearQueue()
-                    }
+            ToolbarItem {
+                Button {
+                    showsQueueActions = true
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel("More Actions")
+            }
+        }
+        .confirmationDialog("Playback Target", isPresented: $showsTargetPicker) {
+            ForEach(playbackHub.availableTargets) { target in
+                Button {
+                    playbackHub.selectTarget(target)
+                } label: {
+                    Label(
+                        target.displayName,
+                        systemImage: target == playbackHub.selectedTarget ? "checkmark" : target.systemImage
+                    )
+                }
+            }
+        }
+        .confirmationDialog("Queue Controls", isPresented: $showsQueueActions) {
+            Button(playbackHub.isShuffleEnabled ? "Disable Shuffle" : "Enable Shuffle") {
+                playbackHub.toggleShuffle()
+            }
+            Button(repeatTitle) {
+                playbackHub.cycleRepeatMode()
+            }
+            Button("Clear Queue", role: .destructive) {
+                playbackHub.clearQueue()
             }
         }
     }
@@ -888,6 +899,7 @@ private struct WatchAlbumDetailView: View {
     @ObservedObject var nowPlayingViewModel: NowPlayingViewModel
     @StateObject private var viewModel: AlbumDetailViewModel
     @State private var isDownloadEnabled = false
+    @State private var showsActions = false
 
     init(album: Album, playbackHub: WatchPlaybackHub, nowPlayingViewModel: NowPlayingViewModel) {
         self.album = album
@@ -904,23 +916,27 @@ private struct WatchAlbumDetailView: View {
             nowPlayingViewModel: nowPlayingViewModel
         )
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button("Play Album") {
-                        playbackHub.play(tracks: viewModel.filteredTracks, startingAt: 0)
-                    }
-                    Button("Shuffle Album") {
-                        let shuffled = viewModel.filteredTracks.shuffled()
-                        playbackHub.play(tracks: shuffled, startingAt: 0)
-                    }
-                    Button(isDownloadEnabled ? "Remove Download" : "Download Album") {
-                        Task {
-                            await DependencyContainer.shared.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloadEnabled)
-                            isDownloadEnabled.toggle()
-                        }
-                    }
+            ToolbarItem {
+                Button {
+                    showsActions = true
                 } label: {
                     Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("Album Actions")
+            }
+        }
+        .confirmationDialog("Album Actions", isPresented: $showsActions) {
+            Button("Play Album") {
+                playbackHub.play(tracks: viewModel.filteredTracks, startingAt: 0)
+            }
+            Button("Shuffle Album") {
+                let shuffled = viewModel.filteredTracks.shuffled()
+                playbackHub.play(tracks: shuffled, startingAt: 0)
+            }
+            Button(isDownloadEnabled ? "Remove Download" : "Download Album") {
+                Task {
+                    await DependencyContainer.shared.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloadEnabled)
+                    isDownloadEnabled.toggle()
                 }
             }
         }
@@ -937,6 +953,7 @@ private struct WatchArtistDetailView: View {
     @ObservedObject var nowPlayingViewModel: NowPlayingViewModel
     @StateObject private var viewModel: ArtistDetailViewModel
     @State private var isDownloadEnabled = false
+    @State private var showsActions = false
 
     init(artist: Artist, playbackHub: WatchPlaybackHub, nowPlayingViewModel: NowPlayingViewModel) {
         self.artist = artist
@@ -973,23 +990,27 @@ private struct WatchArtistDetailView: View {
         }
         .navigationTitle(artist.name)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button("Play Artist") {
-                        playbackHub.play(tracks: viewModel.filteredTracks, startingAt: 0)
-                    }
-                    Button("Shuffle Artist") {
-                        let shuffled = viewModel.filteredTracks.shuffled()
-                        playbackHub.play(tracks: shuffled, startingAt: 0)
-                    }
-                    Button(isDownloadEnabled ? "Remove Download" : "Download Artist") {
-                        Task {
-                            await DependencyContainer.shared.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloadEnabled)
-                            isDownloadEnabled.toggle()
-                        }
-                    }
+            ToolbarItem {
+                Button {
+                    showsActions = true
                 } label: {
                     Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("Artist Actions")
+            }
+        }
+        .confirmationDialog("Artist Actions", isPresented: $showsActions) {
+            Button("Play Artist") {
+                playbackHub.play(tracks: viewModel.filteredTracks, startingAt: 0)
+            }
+            Button("Shuffle Artist") {
+                let shuffled = viewModel.filteredTracks.shuffled()
+                playbackHub.play(tracks: shuffled, startingAt: 0)
+            }
+            Button(isDownloadEnabled ? "Remove Download" : "Download Artist") {
+                Task {
+                    await DependencyContainer.shared.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloadEnabled)
+                    isDownloadEnabled.toggle()
                 }
             }
         }
@@ -1007,6 +1028,7 @@ private struct WatchPlaylistDetailView: View {
     @ObservedObject var nowPlayingViewModel: NowPlayingViewModel
     @StateObject private var viewModel: PlaylistDetailViewModel
     @State private var isDownloadEnabled = false
+    @State private var showsActions = false
 
     init(playlist: Playlist, playbackHub: WatchPlaybackHub, nowPlayingViewModel: NowPlayingViewModel) {
         self.playlist = playlist
@@ -1023,23 +1045,27 @@ private struct WatchPlaylistDetailView: View {
             nowPlayingViewModel: nowPlayingViewModel
         )
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button("Play Playlist") {
-                        playbackHub.play(tracks: viewModel.filteredTracks, startingAt: 0)
-                    }
-                    Button("Shuffle Playlist") {
-                        let shuffled = viewModel.filteredTracks.shuffled()
-                        playbackHub.play(tracks: shuffled, startingAt: 0)
-                    }
-                    Button(isDownloadEnabled ? "Remove Download" : "Download Playlist") {
-                        Task {
-                            await DependencyContainer.shared.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloadEnabled)
-                            isDownloadEnabled.toggle()
-                        }
-                    }
+            ToolbarItem {
+                Button {
+                    showsActions = true
                 } label: {
                     Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("Playlist Actions")
+            }
+        }
+        .confirmationDialog("Playlist Actions", isPresented: $showsActions) {
+            Button("Play Playlist") {
+                playbackHub.play(tracks: viewModel.filteredTracks, startingAt: 0)
+            }
+            Button("Shuffle Playlist") {
+                let shuffled = viewModel.filteredTracks.shuffled()
+                playbackHub.play(tracks: shuffled, startingAt: 0)
+            }
+            Button(isDownloadEnabled ? "Remove Download" : "Download Playlist") {
+                Task {
+                    await DependencyContainer.shared.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloadEnabled)
+                    isDownloadEnabled.toggle()
                 }
             }
         }
@@ -1055,6 +1081,7 @@ private struct WatchMergedPlaylistDetailView: View {
     @ObservedObject var playbackHub: WatchPlaybackHub
     @ObservedObject var nowPlayingViewModel: NowPlayingViewModel
     @StateObject private var viewModel: MergedPlaylistDetailViewModel
+    @State private var showsActions = false
 
     init(displayPlaylist: DisplayPlaylist, playbackHub: WatchPlaybackHub, nowPlayingViewModel: NowPlayingViewModel) {
         self.displayPlaylist = displayPlaylist
@@ -1071,18 +1098,22 @@ private struct WatchMergedPlaylistDetailView: View {
             nowPlayingViewModel: nowPlayingViewModel
         )
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button("Play Playlist") {
-                        playbackHub.play(tracks: viewModel.filteredTracks, startingAt: 0)
-                    }
-                    Button("Shuffle Playlist") {
-                        let shuffled = viewModel.filteredTracks.shuffled()
-                        playbackHub.play(tracks: shuffled, startingAt: 0)
-                    }
+            ToolbarItem {
+                Button {
+                    showsActions = true
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel("Playlist Actions")
+            }
+        }
+        .confirmationDialog("Playlist Actions", isPresented: $showsActions) {
+            Button("Play Playlist") {
+                playbackHub.play(tracks: viewModel.filteredTracks, startingAt: 0)
+            }
+            Button("Shuffle Playlist") {
+                let shuffled = viewModel.filteredTracks.shuffled()
+                playbackHub.play(tracks: shuffled, startingAt: 0)
             }
         }
         .task {

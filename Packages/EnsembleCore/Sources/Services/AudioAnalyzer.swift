@@ -113,6 +113,10 @@ public struct FrequencyTimeline {
     }
 }
 
+private func platformMediaTime() -> TimeInterval {
+    ProcessInfo.processInfo.systemUptime
+}
+
 // MARK: - Frequency Timeline Persistence
 
 /// Binary sidecar format for persisting pre-computed timelines alongside downloaded tracks.
@@ -386,7 +390,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         activeTrackId = trackId
         isPaused = true  // Start paused — timer won't interpolate until resumeUpdates() on confirmed playback
         currentPlaybackTime = 0
-        positionUpdateWallTime = CACurrentMediaTime()
+        positionUpdateWallTime = platformMediaTime()
 
         // Clear bands immediately so stale data from the previous track doesn't persist
         frequencyBands = Array(repeating: 0.0, count: bandCount)
@@ -424,7 +428,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     public func updatePlaybackPosition(_ time: TimeInterval) {
         currentPlaybackTime = time
-        positionUpdateWallTime = CACurrentMediaTime()
+        positionUpdateWallTime = platformMediaTime()
     }
 
     // MARK: - Lifecycle
@@ -456,7 +460,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     public func resumeUpdates() {
         guard isPaused else { return }
         isPaused = false
-        positionUpdateWallTime = CACurrentMediaTime()
+        positionUpdateWallTime = platformMediaTime()
 
         // Restart the timer now that we're unpaused.
         // Also handles the case where visualization was enabled after activateTimeline()
@@ -519,7 +523,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
         // Interpolate playback position using wall-clock time since last update
         // This gives smooth 30fps updates between the 0.5s periodic observer ticks
-        let wallElapsed = CACurrentMediaTime() - positionUpdateWallTime
+        let wallElapsed = platformMediaTime() - positionUpdateWallTime
         let interpolatedTime = currentPlaybackTime + wallElapsed
 
         let newBands = timeline.bands(at: interpolatedTime)
@@ -568,7 +572,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         progressHandler: ProgressHandler? = nil
     ) -> FrequencyTimeline? {
         #if DEBUG
-        let startTime = CACurrentMediaTime()
+        let startTime = platformMediaTime()
         NSLog("[FrequencyAnalysis] analyzeFile START: %@", fileURL.lastPathComponent)
         #endif
 
@@ -762,7 +766,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         guard !keyframes.isEmpty else { return nil }
 
         #if DEBUG
-        let elapsed = CACurrentMediaTime() - startTime
+        let elapsed = platformMediaTime() - startTime
         NSLog("[FrequencyAnalysis] Complete: %d keyframes for %.1fs (took %.2fs)",
               keyframes.count, duration, elapsed)
         #endif

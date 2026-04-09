@@ -2,6 +2,141 @@ import AVFoundation
 import EnsembleAPI
 import Foundation
 
+#if os(watchOS)
+
+// MARK: - Stream Download Errors
+
+enum ProgressiveStreamError: Error, LocalizedError {
+    case httpError(statusCode: Int, bodySnippet: String?)
+    case invalidPayload(bytesReceived: Int64)
+
+    var errorDescription: String? {
+        switch self {
+        case .httpError(let code, let snippet):
+            return "Server returned HTTP \(code)" + (snippet.map { ": \($0)" } ?? "")
+        case .invalidPayload(let bytes):
+            return "Server returned invalid audio data (\(bytes) bytes)"
+        }
+    }
+}
+
+/// watchOS does not expose AVAssetResourceLoader. For watch playback we fall back
+/// to downloading the resolved transcode stream into a temp file before playback.
+final class ProgressiveStreamLoader: NSObject, @unchecked Sendable {
+    static let customScheme = "ensemble-transcode"
+
+    static func customSchemeURL(from originalURL: URL) -> URL? {
+        originalURL
+    }
+
+    var onDownloadComplete: ((URL, Double?) -> Void)?
+    var onDownloadFailed: ((Error) -> Void)?
+
+    private let fileURL: URL
+    private let ratingKey: String
+    private let metadataDuration: Double?
+    private let lock = NSLock()
+    private var downloadTask: Task<Void, Never>?
+    private var _currentFileSize: Int64 = 0
+    private var _isDownloadComplete = false
+    private var _completionError: Error?
+
+    var currentFileSize: Int64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return _currentFileSize
+    }
+
+    var isDownloadComplete: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _isDownloadComplete
+    }
+
+    var completionError: Error? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _completionError
+    }
+
+    var localFileURL: URL { fileURL }
+
+    init(
+        request: URLRequest,
+        ratingKey: String,
+        estimatedContentLength: Int64,
+        metadataDuration: Double?
+    ) {
+        self.ratingKey = ratingKey
+        self.metadataDuration = metadataDuration
+
+        let cacheDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        let sessionId = UUID().uuidString.prefix(8)
+        self.fileURL = cacheDir.appendingPathComponent("\(ratingKey)_\(sessionId).mp3")
+
+        super.init()
+
+        _ = estimatedContentLength
+
+        downloadTask = Task { [weak self] in
+            await self?.download(request)
+        }
+    }
+
+    func cancel() {
+        downloadTask?.cancel()
+        lock.lock()
+        _isDownloadComplete = true
+        _completionError = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
+        lock.unlock()
+    }
+
+    deinit {
+        downloadTask?.cancel()
+    }
+
+    private func download(_ request: URLRequest) async {
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let httpResponse = response as? HTTPURLResponse,
+               !(200...299).contains(httpResponse.statusCode) {
+                let snippet = String(data: data.prefix(200), encoding: .utf8)
+                throw ProgressiveStreamError.httpError(
+                    statusCode: httpResponse.statusCode,
+                    bodySnippet: snippet
+                )
+            }
+
+            let bytes = Int64(data.count)
+            guard bytes >= 256 else {
+                throw ProgressiveStreamError.invalidPayload(bytesReceived: bytes)
+            }
+
+            try data.write(to: fileURL)
+
+            lock.lock()
+            _currentFileSize = bytes
+            _isDownloadComplete = true
+            lock.unlock()
+
+            onDownloadComplete?(fileURL, metadataDuration)
+        } catch {
+            guard !Task.isCancelled else { return }
+            lock.lock()
+            _isDownloadComplete = true
+            _completionError = error
+            lock.unlock()
+            onDownloadFailed?(error)
+            EnsembleLogger.debug("📡 ProgressiveStreamLoader: watch download failed for \(ratingKey): \(error.localizedDescription)")
+        }
+    }
+}
+
+#else
+
 // MARK: - Stream Download Errors
 
 /// Errors detected during progressive stream download (HTTP status, payload validation).
@@ -474,3 +609,5 @@ extension ProgressiveStreamLoader: URLSessionDataDelegate {
         }
     }
 }
+
+#endif

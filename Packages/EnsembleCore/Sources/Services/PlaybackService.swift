@@ -935,7 +935,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var audioSessionRouteChangeObserver: Any?
     /// Background task identifier used to keep the app alive during track transitions.
     /// Without this, iOS may suspend the app between tracks when no audio is playing.
-    #if canImport(UIKit)
+    #if os(iOS)
     private var trackTransitionBackgroundTask: UIBackgroundTaskIdentifier = .invalid
     #endif
     private var activeSeek: SeekOperation?
@@ -1397,7 +1397,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         currentQueueIndex = index
         currentTrack = newTrack
         consecutivePlaybackFailures = 0  // Successful gapless advance = healthy playback
-        trackStartWallTime = CACurrentMediaTime()
+        trackStartWallTime = ProcessInfo.processInfo.systemUptime
         updatePlaybackTimes(rawTime: 0)
         bufferedProgress = 1.0
         waveformHeights = []
@@ -1672,7 +1672,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Without this, iOS may suspend the app between tracks (when no audio is
     /// actively playing), preventing the next track from loading and starting.
     private func beginTrackTransitionBackgroundTask() {
-        #if canImport(UIKit)
+        #if os(iOS)
         guard trackTransitionBackgroundTask == .invalid else { return }
         trackTransitionBackgroundTask = UIApplication.shared.beginBackgroundTask(
             withName: "TrackTransition"
@@ -1686,7 +1686,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Ends the background task once the new track is playing (or failed).
     private func endTrackTransitionBackgroundTask() {
-        #if canImport(UIKit)
+        #if os(iOS)
         guard trackTransitionBackgroundTask != .invalid else { return }
         EnsembleLogger.debug("🔓 Background task ended for track transition")
         UIApplication.shared.endBackgroundTask(trackTransitionBackgroundTask)
@@ -2105,7 +2105,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // intentional rapid skips (typically >500ms apart).
         commandCenter.nextTrackCommand.addTarget { [weak self] _ in
             guard let self else { return .noActionableNowPlayingItem }
-            let now = CACurrentMediaTime()
+            let now = ProcessInfo.processInfo.systemUptime
             if now - self.lastRemoteSkipTime < 0.3 {
                 return .success
             }
@@ -2116,7 +2116,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         commandCenter.previousTrackCommand.addTarget { [weak self] _ in
             guard let self else { return .noActionableNowPlayingItem }
-            let now = CACurrentMediaTime()
+            let now = ProcessInfo.processInfo.systemUptime
             if now - self.lastRemoteSkipTime < 0.3 {
                 return .success
             }
@@ -2132,7 +2132,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
 
             let position = event.positionTime
-            let trackAge = CACurrentMediaTime() - self.trackStartWallTime
+            let trackAge = ProcessInfo.processInfo.systemUptime - self.trackStartWallTime
 
             // Reject stale position commands that arrive shortly after a track change.
             // iOS can send changePlaybackPositionCommand with a position from the
@@ -2944,7 +2944,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // stops and restarts the engine, and the restart picks up the new buffer size.
             // 93ms (~4096 frames at 44.1kHz) gives AUSoundIsolation enough headroom to
             // complete its neural network pass even when CPU is busy with SwiftUI layout.
-            #if !os(macOS)
+            #if os(iOS)
             let session = AVAudioSession.sharedInstance()
             let preferredDuration: TimeInterval = enabled ? 0.093 : 0.023
             try? session.setPreferredIOBufferDuration(preferredDuration)
@@ -2953,7 +2953,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try audioEngine?.setIsolationEnabled(enabled)
             isInstrumentalModeActive = enabled
 
-            #if !os(macOS) && DEBUG
+            #if os(iOS) && DEBUG
             EnsembleLogger.debug("[Playback] IO buffer duration: preferred=\(preferredDuration), actual=\(AVAudioSession.sharedInstance().ioBufferDuration)")
             #endif
 
@@ -4405,7 +4405,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try engine.load(fileURL: fileURL, trackId: track.id)
             try engine.play()
             refreshPresentationLatencyEstimate()
-            trackStartWallTime = CACurrentMediaTime()
+            trackStartWallTime = ProcessInfo.processInfo.systemUptime
             playbackState = .playing
             updateNowPlayingInfo()
             audioAnalyzer.resumeUpdates()

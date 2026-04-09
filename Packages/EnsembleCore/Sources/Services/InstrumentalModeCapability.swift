@@ -1,4 +1,6 @@
+#if canImport(AudioToolbox)
 import AudioToolbox
+#endif
 import AVFoundation
 
 /// Static utility that probes for AUSoundIsolation AudioComponent availability at app launch.
@@ -6,6 +8,7 @@ import AVFoundation
 /// No hardcoded chip list needed -- if the AudioComponent exists on the device, it's supported.
 public enum InstrumentalModeCapability {
     public static let isSupported: Bool = {
+        #if canImport(AudioToolbox)
         guard #available(iOS 16.0, macOS 13.0, *) else { return false }
         var desc = AudioComponentDescription(
             componentType: kAudioUnitType_Effect,
@@ -17,5 +20,8 @@ public enum InstrumentalModeCapability {
         let found = AudioComponentFindNext(nil, &desc) != nil
         EnsembleLogger.debug("[InstrumentalMode] AUSoundIsolation probe: \(found ? "available" : "not found")")
         return found
+        #else
+        return false
+        #endif
     }()
 }

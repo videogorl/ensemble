@@ -180,7 +180,7 @@ public final class UserProfileStore: ObservableObject {
 
     /// Resize and compress image data to a square JPEG thumbnail
     private static func processImageData(_ data: Data) -> Data? {
-        #if canImport(UIKit)
+        #if os(iOS) || os(tvOS)
         guard let image = UIImage(data: data) else { return nil }
         let size = CGSize(width: avatarMaxSize, height: avatarMaxSize)
         let renderer = UIGraphicsImageRenderer(size: size)
@@ -188,6 +188,11 @@ public final class UserProfileStore: ObservableObject {
             image.draw(in: CGRect(origin: .zero, size: size))
         }
         return resized.jpegData(compressionQuality: avatarCompressionQuality)
+        #elseif os(watchOS)
+        // UIGraphicsImageRenderer is unavailable on watchOS. Keep the watch path
+        // simple and re-encode the image without a resize so profile sync still works.
+        guard let image = UIImage(data: data) else { return nil }
+        return image.jpegData(compressionQuality: avatarCompressionQuality)
         #elseif canImport(AppKit)
         guard let nsImage = NSImage(data: data) else { return nil }
         let size = NSSize(width: avatarMaxSize, height: avatarMaxSize)

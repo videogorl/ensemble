@@ -1,7 +1,15 @@
+#if canImport(AudioToolbox)
 import AudioToolbox
+#endif
 import AVFoundation
 import Combine
 import QuartzCore
+
+#if os(watchOS)
+private typealias PlatformIsolationEffect = AnyObject
+#else
+private typealias PlatformIsolationEffect = AVAudioUnitEffect
+#endif
 
 /// General-purpose AVAudioEngine wrapper for file-based audio playback.
 /// Replaces AVQueuePlayer with direct PCM scheduling for gapless transitions,
@@ -31,17 +39,19 @@ public final class AudioPlaybackEngine {
     // MARK: - Isolation Effect (lazy, toggleable)
 
     /// AUSoundIsolation effect node -- created lazily on first isolation toggle
-    private var isolationEffect: AVAudioUnitEffect?
+    private var isolationEffect: PlatformIsolationEffect?
     /// Whether the isolation node has been created (lazy init guard)
     private var isolationNodeCreated = false
     /// Whether the isolation effect is currently in the signal chain
     private(set) var isIsolationActive = false
     /// Whether the v0 neural network model was successfully loaded
     private var musicModelLoaded = false
+    #if canImport(AudioToolbox)
     /// Undocumented AU properties (from QuietNow + reverse engineering)
     private let kNeuralNetPlistPath: AudioUnitPropertyID = 30000
     private let kNeuralNetModelBasePath: AudioUnitPropertyID = 40000
     private let kDeverbPresetPathOverride: AudioUnitPropertyID = 50000
+    #endif
 
     // MARK: - Playback State
 
@@ -181,6 +191,9 @@ public final class AudioPlaybackEngine {
 
         // Disconnect existing connections from playerNode
         engine.disconnectNodeOutput(playerNode)
+        #if os(watchOS)
+        engine.connect(playerNode, to: mainMixer, format: connectFormat)
+        #else
         if let effect = isolationEffect {
             engine.disconnectNodeOutput(effect)
         }
@@ -194,6 +207,7 @@ public final class AudioPlaybackEngine {
             // No isolation effect created (or unavailable) — direct path
             engine.connect(playerNode, to: mainMixer, format: connectFormat)
         }
+        #endif
     }
 
     // MARK: - Route Change Recovery
@@ -318,6 +332,7 @@ public final class AudioPlaybackEngine {
     /// assertion crash on iOS 26+ (the AU's neural network requires stereo I/O).
     /// Then loads the v0 neural network model for high-quality vocal isolation.
     private func createIsolationEffect() throws {
+        #if canImport(AudioToolbox)
         guard !isolationNodeCreated else { return }
 
         var desc = AudioComponentDescription(
@@ -362,11 +377,15 @@ public final class AudioPlaybackEngine {
         #if DEBUG
         dumpAUParameters(au: effect.audioUnit, label: "after attach + model load")
         #endif
+        #else
+        throw AudioPlaybackEngineError.soundIsolationUnavailable
+        #endif
     }
 
     /// Set the stream format on the AU before initialization.
     /// Must be called BEFORE engine.attach() which triggers AU initialization.
-    private func configureAUFormat(for effect: AVAudioUnitEffect) {
+    private func configureAUFormat(for effect: PlatformIsolationEffect) {
+        #if canImport(AudioToolbox)
         let au = effect.audioUnit
 
         // The AU's neural network requires stereo (2-channel) I/O.
@@ -390,6 +409,9 @@ public final class AudioPlaybackEngine {
                              &maxFrames, UInt32(MemoryLayout<UInt32>.size))
 
         EnsembleLogger.debug("[AudioEngine] AU format configured: \(format)")
+        #else
+        _ = effect
+        #endif
     }
 
     /// Load the v0 neural network model into the AUSoundIsolation unit.
@@ -403,7 +425,8 @@ public final class AudioPlaybackEngine {
     /// - 40000: base path for resolving relative model file paths in the plist
     /// - 50000: dereverb preset path (set to empty to disable)
     /// - Parameters 0x17626/0x17627: tuning mode (activates v0 model processing)
-    private func loadMusicModel(for effect: AVAudioUnitEffect) {
+    private func loadMusicModel(for effect: PlatformIsolationEffect) {
+        #if canImport(AudioToolbox)
         let au = effect.audioUnit
 
         // Search for the v0 model plist in known locations.
@@ -471,12 +494,16 @@ public final class AudioPlaybackEngine {
         musicModelLoaded = true
 
         EnsembleLogger.debug("[AudioEngine] v0 model loaded from: \(plistPath), base: \(basePath)")
+        #else
+        _ = effect
+        #endif
     }
 
     /// Load the high-quality-voice model for macOS vocal isolation.
     /// This model uses MIL2BNNS (vs Espresso for v0) and may produce cleaner vocal
     /// separation on macOS, improving the complementary instrumental output.
-    private func loadHighQualityVoiceModel(for effect: AVAudioUnitEffect) {
+    private func loadHighQualityVoiceModel(for effect: PlatformIsolationEffect) {
+        #if canImport(AudioToolbox)
         let au = effect.audioUnit
         let basePath = "/System/Library/Components/AudioDSP.component/Contents/Resources/Tunings"
         let plistPath = basePath + "/Generic/AU/SoundIsolation/aufx-vois-appl-nnet-vi-high-quality-voice.plist"
@@ -503,8 +530,12 @@ public final class AudioPlaybackEngine {
 
         musicModelLoaded = true
         EnsembleLogger.debug("[AudioEngine] macOS: high-quality-voice model loaded from: \(plistPath)")
+        #else
+        _ = effect
+        #endif
     }
 
+    #if canImport(AudioToolbox)
     /// Set a CFString property on an AudioUnit, avoiding the UnsafeRawPointer warning.
     private func setAUStringProperty(_ au: AudioUnit, property: AudioUnitPropertyID, value: String) {
         var cfStr = value as CFString
@@ -513,6 +544,7 @@ public final class AudioPlaybackEngine {
                                  ptr, UInt32(MemoryLayout<CFString>.size))
         }
     }
+    #endif
 
     /// Toggle vocal isolation on or off. Lazily creates the AU on first enable.
     ///
@@ -614,7 +646,8 @@ public final class AudioPlaybackEngine {
     /// network doesn't run at all — just setting wetDryMix=0 still invokes the render callback.
     ///
     /// Uses the C API because AUSoundIsolation hides parameters from the AUParameterTree.
-    private func applyIsolationParameters(to effect: AVAudioUnitEffect? = nil) {
+    private func applyIsolationParameters(to effect: PlatformIsolationEffect? = nil) {
+        #if canImport(AudioToolbox)
         let target = effect ?? isolationEffect
         guard let target else { return }
         let au = target.audioUnit
@@ -656,8 +689,12 @@ public final class AudioPlaybackEngine {
         AudioUnitGetParameter(au, 0, kAudioUnitScope_Global, 0, &wetDry)
         AudioUnitGetParameter(au, 1, kAudioUnitScope_Global, 0, &isolate)
         EnsembleLogger.debug("[AudioEngine] Isolation params: wetDry=\(wetDry), soundToIsolate=\(isolate), active=\(isIsolationActive), bypass=\(bypass), modelLoaded=\(musicModelLoaded)")
+        #else
+        _ = effect
+        #endif
     }
 
+    #if canImport(AudioToolbox)
     /// Dump all parameters exposed by the AU via both the C API and the AUParameterTree.
     private func dumpAUParameters(au: AudioUnit, label: String) {
         EnsembleLogger.debug("[AudioEngine] === Parameter dump (\(label)) ===")
@@ -682,6 +719,7 @@ public final class AudioPlaybackEngine {
         }
         EnsembleLogger.debug("[AudioEngine] === End parameter dump ===")
     }
+    #endif
 
     // MARK: - File Loading
 
@@ -1111,7 +1149,7 @@ public final class AudioPlaybackEngine {
             // Read the struct once — value copy gives a consistent snapshot even
             // if the main thread updates it mid-read during a gapless transition.
             let base = self.timeBase
-            let elapsed = CACurrentMediaTime() - base.wallTime
+            let elapsed = ProcessInfo.processInfo.systemUptime - base.wallTime
             let estimated = min(base.position + elapsed, base.duration)
             self.currentTimeSubject.send(max(0, estimated))
         }
@@ -1127,7 +1165,7 @@ public final class AudioPlaybackEngine {
     ///   which accesses playerNode.lastRenderTime.
     private func captureWallTimeBase(position: TimeInterval? = nil) {
         timeBase = TimeBase(
-            wallTime: CACurrentMediaTime(),
+            wallTime: ProcessInfo.processInfo.systemUptime,
             position: position ?? currentTime(),
             duration: fileDuration
         )
@@ -1333,6 +1371,7 @@ public final class AudioPlaybackEngine {
         for url: URL,
         fileLength: AVAudioFramePosition
     ) -> (contentStartFrame: AVAudioFramePosition, contentFrameCount: AVAudioFrameCount) {
+        #if canImport(AudioToolbox)
         var audioFileID: AudioFileID?
         let status = AudioFileOpenURL(url as CFURL, .readPermission, 0, &audioFileID)
         guard status == noErr, let fileID = audioFileID else {
@@ -1390,6 +1429,10 @@ public final class AudioPlaybackEngine {
         }
 
         return (0, AVAudioFrameCount(fileLength))
+        #else
+        _ = url
+        return (0, AVAudioFrameCount(fileLength))
+        #endif
     }
 
     /// Parse LAME/Xing header from an MP3 file to extract encoder delay and padding.
