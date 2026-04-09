@@ -2273,7 +2273,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if let path = track.localFilePath, FileManager.default.fileExists(atPath: path) {
             return nil
         }
+        #if os(watchOS)
+        return "low"
+        #else
         return UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
+        #endif
     }
 
     /// Creates a QueueItem stamped with the current streaming quality

@@ -118,6 +118,50 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 
 ---
 
+## WatchRootView
+
+- **View name:** `WatchRootView`
+- **Canonical name:** WatchRootView
+- **Area:** Watch
+- **Platform:** watchOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Bootstrap loading view | state | Watch launch progress state while auth/KVS/sync bootstrap is running | `WatchBootstrapLoadingView` |
+| Authentication view | state | On-watch Plex PIN auth surface used when no synced credentials are available | `WatchAuthenticationView` |
+| Main menu | region | Root watch menu that mirrors the phone's enabled top-level tabs and shows pins below them | `WatchMainMenuView` |
+| Root destination row | control | Row that opens a top-level watch browse destination such as Home, Albums, Artists, Playlists, Search, or Downloads | `navigationRow` |
+| Pins section | region | Secondary list section of resolved pinned items below the top-level rows | `pinsSection` |
+| Pin row | control | Compact row for a pinned album, artist, or playlist | `WatchPinRow` |
+| Downloads row | control | Root row that opens watch download status and offline target toggles | `WatchDownloadsView` |
+
+---
+
+## WatchNowPlayingView
+
+- **View name:** `WatchNowPlayingView`
+- **Canonical name:** WatchNowPlayingView
+- **Area:** Player
+- **Platform:** watchOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Playback target picker | control | Segmented/device menu that switches between watch-local playback and iPhone remote playback | `selectedTarget`, `availableTargets` |
+| Compact artwork | artwork | Square artwork shown above controls in the watch player | `WatchArtworkImage` |
+| Track metadata | region | Title and artist summary for the active local or remote session | `trackMetadataSection` |
+| Compact progress row | indicator | Time/progress display for the current session | `formattedCurrentTime`, `formattedRemainingTime` |
+| Primary transport row | control | Previous, play/pause, next controls sized for watch interaction | `previous`, `togglePlayPause`, `next` |
+| More menu | menu | Queue-oriented overflow actions (shuffle, repeat, clear queue, etc.) | `moreActionsMenu` |
+| Track row more action | gesture | Single watch swipe action that opens the semantic track action menu | `swipeActions`, `confirmationDialog` |
+
+---
+
 ## HomeView
 
 - **View name:** `HomeView`

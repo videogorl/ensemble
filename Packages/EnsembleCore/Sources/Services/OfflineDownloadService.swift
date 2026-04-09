@@ -2148,7 +2148,11 @@ public final class OfflineDownloadService: ObservableObject {
         case .interactivePlayback:
             limit = Self.interactivePlaybackConcurrentDownloads
         case .foregroundIdle:
+            #if os(watchOS)
+            limit = 1
+            #else
             limit = Self.maxConcurrentDownloads
+            #endif
         case .background:
             limit = 1
         }
@@ -2338,6 +2342,9 @@ public final class OfflineDownloadService: ObservableObject {
     // MARK: - Helpers
 
     private func currentDownloadQuality() -> String {
+        #if os(watchOS)
+        return "low"
+        #else
         let raw = UserDefaults.standard.string(forKey: "downloadQuality") ?? "high"
         switch raw {
         case "original", "high", "medium", "low":
@@ -2345,6 +2352,7 @@ public final class OfflineDownloadService: ObservableObject {
         default:
             return "high"
         }
+        #endif
     }
 
     private func streamingQuality(from raw: String?) -> StreamingQuality {

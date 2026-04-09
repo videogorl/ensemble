@@ -124,6 +124,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `PowerStateMonitor` (@MainActor ObservableObject) -- Observes iOS Low Power Mode via `NSProcessInfoPowerStateDidChange` and publishes `isLowPowerMode: Bool`. Consumers (Aurora visualizer, LyricsCard, download service) read this to reduce GPU passes, frame rates, and network work when the device is in LPM
 - `SongLinkService` (actor) -- Resolves universal song.link URLs for tracks and albums via MusicKit catalog search + song.link API; in-memory cache with positive/negative entries
 - `ShareService` (@MainActor) -- Coordinates share payloads: link (song.link/Apple Music URL), text (fallback), or file (local download or temp download via Plex stream URL)
+- `WatchBootstrapCoordinator` (@MainActor) -- watch launch orchestration seam that stages local account load, synchronizable keychain discovery, KVS hydration, provider refresh, network monitor start, and first-sync gating for independent watch startup
+- `WatchConnectivityCoordinator` (@MainActor) -- thin Watch Connectivity boundary for immediate remote commands (`sendMessage`) and latest-state sync (`applicationContext`); publishes remote now-playing snapshots and selected playback target while keeping watch library data sourced locally/directly
 
 **Key Models:**
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
@@ -138,9 +140,11 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `Mood` -- Plex mood/vibe category (title and ratingKey)
 - `SiriPlaybackRequestPayload` / `SiriMediaKind` -- Versioned extension -> app handoff contract for Siri media intents
 - `SiriMediaIndex` / `SiriMediaIndexItem` -- Compact index records used by extension-side lookup/ranking
+- `WatchPlaybackTarget`, `WatchPlaybackState`, `WatchRemoteCommand`, `WatchRemoteSessionSnapshot`, `WatchRemoteCommandResponse` -- watch playback contracts shared between the independent watch UI, local playback, and the iPhone remote-control bridge
 
 **Key ViewModels:**
 - `PinnedViewModel` -- Fetches `PinnedItem` CoreData records and resolves them into full domain objects
+- `WatchPlaybackHub` -- Unified watch-facing now-playing model that switches between direct watch playback and mirrored iPhone remote snapshots without forcing the watch UI to care about the underlying transport owner
 
 ### EnsembleUI (Presentation Layer)
 - **Location:** `Packages/EnsembleUI/`
@@ -181,6 +185,10 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - `MusicSourceIdentifier` tracks source origin (accountId, serverId, libraryId)
   - `SyncCoordinator` orchestrates syncing across all enabled sources
   - Provider pattern allows pluggable sync implementations
+- **Independent-watch-first architecture** -- The watch app uses the shared `DependencyContainer` and local Core Data/network stack, with Watch Connectivity reserved for optional iPhone remote control and latest-state mirroring rather than primary data transport
+  - `WatchBootstrapCoordinator` stages auth/sync/bootstrap order for watch launch
+  - `WatchPlaybackHub` presents a single now-playing surface while switching between `.watchLocal` and `.iPhoneRemote`
+  - `WatchConnectivityCoordinator` keeps remote commands/state isolated from browse/download/data ownership
 
 ## Subsystem: Artwork Caching
 
@@ -495,8 +503,22 @@ PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (
   - `EnsembleApp.swift` -- Scene-based lifecycle with environment injection
   - `AppDelegate.swift` (iOS) -- AVAudioSession, remote commands, network monitoring
 
-- **EnsembleWatch** (`Ensemble/EnsembleWatch/`) -- watchOS
-  - `WatchRootView.swift` -- Consolidated views (auth, library, now playing)
+- **EnsembleWatch** (`EnsembleWatch/`) -- watchOS
+  - `EnsembleWatchApp.swift` -- watch app entry point; registers low-quality watch defaults for streaming/downloads
+  - `WatchRootView.swift` -- Consolidated watch shell (bootstrap, auth, mirrored browse root, pins, search, downloads, now playing)
+  - `EnsembleWatch.entitlements` -- Independent-watch iCloud/App Group entitlements
+
+## Subsystem: Apple Watch
+
+Independent watch app behavior with optional iPhone remote playback:
+
+- `WatchBootstrapCoordinator` owns launch order on watch: activate Watch Connectivity, load local accounts, attempt synchronizable credential discovery, wait for KVS settlement, apply synced library flags, refresh providers, start monitoring, then run startup sync/health work
+- `WatchPlaybackHub` is the watch UI seam for Now Playing; it reads local `PlaybackServiceProtocol` publishers when the watch owns playback and reads `WatchConnectivityCoordinator.remoteSnapshot` when the iPhone owns playback
+- `WatchConnectivityCoordinator` uses:
+  - `sendMessage` for command/response interactions that need failure handling (`play`, `next`, `seek`, queue actions)
+  - `applicationContext` for latest-state-wins payloads such as remote now-playing snapshots, reachability, and selected target metadata
+- The watch browses its own synced catalog in both playback modes. Switching targets changes command routing, not library ownership.
+- watchOS-specific transport policy forces low-quality streaming/download resolution and conservative offline worker concurrency so playback and downloads do not compete aggressively on watch hardware
 
 ## Subsystem: Playlist Mutations
 

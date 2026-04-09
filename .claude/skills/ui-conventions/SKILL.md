@@ -146,6 +146,15 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Playlist menu (Playlists screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Pin/Unpin`, plus (for non-smart playlists) `Rename…`, `Edit Playlist`, `Delete`
 - Playlist menu (Search screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Pin/Unpin` (non-destructive only)
 
+### watchOS
+- Keep the watch shell list-first and glanceable. Use a `NavigationStack` root with top-level destinations first and pins below; do not recreate the phone's dense multi-column layouts on watch.
+- The watch root menu should mirror `SettingsManager.enabledTabs` ordering for the core top-level items (`Home`, `Albums`, `Artists`, `Playlists`, `Search`, etc.), then render pins as a second section.
+- Watch search should stay system-native (`.searchable`, dictation, Scribble/keyboard). Do not build custom text entry chrome.
+- Watch Now Playing stays intentionally simple: artwork, title/artist, progress, previous/play-pause/next, explicit playback-target picker, and a compact `More` menu for queue controls.
+- Track rows on watch should prefer one leading/trailing affordance that opens a confirmation dialog or context menu rather than exposing the full iPhone swipe action surface at once.
+- Keep watch action semantics aligned with iPhone track actions even if the presentation differs. `Play Next`, `Play Last`, `Add to Playlist…`, favorite toggle, and download toggle should mean the same thing on both platforms.
+- Favor inline status text and small sections over large empty decorative regions. On watch, every row must justify its height.
+
 ## Visual Design
 
 ### Artwork Display

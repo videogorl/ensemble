@@ -73,6 +73,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Register optional iOS 26+ continued processing handler for offline downloads.
         DependencyContainer.shared.offlineBackgroundExecutionCoordinator.register()
 
+        // Publish playback snapshots and accept remote transport commands from the watch.
+        DependencyContainer.shared.watchConnectivityCoordinator.activate()
+
         // CloudKit profile sync relies on silent push delivery for live updates.
         application.registerForRemoteNotifications()
 

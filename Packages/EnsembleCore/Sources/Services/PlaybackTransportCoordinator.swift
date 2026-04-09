@@ -103,7 +103,11 @@ final class PlaybackTransportCoordinator {
     }
 
     private func resolveAudioFileImpl(for track: Track) async throws -> URL {
+        #if os(watchOS)
+        let qualityString = "low"
+        #else
         let qualityString = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
+        #endif
         let quality = StreamingQuality(rawValue: qualityString) ?? .high
 
         let networkState = await dependencies.networkState()

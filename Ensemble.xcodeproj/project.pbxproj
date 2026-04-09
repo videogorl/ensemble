@@ -75,6 +75,7 @@
 		E0002002 /* WatchRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchRootView.swift; sourceTree = "<group>"; };
 		E0002004 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E0002006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		E0002007 /* EnsembleWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = EnsembleWatch.entitlements; sourceTree = "<group>"; };
 		E0004000 /* EnsembleAPI */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleAPI; path = Packages/EnsembleAPI; sourceTree = "<group>"; };
 		E0004001 /* EnsembleCore */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleCore; path = Packages/EnsembleCore; sourceTree = "<group>"; };
 		E0004002 /* EnsembleUI */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleUI; path = Packages/EnsembleUI; sourceTree = "<group>"; };
@@ -140,6 +141,7 @@
 				E0100021 /* Views */,
 				E0100022 /* Resources */,
 				E0002006 /* Info.plist */,
+				E0002007 /* EnsembleWatch.entitlements */,
 			);
 			path = EnsembleWatch;
 			sourceTree = "<group>";
@@ -657,6 +659,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = EnsembleWatch/EnsembleWatch.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 86QFS2R7RZ;
@@ -670,11 +673,12 @@
 				MARKETING_VERSION = 0.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ensemble.app.watchkitapp;
 				PRODUCT_NAME = "Ensemble Watch";
-				SDKROOT = watchos;
-				SKIP_INSTALL = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
+					SDKROOT = watchos;
+					SKIP_INSTALL = YES;
+					SUPPORTED_PLATFORMS = "watchos watchsimulator";
+					SWIFT_EMIT_LOC_STRINGS = YES;
+					SWIFT_VERSION = 5.0;
+					TARGETED_DEVICE_FAMILY = 4;
 				VERSIONING_SYSTEM = "apple-generic";
 				WATCHOS_DEPLOYMENT_TARGET = 8.0;
 			};
@@ -685,6 +689,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = EnsembleWatch/EnsembleWatch.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 86QFS2R7RZ;
@@ -698,10 +703,11 @@
 				MARKETING_VERSION = 0.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ensemble.app.watchkitapp;
 				PRODUCT_NAME = "Ensemble Watch";
-				SDKROOT = watchos;
-				SKIP_INSTALL = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+					SDKROOT = watchos;
+					SKIP_INSTALL = YES;
+					SUPPORTED_PLATFORMS = "watchos watchsimulator";
+					SWIFT_EMIT_LOC_STRINGS = YES;
+					SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				VALIDATE_PRODUCT = YES;
 				VERSIONING_SYSTEM = "apple-generic";

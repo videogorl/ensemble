@@ -57,6 +57,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let shareService: ShareService
     public let powerStateMonitor: PowerStateMonitor
     public let persistentLogService: PersistentLogService
+    public let watchConnectivityCoordinator: WatchConnectivityCoordinator
 
     // MARK: - Profile & Cloud Sync
 
@@ -65,6 +66,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let syncSettingsManager: SyncSettingsManager
     public let kvsSyncService: KVSSyncService
     private var kvsSyncCancellables = Set<AnyCancellable>()
+    private var watchConnectivityCancellables = Set<AnyCancellable>()
     private var lastSyncedAccentColor: String = AppAccentColor.blue.rawValue
     private var lastSyncedSwipeLayout: TrackSwipeLayout = .default
     private var lastSyncedPinsData: Data?
@@ -269,6 +271,10 @@ public final class DependencyContainer: @unchecked Sendable {
         persistentLogService = logServiceRef
         MainActor.assumeIsolated { logServiceRef.installHandlers() }
 
+        var watchConnectivityCancellablesRef = Set<AnyCancellable>()
+        let watchConnectivityRef = MainActor.assumeIsolated { WatchConnectivityCoordinator() }
+        watchConnectivityCoordinator = watchConnectivityRef
+
         // User profile store — local persistence for profile name + avatar
         let profileStoreRef = MainActor.assumeIsolated { UserProfileStore() }
         userProfileStore = profileStoreRef
@@ -389,6 +395,150 @@ public final class DependencyContainer: @unchecked Sendable {
                 offlineServiceRef?.shouldDeferForegroundHealthRefresh ?? false
             }
         }
+
+        #if os(iOS)
+        MainActor.assumeIsolated {
+            let publishSnapshot = { [weak watchConnectivityRef, weak playbackServiceRef] in
+                guard let watchConnectivityRef, let playbackServiceRef else { return }
+                let snapshot = WatchRemoteSessionSnapshot(
+                    currentTrack: playbackServiceRef.currentTrack,
+                    playbackState: WatchPlaybackState(playbackServiceRef.playbackState),
+                    playbackError: {
+                        if case .failed(let message) = playbackServiceRef.playbackState {
+                            return message
+                        }
+                        return nil
+                    }(),
+                    currentTime: playbackServiceRef.currentTimeValue,
+                    duration: playbackServiceRef.duration,
+                    currentQueueIndex: playbackServiceRef.currentQueueIndex,
+                    queueCount: playbackServiceRef.queue.count,
+                    isShuffleEnabled: playbackServiceRef.isShuffleEnabled,
+                    repeatModeRawValue: playbackServiceRef.repeatMode.rawValue,
+                    sourceName: "iPhone"
+                )
+                watchConnectivityRef.publishRemoteSnapshot(snapshot)
+            }
+
+            watchConnectivityRef.commandHandler = { [weak playbackServiceRef] command in
+                guard let playbackServiceRef else {
+                    return WatchRemoteCommandResponse(accepted: false, errorMessage: "Playback service is unavailable.")
+                }
+
+                switch command.kind {
+                case .playTrack:
+                    guard let track = command.track else {
+                        return WatchRemoteCommandResponse(accepted: false, errorMessage: "Missing track payload.")
+                    }
+                    await playbackServiceRef.play(track: track)
+
+                case .playTracks:
+                    guard !command.tracks.isEmpty else {
+                        return WatchRemoteCommandResponse(accepted: false, errorMessage: "Missing track list.")
+                    }
+                    await playbackServiceRef.play(tracks: command.tracks, startingAt: command.startingIndex ?? 0)
+
+                case .togglePlayPause:
+                    switch playbackServiceRef.playbackState {
+                    case .playing:
+                        playbackServiceRef.pause()
+                    case .failed:
+                        await playbackServiceRef.retryCurrentTrack()
+                    default:
+                        playbackServiceRef.resume()
+                    }
+
+                case .next:
+                    playbackServiceRef.next()
+
+                case .previous:
+                    playbackServiceRef.previous()
+
+                case .playNext:
+                    guard let track = command.track else {
+                        return WatchRemoteCommandResponse(accepted: false, errorMessage: "Missing track payload.")
+                    }
+                    playbackServiceRef.playNext(track)
+
+                case .playLast:
+                    guard let track = command.track else {
+                        return WatchRemoteCommandResponse(accepted: false, errorMessage: "Missing track payload.")
+                    }
+                    playbackServiceRef.playLast(track)
+
+                case .seek:
+                    guard let time = command.time else {
+                        return WatchRemoteCommandResponse(accepted: false, errorMessage: "Missing seek time.")
+                    }
+                    playbackServiceRef.seek(to: time)
+
+                case .toggleShuffle:
+                    playbackServiceRef.toggleShuffle()
+
+                case .cycleRepeatMode:
+                    playbackServiceRef.cycleRepeatMode()
+
+                case .clearQueue:
+                    playbackServiceRef.clearQueue()
+                }
+
+                let snapshot = WatchRemoteSessionSnapshot(
+                    currentTrack: playbackServiceRef.currentTrack,
+                    playbackState: WatchPlaybackState(playbackServiceRef.playbackState),
+                    playbackError: {
+                        if case .failed(let message) = playbackServiceRef.playbackState {
+                            return message
+                        }
+                        return nil
+                    }(),
+                    currentTime: playbackServiceRef.currentTimeValue,
+                    duration: playbackServiceRef.duration,
+                    currentQueueIndex: playbackServiceRef.currentQueueIndex,
+                    queueCount: playbackServiceRef.queue.count,
+                    isShuffleEnabled: playbackServiceRef.isShuffleEnabled,
+                    repeatModeRawValue: playbackServiceRef.repeatMode.rawValue,
+                    sourceName: "iPhone"
+                )
+                watchConnectivityRef.publishRemoteSnapshot(snapshot)
+                return WatchRemoteCommandResponse(accepted: true, snapshot: snapshot)
+            }
+
+            playbackServiceRef.currentTrackPublisher
+                .receive(on: DispatchQueue.main)
+                .sink { _ in publishSnapshot() }
+                .store(in: &watchConnectivityCancellablesRef)
+
+            playbackServiceRef.playbackStatePublisher
+                .receive(on: DispatchQueue.main)
+                .sink { _ in publishSnapshot() }
+                .store(in: &watchConnectivityCancellablesRef)
+
+            playbackServiceRef.queuePublisher
+                .receive(on: DispatchQueue.main)
+                .sink { _ in publishSnapshot() }
+                .store(in: &watchConnectivityCancellablesRef)
+
+            playbackServiceRef.currentQueueIndexPublisher
+                .receive(on: DispatchQueue.main)
+                .sink { _ in publishSnapshot() }
+                .store(in: &watchConnectivityCancellablesRef)
+
+            playbackServiceRef.shufflePublisher
+                .receive(on: DispatchQueue.main)
+                .sink { _ in publishSnapshot() }
+                .store(in: &watchConnectivityCancellablesRef)
+
+            playbackServiceRef.repeatModePublisher
+                .receive(on: DispatchQueue.main)
+                .sink { _ in publishSnapshot() }
+                .store(in: &watchConnectivityCancellablesRef)
+
+            playbackServiceRef.currentTimePublisher
+                .throttle(for: .seconds(1), scheduler: RunLoop.main, latest: true)
+                .sink { _ in publishSnapshot() }
+                .store(in: &watchConnectivityCancellablesRef)
+        }
+        #endif
 
         // Settings manager
         settingsManager = MainActor.assumeIsolated {
@@ -759,6 +909,7 @@ public final class DependencyContainer: @unchecked Sendable {
             lastSyncedSwipeLayout = settingsManager.trackSwipeLayout
             lastSyncedPinsData = pinManager.exportPinsData()
         }
+        watchConnectivityCancellables = watchConnectivityCancellablesRef
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -1363,6 +1514,79 @@ public final class DependencyContainer: @unchecked Sendable {
             hubRepository: hubRepository,
             hubOrderManager: hubOrderManager,
             visibilityStore: libraryVisibilityStore
+        )
+    }
+
+    @MainActor
+    public func makeWatchPlaybackHub() -> WatchPlaybackHub {
+        WatchPlaybackHub(
+            localPlaybackService: playbackService,
+            connectivityCoordinator: watchConnectivityCoordinator
+        )
+    }
+
+    @MainActor
+    public func makeWatchBootstrapCoordinator() -> WatchBootstrapCoordinator {
+        WatchBootstrapCoordinator(
+            accountLoader: { [weak accountManager] in
+                accountManager?.loadAccounts()
+            },
+            hasAnySources: { [weak accountManager] in
+                accountManager?.hasAnySources ?? false
+            },
+            hasSyncedCredentials: { [weak accountManager] in
+                accountManager?.hasSyncedCloudCredentials() ?? false
+            },
+            loadSyncedSources: { [weak self] in
+                guard let self else { return false }
+                let credentialsNeedingDiscovery = self.accountManager.pullSyncCredentials()
+                guard !credentialsNeedingDiscovery.isEmpty else {
+                    return self.accountManager.hasAnySources
+                }
+
+                for credential in credentialsNeedingDiscovery {
+                    let result = try await self.accountDiscoveryService.discoverAccount(authToken: credential.authToken)
+                    var config = PlexAccountConfig(
+                        id: credential.accountId,
+                        email: credential.email,
+                        plexUsername: credential.plexUsername,
+                        displayTitle: credential.displayTitle,
+                        authToken: credential.authToken,
+                        authTokenMetadata: PlexAuthService.tokenMetadata(from: credential.authToken),
+                        subscription: result.subscription,
+                        servers: result.servers
+                    )
+                    config = self.accountManager.applyingSyncedLibraryFlags(to: config)
+                    self.accountManager.addPlexAccount(config)
+                }
+
+                self.syncCoordinator.refreshProviders()
+                return self.accountManager.hasAnySources
+            },
+            synchronizeKVS: { [weak kvsSyncService] in
+                kvsSyncService?.synchronize()
+            },
+            waitForInitialKVS: { [weak kvsSyncService] in
+                await kvsSyncService?.waitForInitialSync(timeout: 3.0) ?? false
+            },
+            pullAllKVS: { [weak kvsSyncService] in
+                kvsSyncService?.pullAll()
+            },
+            refreshProviders: { [weak syncCoordinator] in
+                syncCoordinator?.refreshProviders()
+            },
+            startNetworkMonitor: { [weak networkMonitor] in
+                networkMonitor?.startMonitoring()
+            },
+            performHealthChecks: { [weak syncCoordinator] in
+                await syncCoordinator?.performStartupHealthChecks()
+            },
+            performStartupSync: { [weak syncCoordinator] in
+                await syncCoordinator?.performStartupSync()
+            },
+            activateConnectivity: { [weak watchConnectivityCoordinator] in
+                watchConnectivityCoordinator?.activate()
+            }
         )
     }
 }

@@ -7,16 +7,15 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Critical
 
-### watchOS Authentication Missing
-- **Location:** `EnsembleWatch/Views/WatchRootView.swift:5`
-- **Issue:** References `DependencyContainer.shared.makeAuthViewModel()` which does not exist
-- **Impact:** watchOS app won't compile
-- **Status (February 21, 2026):** Deferred by scope decision; not being fixed in current remediation pass
-- **Root Cause:** iOS uses `AddPlexAccountViewModel`, watchOS was designed with different auth flow
-- **Fix Options:**
-  1. Create `AuthViewModel` in EnsembleCore and add factory method to DependencyContainer
-  2. Refactor watchOS to use existing `AddPlexAccountViewModel`
-  3. Create watchOS-specific auth flow that matches iOS patterns
+### watchOS Simulator Destination Resolution Blocker (Apr 9, 2026)
+- **Location:** Xcode destination resolution for `EnsembleWatch` scheme
+- **Issue:** `xcodebuild -workspace Ensemble.xcworkspace -scheme EnsembleWatch -showdestinations` exposes only physical watch destinations requiring watchOS 26.4, even after adding a shared watch scheme, adding watch entitlements, and creating a paired iPhone/watch simulator set
+- **Impact:** Agent/CI-style watch target compilation and runtime validation are currently blocked on this machine. Shared watch logic is covered by `Packages/EnsembleCore` tests and iPhone companion validation, but `WatchRootView.swift` still cannot be forced through a real watch target build here
+- **Observed state (April 9, 2026):**
+  1. `xcrun simctl list devices available` shows watchOS 26.4 simulators installed
+  2. `xcrun simctl pair` succeeds, but the pair remains `active, disconnected`
+  3. `xcodebuild ... -scheme EnsembleWatch -sdk watchsimulator build` fails with `Found no destinations for the scheme 'EnsembleWatch' and action build`
+- **Workaround:** Validate shared watch behavior through `swift test --package-path Packages/EnsembleCore`, rebuild/launch the iPhone companion app, and document the blocker explicitly instead of claiming full watch runtime validation
 
 ## Known Limitations
 
@@ -69,6 +68,11 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Impact:** Minor quality degradation vs iOS — vocals occasionally bleed through during loud sections. Acceptable for v1 beta.
 
 ## Resolved Issues
+
+### watchOS Authentication Missing (Resolved Apr 9, 2026)
+- **Resolved (April 9, 2026)**
+- `WatchRootView` no longer references a nonexistent auth factory. The watch target now boots through `WatchBootstrapCoordinator`, uses `AddPlexAccountViewModel` for on-watch Plex PIN auth, and shares the same synchronizable-keychain/KVS bootstrap path as the rest of the app
+- Remaining watch risk is now infrastructure-driven destination resolution, not the previous missing-auth code path
 
 ### Phase 8 Performance & Bug-Fix — Run 6 Findings (Apr 2, 2026)
 - **Resolved (April 2, 2026)**

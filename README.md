@@ -10,6 +10,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Multi-Library Support** — Connect multiple Plex accounts, servers, and music libraries simultaneously
 - **Platform-Adaptive UI** — Tab navigation on iPhone, sidebar on iPad/macOS
 - **Secure Authentication** — PIN-based OAuth with keychain token storage
+- **Independent Apple Watch Bootstrap** — The watch app can stand up from synchronizable credentials and iCloud KVS state, with on-watch Plex PIN auth as fallback
 - **Full Playback Controls** — Queue management, shuffle, repeat, background audio, remote controls (lock screen)
 
 **Content Discovery:**
@@ -35,6 +36,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 
 **Playback Experience:**
 - **Now Playing** — Full-screen player with dynamic artwork gradients, waveform visualization, and mini player overlay
+- **Apple Watch Playback Targets** — The watch can switch between direct on-watch playback and iPhone remote control with a shared now-playing model
 - **Playback Tracking** — Automatic timeline reporting (every 10s) and scrobbling (at 90% completion) to Plex for accurate play counts and listening history
 - **Waveform Visualization** — Real-time audio waveforms using Plex sonic analysis data (via `/library/streams/{streamId}/levels`) with intelligent deterministic fallback generation
 - **Route-Aware Lyrics + Aurora Sync** — Automatically compensates AirPlay and Bluetooth output delay for lyric highlighting and the Aurora visualization
@@ -46,10 +48,12 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 
 **Management:**
 - **Account-Centric Music Sources** — Manage Plex accounts as sources, with account identifier subtitles, server-grouped library checklists, per-library sync/connection status, and “Sync Enabled Libraries” in one detail screen
+- **Apple Watch Browse Shell** — The watch home screen mirrors the phone's enabled top-level tabs and shows pins beneath them in a compact list-first layout
 - **Library Visibility Foundation** — Source-level visibility profiles are supported in core data flow (selector UI planned)
 - **Swipe Action Customization** — Configure leading/trailing swipe slots and reset defaults from Settings → Playback
 - **Cache Management** — View storage usage by type (metadata, artwork, downloads) and clear selectively
 - **Offline Download Manager (Target-Based)** — Settings-managed `Manage Downloads` flow with `Servers` bulk toggles, album/artist/playlist target toggles, progress rows, reference-counted cleanup across overlapping targets, and a Downloads toolbar action to refresh completed files to the currently selected download quality (with automatic original-quality fallback on servers that reject offline transcode requests)
+- **Apple Watch Downloads** — Watch downloads reuse the main offline target model but always stream/download at low quality with watch-local storage
 - **Offline-Safe Track UX** — While offline, non-downloaded tracks are dimmed and blocked with a toast prompt
 
 ### Planned Features
@@ -149,6 +153,9 @@ ensemble/
 # Build full app
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator build
 
+# Probe watch destinations
+xcodebuild -workspace Ensemble.xcworkspace -scheme EnsembleWatch -showdestinations
+
 # Build individual package
 swift build --package-path Packages/EnsembleCore
 
@@ -183,8 +190,9 @@ See `CLAUDE.md` for detailed development guidelines, including:
 
 ## Known Issues
 
-- **watchOS (deferred as of February 21, 2026):** Authentication path references missing `AuthViewModel`, so the watch target does not currently compile/run.
-  - iOS/macOS remediation is prioritized first; watchOS restoration is intentionally out of scope for this pass.
+- **watchOS destination resolution (April 9, 2026):** The watch implementation is in the repo, but this machine's Xcode environment still exposes no watch simulator destination for the shared `EnsembleWatch` scheme.
+  - `xcodebuild -workspace Ensemble.xcworkspace -scheme EnsembleWatch -showdestinations` only returns physical watch destinations requiring watchOS 26.4.
+  - Shared watch logic is covered by `Packages/EnsembleCore` tests and companion-side iPhone simulator validation, but full watch target compile/runtime validation is still blocked until Xcode exposes a watch simulator destination.
 - **Background continued processing limits (iOS 26+):** `BGContinuedProcessingTask` is best-effort; queued requests can be rejected or canceled by the system, and the app falls back to the persistent in-app queue.
 - **Artwork Pre-Caching:** Methods exist but not automatically called during sync
 - **Visibility Profile UI:** `LibraryVisibilityProfile` groundwork is implemented, but profile selector/editor UI is not shipped yet
@@ -212,11 +220,13 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - App Intents album/playlist fallback shortcuts wired to the same Siri playback coordinator and shared Siri index vocabulary
 - Target-based offline download manager with server/library bulk toggles and reference-counted membership reconciliation
 - Optional iOS 26 `BGContinuedProcessingTask` acceleration path for user-initiated bulk offline downloads
+- Apple Watch baseline architecture in code: independent bootstrap, mirrored root navigation, watch/iPhone playback target switching, swipe-to-more track actions, and low-quality watch downloads
 
 **Next Steps:**
-- Fix watchOS authentication
+- Resolve Xcode watch simulator destination/buildability so the new watch target can be compiler- and runtime-validated end-to-end
 - Add automatic artwork pre-caching during sync
 - Implement queue reordering and waveform seeking
+- Add watchOS 26 Controls / Smart Stack entry points after the core watch shell is validated on hardware/simulator
 
 ## Roadmap
 
@@ -237,7 +247,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [x] Search functionality
 - [x] iPad sidebar navigation
 - [x] Account-centric Music Sources settings and detail flow
-- [x] watchOS basic playback (historical implementation; currently blocked by deferred auth compile issue)
+- [x] watchOS baseline implementation in code (independent bootstrap, mirrored browse root, local/iPhone playback targeting, low-quality downloads)
 - [x] **Hub-Based Home Screen** — Personalized content discovery (Recently Added, Recently Played, etc.)
 - [x] **Customizable Hub Order** — Drag-to-reorder hub sections per music source with reset-to—default
 - [x] **StageFlow** — Immersive landscape browsing with centered snapping, inward-facing side cards, and a slide-out track panel

@@ -350,6 +350,28 @@ if syncSettingsManager.isMyFeatureSyncEnabled {
 - If the feature has a dependency (like libraries → sources), add cascade logic in `SyncSettingsManager`.
 - On re-enable, pull from iCloud and overwrite local (consistent with existing re-enable flow).
 
+## Adding or Changing Apple Watch Features
+
+When touching the watch app, keep the watch independent first and treat the iPhone as an optional remote target:
+
+1. Put shared watch logic in `Packages/EnsembleCore`, not inside the watch target.
+2. Use `WatchBootstrapCoordinator` for launch/auth/sync orchestration instead of adding ad-hoc startup work to `WatchRootView`.
+3. Use `WatchPlaybackHub` as the watch UI's now-playing seam. It decides whether the active source of truth is local watch playback or a mirrored iPhone remote session.
+4. Use `WatchConnectivityCoordinator` only for:
+   - Immediate remote commands that need a reply (`sendMessage`)
+   - Latest-state snapshots / reachability / selected-target sync (`applicationContext`)
+5. Do not use Watch Connectivity as the primary source of library data, pins, or downloads. The watch should browse its own synced catalog and download into its own sandbox.
+6. Keep watch transport and download quality at `low` unless there is an explicit product decision to change that default.
+7. Mirror the phone's enabled top-level tabs on the watch root menu via `SettingsManager.enabledTabs`, then render pins below those root items.
+8. When adding watch track actions, keep the semantic set aligned with the iPhone row/context actions (`Play Next`, `Play Last`, `Add to Playlist…`, favorite toggle, download toggle), even if the watch surfaces them through a smaller UI such as a single swipe-to-`More` affordance.
+
+Validation workflow for watch changes:
+1. Run `swift test --package-path Packages/EnsembleCore`
+2. Run `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
+3. Launch the iPhone app in the simulator to validate the companion-side Watch Connectivity/bootstrap wiring still works
+4. Probe watch destinations with `xcodebuild -workspace Ensemble.xcworkspace -scheme EnsembleWatch -showdestinations`
+5. If Xcode still exposes no watch simulator destination, document that blocker in `known-issues` and do not claim watch runtime validation
+
 ## Triggering Incremental vs Full Sync
 
 ```swift

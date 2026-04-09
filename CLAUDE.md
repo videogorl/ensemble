@@ -138,9 +138,15 @@ swift test --package-path Packages/EnsembleUI
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
+**Inspect watch destinations / probe watch buildability:**
+```bash
+xcodebuild -workspace Ensemble.xcworkspace -scheme EnsembleWatch -showdestinations
+```
+
 **Interactive simulator verification:**
 - Load the `simulator-test` skill and use the iOS Simulator MCP server to validate the affected flow end-to-end after the build/tests pass
 - Do not mark work as complete until the agent has confirmed the relevant behavior in the simulator, unless a specific blocker is documented
+- If watchOS work is blocked because `EnsembleWatch` exposes no simulator destination in `xcodebuild`, document that blocker explicitly and still validate the shared/watch-adjacent behavior through `swift test --package-path Packages/EnsembleCore` plus an iPhone companion build + simulator launch
 
 **IMPORTANT:** Always open `Ensemble.xcworkspace` (not `.xcodeproj`) when working in Xcode.
 

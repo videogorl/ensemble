@@ -11,6 +11,8 @@ description: "Load when locating files, deciding where a new file belongs, or ve
 ensemble/
 +-- Ensemble.xcworkspace          # Main workspace (always use this, not .xcodeproj)
 +-- Ensemble.xcodeproj             # Xcode project file
+|   +-- xcshareddata/xcschemes/
+|       +-- EnsembleWatch.xcscheme # Shared watch scheme for destination probing/builds
 +-- CLAUDE.md                      # Agent instructions
 +-- README.md                      # User-facing documentation
 +-- .claude/skills/                # Project-specific agent skills and bundled helper scripts
@@ -45,12 +47,13 @@ ensemble/
 |
 +-- EnsembleWatch/                 # watchOS app target
 |   +-- App/
-|   |   +-- EnsembleWatchApp.swift
+|   |   +-- EnsembleWatchApp.swift # watch app entry + watch-specific low-quality defaults
 |   +-- Views/
-|   |   +-- WatchRootView.swift   # All watchOS views (auth, library, now playing)
+|   |   +-- WatchRootView.swift   # Consolidated watch shell (bootstrap, auth, browse, downloads, now playing)
 |   +-- Resources/
 |   |   +-- Assets.xcassets
 |   +-- Info.plist
+|   +-- EnsembleWatch.entitlements # Independent-watch iCloud/App Group entitlements
 |
 +-- Packages/                      # Swift Package modules
     +-- EnsembleAPI/              # Layer 1: Networking
@@ -135,6 +138,7 @@ Sources/
 |   +-- NetworkModels.swift            # Network state & connectivity models
 |   +-- PinnedItem.swift               # Pinned content model (albums, artists, playlists) + applyRemotePins merge + exportPinsData + updateTitle
 |   +-- UserProfile.swift              # Profile data model (displayName, profileImagePath, lastModified)
+|   +-- WatchPlaybackModels.swift      # Shared watch playback target/remote-command/session snapshot contracts
 +-- Services/
 |   +-- AccountManager.swift           # Multi-account configuration (MainActor) + pushSyncCredentials/pullSyncCredentials/exportLibraryFlags/applyLibraryFlags
 |   +-- SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
@@ -190,6 +194,8 @@ Sources/
 |   +-- CloudSyncService.swift        # CloudKit actor for private database sync (push/pull/subscribe)
 |   +-- SyncSettingsManager.swift    # Master + per-feature iCloud sync toggles (UserDefaults, per-device)
 |   +-- KVSSyncService.swift         # NSUbiquitousKeyValueStore wrapper for iCloud KVS sync (push/pull/observe, echo-loop suppression)
+|   +-- WatchBootstrapCoordinator.swift # Independent-watch bootstrap/auth/sync staging
+|   +-- WatchConnectivityCoordinator.swift # Watch Connectivity wrapper for remote commands + latest-state sync
 +-- EnsembleLogger.swift               # Package logger categories
 +-- ViewModels/
 |   +-- AddPlexAccountViewModel.swift
@@ -210,6 +216,7 @@ Sources/
 |   +-- PinnedViewModel.swift          # Resolves PinnedItem references into domain objects
 |   +-- PlaylistViewModel.swift
 |   +-- SearchViewModel.swift
+|   +-- WatchPlaybackHub.swift         # Unified watch now-playing state across local + iPhone remote playback
 +-- EnsembleCore.swift                 # Public exports
 
 Tests/
@@ -248,6 +255,7 @@ Tests/
 +-- UserProfileTests.swift            # Unit tests for UserProfile model
 +-- SyncSettingsManagerTests.swift    # Unit tests for SyncSettingsManager toggle logic + dependency cascade
 +-- PinManagerSyncTests.swift         # Unit tests for PinManager merge logic (union, remote-wins conflict)
++-- WatchFeatureTests.swift           # Unit tests for watch bootstrap, connectivity routing, and playback target selection
 ```
 
 ## EnsembleUI (Presentation Layer)
