@@ -30,13 +30,15 @@ struct StageFlowItemView: View {
     @ViewBuilder
     private var artworkContent: some View {
         if let dp = displayPlaylist, dp.isMerged {
-            PlaylistArtwork(displayPlaylist: dp, size: .large, cornerRadius: 0)
+            PlaylistArtwork(displayPlaylist: dp, size: .large, cornerRadius: 0, isResponsive: true)
         } else {
             ArtworkView(
                 path: artworkPath,
                 sourceKey: sourceCompositeKey,
                 ratingKey: ratingKey,
-                size: .large
+                size: .large,
+                cornerRadius: 0,
+                isResponsive: true
             )
         }
     }
