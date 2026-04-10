@@ -11,6 +11,20 @@
 #if os(iOS)
 /// Shared notifications for coordinating iOS-specific app orientation behavior.
 public enum AppOrientationNotifications {
+    /// Payload posted by StageFlow-capable views when they register or unregister
+    /// landscape support with the app delegate.
+    public struct StageFlowRotationSupportChange: Sendable {
+        public let token: UUID
+        public let isEnabled: Bool
+        public let source: String
+
+        public init(token: UUID, isEnabled: Bool, source: String) {
+            self.token = token
+            self.isEnabled = isEnabled
+            self.source = source
+        }
+    }
+
     public static let stageFlowRotationSupportChanged = Notification.Name(
         "com.videogorl.ensemble.stageFlowRotationSupportChanged"
     )

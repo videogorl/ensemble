@@ -134,9 +134,9 @@ public extension View {
 
     /// Enables/disables landscape rotation support while this view is active.
     @ViewBuilder
-    func stageFlowRotationSupport(isEnabled: Bool) -> some View {
+    func stageFlowRotationSupport(isEnabled: Bool, source: String = #fileID) -> some View {
         #if os(iOS)
-        self.modifier(StageFlowRotationSupportModifier(isEnabled: isEnabled))
+        self.modifier(StageFlowRotationSupportModifier(isEnabled: isEnabled, source: source))
         #else
         self
         #endif
@@ -323,24 +323,37 @@ public extension View {
 #if os(iOS)
 private struct StageFlowRotationSupportModifier: ViewModifier {
     let isEnabled: Bool
+    let source: String
+    @State private var token = UUID()
+    @State private var isRegistered = false
 
     func body(content: Content) -> some View {
         content
             .onAppear {
-                postRotationSupport(isEnabled)
+                updateRotationSupport(isEnabled)
             }
             .onChange(of: isEnabled) { enabled in
-                postRotationSupport(enabled)
+                updateRotationSupport(enabled)
             }
             .onDisappear {
-                postRotationSupport(false)
+                updateRotationSupport(false)
             }
     }
 
-    private func postRotationSupport(_ isEnabled: Bool) {
+    private func updateRotationSupport(_ isEnabled: Bool) {
+        guard isRegistered != isEnabled else { return }
+
+        isRegistered = isEnabled
+        EnsembleLogger.debug(
+            "📐 StageFlow rotation \(isEnabled ? "register" : "unregister") source=\(source) token=\(token.uuidString)"
+        )
         NotificationCenter.default.post(
             name: AppOrientationNotifications.stageFlowRotationSupportChanged,
-            object: isEnabled
+            object: AppOrientationNotifications.StageFlowRotationSupportChange(
+                token: token,
+                isEnabled: isEnabled,
+                source: source
+            )
         )
     }
 }

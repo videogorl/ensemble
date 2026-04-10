@@ -95,6 +95,7 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - CoverFlow is **iPhone-only** (`UIDevice.current.userInterfaceIdiom == .phone`), even though iPad shares `os(iOS)`.
 - iPadOS and macOS always use their standard list/grid layouts for Songs, Albums, and Playlists.
 - iOS orientation is portrait-locked by default and only unlocks landscape while a CoverFlow-capable root view is active.
+- StageFlow rotation support is registered with a per-view token and the app delays the final unregister briefly, so SwiftUI view recreation during rotation does not snap the app back to portrait.
 
 ### Button Labels
 
