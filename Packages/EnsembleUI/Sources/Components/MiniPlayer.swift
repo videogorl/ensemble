@@ -165,6 +165,9 @@ private struct MiniPlayerTrackInfo: View {
     @State private var dragOffset: CGFloat = 0
     @State private var opacity: Double = 1.0
 
+    private let artworkDimension: CGFloat = 32
+    private let artworkCornerRadius: CGFloat = 8
+
     var body: some View {
         VStack(spacing: 0) {
             // Error banner (if playback failed)
@@ -195,7 +198,7 @@ private struct MiniPlayerTrackInfo: View {
 
             if let track = viewModel.currentTrack {
                 // Content
-                HStack(spacing: 12) {
+                HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                     // Artwork
                     ZStack {
                         ArtworkView(
@@ -205,14 +208,15 @@ private struct MiniPlayerTrackInfo: View {
                             fallbackPath: track.fallbackThumbPath,
                             fallbackRatingKey: track.fallbackRatingKey,
                             size: .tiny,
-                            cornerRadius: 4
+                            cornerRadius: artworkCornerRadius,
+                            isResponsive: true
                         )
-                        .frame(width: 36, height: 36)
+                        .frame(width: artworkDimension, height: artworkDimension)
                         .ifLet(namespace, animationID) { view, ns, id in
                             view.matchedGeometryEffect(id: id, in: ns, isSource: true)
                         }
                     }
-                    .frame(width: 36, height: 36)
+                    .frame(width: artworkDimension, height: artworkDimension)
 
                     // Track info (swipable)
                     VStack(alignment: .leading, spacing: 2) {
@@ -281,14 +285,14 @@ private struct MiniPlayerTrackInfo: View {
                     // Playback controls (scoped sub-view for play state changes)
                     MiniPlayerControls(viewModel: viewModel)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+                .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
             } else {
                 // Nothing Playing state
-                HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 4)
+                HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                    RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous)
                         .fill(Color.primary.opacity(0.1))
-                        .frame(width: 32, height: 32)
+                        .frame(width: artworkDimension, height: artworkDimension)
                         .overlay(
                             Image(systemName: "music.note")
                                 .foregroundColor(.primary.opacity(0.6))
@@ -300,8 +304,8 @@ private struct MiniPlayerTrackInfo: View {
 
                     Spacer()
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+                .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
             }
         }
         // Keep layout tightly bound to rendered content height to avoid oversized touch regions.
@@ -364,6 +368,7 @@ private struct MiniPlayerBackground: View {
                 // DO NOT REMOVE THIS — it prevents jarring swaps and flickering.
                 BlurredArtworkBackground(
                     image: viewModel.artworkImage,
+                    preBlurredImage: viewModel.blurredArtworkImage,
                     blurRadius: 50,
                     contrast: 2.0,
                     saturation: 1.9,

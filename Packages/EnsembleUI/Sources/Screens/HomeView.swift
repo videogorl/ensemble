@@ -28,16 +28,18 @@ public struct HomeView: View {
             }
         }
         .navigationTitle("Feed")
-        .if(!isViewportNowPlayingPresented) { content in
-            content.toolbar {
-                ToolbarItem(placement: .primaryActionIfAvailable) {
-                    Button("Edit") {
-                        viewModel.enterEditMode()
-                        viewModel.isEditingOrder = true
-                    }
-                    .disabled(!viewModel.hasEnabledLibraries || viewModel.hubs.isEmpty)
-                    .opacity(viewModel.hasEnabledLibraries && !viewModel.hubs.isEmpty ? 1 : 0)
+        .profileToolbar()
+        .toolbar {
+            #if os(macOS)
+            ToolbarItem { Spacer() }
+            #endif
+            ToolbarItem(placement: .primaryActionIfAvailable) {
+                Button("Edit") {
+                    viewModel.enterEditMode()
+                    viewModel.isEditingOrder = true
                 }
+                .disabled(!viewModel.hasEnabledLibraries || viewModel.hubs.isEmpty)
+                .opacity(viewModel.hasEnabledLibraries && !viewModel.hubs.isEmpty ? 1 : 0)
             }
         }
         .sheet(isPresented: $viewModel.isEditingOrder) {
@@ -196,7 +198,7 @@ public struct HomeView: View {
                     viewModel.handleScrollInteraction(isInteracting: false)
                 }
         )
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
     }
 }
 
@@ -282,8 +284,13 @@ struct HubItemCard: View {
     let item: HubItem
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    // Not @ObservedObject — pinManager publishes on every pin/unpin, which would
+    // re-render ALL HubItemCards on the home screen. Pin state is only read in the
+    // context menu, which SwiftUI evaluates on-demand when the menu opens.
+    private let pinManager = DependencyContainer.shared.pinManager
     @Binding var playlistPickerTracks: [Track]?
+
+    private let artworkDimension: CGFloat = 140
 
     private var isArtist: Bool {
         item.type == "artist"
@@ -322,10 +329,10 @@ struct HubItemCard: View {
                 sourceKey: item.sourceCompositeKey,
                 ratingKey: item.id,
                 size: .small,
-                cornerRadius: isArtist ? 70 : 8
+                cornerRadius: isArtist ? artworkDimension / 2 : 8,
+                isResponsive: true
             )
-            .frame(width: 140, height: 140)
-            .clipped()
+            .frame(width: artworkDimension, height: artworkDimension)
             .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
             
             // Text content
@@ -351,7 +358,7 @@ struct HubItemCard: View {
                         .foregroundColor(.secondary)
                 }
             }
-            .frame(width: 140, alignment: isArtist ? .center : .leading)
+            .frame(width: artworkDimension, alignment: isArtist ? .center : .leading)
         }
     }
     

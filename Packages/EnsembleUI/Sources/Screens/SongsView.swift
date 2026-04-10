@@ -115,136 +115,136 @@ public struct SongsView: View {
         .refreshable {
             await libraryVM.refreshFromServer()
         }
-        .if(!isViewportNowPlayingPresented) { content in
-            content.toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if !libraryVM.tracks.isEmpty && !isStageFlowActive {
-                        HStack(spacing: 16) {
-                            Button {
-                                showFilterSheet = true
-                            } label: {
-                                ZStack(alignment: .topTrailing) {
-                                    Image(systemName: "line.3.horizontal.decrease.circle")
+        .profileToolbar()
+                .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !libraryVM.tracks.isEmpty && !isStageFlowActive {
+                    HStack(spacing: 16) {
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
 
-                                    // Badge indicator when filters are active
-                                    if libraryVM.tracksFilterOptions.hasActiveFilters {
-                                        Circle()
-                                            .fill(Color.red)
-                                            .frame(width: 8, height: 8)
-                                            .offset(x: 2, y: -2)
-                                    }
+                                // Badge indicator when filters are active
+                                if libraryVM.tracksFilterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
                                 }
                             }
+                        }
 
+                        Menu {
                             Menu {
-                                Menu {
-                                    ForEach(TrackSortOption.allCases, id: \.self) { option in
-                                        Button {
+                                ForEach(TrackSortOption.allCases, id: \.self) { option in
+                                    Button {
+                                        if libraryVM.trackSortOption == option {
+                                            libraryVM.tracksFilterOptions.sortDirection =
+                                                libraryVM.tracksFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                                        } else {
+                                            libraryVM.trackSortOption = option
+                                            libraryVM.tracksFilterOptions.sortDirection = option.defaultDirection
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
                                             if libraryVM.trackSortOption == option {
-                                                libraryVM.tracksFilterOptions.sortDirection =
-                                                    libraryVM.tracksFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                                            } else {
-                                                libraryVM.trackSortOption = option
-                                                libraryVM.tracksFilterOptions.sortDirection = option.defaultDirection
-                                            }
-                                        } label: {
-                                            HStack {
-                                                Text(option.rawValue)
-                                                if libraryVM.trackSortOption == option {
-                                                    Image(systemName: libraryVM.tracksFilterOptions.sortDirection == .ascending
-                                                          ? "chevron.up" : "chevron.down")
-                                                }
+                                                Image(systemName: libraryVM.tracksFilterOptions.sortDirection == .ascending
+                                                      ? "chevron.up" : "chevron.down")
                                             }
                                         }
                                     }
-                                } label: {
-                                    Label("Sort By", systemImage: "arrow.up.arrow.down")
-                                }
-
-                                Divider()
-
-                                Button {
-                                    nowPlayingVM.shufflePlay(tracks: libraryVM.filteredTracks)
-                                } label: {
-                                    Label("Shuffle All", systemImage: "shuffle")
-                                }
-
-                                Button {
-                                    nowPlayingVM.play(tracks: libraryVM.filteredTracks)
-                                } label: {
-                                    Label("Play All", systemImage: "play.fill")
                                 }
                             } label: {
-                                Image(systemName: "ellipsis.circle")
+                                Label("Sort By", systemImage: "arrow.up.arrow.down")
                             }
-                        }
-                    }
-                }
-                #else
-                ToolbarItem(placement: .automatic) {
-                    if !libraryVM.tracks.isEmpty && !isStageFlowActive {
-                        HStack(spacing: 16) {
+
+                            Divider()
+
                             Button {
-                                showFilterSheet = true
+                                nowPlayingVM.shufflePlay(tracks: libraryVM.filteredTracks)
                             } label: {
-                                ZStack(alignment: .topTrailing) {
-                                    Image(systemName: "line.3.horizontal.decrease.circle")
-                                    if libraryVM.tracksFilterOptions.hasActiveFilters {
-                                        Circle()
-                                            .fill(Color.red)
-                                            .frame(width: 8, height: 8)
-                                            .offset(x: 2, y: -2)
-                                    }
-                                }
+                                Label("Shuffle All", systemImage: "shuffle")
                             }
 
-                            Menu {
-                                Menu {
-                                    ForEach(TrackSortOption.allCases, id: \.self) { option in
-                                        Button {
-                                            if libraryVM.trackSortOption == option {
-                                                libraryVM.tracksFilterOptions.sortDirection =
-                                                    libraryVM.tracksFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                                            } else {
-                                                libraryVM.trackSortOption = option
-                                                libraryVM.tracksFilterOptions.sortDirection = option.defaultDirection
-                                            }
-                                        } label: {
-                                            HStack {
-                                                Text(option.rawValue)
-                                                if libraryVM.trackSortOption == option {
-                                                    Image(systemName: libraryVM.tracksFilterOptions.sortDirection == .ascending
-                                                          ? "chevron.up" : "chevron.down")
-                                                }
-                                            }
-                                        }
-                                    }
-                                } label: {
-                                    Label("Sort By", systemImage: "arrow.up.arrow.down")
-                                }
-
-                                Divider()
-
-                                Button {
-                                    nowPlayingVM.shufflePlay(tracks: libraryVM.filteredTracks)
-                                } label: {
-                                    Label("Shuffle All", systemImage: "shuffle")
-                                }
-
-                                Button {
-                                    nowPlayingVM.play(tracks: libraryVM.filteredTracks)
-                                } label: {
-                                    Label("Play All", systemImage: "play.fill")
-                                }
+                            Button {
+                                nowPlayingVM.play(tracks: libraryVM.filteredTracks)
                             } label: {
-                                Image(systemName: "ellipsis.circle")
+                                Label("Play All", systemImage: "play.fill")
                             }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
                         }
                     }
                 }
-                #endif
             }
+            #else
+            ToolbarItem { Spacer() }
+            ToolbarItem(placement: .primaryActionIfAvailable) {
+                if !libraryVM.tracks.isEmpty && !isStageFlowActive {
+                    HStack(spacing: 16) {
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                if libraryVM.tracksFilterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
+                        }
+
+                        Menu {
+                            Menu {
+                                ForEach(TrackSortOption.allCases, id: \.self) { option in
+                                    Button {
+                                        if libraryVM.trackSortOption == option {
+                                            libraryVM.tracksFilterOptions.sortDirection =
+                                                libraryVM.tracksFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                                        } else {
+                                            libraryVM.trackSortOption = option
+                                            libraryVM.tracksFilterOptions.sortDirection = option.defaultDirection
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if libraryVM.trackSortOption == option {
+                                                Image(systemName: libraryVM.tracksFilterOptions.sortDirection == .ascending
+                                                      ? "chevron.up" : "chevron.down")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Label("Sort By", systemImage: "arrow.up.arrow.down")
+                            }
+
+                            Divider()
+
+                            Button {
+                                nowPlayingVM.shufflePlay(tracks: libraryVM.filteredTracks)
+                            } label: {
+                                Label("Shuffle All", systemImage: "shuffle")
+                            }
+
+                            Button {
+                                nowPlayingVM.play(tracks: libraryVM.filteredTracks)
+                            } label: {
+                                Label("Play All", systemImage: "play.fill")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                    }
+                }
+            }
+            #endif
         }
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
@@ -264,7 +264,7 @@ public struct SongsView: View {
                 cachedStageFlowAlbums = rebuiltAlbums
             }
         }
-        .sheet(isPresented: $showFilterSheet) {
+        .keyboardSafeEditorPresentation(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.tracksFilterOptions,
                 availableGenres: libraryVM.availableTrackGenres,
@@ -365,7 +365,7 @@ public struct SongsView: View {
                             )
                             indexedTrackListContent
                         }
-                        .miniPlayerBottomSpacing(140)
+                        .miniPlayerBottomSpacing()
 
                         if !libraryVM.filteredTracks.isEmpty {
                             ScrollIndex(
@@ -447,7 +447,7 @@ public struct SongsView: View {
                         }
                         .listStyle(.plain)
                         .modifier(ClearScrollContentBackgroundModifier())
-                        .miniPlayerBottomSpacing(140)
+                        .miniPlayerBottomSpacing()
 
                         if !libraryVM.filteredTracks.isEmpty {
                             ScrollIndex(
@@ -505,7 +505,7 @@ public struct SongsView: View {
     private func indexedSection(section: LibraryViewModel.TrackSection) -> some View {
         Section(header: sectionHeader(section.letter)) {
             let trackCount = section.tracks.count
-            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
+            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
 
             #if os(iOS)
             MediaTrackList(
@@ -562,7 +562,6 @@ public struct SongsView: View {
                 }
             }
             .frame(height: height)
-            .padding(.horizontal)
             #else
             // macOS: uses List rows with native .swipeActions (applied in the wrapping List)
             ForEach(Array(section.tracks.enumerated()), id: \.element.id) { _, track in
@@ -605,7 +604,7 @@ public struct SongsView: View {
                 )
                 .listRowBackground(Color.clear)
                 .hideListRowSeparator()
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
             }
             #endif
         }
@@ -624,7 +623,7 @@ public struct SongsView: View {
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,
             managesOwnScrolling: true,
-            bottomContentInset: 140,
+            bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
             },
@@ -668,7 +667,6 @@ public struct SongsView: View {
         ) { _, index in
             nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
         }
-        .padding(.horizontal)
         #else
         // macOS: List with native .swipeActions for trackpad two-finger swipe support
         List {
@@ -710,7 +708,7 @@ public struct SongsView: View {
                 )
                 .listRowBackground(Color.clear)
                 .hideListRowSeparator()
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
             }
         }
         .listStyle(.plain)

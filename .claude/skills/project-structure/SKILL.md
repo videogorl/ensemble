@@ -13,9 +13,18 @@ ensemble/
 +-- Ensemble.xcodeproj             # Xcode project file
 +-- CLAUDE.md                      # Agent instructions
 +-- README.md                      # User-facing documentation
++-- .claude/skills/                # Project-specific agent skills and bundled helper scripts
+|   +-- trace-analysis/            # Instruments .trace export + correlation workflow
 +-- scripts/
 |   +-- compile_coredata_model.sh # Compiles SwiftPM CoreData model bundle for package tests
+|   +-- verify_package_baseline.sh # Rebuilds the SwiftPM CoreData bundle, then runs package tests with pass/fail summary
+|   +-- capture_runtime_baseline.sh # Summarizes a trace + log pair for repeatable runtime baselines
+|   +-- plex_hls_spike.sh        # Bounded PMS music-HLS viability probe used before transport changes
 |   +-- update_build_number.sh    # Sets deterministic CFBundleVersion for app + Siri extension builds
+|
++-- docs/
+|   +-- investigations/
+|       +-- 2026-04-03-plex-hls-spike.md # Written verdict from the PMS music-HLS spike
 |
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/
@@ -55,7 +64,7 @@ ensemble/
 ```
 Sources/
 +-- Auth/
-|   +-- KeychainService.swift          # Secure token storage wrapper
+|   +-- KeychainService.swift          # Secure token storage wrapper + synchronizable iCloud Keychain support (saveSynchronizable/getSynchronizable/deleteSynchronizable)
 |   +-- PlexAuthService.swift          # PIN-based OAuth flow (actor)
 |   +-- PlexAuthTokenMetadata.swift    # JWT metadata parsing/helpers (iat/exp)
 +-- Client/
@@ -86,7 +95,7 @@ Tests/
 Sources/
 +-- CoreData/
 |   +-- Ensemble.xcdatamodeld          # CoreData schema
-|   +-- Compiled/SwiftPMEnsemble.momd # Precompiled model copy used by SwiftPM tests
+|   +-- Compiled/SwiftPMEnsemble.momd # Precompiled model copy used by SwiftPM tests; refreshed by verify_package_baseline.sh
 |   +-- CoreDataStack.swift            # Singleton stack with background contexts
 |   +-- ManagedObjects.swift           # NSManagedObject subclasses (CD* prefix)
 +-- Downloads/
@@ -117,31 +126,47 @@ Sources/
 |   +-- DomainModels.swift             # UI-facing models (Track, Album, Artist, Hub, etc.)
 |   +-- ModelMappers.swift             # CD* <-> Domain model conversions
 |   +-- MusicSource.swift              # Multi-account source identification
-|   +-- PlexAccountConfig.swift        # Account/server/library configuration
+|   +-- PlexAccountConfig.swift        # Account/server/library configuration + SyncableAccountCredential, SyncableServerCredential, SyncableLibraryRef models
 |   +-- SiriIntentPayload.swift        # Siri extension->app payload codec + schema
 |   +-- SiriMediaIndex.swift           # Siri media index model used by extension lookup
 |   +-- LibraryVisibilityProfile.swift # Source visibility profile model (non-sync filtering)
 |   +-- ConnectionPolicy.swift         # Core-level aliases/UI labels for API connection policy types
 |   +-- FilterOptions.swift            # Filter/sort configuration with persistence
 |   +-- NetworkModels.swift            # Network state & connectivity models
-|   +-- PinnedItem.swift               # Pinned content model (albums, artists, playlists)
+|   +-- PinnedItem.swift               # Pinned content model (albums, artists, playlists) + applyRemotePins merge + exportPinsData + updateTitle
+|   +-- UserProfile.swift              # Profile data model (displayName, profileImagePath, lastModified)
 +-- Services/
-|   +-- AccountManager.swift           # Multi-account configuration (MainActor)
+|   +-- AccountManager.swift           # Multi-account configuration (MainActor) + pushSyncCredentials/pullSyncCredentials/exportLibraryFlags/applyLibraryFlags
 |   +-- SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
+|   +-- RefreshOrchestrator.swift      # Health-refresh gating, cooldown/staleness policy, and startup-health ownership extracted from SyncCoordinator
+|   +-- NetworkLifecycleController.swift # App-foreground and network-transition policy extracted from SyncCoordinator
+|   +-- PeriodicSyncController.swift   # Foreground periodic-sync timer scheduling + WebSocket-aware interval policy extracted from SyncCoordinator
+|   +-- PlaylistRefreshController.swift # Server-scoped playlist refresh orchestration extracted from SyncCoordinator
+|   +-- WebSocketSyncController.swift  # WebSocket-triggered section resolution + playlist refresh routing extracted from SyncCoordinator
 |   +-- MusicSourceSyncProvider.swift  # Protocol for source-specific sync
 |   +-- PlexMusicSourceSyncProvider.swift # Plex implementation of sync protocol
 |   +-- NavigationCoordinator.swift    # Centralized navigation state management (MainActor)
 |   +-- PlaybackService.swift          # AVPlayer wrapper with queue/shuffle/repeat
+|   +-- PlaybackHandoffCoordinator.swift # Disconnect/interruption/remote-command handoff reducer extracted from PlaybackService
+|   +-- PlaybackQueueStore.swift       # Queue/history restoration persistence extracted from PlaybackService
+|   +-- PlaybackLaunchCoordinator.swift # Successful playback launch path (visualizer load, engine start, recovery seek, prefetch) extracted from PlaybackService
+|   +-- PlaybackRecoveryPolicy.swift   # Buffering/stall-recovery policy extracted from PlaybackService
+|   +-- PlaybackSessionStateMachine.swift # Playback session request/retry/failure policy extracted from PlaybackService
+|   +-- PlaybackTransportCoordinator.swift # Stream/local transport resolution + progressive-loader cache extracted from PlaybackService
 |   +-- ProgressiveStreamLoader.swift  # AVAssetResourceLoaderDelegate bridge for chunked transcode streams
 |   +-- ArtworkLoader.swift            # Persistent artwork caching & loading
 |   +-- CacheManager.swift             # Cache size tracking & management (MainActor)
 |   +-- NetworkMonitor.swift           # Network connectivity monitoring (NWPathMonitor)
 |   +-- ServerHealthChecker.swift      # Concurrent server health checks
+|   +-- ServerConnectionController.swift # Registry subscription + API-client endpoint synchronization extracted from SyncCoordinator
 |   +-- SettingsManager.swift          # App settings (accent colors, customizable tabs)
 |   +-- HubRepository.swift            # Hub data persistence (CDHub/CDHubItem)
 |   +-- HubOrderManager.swift          # User-customizable hub section ordering
 |   +-- BackgroundSyncScheduler.swift  # iOS BGAppRefreshTask scheduling for background sync
 |   +-- OfflineDownloadService.swift   # Target-based offline queue, reconciliation, and progress tracking
+|   +-- DownloadQueueCoordinator.swift # Sole owner of offline queue task lifecycle and worker orchestration
+|   +-- DownloadRetryPolicy.swift      # Stateful offline retry and direct-fallback policy
+|   +-- DownloadTargetReconciler.swift # Membership resolution and orphan cleanup for offline targets
 |   +-- OfflineBackgroundExecutionCoordinator.swift # Optional iOS 26+ BG continued-processing adapter
 |   +-- MoodRepository.swift           # Mood data persistence (CDMood)
 |   +-- LibraryVisibilityStore.swift   # Persisted visibility profiles + active profile state
@@ -161,6 +186,10 @@ Sources/
 |   +-- ShareService.swift             # Share payload coordinator (link/file/text) with temp download support
 |   +-- LyricsService.swift            # LRC parser, lyrics models (LyricsLine/ParsedLyrics/LyricsState), LyricsService fetch pipeline + offline sidecar
 |   +-- PersistentLogService.swift     # Persistent session logging with real-time file writes for TestFlight diagnostics
+|   +-- UserProfileStore.swift        # @MainActor ObservableObject for local profile persistence + image processing
+|   +-- CloudSyncService.swift        # CloudKit actor for private database sync (push/pull/subscribe)
+|   +-- SyncSettingsManager.swift    # Master + per-feature iCloud sync toggles (UserDefaults, per-device)
+|   +-- KVSSyncService.swift         # NSUbiquitousKeyValueStore wrapper for iCloud KVS sync (push/pull/observe, echo-loop suppression)
 +-- EnsembleLogger.swift               # Package logger categories
 +-- ViewModels/
 |   +-- AddPlexAccountViewModel.swift
@@ -185,12 +214,30 @@ Sources/
 
 Tests/
 +-- PlaybackServiceTests.swift
++-- PlaybackHandoffCoordinatorTests.swift
++-- PlaybackRecoveryPolicyTests.swift
++-- PlaybackLaunchCoordinatorTests.swift
++-- PlaybackSessionStateMachineTests.swift
++-- PlaybackTransportCoordinatorTests.swift
++-- PlaybackQueueStoreTests.swift
 +-- NetworkMonitorTests.swift
 +-- SyncCoordinatorNetworkHealthTests.swift
++-- RefreshOrchestratorTests.swift # Health-refresh coalescing, cooldown/staleness gating, and startup ownership coverage
++-- NetworkLifecycleControllerTests.swift # Foreground and network-transition policy coverage for SyncCoordinator lifecycle decisions
++-- PeriodicSyncControllerTests.swift # Foreground timer scheduling and WebSocket-aware interval coverage
++-- PlaylistRefreshControllerTests.swift # Server playlist refresh fallback and trigger-policy coverage
++-- WebSocketSyncControllerTests.swift # WebSocket section resolution and playlist refresh routing coverage
++-- ServerConnectionControllerTests.swift # Registry-update processing and API-client endpoint synchronization coverage
++-- PlexWebSocketCoordinatorTests.swift # Aggregate WebSocket availability callback coverage
++-- OfflineDownloadServicePolicyTests.swift # Playback/background download work-mode policy coverage
++-- DownloadQueueCoordinatorTests.swift # Queue lifecycle ownership, background wakeup, and restart coverage
++-- DownloadRetryPolicyTests.swift # Transfer retry accounting and direct-fallback gating coverage
++-- DownloadTargetReconcilerTests.swift # Target membership resolution and orphan cleanup coverage
 +-- HomeViewModelRefreshPolicyTests.swift
 +-- ServerHealthCheckerClassificationTests.swift
 +-- SettingsManagerConnectionPolicyTests.swift
 +-- AccountManagerAuthPolicyTests.swift
++-- AccountManagerLibrarySyncTests.swift
 +-- SearchSectionOrderingTests.swift   # Deterministic search section tie-break ordering
 +-- LibraryVisibilityProfileTests.swift # Visibility profile persistence + filtering seams
 +-- SiriIntentPayloadTests.swift       # Siri payload serialization + userInfo contract
@@ -198,6 +245,9 @@ Tests/
 +-- SongLinkServiceTests.swift         # Song.link URL resolution + caching + fallback tests
 +-- ShareServiceTests.swift            # Share payload assembly + file detection tests
 +-- LyricsServiceTests.swift           # LRC parser timestamp parsing + line lookup coverage
++-- UserProfileTests.swift            # Unit tests for UserProfile model
++-- SyncSettingsManagerTests.swift    # Unit tests for SyncSettingsManager toggle logic + dependency cascade
++-- PinManagerSyncTests.swift         # Unit tests for PinManager merge logic (union, remote-wins conflict)
 ```
 
 ## EnsembleUI (Presentation Layer)
@@ -239,6 +289,7 @@ Sources/
 |   +-- HubOrderingSheet.swift        # Sheet for reordering hub sections with drag & drop
 |   +-- KeyboardObserver.swift        # iOS-specific keyboard height tracking with view modifier
 |   +-- MarqueeText.swift             # Auto-scrolling text component for long titles
+|   +-- MediaContextMenus.swift       # Shared album/artist/playlist/merged-playlist context menu actions for grids, search, and sidebar pins
 |   +-- MediaTrackList.swift          # Reusable track list with context menu
 |   +-- MiniPlayer.swift              # Compact persistent player overlay
 |   +-- ExternalDisplayNowPlayingView.swift # Non-interactive Now Playing for AirPlay screen mirroring (TV)
@@ -253,7 +304,11 @@ Sources/
 |   +-- ScrollIndex.swift             # A-Z index for fast scrolling
 |   +-- ToastView.swift               # Toast notification overlay component
 |   +-- TrackRow.swift                # Single track row with artwork
+|   +-- TrackListLayoutMetrics.swift  # Shared row spacing, separator insets, and mini-player clearance tokens
+|   +-- TrackRowInteractionModel.swift # Shared per-track action/favorite/recent-playlist resolver for SwiftUI + UIKit rows
 |   +-- TrackSwipeContainer.swift     # Shared swipe gesture container for track row actions on large-screen + iOS
+|   +-- ProfileHeaderView.swift      # Circular profile image + name header with photo picker
+|   +-- ProfileToolbarButton.swift   # 28×28pt toolbar profile button for all top-level views
 |   +-- View+Extensions.swift         # SwiftUI view extensions and helpers
 |   +-- WaveformView.swift            # Audio waveform visualization
 +-- Screens/
@@ -279,7 +334,9 @@ Sources/
 |   +-- OfflineServersView.swift      # (Legacy) Server-grouped sync-enabled library toggles
 |   +-- RootView.swift                # Platform-adaptive root (tabs vs sidebar)
 |   +-- SearchView.swift              # Search interface
-|   +-- SettingsView.swift            # App settings with customizable tabs & accent colors
+|   +-- ProfileView.swift             # Full profile view (replaces SettingsView content; includes all settings)
+|   +-- SettingsView.swift            # Legacy redirect to ProfileView
+|   +-- SyncSettingsView.swift       # Toggle UI for iCloud sync features (shown in ProfileView)
 |   +-- TrackSwipeActionsSettingsView.swift # Settings UI for configuring track swipe action slots
 |   +-- SongsView.swift               # All songs list
 |   +-- LogsSettingsView.swift        # Log session management (toggle, session list, delete)

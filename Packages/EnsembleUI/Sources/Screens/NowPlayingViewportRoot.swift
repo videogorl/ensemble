@@ -9,6 +9,7 @@ import AppKit
 /// needed to keep split-view chrome out of the presentation.
 struct NowPlayingViewportRoot: View {
     @ObservedObject var viewModel: NowPlayingViewModel
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.colorScheme) private var colorScheme
 
@@ -71,9 +72,15 @@ struct NowPlayingViewportRoot: View {
             #endif
         }()
 
+        let baseBackgroundColor = colorScheme == .dark ? Color.black : lightOverlayColor
+
         return ZStack {
+            baseBackgroundColor
+                .ignoresSafeArea()
+
             BlurredArtworkBackground(
                 image: viewModel.artworkImage,
+                preBlurredImage: viewModel.blurredArtworkImage,
                 overlayColor: colorScheme == .dark ? .black : lightOverlayColor
             )
             .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
@@ -84,6 +91,16 @@ struct NowPlayingViewportRoot: View {
             } else {
                 lightOverlayColor.opacity(0.7)
                     .allowsHitTesting(false)
+            }
+
+            if settingsManager.auroraVisualizationEnabled {
+                AuroraVisualizationView(
+                    playbackService: DependencyContainer.shared.playbackService,
+                    accentColor: settingsManager.accentColor.color,
+                    isLowPowerMode: powerStateMonitor.isLowPowerMode
+                )
+                .allowsHitTesting(false)
+                .opacity(0.7)
             }
         }
         .ignoresSafeArea()
@@ -227,6 +244,7 @@ private struct SidebarToggleToolbarSuppressionBridge: NSViewRepresentable {
     final class Coordinator {
         private weak var window: NSWindow?
         private var previousHiddenStates: [(item: NSToolbarItem, hidden: Bool)] = []
+        private var previousViewHiddenStates: [(item: NSToolbarItem, hidden: Bool)] = []
 
         func apply(to window: NSWindow?) {
             guard let window else { return }
@@ -236,20 +254,30 @@ private struct SidebarToggleToolbarSuppressionBridge: NSViewRepresentable {
                 self.window = window
             }
 
-            guard #available(macOS 15.0, *), let toolbar = window.toolbar else { return }
+            guard let toolbar = window.toolbar else { return }
 
             for item in toolbar.items {
                 guard shouldHideToolbarItem(item) else {
                     continue
                 }
 
-                guard !previousHiddenStates.contains(where: { $0.item === item }) else {
-                    continue
+                if #available(macOS 15.0, *) {
+                    guard !previousHiddenStates.contains(where: { $0.item === item }) else {
+                        continue
+                    }
+                    let previousHidden = item.isHidden
+                    item.isHidden = true
+                    previousHiddenStates.append((item, previousHidden))
+                } else {
+                    guard !previousViewHiddenStates.contains(where: { $0.item === item }) else {
+                        continue
+                    }
+                    if let view = item.view {
+                        let previousHidden = view.isHidden
+                        view.isHidden = true
+                        previousViewHiddenStates.append((item, previousHidden))
+                    }
                 }
-
-                let previousHidden = item.isHidden
-                item.isHidden = true
-                previousHiddenStates.append((item, previousHidden))
             }
         }
 
@@ -265,17 +293,17 @@ private struct SidebarToggleToolbarSuppressionBridge: NSViewRepresentable {
         }
 
         func restore() {
-            guard #available(macOS 15.0, *) else {
+            if #available(macOS 15.0, *) {
+                for entry in previousHiddenStates {
+                    entry.item.isHidden = entry.hidden
+                }
                 previousHiddenStates.removeAll()
-                window = nil
-                return
+            } else {
+                for entry in previousViewHiddenStates {
+                    entry.item.view?.isHidden = entry.hidden
+                }
+                previousViewHiddenStates.removeAll()
             }
-
-            for entry in previousHiddenStates {
-                entry.item.isHidden = entry.hidden
-            }
-
-            previousHiddenStates.removeAll()
             window = nil
         }
     }

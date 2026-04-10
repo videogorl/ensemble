@@ -247,7 +247,8 @@ Use this flow for target-based offline support:
    - `deleteDownload(forTrackRatingKey:sourceCompositeKey:)`
 4. Keep removal reference-counted by checking membership counts before deleting local files.
 5. Trigger reconcile after source changes:
-   - observe `SyncCoordinator.sourceStatuses` for sync timestamp updates
+   - observe `SyncCoordinator.sourceStatuses` for sync timestamp updates in download/offline services
+   - observe `SyncCoordinator.lastContentChange` for browse-surface reloads; do not drive full library reloads from generic `sourceStatuses` churn
    - wire `SyncCoordinator.onPlaylistRefreshCompleted` for playlist-target refresh
 6. Respect download quality by reading `downloadQuality` and passing mapped `StreamingQuality` into stream URL generation.
 
@@ -304,6 +305,50 @@ if #available(iOS 16.0, *) {
     EnsembleAppShortcutsProvider.updateAppShortcutParameters()
 }
 ```
+
+## Adding a New Synced Feature to KVS
+
+When adding a new setting or data type to iCloud KVS sync:
+
+1. **Add a KVS key** in `KVSSyncService` for the new data:
+```swift
+// In KVSSyncService
+static let myFeatureKey = "ensemble_myFeature"
+```
+
+2. **Add a feature toggle** in `SyncSettingsManager`:
+```swift
+// Add case to the SyncFeature enum or add a new toggle property
+@Published var isMyFeatureSyncEnabled: Bool {
+    didSet { UserDefaults.standard.set(isMyFeatureSyncEnabled, forKey: "syncMyFeature") }
+}
+```
+
+3. **Add a remote-change callback** to handle incoming KVS data:
+```swift
+// In the service that owns the data (e.g., SettingsManager, PinManager)
+func applyRemoteMyFeature(_ data: Data) {
+    // Decode and merge remote data, remote wins on conflict
+}
+```
+
+4. **Add push wiring** so local changes push to KVS:
+```swift
+// After local mutation, push to KVS if enabled
+if syncSettingsManager.isMyFeatureSyncEnabled {
+    kvsSyncService.push(key: KVSSyncService.myFeatureKey, value: encodedData)
+}
+```
+
+5. **Gate with SyncSettingsManager toggle** — always check `syncSettingsManager.isMyFeatureSyncEnabled` before pushing or applying remote changes.
+
+6. **Wire in DependencyContainer** — register the KVS observer callback in `DependencyContainer` alongside existing sync wiring.
+
+**Rules:**
+- KVS has a 1 MB total limit and 1024 key limit — only use for small data.
+- Echo-loop suppression is automatic in `KVSSyncService` (1s window after push).
+- If the feature has a dependency (like libraries → sources), add cascade logic in `SyncSettingsManager`.
+- On re-enable, pull from iCloud and overwrite local (consistent with existing re-enable flow).
 
 ## Triggering Incremental vs Full Sync
 

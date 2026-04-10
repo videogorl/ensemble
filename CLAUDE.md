@@ -20,7 +20,7 @@ Detailed reference material lives in `.claude/skills/`. **Always load the releva
 | `common-tasks` | Adding a ViewModel, view, CoreData entity, hub, music source, playlist mutation, or sync trigger |
 | `testing` | Writing tests, implementing a major feature, or verifying nothing is broken after a refactor |
 | `plex-api` | Implementing or debugging Plex API calls — library sync, playback tracking, playlists, hubs, search, transcoding |
-| `simulator-test` | Verifying runtime behavior, measuring timing, or diagnosing issues by building and launching on the iOS simulator with debug log capture |
+| `simulator-test` | Verifying runtime behavior with the iOS Simulator MCP server, including launching the app, driving the UI, taking screenshots, and capturing logs |
 
 **When in doubt, load all of them.** They are small and the cost of reading them is far lower than making a wrong decision.
 
@@ -35,6 +35,9 @@ Detailed reference material lives in `.claude/skills/`. **Always load the releva
 - After implementing a non-trivial feature or refactor, run `swift test --package-path Packages/<affected-package>` before committing
 - If tests fail, fix them before committing — never commit a broken test suite
 - For major architectural changes, write tests for new services/repositories first (see `testing` skill)
+- For any user-visible change, bug fix, or workflow change, verify the affected behavior in the iOS Simulator before calling the work done
+- Use the iOS Simulator MCP server for simulator interaction whenever UI input or visual confirmation is required; do not rely on the user to perform routine validation for you
+- If simulator verification is blocked by missing credentials, unsupported OS behavior, or an external dependency the agent cannot control, state that explicitly and do not mark the task as done
 
 
 ## Troubleshooting
@@ -84,6 +87,7 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 
 
 This project is connected to Xcode's MCP server: please use it to inform you of how best to operate.
+This project is also connected to the iOS Simulator MCP server: use it to boot the simulator, install and launch builds, inspect accessibility output, drive taps/typing/swipes, and capture screenshots during validation.
 
 Please comment code so that it's understandable. Don't over comment, just comment on what each "piece" does. Do not use emojis (except in debugging).
 
@@ -133,6 +137,10 @@ swift test --package-path Packages/EnsembleUI
 ```bash
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
+
+**Interactive simulator verification:**
+- Load the `simulator-test` skill and use the iOS Simulator MCP server to validate the affected flow end-to-end after the build/tests pass
+- Do not mark work as complete until the agent has confirmed the relevant behavior in the simulator, unless a specific blocker is documented
 
 **IMPORTANT:** Always open `Ensemble.xcworkspace` (not `.xcodeproj`) when working in Xcode.
 

@@ -4,8 +4,8 @@ import SwiftUI
 public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @Environment(\.dependencies) private var deps
-    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
@@ -32,6 +32,14 @@ public struct AlbumsView: View {
         #else
         false
         #endif
+    }
+
+    private var isKeyboardEditorActive: Bool {
+        navigationCoordinator.isKeyboardEditorPresented
+    }
+
+    private var isPresenterChromeHidden: Bool {
+        isStageFlowActive || isKeyboardEditorActive
     }
 
     public var body: some View {
@@ -86,108 +94,117 @@ public struct AlbumsView: View {
             .stageFlowImmersiveMode(isActive: isStageFlowActive)
             #if os(iOS)
             .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
-            .navigationBarHidden(isStageFlowActive)
+            .navigationBarHidden(isPresenterChromeHidden)
+            .if(isPresenterChromeHidden) { view in
+                if #available(iOS 16.0, *) {
+                    view.toolbar(.hidden, for: .navigationBar)
+                } else {
+                    view
+                }
+            }
             .statusBar(hidden: isStageFlowActive)
             #endif
-            .navigationTitle(isStageFlowActive ? "" : "Albums")
-            .searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
+            .navigationTitle(isPresenterChromeHidden ? "" : "Albums")
+            .if(!isPresenterChromeHidden) { view in
+                view.searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
+            }
             .refreshable {
                 await libraryVM.refreshFromServer()
             }
-        .if(!isViewportNowPlayingPresented) { content in
-            content.toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if !libraryVM.albums.isEmpty && !isStageFlowActive {
-                        HStack(spacing: 16) {
-                            Button {
-                                showFilterSheet = true
-                            } label: {
-                                ZStack(alignment: .topTrailing) {
-                                    Image(systemName: "line.3.horizontal.decrease.circle")
+        .profileToolbar()
+                .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !libraryVM.albums.isEmpty && !isPresenterChromeHidden {
+                    HStack(spacing: 16) {
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
 
-                                    // Badge indicator when filters are active
-                                    if libraryVM.albumsFilterOptions.hasActiveFilters {
-                                        Circle()
-                                            .fill(Color.red)
-                                            .frame(width: 8, height: 8)
-                                            .offset(x: 2, y: -2)
-                                    }
+                                // Badge indicator when filters are active
+                                if libraryVM.albumsFilterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
                                 }
                             }
+                        }
 
-                            Menu {
-                                ForEach(AlbumSortOption.allCases, id: \.self) { option in
-                                    Button {
+                        Menu {
+                            ForEach(AlbumSortOption.allCases, id: \.self) { option in
+                                Button {
+                                    if libraryVM.albumSortOption == option {
+                                        libraryVM.albumsFilterOptions.sortDirection =
+                                            libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                                    } else {
+                                        libraryVM.albumSortOption = option
+                                        libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(option.rawValue)
                                         if libraryVM.albumSortOption == option {
-                                            libraryVM.albumsFilterOptions.sortDirection =
-                                                libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                                        } else {
-                                            libraryVM.albumSortOption = option
-                                            libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
-                                        }
-                                    } label: {
-                                        HStack {
-                                            Text(option.rawValue)
-                                            if libraryVM.albumSortOption == option {
-                                                Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
-                                                      ? "chevron.up" : "chevron.down")
-                                            }
+                                            Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
+                                                  ? "chevron.up" : "chevron.down")
                                         }
                                     }
                                 }
-                            } label: {
-                                Label("Sort By", systemImage: "arrow.up.arrow.down")
                             }
+                        } label: {
+                            Label("Sort By", systemImage: "arrow.up.arrow.down")
                         }
                     }
                 }
-                #else
-                ToolbarItem(placement: .automatic) {
-                    if !libraryVM.albums.isEmpty && !isStageFlowActive {
-                        HStack(spacing: 16) {
-                            Button {
-                                showFilterSheet = true
-                            } label: {
-                                ZStack(alignment: .topTrailing) {
-                                    Image(systemName: "line.3.horizontal.decrease.circle")
-                                    if libraryVM.albumsFilterOptions.hasActiveFilters {
-                                        Circle()
-                                            .fill(Color.red)
-                                            .frame(width: 8, height: 8)
-                                            .offset(x: 2, y: -2)
-                                    }
-                                }
-                            }
-
-                            Menu {
-                                ForEach(AlbumSortOption.allCases, id: \.self) { option in
-                                    Button {
-                                        if libraryVM.albumSortOption == option {
-                                            libraryVM.albumsFilterOptions.sortDirection =
-                                                libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                                        } else {
-                                            libraryVM.albumSortOption = option
-                                            libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
-                                        }
-                                    } label: {
-                                        HStack {
-                                            Text(option.rawValue)
-                                            if libraryVM.albumSortOption == option {
-                                                Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
-                                                      ? "chevron.up" : "chevron.down")
-                                            }
-                                        }
-                                    }
-                                }
-                            } label: {
-                                Label("Sort By", systemImage: "arrow.up.arrow.down")
-                            }
-                        }
-                    }
-                }
-                #endif
             }
+            #else
+            ToolbarItem { Spacer() }
+            ToolbarItem(placement: .primaryActionIfAvailable) {
+                if !libraryVM.albums.isEmpty && !isPresenterChromeHidden {
+                    HStack(spacing: 16) {
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                if libraryVM.albumsFilterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
+                        }
+
+                        Menu {
+                            ForEach(AlbumSortOption.allCases, id: \.self) { option in
+                                Button {
+                                    if libraryVM.albumSortOption == option {
+                                        libraryVM.albumsFilterOptions.sortDirection =
+                                            libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                                    } else {
+                                        libraryVM.albumSortOption = option
+                                        libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(option.rawValue)
+                                        if libraryVM.albumSortOption == option {
+                                            Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
+                                                  ? "chevron.up" : "chevron.down")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("Sort By", systemImage: "arrow.up.arrow.down")
+                        }
+                    }
+                }
+            }
+            #endif
         }
             .onReceive(libraryVM.$filteredAlbums) { albums in
                 // Compute sections off main thread to avoid blocking UI during search
@@ -212,7 +229,7 @@ public struct AlbumsView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showFilterSheet) {
+            .keyboardSafeEditorPresentation(isPresented: $showFilterSheet) {
                 FilterSheet(
                     filterOptions: $libraryVM.albumsFilterOptions,
                     availableArtists: availableArtists,
@@ -358,6 +375,7 @@ public struct AlbumsView: View {
                             ForEach(cachedAlbumSections) { section in
                                 Section(header: sectionHeader(section.letter)) {
                                     AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
+                                        .padding(.horizontal)
                                         .id(section.letter)
                                 }
                             }
@@ -365,10 +383,11 @@ public struct AlbumsView: View {
                         .padding(.vertical)
                     } else {
                         AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
+                            .padding(.horizontal)
                             .padding(.vertical)
                     }
                 }
-                .miniPlayerBottomSpacing(140)
+                .miniPlayerBottomSpacing()
                 
                 if isSortIndexed && !libraryVM.filteredAlbums.isEmpty {
                     ScrollIndex(
@@ -649,22 +668,22 @@ public struct AlbumDetailView: View {
                 ForEach(albums) { scrollAlbum in
                     if #available(iOS 16.0, macOS 13.0, *) {
                         NavigationLink(value: NavigationCoordinator.Destination.album(id: scrollAlbum.id)) {
-                            AlbumCard(album: scrollAlbum)
+                            AlbumCard(album: scrollAlbum, layout: .shelf)
                         }
                         .buttonStyle(.plain)
                     } else {
                         NavigationLink {
                             AlbumDetailView(album: scrollAlbum, nowPlayingVM: nowPlayingVM)
                         } label: {
-                            AlbumCard(album: scrollAlbum)
+                            AlbumCard(album: scrollAlbum, layout: .shelf)
                         }
                         .buttonStyle(.plain)
                     }
                 }
             }
         }
-        // Fixed height: 100pt artwork + ~60pt text = ~160pt
-        .frame(height: 170)
+        // Fixed height keeps horizontal album shelves from collapsing under the larger card size.
+        .frame(height: AlbumCardLayoutMetrics.shelf.horizontalScrollHeight)
     }
 
     private var moreByArtistSection: some View {

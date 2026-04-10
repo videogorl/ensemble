@@ -18,7 +18,7 @@ struct TrackDownloadRowView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 12) {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 // Artwork thumbnail
                 ArtworkView(
                     path: row.thumbPath,
@@ -75,8 +75,8 @@ struct TrackDownloadRowView: View {
                     .padding(.leading, 56)
             }
         }
-        .padding(.horizontal)
-        .padding(.vertical, 10)
+        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
     }
 
     @ViewBuilder

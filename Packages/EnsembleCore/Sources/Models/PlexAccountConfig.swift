@@ -199,3 +199,91 @@ public struct PlexLibraryConfig: Codable, Sendable, Identifiable, Equatable {
         self.allowSync = allowSync
     }
 }
+
+// MARK: - Syncable Account Credential (iCloud Keychain)
+
+/// Lightweight account credential for iCloud Keychain sync.
+/// Strips connection details (IPs/URLs are device-specific); each device
+/// discovers its own connections via the Plex resources API.
+public struct SyncableAccountCredential: Codable, Equatable, Sendable {
+    public let accountId: String
+    public let email: String?
+    public let plexUsername: String?
+    public let displayTitle: String?
+    public let authToken: String
+    public let servers: [SyncableServerCredential]
+
+    public init(
+        accountId: String,
+        email: String?,
+        plexUsername: String?,
+        displayTitle: String?,
+        authToken: String,
+        servers: [SyncableServerCredential]
+    ) {
+        self.accountId = accountId
+        self.email = email
+        self.plexUsername = plexUsername
+        self.displayTitle = displayTitle
+        self.authToken = authToken
+        self.servers = servers
+    }
+
+    public init(from account: PlexAccountConfig) {
+        self.accountId = account.id
+        self.email = account.email
+        self.plexUsername = account.plexUsername
+        self.displayTitle = account.displayTitle
+        self.authToken = account.authToken
+        self.servers = account.servers.map { SyncableServerCredential(from: $0) }
+    }
+}
+
+/// Lightweight server credential for sync — no connections or capabilities.
+public struct SyncableServerCredential: Codable, Equatable, Sendable {
+    public let serverId: String
+    public let serverName: String
+    public let serverToken: String
+    public let libraries: [SyncableLibraryRef]
+
+    public init(
+        serverId: String,
+        serverName: String,
+        serverToken: String,
+        libraries: [SyncableLibraryRef]
+    ) {
+        self.serverId = serverId
+        self.serverName = serverName
+        self.serverToken = serverToken
+        self.libraries = libraries
+    }
+
+    public init(from server: PlexServerConfig) {
+        self.serverId = server.id
+        self.serverName = server.name
+        self.serverToken = server.token
+        self.libraries = server.libraries.map { SyncableLibraryRef(from: $0) }
+    }
+}
+
+/// Lightweight library reference for sync — just identity + enabled state.
+public struct SyncableLibraryRef: Codable, Equatable, Sendable {
+    public let id: String
+    public let key: String
+    public let title: String
+    public let isEnabled: Bool
+
+    public init(id: String, key: String, title: String, isEnabled: Bool) {
+        self.id = id
+        self.key = key
+        self.title = title
+        self.isEnabled = isEnabled
+    }
+
+    public init(from library: PlexLibraryConfig) {
+        self.id = library.id
+        self.key = library.key
+        self.title = library.title
+        self.isEnabled = library.isEnabled
+    }
+}

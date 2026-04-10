@@ -44,6 +44,7 @@ struct EnsembleApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var hasPerformedStartupSync = false
     @State private var hasStartedLogSession = false
+    @State private var hasHandledInitialIOSActivePhase = false
     #if os(macOS)
     @State private var hasStartedPlaybackRestore = false
     @State private var hasCompletedPlaybackRestore = false
@@ -120,8 +121,8 @@ struct EnsembleApp: App {
         }
         #if os(macOS)
         if #available(macOS 13.0, *) {
-            Window("Settings", id: NavigationCoordinator.AuxiliaryPresentation.settings.windowID) {
-                SettingsPresentationContainer()
+            Window("Profile", id: NavigationCoordinator.AuxiliaryPresentation.profile.windowID) {
+                ProfilePresentationContainer()
                     .environment(\.dependencies, DependencyContainer.shared)
                     .frame(minWidth: 720, minHeight: 560)
             }
@@ -139,6 +140,11 @@ struct EnsembleApp: App {
         Task { @MainActor in
             switch phase {
             case .active:
+                let isInitialActivation = !hasHandledInitialIOSActivePhase
+                if isInitialActivation {
+                    hasHandledInitialIOSActivePhase = true
+                }
+
                 // Start persistent log session on first activation.
                 // Wire UI + App loggers here (Core/API/Persistence wired in DependencyContainer).
                 if !hasStartedLogSession {
@@ -157,17 +163,22 @@ struct EnsembleApp: App {
                     }
                 }
 
-                // Resume network monitoring and WebSocket connections
-                DependencyContainer.shared.networkMonitor.startMonitoring()
-                DependencyContainer.shared.webSocketCoordinator.start()
+                if isInitialActivation {
+                    // Cold-launch startup already started network monitoring and queued
+                    // WebSocket startup behind early health checks in AppDelegate.
+                    // Skipping the duplicate start here keeps launch sequencing owned by
+                    // one path instead of racing the scene activation hook.
+                    AppLogger.debug("📱 EnsembleApp: Initial active phase — launch pipeline owns monitor/WebSocket startup")
+                } else {
+                    // Resume network monitoring and WebSocket connections
+                    DependencyContainer.shared.networkMonitor.startMonitoring()
+                    DependencyContainer.shared.webSocketCoordinator.start()
+                }
 
                 // Route foreground refresh through SyncCoordinator to coalesce
                 // with network state transitions and cooldown/staleness guards.
                 await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
-
-                // Adjust periodic sync timers based on WebSocket availability.
-                let hasWebSocket = !DependencyContainer.shared.webSocketCoordinator.connectedServerKeys.isEmpty
-                DependencyContainer.shared.syncCoordinator.adjustTimersForWebSocket(hasActiveWebSocket: hasWebSocket)
+                await DependencyContainer.shared.reconcileSyncOnForeground()
 
                 // Drain any pending offline mutations now that connectivity may have resumed.
                 await DependencyContainer.shared.mutationCoordinator.drainQueue()
@@ -175,10 +186,29 @@ struct EnsembleApp: App {
                 // Update Siri media user context in case library changed while backgrounded
                 await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
 
+                // Restart display timer if music was actively playing when backgrounded.
+                // Also resumes sidecar analysis so pending FFT jobs process in foreground.
+                DependencyContainer.shared.audioAnalyzer.exitBackground()
+                await DependencyContainer.shared.offlineDownloadService.handleAppWillEnterForeground()
+                await DependencyContainer.shared.offlineDownloadService.resumeSidecarAnalysis()
+
             case .background:
                 // Flush log session to disk but keep the file handle open so
                 // logs continue capturing during background audio playback.
                 DependencyContainer.shared.persistentLogService.flushSession()
+                DependencyContainer.shared.persistPlaybackStateSnapshot()
+
+                // Stop the frequency display timer to prevent it from burning main thread
+                // CPU during background audio playback (~3ms/sec saved on main thread).
+                // Uses enterBackground() rather than pauseUpdates() so the music-pause
+                // flag is preserved — exitBackground() on foreground restarts correctly.
+                DependencyContainer.shared.audioAnalyzer.enterBackground()
+
+                // Suspend sidecar FFT analysis. Without this, a 75-track batch download
+                // completing in background can sustain ~95% CPU (FFT at background priority
+                // outlasts iOS's background CPU budget), triggering a SIGKILL after ~2min.
+                await DependencyContainer.shared.offlineDownloadService.suspendSidecarAnalysis()
+                await DependencyContainer.shared.offlineDownloadService.handleAppDidEnterBackground()
 
                 // Stop network monitoring and WebSocket connections to save battery.
                 // Without this, WebSocket reconnect loops burn ~30% network while idle.
@@ -210,6 +240,7 @@ struct EnsembleApp: App {
                 // Start monitoring when app becomes active (macOS)
                 DependencyContainer.shared.networkMonitor.startMonitoring()
                 await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
+                await DependencyContainer.shared.reconcileSyncOnForeground()
 
                 // Start periodic sync timer
                 DependencyContainer.shared.syncCoordinator.startPeriodicSync()
@@ -490,6 +521,8 @@ class MacAppDelegate: NSObject, NSApplicationDelegate {
               let splitVC = splitView.delegate as? NSSplitViewController,
               let sidebarItem = splitVC.splitViewItems.first else { return }
 
+        window.contentMinSize = NSSize(width: 980, height: 700)
+
         // Skip if already configured to avoid redundant work
         guard sidebarItem.canCollapse else { return }
 
@@ -497,10 +530,6 @@ class MacAppDelegate: NSObject, NSApplicationDelegate {
         sidebarItem.canCollapseFromWindowResize = false
         sidebarItem.minimumThickness = 220
         sidebarItem.holdingPriority = .init(999)
-
-        #if DEBUG
-        print("[MacAppDelegate] ✅ Configured non-collapsible sidebar (window: \(window.title))")
-        #endif
     }
 
     /// Recursively search the view hierarchy for an NSSplitView.

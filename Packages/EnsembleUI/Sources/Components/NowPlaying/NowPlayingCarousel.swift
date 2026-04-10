@@ -6,7 +6,6 @@ import SwiftUI
 public struct NowPlayingCarousel: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
-    @Environment(\.dependencies) private var deps
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
 
     // Track previous page for haptic feedback

@@ -13,7 +13,49 @@ private struct PresentViewportNowPlayingKey: EnvironmentKey {
 }
 
 private struct DismissViewportNowPlayingKey: EnvironmentKey {
-    static let defaultValue: () -> Void = {}
+    static let defaultValue: (() -> Void)? = nil
+}
+
+/// Tracks keyboard-heavy editor presentation from the presenting view so root
+/// chrome can settle before the editor enters the hierarchy.
+private struct KeyboardEditorPresentationTracker: ViewModifier {
+    let isActive: Bool
+
+    @State private var isRegistered = false
+    private let navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                syncRegistration(with: isActive)
+            }
+            .onChange(of: isActive) { newValue in
+                syncRegistration(with: newValue)
+            }
+            .onDisappear {
+                unregisterIfNeeded()
+            }
+    }
+
+    private func syncRegistration(with isActive: Bool) {
+        if isActive {
+            registerIfNeeded()
+        } else {
+            unregisterIfNeeded()
+        }
+    }
+
+    private func registerIfNeeded() {
+        guard !isRegistered else { return }
+        isRegistered = true
+        navigationCoordinator.beginKeyboardEditorPresentation()
+    }
+
+    private func unregisterIfNeeded() {
+        guard isRegistered else { return }
+        isRegistered = false
+        navigationCoordinator.endKeyboardEditorPresentation()
+    }
 }
 
 public extension EnvironmentValues {
@@ -27,7 +69,7 @@ public extension EnvironmentValues {
         set { self[PresentViewportNowPlayingKey.self] = newValue }
     }
 
-    var dismissViewportNowPlaying: () -> Void {
+    var dismissViewportNowPlaying: (() -> Void)? {
         get { self[DismissViewportNowPlayingKey.self] }
         set { self[DismissViewportNowPlayingKey.self] = newValue }
     }
@@ -92,9 +134,9 @@ public extension View {
 
     /// Enables/disables landscape rotation support while this view is active.
     @ViewBuilder
-    func stageFlowRotationSupport(isEnabled: Bool) -> some View {
+    func stageFlowRotationSupport(isEnabled: Bool, source: String = #fileID) -> some View {
         #if os(iOS)
-        self.modifier(StageFlowRotationSupportModifier(isEnabled: isEnabled))
+        self.modifier(StageFlowRotationSupportModifier(isEnabled: isEnabled, source: source))
         #else
         self
         #endif
@@ -129,13 +171,19 @@ public extension View {
         #endif
     }
 
+    /// Applies the shared wider inset used by utility/detail list rows so
+    /// grouped settings/download screens align with the app's detail panels.
+    func utilityListRowInsets(_ verticalPadding: CGFloat = TrackListLayoutMetrics.rowVerticalPadding) -> some View {
+        self.listRowInsets(TrackListLayoutMetrics.utilityListRowInsets(verticalPadding: verticalPadding))
+    }
+
     /// Adds bottom spacing for the mini player/tab bar area so content can
     /// scroll clear of the floating player overlay.
     /// iOS 15 is a no-op here — the inset is applied once at the container level via
     /// `miniPlayerContainerInset()` in MainTabView, which sets additionalSafeAreaInsets
     /// on the TabView's hosting controller.
     @ViewBuilder
-    func miniPlayerBottomSpacing(_ height: CGFloat = 140) -> some View {
+    func miniPlayerBottomSpacing(_ height: CGFloat = TrackListLayoutMetrics.miniPlayerBottomSpacing) -> some View {
         #if os(iOS)
         if #available(iOS 16.0, *) {
             self.safeAreaInset(edge: .bottom) {
@@ -172,6 +220,68 @@ public extension View {
         }
         #else
         self
+        #endif
+    }
+
+    /// Presents keyboard-heavy editors in a full-screen cover on iPhone so the
+    /// underlying navigation/search container stays out of the keyboard layout pass.
+    @ViewBuilder
+    func keyboardSafeEditorPresentation<Content: View>(
+        isPresented: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        let presentingView = self.modifier(
+            KeyboardEditorPresentationTracker(isActive: isPresented.wrappedValue)
+        )
+
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            presentingView.fullScreenCover(isPresented: isPresented, content: content)
+        } else {
+            presentingView.sheet(isPresented: isPresented, content: content)
+        }
+        #else
+        presentingView.sheet(isPresented: isPresented, content: content)
+        #endif
+    }
+
+    /// Item-based variant of keyboardSafeEditorPresentation.
+    @ViewBuilder
+    func keyboardSafeEditorPresentation<Item: Identifiable, Content: View>(
+        item: Binding<Item?>,
+        @ViewBuilder content: @escaping (Item) -> Content
+    ) -> some View {
+        let presentingView = self.modifier(
+            KeyboardEditorPresentationTracker(isActive: item.wrappedValue != nil)
+        )
+
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            presentingView.fullScreenCover(item: item, content: content)
+        } else {
+            presentingView.sheet(item: item, content: content)
+        }
+        #else
+        presentingView.sheet(item: item, content: content)
+        #endif
+    }
+
+    /// Presents root auxiliary flows full-screen on iPhone so the underlying
+    /// tab/navigation/search chrome stays out of interactive keyboard updates.
+    @ViewBuilder
+    func phoneSafeAuxiliaryPresentation<Item: Identifiable, Content: View>(
+        item: Binding<Item?>,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder content: @escaping (Item) -> Content
+    ) -> some View {
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            self.fullScreenCover(item: item, onDismiss: onDismiss, content: content)
+        } else {
+            self.sheet(item: item, onDismiss: onDismiss, content: content)
+        }
+        #else
+        self.sheet(item: item, onDismiss: onDismiss, content: content)
         #endif
     }
 
@@ -213,24 +323,37 @@ public extension View {
 #if os(iOS)
 private struct StageFlowRotationSupportModifier: ViewModifier {
     let isEnabled: Bool
+    let source: String
+    @State private var token = UUID()
+    @State private var isRegistered = false
 
     func body(content: Content) -> some View {
         content
             .onAppear {
-                postRotationSupport(isEnabled)
+                updateRotationSupport(isEnabled)
             }
             .onChange(of: isEnabled) { enabled in
-                postRotationSupport(enabled)
+                updateRotationSupport(enabled)
             }
             .onDisappear {
-                postRotationSupport(false)
+                updateRotationSupport(false)
             }
     }
 
-    private func postRotationSupport(_ isEnabled: Bool) {
+    private func updateRotationSupport(_ isEnabled: Bool) {
+        guard isRegistered != isEnabled else { return }
+
+        isRegistered = isEnabled
+        EnsembleLogger.debug(
+            "📐 StageFlow rotation \(isEnabled ? "register" : "unregister") source=\(source) token=\(token.uuidString)"
+        )
         NotificationCenter.default.post(
             name: AppOrientationNotifications.stageFlowRotationSupportChanged,
-            object: isEnabled
+            object: AppOrientationNotifications.StageFlowRotationSupportChange(
+                token: token,
+                isEnabled: isEnabled,
+                source: source
+            )
         )
     }
 }
@@ -394,6 +517,23 @@ public extension ToolbarItemPlacement {
         return .primaryAction
         #else
         return .navigationBarTrailing
+        #endif
+    }
+}
+
+extension View {
+    /// Applies the editor toolbar role on macOS 13+ so primary actions land on
+    /// the trailing edge instead of clustering beside the sidebar/title area.
+    @ViewBuilder
+    func macEditorToolbarRoleIfAvailable() -> some View {
+        #if os(macOS)
+        if #available(macOS 13.0, *) {
+            self.toolbarRole(.editor)
+        } else {
+            self
+        }
+        #else
+        self
         #endif
     }
 }

@@ -26,7 +26,8 @@ public struct MoreView: View {
     }
 
     private var moreTabs: [TabItem] {
-        TabItem.allCases.filter { !barTabs.contains($0) }
+        // Exclude .settings — now accessed via profile toolbar button
+        TabItem.allCases.filter { $0 != .settings && !barTabs.contains($0) }
     }
 
     public var body: some View {
@@ -37,8 +38,9 @@ public struct MoreView: View {
                 browseView
             }
         }
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
         .navigationTitle(isEditing ? "Edit Tabs" : "More")
+        .profileToolbar()
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -49,7 +51,8 @@ public struct MoreView: View {
                 }
             }
             #else
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem { Spacer() }
+            ToolbarItem(placement: .primaryActionIfAvailable) {
                 Button(isEditing ? "Done" : "Edit") {
                     withAnimation {
                         isEditing.toggle()
@@ -230,7 +233,7 @@ private struct EditTabsView: View {
             }
             .coordinateSpace(name: "tabBarDropTarget")
             .sectionBackground()
-            .padding(.horizontal, 16)
+            .padding(.horizontal, TrackListLayoutMetrics.utilitySectionOuterPadding)
             .onDrop(of: [.text], delegate: TabBarSectionDropDelegate(
                 settingsManager: settingsManager,
                 draggedTab: $draggedTab,
@@ -254,7 +257,7 @@ private struct EditTabsView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 24)
                     .sectionBackground()
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, TrackListLayoutMetrics.utilitySectionOuterPadding)
                     .onDrop(of: [.text], delegate: AvailableDropDelegate(
                         settingsManager: settingsManager,
                         draggedTab: $draggedTab,
@@ -281,7 +284,7 @@ private struct EditTabsView: View {
                     }
                 }
                 .sectionBackground()
-                .padding(.horizontal, 16)
+                .padding(.horizontal, TrackListLayoutMetrics.utilitySectionOuterPadding)
                 .onDrop(of: [.text], delegate: AvailableDropDelegate(
                     settingsManager: settingsManager,
                     draggedTab: $draggedTab,
@@ -295,7 +298,7 @@ private struct EditTabsView: View {
     // MARK: - Row View
 
     private func tabEditRow(tab: TabItem) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Image(systemName: "line.3.horizontal")
                 .foregroundColor(.secondary)
                 .font(.body)
@@ -309,8 +312,8 @@ private struct EditTabsView: View {
 
             Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, TrackListLayoutMetrics.utilitySectionOuterPadding)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding + 4)
     }
 
     /// Visual indicator showing where a dragged item will be inserted
@@ -323,7 +326,7 @@ private struct EditTabsView: View {
                 .fill(Color.accentColor)
                 .frame(height: 2)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         .transition(.opacity)
     }
 
@@ -331,7 +334,7 @@ private struct EditTabsView: View {
         Text(text)
             .font(.footnote)
             .foregroundColor(.secondary)
-            .padding(.horizontal, 32)
+            .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
             .padding(.top, 24)
             .padding(.bottom, 8)
     }

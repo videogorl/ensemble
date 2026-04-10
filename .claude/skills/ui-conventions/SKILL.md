@@ -16,6 +16,7 @@ These are core design decisions that must be maintained throughout the app.
 - **More tab support:** First 4 enabled tabs in tab bar, remaining tabs via "More" tab (5th position)
 - **Tab customization:** Users enable/disable tabs via Settings; disabled tabs hidden from tab bar
 - **Visible tabs sync:** `NavigationCoordinator.visibleTabs` synced from MainTabView for fallback logic
+- **Search chrome ownership:** In tab-based navigation, attach `.searchable` only while that tab is the active root screen. Collapse/remove search chrome before pushing detail or switching away so stale `UISearchController` state doesn't leak padding, keyboard state, or toolbar behavior into pushed views or other tabs.
 
 ### Deep Linking
 - **NavigationCoordinator.Destination:** Use typed destinations (artist, album, playlist, view) for all deep links
@@ -27,6 +28,27 @@ These are core design decisions that must be maintained throughout the app.
 - **iOS 15:** `NestedNavigationLink` recursive pattern in `MainTabView.swift`
 - **Feature detection:** Always wrap iOS 16+ features in `@available(iOS 16.0, *)` checks
 - **Bottom spacing for mini player/tab bar:** Use `.miniPlayerBottomSpacing(...)` from `View+Extensions.swift` instead of ad-hoc per-screen spacer blocks
+- **Shared list spacing:** Use `TrackListLayoutMetrics` for standard row height, leading insets, divider alignment, and default mini-player clearance instead of repeating `68/54/16/140/70/52` across screens
+- **Utility sheet spacing:** Reuse `TrackListLayoutMetrics.rowInterItemSpacing` and `rowHorizontalPadding` for compact sheet rows, drag-order surfaces, and lightweight action pickers instead of introducing standalone `12/16` spacing constants
+- **Now Playing utility spacing:** Inside Now Playing cards, keep compact metadata rows, empty states, page indicators, and queue/status affordances on `TrackListLayoutMetrics` spacing tokens unless the layout truly needs its own card-scale rhythm
+- **Detail gutter:** Treat the 40pt horizontal gutter used by Now Playing and queue surfaces as the app's premium detail inset. Reuse `TrackListLayoutMetrics.detailHorizontalPadding` and `utilityListRowInsets()` for downloads/settings/manual utility rows instead of hardcoding fresh edge values.
+- **MediaTrackList padding:** Do not wrap `MediaTrackList` in an extra outer horizontal padding layer for normal full-width track lists; the rows already own their horizontal inset through `TrackListLayoutMetrics`
+- **Detail action strips:** Reuse `TrackListLayoutMetrics.rowInterItemSpacing` and `rowHorizontalPadding` for repeated Play/Shuffle-style button rows and lightweight status banners in media/detail screens
+- **Shared row actions:** Use `TrackRowInteractionModel` to resolve per-track context-menu availability, recent-playlist gating, and favorite state for both `TrackRow` and `MediaTrackList` paths instead of duplicating that logic per framework
+
+### Keyboard-Heavy Editors (iPhone)
+- Present rename/create text editors with `keyboardSafeEditorPresentation(...)` from `View+Extensions.swift`
+- Any modal flow that contains a plain `TextField` or other keyboard-driven form input, including filter sheets with year fields, should also use `keyboardSafeEditorPresentation(...)` on iPhone instead of a raw `.sheet` or `.alert`
+- On iPhone, that helper must use `fullScreenCover` so the presenting navigation/search container stays out of the keyboard layout pass
+- Root tab shells should own keyboard/search avoidance decisions. Child detail views should not inherit an active search or keyboard presenter from an offscreen tab.
+- Root auxiliary flows that can lead into keyboard editors, such as Profile, should also prefer a full-screen cover on iPhone instead of a sheet for the same reason
+- Full-screen auxiliary flows on iPhone need their own explicit dismiss control; do not rely on sheet affordances that no longer exist
+- Do not pre-hide root tab, mini-player, or searchable-header chrome for the entire auxiliary transition; only suppress root chrome for the actual keyboard editor presentation or other immersive modes
+- Searchable root presenters can still need their own local navigation/search suppression during the actual keyboard editor presentation; Albums specifically must hide its navigation/search chrome while `navigationCoordinator.isKeyboardEditorPresented` is true
+- The helper owns keyboard-editor registration timing; do not duplicate `beginKeyboardEditorPresentation()` or `endKeyboardEditorPresentation()` inside the editor view itself
+- Keyboard editors can use a local `NavigationStack`/`NavigationView` plus system toolbar actions for a native look, as long as the presentation is isolated with `keyboardSafeEditorPresentation(...)`
+- When the presenting screen still lives inside a navigation container, hide that navigation bar while the editor is active; prefer `.toolbar(.hidden, for: .navigationBar)` on iOS 16+
+- For any modal text-input flow with an explicit Done/Cancel action, dismiss the focused field first and delay the modal dismissal slightly so the keyboard animation completes before the presentation tears down
 
 **NestedNavigationLink Pattern** (in `MainTabView.swift`):
 ```swift
@@ -73,6 +95,7 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - CoverFlow is **iPhone-only** (`UIDevice.current.userInterfaceIdiom == .phone`), even though iPad shares `os(iOS)`.
 - iPadOS and macOS always use their standard list/grid layouts for Songs, Albums, and Playlists.
 - iOS orientation is portrait-locked by default and only unlocks landscape while a CoverFlow-capable root view is active.
+- StageFlow rotation support is registered with a per-view token and the app delays the final unregister briefly, so SwiftUI view recreation during rotation does not snap the app back to portrait.
 
 ### Button Labels
 
@@ -92,6 +115,12 @@ Button("Remove", role: .destructive) { remove() }
 ```
 
 Use the actual ellipsis character `…` (U+2026), not three dots `...`.
+
+### Profile Toolbar Button
+- **iPhone:** `ProfileToolbarButton` (28×28pt circular profile image) is owned by `MainTabView` and shown only on root tab destinations: the visible tab-bar tabs plus the root `More` view. Do not add it per-screen, or it will leak into pushed `More` destinations and can disappear on iOS 15 when trailing toolbar items compete.
+- **iPad/macOS:** `ProfileToolbarButton` placed in sidebar toolbar, replacing the previous gear icon
+- Tapping opens `ProfileView` via `AuxiliaryPresentation.profile` (formerly `.settings`)
+- The button displays the user's profile image if set, otherwise falls back to a person icon
 
 ### System Integration
 - Leverage native SwiftUI components and iOS system features (e.g., `AVRoutePickerView` for AirPlay, `MPRemoteCommandCenter` for lock screen)

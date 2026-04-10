@@ -130,11 +130,13 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             sizeLimit: 100 * 1024 * 1024  // 100 MB disk cache
         )
         
-        // Limit memory cache to 50 MB (default can be 150+ MB)
-        // This is the decoded image cache in RAM - critical for 2GB devices
+        // Limit memory cache for decoded images in RAM.
+        // 20 MB / 40 images keeps ~30 MB of CG raster headroom free on 2 GB devices
+        // (iPhone 6s measured 50 MB CG raster at idle with the previous 50 MB limit).
+        // Disk cache still holds 100 MB so evicted images reload from local storage, not network.
         let memoryCache = ImageCache()
-        memoryCache.costLimit = 50 * 1024 * 1024  // 50 MB in memory
-        memoryCache.countLimit = 100  // Max 100 images in memory
+        memoryCache.costLimit = 20 * 1024 * 1024  // 20 MB in memory
+        memoryCache.countLimit = 40  // Max 40 decoded images in memory
         config.imageCache = memoryCache
         
         // Enable aggressive memory cache trimming on warnings
@@ -499,6 +501,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
 public enum ArtworkSize: Int {
     case tiny = 44
     case thumbnail = 100
+    case card = 160
     case small = 200
     case medium = 300
     case large = 500

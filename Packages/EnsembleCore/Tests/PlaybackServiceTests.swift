@@ -3,6 +3,126 @@ import XCTest
 @testable import EnsembleCore
 
 final class PlaybackServiceTests: XCTestCase {
+    func testAudioPlaybackEngineResolvedPlaybackPositionFallsBackToSeekOffsetWithoutRenderSample() {
+        let time = AudioPlaybackEngine.resolvedPlaybackPosition(
+            renderSampleTime: nil,
+            playerTimeBaseOffset: 0,
+            seekFrameOffset: 3_282_300,
+            sampleRate: 44_100
+        )
+
+        XCTAssertEqual(time, 74.428571, accuracy: 0.0001)
+    }
+
+    func testAudioPlaybackEngineResolvedPlaybackPositionSubtractsGaplessBaseOffset() {
+        let time = AudioPlaybackEngine.resolvedPlaybackPosition(
+            renderSampleTime: 350,
+            playerTimeBaseOffset: 100,
+            seekFrameOffset: 25,
+            sampleRate: 10
+        )
+
+        XCTAssertEqual(time, 27.5, accuracy: 0.0001)
+    }
+
+    func testRouteRecoveryPrefersObservedPositionWhenLiveTimeDropsToZero() {
+        let time = AudioPlaybackEngine.resolvedRouteRecoveryPosition(
+            livePosition: 0,
+            observedPosition: 87.8,
+            duration: 201.4
+        )
+
+        XCTAssertEqual(time, 87.8, accuracy: 0.0001)
+    }
+
+    func testRouteRecoveryKeepsLivePositionWhenObservedPositionIsStale() {
+        let time = AudioPlaybackEngine.resolvedRouteRecoveryPosition(
+            livePosition: 10.0,
+            observedPosition: 87.8,
+            duration: 201.4
+        )
+
+        XCTAssertEqual(time, 10.0, accuracy: 0.0001)
+    }
+
+    func testRouteRecoveryPrefersPendingSnapshotOverStaleLivePosition() {
+        let time = AudioPlaybackEngine.resolvedRouteRecoveryPosition(
+            livePosition: 146.0,
+            observedPosition: 161.0,
+            duration: 294.5,
+            preferredSnapshot: 161.0
+        )
+
+        XCTAssertEqual(time, 161.0, accuracy: 0.0001)
+    }
+
+    func testPreparedRouteRecoveryUsesObservedTimeWhenRenderClockIsUnavailable() {
+        let time = AudioPlaybackEngine.resolvedPreparedRouteRecoveryPosition(
+            renderClockPosition: nil,
+            observedPosition: 116.1,
+            fallbackPosition: 75.3696,
+            duration: 249.9
+        )
+
+        XCTAssertEqual(time, 116.1, accuracy: 0.0001)
+    }
+
+    func testPreparedRouteRecoveryFallsBackWhenObservedTimeIsUnavailable() {
+        let time = AudioPlaybackEngine.resolvedPreparedRouteRecoveryPosition(
+            renderClockPosition: nil,
+            observedPosition: 0.0,
+            fallbackPosition: 75.3696,
+            duration: 249.9
+        )
+
+        XCTAssertEqual(time, 75.3696, accuracy: 0.0001)
+    }
+
+    func testRestoredPausedSeekTimeClampsExactTrackEnd() {
+        let restored = PlaybackService.restoredPausedSeekTime(
+            savedTime: 270.85061224489795,
+            duration: 270.85061224489795
+        )
+
+        XCTAssertEqual(restored, 270.8496122448979, accuracy: 0.0001)
+    }
+
+    func testRestoredPausedSeekTimeLeavesInteriorPositionsUntouched() {
+        let restored = PlaybackService.restoredPausedSeekTime(
+            savedTime: 108.09313673675985,
+            duration: 289.1861224489796
+        )
+
+        XCTAssertEqual(restored, 108.09313673675985, accuracy: 0.0001)
+    }
+
+    func testAudioEnginePreparationCreatesMissingEngineAfterStop() {
+        let action = PlaybackService.audioEnginePreparation(
+            hasAudioEngine: false,
+            playbackState: .stopped
+        )
+
+        XCTAssertEqual(action, .createMissing)
+    }
+
+    func testAudioEnginePreparationRecreatesFailedEngine() {
+        let action = PlaybackService.audioEnginePreparation(
+            hasAudioEngine: true,
+            playbackState: .failed("Audio engine not initialized")
+        )
+
+        XCTAssertEqual(action, .recreateFailed)
+    }
+
+    func testAudioEnginePreparationReusesHealthyEngine() {
+        let action = PlaybackService.audioEnginePreparation(
+            hasAudioEngine: true,
+            playbackState: .paused
+        )
+
+        XCTAssertEqual(action, .reuseExisting)
+    }
+
     func testPresentationRouteKindPrefersAirPlayOverBluetooth() {
         let routeKind = PlaybackService.inferPresentationRouteKind(
             hasAirPlay: true,
@@ -232,6 +352,44 @@ final class PlaybackServiceTests: XCTestCase {
         )
 
         XCTAssertFalse(shouldIgnore)
+    }
+
+    func testPlaybackSnapshotPersistsAfterInterval() {
+        XCTAssertTrue(
+            PlaybackService.shouldPersistPlaybackSnapshot(
+                observedTime: 30,
+                lastSavedTime: 10
+            )
+        )
+    }
+
+    func testPlaybackSnapshotSkipsFrequentWrites() {
+        XCTAssertFalse(
+            PlaybackService.shouldPersistPlaybackSnapshot(
+                observedTime: 20,
+                lastSavedTime: 10
+            )
+        )
+    }
+
+    func testEngineTrackReconciliationTriggersWhenEngineAndUIDiverge() {
+        XCTAssertTrue(
+            PlaybackService.shouldReconcileEngineTrack(
+                currentTrackID: "8877",
+                engineTrackID: "8878",
+                isSkipTransitionInProgress: false
+            )
+        )
+    }
+
+    func testEngineTrackReconciliationSkipsDuringManualTransitions() {
+        XCTAssertFalse(
+            PlaybackService.shouldReconcileEngineTrack(
+                currentTrackID: "8877",
+                engineTrackID: "8878",
+                isSkipTransitionInProgress: true
+            )
+        )
     }
 
     func testBaseBufferingProfileForWifiUsesLowLatencyAndDepthOne() {
@@ -503,7 +661,7 @@ final class PlaybackServiceTests: XCTestCase {
         let accounts = [
             PlexAccountConfig(
                 id: "account-1",
-                email: "felicity@nysics.com",
+                email: "user@example.com",
                 plexUsername: "felicity",
                 displayTitle: "Felicity",
                 authToken: "token",
@@ -647,6 +805,65 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(result, 195)  // 8.3% over, within 10% threshold
     }
 
+    func testPruneDuplicateFutureAutoplayItemsRemovesAlternateAlbumVersion() {
+        let current = QueueItem(
+            id: "current",
+            track: makeTrack(id: "12728", title: "Telephone", artist: "Lady Gaga", duration: 221.0),
+            source: .continuePlaying
+        )
+        let manualTeeth = QueueItem(
+            id: "manual-teeth",
+            track: makeTrack(id: "12730", title: "Teeth", artist: "Lady Gaga", duration: 220.693),
+            source: .continuePlaying
+        )
+        let duplicateAutoplayTeeth = QueueItem(
+            id: "duplicate-teeth",
+            track: makeTrack(id: "11979", title: "Teeth", artist: "Lady Gaga", duration: 220.693),
+            source: .autoplay
+        )
+        let bang = QueueItem(
+            id: "bang",
+            track: makeTrack(id: "11980", title: "Bang!", artist: "AJR", duration: 170),
+            source: .autoplay
+        )
+
+        let result = PlaybackService.pruneDuplicateFutureAutoplayItems(
+            queue: [current, manualTeeth, duplicateAutoplayTeeth, bang],
+            currentQueueIndex: 0
+        )
+
+        XCTAssertEqual(result.queue.map(\.id), ["current", "manual-teeth", "bang"])
+        XCTAssertEqual(result.removedTrackIds, ["11979"])
+        XCTAssertEqual(result.removedItemCount, 1)
+    }
+
+    func testPruneDuplicateFutureAutoplayItemsKeepsManualDuplicates() {
+        let current = QueueItem(
+            id: "current",
+            track: makeTrack(id: "12728", title: "Telephone", artist: "Lady Gaga", duration: 221.0),
+            source: .continuePlaying
+        )
+        let manualTeeth = QueueItem(
+            id: "manual-teeth",
+            track: makeTrack(id: "12730", title: "Teeth", artist: "Lady Gaga", duration: 220.693),
+            source: .continuePlaying
+        )
+        let alternateManualTeeth = QueueItem(
+            id: "alternate-manual-teeth",
+            track: makeTrack(id: "11979", title: "Teeth", artist: "Lady Gaga", duration: 220.693),
+            source: .continuePlaying
+        )
+
+        let result = PlaybackService.pruneDuplicateFutureAutoplayItems(
+            queue: [current, manualTeeth, alternateManualTeeth],
+            currentQueueIndex: 0
+        )
+
+        XCTAssertEqual(result.queue.map(\.id), ["current", "manual-teeth", "alternate-manual-teeth"])
+        XCTAssertTrue(result.removedTrackIds.isEmpty)
+        XCTAssertEqual(result.removedItemCount, 0)
+    }
+
     // MARK: - Queue pruning
 
     func testPruneQueueKeepsCurrentIndexWhenCurrentSourceStillEnabled() {
@@ -693,5 +910,22 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(result.nextCurrentQueueIndex, 0)
         XCTAssertFalse(result.removedCurrentQueueItem)
         XCTAssertEqual(result.removedQueueItemCount, 1)
+    }
+
+    private func makeTrack(
+        id: String,
+        title: String,
+        artist: String,
+        duration: TimeInterval
+    ) -> Track {
+        Track(
+            id: id,
+            key: "/library/metadata/\(id)",
+            title: title,
+            artistName: artist,
+            albumArtistName: artist,
+            duration: duration,
+            sourceCompositeKey: "plex:account:server:library"
+        )
     }
 }

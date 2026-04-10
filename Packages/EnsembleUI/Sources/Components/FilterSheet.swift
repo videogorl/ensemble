@@ -3,6 +3,11 @@ import SwiftUI
 
 /// Filter sheet for advanced filtering options
 public struct FilterSheet: View {
+    private enum YearField: Hashable {
+        case min
+        case max
+    }
+
     @Binding var filterOptions: FilterOptions
     @Environment(\.dismiss) private var dismiss
     
@@ -16,6 +21,7 @@ public struct FilterSheet: View {
 
     @State private var minYear: String = ""
     @State private var maxYear: String = ""
+    @FocusState private var focusedYearField: YearField?
     #if os(macOS)
     @State private var showingArtistSelection = false
     @State private var showingGenreSelection = false
@@ -92,7 +98,7 @@ public struct FilterSheet: View {
                                 }
                                 .foregroundColor(.red)
                             } else {
-                                HStack(alignment: .top, spacing: 12) {
+                                HStack(alignment: .top, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                                     VStack(alignment: .leading, spacing: 6) {
                                         Text("Min Year")
                                             .font(.caption)
@@ -135,7 +141,7 @@ public struct FilterSheet: View {
                                 }
                             }
 
-                            HStack(spacing: 12) {
+                            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                                 Button(filterOptions.selectedArtists.isEmpty ? "Select Artists…" : "Edit Selection…") {
                                     showingArtistSelection = true
                                 }
@@ -167,7 +173,7 @@ public struct FilterSheet: View {
                                 }
                             }
 
-                            HStack(spacing: 12) {
+                            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                                 Button(filterOptions.selectedGenres.isEmpty ? "Select Genres…" : "Edit Selection…") {
                                     showingGenreSelection = true
                                 }
@@ -231,8 +237,31 @@ public struct FilterSheet: View {
     #endif
 
     private var iOSBody: some View {
-        NavigationView {
-            filterForm
+        navigationContainer
+        .onAppear(perform: initializeYearRange)
+        #if os(iOS)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        #endif
+    }
+
+    @ViewBuilder
+    private var navigationContainer: some View {
+        if #available(iOS 16.0, macOS 13.0, *) {
+            NavigationStack {
+                filterContent
+            }
+        } else {
+            NavigationView {
+                filterContent
+            }
+            #if os(iOS)
+            .navigationViewStyle(.stack)
+            #endif
+        }
+    }
+
+    private var filterContent: some View {
+        filterForm
             .navigationTitle("Filters")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -241,7 +270,7 @@ public struct FilterSheet: View {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
-                        dismiss()
+                        dismissAfterKeyboard()
                     }
                 }
                 #else
@@ -252,8 +281,6 @@ public struct FilterSheet: View {
                 }
                 #endif
             }
-        }
-        .onAppear(perform: initializeYearRange)
     }
 
     private var filterForm: some View {
@@ -296,6 +323,7 @@ public struct FilterSheet: View {
                     } else {
                         HStack {
                             TextField("Min Year", text: $minYear)
+                                .focused($focusedYearField, equals: .min)
                                 #if os(iOS)
                                 .keyboardType(.numberPad)
                                 #endif
@@ -305,6 +333,7 @@ public struct FilterSheet: View {
                                 .foregroundColor(.secondary)
                             
                             TextField("Max Year", text: $maxYear)
+                                .focused($focusedYearField, equals: .max)
                                 #if os(iOS)
                                 .keyboardType(.numberPad)
                                 #endif
@@ -430,6 +459,17 @@ public struct FilterSheet: View {
         filterOptions.yearRange = min...max
     }
 
+    private func dismissAfterKeyboard() {
+        #if os(iOS)
+        focusedYearField = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            dismiss()
+        }
+        #else
+        dismiss()
+        #endif
+    }
+
     #if os(macOS)
     @ViewBuilder
     private func macOSToggleSection<Content: View>(
@@ -437,7 +477,7 @@ public struct FilterSheet: View {
         footer: String?,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Text(title)
                 .font(.headline)
 

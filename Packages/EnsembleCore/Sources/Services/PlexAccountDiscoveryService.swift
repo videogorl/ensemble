@@ -255,13 +255,13 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                                 allowInsecurePolicy: allowInsecurePolicy
                             )
                             #if DEBUG
-                            Logger(subsystem: "com.nysics.Ensemble", category: "Discovery")
+                            Logger(subsystem: "com.videogorl.Ensemble", category: "Discovery")
                                 .debug("[\(device.name)] capabilities: plexPass=\(capabilities?.hasPlexPass ?? false), lyrics=\(capabilities?.hasLyrics ?? false), radio=\(capabilities?.hasRadio ?? false), ownerFeatures=\(capabilities?.ownerFeatures ?? "nil")")
                             #endif
                         } catch {
                             capabilities = nil
                             #if DEBUG
-                            Logger(subsystem: "com.nysics.Ensemble", category: "Discovery")
+                            Logger(subsystem: "com.videogorl.Ensemble", category: "Discovery")
                                 .warning("[\(device.name)] capabilities fetch failed: \(error.localizedDescription)")
                             #endif
                         }

@@ -13,6 +13,7 @@ public struct QueueCard: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
     @Environment(\.dependencies) private var deps
+    @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss
     
     @State private var playlistPickerPayload: PlaylistPickerPayload?
@@ -115,7 +116,7 @@ public struct QueueCard: View {
             
             Spacer()
             
-            HStack(spacing: 16) {
+            HStack(spacing: TrackListLayoutMetrics.rowHorizontalPadding) {
                 // History toggle
                 Button(action: {
                     withAnimation(.spring()) {
@@ -151,7 +152,7 @@ public struct QueueCard: View {
             .chromelessMediaControlButton()
             .chromelessMediaControlMenu()
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
         .frame(minHeight: 36) // Consistent height across all NPV card headers
     }
 
@@ -193,14 +194,12 @@ public struct QueueCard: View {
                     },
                     onGoToAlbum: { track in
                         if let albumId = track.albumRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
-                            dismiss()
+                            navigateFromNowPlaying(to: .album(id: albumId))
                         }
                     },
                     onGoToArtist: { track in
                         if let artistId = track.artistRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
-                            dismiss()
+                            navigateFromNowPlaying(to: .artist(id: artistId))
                         }
                     },
                     canAddToRecentPlaylist: { track in
@@ -228,7 +227,7 @@ public struct QueueCard: View {
                                 .font(.subheadline)
                         }
                         .foregroundColor(.secondary)
-                        .padding(.vertical, 16)
+                        .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing + 4)
                     }
                 }
                 #else
@@ -237,7 +236,7 @@ public struct QueueCard: View {
                 #endif
             } else {
                 // Empty state
-                VStack(spacing: 16) {
+                VStack(spacing: TrackListLayoutMetrics.rowHorizontalPadding) {
                     Image(systemName: "music.note.list")
                         .font(.system(size: 48))
                         .foregroundColor(.primary.opacity(0.3))
@@ -302,14 +301,14 @@ public struct QueueCard: View {
                         .font(.subheadline)
                 }
                 .foregroundColor(.secondary)
-                .padding(.vertical, 12)
+                .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing)
             }
         }
     }
 
     /// Single row for the macOS queue/history list
     private func macOSQueueRow(item: QueueItem, isAutoplay: Bool) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Artwork thumbnail
             ArtworkView(track: item.track, size: .tiny, cornerRadius: 4)
 
@@ -341,7 +340,7 @@ public struct QueueCard: View {
                 .foregroundColor(.secondary)
                 .monospacedDigit()
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
     }
 
     /// Context menu for queue items
@@ -370,16 +369,14 @@ public struct QueueCard: View {
         Divider()
         if let albumId = item.track.albumRatingKey {
             Button {
-                DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
-                dismiss()
+                navigateFromNowPlaying(to: .album(id: albumId))
             } label: {
                 Label("Go to Album", systemImage: "square.stack")
             }
         }
         if let artistId = item.track.artistRatingKey {
             Button {
-                DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
-                dismiss()
+                navigateFromNowPlaying(to: .artist(id: artistId))
             } label: {
                 Label("Go to Artist", systemImage: "music.mic")
             }
@@ -406,16 +403,14 @@ public struct QueueCard: View {
         Divider()
         if let albumId = item.track.albumRatingKey {
             Button {
-                DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
-                dismiss()
+                navigateFromNowPlaying(to: .album(id: albumId))
             } label: {
                 Label("Go to Album", systemImage: "square.stack")
             }
         }
         if let artistId = item.track.artistRatingKey {
             Button {
-                DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
-                dismiss()
+                navigateFromNowPlaying(to: .artist(id: artistId))
             } label: {
                 Label("Go to Artist", systemImage: "music.mic")
             }
@@ -488,5 +483,13 @@ public struct QueueCard: View {
         }
         playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
     }
-}
 
+    private func navigateFromNowPlaying(to destination: NavigationCoordinator.Destination) {
+        deps.navigationCoordinator.navigateFromNowPlaying(to: destination)
+        if let dismissNowPlaying {
+            dismissNowPlaying()
+        } else {
+            dismiss()
+        }
+    }
+}

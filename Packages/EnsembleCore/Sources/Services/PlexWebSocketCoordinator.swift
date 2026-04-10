@@ -48,6 +48,9 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     /// Called when PMS download queue activity completes (media.download ended).
     /// Used by OfflineDownloadService to restart its queue when PMS finishes preparing downloads.
     public var onDownloadQueueCompleted: (() async -> Void)?
+    /// Called when the aggregate WebSocket availability changes.
+    /// True means at least one server currently has an active WebSocket manager.
+    public var onConnectionAvailabilityChanged: ((Bool) async -> Void)?
 
     private var managers: [String: PlexWebSocketManager] = [:]
     private var eventTasks: [String: Task<Void, Never>] = [:]
@@ -60,6 +63,9 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private var pendingPlaylistUpdates: [String: Task<Void, Never>] = [:]
     private let libraryUpdateDebounce: TimeInterval = 3.0
     private let playlistUpdateDebounce: TimeInterval = 5.0
+    private let recentLibrarySyncCooldown: TimeInterval = 10.0
+    private var activeLibrarySyncs: Set<String> = []
+    private var lastLibrarySyncCompletion: [String: Date] = [:]
 
     // Debounce settings-changed events per server to coalesce rapid bursts
     private var pendingSettingsUpdates: [String: Task<Void, Never>] = [:]
@@ -118,13 +124,15 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             removeManager(for: key)
         }
         managers.removeAll()
-        connectedServerKeys.removeAll()
+        applyConnectedState(Set())
 
         // Cancel pending debounced updates
         for (_, task) in pendingLibraryUpdates {
             task.cancel()
         }
         pendingLibraryUpdates.removeAll()
+        activeLibrarySyncs.removeAll()
+        lastLibrarySyncCompletion.removeAll()
         for (_, task) in pendingPlaylistUpdates {
             task.cancel()
         }
@@ -184,7 +192,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         for key in staleKeys {
             removeManager(for: key)
             managers.removeValue(forKey: key)
-            connectedServerKeys.remove(key)
+            applyConnectedState(connectedServerKeys.subtracting([key]))
         }
     }
 
@@ -202,7 +210,8 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             await manager.start()
 
             await MainActor.run {
-                self?.connectedServerKeys.insert(serverKey)
+                guard let self else { return }
+                self.applyConnectedState(self.connectedServerKeys.union([serverKey]))
             }
 
             for await event in stream {
@@ -318,13 +327,18 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64((self?.libraryUpdateDebounce ?? 3.0) * 1_000_000_000))
             guard !Task.isCancelled else { return }
 
+            guard let self else { return }
+            guard self.shouldTriggerLibrarySync(for: debounceKey) else { return }
+
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Triggering incremental sync for section \(sectionKey)")
 
-            if let onLibraryUpdate = await self?.onLibraryUpdate {
+            if let onLibraryUpdate = self.onLibraryUpdate {
                 await onLibraryUpdate(sectionKey)
             } else {
                 EnsembleLogger.error("🔌 WebSocketCoordinator: onLibraryUpdate callback is nil — sync not triggered!")
             }
+
+            self.finishLibrarySync(for: debounceKey)
         }
     }
 
@@ -340,7 +354,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Triggering playlist sync for server \(serverKey)")
 
-            if let onPlaylistUpdate = await self?.onPlaylistUpdate {
+            if let onPlaylistUpdate = self?.onPlaylistUpdate {
                 await onPlaylistUpdate(serverKey)
             }
         }
@@ -389,6 +403,44 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
         for library in server.libraries where library.isEnabled {
             debouncedLibraryUpdate(sectionKey: library.key, serverKey: serverKey)
+        }
+    }
+
+    private func shouldTriggerLibrarySync(for debounceKey: String) -> Bool {
+        if activeLibrarySyncs.contains(debounceKey) {
+            EnsembleLogger.debug("🔌 WebSocketCoordinator: Skipping section sync for \(debounceKey) — already in flight")
+            return false
+        }
+
+        if let lastCompletion = lastLibrarySyncCompletion[debounceKey],
+           Date().timeIntervalSince(lastCompletion) < recentLibrarySyncCooldown {
+            EnsembleLogger.debug("🔌 WebSocketCoordinator: Skipping section sync for \(debounceKey) — completed recently")
+            return false
+        }
+
+        activeLibrarySyncs.insert(debounceKey)
+        return true
+    }
+
+    private func finishLibrarySync(for debounceKey: String) {
+        activeLibrarySyncs.remove(debounceKey)
+        lastLibrarySyncCompletion[debounceKey] = Date()
+    }
+
+    internal func setConnectedStateForTesting(_ serverKeys: Set<String>) {
+        applyConnectedState(serverKeys)
+    }
+
+    private func applyConnectedState(_ newValue: Set<String>) {
+        guard newValue != connectedServerKeys else { return }
+
+        let previousHasConnections = !connectedServerKeys.isEmpty
+        connectedServerKeys = newValue
+        let hasConnections = !newValue.isEmpty
+
+        guard previousHasConnections != hasConnections else { return }
+        Task { [weak self] in
+            await self?.onConnectionAvailabilityChanged?(hasConnections)
         }
     }
 }

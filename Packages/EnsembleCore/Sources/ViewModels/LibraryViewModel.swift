@@ -120,29 +120,15 @@ public final class LibraryViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Auto-reload when sync completes (full or incremental)
-        syncCoordinator.$isSyncing
+        // Auto-reload only when sync reports a material library change.
+        // Connection/progress churn stays on sourceStatuses and should not trigger full browse reloads.
+        syncCoordinator.$lastContentChange
             .receive(on: DispatchQueue.main)
-            .removeDuplicates()
-            .sink { [weak self] syncing in
-                if !syncing {
-                    // Full sync just completed, reload library
-                    Task { @MainActor in
-                        await self?.loadLibrary()
-                    }
-                }
-            }
-            .store(in: &cancellables)
-
-        // Auto-reload when any source status changes (catches WebSocket-triggered incremental syncs
-        // which update sourceStatuses but don't toggle isSyncing)
-        syncCoordinator.$sourceStatuses
-            .receive(on: DispatchQueue.main)
-            .removeDuplicates()
-            .dropFirst()
+            .compactMap { $0 }
+            .filter(\.affectsLibraryBrowse)
             .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
-            .sink { [weak self] statuses in
-                EnsembleLogger.debug("📚 LibraryViewModel: sourceStatuses changed — \(statuses.map { "\($0.key.compositeKey): \($0.value.syncStatus)" })")
+            .sink { [weak self] change in
+                EnsembleLogger.debug("📚 LibraryViewModel: reloading after content change for \(change.source.compositeKey)")
                 Task { @MainActor in
                     await self?.loadLibrary()
                 }

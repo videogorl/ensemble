@@ -250,6 +250,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func fetchDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> [CDDownload] { [] }
         func createDownload(forTrackRatingKey trackRatingKey: String) async throws -> CDDownload { fatalError() }
         func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?, quality: String) async throws -> CDDownload { fatalError() }
+        func batchCreateDownloads(references: [OfflineTrackReference], quality: String) async throws -> Int { 0 }
         func updateDownloadProgress(_ downloadId: NSManagedObjectID, progress: Float) async throws {}
         func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status, quality: String?) async throws {}
         func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws {}
@@ -384,8 +385,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         await Task.yield()
         viewModel.currentRating = .loved
 
-        viewModel.toggleRating()
-        try? await Task.sleep(nanoseconds: 300_000_000)
+        await viewModel.toggleRatingForTesting()
 
         XCTAssertFalse(viewModel.isTrackFavorited(track))
     }

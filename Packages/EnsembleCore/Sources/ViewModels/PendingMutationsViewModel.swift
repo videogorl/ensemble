@@ -141,8 +141,13 @@ public final class PendingMutationsViewModel: ObservableObject {
             sourceCompositeKey: payload.sourceCompositeKey
         )
 
-        if let rating = payload.rating, rating > 0 {
-            return "Set \(trackTitle) as Loved"
+        if let rating = payload.rating {
+            // rating >= 8 = loved (5-star), 1–7 = disliked (1-star). Matches TrackRating.from(rating:).
+            if rating >= 8 {
+                return "Set \(trackTitle) as Loved"
+            } else {
+                return "Set \(trackTitle) as Disliked"
+            }
         } else {
             return "Removed rating from \(trackTitle)"
         }

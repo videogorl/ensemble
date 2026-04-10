@@ -96,8 +96,8 @@ public struct HubOrderingSheet: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .padding(.horizontal)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding + 4)
+        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         .background(headerBackgroundColor)
     }
 
@@ -116,7 +116,7 @@ public struct HubOrderingSheet: View {
                 let libraryName = viewModel.libraryName(forHubId: hub.id)
                 let displayInfo = Self.displayInfo(for: hub, libraryName: libraryName)
 
-                HStack(spacing: 12) {
+                HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                     // Drag handle (6-dot grid like Plexamp)
                     Image(systemName: "circle.grid.2x3.fill")
                         .foregroundColor(.secondary)

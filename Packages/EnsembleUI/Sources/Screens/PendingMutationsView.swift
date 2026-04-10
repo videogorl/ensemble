@@ -38,7 +38,8 @@ public struct PendingMutationsView: View {
                 clearAllButton
             }
             #else
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem { Spacer() }
+            ToolbarItem(placement: .primaryActionIfAvailable) {
                 clearAllButton
             }
             #endif
@@ -92,7 +93,7 @@ private struct MutationRowView: View {
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Type icon
             Image(systemName: iconName)
                 .foregroundColor(iconColor)
@@ -141,7 +142,7 @@ private struct MutationRowView: View {
                     .foregroundColor(.secondary)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             Button(role: .destructive, action: onDelete) {
                 Label("Delete", systemImage: "trash")

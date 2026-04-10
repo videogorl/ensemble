@@ -48,10 +48,11 @@ public struct DownloadTargetDetailView: View {
                 retryAllButton
             }
             #else
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem { Spacer() }
+            ToolbarItem(placement: .primaryActionIfAvailable) {
                 refreshTargetButton
             }
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem(placement: .primaryActionIfAvailable) {
                 retryAllButton
             }
             #endif
@@ -152,7 +153,7 @@ public struct DownloadTargetDetailView: View {
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Button {
                 nowPlayingVM.play(tracks: viewModel.playableTracks)
             } label: {
@@ -220,7 +221,7 @@ public struct DownloadTargetDetailView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
-        .padding(.horizontal)
+        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         .padding(.vertical, 10)
     }
 
@@ -256,7 +257,7 @@ public struct DownloadTargetDetailView: View {
 
                     if row.id != viewModel.tracks.last?.id {
                         Divider()
-                            .padding(.leading, 68)
+                            .padding(.leading, TrackListLayoutMetrics.artworkLeadingInset)
                     }
                 }
             }
@@ -269,7 +270,7 @@ public struct DownloadTargetDetailView: View {
             #endif
             .cornerRadius(12)
             .padding(.horizontal)
-            .padding(.bottom, 140)  // mini player clearance
+            .padding(.bottom, TrackListLayoutMetrics.miniPlayerBottomSpacing)
         }
     }
 

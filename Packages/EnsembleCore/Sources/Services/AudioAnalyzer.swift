@@ -46,6 +46,19 @@ public protocol AudioAnalyzerProtocol: AnyObject {
 
     /// Resume frequency band updates.
     @MainActor func resumeUpdates()
+
+    /// Pause the display timer when the app enters background.
+    /// Unlike pauseUpdates(), this does not set the music-pause flag — it only stops the
+    /// timer so it doesn't burn main-thread CPU during background audio playback.
+    /// exitBackground() restarts the timer only if music is actively playing.
+    @MainActor func enterBackground()
+
+    /// Restart the display timer when the app foregrounds, if music was actively playing.
+    @MainActor func exitBackground()
+
+    /// Whether aurora visualization is enabled. When false, the 30Hz display timer
+    /// is not started, saving CPU on low-end devices.
+    @MainActor var visualizationEnabled: Bool { get set }
 }
 
 // MARK: - Frequency Snapshot
@@ -212,6 +225,27 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     /// Whether updates are paused
     private var isPaused: Bool = false
 
+    /// Whether the aurora visualizer is enabled in settings.
+    /// When false, the 30Hz display timer is not started — saving significant CPU
+    /// on dual-core devices (A9). Synced from PlaybackService's UserDefaults observer.
+    public var visualizationEnabled: Bool = true {
+        didSet {
+            guard visualizationEnabled != oldValue else { return }
+            if !visualizationEnabled {
+                // Stop the 30Hz timer immediately when disabled
+                stopDisplayTimer()
+            } else if activeTrackId != nil && !isPaused {
+                // Re-enable: start the timer if we have an active, unpaused track
+                startDisplayTimer()
+            }
+        }
+    }
+
+    /// True while the app is in the background. Stops the 30Hz display timer without
+    /// disturbing the music-pause (isPaused) flag, so exitBackground() can correctly
+    /// restart the timer only when music was actively playing.
+    private var isBackgrounded = false
+
     /// In-flight analysis tasks (to avoid duplicate work)
     private var analysisTasks: [String: Task<Void, Never>] = [:]
 
@@ -357,11 +391,17 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         // Clear bands immediately so stale data from the previous track doesn't persist
         frequencyBands = Array(repeating: 0.0, count: bandCount)
 
-        startDisplayTimer()
+        // Only start the 30Hz display timer when visualization is enabled.
+        // On A9 (dual-core), the timer + Gaussian blending + array allocations
+        // consume measurable CPU even when the aurora Canvas isn't rendering.
+        if visualizationEnabled {
+            startDisplayTimer()
+        }
 
         #if DEBUG
         let hasTimeline = timelines[trackId] != nil
-        logger.debug("Activated timeline for \(trackId), hasData=\(hasTimeline)")
+        let vizEnabled = visualizationEnabled
+        logger.debug("Activated timeline for \(trackId), hasData=\(hasTimeline), vizEnabled=\(vizEnabled)")
         #endif
     }
 
@@ -406,9 +446,10 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     public func pauseUpdates() {
         isPaused = true
+        stopDisplayTimer() // Actually stop the timer, not just flag — saves ~3ms/sec of main thread
 
         #if DEBUG
-        logger.debug("Frequency updates paused")
+        logger.debug("Frequency updates paused (timer stopped)")
         #endif
     }
 
@@ -417,9 +458,34 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         isPaused = false
         positionUpdateWallTime = CACurrentMediaTime()
 
+        // Restart the timer now that we're unpaused.
+        // Also handles the case where visualization was enabled after activateTimeline()
+        // was called without it (e.g. user toggles aurora on mid-playback).
+        if visualizationEnabled && activeTrackId != nil {
+            startDisplayTimer()
+        }
+
         #if DEBUG
-        logger.debug("Frequency updates resumed")
+        logger.debug("Frequency updates resumed (timer restarted)")
         #endif
+    }
+
+    // MARK: - App Lifecycle
+
+    /// Stop the display timer when the app backgrounds. Does not touch isPaused so
+    /// the music-pause state is preserved for when the app returns to foreground.
+    public func enterBackground() {
+        isBackgrounded = true
+        stopDisplayTimer()
+    }
+
+    /// Restart the display timer when the app foregrounds — but only if music was
+    /// actively playing (not paused by the user or a track transition).
+    public func exitBackground() {
+        isBackgrounded = false
+        if !isPaused && visualizationEnabled && activeTrackId != nil {
+            startDisplayTimer()
+        }
     }
 
     // MARK: - Display Timer
@@ -445,7 +511,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     /// Called ~30 times per second by the display timer
     private func tickDisplay() {
-        guard !isPaused,
+        guard !isPaused, !isBackgrounded,
               let trackId = activeTrackId,
               let timeline = timelines[trackId] else {
             return
@@ -470,9 +536,11 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     typealias ProgressHandler = @Sendable ([FrequencySnapshot], Double, TimeInterval, TimeInterval) -> Void
 
     /// Public entry point for sidecar generation after offline downloads.
-    /// Runs FFT analysis on a background thread. Returns nil if the file can't be read.
+    /// Calls analyzeFile directly (no inner Task.detached) so Task.isCancelled checks
+    /// inside the FFT loop propagate from the SidecarAnalysisQueue's worker task.
+    /// This enables clean suspension when the app backgrounds mid-analysis.
     public nonisolated static func analyzeForSidecar(fileURL: URL) async -> FrequencyTimeline? {
-        return await analyzeInBackground(fileURL: fileURL, priority: .utility, progressHandler: nil)
+        return analyzeFile(at: fileURL)
     }
 
     /// Analyze an audio file and produce a FrequencyTimeline.

@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, frequency visualizer, hubs, filtering, network resilience, playback tracking, playlist mutations, playlist merging, incremental sync, Siri media intents, pinned content, persistent session logging)"
+description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, frequency visualizer, hubs, filtering, network resilience, playback tracking, playlist mutations, playlist merging, incremental sync, Siri media intents, pinned content, persistent session logging, user profile & CloudKit sync)"
 ---
 
 # Ensemble Architecture
@@ -65,6 +65,10 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `AccountManager` (@MainActor) -- Manages multiple Plex accounts, servers, and libraries
 - `PlexAccountDiscoveryService` -- Discovers account identity + normalized server/library inventory during add-account and reconciliation flows
 - `SyncCoordinator` (@MainActor) -- Orchestrates library syncing across all enabled sources; provides timeline reporting and scrobbling methods
+  - Publishes `lastContentChange` for consumers that need actual library/playlist mutations; `sourceStatuses` remains the transport/progress surface
+  - Delegates health-refresh gating/coalescing to `RefreshOrchestrator` so foreground/network-triggered probes share one cooldown/staleness path
+  - Delegates app-foreground and network-transition policy to `NetworkLifecycleController` so lifecycle events produce explicit refresh/invalidation plans before side effects run
+  - Delegates API-client endpoint synchronization and registry observation to `ServerConnectionController` so sync flow no longer owns registry subscription tasks directly
 - `NavigationCoordinator` (@MainActor) -- Manages cross-view navigation state (artist/album deep links from NowPlayingView)
   - Maintains per-tab navigation paths (homePath, artistsPath, etc.)
   - `visibleTabs: [TabItem]` -- Synced from MainTabView to enable fallback logic
@@ -74,6 +78,12 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - `activeAuxiliaryPresentation` / `auxiliaryWindowRequest` -- Root-level modal/window routing state; screens should request presentation through the coordinator instead of owning duplicated sheet state
 - Large-screen Now Playing presentation is split at the UI layer: `NowPlayingSheetView` remains the phone sheet container, `NowPlayingViewportRoot` owns the iPad/macOS viewport layout, and macOS window chrome is coordinated separately through `WindowChromeBridge` so toolbar content can swap without moving the titlebar/traffic lights
 - `PlaybackService` -- AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion). Publishes both raw transport time (`currentTime`) and presentation-adjusted time (`presentationTime`) so lyrics/Aurora can compensate for AirPlay/Bluetooth output delay without affecting seek/reporting semantics. `frequencyBands` uses `CurrentValueSubject` (not `@Published`) to avoid firing `objectWillChange` at 30Hz. Uses `ProgressiveStreamLoader` for transcode streams and `streamLoaders` dict for lifecycle management
+- `PlaybackHandoffCoordinator` -- Internal playback-handoff reducer extracted from `PlaybackService`; owns disconnect/interruption/remote-command pause intent, settle-window policy, and handoff logging decisions while the service remains the side-effect boundary
+- `PlaybackQueueStore` -- Persists queue/history restoration state outside `PlaybackService`; writes a single snapshot plus legacy keys so queue-restoration refactors can proceed without breaking existing installs
+- `PlaybackLaunchCoordinator` -- Internal playback-launch seam extracted from `PlaybackService`; owns the successful-resolution path (visualizer planning, engine load, recovery seek application, and prefetch kickoff) while the façade still owns queue mutation and transport retry loops
+- `PlaybackRecoveryPolicy` -- Internal playback buffering/stall policy seam extracted from `PlaybackService`; owns buffering profiles, conservative-mode escalation, prefetch throttling, and unexpected-pause recovery decisions while `PlaybackService` remains the façade
+- `PlaybackSessionStateMachine` -- Internal playback-session seam extracted from `PlaybackService`; owns request validation, retry policy, supersession checks, and terminal failure classification for `playCurrentQueueItem` while queue mutation and engine control remain in the façade
+- `PlaybackTransportCoordinator` -- Internal transport seam extracted from `PlaybackService`; owns stream-decision caching, in-flight resolution deduplication, and progressive-loader lifecycle for local-file vs streaming resolution without changing playback queue semantics
 - `ProgressiveStreamLoader` -- AVAssetResourceLoaderDelegate + URLSessionDataDelegate bridge. Proxies PMS's chunked transcode stream (via custom `ensemble-transcode://` scheme) to AVPlayer progressively, writing to a growing temp file. Post-download callbacks: `onDownloadComplete` for frequency analysis, `onDownloadFailed` for HTTP errors and invalid payloads. Validates HTTP status (non-2xx → `ProgressiveStreamError.httpError`) and payload size (< 256 bytes → `.invalidPayload`). Error body captured to diagnostic buffer (not written to audio file)
 - `ProgressiveStreamError` -- Error type for stream download failures: `.httpError(statusCode:bodySnippet:)` and `.invalidPayload(bytesReceived:)`. Mapped to `PlaybackError` in `PlaybackService.mapToPlaybackError`
 - `HubRepository` -- Repository for hub data persistence (implements `HubRepositoryProtocol`); manages CDHub/CDHubItem entities
@@ -85,7 +95,13 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `ArtworkLoader` -- Persistent artwork caching with local-first loading strategy
 - `CacheManager` (@MainActor) -- Tracks cache sizes and provides cache clearing functionality
 - `NetworkMonitor` (@MainActor) -- Proactive network connectivity monitoring using NWPathMonitor with 1s debouncing
+- `RefreshOrchestrator` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns health-refresh coalescing, cooldown/staleness checks, and startup-health claim tracking while `SyncCoordinator` remains the façade
+- `NetworkLifecycleController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns app-foreground and observed-network transition policy (offline state, refresh triggers, and startup-transition skipping) while the coordinator applies side effects
+- `PeriodicSyncController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns foreground periodic-sync timer scheduling and WebSocket-aware polling interval changes while `SyncCoordinator` keeps the actual sync policy
+- `PlaylistRefreshController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns server-scoped playlist refresh resolution (incremental vs fallback full sync) for mutation refreshes, playlist-only sync, and WebSocket-triggered playlist updates
+- `WebSocketSyncController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns WebSocket-triggered section resolution and server playlist refresh routing so the coordinator does not inline provider lookup logic
 - `ServerHealthChecker` -- Concurrent health checks for all configured servers with automatic failover
+- `ServerConnectionController` (@MainActor) -- Internal network seam extracted from `SyncCoordinator`; owns registry-driven API-client URL updates and explicit endpoint refresh fan-out while `SyncCoordinator` remains the façade
 - `SettingsManager` (@MainActor) -- Manages accent colors, customizable tab configuration, and track swipe action layout settings
 - `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for hub refresh ~every 15min (system-controlled)
 - `MoodRepository` -- Mood data persistence (CDMood)
@@ -93,10 +109,16 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `ToastCenter` (@MainActor) -- App-wide toast notification coordination
 - `PlexRadioProvider` -- Plex Radio support implementing `RadioProvider` protocol
 - `PlexWebSocketCoordinator` (@MainActor) -- Routes WebSocket events from `PlexWebSocketManager` to `SyncCoordinator` and `ServerHealthChecker`
+  - Coalesces section-level library updates with debounce + in-flight/cooldown guards so scans do not cascade into redundant incremental syncs
+  - Publishes aggregate WebSocket availability changes so periodic-sync timer policy can follow actual socket connectivity without app-layer polling
 - `TrackAvailabilityResolver` (@MainActor ObservableObject) -- Reactive per-track availability combining server connection state and download state; publishes `TrackAvailability` enum
 - `SiriMediaIndexStore` -- Builds/persists shared App Group Siri candidate index (track/album/artist/playlist)
 - `SiriPlaybackCoordinator` -- Executes Siri playback payloads in app process using existing playback queue entry points
-- `OfflineDownloadService` (@MainActor) -- Target-based offline orchestration (reconciliation, queue execution, progress, reference-counted cleanup)
+- `OfflineDownloadService` (@MainActor) -- Target-based offline orchestration (reconciliation, progress publishing, reference-counted cleanup, façade for queue control)
+  - Uses an internal `DownloadWorkMode` policy (`interactivePlayback`, `foregroundIdle`, `background`) so playback-sensitive sessions throttle queue concurrency and coalesce expensive target-progress publishes instead of treating every queue/network event as full-speed work
+- `DownloadQueueCoordinator` (@MainActor) -- Sole owner of offline queue task lifecycle, worker fan-out, background wakeup handling, and queue wind-down/restart decisions
+- `DownloadRetryPolicy` (@MainActor) -- Stateful transfer retry accounting and direct-original fallback gating for offline downloads
+- `DownloadTargetReconciler` -- Resolves offline target memberships, queues missing downloads, and deletes orphaned download files when targets change
 - `OfflineBackgroundExecutionCoordinator` (@MainActor) -- Optional iOS 26+ `BGContinuedProcessingTask` adapter; no-op on unsupported platforms/OS versions
 - `FrequencyAnalysisService` -- Pre-computed audio frequency analysis using Accelerate FFT; produces `FrequencyTimeline` data for visualizer display decoupled from the audio pipeline
 - `PowerStateMonitor` (@MainActor ObservableObject) -- Observes iOS Low Power Mode via `NSProcessInfoPowerStateDidChange` and publishes `isLowPowerMode: Bool`. Consumers (Aurora visualizer, LyricsCard, download service) read this to reduce GPU passes, frame rates, and network work when the device is in LPM
@@ -318,6 +340,8 @@ Dynamic home screen powered by Plex's hub system:
   - publishing `@Published activeDownloadRatingKeys: Set<String>` for UI download spinners in `TrackRow`/`MediaTrackList`
 - `DownloadManager` stores download quality and uses source-aware lookup/delete (`ratingKey + sourceCompositeKey`) to prevent collisions.
 - Queue policy is Wi-Fi/wired only; active downloads pause on cellular/offline and resume when allowed.
+- Queue policy is also lifecycle-aware: user pause, Low Power Mode, app backgrounding, and iOS 26 continued-processing windows all feed the same scheduler so the service can pause aggressively on older devices without losing resumability.
+- Full target-progress recomputation is coalesced during playback/background load; per-track completion still uses targeted owning-target refreshes so UI accuracy is preserved without rebuilding every target on each queue event.
 - Sync integration:
   - `SyncCoordinator` publishes playlist refresh completion via `onPlaylistRefreshCompleted`.
   - `OfflineDownloadService` also watches source sync timestamps to reconcile library/album/artist targets after incremental/full sync updates.
@@ -628,6 +652,62 @@ Real-time dual-write logging for TestFlight diagnostics. Each `EnsembleLogger` m
 
 - **Key types:** `PersistentLogService`, `LogFileWriter` (private), `LogSession`
 - **Key files:** `PersistentLogService.swift`, all `EnsembleLogger.swift` files, `DependencyContainer.swift`, `EnsembleApp.swift`
+
+## Subsystem: User Profile & CloudKit Sync
+
+User-editable profile (display name, profile image) with iCloud private database sync:
+
+1. **UserProfile** (`EnsembleCore/Models`) -- Data model with `displayName`, `profileImagePath`, and `lastModified` fields.
+2. **UserProfileStore** (`EnsembleCore/Services`, @MainActor ObservableObject) -- Local profile persistence and image processing. Publishes the current profile for UI binding.
+3. **CloudSyncService** (`EnsembleCore/Services`, actor) -- CloudKit private database sync using container `iCloud.com.videogorl.ensemble`, record type `UserProfile`. Supports push, pull, subscription setup, silent-push delivery handling, and foreground recovery refresh. Prefers CloudKit server `modificationDate` when ordering pulled profile changes, and exposes transport state (`available`, `notAuthenticated`, `networkUnavailable`, etc.) so profile sync can degrade independently from KVS-backed features.
+4. **ProfileView** (`EnsembleUI/Screens`) -- Full profile screen replacing the previous SettingsView content. Settings are migrated into ProfileView; SettingsView redirects here.
+5. **ProfileHeaderView** (`EnsembleUI/Components`) -- Circular profile image + display name header with photo picker integration.
+6. **ProfileToolbarButton** (`EnsembleUI/Components`) -- 28×28pt circular profile image button rendered by `MainTabView` on iPhone root tab destinations and by the sidebar toolbar on iPad/macOS.
+7. **Navigation change:** `AuxiliaryPresentation.settings` renamed to `.profile`; `openSettings()` renamed to `openProfile()` (legacy alias kept for backward compatibility).
+8. **DependencyContainer** wires `UserProfileStore` and `CloudSyncService` as singleton services and triggers a foreground profile reconcile path on iOS/macOS activation so missed silent pushes self-heal quickly.
+
+- **Key types:** `UserProfile`, `UserProfileStore`, `CloudSyncService`
+- **Key files:** `UserProfile.swift`, `UserProfileStore.swift`, `CloudSyncService.swift`, `ProfileView.swift`, `ProfileHeaderView.swift`, `ProfileToolbarButton.swift`, `DependencyContainer.swift`
+
+## Subsystem: iCloud Sync (Phase 2 — KVS + Keychain)
+
+Hybrid sync architecture for cross-device settings and credential sharing:
+
+```
+┌──────────────────────────────────────────────────────┐
+│  iCloud Sync Mechanisms                              │
+├──────────────┬──────────────────┬─────────────────────┤
+│  KVS         │  iCloud Keychain │  CloudKit           │
+│  (small data)│  (credentials)   │  (profile)          │
+├──────────────┼──────────────────┼─────────────────────┤
+│ Accent color │ Plex tokens      │ Display name        │
+│ Swipe layout │ Server URLs      │ Profile image       │
+│ Pins         │ Account IDs      │                     │
+│ Library flags│                  │                     │
+└──────────────┴──────────────────┴─────────────────────┘
+```
+
+**Sync mechanisms:**
+1. **KVS (`KVSSyncService`)** — `NSUbiquitousKeyValueStore` wrapper for small settings. Push/pull/observe with echo-loop suppression (1s window after pushing). Tracks whether initial iCloud KVS delivery has actually settled so bootstrap code can defer seeding local defaults until remote absence is authoritative. Each KVS key maps to a feature toggle in `SyncSettingsManager`. Library flags are encoded in canonical sorted order so identical state does not generate false remote changes from dictionary key reordering.
+2. **iCloud Keychain (`KeychainService`)** — Synchronizable keychain items for Plex credentials. Uses `saveSynchronizable`/`getSynchronizable`/`deleteSynchronizable` APIs with `KeychainKey.plexAccountsSync`. No live observer exists, so `DependencyContainer` runs a foreground reconciliation pass that re-checks synced credentials and discovers any newly arrived accounts.
+3. **CloudKit (`CloudSyncService`)** — Private database sync for user profile (existing, see User Profile subsystem).
+
+**Key behaviors:**
+- **Dependency cascade:** Libraries toggle auto-disables when Sources is turned off.
+- **Bootstrap flow:** `DependencyContainer` owns a shared per-feature bootstrap path (`accentColor`, `swipeActions`, `pins`, `sources`, `libraries`). On first iCloud connection or feature re-enable, existing cloud state wins. KVS-backed features now wait for authoritative initial-sync settlement before treating `nil` as "remote absent"; only then do they seed local state.
+- **Runtime feature state:** `SyncSettingsManager` tracks in-memory per-feature state (`idle`, `bootstrapping`, `appliedRemote`, `seededLocal`, `waitingForTransport`, `transportUnavailable`, `error`). `hasCompletedFirstConnect` is now only set once all enabled features have settled into a terminal state instead of being marked optimistically at launch.
+- **Ongoing updates:** Local edits push their latest full snapshot; other devices apply the remote snapshot when it changes.
+- **Pins:** Remote pin sync is snapshot-based, not union-based, so pin deletions and reorderings propagate across devices.
+
+**Sync settings toggles (per-device, UserDefaults):**
+- `sources` — account credentials via iCloud Keychain
+- `libraries` — library enabled/disabled flags (depends on `sources`)
+- `pins` — pinned content
+- `accentColor` — app accent color
+- `swipeActions` — track swipe action layout
+
+- **Key types:** `SyncSettingsManager`, `KVSSyncService`, `SyncableAccountCredential`, `SyncableServerCredential`, `SyncableLibraryRef`
+- **Key files:** `SyncSettingsManager.swift`, `KVSSyncService.swift`, `SyncSettingsView.swift`, `DependencyContainer.swift`, `AccountManager.swift`, `KeychainService.swift`, `PlexAccountConfig.swift`, `PinnedItem.swift`
 
 ## Multi-Source Architecture
 

@@ -51,7 +51,7 @@ public struct MoodTracksView: View {
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadRatingKeys: activeDownloadRatingKeys,
                 managesOwnScrolling: true,
-                bottomContentInset: 140,
+                bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
                 tableHeaderContent: AnyView(moodHeader),
                 tableFooterContent: AnyView(moodFooter),
                 onPlayNext: { track in
@@ -310,7 +310,7 @@ public struct MoodTracksView: View {
     }
 
     private var actionButtons: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Button(action: {
                 if !nowPlayingVM.isAutoplayEnabled {
                     nowPlayingVM.toggleAutoplay()

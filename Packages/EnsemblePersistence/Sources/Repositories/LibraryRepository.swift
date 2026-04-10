@@ -280,12 +280,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         await withCheckedContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
-                // refreshAllObjects() iterates registeredObjects internally,
-                // which can crash if a background deletion merged a nil entry.
-                // reset() clears all registered objects without iterating them.
-                // Callers re-fetch immediately after this call, so this is safe.
                 context.stalenessInterval = 0
-                context.reset()
+                context.refreshAllObjects()
                 context.stalenessInterval = 5.0
                 continuation.resume()
             }
@@ -576,6 +572,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     NSSortDescriptor(key: "discNumber", ascending: true),
                     NSSortDescriptor(key: "trackNumber", ascending: true)
                 ]
+                request.fetchBatchSize = 50
+                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
                 do {
                     let tracks = try context.fetch(request)
                     continuation.resume(returning: tracks)
@@ -619,6 +617,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     NSSortDescriptor(key: "discNumber", ascending: true),
                     NSSortDescriptor(key: "trackNumber", ascending: true)
                 ]
+                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
                 do {
                     let tracks = try context.fetch(request)
                     continuation.resume(returning: tracks)
@@ -643,6 +642,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     NSSortDescriptor(key: "discNumber", ascending: true),
                     NSSortDescriptor(key: "trackNumber", ascending: true)
                 ]
+                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
                 do {
                     let tracks = try context.fetch(request)
                     continuation.resume(returning: tracks)
@@ -665,6 +665,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     NSSortDescriptor(key: "discNumber", ascending: true),
                     NSSortDescriptor(key: "trackNumber", ascending: true)
                 ]
+                request.fetchBatchSize = 50
+                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
                 do {
                     let tracks = try context.fetch(request)
                     continuation.resume(returning: tracks)
@@ -691,6 +693,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     NSSortDescriptor(key: "discNumber", ascending: true),
                     NSSortDescriptor(key: "trackNumber", ascending: true)
                 ]
+                request.fetchBatchSize = 50
+                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
                 do {
                     let tracks = try context.fetch(request)
                     continuation.resume(returning: tracks)

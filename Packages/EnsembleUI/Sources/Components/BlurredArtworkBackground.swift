@@ -1,8 +1,12 @@
 import SwiftUI
 
-/// A background view that uses a heavily blurred version of artwork
+/// A background view that uses a heavily blurred version of artwork.
+/// When `preBlurredImage` is provided, it is displayed directly without live
+/// blur/contrast/saturation/brightness modifiers — saving 4 GPU render passes
+/// on every SwiftUI body evaluation.
 public struct BlurredArtworkBackground: View {
     let image: UIImage?
+    let preBlurredImage: UIImage?
     let blurRadius: CGFloat
     let contrast: Double
     let saturation: Double
@@ -12,9 +16,10 @@ public struct BlurredArtworkBackground: View {
     let bottomDimming: Double
     let shouldIgnoreSafeArea: Bool
     let overlayColor: Color
-    
+
     public init(
         image: UIImage?,
+        preBlurredImage: UIImage? = nil,
         blurRadius: CGFloat = 80,
         contrast: Double = 2.0,
         saturation: Double = 1.9,
@@ -26,6 +31,7 @@ public struct BlurredArtworkBackground: View {
         overlayColor: Color = .black
     ) {
         self.image = image
+        self.preBlurredImage = preBlurredImage
         self.blurRadius = blurRadius
         self.contrast = contrast
         self.saturation = saturation
@@ -54,41 +60,54 @@ public struct BlurredArtworkBackground: View {
                 // when the image changes. DO NOT REMOVE THIS - it prevents jarring swaps.
                 // Guard against zero-sized geometry during layout/animation passes
                 // to avoid QuartzCore "Failed to create WxH image slot" errors.
-                if let image = image, geometry.size.width > 0, geometry.size.height > 0 {
+                //
+                // When a pre-blurred image is available, display it directly without
+                // live blur/contrast/saturation/brightness — those effects are already
+                // baked in, saving 4 GPU render passes per body evaluation.
+                let displayImage = preBlurredImage ?? image
+                let isPreBlurred = preBlurredImage != nil
+
+                if let displayImage = displayImage, geometry.size.width > 0, geometry.size.height > 0 {
                     #if os(macOS)
                     // Opaque fill behind the blur — macOS .blur() doesn't support
                     // the opaque: parameter, so edges become semi-transparent.
                     // This prevents the window background from showing through.
-                    overlayColor
-                        .frame(width: geometry.size.width, height: geometry.size.height)
+                    if !isPreBlurred {
+                        overlayColor
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                    }
 
-                    Image(nsImage: image)
+                    Image(nsImage: displayImage)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
-                        .blur(radius: blurRadius)
-                        .contrast(contrast)
-                        .saturation(saturation)
-                        .brightness(brightness)
+                        .if(!isPreBlurred) { view in
+                            view.blur(radius: blurRadius)
+                                .contrast(contrast)
+                                .saturation(saturation)
+                                .brightness(brightness)
+                        }
                         .opacity(opacity)
-                        .id(image)
+                        .id(image) // Use original image identity for cross-fade on track change
                         .transition(.opacity)
                     #else
-                    Image(uiImage: image)
+                    Image(uiImage: displayImage)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
-                        .blur(radius: blurRadius, opaque: true)
-                        .contrast(contrast)
-                        .saturation(saturation)
-                        .brightness(brightness)
+                        .if(!isPreBlurred) { view in
+                            view.blur(radius: blurRadius, opaque: true)
+                                .contrast(contrast)
+                                .saturation(saturation)
+                                .brightness(brightness)
+                        }
                         .opacity(opacity)
-                        .id(image)
+                        .id(image) // Use original image identity for cross-fade on track change
                         .transition(.opacity)
                     #endif
-                    
+
                     // Saturation gradient (desaturates bottom slightly)
                     LinearGradient(
                         colors: [.clear, .gray.opacity(0.4)],
@@ -96,7 +115,7 @@ public struct BlurredArtworkBackground: View {
                         endPoint: .bottom
                     )
                     .blendMode(.saturation)
-                    
+
                     // Dimming gradient to ensure controls are visible
                     LinearGradient(
                         stops: [

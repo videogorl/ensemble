@@ -1,15 +1,41 @@
 import EnsembleCore
 import SwiftUI
 
-public struct SettingsPresentationContainer: View {
+private struct AuxiliaryDismissToolbarModifier: ViewModifier {
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            content.toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Done") {
+                        navigationCoordinator.dismissAuxiliaryPresentation()
+                    }
+                }
+            }
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+public struct ProfilePresentationContainer: View {
     public init() {}
 
     public var body: some View {
         navigationContainer {
-            SettingsView()
+            ProfileView()
+                .modifier(AuxiliaryDismissToolbarModifier())
         }
     }
 }
+
+/// Legacy alias for backwards compatibility
+public typealias SettingsPresentationContainer = ProfilePresentationContainer
 
 public struct DownloadsPresentationContainer: View {
     @StateObject private var nowPlayingVM: NowPlayingViewModel
@@ -21,6 +47,7 @@ public struct DownloadsPresentationContainer: View {
     public var body: some View {
         navigationContainer {
             DownloadsView(nowPlayingVM: nowPlayingVM)
+                .modifier(AuxiliaryDismissToolbarModifier())
         }
     }
 }
@@ -34,8 +61,8 @@ public struct AuxiliaryPresentationView: View {
 
     public var body: some View {
         switch destination {
-        case .settings:
-            SettingsPresentationContainer()
+        case .profile:
+            ProfilePresentationContainer()
         case .downloads:
             DownloadsPresentationContainer()
         }

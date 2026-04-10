@@ -37,6 +37,7 @@ public struct GenresView: View {
         .refreshable {
             await libraryVM.refreshFromServer()
         }
+        .profileToolbar()
     }
 
     private var loadingView: some View {
@@ -125,6 +126,6 @@ public struct GenresView: View {
             }
         }
         .listStyle(.plain)
-        .miniPlayerBottomSpacing(140)
+        .miniPlayerBottomSpacing()
     }
 }
