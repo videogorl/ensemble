@@ -890,7 +890,7 @@ public final class DependencyContainer: @unchecked Sendable {
         case .available:
             return "CloudKit is available."
         case .notAuthenticated:
-            return "Sign in to iCloud to sync the profile."
+            return "Sign in to iCloud and enable iCloud Drive to sync the profile."
         case .networkUnavailable:
             return "Profile sync is waiting for a network connection."
         case .quotaExceeded:
