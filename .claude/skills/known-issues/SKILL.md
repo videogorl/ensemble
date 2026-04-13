@@ -19,6 +19,16 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Known Limitations
 
+### Embedded Watch Companion Install via `simctl` Is Incomplete (Apr 13, 2026)
+- **Location:** Simulator install flow for `Ensemble.app` after embedding `Ensemble Watch.app`
+- **Issue:** The iPhone app now embeds the watch companion correctly under `Ensemble.app/Watch/Ensemble Watch.app`, but `xcrun simctl install <phone> Ensemble.app` does not reliably auto-install or register that embedded watch app on the paired watch simulator. `WCSession` on the phone still reports `Watch app is not installed.`
+- **Impact:** CLI-only simulator validation can underreport watch companion availability even when the Xcode project wiring is correct. This specifically affects watch connectivity and first-launch credential handoff checks.
+- **Observed state (April 13, 2026):**
+  1. `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build` succeeds and produces `Ensemble.app/Watch/Ensemble Watch.app`
+  2. Installing the iPhone app with the simulator MCP or `simctl install` succeeds
+  3. `simctl get_app_container <watch> com.videogorl.ensemble.watchkitapp` still reports no installed app until the watch app is installed separately or the pair is run from Xcode
+- **Workaround:** For paired watch validation, prefer Xcode's paired run flow. If using CLI tooling, treat the phone install and watch install as separate steps instead of assuming the embedded watch bundle will be registered automatically.
+
 ### iOS 26 Simulator Keyboard Haptics Log Noise (Apr 7, 2026)
 - **Location:** Simulator runtime only, triggered while opening text-input flows such as the Profile name editor
 - **Issue:** The iOS 26 simulator logs repeated CoreHaptics errors like `_UIKBFeedbackGenerator: Error creating CHHapticPattern` and `hapticpatternlibrary.plist couldn’t be opened` when the software keyboard appears

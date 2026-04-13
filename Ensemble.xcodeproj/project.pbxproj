@@ -19,6 +19,7 @@
 		E0001019 /* SiriMatchingHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001022 /* SiriMatchingHelpers.swift */; };
 		E0001009 /* EnsembleSiriIntentsExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = E0000003 /* EnsembleSiriIntentsExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E0001016 /* EnsembleAppShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001015 /* EnsembleAppShortcuts.swift */; };
+		E000101A /* Ensemble Watch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = E0000002 /* Ensemble Watch.app */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E0002001 /* EnsembleWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002000 /* EnsembleWatchApp.swift */; };
 		E0002003 /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002002 /* WatchRootView.swift */; };
 		E0002005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E0002004 /* Assets.xcassets */; };
@@ -34,9 +35,27 @@
 			remoteGlobalIDString = E0200003;
 			remoteInfo = EnsembleSiriIntentsExtension;
 		};
+		E0700002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E0400000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E0200002;
+			remoteInfo = EnsembleWatch;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		E0240002 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				E000101A /* Ensemble Watch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E0240001 /* Embed App Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -234,12 +253,14 @@
 				E0010001 /* Frameworks */,
 				E0210001 /* Sources */,
 				E0220001 /* Resources */,
+				E0240002 /* Embed Watch Content */,
 				E0240001 /* Embed App Extensions */,
 				E0230001 /* ShellScript */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				E0710002 /* PBXTargetDependency */,
 				E0710001 /* PBXTargetDependency */,
 			);
 			name = Ensemble;
@@ -449,6 +470,12 @@
 			platformFilter = ios;
 			target = E0200003 /* EnsembleSiriIntentsExtension */;
 			targetProxy = E0700001 /* PBXContainerItemProxy */;
+		};
+		E0710002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = E0200002 /* EnsembleWatch */;
+			targetProxy = E0700002 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -665,6 +692,7 @@
 				DEVELOPMENT_TEAM = 86QFS2R7RZ;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				"EXCLUDED_ARCHS[sdk=watchsimulator*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EnsembleWatch/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -696,6 +724,7 @@
 				DEVELOPMENT_TEAM = 86QFS2R7RZ;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				"EXCLUDED_ARCHS[sdk=watchsimulator*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EnsembleWatch/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

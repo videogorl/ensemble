@@ -114,7 +114,7 @@ Please don't remove existing functionality (unless directed) when re-architectin
 
 **Build the full app (iOS simulator):**
 ```bash
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 ```
 
 **Build a single package:**
@@ -135,7 +135,7 @@ swift test --package-path Packages/EnsembleUI
 
 **Run all tests via Xcode:**
 ```bash
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
 **Inspect watch destinations / probe watch buildability:**
@@ -147,6 +147,8 @@ xcodebuild -workspace Ensemble.xcworkspace -scheme EnsembleWatch -showdestinatio
 - Load the `simulator-test` skill and use the iOS Simulator MCP server to validate the affected flow end-to-end after the build/tests pass
 - Do not mark work as complete until the agent has confirmed the relevant behavior in the simulator, unless a specific blocker is documented
 - If watchOS work is blocked because `EnsembleWatch` exposes no simulator destination in `xcodebuild`, document that blocker explicitly and still validate the shared/watch-adjacent behavior through `swift test --package-path Packages/EnsembleCore` plus an iPhone companion build + simulator launch
+- When the `Ensemble` app embeds the watch companion, do not force `-sdk iphonesimulator` on the app scheme. Let Xcode resolve the matching simulator SDKs for the embedded watch build.
+- Raw `simctl install` installs the iPhone app, but it does not reliably auto-register the embedded watch companion onto the paired simulator. For watch connectivity validation, prefer running from Xcode on a paired destination or install the watch app on the paired watch separately.
 
 **IMPORTANT:** Always open `Ensemble.xcworkspace` (not `.xcodeproj`) when working in Xcode.
 
