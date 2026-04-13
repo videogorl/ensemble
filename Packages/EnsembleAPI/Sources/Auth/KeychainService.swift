@@ -26,13 +26,26 @@ public final class KeychainService: KeychainServiceProtocol, Sendable {
 
     public static let shared = KeychainService()
 
+    private static var sharedSyncAccessGroup: String? {
+        Bundle.main.object(forInfoDictionaryKey: "EnsembleKeychainAccessGroup") as? String
+    }
+
     public init(service: String = "com.ensemble.plex") {
+        // Keep local credentials on the legacy per-app keychain path so
+        // existing signed-in installs do not lose access to their sources.
         self.keychain = Keychain(service: service)
             .accessibility(.afterFirstUnlock)
-        // Use a separate service for sync to avoid attribute conflicts
-        self.syncKeychain = Keychain(service: "\(service).sync")
-            .accessibility(.afterFirstUnlock)
-            .synchronizable(true)
+
+        // Use a separate synchronizable service for cross-device auth sync.
+        if let sharedSyncAccessGroup = Self.sharedSyncAccessGroup, !sharedSyncAccessGroup.isEmpty {
+            self.syncKeychain = Keychain(service: "\(service).sync", accessGroup: sharedSyncAccessGroup)
+                .accessibility(.afterFirstUnlock)
+                .synchronizable(true)
+        } else {
+            self.syncKeychain = Keychain(service: "\(service).sync")
+                .accessibility(.afterFirstUnlock)
+                .synchronizable(true)
+        }
     }
 
     public func save(_ value: String, forKey key: String) throws {

@@ -15,14 +15,18 @@ public final class WatchConnectivityCoordinator: NSObject, ObservableObject {
         static let response = "response"
         static let snapshot = "snapshot"
         static let selectedTarget = "selectedTarget"
+        static let credentialRequest = "credentialRequest"
+        static let syncCredentials = "syncCredentials"
     }
 
     @Published public private(set) var isSupported: Bool
     @Published public private(set) var isPhoneReachable: Bool
     @Published public private(set) var remoteSnapshot: WatchRemoteSessionSnapshot?
+    @Published public private(set) var companionCredentials: [SyncableAccountCredential]
     @Published public private(set) var selectedPlaybackTarget: WatchPlaybackTarget
 
     public var commandHandler: ((WatchRemoteCommand) async -> WatchRemoteCommandResponse)?
+    public var syncCredentialProvider: (() -> [SyncableAccountCredential])?
 
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
@@ -31,6 +35,7 @@ public final class WatchConnectivityCoordinator: NSObject, ObservableObject {
     private let activateHandler: (() -> Void)?
     private let reachabilityProvider: () -> Bool
     private var lastPublishedSnapshot: WatchRemoteSessionSnapshot?
+    private var lastPublishedCredentials: [SyncableAccountCredential] = []
 
     public override convenience init() {
         #if canImport(WatchConnectivity) && (os(iOS) || os(watchOS))
@@ -84,6 +89,7 @@ public final class WatchConnectivityCoordinator: NSObject, ObservableObject {
         self.activateHandler = activateHandler
         self.reachabilityProvider = reachabilityProvider
         self.isPhoneReachable = reachabilityProvider()
+        self.companionCredentials = []
         self.selectedPlaybackTarget = .watchLocal
         super.init()
 
@@ -99,6 +105,7 @@ public final class WatchConnectivityCoordinator: NSObject, ObservableObject {
         guard isSupported else { return }
         activateHandler?()
         refreshReachability()
+        EnsembleLogger.debug("WatchConnectivityCoordinator: activate supported=\(isSupported) reachable=\(isPhoneReachable)")
     }
 
     public func refreshReachability() {
@@ -151,16 +158,75 @@ public final class WatchConnectivityCoordinator: NSObject, ObservableObject {
         }
     }
 
+    public func requestCompanionCredentials() async -> [SyncableAccountCredential]? {
+        if !companionCredentials.isEmpty {
+            EnsembleLogger.debug("WatchConnectivityCoordinator: using cached companion credentials count=\(companionCredentials.count)")
+            return companionCredentials
+        }
+
+        let timeoutNanos: UInt64 = 1_500_000_000
+        let pollIntervalNanos: UInt64 = 200_000_000
+        var elapsedNanos: UInt64 = 0
+
+        while elapsedNanos < timeoutNanos {
+            if !companionCredentials.isEmpty {
+                EnsembleLogger.debug("WatchConnectivityCoordinator: received companion credentials from application context count=\(companionCredentials.count)")
+                return companionCredentials
+            }
+
+            if isPhoneReachable,
+               let interactiveCredentials = await requestInteractiveCompanionCredentials(),
+               !interactiveCredentials.isEmpty {
+                companionCredentials = interactiveCredentials
+                EnsembleLogger.debug("WatchConnectivityCoordinator: fetched interactive companion credentials count=\(interactiveCredentials.count)")
+                return interactiveCredentials
+            }
+
+            try? await Task.sleep(nanoseconds: pollIntervalNanos)
+            refreshReachability()
+            elapsedNanos += pollIntervalNanos
+        }
+
+        return companionCredentials.isEmpty ? nil : companionCredentials
+    }
+
+    public func publishSyncCredentials(_ credentials: [SyncableAccountCredential]) {
+        companionCredentials = credentials
+        EnsembleLogger.debug("WatchConnectivityCoordinator: publishing sync credentials count=\(credentials.count)")
+
+        guard lastPublishedCredentials != credentials else {
+            return
+        }
+
+        lastPublishedCredentials = credentials
+        publishLatestContext()
+    }
+
     func handleIncomingApplicationContext(_ context: [String: Any]) {
         if let snapshotData = context[PayloadKey.snapshot] as? Data,
            let snapshot = try? decoder.decode(WatchRemoteSessionSnapshot.self, from: snapshotData) {
             remoteSnapshot = snapshot
         }
 
+        if let credentialData = context[PayloadKey.syncCredentials] as? Data,
+           let credentials = try? decoder.decode([SyncableAccountCredential].self, from: credentialData) {
+            companionCredentials = credentials
+            EnsembleLogger.debug("WatchConnectivityCoordinator: received application context credentials count=\(credentials.count)")
+        }
+
         refreshReachability()
     }
 
     func processIncomingMessagePayload(_ message: [String: Any]) async -> [String: Any]? {
+        if let isCredentialRequest = message[PayloadKey.credentialRequest] as? Bool,
+           isCredentialRequest {
+            let credentials = syncCredentialProvider?() ?? []
+            if let credentialData = try? encoder.encode(credentials) {
+                return [PayloadKey.syncCredentials: credentialData]
+            }
+            return [PayloadKey.syncCredentials: Data("[]".utf8)]
+        }
+
         guard let commandHandler else { return nil }
         guard let commandData = message[PayloadKey.command] as? Data else { return nil }
 
@@ -192,6 +258,23 @@ public final class WatchConnectivityCoordinator: NSObject, ObservableObject {
         return response
     }
 
+    private func requestInteractiveCompanionCredentials() async -> [SyncableAccountCredential]? {
+        guard isSupported, isPhoneReachable, let messageSender else {
+            return nil
+        }
+
+        do {
+            let reply = try await messageSender([PayloadKey.credentialRequest: true])
+            guard let credentialData = reply[PayloadKey.syncCredentials] as? Data else {
+                return nil
+            }
+            return try decoder.decode([SyncableAccountCredential].self, from: credentialData)
+        } catch {
+            EnsembleLogger.debug("WatchConnectivityCoordinator: failed to request companion credentials: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     private func publishLatestContext() {
         guard let contextUpdater else { return }
 
@@ -202,6 +285,10 @@ public final class WatchConnectivityCoordinator: NSObject, ObservableObject {
         if let remoteSnapshot,
            let snapshotData = try? encoder.encode(remoteSnapshot) {
             context[PayloadKey.snapshot] = snapshotData
+        }
+
+        if let credentialData = try? encoder.encode(companionCredentials) {
+            context[PayloadKey.syncCredentials] = credentialData
         }
 
         do {

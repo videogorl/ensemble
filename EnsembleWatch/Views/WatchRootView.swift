@@ -3,6 +3,7 @@ import SwiftUI
 
 struct WatchRootView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @StateObject private var watchConnectivityCoordinator = DependencyContainer.shared.watchConnectivityCoordinator
     @StateObject private var bootstrap = DependencyContainer.shared.makeWatchBootstrapCoordinator()
     @StateObject private var authViewModel = DependencyContainer.shared.makeAddPlexAccountViewModel()
     @StateObject private var homeViewModel = DependencyContainer.shared.makeHomeViewModel()
@@ -57,6 +58,11 @@ struct WatchRootView: View {
         }
         .onChange(of: authViewModel.state) { state in
             guard state == .complete else { return }
+            bootstrap.refreshAfterAuthentication()
+        }
+        .onChange(of: watchConnectivityCoordinator.companionCredentials) { credentials in
+            guard bootstrap.phase == .awaitingAuthentication, !credentials.isEmpty else { return }
+            EnsembleLogger.debug("WatchRootView: companion credentials arrived after auth gate; retrying bootstrap")
             bootstrap.refreshAfterAuthentication()
         }
     }

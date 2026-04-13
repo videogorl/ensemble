@@ -64,11 +64,15 @@ public final class AccountManager: ObservableObject {
         guard let json = try? keychain.get(KeychainKey.plexAccounts),
               let data = json.data(using: .utf8) else {
             plexAccounts = []
+            onCredentialSnapshotUpdated?([])
+            EnsembleLogger.debug("AccountManager: loaded 0 local accounts")
             return
         }
 
         plexAccounts = (try? JSONDecoder().decode([PlexAccountConfig].self, from: data)) ?? []
         _ = enforceAuthTokenPolicy()
+        onCredentialSnapshotUpdated?(canonicalSyncCredentials())
+        EnsembleLogger.debug("AccountManager: loaded \(plexAccounts.count) local account(s)")
     }
 
     private func saveAccounts() {
@@ -76,6 +80,8 @@ public final class AccountManager: ObservableObject {
               let json = String(data: data, encoding: .utf8) else { return }
         try? keychain.save(json, forKey: KeychainKey.plexAccounts)
         SiriMediaIndexNotifications.postRebuildRequest(reason: "account_configuration_changed")
+        onCredentialSnapshotUpdated?(canonicalSyncCredentials())
+        EnsembleLogger.debug("AccountManager: saved \(plexAccounts.count) local account(s)")
 
         // Push stripped credentials to iCloud Keychain for cross-device sync
         pushSyncCredentials()
@@ -87,6 +93,8 @@ public final class AccountManager: ObservableObject {
         guard let data = try? JSONEncoder().encode(plexAccounts),
               let json = String(data: data, encoding: .utf8) else { return }
         try? keychain.save(json, forKey: KeychainKey.plexAccounts)
+        onCredentialSnapshotUpdated?(canonicalSyncCredentials())
+        EnsembleLogger.debug("AccountManager: saved \(plexAccounts.count) local account(s) from sync")
     }
 
     // MARK: - iCloud Keychain Sync
@@ -94,6 +102,7 @@ public final class AccountManager: ObservableObject {
     /// Callback invoked when synced credentials arrive with new account IDs
     /// not present locally. DependencyContainer wires this to account discovery.
     public var onNewAccountsFromSync: (([SyncableAccountCredential]) -> Void)?
+    public var onCredentialSnapshotUpdated: (([SyncableAccountCredential]) -> Void)?
 
     /// Push current account credentials (stripped of connections) to iCloud Keychain.
     /// Guarded — silently skips if encoding or keychain write fails.
@@ -134,6 +143,12 @@ public final class AccountManager: ObservableObject {
             }
             return requiresSyncReconciliation(localAccount: localAccount, remoteCredential: credential)
         }
+    }
+
+    /// Exports the current stripped credential payload for direct companion handoff
+    /// and future app-family auth transfer flows.
+    public func exportSyncCredentials() -> [SyncableAccountCredential] {
+        canonicalSyncCredentials()
     }
 
     // MARK: - Library Flags Sync

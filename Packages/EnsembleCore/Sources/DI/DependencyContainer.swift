@@ -503,6 +503,13 @@ public final class DependencyContainer: @unchecked Sendable {
                 return WatchRemoteCommandResponse(accepted: true, snapshot: snapshot)
             }
 
+            watchConnectivityRef.syncCredentialProvider = { [weak acctMgr = am] in
+                acctMgr?.exportSyncCredentials() ?? []
+            }
+            am.onCredentialSnapshotUpdated = { [weak watchConnectivityRef] credentials in
+                watchConnectivityRef?.publishSyncCredentials(credentials)
+            }
+
             playbackServiceRef.currentTrackPublisher
                 .receive(on: DispatchQueue.main)
                 .sink { _ in publishSnapshot() }
@@ -1533,6 +1540,33 @@ public final class DependencyContainer: @unchecked Sendable {
             },
             hasAnySources: { [weak accountManager] in
                 accountManager?.hasAnySources ?? false
+            },
+            loadCompanionSources: { [weak self] in
+                guard let self else { return false }
+                let credentials = await self.watchConnectivityCoordinator.requestCompanionCredentials() ?? []
+                EnsembleLogger.debug("WatchBootstrapCoordinator: companion credential candidates count=\(credentials.count)")
+                guard !credentials.isEmpty else {
+                    return false
+                }
+
+                for credential in credentials {
+                    let result = try await self.accountDiscoveryService.discoverAccount(authToken: credential.authToken)
+                    var config = PlexAccountConfig(
+                        id: credential.accountId,
+                        email: credential.email,
+                        plexUsername: credential.plexUsername,
+                        displayTitle: credential.displayTitle,
+                        authToken: credential.authToken,
+                        authTokenMetadata: PlexAuthService.tokenMetadata(from: credential.authToken),
+                        subscription: result.subscription,
+                        servers: result.servers
+                    )
+                    config = self.accountManager.applyingSyncedLibraryFlags(to: config)
+                    self.accountManager.addPlexAccount(config)
+                }
+
+                self.syncCoordinator.refreshProviders()
+                return self.accountManager.hasAnySources
             },
             hasSyncedCredentials: { [weak accountManager] in
                 accountManager?.hasSyncedCloudCredentials() ?? false

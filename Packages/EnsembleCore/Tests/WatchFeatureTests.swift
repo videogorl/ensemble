@@ -118,6 +118,32 @@ final class WatchConnectivityCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.isPhoneReachable)
     }
 
+    func testIncomingApplicationContextUpdatesCompanionCredentials() throws {
+        let credentials = [
+            SyncableAccountCredential(
+                accountId: "account-1",
+                email: "user@example.com",
+                plexUsername: "user",
+                displayTitle: "User",
+                authToken: "token-1",
+                servers: []
+            )
+        ]
+        let coordinator = WatchConnectivityCoordinator(
+            isSupported: true,
+            messageSender: nil,
+            contextUpdater: nil,
+            activateHandler: nil,
+            reachabilityProvider: { false }
+        )
+
+        coordinator.handleIncomingApplicationContext([
+            "syncCredentials": try JSONEncoder().encode(credentials)
+        ])
+
+        XCTAssertEqual(coordinator.companionCredentials, credentials)
+    }
+
     func testIncomingCommandPayloadUsesCommandHandler() async throws {
         let coordinator = WatchConnectivityCoordinator(
             isSupported: true,
@@ -140,6 +166,90 @@ final class WatchConnectivityCoordinatorTests: XCTestCase {
 
         XCTAssertTrue(response.accepted)
     }
+
+    func testRequestCompanionCredentialsDecodesCredentialReply() async throws {
+        let credentials = [
+            SyncableAccountCredential(
+                accountId: "account-1",
+                email: "user@example.com",
+                plexUsername: "user",
+                displayTitle: "User",
+                authToken: "token-1",
+                servers: []
+            )
+        ]
+        let coordinator = WatchConnectivityCoordinator(
+            isSupported: true,
+            messageSender: { message in
+                XCTAssertEqual(message["credentialRequest"] as? Bool, true)
+                return ["syncCredentials": try JSONEncoder().encode(credentials)]
+            },
+            contextUpdater: nil,
+            activateHandler: nil,
+            reachabilityProvider: { true }
+        )
+
+        let received = await coordinator.requestCompanionCredentials()
+
+        XCTAssertEqual(received, credentials)
+    }
+
+    func testRequestCompanionCredentialsUsesCachedContextBeforeInteractiveMessaging() async throws {
+        let credentials = [
+            SyncableAccountCredential(
+                accountId: "account-1",
+                email: "user@example.com",
+                plexUsername: "user",
+                displayTitle: "User",
+                authToken: "token-1",
+                servers: []
+            )
+        ]
+        let coordinator = WatchConnectivityCoordinator(
+            isSupported: true,
+            messageSender: { _ in
+                XCTFail("Interactive messaging should not be used when cached credentials are available.")
+                return [:]
+            },
+            contextUpdater: nil,
+            activateHandler: nil,
+            reachabilityProvider: { false }
+        )
+        coordinator.handleIncomingApplicationContext([
+            "syncCredentials": try JSONEncoder().encode(credentials)
+        ])
+
+        let received = await coordinator.requestCompanionCredentials()
+
+        XCTAssertEqual(received, credentials)
+    }
+
+    func testIncomingCredentialRequestUsesCredentialProvider() async throws {
+        let credentials = [
+            SyncableAccountCredential(
+                accountId: "account-1",
+                email: nil,
+                plexUsername: "user",
+                displayTitle: "User",
+                authToken: "token-1",
+                servers: []
+            )
+        ]
+        let coordinator = WatchConnectivityCoordinator(
+            isSupported: true,
+            messageSender: nil,
+            contextUpdater: nil,
+            activateHandler: nil,
+            reachabilityProvider: { true }
+        )
+        coordinator.syncCredentialProvider = { credentials }
+
+        let reply = await coordinator.processIncomingMessagePayload(["credentialRequest": true])
+        let credentialData = try XCTUnwrap(reply?["syncCredentials"] as? Data)
+        let decoded = try JSONDecoder().decode([SyncableAccountCredential].self, from: credentialData)
+
+        XCTAssertEqual(decoded, credentials)
+    }
 }
 
 @MainActor
@@ -149,6 +259,7 @@ final class WatchBootstrapCoordinatorTests: XCTestCase {
         let coordinator = WatchBootstrapCoordinator(
             accountLoader: { accountLoaderCalls += 1 },
             hasAnySources: { false },
+            loadCompanionSources: { false },
             hasSyncedCredentials: { false },
             loadSyncedSources: { false },
             synchronizeKVS: XCTFailingVoidAction("KVS sync should not run without sources."),
@@ -172,6 +283,7 @@ final class WatchBootstrapCoordinatorTests: XCTestCase {
 
     func testBootstrapLoadsSyncedSourcesAndRunsStartupWork() async {
         var hasSources = false
+        var loadCompanionSourcesCalls = 0
         var loadSyncedSourcesCalls = 0
         var synchronizeKVSCalls = 0
         var refreshProvidersCalls = 0
@@ -182,6 +294,10 @@ final class WatchBootstrapCoordinatorTests: XCTestCase {
         let coordinator = WatchBootstrapCoordinator(
             accountLoader: {},
             hasAnySources: { hasSources },
+            loadCompanionSources: {
+                loadCompanionSourcesCalls += 1
+                return false
+            },
             hasSyncedCredentials: { true },
             loadSyncedSources: {
                 loadSyncedSourcesCalls += 1
@@ -203,6 +319,7 @@ final class WatchBootstrapCoordinatorTests: XCTestCase {
         let reachedReady = await eventually { coordinator.phase == .ready }
         XCTAssertTrue(reachedReady)
         XCTAssertTrue(coordinator.hasCompletedInitialBootstrap)
+        XCTAssertEqual(loadCompanionSourcesCalls, 1)
         XCTAssertEqual(loadSyncedSourcesCalls, 1)
         XCTAssertEqual(synchronizeKVSCalls, 1)
         XCTAssertEqual(refreshProvidersCalls, 2)
@@ -218,6 +335,7 @@ final class WatchBootstrapCoordinatorTests: XCTestCase {
         let coordinator = WatchBootstrapCoordinator(
             accountLoader: {},
             hasAnySources: { true },
+            loadCompanionSources: { false },
             hasSyncedCredentials: { false },
             loadSyncedSources: { false },
             synchronizeKVS: {},
@@ -242,6 +360,42 @@ final class WatchBootstrapCoordinatorTests: XCTestCase {
             healthCheckCalls == 2 && startupSyncCalls == 2 && coordinator.phase == .ready
         }
         XCTAssertTrue(forcedRefreshCompleted)
+    }
+
+    func testBootstrapPrefersCompanionSourcesBeforeICloudFallback() async {
+        var hasSources = false
+        var loadCompanionSourcesCalls = 0
+        var loadSyncedSourcesCalls = 0
+
+        let coordinator = WatchBootstrapCoordinator(
+            accountLoader: {},
+            hasAnySources: { hasSources },
+            loadCompanionSources: {
+                loadCompanionSourcesCalls += 1
+                hasSources = true
+                return true
+            },
+            hasSyncedCredentials: { true },
+            loadSyncedSources: {
+                loadSyncedSourcesCalls += 1
+                return true
+            },
+            synchronizeKVS: {},
+            waitForInitialKVS: { true },
+            pullAllKVS: {},
+            refreshProviders: {},
+            startNetworkMonitor: {},
+            performHealthChecks: {},
+            performStartupSync: {},
+            activateConnectivity: {}
+        )
+
+        coordinator.bootstrapIfNeeded()
+
+        let reachedReady = await eventually { coordinator.phase == .ready }
+        XCTAssertTrue(reachedReady)
+        XCTAssertEqual(loadCompanionSourcesCalls, 1)
+        XCTAssertEqual(loadSyncedSourcesCalls, 0)
     }
 }
 

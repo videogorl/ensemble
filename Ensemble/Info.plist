@@ -58,6 +58,8 @@
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>EnsembleKeychainAccessGroup</key>
+	<string>$(AppIdentifierPrefix)com.videogorl.ensemble.shared</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.music</string>
 	<key>LSRequiresIPhoneOS</key>

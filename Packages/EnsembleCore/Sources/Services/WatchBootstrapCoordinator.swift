@@ -22,6 +22,7 @@ public final class WatchBootstrapCoordinator: ObservableObject {
 
     private let accountLoader: VoidAction
     private let hasAnySources: @MainActor () -> Bool
+    private let loadCompanionSources: AsyncThrowingBoolAction
     private let hasSyncedCredentials: @MainActor () -> Bool
     private let loadSyncedSources: AsyncThrowingBoolAction
     private let synchronizeKVS: VoidAction
@@ -37,6 +38,7 @@ public final class WatchBootstrapCoordinator: ObservableObject {
     public init(
         accountLoader: @escaping VoidAction,
         hasAnySources: @escaping @MainActor () -> Bool,
+        loadCompanionSources: @escaping AsyncThrowingBoolAction,
         hasSyncedCredentials: @escaping @MainActor () -> Bool,
         loadSyncedSources: @escaping AsyncThrowingBoolAction,
         synchronizeKVS: @escaping VoidAction,
@@ -50,6 +52,7 @@ public final class WatchBootstrapCoordinator: ObservableObject {
     ) {
         self.accountLoader = accountLoader
         self.hasAnySources = hasAnySources
+        self.loadCompanionSources = loadCompanionSources
         self.hasSyncedCredentials = hasSyncedCredentials
         self.loadSyncedSources = loadSyncedSources
         self.synchronizeKVS = synchronizeKVS
@@ -86,6 +89,13 @@ public final class WatchBootstrapCoordinator: ObservableObject {
         accountLoader()
 
         do {
+            if !hasAnySources() {
+                let didLoadCompanionSources = try await loadCompanionSources()
+                if didLoadCompanionSources {
+                    refreshProviders()
+                }
+            }
+
             if !hasAnySources(), hasSyncedCredentials() {
                 let didLoadSyncedSources = try await loadSyncedSources()
                 if didLoadSyncedSources {

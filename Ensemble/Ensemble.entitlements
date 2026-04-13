@@ -10,6 +10,10 @@
 	<array>
 		<string>group.com.videogorl.ensemble</string>
 	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.videogorl.ensemble.shared</string>
+	</array>
 	<key>com.apple.developer.siri</key>
 	<true/>
 	<key>com.apple.developer.icloud-services</key>
@@ -21,7 +25,7 @@
 		<string>iCloud.com.videogorl.ensemble</string>
 	</array>
 	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
-	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
+	<string>$(TeamIdentifierPrefix)com.videogorl.ensemble</string>
 	<key>aps-environment</key>
 	<string>development</string>
 </dict>

@@ -4,6 +4,11 @@ import EnsembleAPI
 
 @MainActor
 final class AccountManagerLibrarySyncTests: XCTestCase {
+    private struct ExportedLibraryFlagEntry: Codable, Equatable {
+        let key: String
+        let isEnabled: Bool
+    }
+
     private struct RemoteSyncCredentialPayload: Codable {
         let accountId: String
         let email: String?
@@ -155,6 +160,7 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         )
 
         let initialData = try XCTUnwrap(manager.exportLibraryFlags())
+        let initialEntries = try JSONDecoder().decode([ExportedLibraryFlagEntry].self, from: initialData)
 
         manager.updatePlexAccount(
             PlexAccountConfig(
@@ -176,7 +182,10 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(initialData, manager.exportLibraryFlags())
+        let updatedData = try XCTUnwrap(manager.exportLibraryFlags())
+        let updatedEntries = try JSONDecoder().decode([ExportedLibraryFlagEntry].self, from: updatedData)
+
+        XCTAssertEqual(initialEntries, updatedEntries)
     }
 
     func testPullSyncCredentialsReturnsExistingAccountWhenRemoteCredentialsChanged() throws {
