@@ -15,7 +15,11 @@ public struct CompactArtistRow: View {
 
     public var body: some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-            ArtworkView(artist: artist, size: .tiny, cornerRadius: 22)
+            ArtworkView(
+                artist: artist,
+                size: .tiny,
+                cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.tiny.cgSize.width)
+            )
 
             Text(artist.name)
                 .font(.body)
@@ -44,7 +48,7 @@ public struct CompactAlbumRow: View {
 
     public var body: some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-            ArtworkView(album: album, size: .tiny, cornerRadius: 4)
+            ArtworkView(album: album, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(album.title)
@@ -82,7 +86,7 @@ public struct CompactPlaylistRow: View {
 
     public var body: some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-            ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)
+            ArtworkView(playlist: playlist, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(playlist.title)
@@ -131,7 +135,7 @@ public struct CompactTrackRow: View {
     public var body: some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             ZStack(alignment: .center) {
-                ArtworkView(track: track, size: .tiny, cornerRadius: 4)
+                ArtworkView(track: track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
                 
                 if isPlaying {
                     Image(systemName: "speaker.wave.2.fill")

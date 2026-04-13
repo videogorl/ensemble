@@ -1586,7 +1586,10 @@ public struct SidebarView: View {
     /// Sidebar row for a pinned item, showing artwork preview instead of an icon.
     @ViewBuilder
     private func sidebarPinRow(_ pin: ResolvedPin) -> some View {
-        let cornerRadius: CGFloat = pin.pinnedItem.type == .artist ? 11 : 4
+        let artworkDimension: CGFloat = 22
+        let cornerRadius: CGFloat = pin.pinnedItem.type == .artist
+            ? ArtworkCornerRadius.circle(for: artworkDimension)
+            : ArtworkCornerRadius.square(for: artworkDimension)
         switch pin {
         case .artist(let artist, let pinnedItem):
             Label {
@@ -1702,11 +1705,11 @@ public struct SidebarView: View {
                     sourceKey: displayPlaylist.primaryPlaylist.sourceCompositeKey,
                     ratingKey: displayPlaylist.primaryPlaylist.id,
                     size: .tiny,
-                    cornerRadius: 4,
+                    cornerRadius: ArtworkCornerRadius.square(for: artworkDimension),
                     isResponsive: true
                 )
-                .frame(width: 22, height: 22)
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .frame(width: artworkDimension, height: artworkDimension)
+                .clipShape(RoundedRectangle(cornerRadius: ArtworkCornerRadius.square(for: artworkDimension), style: .continuous))
             }
             .tag(SidebarSelection.pin(id: pinnedItems[0].id, type: pinnedItems[0].type))
             .contextMenu {
@@ -1748,11 +1751,11 @@ public struct SidebarView: View {
                 sourceKey: playlist.sourceKey,
                 ratingKey: playlist.playlistID,
                 size: .tiny,
-                cornerRadius: 4,
+                cornerRadius: ArtworkCornerRadius.square(for: 22),
                 isResponsive: true
             )
             .frame(width: 22, height: 22)
-            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: ArtworkCornerRadius.square(for: 22), style: .continuous))
         }
 
         if playlist.isMerged {

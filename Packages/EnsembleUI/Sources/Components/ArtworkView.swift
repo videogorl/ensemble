@@ -63,7 +63,7 @@ public struct ArtworkView: View {
         fallbackPath: String? = nil,
         fallbackRatingKey: String? = nil,
         size: ArtworkSize = .medium,
-        cornerRadius: CGFloat = 8,
+        cornerRadius: CGFloat? = nil,
         isResponsive: Bool = false
     ) {
         self.path = path
@@ -72,7 +72,7 @@ public struct ArtworkView: View {
         self.fallbackPath = fallbackPath
         self.fallbackRatingKey = fallbackRatingKey
         self.size = size
-        self.cornerRadius = cornerRadius
+        self.cornerRadius = cornerRadius ?? ArtworkCornerRadius.square(for: size)
         self.isResponsive = isResponsive
     }
 
@@ -120,6 +120,7 @@ public struct ArtworkView: View {
             .priority(imagePriority)
             .aspectRatio(1, contentMode: .fit)
             .frame(maxWidth: isResponsive ? .infinity : nil)
+            .frame(maxHeight: isResponsive ? .infinity : nil)
             .frame(width: isResponsive ? nil : frameSize.width, height: isResponsive ? nil : frameSize.height)
         }
         .clipShape(artworkShape)
@@ -185,7 +186,7 @@ public struct ArtworkView: View {
 // MARK: - Convenience Initializers
 
 public extension ArtworkView {
-    init(track: Track, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8, isResponsive: Bool = false) {
+    init(track: Track, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
         self.init(
             path: track.thumbPath,
             sourceKey: track.sourceCompositeKey,
@@ -198,11 +199,11 @@ public extension ArtworkView {
         )
     }
 
-    init(album: Album, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8, isResponsive: Bool = false) {
+    init(album: Album, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
         self.init(path: album.thumbPath, sourceKey: album.sourceCompositeKey, ratingKey: album.id, fallbackPath: nil, fallbackRatingKey: nil, size: size, cornerRadius: cornerRadius, isResponsive: isResponsive)
     }
 
-    init(artist: Artist, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8, isResponsive: Bool = false) {
+    init(artist: Artist, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
         self.init(
             path: artist.thumbPath,
             sourceKey: artist.sourceCompositeKey,
@@ -215,7 +216,7 @@ public extension ArtworkView {
         )
     }
 
-    init(playlist: Playlist, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8, isResponsive: Bool = false) {
+    init(playlist: Playlist, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
         self.init(path: playlist.compositePath, sourceKey: playlist.sourceCompositeKey, ratingKey: playlist.id, size: size, cornerRadius: cornerRadius, isResponsive: isResponsive)
     }
 }

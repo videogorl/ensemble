@@ -51,7 +51,11 @@ public struct PlaylistPickerSheet: View {
                             addToPlaylist(playlist)
                         } label: {
                             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                                ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)
+                                ArtworkView(
+                                    playlist: playlist,
+                                    size: .tiny,
+                                    cornerRadius: ArtworkCornerRadius.square(for: .tiny)
+                                )
 
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(playlist.title)

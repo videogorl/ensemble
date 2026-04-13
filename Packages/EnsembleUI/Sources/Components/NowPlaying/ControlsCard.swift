@@ -92,7 +92,7 @@ public struct ControlsCard: View {
             let maxWidth = geometry.size.width - 48
             let maxHeight = geometry.size.height * 0.4
             let artworkSize = min(maxWidth, maxHeight, 400)
-            let artworkCornerRadius = min(20, max(12, artworkSize * 0.08))
+            let artworkCornerRadius = ArtworkCornerRadius.square(for: artworkSize)
 
             // Artwork
             ArtworkView(track: track, size: .medium, cornerRadius: artworkCornerRadius, isResponsive: true)
@@ -136,7 +136,7 @@ public struct ControlsCard: View {
             let maxWidth = geometry.size.width - 48
             let maxHeight = geometry.size.height * 0.4
             let artworkSize = min(maxWidth, maxHeight, 400)
-            let artworkCornerRadius = min(20, max(12, artworkSize * 0.08))
+            let artworkCornerRadius = ArtworkCornerRadius.square(for: artworkSize)
             
             RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous)
                 .fill(Color.primary.opacity(0.05))

@@ -329,7 +329,9 @@ struct HubItemCard: View {
                 sourceKey: item.sourceCompositeKey,
                 ratingKey: item.id,
                 size: .small,
-                cornerRadius: isArtist ? artworkDimension / 2 : 8,
+                cornerRadius: isArtist
+                    ? ArtworkCornerRadius.circle(for: artworkDimension)
+                    : ArtworkCornerRadius.square(for: artworkDimension),
                 isResponsive: true
             )
             .frame(width: artworkDimension, height: artworkDimension)

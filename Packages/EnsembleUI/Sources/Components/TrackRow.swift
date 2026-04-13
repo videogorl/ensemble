@@ -188,7 +188,7 @@ public struct TrackRow: View {
             }
 
             if showArtwork {
-                ArtworkView(track: track, size: .tiny, cornerRadius: 4)
+                ArtworkView(track: track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
             }
 
             VStack(alignment: .leading, spacing: 2) {

@@ -66,7 +66,6 @@ public class TrackTableViewCell: UITableViewCell {
     private func setupViews() {
         artworkImageView.contentMode = .scaleAspectFill
         artworkImageView.clipsToBounds = true
-        artworkImageView.layer.cornerRadius = 4
         artworkImageView.backgroundColor = UIColor.systemGray5
         artworkImageView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(artworkImageView)
@@ -169,6 +168,7 @@ public class TrackTableViewCell: UITableViewCell {
         subtitleTopConstraint = subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2)
         artworkWidthConstraint?.isActive = true
         artworkHeightConstraint?.isActive = true
+        updateArtworkCornerRadius(for: 44)
         titleTopConstraint?.isActive = true
         subtitleTopConstraint?.isActive = true
 
@@ -320,6 +320,7 @@ public class TrackTableViewCell: UITableViewCell {
 
         artworkWidthConstraint?.constant = isCompact ? 40 : 44
         artworkHeightConstraint?.constant = isCompact ? 40 : 44
+        updateArtworkCornerRadius(for: isCompact ? 40 : 44)
         titleTopConstraint?.constant = isCompact ? 10 : 14
         subtitleTopConstraint?.constant = isCompact ? 1 : 2
 
@@ -327,6 +328,10 @@ public class TrackTableViewCell: UITableViewCell {
         titleLabel.font = .systemFont(ofSize: isCompact ? 15 : 16, weight: .regular)
         subtitleLabel.font = .systemFont(ofSize: isCompact ? 13 : 14, weight: .regular)
         durationLabel.font = .systemFont(ofSize: isCompact ? 13 : 14, weight: .regular)
+    }
+
+    private func updateArtworkCornerRadius(for dimension: CGFloat) {
+        artworkImageView.layer.cornerRadius = ArtworkCornerRadius.square(for: dimension)
     }
     
     public override func prepareForReuse() {

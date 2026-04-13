@@ -166,7 +166,9 @@ private struct MiniPlayerTrackInfo: View {
     @State private var opacity: Double = 1.0
 
     private let artworkDimension: CGFloat = 32
-    private let artworkCornerRadius: CGFloat = 8
+    private var artworkCornerRadius: CGFloat {
+        ArtworkCornerRadius.square(for: artworkDimension)
+    }
 
     var body: some View {
         VStack(spacing: 0) {

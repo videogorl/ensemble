@@ -1120,7 +1120,7 @@ public struct PlaylistDetailView: View {
         List {
             ForEach(editedTracks, id: \.id) { track in
                 HStack(spacing: 12) {
-                    ArtworkView(track: track, size: .tiny, cornerRadius: 4)
+                    ArtworkView(track: track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
                     VStack(alignment: .leading, spacing: 4) {
                         Text(track.title)
                         Text(track.artistName ?? "")
