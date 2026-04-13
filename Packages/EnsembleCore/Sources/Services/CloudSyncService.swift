@@ -39,6 +39,8 @@ public actor CloudSyncService {
     private var isSubscribed = false
     private var profileTransportState: ProfileTransportState = .unknown
     private var nextProfilePullAllowedAt: Date?
+    private var isPullProfileInFlight = false
+    private var pendingPullProfileContinuations: [CheckedContinuation<(profile: UserProfile, imageData: Data?)?, Never>] = []
 
     /// Called on the main actor when a remote profile change is received
     public var onRemoteProfileChanged: (@Sendable (UserProfile, Data?) async -> Void)?
@@ -136,6 +138,28 @@ public actor CloudSyncService {
             return nil
         }
 
+        if isPullProfileInFlight {
+            return await withCheckedContinuation { continuation in
+                pendingPullProfileContinuations.append(continuation)
+            }
+        }
+
+        isPullProfileInFlight = true
+        let result = await performProfilePullRequest()
+        isPullProfileInFlight = false
+
+        if !pendingPullProfileContinuations.isEmpty {
+            let continuations = pendingPullProfileContinuations
+            pendingPullProfileContinuations.removeAll(keepingCapacity: true)
+            for continuation in continuations {
+                continuation.resume(returning: result)
+            }
+        }
+
+        return result
+    }
+
+    private func performProfilePullRequest() async -> (profile: UserProfile, imageData: Data?)? {
         do {
             let record = try await database.record(for: Self.profileRecordID)
             profileTransportState = .available
@@ -272,7 +296,11 @@ public actor CloudSyncService {
             profileTransportState = .networkUnavailable
             nextProfilePullAllowedAt = nil
         case .notAuthenticated:
-            switch await accountStatusForTransportDecision() {
+            let accountStatus = await accountStatusForTransportDecision()
+            EnsembleLogger.info(
+                "CloudKit transport decision for notAuthenticated: \(Self.describeAccountStatus(accountStatus))"
+            )
+            switch accountStatus {
             case .available:
                 // iOS 15 occasionally reports notAuthenticated during transient CloudKit auth
                 // churn even while account status resolves as available.
@@ -318,6 +346,23 @@ public actor CloudSyncService {
             return try await container.accountStatus()
         } catch {
             return .couldNotDetermine
+        }
+    }
+
+    private static func describeAccountStatus(_ status: CKAccountStatus) -> String {
+        switch status {
+        case .couldNotDetermine:
+            return "couldNotDetermine"
+        case .available:
+            return "available"
+        case .restricted:
+            return "restricted"
+        case .noAccount:
+            return "noAccount"
+        case .temporarilyUnavailable:
+            return "temporarilyUnavailable"
+        @unknown default:
+            return "unknown"
         }
     }
 }
