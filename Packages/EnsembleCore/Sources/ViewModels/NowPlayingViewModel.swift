@@ -1037,6 +1037,47 @@ public final class NowPlayingViewModel: ObservableObject {
         return result
     }
 
+    /// Optimistic playlist-add path for interactive add-to-playlist UI surfaces.
+    /// Persists a queued mutation immediately, then drains in the background if online.
+    @discardableResult
+    public func addTracksOptimistically(_ tracks: [Track], to playlist: Playlist) async throws -> MutationOutcome {
+        guard !tracks.isEmpty else {
+            throw PlaylistMutationError.emptySelection
+        }
+
+        let outcome = try await mutationCoordinator.enqueuePlaylistAddOptimistically(tracks, playlist: playlist)
+        let addedCount = tracks.count
+
+        if outcome == .queued {
+            toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: "clock.arrow.circlepath",
+                    title: "Queued for \(playlist.title)",
+                    message: "Will be added when back online.",
+                    dedupeKey: "playlist-add-queued-\(playlist.id)"
+                )
+            )
+        } else {
+            toastCenter.show(
+                ToastPayload(
+                    style: .success,
+                    iconSystemName: "checkmark.circle.fill",
+                    title: "Added to \(playlist.title)",
+                    message: addedCount == 1 ? "1 track queued for sync." : "\(addedCount) tracks queued for sync.",
+                    tapHandler: { [weak self] in
+                        self?.navigationCoordinator.navigateFromNowPlaying(
+                            to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
+                        )
+                    },
+                    dedupeKey: "playlist-add-optimistic-\(playlist.id)"
+                )
+            )
+        }
+
+        return outcome
+    }
+
     public func createPlaylist(
         title: String,
         tracks: [Track],
