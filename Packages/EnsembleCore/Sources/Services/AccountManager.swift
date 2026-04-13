@@ -226,6 +226,7 @@ public final class AccountManager: ObservableObject {
                         url: server.url,
                         connections: server.connections,
                         token: server.token,
+                        owned: server.owned,
                         platform: server.platform,
                         capabilities: server.capabilities,
                         libraries: updatedLibraries
@@ -281,6 +282,7 @@ public final class AccountManager: ObservableObject {
                 url: server.url,
                 connections: server.connections,
                 token: server.token,
+                owned: server.owned,
                 platform: server.platform,
                 capabilities: server.capabilities,
                 libraries: updatedLibraries
@@ -359,6 +361,7 @@ public final class AccountManager: ObservableObject {
             url: server.url,
             connections: server.connections,
             token: server.token,
+            owned: server.owned,
             platform: server.platform,
             capabilities: server.capabilities,
             libraries: updatedLibraries
@@ -417,6 +420,7 @@ public final class AccountManager: ObservableObject {
             url: server.url,
             connections: server.connections,
             token: server.token,
+            owned: server.owned,
             platform: server.platform,
             capabilities: server.capabilities,
             libraries: updatedLibraries

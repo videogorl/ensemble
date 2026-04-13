@@ -58,6 +58,17 @@ public actor CloudSyncService {
         profileTransportState
     }
 
+    /// Probe the user's iCloud account availability so callers can distinguish
+    /// authentication failures from transient CloudKit fetch issues.
+    public func currentAccountStatus() async -> CKAccountStatus {
+        do {
+            return try await container.accountStatus()
+        } catch {
+            Self.logCloudKitError(error, context: "accountStatus")
+            return .couldNotDetermine
+        }
+    }
+
     // MARK: - Profile Sync
 
     /// Push the local profile to CloudKit
@@ -104,7 +115,6 @@ public actor CloudSyncService {
 
             profileTransportState = .available
             EnsembleLogger.info("Profile pushed to CloudKit successfully")
-            await refreshProfileFromCloud()
         } catch {
             updateTransportState(for: error)
             Self.logCloudKitError(error, context: "pushProfile")

@@ -46,6 +46,10 @@ public struct PlaylistsView: View {
         showCreatePlaylistPush || renamePushPlaylist != nil || renamePushDP != nil
     }
 
+    private var isPresenterChromeHidden: Bool {
+        isStageFlowActive || isKeyboardEditorActive
+    }
+
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: PlaylistViewModel? = nil) {
         self._viewModel = StateObject(
             wrappedValue: viewModel ?? DependencyContainer.shared.makePlaylistViewModel()
@@ -146,14 +150,14 @@ public struct PlaylistsView: View {
                     )
                 }
             }
-            .hideTabBarIfAvailable(isHidden: isStageFlowActive)
+            .hideTabBarIfAvailable(isHidden: isPresenterChromeHidden)
             .stageFlowRotationSupport(isEnabled: supportsStageFlow)
-            .stageFlowImmersiveMode(isActive: isStageFlowActive)
+            .stageFlowImmersiveMode(isActive: isPresenterChromeHidden)
             #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isPresenterChromeHidden)
             .navigationBarTitleDisplayMode(.inline)
-            .navigationBarHidden(isStageFlowActive || isKeyboardEditorActive)
-            .if(isStageFlowActive || isKeyboardEditorActive) { view in
+            .navigationBarHidden(isPresenterChromeHidden)
+            .if(isPresenterChromeHidden) { view in
                 if #available(iOS 16.0, *) {
                     view.toolbar(.hidden, for: .navigationBar)
                 } else {
@@ -162,7 +166,7 @@ public struct PlaylistsView: View {
             }
             .statusBar(hidden: isStageFlowActive)
             #endif
-            .navigationTitle(isStageFlowActive ? "" : "Playlists")
+            .navigationTitle(isPresenterChromeHidden ? "" : "Playlists")
             #if os(iOS)
             .ignoresSafeArea(.keyboard)
             #endif
@@ -205,7 +209,7 @@ public struct PlaylistsView: View {
                     }
                 }
             }
-            .if(!isKeyboardEditorActive) { view in
+            .if(!isPresenterChromeHidden) { view in
                 view.searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             }
             .task {

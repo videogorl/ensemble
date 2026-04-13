@@ -17,6 +17,7 @@ public struct SongsView: View {
 
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
@@ -35,6 +36,14 @@ public struct SongsView: View {
         #else
         false
         #endif
+    }
+
+    private var isKeyboardEditorActive: Bool {
+        navigationCoordinator.isKeyboardEditorPresented
+    }
+
+    private var isPresenterChromeHidden: Bool {
+        isStageFlowActive || isKeyboardEditorActive
     }
     
     private var backgroundColor: Color {
@@ -99,19 +108,21 @@ public struct SongsView: View {
                     }
             }
         )
-        .hideTabBarIfAvailable(isHidden: isStageFlowActive)
+        .hideTabBarIfAvailable(isHidden: isPresenterChromeHidden)
         .stageFlowRotationSupport(isEnabled: supportsStageFlow)
-        .stageFlowImmersiveMode(isActive: isStageFlowActive)
+        .stageFlowImmersiveMode(isActive: isPresenterChromeHidden)
         #if os(iOS)
-        .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
-        .navigationBarHidden(isStageFlowActive)
+        .preference(key: ChromeVisibilityPreferenceKey.self, value: isPresenterChromeHidden)
+        .navigationBarHidden(isPresenterChromeHidden)
         .statusBar(hidden: isStageFlowActive)
         #endif
-        .navigationTitle(isStageFlowActive ? "" : "Songs")
+        .navigationTitle(isPresenterChromeHidden ? "" : "Songs")
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(isPresenterChromeHidden ? .inline : .large)
         #endif
-        .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
+        .if(!isPresenterChromeHidden) { view in
+            view.searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
+        }
         .refreshable {
             await libraryVM.refreshFromServer()
         }
@@ -119,7 +130,7 @@ public struct SongsView: View {
                 .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
-                if !libraryVM.tracks.isEmpty && !isStageFlowActive {
+                if !libraryVM.tracks.isEmpty && !isPresenterChromeHidden {
                     HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
@@ -184,7 +195,7 @@ public struct SongsView: View {
             #else
             ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
-                if !libraryVM.tracks.isEmpty && !isStageFlowActive {
+                if !libraryVM.tracks.isEmpty && !isPresenterChromeHidden {
                     HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true

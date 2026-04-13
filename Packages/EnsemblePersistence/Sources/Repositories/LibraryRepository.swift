@@ -127,6 +127,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     // Artists
     func fetchArtists() async throws -> [CDArtist]
     func fetchArtist(ratingKey: String) async throws -> CDArtist?
+    func updateArtistName(ratingKey: String, sourceCompositeKey: String?, name: String) async throws
     func upsertArtist(
         ratingKey: String,
         key: String,
@@ -142,6 +143,8 @@ public protocol LibraryRepositoryProtocol: Sendable {
     // Albums
     func fetchAlbums() async throws -> [CDAlbum]
     func fetchAlbum(ratingKey: String) async throws -> CDAlbum?
+    func updateAlbumTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws
+    func deleteAlbum(ratingKey: String, sourceCompositeKey: String?) async throws
     func fetchAlbums(forArtist artistRatingKey: String) async throws -> [CDAlbum]
     func upsertAlbum(
         ratingKey: String,
@@ -173,6 +176,8 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func fetchFavoriteTracks() async throws -> [CDTrack]
     func fetchTrack(ratingKey: String) async throws -> CDTrack?
     func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack?
+    func updateTrackTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws
+    func deleteTrack(ratingKey: String, sourceCompositeKey: String?) async throws
     func upsertTrack(
         ratingKey: String,
         key: String,
@@ -248,6 +253,14 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func drainTrackReparentInfo() -> [TrackReparentInfo]
 }
 
+public extension LibraryRepositoryProtocol {
+    func updateArtistName(ratingKey: String, sourceCompositeKey: String?, name: String) async throws {}
+    func updateAlbumTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws {}
+    func deleteAlbum(ratingKey: String, sourceCompositeKey: String?) async throws {}
+    func updateTrackTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws {}
+    func deleteTrack(ratingKey: String, sourceCompositeKey: String?) async throws {}
+}
+
 public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
     private let coreDataStack: CoreDataStack
 
@@ -316,6 +329,51 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                 do {
                     let artist = try context.fetch(request).first
                     continuation.resume(returning: artist)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func updateArtistName(ratingKey: String, sourceCompositeKey: String?, name: String) async throws {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request = CDArtist.fetchRequest()
+                    if let sourceCompositeKey {
+                        request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceCompositeKey)
+                    } else {
+                        request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                    }
+                    request.fetchLimit = 1
+
+                    guard let artist = try context.fetch(request).first else {
+                        continuation.resume()
+                        return
+                    }
+
+                    let oldName = artist.name
+                    artist.name = trimmed
+                    artist.dateModified = Date()
+                    artist.updatedAt = Date()
+
+                    if let albums = artist.albums as? Set<CDAlbum> {
+                        for album in albums {
+                            if album.artistName == oldName {
+                                album.artistName = trimmed
+                            }
+                            if album.albumArtist == oldName {
+                                album.albumArtist = trimmed
+                            }
+                        }
+                    }
+
+                    try context.save()
+                    continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -423,6 +481,82 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                 do {
                     let album = try context.fetch(request).first
                     continuation.resume(returning: album)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func updateAlbumTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request = CDAlbum.fetchRequest()
+                    if let sourceCompositeKey {
+                        request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceCompositeKey)
+                    } else {
+                        request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                    }
+                    request.fetchLimit = 1
+
+                    guard let album = try context.fetch(request).first else {
+                        continuation.resume()
+                        return
+                    }
+
+                    album.title = trimmed
+                    album.dateModified = Date()
+                    album.updatedAt = Date()
+
+                    if let tracks = album.tracks as? Set<CDTrack> {
+                        for track in tracks {
+                            track.albumName = trimmed
+                            track.dateModified = Date()
+                            track.updatedAt = Date()
+                        }
+                    }
+
+                    try context.save()
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func deleteAlbum(ratingKey: String, sourceCompositeKey: String?) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request = CDAlbum.fetchRequest()
+                    if let sourceCompositeKey {
+                        request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceCompositeKey)
+                    } else {
+                        request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                    }
+                    request.fetchLimit = 1
+
+                    guard let album = try context.fetch(request).first else {
+                        continuation.resume()
+                        return
+                    }
+
+                    if let tracks = album.tracks as? Set<CDTrack> {
+                        for track in tracks {
+                            self.deleteTrackManagedObject(track, in: context)
+                        }
+                    }
+
+                    context.delete(album)
+                    if context.hasChanges {
+                        try context.save()
+                    }
+                    continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -747,6 +881,67 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                 do {
                     let track = try context.fetch(request).first
                     continuation.resume(returning: track)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func updateTrackTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws {
+        let trimmed = Self.normalizedTrackTitle(title, streamKey: nil)
+        guard !trimmed.isEmpty else { return }
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request = CDTrack.fetchRequest()
+                    if let sourceCompositeKey {
+                        request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceCompositeKey)
+                    } else {
+                        request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                    }
+                    request.fetchLimit = 1
+
+                    guard let track = try context.fetch(request).first else {
+                        continuation.resume()
+                        return
+                    }
+
+                    track.title = trimmed
+                    track.dateModified = Date()
+                    track.updatedAt = Date()
+                    try context.save()
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func deleteTrack(ratingKey: String, sourceCompositeKey: String?) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request = CDTrack.fetchRequest()
+                    if let sourceCompositeKey {
+                        request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceCompositeKey)
+                    } else {
+                        request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                    }
+                    request.fetchLimit = 1
+
+                    guard let track = try context.fetch(request).first else {
+                        continuation.resume()
+                        return
+                    }
+
+                    self.deleteTrackManagedObject(track, in: context)
+                    if context.hasChanges {
+                        try context.save()
+                    }
+                    continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -1691,6 +1886,26 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
 }
 
 private extension LibraryRepository {
+    private func deleteTrackManagedObject(_ track: CDTrack, in context: NSManagedObjectContext) {
+        if let playlistTracks = track.playlistTracks as? Set<CDPlaylistTrack> {
+            for playlistTrack in playlistTracks {
+                context.delete(playlistTrack)
+            }
+        }
+
+        if let memberships = track.offlineMemberships as? Set<CDOfflineDownloadMembership> {
+            for membership in memberships {
+                context.delete(membership)
+            }
+        }
+
+        if let download = track.download {
+            context.delete(download)
+        }
+
+        context.delete(track)
+    }
+
     static func normalizedTrackTitle(_ title: String, streamKey: String?) -> String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {

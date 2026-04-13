@@ -1053,8 +1053,10 @@ public struct SidebarView: View {
             }
         }
         .onPreferenceChange(SidebarColumnWidthPreferenceKey.self) { width in
+            #if !os(macOS)
             guard abs(width - sidebarColumnWidth) > 1 else { return }
             sidebarColumnWidth = width
+            #endif
         }
         #if os(iOS)
         .phoneSafeAuxiliaryPresentation(item: $navigationCoordinator.activeAuxiliaryPresentation, onDismiss: {

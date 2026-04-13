@@ -380,6 +380,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                     url: discoveredServer.url,
                     connections: discoveredServer.connections,
                     token: discoveredServer.token,
+                    owned: discoveredServer.owned,
                     platform: discoveredServer.platform,
                     capabilities: discoveredServer.capabilities,
                     libraries: resolvedLibraries

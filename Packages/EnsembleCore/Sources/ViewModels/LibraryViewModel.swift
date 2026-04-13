@@ -144,6 +144,7 @@ public final class LibraryViewModel: ObservableObject {
 
         // Re-fetch library when download state changes so offline dimming is accurate
         observeDownloadChanges()
+        observeMetadataChanges()
     }
 
     /// Background queue for sort/filter computation so the main thread stays responsive
@@ -306,6 +307,17 @@ public final class LibraryViewModel: ObservableObject {
     private func observeDownloadChanges() {
         NotificationCenter.default.publisher(for: OfflineDownloadService.downloadsDidChange)
             .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.loadLibrary()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func observeMetadataChanges() {
+        NotificationCenter.default.publisher(for: MetadataMutationService.metadataDidChange)
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 Task { @MainActor [weak self] in
                     await self?.loadLibrary()

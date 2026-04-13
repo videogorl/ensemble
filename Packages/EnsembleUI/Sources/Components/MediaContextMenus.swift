@@ -8,6 +8,8 @@ struct AlbumActionsContextMenu: View {
     let presentPlaylistPicker: ([Track], String) -> Void
     var toastNamespace: String = "album-menu"
     var navigateToArtist: ((String) -> Void)? = nil
+    var onEditMetadata: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
     var customPinAction: ((Bool) -> Void)? = nil
 
     @Environment(\.dependencies) private var deps
@@ -114,6 +116,22 @@ struct AlbumActionsContextMenu: View {
         } label: {
             Label(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin.fill")
         }
+
+        if let onEditMetadata {
+            Button {
+                onEditMetadata()
+            } label: {
+                Label("Edit Metadata…", systemImage: "pencil")
+            }
+        }
+
+        if let onDelete {
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("Delete Album", systemImage: "trash")
+            }
+        }
     }
 
     private func openArtist(_ artistId: String) {
@@ -189,6 +207,7 @@ struct ArtistActionsContextMenu: View {
     let artist: Artist
     let nowPlayingVM: NowPlayingViewModel
     var toastNamespace: String = "artist-menu"
+    var onEditMetadata: (() -> Void)? = nil
     var customPinAction: ((Bool) -> Void)? = nil
 
     @Environment(\.dependencies) private var deps
@@ -248,6 +267,14 @@ struct ArtistActionsContextMenu: View {
             }
         } label: {
             Label(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin.fill")
+        }
+
+        if let onEditMetadata {
+            Button {
+                onEditMetadata()
+            } label: {
+                Label("Edit Metadata…", systemImage: "pencil")
+            }
         }
     }
 

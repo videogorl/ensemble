@@ -253,6 +253,12 @@ struct PlaybackHandoffCoordinator {
         state.routeTransition = .idle
     }
 
+    mutating func resetForExplicitPlaybackStart() {
+        state.pauseReason = nil
+        state.interruption = .none
+        state.routeTransition = .idle
+    }
+
     private func makeOutcome(summary: String, actions: [Action]) -> Outcome {
         Outcome(actions: actions, summary: summary, state: state)
     }

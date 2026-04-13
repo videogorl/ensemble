@@ -89,11 +89,11 @@ public struct AlbumsView: View {
                     }
             }
         )
-            .hideTabBarIfAvailable(isHidden: isStageFlowActive)
+            .hideTabBarIfAvailable(isHidden: isPresenterChromeHidden)
             .stageFlowRotationSupport(isEnabled: supportsStageFlow)
-            .stageFlowImmersiveMode(isActive: isStageFlowActive)
+            .stageFlowImmersiveMode(isActive: isPresenterChromeHidden)
             #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isPresenterChromeHidden)
             .navigationBarHidden(isPresenterChromeHidden)
             .if(isPresenterChromeHidden) { view in
                 if #available(iOS 16.0, *) {
