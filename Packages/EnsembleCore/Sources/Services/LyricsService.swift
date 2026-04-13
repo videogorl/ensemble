@@ -526,6 +526,14 @@ public final class LyricsService: ObservableObject {
         }
     }
 
+    /// Remove cached lyrics for a single track/source pair.
+    public func clearCache(forTrackRatingKey ratingKey: String, sourceCompositeKey sourceKey: String) {
+        let cacheKey = "\(ratingKey):\(sourceKey)"
+        cache.removeValue(forKey: cacheKey)
+        negativeCacheTimestamps.removeValue(forKey: cacheKey)
+        try? FileManager.default.removeItem(at: Self.persistentCachePath(ratingKey: ratingKey, sourceKey: sourceKey))
+    }
+
     // MARK: - Persistent File Cache
 
     /// File path for a track's cached lyrics content

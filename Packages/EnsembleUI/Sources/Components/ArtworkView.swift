@@ -63,7 +63,7 @@ public struct ArtworkView: View {
         fallbackPath: String? = nil,
         fallbackRatingKey: String? = nil,
         size: ArtworkSize = .medium,
-        cornerRadius: CGFloat = 8,
+        cornerRadius: CGFloat? = nil,
         isResponsive: Bool = false
     ) {
         self.path = path
@@ -72,7 +72,7 @@ public struct ArtworkView: View {
         self.fallbackPath = fallbackPath
         self.fallbackRatingKey = fallbackRatingKey
         self.size = size
-        self.cornerRadius = cornerRadius
+        self.cornerRadius = cornerRadius ?? ArtworkCornerRadius.square(for: size)
         self.isResponsive = isResponsive
     }
 
@@ -80,50 +80,36 @@ public struct ArtworkView: View {
         // Cache CGSize to avoid recomputing on each access
         let frameSize = size.cgSize
         let iconSize = frameSize.width * 0.3
-        let artworkShape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let cornerRadiusRatio = frameSize.width > 0 ? (cornerRadius / frameSize.width) : 0
+        let defaultSquareCornerRadius = ArtworkCornerRadius.square(for: size)
+        let defaultCircleCornerRadius = ArtworkCornerRadius.circle(for: frameSize.width)
+        let shouldScaleCornerRadius =
+            abs(cornerRadius - defaultSquareCornerRadius) < 0.5
+            || abs(cornerRadius - defaultCircleCornerRadius) < 0.5
 
         Group {
-            LazyImage(url: artworkURL) { state in
-                ZStack {
-                    Color.gray.opacity(0.2)
+            if isResponsive {
+                GeometryReader { proxy in
+                    let side = max(0, proxy.size.width)
+                    let responsiveRadius = shouldScaleCornerRadius
+                        ? min(max(side * cornerRadiusRatio, 0), side / 2)
+                        : min(max(cornerRadius, 0), side / 2)
+                    let artworkShape = RoundedRectangle(cornerRadius: responsiveRadius, style: .continuous)
 
-                    if let image = state.image {
-                        image
-                            .resizable()
-                            .scaledToFill()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .onAppear {
-                                // Capture successful loads so we can show them during transitions
-                                previousImage = state.image
-                            }
-                    } else if let previous = previousImage {
-                        // Show the last loaded image during URL transitions to avoid
-                        // placeholder flash when switching between albums
-                        previous
-                            .resizable()
-                            .scaledToFill()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if state.error != nil {
-                        Image(systemName: "music.note")
-                            .font(.system(size: iconSize))
-                            .foregroundColor(.gray.opacity(0.5))
-                    } else {
-                        Image(systemName: "music.note")
-                            .font(.system(size: iconSize))
-                            .foregroundColor(.gray.opacity(0.5))
-                    }
+                    artworkImage(iconSize: iconSize, frameSize: frameSize)
+                        .frame(width: side, height: side)
+                        .clipShape(artworkShape)
+                        .contentShape(artworkShape)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
+                .aspectRatio(1, contentMode: .fit)
+            } else {
+                let artworkShape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                artworkImage(iconSize: iconSize, frameSize: frameSize)
+                    .frame(width: frameSize.width, height: frameSize.height)
+                    .clipShape(artworkShape)
+                    .contentShape(artworkShape)
             }
-            .processors([.resize(size: frameSize, contentMode: .aspectFill, upscale: true)])
-            .priority(imagePriority)
-            .aspectRatio(1, contentMode: .fit)
-            .frame(maxWidth: isResponsive ? .infinity : nil)
-            .frame(width: isResponsive ? nil : frameSize.width, height: isResponsive ? nil : frameSize.height)
         }
-        .clipShape(artworkShape)
-        .contentShape(artworkShape)
         .task(id: "\(loadID)|\(invalidationToken)") {
             await loadArtworkURL()
         }
@@ -146,6 +132,45 @@ public struct ArtworkView: View {
                 invalidationToken += 1
             }
         }
+    }
+
+    @ViewBuilder
+    private func artworkImage(iconSize: CGFloat, frameSize: CGSize) -> some View {
+        LazyImage(url: artworkURL) { state in
+            ZStack {
+                Color.gray.opacity(0.2)
+
+                if let image = state.image {
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .onAppear {
+                            // Capture successful loads so we can show them during transitions
+                            previousImage = state.image
+                        }
+                } else if let previous = previousImage {
+                    // Show the last loaded image during URL transitions to avoid
+                    // placeholder flash when switching between albums
+                    previous
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if state.error != nil {
+                    Image(systemName: "music.note")
+                        .font(.system(size: iconSize))
+                        .foregroundColor(.gray.opacity(0.5))
+                } else {
+                    Image(systemName: "music.note")
+                        .font(.system(size: iconSize))
+                        .foregroundColor(.gray.opacity(0.5))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+        }
+        .processors([.resize(size: frameSize, contentMode: .aspectFill, upscale: true)])
+        .priority(imagePriority)
     }
     
     private func loadArtworkURL() async {
@@ -185,7 +210,7 @@ public struct ArtworkView: View {
 // MARK: - Convenience Initializers
 
 public extension ArtworkView {
-    init(track: Track, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8, isResponsive: Bool = false) {
+    init(track: Track, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
         self.init(
             path: track.thumbPath,
             sourceKey: track.sourceCompositeKey,
@@ -198,11 +223,11 @@ public extension ArtworkView {
         )
     }
 
-    init(album: Album, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8, isResponsive: Bool = false) {
+    init(album: Album, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
         self.init(path: album.thumbPath, sourceKey: album.sourceCompositeKey, ratingKey: album.id, fallbackPath: nil, fallbackRatingKey: nil, size: size, cornerRadius: cornerRadius, isResponsive: isResponsive)
     }
 
-    init(artist: Artist, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8, isResponsive: Bool = false) {
+    init(artist: Artist, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
         self.init(
             path: artist.thumbPath,
             sourceKey: artist.sourceCompositeKey,
@@ -215,7 +240,7 @@ public extension ArtworkView {
         )
     }
 
-    init(playlist: Playlist, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8, isResponsive: Bool = false) {
+    init(playlist: Playlist, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
         self.init(path: playlist.compositePath, sourceKey: playlist.sourceCompositeKey, ratingKey: playlist.id, size: size, cornerRadius: cornerRadius, isResponsive: isResponsive)
     }
 }

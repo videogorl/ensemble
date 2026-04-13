@@ -18,12 +18,12 @@ struct CompositeArtworkView: View {
     init(
         playlists: [Playlist],
         size: ArtworkSize = .medium,
-        cornerRadius: CGFloat = 8,
+        cornerRadius: CGFloat? = nil,
         isResponsive: Bool = false
     ) {
         self.playlists = playlists
         self.size = size
-        self.cornerRadius = cornerRadius
+        self.cornerRadius = cornerRadius ?? ArtworkCornerRadius.square(for: size)
         self.isResponsive = isResponsive
     }
 
@@ -118,12 +118,12 @@ struct PlaylistArtwork: View {
     init(
         displayPlaylist: DisplayPlaylist,
         size: ArtworkSize = .medium,
-        cornerRadius: CGFloat = 8,
+        cornerRadius: CGFloat? = nil,
         isResponsive: Bool = false
     ) {
         self.displayPlaylist = displayPlaylist
         self.size = size
-        self.cornerRadius = cornerRadius
+        self.cornerRadius = cornerRadius ?? ArtworkCornerRadius.square(for: size)
         self.isResponsive = isResponsive
     }
 
@@ -159,7 +159,7 @@ public struct DisplayPlaylistCard: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            PlaylistArtwork(displayPlaylist: displayPlaylist, size: .thumbnail, cornerRadius: 8)
+            PlaylistArtwork(displayPlaylist: displayPlaylist, size: .thumbnail)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(displayPlaylist.title)

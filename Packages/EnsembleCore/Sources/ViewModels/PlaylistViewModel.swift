@@ -554,6 +554,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
         // Re-fetch tracks when playlists are refreshed after a mutation (e.g. tracks added)
         observePlaylistRefresh()
+        observeMetadataChanges()
     }
 
     private func setupFilterPersistence() {
@@ -587,6 +588,17 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             }
             .store(in: &cancellables)
 
+    }
+
+    private func observeMetadataChanges() {
+        NotificationCenter.default.publisher(for: MetadataMutationService.metadataDidChange)
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.loadTracks()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     public func loadTracks() async {

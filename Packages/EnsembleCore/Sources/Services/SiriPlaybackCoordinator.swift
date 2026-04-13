@@ -43,6 +43,7 @@ public enum SiriPlaybackCoordinatorError: Error, LocalizedError, Equatable {
 @MainActor
 public final class SiriPlaybackCoordinator {
     private static let appNameSuffixes = [" ensemble music", " ensemble"]
+    private static let favoritesPlaylistNames: Set<String> = ["favorites", "favourites"]
     private static let trailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
     private static let leadingMediaTypePrefixes = [
         "the playlist ",
@@ -168,7 +169,7 @@ public final class SiriPlaybackCoordinator {
         }
 
         if request.shuffle {
-            await playbackService.shufflePlay(tracks: playableTracks)
+            await playbackService.shufflePlay(tracks: orderedArtistShuffleTracks(playableTracks))
         } else {
             await playbackService.play(tracks: playableTracks, startingAt: 0)
         }
@@ -198,7 +199,7 @@ public final class SiriPlaybackCoordinator {
         }
 
         if request.shuffle {
-            await playbackService.shufflePlay(tracks: playableTracks)
+            await playbackService.shufflePlay(tracks: orderedArtistShuffleTracks(playableTracks))
         } else {
             await playbackService.play(tracks: playableTracks, startingAt: 0)
         }
@@ -270,7 +271,7 @@ public final class SiriPlaybackCoordinator {
             return resolved
         }
 
-        let fuzzyPool = try await libraryRepository.fetchSiriEligibleTracks()
+        let fuzzyPool = Array(try await libraryRepository.fetchSiriEligibleTracks().prefix(800))
         let fuzzyCandidates = fuzzyCandidates(
             from: fuzzyPool,
             request: request,
@@ -333,7 +334,7 @@ public final class SiriPlaybackCoordinator {
             return resolved
         }
 
-        let fuzzyPool = try await libraryRepository.fetchAlbums()
+        let fuzzyPool = Array(try await libraryRepository.fetchAlbums().prefix(800))
         let fuzzyMatches = fuzzyCandidates(
             from: fuzzyPool,
             request: request,
@@ -404,6 +405,13 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         playlistSearchSourceKeys: Set<String>
     ) async throws -> CDPlaylist? {
+        if let favorites = try await resolveFavoritesPlaylistIfNeeded(
+            request: request,
+            playlistSearchSourceKeys: playlistSearchSourceKeys
+        ) {
+            return favorites
+        }
+
         if let direct = try await playlistRepository.fetchPlaylist(
             ratingKey: request.entityID,
             sourceCompositeKey: request.sourceCompositeKey
@@ -421,7 +429,7 @@ public final class SiriPlaybackCoordinator {
         )
 
         if let resolved = choosePreferredCandidate(
-            from: candidates,
+            from: prioritizeExactPlaylistMatches(candidates, displayName: displayName),
             requestSource: request.sourceCompositeKey,
             requestDisplayName: request.displayName,
             name: { $0.title },
@@ -432,7 +440,7 @@ public final class SiriPlaybackCoordinator {
             return resolved
         }
 
-        let fuzzyPool = try await playlistRepository.fetchPlaylists()
+        let fuzzyPool = Array(try await playlistRepository.fetchPlaylists().prefix(600))
         let fuzzyMatches = fuzzyCandidates(
             from: fuzzyPool,
             request: request,
@@ -449,6 +457,38 @@ public final class SiriPlaybackCoordinator {
             lastPlayed: { $0.lastPlayed },
             playCount: { _ in nil }
         )
+    }
+
+    private func prioritizeExactPlaylistMatches(
+        _ playlists: [CDPlaylist],
+        displayName: String
+    ) -> [CDPlaylist] {
+        guard let normalizedDisplayName = normalize(displayName), !normalizedDisplayName.isEmpty else {
+            return playlists
+        }
+        let (exact, rest) = playlists.reduce(into: ([CDPlaylist](), [CDPlaylist]())) { result, playlist in
+            if normalize(playlist.title) == normalizedDisplayName {
+                result.0.append(playlist)
+            } else {
+                result.1.append(playlist)
+            }
+        }
+        return exact + rest
+    }
+
+    private func resolveFavoritesPlaylistIfNeeded(
+        request: SiriPlaybackRequest,
+        playlistSearchSourceKeys: Set<String>
+    ) async throws -> CDPlaylist? {
+        guard let displayName = bestQueryVariant(for: request.displayName) else { return nil }
+        guard let normalizedDisplayName = normalize(displayName),
+              Self.favoritesPlaylistNames.contains(normalizedDisplayName) else { return nil }
+
+        return try await playlistRepository.fetchPlaylists().first {
+            $0.isSmart &&
+            playlistSearchSourceKeys.contains($0.sourceCompositeKey ?? "") &&
+            Self.favoritesPlaylistNames.contains(normalize($0.title) ?? "")
+        }
     }
 
     private func playableTracksForAlbum(
@@ -473,6 +513,18 @@ public final class SiriPlaybackCoordinator {
             .filter { sourceMatches(requestSource: request.sourceCompositeKey ?? artist.sourceCompositeKey, candidateSource: $0.sourceCompositeKey) }
             .filter { isPlayable(track: $0, enabledSourceKeys: enabledSourceKeys) }
         return tracks
+    }
+
+    private func orderedArtistShuffleTracks(_ tracks: [Track]) -> [Track] {
+        tracks.sorted { lhs, rhs in
+            if lhs.albumName == rhs.albumName {
+                if lhs.discNumber == rhs.discNumber {
+                    return lhs.trackNumber < rhs.trackNumber
+                }
+                return lhs.discNumber < rhs.discNumber
+            }
+            return (lhs.albumName ?? lhs.title) < (rhs.albumName ?? rhs.title)
+        }
     }
 
     private func enabledLibrarySourceKeys() -> Set<String> {

@@ -54,6 +54,7 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
     public let url: String            // Primary connection URL
     public let connections: [PlexConnectionConfig]  // All available connections
     public let token: String
+    public let owned: Bool
     public let platform: String?
     public let capabilities: PlexServerCapabilities?
     public let libraries: [PlexLibraryConfig]
@@ -64,6 +65,7 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
         url: String,
         connections: [PlexConnectionConfig] = [],
         token: String,
+        owned: Bool = false,
         platform: String? = nil,
         capabilities: PlexServerCapabilities? = nil,
         libraries: [PlexLibraryConfig]
@@ -73,6 +75,7 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
         self.url = url
         self.connections = connections.isEmpty ? [PlexConnectionConfig(uri: url, local: false)] : connections
         self.token = token
+        self.owned = owned
         self.platform = platform
         self.capabilities = capabilities
         self.libraries = libraries
@@ -80,7 +83,7 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
 
     // Custom Codable implementation to handle backward compatibility
     enum CodingKeys: String, CodingKey {
-        case id, name, url, connections, token, platform, capabilities, libraries
+        case id, name, url, connections, token, owned, platform, capabilities, libraries
     }
 
     public init(from decoder: Decoder) throws {
@@ -89,6 +92,7 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
         name = try container.decode(String.self, forKey: .name)
         url = try container.decode(String.self, forKey: .url)
         token = try container.decode(String.self, forKey: .token)
+        owned = try container.decodeIfPresent(Bool.self, forKey: .owned) ?? false
         platform = try container.decodeIfPresent(String.self, forKey: .platform)
         capabilities = try container.decodeIfPresent(PlexServerCapabilities.self, forKey: .capabilities)
         libraries = try container.decode([PlexLibraryConfig].self, forKey: .libraries)
@@ -110,6 +114,7 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
         try container.encode(url, forKey: .url)
         try container.encode(connections, forKey: .connections)
         try container.encode(token, forKey: .token)
+        try container.encode(owned, forKey: .owned)
         try container.encodeIfPresent(platform, forKey: .platform)
         try container.encodeIfPresent(capabilities, forKey: .capabilities)
         try container.encode(libraries, forKey: .libraries)

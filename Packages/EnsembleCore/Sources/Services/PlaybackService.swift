@@ -1958,7 +1958,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
                     }
                     guard let self, !Task.isCancelled else { return }
-                    let settleOutcome = self.handoffCoordinator.handleSettleWindowFinished(now: Date())
+                    let settleOutcome = self.handoffCoordinator.handleSettleWindowFinished(
+                        now: Date(),
+                        playbackState: self.playbackState
+                    )
                     self.applyHandoffOutcome(settleOutcome, event: "settleWindowFinished")
                     self.unexpectedPauseCount = 0
                     self.lastUnexpectedPauseAt = nil
@@ -2290,6 +2293,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func play(tracks: [Track], startingAt index: Int) async {
         guard !tracks.isEmpty, index >= 0, index < tracks.count else { return }
 
+        handoffCoordinator.resetForExplicitPlaybackStart()
+        isInterrupted = false
+        isRouteChangeInProgress = false
+
         // Queue injection resets instrumental mode (sync both UI flag and engine state)
         if isInstrumentalModeActive {
             setInstrumentalMode(false)
@@ -2339,6 +2346,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func shufflePlay(tracks: [Track]) async {
         guard !tracks.isEmpty else { return }
+
+        handoffCoordinator.resetForExplicitPlaybackStart()
+        isInterrupted = false
+        isRouteChangeInProgress = false
 
         // Queue injection resets instrumental mode (sync both UI flag and engine state)
         if isInstrumentalModeActive {
@@ -2745,6 +2756,35 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         MPNowPlayingInfoCenter.default().playbackState = .stopped
         updateFeedbackCommandState(isLiked: false, isDisliked: false)
+    }
+
+    /// Remove deleted tracks from the active queue, original queue, and history.
+    /// If the currently playing track was deleted, playback is stopped first so the
+    /// audio engine does not hold onto a stale local file.
+    @MainActor
+    public func removeDeletedTracks(_ trackIDs: Set<String>) {
+        guard !trackIDs.isEmpty else { return }
+
+        let currentTrackWasDeleted = currentTrack.map { trackIDs.contains($0.id) } ?? false
+        if currentTrackWasDeleted {
+            stop()
+        }
+
+        queue.removeAll { trackIDs.contains($0.track.id) }
+        originalQueue.removeAll { trackIDs.contains($0.track.id) }
+        playbackHistory.removeAll { trackIDs.contains($0.track.id) }
+
+        if queue.isEmpty {
+            currentQueueIndex = -1
+        } else {
+            currentQueueIndex = min(currentQueueIndex, queue.count - 1)
+        }
+
+        if let currentTrack, trackIDs.contains(currentTrack.id) {
+            self.currentTrack = nil
+        }
+
+        savePlaybackState()
     }
 
     /// Retry playing the current track (useful after network errors)
@@ -3815,6 +3855,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
+        if shouldAutoRecoverLocalOpenFailure(
+            lastError,
+            track: request.track,
+            forcingFreshItem: request.forcingFreshItem
+        ) {
+            loadingStateTask?.cancel()
+            endTrackTransitionBackgroundTask()
+            await MainActor.run {
+                self.recreatePlayer()
+            }
+            await playCurrentQueueItem(
+                forcingFreshItem: true,
+                seekTo: request.recoverySeekTime,
+                caller: "retryCurrentTrack(local-open-recovery)"
+            )
+            return
+        }
+
         switch PlaybackSessionStateMachine.classifyTerminalFailure(lastError, track: request.track) {
         case .tls:
             loadingStateTask?.cancel()
@@ -3851,6 +3909,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 self.playbackState = .failed(message)
             }
         }
+    }
+
+    private func shouldAutoRecoverLocalOpenFailure(
+        _ error: Error?,
+        track: Track,
+        forcingFreshItem: Bool
+    ) -> Bool {
+        guard !forcingFreshItem else { return false }
+        guard track.localFilePath != nil else { return false }
+        guard let nsError = error as NSError? else { return false }
+        return nsError.domain == "com.apple.coreaudio.avfaudio" && nsError.code == 2_003_334_207
     }
 
     
@@ -5191,7 +5260,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let feedbackFlags = Self.feedbackFlags(for: track.rating)
         let isLiked = feedbackFlags.isLiked
         let isDisliked = feedbackFlags.isDisliked
-        let artworkRequestKey = "\(track.id)|\(track.thumbPath ?? "")|\(track.fallbackThumbPath ?? "")|\(track.sourceCompositeKey ?? "")"
+        let artworkIdentity = track.thumbPath ?? track.fallbackThumbPath ?? track.id
+        let artworkSourceKey = track.thumbPath != nil ? track.id : (track.fallbackRatingKey ?? track.id)
+        let artworkRequestKey = "\(artworkSourceKey)|\(artworkIdentity)|\(track.sourceCompositeKey ?? "")"
 
         let rate: Double = playbackState == .playing ? 1.0 : 0.0
 

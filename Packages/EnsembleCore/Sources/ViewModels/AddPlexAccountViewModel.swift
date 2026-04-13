@@ -209,6 +209,7 @@ public final class AddPlexAccountViewModel: ObservableObject {
                 url: server.url,
                 connections: server.connections,
                 token: server.token,
+                owned: server.owned,
                 platform: server.platform,
                 libraries: updatedLibraries
             )

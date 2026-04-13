@@ -38,6 +38,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         setupFilterPersistence()
         resolveServerNames()
         observeDownloadChanges()
+        observeMetadataChanges()
         observePlaylistRefresh()
     }
 
@@ -74,6 +75,17 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     private func observePlaylistRefresh() {
         NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
             .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.loadTracks()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func observeMetadataChanges() {
+        NotificationCenter.default.publisher(for: MetadataMutationService.metadataDidChange)
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 Task { @MainActor [weak self] in
                     await self?.loadTracks()

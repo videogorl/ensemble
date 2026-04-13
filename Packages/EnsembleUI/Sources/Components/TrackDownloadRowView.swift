@@ -27,7 +27,7 @@ struct TrackDownloadRowView: View {
                     fallbackPath: row.fallbackThumbPath,
                     fallbackRatingKey: row.albumRatingKey,
                     size: .tiny,
-                    cornerRadius: 4
+                    cornerRadius: ArtworkCornerRadius.square(for: 44)
                 )
                 .frame(width: 44, height: 44)
 
