@@ -69,6 +69,7 @@ public struct MainTabView: View {
     @State private var showingSheetNowPlaying = false
     @State private var didSetInitialTab = false
     @State private var isImmersiveMode = false
+    @State private var immersiveModeClearWorkItem: DispatchWorkItem?
     // Extracted observation state — avoids full root invalidation from singleton publishers
     @State private var networkState: NetworkState = DependencyContainer.shared.networkMonitor.networkState
     @State private var isLowPowerMode: Bool = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
@@ -117,6 +118,25 @@ public struct MainTabView: View {
         isImmersiveMode || navigationCoordinator.isKeyboardEditorPresented
     }
 
+    private func shouldForceStageFlowImmersive(for size: CGSize) -> Bool {
+        #if os(iOS)
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
+        if #available(iOS 16.0, *) {
+            return false
+        }
+        guard size.width > size.height else { return false }
+
+        switch navigationCoordinator.selectedTab {
+        case .albums, .songs, .playlists:
+            return true
+        default:
+            return false
+        }
+        #else
+        return false
+        #endif
+    }
+
     public var body: some View {
         GeometryReader { geometry in
             // Keep mini-player spacing aligned with the active tab bar style.
@@ -127,6 +147,8 @@ public struct MainTabView: View {
                     return TrackListLayoutMetrics.miniPlayerBottomLiftBase + geometry.safeAreaInsets.bottom
                 }
             }()
+            let stageFlowFallbackImmersive = shouldForceStageFlowImmersive(for: geometry.size)
+            let rootChromeSuppressed = isRootChromeSuppressed || stageFlowFallbackImmersive
 
             let rootView = ZStack(alignment: .bottom) {
                 // Main content layer with TabView
@@ -147,7 +169,7 @@ public struct MainTabView: View {
                                     Label("More", systemImage: "ellipsis")
                                 }
                         },
-                                    isHidden: isRootChromeSuppressed
+                                    isHidden: rootChromeSuppressed
                     )
                     .applyTabViewStyle(sidebarAdaptable: useSidebarAdaptable)
                 }
@@ -156,7 +178,7 @@ public struct MainTabView: View {
                 // The 70pt covers the mini player height + spacing above the tab bar.
                 .miniPlayerContainerInset(
                     TrackListLayoutMetrics.miniPlayerContainerInset,
-                    isVisible: !isShowingNowPlaying && !isKeyboardVisible && !isImmersiveMode && !navigationCoordinator.isKeyboardEditorPresented
+                    isVisible: !isShowingNowPlaying && !isKeyboardVisible && !rootChromeSuppressed && !navigationCoordinator.isKeyboardEditorPresented
                 )
                 .zIndex(0)
 
@@ -178,7 +200,7 @@ public struct MainTabView: View {
                             }
                         }
                     ),
-                    isImmersiveMode: isImmersiveMode,
+                    isImmersiveMode: rootChromeSuppressed,
                     isKeyboardVisible: isKeyboardVisible,
                     isKeyboardEditorPresented: navigationCoordinator.isKeyboardEditorPresented,
                     namespace: playerNamespace,
@@ -279,7 +301,7 @@ public struct MainTabView: View {
             applyChromeVisibilityObservation(
                 to: rootView
                     .overlay(alignment: .top) {
-                        if !isImmersiveMode {
+                        if !rootChromeSuppressed {
                             OfflineIndicatorOverlay(
                                 networkState: networkState,
                                 topInset: geometry.safeAreaInsets.top
@@ -329,8 +351,21 @@ public struct MainTabView: View {
                 ) { notification in
                     guard let isHidden = notification.object as? Bool else { return }
                     guard !isShowingNowPlaying else { return }
-                    if isImmersiveMode != isHidden {
-                        isImmersiveMode = isHidden
+                    immersiveModeClearWorkItem?.cancel()
+                    if isHidden {
+                        if isImmersiveMode != true {
+                            isImmersiveMode = true
+                        }
+                    } else {
+                        let clearWorkItem = DispatchWorkItem {
+                            if isImmersiveMode != false {
+                                isImmersiveMode = false
+                            }
+                        }
+                        immersiveModeClearWorkItem = clearWorkItem
+                        // iOS 15 posts transient "false" signals during landscape
+                        // geometry churn; delay clearing so root chrome doesn't flash.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: clearWorkItem)
                     }
                 }
         }
@@ -417,7 +452,7 @@ public struct MainTabView: View {
             if settingsManager.auroraVisualizationEnabled &&
                     !isShowingNowPlaying &&
                     !isAuxiliaryPresentationActive &&
-                !isImmersiveMode &&
+                !isRootChromeSuppressed &&
                 !navigationCoordinator.isKeyboardEditorPresented {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,

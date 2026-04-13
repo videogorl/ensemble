@@ -30,7 +30,7 @@ public enum MetadataMutationError: LocalizedError, Equatable {
         case .clientUnavailable:
             return "The selected Plex server is not available for metadata changes."
         case .insufficientPermissions:
-            return "Only the Plex server owner can edit or delete library metadata."
+            return "Only Plex server admins can edit or delete library metadata."
         case .noChangesRequested:
             return "No metadata changes were requested."
         }
@@ -121,12 +121,16 @@ public final class MetadataMutationService {
     public func deleteTrack(_ track: Track) async throws {
         try ensureOnline(action: "Delete Track")
         let source = try sourceContext(for: track.sourceCompositeKey)
-        try ensureCanManage(source: source)
+        logServerCapabilityIfUnknown(source: source)
         guard let client = makeClient(source.accountId, source.serverId) else {
             throw MetadataMutationError.clientUnavailable
         }
 
-        try await client.deleteMetadata(ids: [track.id])
+        do {
+            try await client.deleteMetadata(ids: [track.id])
+        } catch {
+            throw mapMutationError(error)
+        }
         try await cleanupTrackArtifacts(track)
         try await libraryRepository.deleteTrack(ratingKey: track.id, sourceCompositeKey: track.sourceCompositeKey)
         removeDeletedTracksFromPlayback(Set([track.id]))
@@ -136,7 +140,7 @@ public final class MetadataMutationService {
     public func deleteAlbum(_ album: Album) async throws {
         try ensureOnline(action: "Delete Album")
         let source = try sourceContext(for: album.sourceCompositeKey)
-        try ensureCanManage(source: source)
+        logServerCapabilityIfUnknown(source: source)
         guard let client = makeClient(source.accountId, source.serverId) else {
             throw MetadataMutationError.clientUnavailable
         }
@@ -148,7 +152,11 @@ public final class MetadataMutationService {
         )
         let trackModels = albumTracks.map(Track.init(from:))
 
-        try await client.deleteMetadata(ids: [album.id])
+        do {
+            try await client.deleteMetadata(ids: [album.id])
+        } catch {
+            throw mapMutationError(error)
+        }
 
         for track in trackModels {
             try await cleanupTrackArtifacts(track)
@@ -164,17 +172,21 @@ public final class MetadataMutationService {
         guard !updates.isEmpty else { throw MetadataMutationError.noChangesRequested }
         try ensureOnline(action: "Edit Track")
         let source = try sourceContext(for: track.sourceCompositeKey)
-        try ensureCanManage(source: source)
+        logServerCapabilityIfUnknown(source: source)
         guard let client = makeClient(source.accountId, source.serverId) else {
             throw MetadataMutationError.clientUnavailable
         }
 
-        try await client.updateMetadata(
-            sectionId: source.libraryId,
-            metadataType: 10,
-            ids: [track.id],
-            fieldUpdates: updates
-        )
+        do {
+            try await client.updateMetadata(
+                sectionId: source.libraryId,
+                metadataType: 10,
+                ids: [track.id],
+                fieldUpdates: updates
+            )
+        } catch {
+            throw mapMutationError(error)
+        }
 
         if let title = request.title, !title.isEmpty {
             try await libraryRepository.updateTrackTitle(
@@ -191,17 +203,21 @@ public final class MetadataMutationService {
         guard !updates.isEmpty else { throw MetadataMutationError.noChangesRequested }
         try ensureOnline(action: "Edit Album")
         let source = try sourceContext(for: album.sourceCompositeKey)
-        try ensureCanManage(source: source)
+        logServerCapabilityIfUnknown(source: source)
         guard let client = makeClient(source.accountId, source.serverId) else {
             throw MetadataMutationError.clientUnavailable
         }
 
-        try await client.updateMetadata(
-            sectionId: source.libraryId,
-            metadataType: 9,
-            ids: [album.id],
-            fieldUpdates: updates
-        )
+        do {
+            try await client.updateMetadata(
+                sectionId: source.libraryId,
+                metadataType: 9,
+                ids: [album.id],
+                fieldUpdates: updates
+            )
+        } catch {
+            throw mapMutationError(error)
+        }
 
         if let title = request.title, !title.isEmpty {
             try await libraryRepository.updateAlbumTitle(
@@ -218,17 +234,21 @@ public final class MetadataMutationService {
         guard !updates.isEmpty else { throw MetadataMutationError.noChangesRequested }
         try ensureOnline(action: "Edit Artist")
         let source = try sourceContext(for: artist.sourceCompositeKey)
-        try ensureCanManage(source: source)
+        logServerCapabilityIfUnknown(source: source)
         guard let client = makeClient(source.accountId, source.serverId) else {
             throw MetadataMutationError.clientUnavailable
         }
 
-        try await client.updateMetadata(
-            sectionId: source.libraryId,
-            metadataType: 8,
-            ids: [artist.id],
-            fieldUpdates: updates
-        )
+        do {
+            try await client.updateMetadata(
+                sectionId: source.libraryId,
+                metadataType: 8,
+                ids: [artist.id],
+                fieldUpdates: updates
+            )
+        } catch {
+            throw mapMutationError(error)
+        }
 
         if let title = request.title, !title.isEmpty {
             try await libraryRepository.updateArtistName(
@@ -280,10 +300,24 @@ public final class MetadataMutationService {
         }
     }
 
-    private func ensureCanManage(source: SourceContext) throws {
-        guard canManageServer(source.accountId, source.serverId) else {
-            throw MetadataMutationError.insufficientPermissions
+    private func logServerCapabilityIfUnknown(source: SourceContext) {
+        guard !canManageServer(source.accountId, source.serverId) else { return }
+        EnsembleLogger.info(
+            "Metadata mutation permission unknown for \(source.accountId):\(source.serverId); attempting request and deferring auth to Plex."
+        )
+    }
+
+    private func mapMutationError(_ error: Error) -> Error {
+        if case PlexAPIError.notAuthenticated = error {
+            return MetadataMutationError.insufficientPermissions
         }
+
+        if case let PlexAPIError.httpError(statusCode) = error,
+           statusCode == 401 || statusCode == 403 {
+            return MetadataMutationError.insufficientPermissions
+        }
+
+        return error
     }
 
     private func postMetadataDidChange() {

@@ -38,6 +38,7 @@ public actor CloudSyncService {
 
     private var isSubscribed = false
     private var profileTransportState: ProfileTransportState = .unknown
+    private var nextProfilePullAllowedAt: Date?
 
     /// Called on the main actor when a remote profile change is received
     public var onRemoteProfileChanged: (@Sendable (UserProfile, Data?) async -> Void)?
@@ -114,26 +115,40 @@ public actor CloudSyncService {
             }
 
             profileTransportState = .available
+            nextProfilePullAllowedAt = nil
             EnsembleLogger.info("Profile pushed to CloudKit successfully")
         } catch {
-            updateTransportState(for: error)
+            await updateTransportState(for: error)
             Self.logCloudKitError(error, context: "pushProfile")
         }
     }
 
     /// Pull the latest profile from CloudKit
     public func pullProfile() async -> (profile: UserProfile, imageData: Data?)? {
+        if let nextAllowed = nextProfilePullAllowedAt, nextAllowed > Date() {
+            // Preserve auth-related states during local cooldown windows so
+            // iOS 15 devices don't flap between "Sign In Required" and
+            // "Rate Limited" while CloudKit account state settles.
+            if profileTransportState != .notAuthenticated &&
+                profileTransportState != .error {
+                profileTransportState = .rateLimited
+            }
+            return nil
+        }
+
         do {
             let record = try await database.record(for: Self.profileRecordID)
             profileTransportState = .available
+            nextProfilePullAllowedAt = nil
             return parseProfileRecord(record)
         } catch let error as CKError where error.code == .unknownItem {
             // No profile record exists yet — this is normal for first launch
             profileTransportState = .available
+            nextProfilePullAllowedAt = nil
             EnsembleLogger.info("No CloudKit profile record found (first launch)")
             return nil
         } catch {
-            updateTransportState(for: error)
+            await updateTransportState(for: error)
             Self.logCloudKitError(error, context: "pullProfile")
             return nil
         }
@@ -163,9 +178,10 @@ public actor CloudSyncService {
             try await database.save(subscription)
             isSubscribed = true
             profileTransportState = .available
+            nextProfilePullAllowedAt = nil
             EnsembleLogger.info("CloudKit profile subscription created")
         } catch {
-            updateTransportState(for: error)
+            await updateTransportState(for: error)
             Self.logCloudKitError(error, context: "subscribeToChanges")
         }
     }
@@ -244,23 +260,64 @@ public actor CloudSyncService {
         }
     }
 
-    private func updateTransportState(for error: Error) {
+    private func updateTransportState(for error: Error) async {
         guard let ckError = error as? CKError else {
             profileTransportState = .error
+            nextProfilePullAllowedAt = nil
             return
         }
 
         switch ckError.code {
         case .networkUnavailable, .networkFailure:
             profileTransportState = .networkUnavailable
+            nextProfilePullAllowedAt = nil
         case .notAuthenticated:
-            profileTransportState = .notAuthenticated
+            switch await accountStatusForTransportDecision() {
+            case .available:
+                // iOS 15 occasionally reports notAuthenticated during transient CloudKit auth
+                // churn even while account status resolves as available.
+                if profileTransportState != .rateLimited {
+                    profileTransportState = .error
+                }
+                nextProfilePullAllowedAt = Date().addingTimeInterval(15)
+            case .noAccount, .restricted:
+                profileTransportState = .notAuthenticated
+                nextProfilePullAllowedAt = nil
+            case .temporarilyUnavailable, .couldNotDetermine:
+                profileTransportState = .error
+                nextProfilePullAllowedAt = Date().addingTimeInterval(15)
+            @unknown default:
+                profileTransportState = .error
+                nextProfilePullAllowedAt = Date().addingTimeInterval(15)
+            }
         case .quotaExceeded:
             profileTransportState = .quotaExceeded
+            nextProfilePullAllowedAt = nil
         case .requestRateLimited:
-            profileTransportState = .rateLimited
+            let retryAfter = (ckError.retryAfterSeconds ?? 30)
+            if profileTransportState == .notAuthenticated && retryAfter <= 5 {
+                // iOS 15 can bounce between notAuthenticated and short request
+                // throttles during account resolution; keep the auth state stable.
+                nextProfilePullAllowedAt = Date().addingTimeInterval(15)
+            } else {
+                profileTransportState = .rateLimited
+                if retryAfter > 0 {
+                    nextProfilePullAllowedAt = Date().addingTimeInterval(retryAfter)
+                } else {
+                    nextProfilePullAllowedAt = Date().addingTimeInterval(30)
+                }
+            }
         default:
             profileTransportState = .error
+            nextProfilePullAllowedAt = nil
+        }
+    }
+
+    private func accountStatusForTransportDecision() async -> CKAccountStatus {
+        do {
+            return try await container.accountStatus()
+        } catch {
+            return .couldNotDetermine
         }
     }
 }

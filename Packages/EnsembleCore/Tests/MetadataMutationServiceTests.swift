@@ -118,21 +118,17 @@ final class MetadataMutationServiceTests: XCTestCase {
         XCTAssertTrue(harness.removedTrackIDs.ids.isEmpty)
     }
 
-    func testDeleteTrackFailsWhenServerIsNotOwned() async throws {
+    func testDeleteTrackAttemptsServerDeleteWhenOwnershipHintIsMissing() async throws {
         let harness = try await makeHarness(canManageServer: false)
 
-        await XCTAssertThrowsErrorAsync(
-            try await harness.service.deleteTrack(harness.track)
-        ) { error in
-            XCTAssertEqual(error as? MetadataMutationError, .insufficientPermissions)
-        }
+        try await harness.service.deleteTrack(harness.track)
 
         let existing = try await harness.libraryRepository.fetchTrack(
             ratingKey: harness.track.id,
             sourceCompositeKey: harness.track.sourceCompositeKey
         )
-        XCTAssertNotNil(existing)
-        XCTAssertTrue(harness.client.deletedIDs.isEmpty)
+        XCTAssertNil(existing)
+        XCTAssertEqual(harness.client.deletedIDs, [[harness.track.id]])
     }
 
     // MARK: - Harness

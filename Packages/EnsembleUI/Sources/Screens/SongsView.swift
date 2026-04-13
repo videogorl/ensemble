@@ -24,6 +24,7 @@ public struct SongsView: View {
     @State private var selectedAlbum: SongsStageFlowAlbum?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var isStageFlowActive = false
+    @State private var latestContainerSize: CGSize = .zero
     @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
     // Targeted observation: only re-evaluate when these specific values change,
     // not when any of offlineDownloadService's 5+ @Published props update
@@ -78,10 +79,12 @@ public struct SongsView: View {
             GeometryReader { geometry in
                 Color.clear
                     .onAppear {
+                        latestContainerSize = geometry.size
                         let active = supportsStageFlow && geometry.size.width > geometry.size.height
                         if active != isStageFlowActive { isStageFlowActive = active }
                     }
                     .onChange(of: geometry.size) { newSize in
+                        latestContainerSize = newSize
                         let shouldBeActive = supportsStageFlow && newSize.width > newSize.height
                         if shouldBeActive && !isStageFlowActive {
                             isStageFlowActive = true
@@ -95,8 +98,7 @@ public struct SongsView: View {
                                 // title display mode, and content simultaneously mid-rotation
                                 // causes NavigationView layout hangs on iOS 15.
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    let screen = UIScreen.main.bounds
-                                    if screen.width < screen.height {
+                                    if latestContainerSize.width < latestContainerSize.height {
                                         isStageFlowActive = false
                                     }
                                 }

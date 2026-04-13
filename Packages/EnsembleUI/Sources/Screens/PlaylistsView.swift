@@ -29,6 +29,7 @@ public struct PlaylistsView: View {
     @State private var cachedDisplayedPlaylists: [DisplayPlaylist] = []
     // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
     @State private var isStageFlowActive = false
+    @State private var latestContainerSize: CGSize = .zero
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
@@ -75,10 +76,12 @@ public struct PlaylistsView: View {
             GeometryReader { geometry in
                 Color.clear
                     .onAppear {
+                        latestContainerSize = geometry.size
                         let active = supportsStageFlow && geometry.size.width > geometry.size.height
                         if active != isStageFlowActive { isStageFlowActive = active }
                     }
                     .onChange(of: geometry.size) { newSize in
+                        latestContainerSize = newSize
                         let shouldBeActive = supportsStageFlow && newSize.width > newSize.height
                         if shouldBeActive && !isStageFlowActive {
                             isStageFlowActive = true
@@ -91,8 +94,7 @@ public struct PlaylistsView: View {
                                 // before switching the view tree, preventing NavigationView
                                 // layout hangs from simultaneous nav bar + content changes.
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    let screen = UIScreen.main.bounds
-                                    if screen.width < screen.height {
+                                    if latestContainerSize.width < latestContainerSize.height {
                                         isStageFlowActive = false
                                     }
                                 }

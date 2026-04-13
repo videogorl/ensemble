@@ -102,7 +102,7 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         XCTAssertEqual(actualUntil, settleUntil)
     }
 
-    func testSettleWindowFinishesWithoutResume() {
+    func testSettleWindowFinishesWithoutResumeWhenPaused() {
         var coordinator = PlaybackHandoffCoordinator()
         let now = Date()
         let settleUntil = now.addingTimeInterval(2)
@@ -114,11 +114,39 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
             playbackState: .paused
         )
 
-        let outcome = coordinator.handleSettleWindowFinished(now: settleUntil)
+        let outcome = coordinator.handleSettleWindowFinished(
+            now: settleUntil,
+            playbackState: .paused
+        )
 
         XCTAssertEqual(outcome.actions, [
             .refreshPresentationLatency,
             .setRouteChangeInProgress(false)
+        ])
+        XCTAssertEqual(coordinator.state.routeTransition, .idle)
+    }
+
+    func testSettleWindowFinishesWithResumeWhenBufferingAfterHandoff() {
+        var coordinator = PlaybackHandoffCoordinator()
+        let now = Date()
+        let settleUntil = now.addingTimeInterval(2)
+
+        _ = coordinator.handleRouteChange(
+            reason: .newDeviceAvailable,
+            now: now,
+            settleUntil: settleUntil,
+            playbackState: .playing
+        )
+
+        let outcome = coordinator.handleSettleWindowFinished(
+            now: settleUntil,
+            playbackState: .buffering
+        )
+
+        XCTAssertEqual(outcome.actions, [
+            .refreshPresentationLatency,
+            .setRouteChangeInProgress(false),
+            .resumePlayback(.system)
         ])
         XCTAssertEqual(coordinator.state.routeTransition, .idle)
     }

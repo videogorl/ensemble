@@ -1958,7 +1958,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
                     }
                     guard let self, !Task.isCancelled else { return }
-                    let settleOutcome = self.handoffCoordinator.handleSettleWindowFinished(now: Date())
+                    let settleOutcome = self.handoffCoordinator.handleSettleWindowFinished(
+                        now: Date(),
+                        playbackState: self.playbackState
+                    )
                     self.applyHandoffOutcome(settleOutcome, event: "settleWindowFinished")
                     self.unexpectedPauseCount = 0
                     self.lastUnexpectedPauseAt = nil
