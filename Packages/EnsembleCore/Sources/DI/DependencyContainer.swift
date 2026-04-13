@@ -53,6 +53,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let offlineDownloadService: OfflineDownloadService
     public let lyricsService: LyricsService
     public let mutationCoordinator: MutationCoordinator
+    public let metadataMutationService: MetadataMutationService
     public let songLinkService: SongLinkService
     public let shareService: ShareService
     public let powerStateMonitor: PowerStateMonitor
@@ -609,6 +610,32 @@ public final class DependencyContainer: @unchecked Sendable {
         }
         mutationCoordinator = mutationCoordinatorRef
 
+        metadataMutationService = MainActor.assumeIsolated {
+            MetadataMutationService(
+                libraryRepository: libraryRef,
+                downloadManager: downloadManagerRef,
+                targetRepository: offlineTargetRepoRef,
+                artworkDownloadManager: artworkDownloadRef,
+                isOffline: { syncCoordinatorRef.isOffline },
+                canManageServer: { accountId, serverId in
+                    am.plexAccounts
+                        .first(where: { $0.id == accountId })?
+                        .servers
+                        .first(where: { $0.id == serverId })?
+                        .owned ?? false
+                },
+                makeClient: { accountId, serverId in
+                    am.makeAPIClient(accountId: accountId, serverId: serverId)
+                },
+                clearLyricsCache: { ratingKey, sourceCompositeKey in
+                    lyricsServiceRef.clearCache(forTrackRatingKey: ratingKey, sourceCompositeKey: sourceCompositeKey)
+                },
+                removeDeletedTracksFromPlayback: { trackIDs in
+                    playbackServiceRef.removeDeletedTracks(trackIDs)
+                }
+            )
+        }
+
         siriAffinityCoordinator = MainActor.assumeIsolated {
             SiriAffinityCoordinator(
                 playbackService: playbackServiceRef,
@@ -862,13 +889,18 @@ public final class DependencyContainer: @unchecked Sendable {
                         direction: .pulledFromICloud,
                         detail: "Pulled library selection from iCloud."
                     )
+
+                    // Reconcile disabled sources on every remote library-flag payload,
+                    // even when no flags changed this run. This prevents stale cached
+                    // data from disabled libraries from leaking into browse surfaces.
+                    let disabledSourcesToCleanup = Array(Set(result.disabledSources + acctMgr.disabledSources()))
+                    if !disabledSourcesToCleanup.isEmpty {
+                        await syncCoordinatorRef.cleanupRemovedSourcesIfPresent(disabledSourcesToCleanup)
+                    }
+
                     guard result.hasChanges else { return }
 
                     syncCoordinatorRef.refreshProviders()
-
-                    for source in result.disabledSources {
-                        await syncCoordinatorRef.cleanupRemovedSource(source)
-                    }
 
                     for server in result.serversNeedingPlaylistCleanup {
                         await syncCoordinatorRef.cleanupServerPlaylists(
@@ -961,7 +993,7 @@ public final class DependencyContainer: @unchecked Sendable {
             return
         }
 
-        let transportState = await cloudSyncService.currentProfileTransportState()
+        let transportState = await resolvedProfileTransportState()
         guard transportState == .available else {
             syncSettingsManager.setProfileStatus(
                 phase: .transport(transportState),
@@ -997,6 +1029,25 @@ public final class DependencyContainer: @unchecked Sendable {
     }
 
     @MainActor
+    private func resolvedProfileTransportState() async -> CloudSyncService.ProfileTransportState {
+        let transportState = await cloudSyncService.currentProfileTransportState()
+        guard transportState == .notAuthenticated else {
+            return transportState
+        }
+
+        switch await cloudSyncService.currentAccountStatus() {
+        case .available:
+            return .available
+        case .noAccount, .restricted:
+            return .notAuthenticated
+        case .temporarilyUnavailable, .couldNotDetermine:
+            return .error
+        @unknown default:
+            return .error
+        }
+    }
+
+    @MainActor
     private func profileTransportDetail(
         for state: CloudSyncService.ProfileTransportState
     ) -> String {
@@ -1006,7 +1057,7 @@ public final class DependencyContainer: @unchecked Sendable {
         case .available:
             return "CloudKit is available."
         case .notAuthenticated:
-            return "Sign in to iCloud to sync the profile."
+            return "Sign in to iCloud and enable iCloud Drive to sync the profile."
         case .networkUnavailable:
             return "Profile sync is waiting for a network connection."
         case .quotaExceeded:
@@ -1014,7 +1065,7 @@ public final class DependencyContainer: @unchecked Sendable {
         case .rateLimited:
             return "CloudKit rate-limited the profile sync. Try again shortly."
         case .error:
-            return "Profile sync hit a CloudKit error."
+            return "Profile sync could not confirm iCloud status right now."
         }
     }
 

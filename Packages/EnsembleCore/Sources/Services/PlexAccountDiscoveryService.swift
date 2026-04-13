@@ -285,6 +285,7 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                                 url: primaryConnection?.uri ?? "",
                                 connections: connectionConfigs,
                                 token: device.accessToken ?? authToken,
+                                owned: device.owned,
                                 platform: device.platform,
                                 capabilities: capabilities,
                                 libraries: libraries
@@ -304,6 +305,7 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                                 url: primaryConnection?.uri ?? "",
                                 connections: connectionConfigs,
                                 token: device.accessToken ?? authToken,
+                                owned: device.owned,
                                 platform: device.platform,
                                 libraries: []
                             ),

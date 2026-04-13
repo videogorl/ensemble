@@ -42,7 +42,7 @@ public class QueueItemCell: UITableViewCell {
         
         artworkImageView.contentMode = .scaleAspectFill
         artworkImageView.clipsToBounds = true
-        artworkImageView.layer.cornerRadius = 4
+        artworkImageView.layer.cornerRadius = ArtworkCornerRadius.square(for: 44)
         artworkImageView.backgroundColor = UIColor.systemGray5
         artworkImageView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(artworkImageView)

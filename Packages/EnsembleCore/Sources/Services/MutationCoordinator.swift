@@ -207,6 +207,30 @@ public final class MutationCoordinator: ObservableObject {
         )
     }
 
+    /// Optimistic playlist-add path used by interactive UI surfaces.
+    /// The mutation is persisted first, then drained in the background when online.
+    @discardableResult
+    public func enqueuePlaylistAddOptimistically(
+        _ tracks: [Track],
+        playlist: Playlist
+    ) async throws -> MutationOutcome {
+        guard let sourceKey = playlist.sourceCompositeKey else {
+            throw MutationError.unavailableOffline("Add to playlist")
+        }
+
+        let payload = makePlaylistAddPayload(tracks: tracks, playlist: playlist, sourceKey: sourceKey)
+        await enqueueMutation(type: .playlistAdd, payload: payload, sourceCompositeKey: sourceKey)
+
+        if networkMonitor.isConnected {
+            Task { @MainActor [weak self] in
+                await self?.drainQueue()
+            }
+            return .completed
+        }
+
+        return .queued
+    }
+
     /// Rename a playlist. Queues when offline or server unreachable.
     @discardableResult
     public func renamePlaylist(_ playlist: Playlist, to newTitle: String) async throws -> MutationOutcome {

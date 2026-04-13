@@ -241,6 +241,7 @@ public final class AccountManager: ObservableObject {
                         url: server.url,
                         connections: server.connections,
                         token: server.token,
+                        owned: server.owned,
                         platform: server.platform,
                         capabilities: server.capabilities,
                         libraries: updatedLibraries
@@ -296,6 +297,7 @@ public final class AccountManager: ObservableObject {
                 url: server.url,
                 connections: server.connections,
                 token: server.token,
+                owned: server.owned,
                 platform: server.platform,
                 capabilities: server.capabilities,
                 libraries: updatedLibraries
@@ -423,6 +425,7 @@ public final class AccountManager: ObservableObject {
             url: server.url,
             connections: server.connections,
             token: server.token,
+            owned: server.owned,
             platform: server.platform,
             capabilities: server.capabilities,
             libraries: updatedLibraries
@@ -481,6 +484,7 @@ public final class AccountManager: ObservableObject {
             url: server.url,
             connections: server.connections,
             token: server.token,
+            owned: server.owned,
             platform: server.platform,
             capabilities: server.capabilities,
             libraries: updatedLibraries
@@ -509,6 +513,24 @@ public final class AccountManager: ObservableObject {
         for account in plexAccounts {
             for server in account.servers {
                 for library in server.libraries where library.isEnabled {
+                    sources.append(MusicSourceIdentifier(
+                        type: .plex,
+                        accountId: account.id,
+                        serverId: server.id,
+                        libraryId: library.key
+                    ))
+                }
+            }
+        }
+        return sources
+    }
+
+    /// Returns all disabled MusicSourceIdentifiers across all accounts.
+    public func disabledSources() -> [MusicSourceIdentifier] {
+        var sources: [MusicSourceIdentifier] = []
+        for account in plexAccounts {
+            for server in account.servers {
+                for library in server.libraries where !library.isEnabled {
                     sources.append(MusicSourceIdentifier(
                         type: .plex,
                         accountId: account.id,

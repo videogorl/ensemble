@@ -1684,6 +1684,25 @@ public final class SyncCoordinator: ObservableObject {
         }
     }
 
+    /// Best-effort cleanup for removed/disabled sources that are still cached locally.
+    /// Used by iCloud library-flag reconciliation to evict stale library data even when
+    /// the remote flags match current account state (no transition event).
+    public func cleanupRemovedSourcesIfPresent(_ sources: [MusicSourceIdentifier]) async {
+        let uniqueSources = Array(Set(sources))
+        guard !uniqueSources.isEmpty else { return }
+
+        do {
+            let cachedSources = try await libraryRepository.fetchMusicSources()
+            let cachedCompositeKeys = Set(cachedSources.compactMap(\.compositeKey))
+
+            for source in uniqueSources where cachedCompositeKeys.contains(source.compositeKey) {
+                await cleanupRemovedSource(source)
+            }
+        } catch {
+            EnsembleLogger.debug("⚠️ Failed to reconcile cached disabled sources: \(error.localizedDescription)")
+        }
+    }
+
     /// Delete server-scoped playlists when no enabled libraries remain on that server.
     public func cleanupServerPlaylists(accountId: String, serverId: String) async {
         let serverSourceKey = "plex:\(accountId):\(serverId)"

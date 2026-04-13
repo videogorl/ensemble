@@ -525,6 +525,7 @@ public final class ServerHealthChecker: ObservableObject {
                 url: refreshedURL,
                 connections: refreshedConnections,
                 token: existingServer.token,
+                owned: existingServer.owned,
                 platform: existingServer.platform,
                 capabilities: existingServer.capabilities,
                 libraries: existingServer.libraries

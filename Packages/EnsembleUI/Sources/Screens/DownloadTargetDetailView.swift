@@ -93,13 +93,15 @@ public struct DownloadTargetDetailView: View {
     // MARK: - Header
 
     private var headerView: some View {
-        VStack(spacing: 16) {
+        let artworkCornerRadius = ArtworkCornerRadius.square(for: ArtworkSize.medium)
+
+        return VStack(spacing: 16) {
             ArtworkView(
                 path: viewModel.thumbPath,
                 sourceKey: viewModel.summary.sourceCompositeKey,
                 ratingKey: viewModel.summary.ratingKey,
                 size: .medium,
-                cornerRadius: 12
+                cornerRadius: artworkCornerRadius
             )
             .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
 

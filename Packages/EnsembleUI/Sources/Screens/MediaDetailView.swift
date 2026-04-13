@@ -706,18 +706,20 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// Header artwork — uses composite 2x2 grid for merged playlists, single artwork otherwise
     @ViewBuilder
     private var headerArtwork: some View {
+        let artworkCornerRadius = ArtworkCornerRadius.square(for: ArtworkSize.medium)
+
         if let playlists = headerData.artworkPlaylists, playlists.count > 1 {
-            CompositeArtworkView(playlists: playlists, size: .medium, cornerRadius: 12)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            CompositeArtworkView(playlists: playlists, size: .medium, cornerRadius: artworkCornerRadius)
+                .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
         } else {
             ArtworkView(
                 path: headerData.artworkPath,
                 sourceKey: headerData.sourceKey,
                 ratingKey: headerData.ratingKey,
                 size: .medium,
-                cornerRadius: 12
+                cornerRadius: artworkCornerRadius
             )
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
         }
     }
 

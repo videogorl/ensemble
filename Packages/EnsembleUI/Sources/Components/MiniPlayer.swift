@@ -166,7 +166,9 @@ private struct MiniPlayerTrackInfo: View {
     @State private var opacity: Double = 1.0
 
     private let artworkDimension: CGFloat = 32
-    private let artworkCornerRadius: CGFloat = 8
+    private var artworkCornerRadius: CGFloat {
+        ArtworkCornerRadius.square(for: artworkDimension)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -212,6 +214,8 @@ private struct MiniPlayerTrackInfo: View {
                             isResponsive: true
                         )
                         .frame(width: artworkDimension, height: artworkDimension)
+                        .aspectRatio(1, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
                         .ifLet(namespace, animationID) { view, ns, id in
                             view.matchedGeometryEffect(id: id, in: ns, isSource: true)
                         }

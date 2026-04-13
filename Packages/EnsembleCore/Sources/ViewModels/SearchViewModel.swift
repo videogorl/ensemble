@@ -146,6 +146,8 @@ public final class SearchViewModel: ObservableObject {
                 self?.applyVisibilityToExploreContent()
             }
             .store(in: &cancellables)
+
+        observeMetadataChanges()
     }
 
     // MARK: - Search
@@ -203,6 +205,23 @@ public final class SearchViewModel: ObservableObject {
 
     public func commitCurrentSearch() {
         commitSearchToHistory(query: searchQuery)
+    }
+
+    private func observeMetadataChanges() {
+        NotificationCenter.default.publisher(for: MetadataMutationService.metadataDidChange)
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let trimmedQuery = self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmedQuery.isEmpty {
+                        await self.search(query: trimmedQuery)
+                    } else if self.hasLoadedExploreContent {
+                        await self.loadExploreContent()
+                    }
+                }
+            }
+            .store(in: &cancellables)
     }
 
     private func commitSearchToHistory(query: String) {

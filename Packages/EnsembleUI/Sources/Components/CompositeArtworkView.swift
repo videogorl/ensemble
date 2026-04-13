@@ -13,11 +13,18 @@ struct CompositeArtworkView: View {
     let playlists: [Playlist]
     let size: ArtworkSize
     let cornerRadius: CGFloat
+    let isResponsive: Bool
 
-    init(playlists: [Playlist], size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
+    init(
+        playlists: [Playlist],
+        size: ArtworkSize = .medium,
+        cornerRadius: CGFloat? = nil,
+        isResponsive: Bool = false
+    ) {
         self.playlists = playlists
         self.size = size
-        self.cornerRadius = cornerRadius
+        self.cornerRadius = cornerRadius ?? ArtworkCornerRadius.square(for: size)
+        self.isResponsive = isResponsive
     }
 
     var body: some View {
@@ -26,7 +33,8 @@ struct CompositeArtworkView: View {
             ArtworkView(
                 playlist: playlists.first ?? Playlist.placeholder,
                 size: size,
-                cornerRadius: cornerRadius
+                cornerRadius: cornerRadius,
+                isResponsive: isResponsive
             )
         } else {
             compositeGrid
@@ -63,7 +71,8 @@ struct CompositeArtworkView: View {
             }
         }
         .aspectRatio(1, contentMode: .fill)
-        .frame(maxWidth: maxFrameSize.width, maxHeight: maxFrameSize.height)
+        .frame(maxWidth: isResponsive ? .infinity : maxFrameSize.width)
+        .frame(maxHeight: isResponsive ? .infinity : maxFrameSize.height)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
     }
 
@@ -77,7 +86,8 @@ struct CompositeArtworkView: View {
             sourceKey: playlist.sourceCompositeKey,
             ratingKey: playlist.id,
             size: subArtworkSize,
-            cornerRadius: 0
+            cornerRadius: 0,
+            isResponsive: isResponsive
         )
     }
 
@@ -103,11 +113,18 @@ struct PlaylistArtwork: View {
     let displayPlaylist: DisplayPlaylist
     let size: ArtworkSize
     let cornerRadius: CGFloat
+    let isResponsive: Bool
 
-    init(displayPlaylist: DisplayPlaylist, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
+    init(
+        displayPlaylist: DisplayPlaylist,
+        size: ArtworkSize = .medium,
+        cornerRadius: CGFloat? = nil,
+        isResponsive: Bool = false
+    ) {
         self.displayPlaylist = displayPlaylist
         self.size = size
-        self.cornerRadius = cornerRadius
+        self.cornerRadius = cornerRadius ?? ArtworkCornerRadius.square(for: size)
+        self.isResponsive = isResponsive
     }
 
     var body: some View {
@@ -115,13 +132,15 @@ struct PlaylistArtwork: View {
             CompositeArtworkView(
                 playlists: displayPlaylist.playlists,
                 size: size,
-                cornerRadius: cornerRadius
+                cornerRadius: cornerRadius,
+                isResponsive: isResponsive
             )
         } else {
             ArtworkView(
                 playlist: displayPlaylist.primaryPlaylist,
                 size: size,
-                cornerRadius: cornerRadius
+                cornerRadius: cornerRadius,
+                isResponsive: isResponsive
             )
         }
     }
@@ -140,7 +159,7 @@ public struct DisplayPlaylistCard: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            PlaylistArtwork(displayPlaylist: displayPlaylist, size: .thumbnail, cornerRadius: 8)
+            PlaylistArtwork(displayPlaylist: displayPlaylist, size: .thumbnail)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(displayPlaylist.title)

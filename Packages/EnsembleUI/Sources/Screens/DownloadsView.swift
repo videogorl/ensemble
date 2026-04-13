@@ -414,7 +414,10 @@ private struct DownloadedItemRow: View {
                     sourceKey: item.sourceCompositeKey,
                     ratingKey: item.ratingKey,
                     size: .thumbnail,
-                    cornerRadius: item.kind == .artist ? 24 : 6
+                    cornerRadius: item.kind == .artist
+                        ? ArtworkCornerRadius.circle(for: 48)
+                        : ArtworkCornerRadius.square(for: 48),
+                    isResponsive: true
                 )
                 .frame(width: 48, height: 48)
 

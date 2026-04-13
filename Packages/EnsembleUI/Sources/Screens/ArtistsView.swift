@@ -9,6 +9,8 @@ public struct ArtistsView: View {
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedArtistSections: [ArtistSection] = []
+    // Monotonic token to drop stale async section computations.
+    @State private var artistSectionComputationToken: Int = 0
 
     public init(
         libraryVM: LibraryViewModel,
@@ -29,6 +31,9 @@ public struct ArtistsView: View {
             }
         }
         .navigationTitle("Artists")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .searchable(text: $libraryVM.artistsFilterOptions.searchText, prompt: "Filter artists")
         .refreshable {
             await libraryVM.refreshFromServer()
@@ -131,10 +136,13 @@ public struct ArtistsView: View {
         .onReceive(libraryVM.$filteredArtists) { artists in
             // Compute sections off main thread to avoid blocking UI during search
             let oldSections = cachedArtistSections
+            artistSectionComputationToken += 1
+            let token = artistSectionComputationToken
             DispatchQueue.global(qos: .userInitiated).async {
                 let newSections = Self.computeArtistSections(artists: artists)
                 guard !Self.sectionsEqual(oldSections, newSections) else { return }
                 DispatchQueue.main.async {
+                    guard token == artistSectionComputationToken else { return }
                     cachedArtistSections = newSections
                 }
             }
@@ -282,10 +290,10 @@ public struct ArtistsView: View {
                             proxy.scrollTo(letter, anchor: .top)
                         }
                     )
-                    .frame(maxHeight: .infinity)
-                    .ignoresSafeArea(.container, edges: .top)
+                    .libraryScrollIndexPositioning()
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

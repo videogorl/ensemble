@@ -92,11 +92,13 @@ public struct ControlsCard: View {
             let maxWidth = geometry.size.width - 48
             let maxHeight = geometry.size.height * 0.4
             let artworkSize = min(maxWidth, maxHeight, 400)
-            let artworkCornerRadius = min(20, max(12, artworkSize * 0.08))
+            let artworkCornerRadius = ArtworkCornerRadius.square(for: artworkSize)
 
             // Artwork
             ArtworkView(track: track, size: .medium, cornerRadius: artworkCornerRadius, isResponsive: true)
                 .frame(width: artworkSize, height: artworkSize)
+                .aspectRatio(1, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
                 .contrast(1.1)
                 .shadow(color: .black.opacity(0.3), radius: 15, x: 0, y: 8)
                 .ifLet(namespace, animationID) { view, ns, id in
@@ -134,7 +136,7 @@ public struct ControlsCard: View {
             let maxWidth = geometry.size.width - 48
             let maxHeight = geometry.size.height * 0.4
             let artworkSize = min(maxWidth, maxHeight, 400)
-            let artworkCornerRadius = min(20, max(12, artworkSize * 0.08))
+            let artworkCornerRadius = ArtworkCornerRadius.square(for: artworkSize)
             
             RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous)
                 .fill(Color.primary.opacity(0.05))

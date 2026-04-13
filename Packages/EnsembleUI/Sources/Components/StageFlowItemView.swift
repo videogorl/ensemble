@@ -17,11 +17,13 @@ struct StageFlowItemView: View {
     }
 
     var body: some View {
+        let artworkCornerRadius = ArtworkCornerRadius.square(for: ArtworkSize.large)
+
         artworkContent
             .aspectRatio(1, contentMode: .fill)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.42), radius: 18, x: 0, y: 12)
@@ -30,13 +32,15 @@ struct StageFlowItemView: View {
     @ViewBuilder
     private var artworkContent: some View {
         if let dp = displayPlaylist, dp.isMerged {
-            PlaylistArtwork(displayPlaylist: dp, size: .large, cornerRadius: 0)
+            PlaylistArtwork(displayPlaylist: dp, size: .large, cornerRadius: 0, isResponsive: true)
         } else {
             ArtworkView(
                 path: artworkPath,
                 sourceKey: sourceCompositeKey,
                 ratingKey: ratingKey,
-                size: .large
+                size: .large,
+                cornerRadius: 0,
+                isResponsive: true
             )
         }
     }

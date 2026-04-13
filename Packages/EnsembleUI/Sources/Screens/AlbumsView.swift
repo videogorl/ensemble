@@ -10,8 +10,11 @@ public struct AlbumsView: View {
     @State private var selectedAlbum: Album?
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedAlbumSections: [AlbumSection] = []
+    // Monotonic token to drop stale async section computations.
+    @State private var albumSectionComputationToken: Int = 0
     // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
     @State private var isStageFlowActive = false
+    @State private var latestContainerSize: CGSize = .zero
     public init(
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel
@@ -60,10 +63,12 @@ public struct AlbumsView: View {
             GeometryReader { geometry in
                 Color.clear
                     .onAppear {
+                        latestContainerSize = geometry.size
                         let active = supportsStageFlow && geometry.size.width > geometry.size.height
                         if active != isStageFlowActive { isStageFlowActive = active }
                     }
                     .onChange(of: geometry.size) { newSize in
+                        latestContainerSize = newSize
                         let shouldBeActive = supportsStageFlow && newSize.width > newSize.height
                         if shouldBeActive && !isStageFlowActive {
                             isStageFlowActive = true
@@ -76,8 +81,7 @@ public struct AlbumsView: View {
                                 // before switching the view tree, preventing NavigationView
                                 // layout hangs from simultaneous nav bar + content changes.
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    let screen = UIScreen.main.bounds
-                                    if screen.width < screen.height {
+                                    if latestContainerSize.width < latestContainerSize.height {
                                         isStageFlowActive = false
                                     }
                                 }
@@ -89,11 +93,11 @@ public struct AlbumsView: View {
                     }
             }
         )
-            .hideTabBarIfAvailable(isHidden: isStageFlowActive)
+            .hideTabBarIfAvailable(isHidden: isPresenterChromeHidden)
             .stageFlowRotationSupport(isEnabled: supportsStageFlow)
-            .stageFlowImmersiveMode(isActive: isStageFlowActive)
+            .stageFlowImmersiveMode(isActive: isPresenterChromeHidden)
             #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isPresenterChromeHidden)
             .navigationBarHidden(isPresenterChromeHidden)
             .if(isPresenterChromeHidden) { view in
                 if #available(iOS 16.0, *) {
@@ -105,6 +109,9 @@ public struct AlbumsView: View {
             .statusBar(hidden: isStageFlowActive)
             #endif
             .navigationTitle(isPresenterChromeHidden ? "" : "Albums")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
             .if(!isPresenterChromeHidden) { view in
                 view.searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
             }
@@ -210,10 +217,13 @@ public struct AlbumsView: View {
                 // Compute sections off main thread to avoid blocking UI during search
                 let sortOption = libraryVM.albumSortOption
                 let oldSections = cachedAlbumSections
+                albumSectionComputationToken += 1
+                let token = albumSectionComputationToken
                 DispatchQueue.global(qos: .userInitiated).async {
                     let newSections = Self.computeAlbumSections(albums: albums, sortOption: sortOption)
                     guard !Self.sectionsEqual(oldSections, newSections) else { return }
                     DispatchQueue.main.async {
+                        guard token == albumSectionComputationToken else { return }
                         cachedAlbumSections = newSections
                     }
                 }
@@ -221,10 +231,13 @@ public struct AlbumsView: View {
             .onReceive(libraryVM.$albumSortOption) { sortOption in
                 let albums = libraryVM.filteredAlbums
                 let oldSections = cachedAlbumSections
+                albumSectionComputationToken += 1
+                let token = albumSectionComputationToken
                 DispatchQueue.global(qos: .userInitiated).async {
                     let newSections = Self.computeAlbumSections(albums: albums, sortOption: sortOption)
                     guard !Self.sectionsEqual(oldSections, newSections) else { return }
                     DispatchQueue.main.async {
+                        guard token == albumSectionComputationToken else { return }
                         cachedAlbumSections = newSections
                     }
                 }
@@ -397,10 +410,10 @@ public struct AlbumsView: View {
                             proxy.scrollTo(letter, anchor: .top)
                         }
                     )
-                    .frame(maxHeight: .infinity)
-                    .ignoresSafeArea(.container, edges: .top)
+                    .libraryScrollIndexPositioning()
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
