@@ -314,10 +314,59 @@ public final class AccountManager: ObservableObject {
         )
     }
 
+    /// Apply library enabled flags carried inside a sync credential payload.
+    /// This is the primary source of truth for companion/iCloud auth handoff.
+    /// KVS flags may still override this later for cross-device state repair.
+    public func applyingCredentialLibraryFlags(
+        to account: PlexAccountConfig,
+        credential: SyncableAccountCredential
+    ) -> PlexAccountConfig {
+        let remoteServersByID = Dictionary(uniqueKeysWithValues: credential.servers.map { ($0.serverId, $0) })
+
+        let updatedServers = account.servers.map { server in
+            guard let remoteServer = remoteServersByID[server.id] else { return server }
+            let remoteLibrariesByKey = Dictionary(uniqueKeysWithValues: remoteServer.libraries.map { ($0.key, $0) })
+
+            let updatedLibraries = server.libraries.map { library in
+                guard let remoteLibrary = remoteLibrariesByKey[library.key] else { return library }
+                guard library.isEnabled != remoteLibrary.isEnabled else { return library }
+                return PlexLibraryConfig(
+                    id: library.id,
+                    key: library.key,
+                    title: library.title,
+                    isEnabled: remoteLibrary.isEnabled,
+                    allowSync: library.allowSync
+                )
+            }
+
+            return PlexServerConfig(
+                id: server.id,
+                name: server.name,
+                url: server.url,
+                connections: server.connections,
+                token: server.token,
+                platform: server.platform,
+                capabilities: server.capabilities,
+                libraries: updatedLibraries
+            )
+        }
+
+        return PlexAccountConfig(
+            id: account.id,
+            email: account.email,
+            plexUsername: account.plexUsername,
+            displayTitle: account.displayTitle,
+            authToken: account.authToken,
+            authTokenMetadata: account.authTokenMetadata,
+            subscription: account.subscription,
+            servers: updatedServers
+        )
+    }
+
     // MARK: - Account Management
 
-    public func addPlexAccount(_ account: PlexAccountConfig) {
-        let resolvedAccount = applyingSyncedLibraryFlags(to: account)
+    public func addPlexAccount(_ account: PlexAccountConfig, applySyncedLibraryFlags: Bool = true) {
+        let resolvedAccount = applySyncedLibraryFlags ? applyingSyncedLibraryFlags(to: account) : account
         // Replace if same account ID already exists
         plexAccounts.removeAll { $0.id == resolvedAccount.id }
         plexAccounts.append(resolvedAccount)
@@ -333,8 +382,8 @@ public final class AccountManager: ObservableObject {
         saveAccounts()
     }
 
-    public func updatePlexAccount(_ account: PlexAccountConfig) {
-        let resolvedAccount = applyingSyncedLibraryFlags(to: account)
+    public func updatePlexAccount(_ account: PlexAccountConfig, applySyncedLibraryFlags: Bool = true) {
+        let resolvedAccount = applySyncedLibraryFlags ? applyingSyncedLibraryFlags(to: account) : account
         if let index = plexAccounts.firstIndex(where: { $0.id == resolvedAccount.id }) {
             // NOTE: We intentionally do NOT clear the API client cache here.
             // Clearing the cache invalidates existing references held by providers,
@@ -516,6 +565,17 @@ public final class AccountManager: ObservableObject {
         !plexAccounts.isEmpty
     }
 
+    /// Whether any discovered library is still enabled for browsing/sync.
+    /// watchOS bootstrap should use this instead of raw account count so a stale
+    /// saved account with every library disabled does not block companion rehydration.
+    public var hasAnyEnabledSources: Bool {
+        plexAccounts.contains { account in
+            account.servers.contains { server in
+                server.libraries.contains(where: \.isEnabled)
+            }
+        }
+    }
+
     /// Create or retrieve cached PlexAPIClient for a specific server
     public func makeAPIClient(accountId: String, serverId: String) -> PlexAPIClient? {
         let cacheKey = "\(accountId):\(serverId)"
@@ -691,7 +751,9 @@ public final class AccountManager: ObservableObject {
                 guard let localLibrary = localLibrariesByKey[remoteLibrary.key] else {
                     return true
                 }
-                if localLibrary.id != remoteLibrary.id || localLibrary.title != remoteLibrary.title {
+                if localLibrary.id != remoteLibrary.id
+                    || localLibrary.title != remoteLibrary.title
+                    || localLibrary.isEnabled != remoteLibrary.isEnabled {
                     return true
                 }
             }

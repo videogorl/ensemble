@@ -34,6 +34,7 @@ public final class WatchBootstrapCoordinator: ObservableObject {
     private let performStartupSync: AsyncVoidAction
     private let activateConnectivity: VoidAction
     private var bootstrapTask: Task<Void, Never>?
+    private var lateSourceRecoveryTask: Task<Void, Never>?
 
     public init(
         accountLoader: @escaping VoidAction,
@@ -71,12 +72,14 @@ public final class WatchBootstrapCoordinator: ObservableObject {
 
     public func bootstrapIfNeeded() {
         guard bootstrapTask == nil else { return }
+        lateSourceRecoveryTask?.cancel()
         bootstrapTask = Task { @MainActor [weak self] in
             await self?.bootstrap(forceRefresh: false)
         }
     }
 
     public func refreshAfterAuthentication() {
+        lateSourceRecoveryTask?.cancel()
         bootstrapTask?.cancel()
         bootstrapTask = Task { @MainActor [weak self] in
             await self?.bootstrap(forceRefresh: true)
@@ -113,6 +116,7 @@ public final class WatchBootstrapCoordinator: ObservableObject {
             hasCompletedInitialBootstrap = false
             phase = .awaitingAuthentication
             bootstrapTask = nil
+            scheduleLateSourceRecovery()
             return
         }
 
@@ -132,5 +136,33 @@ public final class WatchBootstrapCoordinator: ObservableObject {
         hasCompletedInitialBootstrap = true
         phase = .ready
         bootstrapTask = nil
+        lateSourceRecoveryTask?.cancel()
+        lateSourceRecoveryTask = nil
+    }
+
+    private func scheduleLateSourceRecovery() {
+        guard lateSourceRecoveryTask == nil else { return }
+
+        lateSourceRecoveryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            for _ in 0..<120 {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+
+                guard self.phase == .awaitingAuthentication else {
+                    self.lateSourceRecoveryTask = nil
+                    return
+                }
+
+                if self.hasAnySources() {
+                    EnsembleLogger.debug("WatchBootstrapCoordinator: sources became available after auth gate; retrying bootstrap")
+                    self.lateSourceRecoveryTask = nil
+                    self.refreshAfterAuthentication()
+                    return
+                }
+            }
+
+            self.lateSourceRecoveryTask = nil
+        }
     }
 }

@@ -110,13 +110,14 @@ public final class WatchConnectivityCoordinator: NSObject, ObservableObject {
 
     public func refreshReachability() {
         isPhoneReachable = reachabilityProvider()
-        if !isPhoneReachable, selectedPlaybackTarget == .iPhoneRemote {
-            selectedPlaybackTarget = .watchLocal
-        }
+    }
+
+    public var hasRemoteTargetAvailable: Bool {
+        isPhoneReachable || remoteSnapshot != nil || !companionCredentials.isEmpty
     }
 
     public func setSelectedPlaybackTarget(_ target: WatchPlaybackTarget) {
-        guard target != .iPhoneRemote || isPhoneReachable else {
+        guard target != .iPhoneRemote || hasRemoteTargetAvailable else {
             selectedPlaybackTarget = .watchLocal
             publishLatestContext()
             return
@@ -206,6 +207,9 @@ public final class WatchConnectivityCoordinator: NSObject, ObservableObject {
         if let snapshotData = context[PayloadKey.snapshot] as? Data,
            let snapshot = try? decoder.decode(WatchRemoteSessionSnapshot.self, from: snapshotData) {
             remoteSnapshot = snapshot
+            EnsembleLogger.debug(
+                "WatchConnectivityCoordinator: received application context snapshot track=\(snapshot.currentTrack?.title ?? "nil") state=\(snapshot.playbackState.rawValue)"
+            )
         }
 
         if let credentialData = context[PayloadKey.syncCredentials] as? Data,
@@ -343,6 +347,13 @@ extension WatchConnectivityCoordinator: WCSessionDelegate {
     #endif
 
     #if os(iOS)
+    nonisolated public func sessionWatchStateDidChange(_ session: WCSession) {
+        Task { @MainActor [weak self] in
+            self?.refreshReachability()
+            self?.publishLatestContext()
+        }
+    }
+
     nonisolated public func sessionDidBecomeInactive(_ session: WCSession) {}
 
     nonisolated public func sessionDidDeactivate(_ session: WCSession) {
@@ -359,6 +370,7 @@ extension WatchConnectivityCoordinator: WCSessionDelegate {
                 EnsembleLogger.debug("WatchConnectivityCoordinator: activation failed on iOS: \(error.localizedDescription)")
             }
             self?.refreshReachability()
+            self?.publishLatestContext()
         }
     }
     #endif

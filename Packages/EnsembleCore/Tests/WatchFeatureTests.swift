@@ -114,8 +114,36 @@ final class WatchConnectivityCoordinatorTests: XCTestCase {
         coordinator.setSelectedPlaybackTarget(.iPhoneRemote)
         coordinator.handleIncomingApplicationContext([:])
 
-        XCTAssertEqual(coordinator.selectedPlaybackTarget, .watchLocal)
+        XCTAssertEqual(coordinator.selectedPlaybackTarget, .iPhoneRemote)
         XCTAssertFalse(coordinator.isPhoneReachable)
+    }
+
+    func testRemoteTargetRemainsAvailableWithCachedCompanionState() throws {
+        let credentials = [
+            SyncableAccountCredential(
+                accountId: "account-1",
+                email: "user@example.com",
+                plexUsername: "user",
+                displayTitle: "User",
+                authToken: "token-1",
+                servers: []
+            )
+        ]
+        let coordinator = WatchConnectivityCoordinator(
+            isSupported: true,
+            messageSender: nil,
+            contextUpdater: nil,
+            activateHandler: nil,
+            reachabilityProvider: { false }
+        )
+
+        coordinator.handleIncomingApplicationContext([
+            "syncCredentials": try JSONEncoder().encode(credentials)
+        ])
+        coordinator.setSelectedPlaybackTarget(.iPhoneRemote)
+
+        XCTAssertTrue(coordinator.hasRemoteTargetAvailable)
+        XCTAssertEqual(coordinator.selectedPlaybackTarget, .iPhoneRemote)
     }
 
     func testIncomingApplicationContextUpdatesCompanionCredentials() throws {
@@ -397,6 +425,39 @@ final class WatchBootstrapCoordinatorTests: XCTestCase {
         XCTAssertEqual(loadCompanionSourcesCalls, 1)
         XCTAssertEqual(loadSyncedSourcesCalls, 0)
     }
+
+    func testBootstrapRecoversWhenSourcesArriveAfterAuthenticationGate() async {
+        var hasSources = false
+        var healthCheckCalls = 0
+        var startupSyncCalls = 0
+
+        let coordinator = WatchBootstrapCoordinator(
+            accountLoader: {},
+            hasAnySources: { hasSources },
+            loadCompanionSources: { false },
+            hasSyncedCredentials: { false },
+            loadSyncedSources: { false },
+            synchronizeKVS: {},
+            waitForInitialKVS: { true },
+            pullAllKVS: {},
+            refreshProviders: {},
+            startNetworkMonitor: {},
+            performHealthChecks: { healthCheckCalls += 1 },
+            performStartupSync: { startupSyncCalls += 1 },
+            activateConnectivity: {}
+        )
+
+        coordinator.bootstrapIfNeeded()
+        let reachedAwaitingAuthentication = await eventually { coordinator.phase == .awaitingAuthentication }
+        XCTAssertTrue(reachedAwaitingAuthentication)
+
+        hasSources = true
+
+        let recovered = await eventually(attempts: 150, sleepNanoseconds: 50_000_000) {
+            coordinator.phase == .ready && healthCheckCalls == 1 && startupSyncCalls == 1
+        }
+        XCTAssertTrue(recovered)
+    }
 }
 
 @MainActor
@@ -456,6 +517,43 @@ final class WatchPlaybackHubTests: XCTestCase {
 
         XCTAssertEqual(hub.selectedTarget, .watchLocal)
         XCTAssertEqual(hub.availableTargets, [.watchLocal])
+    }
+
+    func testRemoteSnapshotAutoSelectsPhoneTargetWhenLocalPlaybackIsIdle() async throws {
+        let playbackService = PlaybackServiceSpy()
+        let coordinator = WatchConnectivityCoordinator(
+            isSupported: true,
+            messageSender: nil,
+            contextUpdater: nil,
+            activateHandler: nil,
+            reachabilityProvider: { false }
+        )
+        let hub = WatchPlaybackHub(
+            localPlaybackService: playbackService,
+            connectivityCoordinator: coordinator
+        )
+        let snapshot = WatchRemoteSessionSnapshot(
+            currentTrack: makeWatchTestTrack(id: "remote-track"),
+            playbackState: .playing,
+            currentTime: 15,
+            duration: 240,
+            currentQueueIndex: 0,
+            queueCount: 2,
+            isShuffleEnabled: false,
+            repeatModeRawValue: RepeatMode.off.rawValue,
+            sourceName: "iPhone",
+            updatedAt: Date(timeIntervalSince1970: 9_999)
+        )
+
+        coordinator.handleIncomingApplicationContext([
+            "snapshot": try JSONEncoder().encode(snapshot)
+        ])
+
+        let autoSelectedRemote = await eventually {
+            hub.selectedTarget == .iPhoneRemote && hub.currentTrack?.id == "remote-track"
+        }
+        XCTAssertTrue(autoSelectedRemote)
+        XCTAssertTrue(hub.hasRemoteTargetAvailable)
     }
 
     func testLocalTogglePlayPauseUsesPlaybackService() async {

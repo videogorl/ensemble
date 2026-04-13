@@ -544,6 +544,10 @@ public final class DependencyContainer: @unchecked Sendable {
                 .throttle(for: .seconds(1), scheduler: RunLoop.main, latest: true)
                 .sink { _ in publishSnapshot() }
                 .store(in: &watchConnectivityCancellablesRef)
+
+            // Send the phone's current session immediately so a freshly launched watch
+            // can render companion now-playing state without waiting for a later change.
+            publishSnapshot()
         }
         #endif
 
@@ -1539,7 +1543,7 @@ public final class DependencyContainer: @unchecked Sendable {
                 accountManager?.loadAccounts()
             },
             hasAnySources: { [weak accountManager] in
-                accountManager?.hasAnySources ?? false
+                accountManager?.hasAnyEnabledSources ?? false
             },
             loadCompanionSources: { [weak self] in
                 guard let self else { return false }
@@ -1561,8 +1565,8 @@ public final class DependencyContainer: @unchecked Sendable {
                         subscription: result.subscription,
                         servers: result.servers
                     )
-                    config = self.accountManager.applyingSyncedLibraryFlags(to: config)
-                    self.accountManager.addPlexAccount(config)
+                    config = self.accountManager.applyingCredentialLibraryFlags(to: config, credential: credential)
+                    self.accountManager.addPlexAccount(config, applySyncedLibraryFlags: false)
                 }
 
                 self.syncCoordinator.refreshProviders()
@@ -1590,8 +1594,8 @@ public final class DependencyContainer: @unchecked Sendable {
                         subscription: result.subscription,
                         servers: result.servers
                     )
-                    config = self.accountManager.applyingSyncedLibraryFlags(to: config)
-                    self.accountManager.addPlexAccount(config)
+                    config = self.accountManager.applyingCredentialLibraryFlags(to: config, credential: credential)
+                    self.accountManager.addPlexAccount(config, applySyncedLibraryFlags: false)
                 }
 
                 self.syncCoordinator.refreshProviders()

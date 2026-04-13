@@ -14,6 +14,7 @@ public final class WatchPlaybackHub: ObservableObject {
     @Published public private(set) var localShuffleEnabled = false
     @Published public private(set) var localRepeatMode: RepeatMode = .off
     @Published public private(set) var isPhoneReachable = false
+    @Published public private(set) var hasRemoteTargetAvailable = false
 
     private let localPlaybackService: PlaybackServiceProtocol
     private let connectivityCoordinator: WatchConnectivityCoordinator
@@ -28,13 +29,14 @@ public final class WatchPlaybackHub: ObservableObject {
         self.selectedTarget = connectivityCoordinator.selectedPlaybackTarget
         self.remoteSnapshot = connectivityCoordinator.remoteSnapshot
         self.isPhoneReachable = connectivityCoordinator.isPhoneReachable
+        self.hasRemoteTargetAvailable = connectivityCoordinator.hasRemoteTargetAvailable
 
         bindLocalPlayback()
         bindConnectivity()
     }
 
     public var availableTargets: [WatchPlaybackTarget] {
-        isPhoneReachable ? [.watchLocal, .iPhoneRemote] : [.watchLocal]
+        hasRemoteTargetAvailable ? [.watchLocal, .iPhoneRemote] : [.watchLocal]
     }
 
     public var currentTrack: Track? {
@@ -112,7 +114,7 @@ public final class WatchPlaybackHub: ObservableObject {
     }
 
     public func selectTarget(_ target: WatchPlaybackTarget) {
-        guard target != .iPhoneRemote || isPhoneReachable else {
+        guard target != .iPhoneRemote || hasRemoteTargetAvailable else {
             selectedTarget = .watchLocal
             connectivityCoordinator.setSelectedPlaybackTarget(.watchLocal)
             return
@@ -304,7 +306,18 @@ public final class WatchPlaybackHub: ObservableObject {
 
         connectivityCoordinator.$remoteSnapshot
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.remoteSnapshot = $0 }
+            .sink { [weak self] snapshot in
+                guard let self else { return }
+                self.remoteSnapshot = snapshot
+                self.hasRemoteTargetAvailable = self.connectivityCoordinator.hasRemoteTargetAvailable
+
+                if self.selectedTarget == .watchLocal,
+                   self.localTrack == nil,
+                   snapshot?.currentTrack != nil,
+                   self.connectivityCoordinator.hasRemoteTargetAvailable {
+                    self.selectTarget(.iPhoneRemote)
+                }
+            }
             .store(in: &cancellables)
 
         connectivityCoordinator.$isPhoneReachable
@@ -312,9 +325,15 @@ public final class WatchPlaybackHub: ObservableObject {
             .sink { [weak self] reachable in
                 guard let self else { return }
                 self.isPhoneReachable = reachable
-                if !reachable, self.selectedTarget == .iPhoneRemote {
-                    self.selectTarget(.watchLocal)
-                }
+                self.hasRemoteTargetAvailable = self.connectivityCoordinator.hasRemoteTargetAvailable
+            }
+            .store(in: &cancellables)
+
+        connectivityCoordinator.$companionCredentials
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.hasRemoteTargetAvailable = self.connectivityCoordinator.hasRemoteTargetAvailable
             }
             .store(in: &cancellables)
     }

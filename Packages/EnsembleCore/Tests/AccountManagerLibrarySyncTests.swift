@@ -147,6 +147,79 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         XCTAssertFalse(libraries[1].isEnabled)
     }
 
+    func testApplyingCredentialLibraryFlagsPreservesRemoteSelectionDuringDiscovery() throws {
+        let manager = AccountManager(keychain: TestKeychain())
+        let discovered = makeAccount(
+            libraries: [
+                PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: false),
+                PlexLibraryConfig(id: "lib-2", key: "2", title: "Alt", isEnabled: false)
+            ]
+        )
+        let credential = SyncableAccountCredential(
+            accountId: "account-1",
+            email: nil,
+            plexUsername: nil,
+            displayTitle: "tester",
+            authToken: "token",
+            servers: [
+                SyncableServerCredential(
+                    serverId: "server-1",
+                    serverName: "Server",
+                    serverToken: "server-token",
+                    libraries: [
+                        SyncableLibraryRef(id: "lib-1", key: "1", title: "Main", isEnabled: true),
+                        SyncableLibraryRef(id: "lib-2", key: "2", title: "Alt", isEnabled: false)
+                    ]
+                )
+            ]
+        )
+
+        let resolved = manager.applyingCredentialLibraryFlags(to: discovered, credential: credential)
+        let libraries = try XCTUnwrap(resolved.servers.first?.libraries)
+
+        XCTAssertTrue(libraries[0].isEnabled)
+        XCTAssertFalse(libraries[1].isEnabled)
+    }
+
+    func testAddPlexAccountCanSkipKVSOverrideForCredentialImports() throws {
+        let manager = AccountManager(keychain: TestKeychain())
+        _ = manager.applyLibraryFlags(
+            try makeFlagsData([
+                "account-1:server-1:1": false,
+                "account-1:server-1:2": false
+            ])
+        )
+
+        let imported = makeAccount(
+            libraries: [
+                PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: true),
+                PlexLibraryConfig(id: "lib-2", key: "2", title: "Alt", isEnabled: false)
+            ]
+        )
+
+        manager.addPlexAccount(imported, applySyncedLibraryFlags: false)
+
+        let libraries = try XCTUnwrap(manager.plexAccounts.first?.servers.first?.libraries)
+        XCTAssertTrue(libraries[0].isEnabled)
+        XCTAssertFalse(libraries[1].isEnabled)
+    }
+
+    func testHasAnyEnabledSourcesIgnoresStaleAccountsWithoutEnabledLibraries() {
+        let manager = AccountManager(keychain: TestKeychain())
+
+        manager.addPlexAccount(
+            makeAccount(
+                libraries: [
+                    PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: false),
+                    PlexLibraryConfig(id: "lib-2", key: "2", title: "Alt", isEnabled: false)
+                ]
+            )
+        )
+
+        XCTAssertTrue(manager.hasAnySources)
+        XCTAssertFalse(manager.hasAnyEnabledSources)
+    }
+
     func testExportLibraryFlagsIsDeterministicAcrossAccountMetadataChanges() throws {
         let keychain = TestKeychain()
         let manager = AccountManager(keychain: keychain)
@@ -226,7 +299,7 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         XCTAssertEqual(credentials.map(\.accountId), ["account-1"])
     }
 
-    func testPullSyncCredentialsIgnoresLibraryEnabledDifferences() throws {
+    func testPullSyncCredentialsDetectsLibraryEnabledDifferences() throws {
         let keychain = TestKeychain()
         let manager = AccountManager(keychain: keychain)
         manager.addPlexAccount(
@@ -259,7 +332,7 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
             forKey: KeychainKey.plexAccountsSync
         )
 
-        XCTAssertTrue(manager.pullSyncCredentials().isEmpty)
+        XCTAssertEqual(manager.pullSyncCredentials().map(\.accountId), ["account-1"])
     }
 
     func testHasSyncedCloudCredentialsReflectsStoredRemotePayload() throws {

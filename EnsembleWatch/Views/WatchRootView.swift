@@ -60,7 +60,7 @@ struct WatchRootView: View {
             guard state == .complete else { return }
             bootstrap.refreshAfterAuthentication()
         }
-        .onChange(of: watchConnectivityCoordinator.companionCredentials) { credentials in
+        .onReceive(watchConnectivityCoordinator.$companionCredentials) { credentials in
             guard bootstrap.phase == .awaitingAuthentication, !credentials.isEmpty else { return }
             EnsembleLogger.debug("WatchRootView: companion credentials arrived after auth gate; retrying bootstrap")
             bootstrap.refreshAfterAuthentication()
@@ -296,7 +296,7 @@ private struct WatchMainMenuView: View {
 
     var body: some View {
         List {
-            if playbackHub.currentTrack != nil || playbackHub.isPhoneReachable {
+            if playbackHub.currentTrack != nil || playbackHub.hasRemoteTargetAvailable {
                 NavigationLink {
                     WatchNowPlayingView(playbackHub: playbackHub)
                 } label: {
