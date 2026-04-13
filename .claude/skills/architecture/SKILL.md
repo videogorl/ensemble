@@ -187,6 +187,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - Provider pattern allows pluggable sync implementations
 - **Independent-watch-first architecture** -- The watch app uses the shared `DependencyContainer` and local Core Data/network stack, with Watch Connectivity reserved for optional iPhone remote control and latest-state mirroring rather than primary data transport
   - `WatchBootstrapCoordinator` stages auth/sync/bootstrap order for watch launch
+  - Watch bootstrap should only block on startup sync when the watch has no usable local catalog yet; once any source has already been synced locally, the watch should enter `ready` from cache and refresh in the background
   - `WatchPlaybackHub` presents a single now-playing surface while switching between `.watchLocal` and `.iPhoneRemote`
   - `WatchConnectivityCoordinator` keeps remote commands/state isolated from browse/download/data ownership
 

@@ -1135,6 +1135,23 @@ public final class SyncCoordinator: ObservableObject {
         }
     }
 
+    /// Whether the watch must block launch on a startup sync to produce usable local browse data.
+    /// If every enabled source has been synced at least once already, the watch can show its cached
+    /// catalog immediately and refresh in the background.
+    public func requiresBlockingWatchStartupSync() async -> Bool {
+        guard !syncProviders.isEmpty else {
+            return false
+        }
+
+        for (_, provider) in syncProviders {
+            if await loadLastSyncDate(for: provider.sourceIdentifier) == nil {
+                return true
+            }
+        }
+
+        return false
+    }
+
     /// Ensure the server connection is ready for a given track
     /// This ensures we have a working connection URL before attempting playback
     public func ensureServerConnection(for track: Track) async throws {

@@ -295,6 +295,7 @@ final class WatchBootstrapCoordinatorTests: XCTestCase {
             pullAllKVS: XCTFailingVoidAction("KVS pull should not run without sources."),
             refreshProviders: XCTFailingVoidAction("Provider refresh should not run without sources."),
             startNetworkMonitor: XCTFailingVoidAction("Network monitor should not start without sources."),
+            shouldBlockForStartupSync: { false },
             performHealthChecks: XCTFailingAsyncVoidAction("Health checks should not run without sources."),
             performStartupSync: XCTFailingAsyncVoidAction("Startup sync should not run without sources."),
             activateConnectivity: {}
@@ -337,6 +338,7 @@ final class WatchBootstrapCoordinatorTests: XCTestCase {
             pullAllKVS: {},
             refreshProviders: { refreshProvidersCalls += 1 },
             startNetworkMonitor: { startNetworkMonitorCalls += 1 },
+            shouldBlockForStartupSync: { true },
             performHealthChecks: { healthCheckCalls += 1 },
             performStartupSync: { startupSyncCalls += 1 },
             activateConnectivity: {}
@@ -371,6 +373,7 @@ final class WatchBootstrapCoordinatorTests: XCTestCase {
             pullAllKVS: {},
             refreshProviders: {},
             startNetworkMonitor: {},
+            shouldBlockForStartupSync: { true },
             performHealthChecks: { healthCheckCalls += 1 },
             performStartupSync: { startupSyncCalls += 1 },
             activateConnectivity: {}
@@ -413,6 +416,7 @@ final class WatchBootstrapCoordinatorTests: XCTestCase {
             pullAllKVS: {},
             refreshProviders: {},
             startNetworkMonitor: {},
+            shouldBlockForStartupSync: { true },
             performHealthChecks: {},
             performStartupSync: {},
             activateConnectivity: {}
@@ -442,6 +446,7 @@ final class WatchBootstrapCoordinatorTests: XCTestCase {
             pullAllKVS: {},
             refreshProviders: {},
             startNetworkMonitor: {},
+            shouldBlockForStartupSync: { true },
             performHealthChecks: { healthCheckCalls += 1 },
             performStartupSync: { startupSyncCalls += 1 },
             activateConnectivity: {}
@@ -457,6 +462,39 @@ final class WatchBootstrapCoordinatorTests: XCTestCase {
             coordinator.phase == .ready && healthCheckCalls == 1 && startupSyncCalls == 1
         }
         XCTAssertTrue(recovered)
+    }
+
+    func testBootstrapDefersStartupSyncWhenLocalCatalogAlreadyExists() async {
+        var startupSyncCalls = 0
+        var healthCheckCalls = 0
+
+        let coordinator = WatchBootstrapCoordinator(
+            accountLoader: {},
+            hasAnySources: { true },
+            loadCompanionSources: { false },
+            hasSyncedCredentials: { false },
+            loadSyncedSources: { false },
+            synchronizeKVS: {},
+            waitForInitialKVS: { true },
+            pullAllKVS: {},
+            refreshProviders: {},
+            startNetworkMonitor: {},
+            shouldBlockForStartupSync: { false },
+            performHealthChecks: { healthCheckCalls += 1 },
+            performStartupSync: { startupSyncCalls += 1 },
+            activateConnectivity: {}
+        )
+
+        coordinator.bootstrapIfNeeded()
+
+        let reachedReady = await eventually { coordinator.phase == .ready }
+        XCTAssertTrue(reachedReady)
+        XCTAssertEqual(healthCheckCalls, 0)
+
+        let deferredSyncRan = await eventually {
+            startupSyncCalls == 1
+        }
+        XCTAssertTrue(deferredSyncRan)
     }
 }
 

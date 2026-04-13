@@ -30,11 +30,13 @@ public final class WatchBootstrapCoordinator: ObservableObject {
     private let pullAllKVS: VoidAction
     private let refreshProviders: VoidAction
     private let startNetworkMonitor: VoidAction
+    private let shouldBlockForStartupSync: AsyncBoolAction
     private let performHealthChecks: AsyncVoidAction
     private let performStartupSync: AsyncVoidAction
     private let activateConnectivity: VoidAction
     private var bootstrapTask: Task<Void, Never>?
     private var lateSourceRecoveryTask: Task<Void, Never>?
+    private var deferredStartupSyncTask: Task<Void, Never>?
 
     public init(
         accountLoader: @escaping VoidAction,
@@ -47,6 +49,7 @@ public final class WatchBootstrapCoordinator: ObservableObject {
         pullAllKVS: @escaping VoidAction,
         refreshProviders: @escaping VoidAction,
         startNetworkMonitor: @escaping VoidAction,
+        shouldBlockForStartupSync: @escaping AsyncBoolAction,
         performHealthChecks: @escaping AsyncVoidAction,
         performStartupSync: @escaping AsyncVoidAction,
         activateConnectivity: @escaping VoidAction
@@ -61,6 +64,7 @@ public final class WatchBootstrapCoordinator: ObservableObject {
         self.pullAllKVS = pullAllKVS
         self.refreshProviders = refreshProviders
         self.startNetworkMonitor = startNetworkMonitor
+        self.shouldBlockForStartupSync = shouldBlockForStartupSync
         self.performHealthChecks = performHealthChecks
         self.performStartupSync = performStartupSync
         self.activateConnectivity = activateConnectivity
@@ -73,6 +77,7 @@ public final class WatchBootstrapCoordinator: ObservableObject {
     public func bootstrapIfNeeded() {
         guard bootstrapTask == nil else { return }
         lateSourceRecoveryTask?.cancel()
+        deferredStartupSyncTask?.cancel()
         bootstrapTask = Task { @MainActor [weak self] in
             await self?.bootstrap(forceRefresh: false)
         }
@@ -80,6 +85,7 @@ public final class WatchBootstrapCoordinator: ObservableObject {
 
     public func refreshAfterAuthentication() {
         lateSourceRecoveryTask?.cancel()
+        deferredStartupSyncTask?.cancel()
         bootstrapTask?.cancel()
         bootstrapTask = Task { @MainActor [weak self] in
             await self?.bootstrap(forceRefresh: true)
@@ -128,9 +134,14 @@ public final class WatchBootstrapCoordinator: ObservableObject {
         startNetworkMonitor()
 
         if forceRefresh || !hasCompletedInitialBootstrap {
-            phase = .syncingLibrary
-            await performHealthChecks()
-            await performStartupSync()
+            let shouldBlockStartupSync = forceRefresh ? true : await shouldBlockForStartupSync()
+            if shouldBlockStartupSync {
+                phase = .syncingLibrary
+                await performHealthChecks()
+                await performStartupSync()
+            } else {
+                scheduleDeferredStartupSync()
+            }
         }
 
         hasCompletedInitialBootstrap = true
@@ -163,6 +174,20 @@ public final class WatchBootstrapCoordinator: ObservableObject {
             }
 
             self.lateSourceRecoveryTask = nil
+        }
+    }
+
+    private func scheduleDeferredStartupSync() {
+        guard deferredStartupSyncTask == nil else { return }
+
+        deferredStartupSyncTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.deferredStartupSyncTask = nil
+            }
+
+            EnsembleLogger.debug("WatchBootstrapCoordinator: deferring startup sync until after ready")
+            await performStartupSync()
         }
     }
 }

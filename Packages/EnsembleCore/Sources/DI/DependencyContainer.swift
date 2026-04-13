@@ -1616,6 +1616,9 @@ public final class DependencyContainer: @unchecked Sendable {
             startNetworkMonitor: { [weak networkMonitor] in
                 networkMonitor?.startMonitoring()
             },
+            shouldBlockForStartupSync: { [weak syncCoordinator] in
+                await syncCoordinator?.requiresBlockingWatchStartupSync() ?? true
+            },
             performHealthChecks: { [weak syncCoordinator] in
                 await syncCoordinator?.performStartupHealthChecks()
             },
