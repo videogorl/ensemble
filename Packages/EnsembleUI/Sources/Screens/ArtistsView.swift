@@ -31,6 +31,9 @@ public struct ArtistsView: View {
             }
         }
         .navigationTitle("Artists")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .searchable(text: $libraryVM.artistsFilterOptions.searchText, prompt: "Filter artists")
         .refreshable {
             await libraryVM.refreshFromServer()
@@ -287,9 +290,12 @@ public struct ArtistsView: View {
                             proxy.scrollTo(letter, anchor: .top)
                         }
                     )
+                    .frame(maxHeight: .infinity, alignment: .center)
+                    .ignoresSafeArea(.container, edges: .top)
                     .padding(.trailing, 4)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

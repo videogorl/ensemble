@@ -120,7 +120,7 @@ public struct SongsView: View {
         #endif
         .navigationTitle(isPresenterChromeHidden ? "" : "Songs")
         #if os(iOS)
-        .navigationBarTitleDisplayMode(isPresenterChromeHidden ? .inline : .large)
+        .navigationBarTitleDisplayMode(.inline)
         #endif
         .if(!isPresenterChromeHidden) { view in
             view.searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
@@ -388,9 +388,12 @@ public struct SongsView: View {
                                     proxy.scrollTo(letter, anchor: .top)
                                 }
                             )
+                            .frame(maxHeight: .infinity, alignment: .center)
+                            .ignoresSafeArea(.container, edges: .top)
                             .padding(.trailing, 4)
                         }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 #else
                 // macOS indexed mode: List with Section headers + native swipe actions
@@ -469,9 +472,12 @@ public struct SongsView: View {
                                     proxy.scrollTo(letter, anchor: .top)
                                 }
                             )
+                            .frame(maxHeight: .infinity, alignment: .center)
+                            .ignoresSafeArea(.container, edges: .top)
                             .padding(.trailing, 4)
                         }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 #endif
             } else {

@@ -109,6 +109,9 @@ public struct AlbumsView: View {
             .statusBar(hidden: isStageFlowActive)
             #endif
             .navigationTitle(isPresenterChromeHidden ? "" : "Albums")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
             .if(!isPresenterChromeHidden) { view in
                 view.searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
             }
@@ -407,9 +410,12 @@ public struct AlbumsView: View {
                             proxy.scrollTo(letter, anchor: .top)
                         }
                     )
+                    .frame(maxHeight: .infinity, alignment: .center)
+                    .ignoresSafeArea(.container, edges: .top)
                     .padding(.trailing, 4)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
