@@ -64,11 +64,11 @@ public struct AlbumCard: View {
 
     public var body: some View {
         let artworkCornerRadius = ArtworkCornerRadius.square(for: layout.artworkSize)
+        let artistLine = album.artistName ?? " "
+        let yearLine = album.year.map(String.init) ?? " "
 
         VStack(alignment: .leading, spacing: 8) {
             ArtworkView(album: album, size: layout.artworkSize, cornerRadius: artworkCornerRadius, isResponsive: true)
-                .aspectRatio(1, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(album.title)
@@ -81,15 +81,27 @@ public struct AlbumCard: View {
                     Text(artist)
                         .font(.caption)
                         .foregroundColor(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(1)
+                } else {
+                    Text(artistLine)
+                        .font(.caption)
+                        .foregroundColor(.clear)
+                        .lineLimit(1)
                 }
 
                 if let year = album.year {
                     Text(String(year))
                         .font(.caption2)
                         .foregroundColor(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text(yearLine)
+                        .font(.caption2)
+                        .foregroundColor(.clear)
+                        .lineLimit(1)
                 }
             }
+            .frame(height: 66, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .multilineTextAlignment(.leading)

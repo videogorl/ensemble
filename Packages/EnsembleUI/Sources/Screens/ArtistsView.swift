@@ -290,9 +290,7 @@ public struct ArtistsView: View {
                             proxy.scrollTo(letter, anchor: .top)
                         }
                     )
-                    .frame(maxHeight: .infinity, alignment: .center)
-                    .ignoresSafeArea(.container, edges: .top)
-                    .padding(.trailing, 4)
+                    .libraryScrollIndexPositioning()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

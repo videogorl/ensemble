@@ -416,7 +416,8 @@ private struct DownloadedItemRow: View {
                     size: .thumbnail,
                     cornerRadius: item.kind == .artist
                         ? ArtworkCornerRadius.circle(for: 48)
-                        : ArtworkCornerRadius.square(for: 48)
+                        : ArtworkCornerRadius.square(for: 48),
+                    isResponsive: true
                 )
                 .frame(width: 48, height: 48)
 

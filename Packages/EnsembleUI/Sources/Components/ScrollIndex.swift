@@ -68,3 +68,23 @@ public struct ScrollIndex: View {
         return min(max(nearestSlot, 0), letters.count - 1)
     }
 }
+
+public extension View {
+    /// Anchors the alphabetical scroll index in the viewport so it stays fixed
+    /// between top chrome and mini-player/tab chrome while content scrolls.
+    @ViewBuilder
+    func libraryScrollIndexPositioning() -> some View {
+        #if os(iOS)
+        let topChromeInset: CGFloat = 84
+        self
+            .frame(maxHeight: .infinity, alignment: .center)
+            .padding(.top, topChromeInset)
+            .padding(.bottom, TrackListLayoutMetrics.miniPlayerContainerInset)
+            .padding(.trailing, 4)
+        #else
+        self
+            .frame(maxHeight: .infinity, alignment: .center)
+            .padding(.trailing, 4)
+        #endif
+    }
+}
