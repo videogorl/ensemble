@@ -50,7 +50,7 @@ public struct ScrollIndex: View {
                     dragLetter = nil
                 }
         )
-        .padding(.trailing, 2)
+        .padding(.trailing, 0)
     }
 
     /// Maps a drag/tap y-position within the compact control to the nearest letter slot.
@@ -75,16 +75,19 @@ public extension View {
     @ViewBuilder
     func libraryScrollIndexPositioning() -> some View {
         #if os(iOS)
-        let topChromeInset: CGFloat = 84
+        let bottomChromeInset = TrackListLayoutMetrics.miniPlayerContainerInset
+        let bottomLift: CGFloat = 6
         self
-            .frame(maxHeight: .infinity, alignment: .center)
-            .padding(.top, topChromeInset)
-            .padding(.bottom, TrackListLayoutMetrics.miniPlayerContainerInset)
-            .padding(.trailing, 4)
+            // Anchor to bottom chrome so search/filter header changes do not
+            // shift the index vertically while browsing.
+            .frame(maxHeight: .infinity, alignment: .bottom)
+            .padding(.bottom, bottomChromeInset + bottomLift)
+            .padding(.trailing, 1)
         #else
         self
-            .frame(maxHeight: .infinity, alignment: .center)
-            .padding(.trailing, 4)
+            .frame(maxHeight: .infinity, alignment: .bottom)
+            .padding(.bottom, 16)
+            .padding(.trailing, 2)
         #endif
     }
 }
