@@ -728,13 +728,18 @@ public final class DependencyContainer: @unchecked Sendable {
                         direction: .pulledFromICloud,
                         detail: "Pulled library selection from iCloud."
                     )
+
+                    // Reconcile disabled sources on every remote library-flag payload,
+                    // even when no flags changed this run. This prevents stale cached
+                    // data from disabled libraries from leaking into browse surfaces.
+                    let disabledSourcesToCleanup = Array(Set(result.disabledSources + acctMgr.disabledSources()))
+                    if !disabledSourcesToCleanup.isEmpty {
+                        await syncCoordinatorRef.cleanupRemovedSourcesIfPresent(disabledSourcesToCleanup)
+                    }
+
                     guard result.hasChanges else { return }
 
                     syncCoordinatorRef.refreshProviders()
-
-                    for source in result.disabledSources {
-                        await syncCoordinatorRef.cleanupRemovedSource(source)
-                    }
 
                     for server in result.serversNeedingPlaylistCleanup {
                         await syncCoordinatorRef.cleanupServerPlaylists(

@@ -461,6 +461,24 @@ public final class AccountManager: ObservableObject {
         return sources
     }
 
+    /// Returns all disabled MusicSourceIdentifiers across all accounts.
+    public func disabledSources() -> [MusicSourceIdentifier] {
+        var sources: [MusicSourceIdentifier] = []
+        for account in plexAccounts {
+            for server in account.servers {
+                for library in server.libraries where !library.isEnabled {
+                    sources.append(MusicSourceIdentifier(
+                        type: .plex,
+                        accountId: account.id,
+                        serverId: server.id,
+                        libraryId: library.key
+                    ))
+                }
+            }
+        }
+        return sources
+    }
+
     /// Returns all enabled sources as MusicSource domain objects (without live status)
     public func enabledMusicSources() -> [MusicSource] {
         var sources: [MusicSource] = []

@@ -239,13 +239,27 @@ struct PlaybackHandoffCoordinator {
         state.interruption = .ended(shouldResume: shouldResume)
 
         var actions: [Action] = [.setInterrupted(false)]
-        if shouldResume,
-           state.pauseReason == .interruption,
-           playbackState == .buffering {
-            state.pauseReason = nil
+        if state.pauseReason == .interruption,
+           playbackState == .buffering || playbackState == .paused {
+            if shouldResume {
+                state.pauseReason = nil
+                state.interruption = .none
+                actions.append(.resumePlayback(.system))
+                return makeOutcome(summary: "interruption ended with resume", actions: actions)
+            }
+
+            // If the system says "do not resume", buffering should not remain visible.
+            // Move to a stable paused state so the user can intentionally resume.
             state.interruption = .none
-            actions.append(.resumePlayback(.system))
-            return makeOutcome(summary: "interruption ended with resume", actions: actions)
+            if playbackState == .buffering {
+                actions.append(.pausePlayback(.interruption))
+                return makeOutcome(summary: "interruption ended without resume (pause)", actions: actions)
+            }
+            return makeOutcome(summary: "interruption ended without resume", actions: actions)
+        }
+
+        if !shouldResume {
+            state.interruption = .none
         }
 
         return makeOutcome(summary: "interruption ended", actions: actions)
