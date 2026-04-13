@@ -212,6 +212,8 @@ private struct MiniPlayerTrackInfo: View {
                             isResponsive: true
                         )
                         .frame(width: artworkDimension, height: artworkDimension)
+                        .aspectRatio(1, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
                         .ifLet(namespace, animationID) { view, ns, id in
                             view.matchedGeometryEffect(id: id, in: ns, isSource: true)
                         }

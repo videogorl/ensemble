@@ -97,6 +97,8 @@ public struct ControlsCard: View {
             // Artwork
             ArtworkView(track: track, size: .medium, cornerRadius: artworkCornerRadius, isResponsive: true)
                 .frame(width: artworkSize, height: artworkSize)
+                .aspectRatio(1, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
                 .contrast(1.1)
                 .shadow(color: .black.opacity(0.3), radius: 15, x: 0, y: 8)
                 .ifLet(namespace, animationID) { view, ns, id in

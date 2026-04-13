@@ -65,6 +65,7 @@ public struct AlbumCard: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ArtworkView(album: album, size: layout.artworkSize, cornerRadius: 8, isResponsive: true)
+                .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {

@@ -10,6 +10,8 @@ public struct AlbumsView: View {
     @State private var selectedAlbum: Album?
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedAlbumSections: [AlbumSection] = []
+    // Monotonic token to drop stale async section computations.
+    @State private var albumSectionComputationToken: Int = 0
     // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
     @State private var isStageFlowActive = false
     @State private var latestContainerSize: CGSize = .zero
@@ -212,10 +214,13 @@ public struct AlbumsView: View {
                 // Compute sections off main thread to avoid blocking UI during search
                 let sortOption = libraryVM.albumSortOption
                 let oldSections = cachedAlbumSections
+                albumSectionComputationToken += 1
+                let token = albumSectionComputationToken
                 DispatchQueue.global(qos: .userInitiated).async {
                     let newSections = Self.computeAlbumSections(albums: albums, sortOption: sortOption)
                     guard !Self.sectionsEqual(oldSections, newSections) else { return }
                     DispatchQueue.main.async {
+                        guard token == albumSectionComputationToken else { return }
                         cachedAlbumSections = newSections
                     }
                 }
@@ -223,10 +228,13 @@ public struct AlbumsView: View {
             .onReceive(libraryVM.$albumSortOption) { sortOption in
                 let albums = libraryVM.filteredAlbums
                 let oldSections = cachedAlbumSections
+                albumSectionComputationToken += 1
+                let token = albumSectionComputationToken
                 DispatchQueue.global(qos: .userInitiated).async {
                     let newSections = Self.computeAlbumSections(albums: albums, sortOption: sortOption)
                     guard !Self.sectionsEqual(oldSections, newSections) else { return }
                     DispatchQueue.main.async {
+                        guard token == albumSectionComputationToken else { return }
                         cachedAlbumSections = newSections
                     }
                 }
