@@ -407,8 +407,7 @@ public struct AlbumsView: View {
                             proxy.scrollTo(letter, anchor: .top)
                         }
                     )
-                    .frame(maxHeight: .infinity)
-                    .ignoresSafeArea(.container, edges: .top)
+                    .padding(.trailing, 4)
                 }
             }
         }
