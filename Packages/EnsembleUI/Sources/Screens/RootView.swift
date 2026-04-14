@@ -102,7 +102,8 @@ private struct RootMiniPlayerOverlay: View {
             MiniPlayer(
                 viewModel: nowPlayingVM,
                 isFloating: true,
-                showsWaveform: !isPhoneLayout && layout.frame.width >= 420,
+                showsWaveform: !isPhoneLayout && miniPlayerWidth >= 280,
+                waveformColor: accentColor,
                 horizontalPadding: miniPlayerHorizontalPadding,
                 namespace: namespace,
                 animationID: animationID
@@ -187,6 +188,10 @@ public struct RootView: View {
         #endif
     }
 
+    private var showsRootBackgroundAurora: Bool {
+        true
+    }
+
     public init() {
         let navigationCoordinator = NavigationCoordinator()
         _navigationCoordinator = StateObject(wrappedValue: navigationCoordinator)
@@ -200,7 +205,10 @@ public struct RootView: View {
     public var body: some View {
         GeometryReader { proxy in
             ZStack {
-                if settingsManager.auroraVisualizationEnabled && !isNowPlayingPresented && !auroraAboveContent {
+                if settingsManager.auroraVisualizationEnabled &&
+                    !isNowPlayingPresented &&
+                    showsRootBackgroundAurora &&
+                    !auroraAboveContent {
                     AuroraVisualizationView(
                         playbackService: DependencyContainer.shared.playbackService,
                         accentColor: settingsManager.accentColor.color,
@@ -266,19 +274,20 @@ public struct RootView: View {
             .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
                 isLowPowerMode = newValue
             }
-            .if(!supportsViewportNowPlayingPresentation) { view in
+            .if(usesFullScreenNowPlayingPresentation) { view in
+                view.fullScreenCover(
+                    isPresented: $isNowPlayingPresented,
+                    onDismiss: clearPresentedNowPlayingViewModel
+                ) {
+                    nowPlayingPresentationContent
+                }
+            }
+            .if(!supportsViewportNowPlayingPresentation && !usesFullScreenNowPlayingPresentation) { view in
                 view.sheet(
                     isPresented: $isNowPlayingPresented,
                     onDismiss: clearPresentedNowPlayingViewModel
                 ) {
-                    NowPlayingSheetView(
-                        viewModel: presentedNowPlayingViewModel,
-                        namespace: playerNamespace,
-                        animationID: artworkAnimationID,
-                        dismissAction: dismissNowPlaying
-                    )
-                    .accentColor(settingsManager.accentColor.color)
-                    .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
+                    nowPlayingPresentationContent
                 }
             }
             .task {
@@ -396,6 +405,28 @@ public struct RootView: View {
         #else
         return false
         #endif
+    }
+
+    private var usesFullScreenNowPlayingPresentation: Bool {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            return UIDevice.current.userInterfaceIdiom == .pad
+        }
+        return false
+        #else
+        return false
+        #endif
+    }
+
+    private var nowPlayingPresentationContent: some View {
+        NowPlayingSheetView(
+            viewModel: presentedNowPlayingViewModel,
+            namespace: playerNamespace,
+            animationID: artworkAnimationID,
+            dismissAction: dismissNowPlaying
+        )
+        .accentColor(settingsManager.accentColor.color)
+        .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
     }
 
     private func presentNowPlaying(with viewModel: NowPlayingViewModel) {

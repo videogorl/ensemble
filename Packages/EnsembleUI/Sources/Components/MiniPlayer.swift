@@ -20,6 +20,7 @@ public struct MiniPlayer: View {
 
     private let isFloating: Bool
     private let showsWaveform: Bool
+    private let waveformColor: Color
     private let horizontalPadding: CGFloat
     private let pillCornerRadius: CGFloat = 28
 
@@ -30,6 +31,7 @@ public struct MiniPlayer: View {
         viewModel: NowPlayingViewModel,
         isFloating: Bool = false,
         showsWaveform: Bool = false,
+        waveformColor: Color = .primary,
         horizontalPadding: CGFloat? = nil,
         namespace: Namespace.ID? = nil,
         animationID: String? = nil,
@@ -38,6 +40,7 @@ public struct MiniPlayer: View {
         self.viewModel = viewModel
         self.isFloating = isFloating
         self.showsWaveform = showsWaveform
+        self.waveformColor = waveformColor
         self.horizontalPadding = horizontalPadding ?? (isFloating ? 20 : 12)
         self.namespace = namespace
         self.animationID = animationID
@@ -157,6 +160,7 @@ public struct MiniPlayer: View {
         MiniPlayerTrackInfo(
             viewModel: viewModel,
             showsWaveform: showsWaveform,
+            waveformColor: waveformColor,
             namespace: namespace,
             animationID: animationID
         )
@@ -172,6 +176,7 @@ public struct MiniPlayer: View {
 private struct MiniPlayerTrackInfo: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     let showsWaveform: Bool
+    let waveformColor: Color
     let namespace: Namespace.ID?
     let animationID: String?
 
@@ -250,8 +255,12 @@ private struct MiniPlayerTrackInfo: View {
                                     .lineLimit(1)
                             }
                         }
-                        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                        .layoutPriority(1)
+                        .frame(
+                            minWidth: 0,
+                            maxWidth: showsWaveform ? 150 : .infinity,
+                            alignment: .leading
+                        )
+                        .layoutPriority(showsWaveform ? 0.45 : 1)
                         .offset(x: dragOffset)
                         .opacity(opacity)
                         .contentShape(Rectangle())
@@ -300,10 +309,13 @@ private struct MiniPlayerTrackInfo: View {
                         )
 
                         if showsWaveform {
-                            MiniPlayerWaveform(viewModel: viewModel)
-                                .frame(minWidth: 110, idealWidth: 150, maxWidth: 220)
-                                .frame(height: 14)
-                                .layoutPriority(0.5)
+                            MiniPlayerWaveform(
+                                viewModel: viewModel,
+                                waveformColor: waveformColor
+                            )
+                                .frame(minWidth: 130, maxWidth: .infinity)
+                                .frame(height: 18)
+                                .layoutPriority(0.8)
                         } else {
                             Spacer(minLength: 0)
                         }
@@ -343,15 +355,17 @@ private struct MiniPlayerTrackInfo: View {
 
 private struct MiniPlayerWaveform: View {
     @ObservedObject var viewModel: NowPlayingViewModel
+    let waveformColor: Color
     @State private var waveformHeights: [Double] = []
 
     var body: some View {
         WaveformView(
             progress: viewModel.progress,
             bufferedProgress: viewModel.bufferedProgress,
-            color: .primary,
+            color: waveformColor,
             heights: waveformHeights
         )
+        .opacity(0.9)
         .onReceive(viewModel.waveformHeightsPublisher) { heights in
             waveformHeights = heights
         }
