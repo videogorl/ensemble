@@ -13,6 +13,7 @@ public struct QueueCard: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss
     
@@ -485,7 +486,7 @@ public struct QueueCard: View {
     }
 
     private func navigateFromNowPlaying(to destination: NavigationCoordinator.Destination) {
-        deps.navigationCoordinator.navigateFromNowPlaying(to: destination)
+        navigationCoordinator.navigateFromNowPlaying(to: destination)
         if let dismissNowPlaying {
             dismissNowPlaying()
         } else {

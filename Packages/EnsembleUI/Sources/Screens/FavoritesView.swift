@@ -33,6 +33,7 @@ public struct FavoritesView: View {
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     private var backgroundColor: Color {
         #if os(macOS)
@@ -222,7 +223,7 @@ public struct FavoritesView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -246,7 +247,7 @@ public struct FavoritesView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                    navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)
@@ -304,12 +305,12 @@ public struct FavoritesView: View {
             },
             onGoToAlbum: { track in
                 if let albumId = track.albumRatingKey {
-                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                    navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
                 }
             },
             onGoToArtist: { track in
                 if let artistId = track.artistRatingKey {
-                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                    navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
                 }
             },
             onShareLink: { track in

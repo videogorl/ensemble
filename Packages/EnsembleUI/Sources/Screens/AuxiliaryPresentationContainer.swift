@@ -2,7 +2,7 @@ import EnsembleCore
 import SwiftUI
 
 private struct AuxiliaryDismissToolbarModifier: ViewModifier {
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     func body(content: Content) -> some View {
         #if os(iOS)

@@ -16,7 +16,7 @@ public struct SearchView: View {
     @FocusState private var isSearchFieldFocused: Bool
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var pinnedVM: PinnedViewModel
-    private let navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var isPinnedExpanded = false
     @State private var isEditingPins = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
@@ -31,11 +31,9 @@ public struct SearchView: View {
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
-    @State private var isSearchTabActive = DependencyContainer.shared.navigationCoordinator.selectedTab == .search
-    @State private var isSearchPathEmpty = DependencyContainer.shared.navigationCoordinator.searchPath.isEmpty
-    @State private var isMoreSearchRootActive = SearchView.isMoreSearchRootPath(
-        DependencyContainer.shared.navigationCoordinator.settingsPath
-    )
+    @State private var isSearchTabActive = false
+    @State private var isSearchPathEmpty = true
+    @State private var isMoreSearchRootActive = false
     @Environment(\.dependencies) private var deps
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
@@ -116,6 +114,11 @@ public struct SearchView: View {
         }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
+        }
+        .onAppear {
+            isSearchTabActive = navigationCoordinator.selectedTab == .search
+            isSearchPathEmpty = navigationCoordinator.searchPath.isEmpty
+            isMoreSearchRootActive = Self.isMoreSearchRootPath(navigationCoordinator.settingsPath)
         }
         .navigationTitle("Search")
         .profileToolbar()
@@ -222,7 +225,7 @@ public struct SearchView: View {
                     .foregroundColor(.secondary)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -830,7 +833,7 @@ public struct SearchView: View {
                     .foregroundColor(.secondary)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                    navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)
@@ -1026,7 +1029,7 @@ public struct SearchView: View {
 
                         if let albumId = track.albumRatingKey {
                             Button {
-                                DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
                             } label: {
                                 Label("Go to Album", systemImage: "square.stack")
                             }
@@ -1034,7 +1037,7 @@ public struct SearchView: View {
 
                         if let artistId = track.artistRatingKey {
                             Button {
-                                DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
                             } label: {
                                 Label("Go to Artist", systemImage: "person.circle")
                             }
@@ -1112,16 +1115,16 @@ public struct SearchView: View {
                 },
                 onGoToAlbum: { track in
                     guard let albumId = track.albumRatingKey else { return }
-                    DependencyContainer.shared.navigationCoordinator.push(
+                    navigationCoordinator.push(
                         .album(id: albumId),
-                        in: DependencyContainer.shared.navigationCoordinator.selectedTab
+                        in: navigationCoordinator.selectedTab
                     )
                 },
                 onGoToArtist: { track in
                     guard let artistId = track.artistRatingKey else { return }
-                    DependencyContainer.shared.navigationCoordinator.push(
+                    navigationCoordinator.push(
                         .artist(id: artistId),
-                        in: DependencyContainer.shared.navigationCoordinator.selectedTab
+                        in: navigationCoordinator.selectedTab
                     )
                 },
                 onShareLink: { track in
@@ -1250,7 +1253,7 @@ public struct SearchView: View {
                     .foregroundColor(.secondary)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -1273,7 +1276,7 @@ public struct SearchView: View {
                     .foregroundColor(.secondary)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                    navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)

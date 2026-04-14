@@ -17,6 +17,7 @@ public struct ControlsCard: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss
     
@@ -548,7 +549,7 @@ public struct ControlsCard: View {
     /// MainTabView/SidebarView executes the push after sheet fully dismisses.
     private func handleArtistTap(track: Track) {
         if let artistId = track.artistRatingKey {
-            deps.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
+            navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
             closeNowPlaying()
         }
     }
@@ -556,7 +557,7 @@ public struct ControlsCard: View {
     /// Navigate to album detail — store intent, then dismiss
     private func handleAlbumTap(track: Track) {
         if let albumId = track.albumRatingKey {
-            deps.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
+            navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
             closeNowPlaying()
         }
     }

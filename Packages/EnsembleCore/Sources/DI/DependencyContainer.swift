@@ -1379,12 +1379,14 @@ public final class DependencyContainer: @unchecked Sendable {
     }
 
     @MainActor
-    public func makeNowPlayingViewModel() -> NowPlayingViewModel {
+    public func makeNowPlayingViewModel(
+        navigationCoordinator: NavigationCoordinator? = nil
+    ) -> NowPlayingViewModel {
         NowPlayingViewModel(
             playbackService: playbackService,
             syncCoordinator: syncCoordinator,
             libraryRepository: libraryRepository,
-            navigationCoordinator: navigationCoordinator,
+            navigationCoordinator: navigationCoordinator ?? self.navigationCoordinator,
             toastCenter: toastCenter,
             mutationCoordinator: mutationCoordinator,
             trackAvailabilityResolver: trackAvailabilityResolver,

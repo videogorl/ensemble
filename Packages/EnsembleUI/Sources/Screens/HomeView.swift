@@ -11,6 +11,7 @@ public struct HomeView: View {
     @State private var playlistPickerTracks: [Track]?
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
@@ -121,7 +122,7 @@ public struct HomeView: View {
                             .multilineTextAlignment(.center)
 
                         Button {
-                            DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
+                            navigationCoordinator.showingAddAccount = true
                         } label: {
                             Label("Add Source", systemImage: "plus.circle.fill")
                                 .padding(.horizontal, 20)
@@ -145,7 +146,7 @@ public struct HomeView: View {
                             .multilineTextAlignment(.center)
 
                         Button {
-                            DependencyContainer.shared.navigationCoordinator.openSettings()
+                            navigationCoordinator.openSettings()
                         } label: {
                             Label("Manage Sources", systemImage: "slider.horizontal.3")
                                 .padding(.horizontal, 20)
@@ -297,6 +298,7 @@ struct HubItemCard: View {
     let item: HubItem
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     // Not @ObservedObject — pinManager publishes on every pin/unpin, which would
     // re-render ALL HubItemCards on the home screen. Pin state is only read in the
     // context menu, which SwiftUI evaluates on-demand when the menu opens.
@@ -491,9 +493,9 @@ struct HubItemCard: View {
 
             if let artistId = album.artistRatingKey {
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.push(
+                    self.navigationCoordinator.push(
                         .artist(id: artistId),
-                        in: DependencyContainer.shared.navigationCoordinator.selectedTab
+                        in: self.navigationCoordinator.selectedTab
                     )
                 } label: {
                     Label("Go to Artist", systemImage: "person.circle")
@@ -628,9 +630,9 @@ struct HubItemCard: View {
 
         if let albumId = track.albumRatingKey {
             Button {
-                DependencyContainer.shared.navigationCoordinator.push(
+                self.navigationCoordinator.push(
                     .album(id: albumId),
-                    in: DependencyContainer.shared.navigationCoordinator.selectedTab
+                    in: self.navigationCoordinator.selectedTab
                 )
             } label: {
                 Label("Go to Album", systemImage: "square.stack")
@@ -639,9 +641,9 @@ struct HubItemCard: View {
 
         if let artistId = track.artistRatingKey {
             Button {
-                DependencyContainer.shared.navigationCoordinator.push(
+                self.navigationCoordinator.push(
                     .artist(id: artistId),
-                    in: DependencyContainer.shared.navigationCoordinator.selectedTab
+                    in: self.navigationCoordinator.selectedTab
                 )
             } label: {
                 Label("Go to Artist", systemImage: "person.circle")

@@ -4,7 +4,7 @@ import SwiftUI
 public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dependencies) private var deps
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
@@ -296,7 +296,7 @@ public struct AlbumsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -320,7 +320,7 @@ public struct AlbumsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                    navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)

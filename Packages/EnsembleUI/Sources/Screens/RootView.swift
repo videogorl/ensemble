@@ -78,8 +78,23 @@ private struct RootMiniPlayerOverlay: View {
     let animationID: String
     let presentNowPlaying: () -> Void
 
+    private var isPhoneLayout: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
+        #endif
+    }
+
+    private var miniPlayerHorizontalPadding: CGFloat {
+        isPhoneLayout ? 8 : 20
+    }
+
     private var miniPlayerWidth: CGFloat {
-        min(540, max(layout.frame.width - 32, 0))
+        if isPhoneLayout {
+            return max(layout.frame.width, 0)
+        }
+        return min(540, max(layout.frame.width - 32, 0))
     }
 
     var body: some View {
@@ -87,6 +102,8 @@ private struct RootMiniPlayerOverlay: View {
             MiniPlayer(
                 viewModel: nowPlayingVM,
                 isFloating: true,
+                showsWaveform: !isPhoneLayout && layout.frame.width >= 420,
+                horizontalPadding: miniPlayerHorizontalPadding,
                 namespace: namespace,
                 animationID: animationID
             ) {
@@ -154,22 +171,49 @@ private struct RootMiniPlayerOverlayHost: View {
 public struct RootView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
-    @StateObject private var nowPlayingVM = DependencyContainer.shared.makeNowPlayingViewModel()
+    @StateObject private var navigationCoordinator: NavigationCoordinator
+    @StateObject private var nowPlayingVM: NowPlayingViewModel
     @State private var isNowPlayingPresented = false
     @State private var activeNowPlayingPresentationViewModel: NowPlayingViewModel?
     @State private var isLowPowerMode = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
 
-    public init() {}
+    private var auroraAboveContent: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom != .phone
+        #else
+        true
+        #endif
+    }
+
+    public init() {
+        let navigationCoordinator = NavigationCoordinator()
+        _navigationCoordinator = StateObject(wrappedValue: navigationCoordinator)
+        _nowPlayingVM = StateObject(
+            wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel(
+                navigationCoordinator: navigationCoordinator
+            )
+        )
+    }
 
     public var body: some View {
         GeometryReader { proxy in
             ZStack {
+                if settingsManager.auroraVisualizationEnabled && !isNowPlayingPresented && !auroraAboveContent {
+                    AuroraVisualizationView(
+                        playbackService: DependencyContainer.shared.playbackService,
+                        accentColor: settingsManager.accentColor.color,
+                        isLowPowerMode: isLowPowerMode
+                    )
+                    .allowsHitTesting(false)
+                    .zIndex(0)
+                }
+
                 mainContentView
                     .zIndex(1)
 
-                if settingsManager.auroraVisualizationEnabled && !isNowPlayingPresented {
+                if settingsManager.auroraVisualizationEnabled && !isNowPlayingPresented && auroraAboveContent {
                     AuroraVisualizationView(
                         playbackService: DependencyContainer.shared.playbackService,
                         accentColor: settingsManager.accentColor.color,
@@ -207,6 +251,7 @@ public struct RootView: View {
             .environment(\.isViewportNowPlayingPresented, isNowPlayingPresented)
             .environment(\.presentViewportNowPlaying, presentNowPlaying(with:))
             .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
+            .environmentObject(navigationCoordinator)
             .accentColor(settingsManager.accentColor.color)
             .onAppear {
                 updateAppearance()
@@ -348,11 +393,6 @@ public struct RootView: View {
     private var supportsViewportNowPlayingPresentation: Bool {
         #if os(macOS)
         return true
-        #elseif os(iOS)
-        if #available(iOS 16.0, *) {
-            return UIDevice.current.userInterfaceIdiom == .pad
-        }
-        return false
         #else
         return false
         #endif

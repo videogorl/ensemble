@@ -6,14 +6,12 @@ import SwiftUI
 /// On tap, opens the profile sheet via NavigationCoordinator.
 public struct ProfileToolbarButton: View {
     @ObservedObject private var profileStore: UserProfileStore
-    private let navigationCoordinator: NavigationCoordinator
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     public init(
-        profileStore: UserProfileStore = DependencyContainer.shared.userProfileStore,
-        navigationCoordinator: NavigationCoordinator = DependencyContainer.shared.navigationCoordinator
+        profileStore: UserProfileStore = DependencyContainer.shared.userProfileStore
     ) {
         self.profileStore = profileStore
-        self.navigationCoordinator = navigationCoordinator
     }
 
     public var body: some View {

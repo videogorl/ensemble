@@ -56,7 +56,7 @@ public struct MainTabView: View {
     // which would invalidate the entire root view. We only need networkState, so we
     // listen to just that property and store it in @State.
     private let networkMonitor = DependencyContainer.shared.networkMonitor
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @State private var didSetInitialTab = false
@@ -403,6 +403,7 @@ public struct MainTabView: View {
                         NestedNavigationLink(
                             path: pathForTab(tab),
                             tab: tab,
+                            navigationCoordinator: navigationCoordinator,
                             destinationBuilder: destinationView
                         )
                     )
@@ -567,6 +568,7 @@ private struct iOS15TabBarHider: UIViewRepresentable {
 struct NestedNavigationLink<DestinationView: View>: View {
     let path: [NavigationCoordinator.Destination]
     let tab: TabItem
+    let navigationCoordinator: NavigationCoordinator
     let destinationBuilder: (NavigationCoordinator.Destination) -> DestinationView
     
     var body: some View {
@@ -574,7 +576,7 @@ struct NestedNavigationLink<DestinationView: View>: View {
             NavigationLink(
                 isActive: Binding(
                     get: { !path.isEmpty },
-                    set: { if !$0 { DependencyContainer.shared.navigationCoordinator.popToRoot(tab: tab) } }
+                    set: { if !$0 { navigationCoordinator.popToRoot(tab: tab) } }
                 ),
                 destination: {
                     destinationBuilder(first)
@@ -582,6 +584,7 @@ struct NestedNavigationLink<DestinationView: View>: View {
                             NestedNavigationLink(
                                 path: Array(path.dropFirst()),
                                 tab: tab,
+                                navigationCoordinator: navigationCoordinator,
                                 destinationBuilder: destinationBuilder
                             )
                         )
@@ -621,7 +624,7 @@ public struct SidebarView: View {
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var pinnedVM: PinnedViewModel
     @StateObject private var playlistsVM: PlaylistViewModel
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     private let pinManager = DependencyContainer.shared.pinManager
     @Environment(\.dependencies) private var deps

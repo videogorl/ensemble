@@ -33,6 +33,7 @@ public struct PlaylistsView: View {
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     private var supportsStageFlow: Bool {
         #if os(iOS)
@@ -433,7 +434,7 @@ public struct PlaylistsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -457,7 +458,7 @@ public struct PlaylistsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                    navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)
