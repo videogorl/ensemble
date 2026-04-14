@@ -70,6 +70,9 @@ public final class DependencyContainer: @unchecked Sendable {
     private var lastSyncedSwipeLayout: TrackSwipeLayout = .default
     private var lastSyncedPinsData: Data?
     private var syncBootstrapTask: Task<Void, Never>?
+    private var firstConnectRetryTask: Task<Void, Never>?
+    private var firstConnectRetryAttempt = 0
+    private static let firstConnectRetryDelays: [TimeInterval] = [5, 15, 30, 60]
 
     // MARK: - Network Infrastructure
 
@@ -811,12 +814,16 @@ public final class DependencyContainer: @unchecked Sendable {
     }
 
     @MainActor
-    private func refreshSyncState(reason: String) async {
+    private func refreshSyncState(
+        reason: String,
+        feature: SyncSettingsManager.SyncFeature? = nil
+    ) async {
         if syncSettingsManager.isMasterSyncEnabled {
-            await performSyncBootstrap(reason: reason)
+            await performSyncBootstrap(reason: reason, feature: feature)
         }
 
         await reconcileProfileSync(reason: reason)
+        scheduleFirstConnectRetryIfNeeded(reason: reason)
     }
 
     @MainActor
@@ -842,6 +849,15 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         guard !userProfileStore.profile.isEmpty else {
+            guard !shouldKeepFirstConnectPending else {
+                syncSettingsManager.setProfileStatus(
+                    phase: .unknown,
+                    direction: nil,
+                    detail: "Waiting for iCloud profile during first-device sync."
+                )
+                return
+            }
+
             syncSettingsManager.setProfileStatus(
                 phase: .noRecord,
                 direction: nil,
@@ -912,7 +928,71 @@ public final class DependencyContainer: @unchecked Sendable {
         syncBootstrapTask?.cancel()
         syncBootstrapTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.performSyncBootstrap(reason: reason, feature: feature)
+            await self.refreshSyncState(reason: reason, feature: feature)
+        }
+    }
+
+    @MainActor
+    private var shouldKeepFirstConnectPending: Bool {
+        !syncSettingsManager.hasCompletedFirstConnect &&
+        firstConnectRetryAttempt < Self.firstConnectRetryDelays.count
+    }
+
+    @MainActor
+    private var needsFirstConnectRetry: Bool {
+        guard shouldKeepFirstConnectPending else { return false }
+
+        let waitingForSources =
+            syncSettingsManager.isFeatureEnabled(.sources) &&
+            !accountManager.hasAnySources &&
+            !accountManager.hasSyncedCloudCredentials()
+
+        let waitingForProfile =
+            userProfileStore.profile.isEmpty &&
+            syncSettingsManager.profileStatus.phase == .unknown
+
+        return waitingForSources || waitingForProfile
+    }
+
+    @MainActor
+    private func scheduleFirstConnectRetryIfNeeded(reason: String) {
+        guard syncSettingsManager.isMasterSyncEnabled else {
+            firstConnectRetryTask?.cancel()
+            firstConnectRetryTask = nil
+            firstConnectRetryAttempt = 0
+            return
+        }
+
+        guard !syncSettingsManager.hasCompletedFirstConnect else {
+            firstConnectRetryTask?.cancel()
+            firstConnectRetryTask = nil
+            firstConnectRetryAttempt = 0
+            return
+        }
+
+        guard needsFirstConnectRetry else {
+            firstConnectRetryTask?.cancel()
+            firstConnectRetryTask = nil
+            return
+        }
+
+        guard firstConnectRetryTask == nil else { return }
+        let attemptNumber = firstConnectRetryAttempt + 1
+        let delay = Self.firstConnectRetryDelays[firstConnectRetryAttempt]
+        firstConnectRetryAttempt += 1
+
+        EnsembleLogger.info(
+            "Sync bootstrap: scheduling first-connect retry \(attemptNumber)/\(Self.firstConnectRetryDelays.count) in \(Int(delay))s after \(reason)"
+        )
+
+        firstConnectRetryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.firstConnectRetryTask = nil }
+
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+
+            await self.refreshSyncState(reason: "first-connect-retry-\(attemptNumber)")
         }
     }
 
@@ -999,6 +1079,12 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         guard accountManager.hasAnySources else {
+            if shouldKeepFirstConnectPending {
+                EnsembleLogger.info("Sync bootstrap: waiting for iCloud sources after \(reason)")
+                syncSettingsManager.setFeatureState(.waitingForTransport, for: .sources)
+                return false
+            }
+
             syncSettingsManager.setFeatureState(.idle, for: .sources)
             return true
         }
