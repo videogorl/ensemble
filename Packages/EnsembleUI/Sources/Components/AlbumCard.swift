@@ -156,8 +156,8 @@ public struct AlbumGrid: View {
                                 playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
                             },
                             onEditMetadata: {
-                                // Context-menu initiated full-screen covers can be dropped when
-                                // toggled in the same transaction as menu dismissal on iOS.
+                                // Context-menu initiated editors can be dropped when toggled in
+                                // the same transaction as menu dismissal on iOS.
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                                     editingAlbum = album
                                     DispatchQueue.main.async {
@@ -186,8 +186,8 @@ public struct AlbumGrid: View {
                                 playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
                             },
                             onEditMetadata: {
-                                // Context-menu initiated full-screen covers can be dropped when
-                                // toggled in the same transaction as menu dismissal on iOS.
+                                // Context-menu initiated editors can be dropped when toggled in
+                                // the same transaction as menu dismissal on iOS.
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                                     editingAlbum = album
                                     DispatchQueue.main.async {

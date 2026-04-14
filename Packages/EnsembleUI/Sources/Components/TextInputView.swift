@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// A focused text-input editor used for short rename flows.
-/// On iPhone this is presented in a full-screen cover so the underlying
-/// NavigationStack or searchable drawer stays out of the keyboard layout pass.
+/// The presenter freezes keyboard-sensitive chrome before showing this editor
+/// so the underlying navigation/search container stays out of the relayout loop.
 struct TextInputView: View {
     let title: String
     var message: String = ""

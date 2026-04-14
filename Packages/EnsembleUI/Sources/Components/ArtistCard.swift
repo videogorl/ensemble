@@ -104,7 +104,7 @@ public struct ArtistGrid: View {
                             nowPlayingVM: nowPlayingVM,
                             onEditMetadata: {
                                 // Delay presentation by a tick so the context menu dismissal
-                                // completes before full-screen cover activation.
+                                // completes before the editor presentation begins.
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                                     editingArtist = artist
                                     DispatchQueue.main.async {
@@ -128,7 +128,7 @@ public struct ArtistGrid: View {
                             nowPlayingVM: nowPlayingVM,
                             onEditMetadata: {
                                 // Delay presentation by a tick so the context menu dismissal
-                                // completes before full-screen cover activation.
+                                // completes before the editor presentation begins.
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                                     editingArtist = artist
                                     DispatchQueue.main.async {
