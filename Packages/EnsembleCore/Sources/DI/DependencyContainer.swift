@@ -1,3 +1,4 @@
+import CloudKit
 import EnsembleAPI
 import EnsemblePersistence
 import Combine
@@ -72,6 +73,7 @@ public final class DependencyContainer: @unchecked Sendable {
     private var syncBootstrapTask: Task<Void, Never>?
     private var firstConnectRetryTask: Task<Void, Never>?
     private var firstConnectRetryAttempt = 0
+    private var lastKnownICloudAccountStatus: CKAccountStatus = .couldNotDetermine
     private static let firstConnectRetryDelays: [TimeInterval] = [5, 15, 30, 60]
 
     // MARK: - Network Infrastructure
@@ -824,6 +826,7 @@ public final class DependencyContainer: @unchecked Sendable {
         feature: SyncSettingsManager.SyncFeature? = nil
     ) async {
         if syncSettingsManager.isMasterSyncEnabled {
+            lastKnownICloudAccountStatus = await cloudSyncService.currentAccountStatus()
             await performSyncBootstrap(reason: reason, feature: feature)
         }
 
@@ -948,13 +951,17 @@ public final class DependencyContainer: @unchecked Sendable {
         guard shouldKeepFirstConnectPending else { return false }
 
         let waitingForSources =
-            syncSettingsManager.isFeatureEnabled(.sources) &&
-            !accountManager.hasAnySources &&
-            !accountManager.hasSyncedCloudCredentials()
+            Self.shouldRetryFirstConnectForSources(
+                sourcesFeatureEnabled: syncSettingsManager.isFeatureEnabled(.sources),
+                hasAnySources: accountManager.hasAnySources,
+                hasSyncedCloudCredentials: accountManager.hasSyncedCloudCredentials(),
+                accountStatus: lastKnownICloudAccountStatus
+            )
 
         let waitingForProfile =
             userProfileStore.profile.isEmpty &&
-            syncSettingsManager.profileStatus.phase == .unknown
+            syncSettingsManager.profileStatus.phase == .unknown &&
+            !Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus)
 
         return waitingForSources || waitingForProfile
     }
@@ -1085,6 +1092,12 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         guard accountManager.hasAnySources else {
+            if Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus) {
+                accountManager.setAwaitingCloudSources(false)
+                syncSettingsManager.setFeatureState(.transportUnavailable, for: .sources)
+                return true
+            }
+
             if shouldKeepFirstConnectPending {
                 accountManager.setAwaitingCloudSources(true)
                 EnsembleLogger.info("Sync bootstrap: waiting for iCloud sources after \(reason)")
@@ -1129,6 +1142,11 @@ public final class DependencyContainer: @unchecked Sendable {
             return true
         }
 
+        if Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus) {
+            syncSettingsManager.setFeatureState(.transportUnavailable, for: .accentColor)
+            return true
+        }
+
         let didSettleInitialSync = await kvsSyncService.waitForInitialSync()
         if let value = kvsSyncService.pullString(forKey: KVSSyncService.KVSKey.accentColor) {
             kvsSyncService.onRemoteAccentColorChanged?(value)
@@ -1170,6 +1188,11 @@ public final class DependencyContainer: @unchecked Sendable {
 
         if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.swipeLayout) {
             kvsSyncService.onRemoteSwipeLayoutChanged?(data)
+            return true
+        }
+
+        if Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus) {
+            syncSettingsManager.setFeatureState(.transportUnavailable, for: .swipeActions)
             return true
         }
 
@@ -1222,6 +1245,11 @@ public final class DependencyContainer: @unchecked Sendable {
             return true
         }
 
+        if Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus) {
+            syncSettingsManager.setFeatureState(.transportUnavailable, for: .pins)
+            return true
+        }
+
         let didSettleInitialSync = await kvsSyncService.waitForInitialSync()
         if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.pins) {
             kvsSyncService.onRemotePinsChanged?(data)
@@ -1271,6 +1299,11 @@ public final class DependencyContainer: @unchecked Sendable {
             return true
         }
 
+        if Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus) {
+            syncSettingsManager.setFeatureState(.transportUnavailable, for: .libraries)
+            return true
+        }
+
         let didSettleInitialSync = await kvsSyncService.waitForInitialSync()
         if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.libraryFlags) {
             kvsSyncService.onRemoteLibraryFlagsChanged?(data)
@@ -1297,6 +1330,27 @@ public final class DependencyContainer: @unchecked Sendable {
         )
         kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.libraryFlags)
         return true
+    }
+
+    static func isBootstrapTransportUnavailable(accountStatus: CKAccountStatus) -> Bool {
+        switch accountStatus {
+        case .noAccount, .restricted:
+            return true
+        default:
+            return false
+        }
+    }
+
+    static func shouldRetryFirstConnectForSources(
+        sourcesFeatureEnabled: Bool,
+        hasAnySources: Bool,
+        hasSyncedCloudCredentials: Bool,
+        accountStatus: CKAccountStatus
+    ) -> Bool {
+        sourcesFeatureEnabled &&
+        !hasAnySources &&
+        !hasSyncedCloudCredentials &&
+        !isBootstrapTransportUnavailable(accountStatus: accountStatus)
     }
 
     // MARK: - Shared ViewModel State

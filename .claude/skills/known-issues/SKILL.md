@@ -77,6 +77,12 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Resolved Issues
 
+### No-iCloud Fresh Installs Stuck In Restore State (RESOLVED Apr 14, 2026)
+- **Location:** `DependencyContainer.refreshSyncState`, first-connect bootstrap for sources and KVS-backed sync features
+- **Symptom:** On devices or simulators without an iCloud account, a fresh install could sit indefinitely in "Restoring libraries from iCloud…" even though no cloud restore was possible.
+- **Root cause:** First-connect bootstrap treated missing iCloud credentials as a transport that was still pending. CloudKit correctly reported `.noAccount`, but source restore and KVS-backed features kept waiting for transport delivery instead of degrading to an unavailable state, so first-connect never settled.
+- **Fix:** Cache the current CloudKit account status at bootstrap time and treat `.noAccount` / `.restricted` as an immediate terminal state for source restore and KVS-backed sync features. That clears `isAwaitingCloudSources`, marks the features `transportUnavailable`, and lets empty local states render normally on no-iCloud devices.
+
 ### Sparse Genre Chips After Cloud Restore (RESOLVED Apr 14, 2026)
 - **Location:** `SyncCoordinator.performStartupSync`, `LibraryRepository.fetchGenreCoverageStats`, `LibraryViewModel`
 - **Symptom:** Fresh installs restored the genre catalog, but only a tiny subset of album/track `genreNames`, so Albums/Artists/Songs/playlist detail could show zero or one chip even though the library had many genres.
