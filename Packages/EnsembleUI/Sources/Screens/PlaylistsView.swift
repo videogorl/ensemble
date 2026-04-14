@@ -41,12 +41,8 @@ public struct PlaylistsView: View {
         #endif
     }
 
-    private var isKeyboardEditorActive: Bool {
-        renamePushPlaylist != nil || renamePushDP != nil
-    }
-
     private var isPresenterChromeHidden: Bool {
-        isStageFlowActive || isKeyboardEditorActive
+        isStageFlowActive
     }
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: PlaylistViewModel? = nil) {
@@ -179,7 +175,7 @@ public struct PlaylistsView: View {
                     createPlaylistOnServers(named: name, serverSourceKeys: serverKeys)
                 }
             }
-            .keyboardSafeEditorPresentation(item: Binding(
+            .sheet(item: Binding(
                 get: { renamePushPlaylist },
                 set: { if $0 == nil { renamePushPlaylist = nil } }
             )) { playlist in
@@ -192,7 +188,7 @@ public struct PlaylistsView: View {
                     renamePlaylist(playlist, to: name)
                 }
             }
-            .keyboardSafeEditorPresentation(item: Binding(
+            .sheet(item: Binding(
                 get: { renamePushDP },
                 set: { if $0 == nil { renamePushDP = nil } }
             )) { dp in
@@ -486,7 +482,9 @@ public struct PlaylistsView: View {
                                     displayPlaylist: dp,
                                     nowPlayingVM: nowPlayingVM,
                                     onRename: {
-                                        renamePushDP = dp
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                            renamePushDP = dp
+                                        }
                                     },
                                     onDelete: { displayPlaylistPendingDelete = dp }
                                 )
@@ -495,7 +493,9 @@ public struct PlaylistsView: View {
                                     playlist: dp.primaryPlaylist,
                                     nowPlayingVM: nowPlayingVM,
                                     onRename: {
-                                        renamePushPlaylist = dp.primaryPlaylist
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                            renamePushPlaylist = dp.primaryPlaylist
+                                        }
                                     },
                                     onEdit: { playlistForEditSheet = dp.primaryPlaylist },
                                     onDelete: { playlistPendingSwipeDelete = dp.primaryPlaylist }
@@ -924,17 +924,7 @@ public struct PlaylistDetailView: View {
             }
             #endif
         }
-        #if os(iOS)
-        .navigationBarHidden(showRenamePrompt)
-        .if(showRenamePrompt) { view in
-            if #available(iOS 16.0, *) {
-                view.toolbar(.hidden, for: .navigationBar)
-            } else {
-                view
-            }
-        }
-        #endif
-        .keyboardSafeEditorPresentation(isPresented: $showRenamePrompt) {
+        .sheet(isPresented: $showRenamePrompt) {
             TextInputView(
                 title: "Rename Playlist",
                 message: "Choose a new playlist name.",

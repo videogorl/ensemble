@@ -83,18 +83,8 @@ public struct MergedPlaylistDetailView: View {
                 return pinManager.areAllPinned(ids: ids)
             }
         )
-        #if os(iOS)
-        .navigationBarHidden(showRenamePrompt)
-        .if(showRenamePrompt) { view in
-            if #available(iOS 16.0, *) {
-                view.toolbar(.hidden, for: .navigationBar)
-            } else {
-                view
-            }
-        }
-        #endif
         // Rename all constituent playlists
-        .keyboardSafeEditorPresentation(isPresented: $showRenamePrompt) {
+        .sheet(isPresented: $showRenamePrompt) {
             TextInputView(
                 title: "Rename Playlist",
                 message: "This will rename the playlist on \(viewModel.displayPlaylist.playlists.count) server\(viewModel.displayPlaylist.playlists.count == 1 ? "" : "s").",
