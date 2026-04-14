@@ -68,7 +68,7 @@ public struct FavoritesView: View {
                             showFilterSheet = true
                         } label: {
                             ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                Image(systemName: "line.3.horizontal.decrease")
 
                                 if viewModel.filterOptions.hasActiveFilters {
                                     Circle()
@@ -94,7 +94,7 @@ public struct FavoritesView: View {
                             showFilterSheet = true
                         } label: {
                             ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                Image(systemName: "line.3.horizontal.decrease")
                                 if viewModel.filterOptions.hasActiveFilters {
                                     Circle()
                                         .fill(Color.red)
@@ -133,7 +133,7 @@ public struct FavoritesView: View {
         .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
             if gen != availabilityGeneration { availabilityGeneration = gen }
         }
-        .keyboardSafeEditorPresentation(isPresented: $showFilterSheet) {
+        .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $viewModel.filterOptions
             )
@@ -158,7 +158,7 @@ public struct FavoritesView: View {
                 }
             }
         } label: {
-            Label("More", systemImage: "ellipsis.circle")
+            Label("More", systemImage: "ellipsis")
         }
     }
 

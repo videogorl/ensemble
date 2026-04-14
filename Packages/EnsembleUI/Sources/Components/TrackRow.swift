@@ -262,8 +262,8 @@ public struct TrackRow: View {
 
         Section {
             Button {
-                // Context-menu initiated full-screen cover can be swallowed when
-                // triggered before the menu dismiss animation completes.
+                // Context-menu initiated editor presentation can be swallowed
+                // when triggered before the menu dismiss animation completes.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                     DispatchQueue.main.async {
                         isEditingMetadata = true

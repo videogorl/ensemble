@@ -1,7 +1,7 @@
 import EnsembleCore
 import SwiftUI
 
-/// Compact circular profile image button for toolbar placement.
+/// Compact profile image button for toolbar placement.
 /// Shows the user's profile picture (28×28pt) or a placeholder icon.
 /// On tap, opens the profile sheet via NavigationCoordinator.
 public struct ProfileToolbarButton: View {
@@ -36,7 +36,7 @@ public struct ProfileToolbarButton: View {
                 .frame(width: 28, height: 28)
                 .clipShape(Circle())
         } else {
-            Image(systemName: "person.circle")
+            Image(systemName: "person")
                 .font(.title3)
         }
     }
@@ -106,7 +106,7 @@ private struct LocalToolbarProfileImage: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
-                Image(systemName: "person.circle")
+                Image(systemName: "person")
                     .font(.title3)
             }
         }

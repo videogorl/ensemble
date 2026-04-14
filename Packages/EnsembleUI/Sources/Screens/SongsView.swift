@@ -138,7 +138,7 @@ public struct SongsView: View {
                             showFilterSheet = true
                         } label: {
                             ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                Image(systemName: "line.3.horizontal.decrease")
 
                                 // Badge indicator when filters are active
                                 if libraryVM.tracksFilterOptions.hasActiveFilters {
@@ -189,7 +189,7 @@ public struct SongsView: View {
                                 Label("Play All", systemImage: "play.fill")
                             }
                         } label: {
-                            Image(systemName: "ellipsis.circle")
+                            Image(systemName: "ellipsis")
                         }
                     }
                 }
@@ -203,7 +203,7 @@ public struct SongsView: View {
                             showFilterSheet = true
                         } label: {
                             ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                Image(systemName: "line.3.horizontal.decrease")
                                 if libraryVM.tracksFilterOptions.hasActiveFilters {
                                     Circle()
                                         .fill(Color.red)
@@ -252,7 +252,7 @@ public struct SongsView: View {
                                 Label("Play All", systemImage: "play.fill")
                             }
                         } label: {
-                            Image(systemName: "ellipsis.circle")
+                            Image(systemName: "ellipsis")
                         }
                     }
                 }
@@ -277,7 +277,7 @@ public struct SongsView: View {
                 cachedStageFlowAlbums = rebuiltAlbums
             }
         }
-        .keyboardSafeEditorPresentation(isPresented: $showFilterSheet) {
+        .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.tracksFilterOptions,
                 availableGenres: libraryVM.availableTrackGenres,
