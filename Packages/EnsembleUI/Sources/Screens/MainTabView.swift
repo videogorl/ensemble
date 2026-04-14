@@ -726,15 +726,6 @@ struct NestedNavigationLink<DestinationView: View>: View {
 // MARK: - iPad Sidebar View
 
 @available(iOS 16.0, macOS 13.0, *)
-private struct SidebarColumnWidthPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 260
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-@available(iOS 16.0, macOS 13.0, *)
 public struct SidebarView: View {
     /// Stable sidebar-only playlist row model so SwiftUI diffing does not depend on
     /// the broader Playlist Hashable/Equatable semantics.
@@ -774,11 +765,16 @@ public struct SidebarView: View {
 
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
+    private enum CompactColumnPreference: Int {
+        case sidebar
+        case detail
+    }
 
     @State private var selection: SidebarSelection? = .library(.home)
     @State private var showingSheetNowPlaying = false
     @State private var pinnedDetailPath: [NavigationCoordinator.Destination] = []
-    @State private var sidebarColumnWidth: CGFloat = 260
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var compactColumnPreference: CompactColumnPreference = .detail
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var playlistForEditSheet: Playlist?
     @State private var playlistPendingRename: Playlist?
@@ -1115,38 +1111,7 @@ public struct SidebarView: View {
     }
 
     public var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .bottomLeading) {
-                // .constant(.doubleColumn) makes the binding read-only — SwiftUI
-                // cannot collapse the sidebar because the write is a no-op.
-                NavigationSplitView(columnVisibility: .constant(.doubleColumn)) {
-                    sidebarColumn
-                } detail: {
-                    detailContainerView
-                        .macEditorToolbarRoleIfAvailable()
-                }
-                .navigationSplitViewStyle(.balanced)
-
-                // Aurora visualization — placed in the outer ZStack so it renders
-                // above NavigationStack pushed views (macOS NavigationStack creates
-                // opaque compositing layers that paint over parent overlays).
-                if settingsManager.auroraVisualizationEnabled && !isShowingNowPlaying {
-                    detailColumnAurora(totalSize: proxy.size)
-                        .zIndex(-1)
-                }
-
-                if !isShowingNowPlaying {
-                    detailColumnMiniPlayer(totalSize: proxy.size)
-                        .zIndex(2)
-                }
-            }
-        }
-        .onPreferenceChange(SidebarColumnWidthPreferenceKey.self) { width in
-            #if !os(macOS)
-            guard abs(width - sidebarColumnWidth) > 1 else { return }
-            sidebarColumnWidth = width
-            #endif
-        }
+        splitNavigationView
         #if os(iOS)
         .sheet(isPresented: profileSheetBinding, onDismiss: {
             navigationCoordinator.dismissAuxiliaryPresentation()
@@ -1301,6 +1266,11 @@ public struct SidebarView: View {
             if let tab = newSelection?.correspondingTab {
                 navigationCoordinator.selectedTab = tab
             }
+            #if os(iOS)
+            if #available(iOS 17.0, *), newSelection != nil {
+                compactColumnPreference = .detail
+            }
+            #endif
             pinnedDetailPath.removeAll()
         }
     }
@@ -1387,14 +1357,6 @@ public struct SidebarView: View {
         .onReceive(playlistsVM.$isMergeEnabled) { _ in
             rebuildCachedSidebarPlaylists()
         }
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: SidebarColumnWidthPreferenceKey.self,
-                    value: proxy.size.width
-                )
-            }
-        )
     }
 
     /// Collapsible sidebar section using native Section(isExpanded:) on iOS 17+/macOS 14+,
@@ -1488,21 +1450,27 @@ public struct SidebarView: View {
     }
 
     private var detailContainerView: some View {
-        detailView
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        detailColumnChrome {
+            detailView
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
     @ViewBuilder
     private func playlistDetailNavigationStack(playlistID: String, sourceKey: String?) -> some View {
         NavigationStack(path: sidebarPathBinding(for: .playlists)) {
-            PlaylistDetailLoader(
-                playlistId: playlistID,
-                playlistSourceKey: sourceKey,
-                nowPlayingVM: nowPlayingVM
-            )
+            detailColumnChrome {
+                PlaylistDetailLoader(
+                    playlistId: playlistID,
+                    playlistSourceKey: sourceKey,
+                    nowPlayingVM: nowPlayingVM
+                )
+            }
             .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                destinationView(for: destination)
-                    .auroraBackgroundSupport()
+                detailColumnChrome {
+                    destinationView(for: destination)
+                        .auroraBackgroundSupport()
+                }
             }
         }
         .id("playlist-detail-\(playlistID)-\(sourceKey ?? "none")")
@@ -1511,14 +1479,18 @@ public struct SidebarView: View {
     @ViewBuilder
     private func mergedPlaylistDetailNavigationStack(title: String, isSmart: Bool) -> some View {
         NavigationStack(path: sidebarPathBinding(for: .playlists)) {
-            MergedPlaylistDetailLoader(
-                title: title,
-                isSmart: isSmart,
-                nowPlayingVM: nowPlayingVM
-            )
+            detailColumnChrome {
+                MergedPlaylistDetailLoader(
+                    title: title,
+                    isSmart: isSmart,
+                    nowPlayingVM: nowPlayingVM
+                )
+            }
             .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                destinationView(for: destination)
-                    .auroraBackgroundSupport()
+                detailColumnChrome {
+                    destinationView(for: destination)
+                        .auroraBackgroundSupport()
+                }
             }
         }
         .id("merged-playlist-detail-\(title)-\(isSmart)")
@@ -1530,7 +1502,9 @@ public struct SidebarView: View {
     @ViewBuilder
     private func sidebarNavigationStack(for tab: TabItem) -> some View {
         NavigationStack(path: sidebarPathBinding(for: tab)) {
-            sidebarContentView(for: tab)
+            detailColumnChrome {
+                sidebarContentView(for: tab)
+            }
         }
     }
 
@@ -1552,11 +1526,15 @@ public struct SidebarView: View {
     @ViewBuilder
     private func pinnedDetailNavigationStack(id: String, type: PinnedItemType) -> some View {
         NavigationStack(path: $pinnedDetailPath) {
-            pinnedDetailRootView(id: id, type: type)
-                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+            detailColumnChrome {
+                pinnedDetailRootView(id: id, type: type)
+            }
+            .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                detailColumnChrome {
                     destinationView(for: destination)
                         .auroraBackgroundSupport()
                 }
+            }
         }
         .id("pin-\(id)-\(type)")
     }
@@ -1573,17 +1551,14 @@ public struct SidebarView: View {
         }
     }
 
-    private func detailColumnMiniPlayer(totalSize: CGSize) -> some View {
-        let horizontalPadding: CGFloat = 24
-        let bottomPadding: CGFloat = 20
-        let clampedSidebarWidth = min(max(sidebarColumnWidth, 0), totalSize.width)
-        let detailWidth = max(totalSize.width - clampedSidebarWidth, 0)
-        let availableWidth = max(detailWidth - (horizontalPadding * 2), 0)
-        let miniPlayerWidth = min(540, availableWidth)
+    private var splitColumnMiniPlayer: some View {
+        GeometryReader { proxy in
+            let horizontalPadding: CGFloat = 24
+            let bottomPadding: CGFloat = 20
+            let availableWidth = max(proxy.size.width - (horizontalPadding * 2), 0)
+            let miniPlayerWidth = min(540, availableWidth)
 
-        return VStack(spacing: 0) {
-            Spacer(minLength: 0)
-            HStack {
+            VStack(spacing: 0) {
                 Spacer(minLength: 0)
                 MiniPlayer(
                     viewModel: nowPlayingVM,
@@ -1601,20 +1576,88 @@ public struct SidebarView: View {
                 }
                 .frame(width: miniPlayerWidth)
                 .accentColor(deps.settingsManager.accentColor.color)
-                Spacer(minLength: 0)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.bottom, bottomPadding)
             }
-            .padding(.horizontal, horizontalPadding)
-            .frame(width: detailWidth, alignment: .center)
-            .padding(.leading, clampedSidebarWidth)
-            .padding(.bottom, bottomPadding)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottom)
+            .allowsHitTesting(!isShowingNowPlaying)
         }
-        .frame(width: totalSize.width, height: totalSize.height, alignment: .bottomLeading)
         .transition(.identity)
     }
 
-    /// Aurora visualization positioned within the detail column.
-    /// Uses the same sidebar-width offset as the mini player so the aurora
-    /// covers only the detail area, not the sidebar.
+    @ViewBuilder
+    private func detailColumnChrome<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let builtContent = content()
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                if settingsManager.auroraVisualizationEnabled && !isShowingNowPlaying {
+                    detailColumnAurora(totalSize: proxy.size)
+                }
+
+                builtContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if !isShowingNowPlaying {
+                    splitColumnMiniPlayer
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+    }
+
+    @ViewBuilder
+    private var splitNavigationView: some View {
+        if #available(iOS 17.0, macOS 14.0, *) {
+            splitNavigationViewWithCompactColumn
+        } else {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                sidebarColumn
+            } detail: {
+                detailContainerView
+                    .macEditorToolbarRoleIfAvailable()
+            }
+            .navigationSplitViewStyle(.balanced)
+        }
+    }
+
+    @available(iOS 17.0, macOS 14.0, *)
+    @ViewBuilder
+    private var splitNavigationViewWithCompactColumn: some View {
+        #if os(iOS)
+        let preferredCompactColumn = Binding<NavigationSplitViewColumn>(
+            get: {
+                compactColumnPreference == .sidebar ? .sidebar : .detail
+            },
+            set: { newValue in
+                compactColumnPreference = newValue == .sidebar ? .sidebar : .detail
+            }
+        )
+        NavigationSplitView(
+            columnVisibility: $columnVisibility,
+            preferredCompactColumn: preferredCompactColumn
+        ) {
+            sidebarColumn
+        } detail: {
+            detailContainerView
+                .macEditorToolbarRoleIfAvailable()
+        }
+        .navigationSplitViewStyle(.balanced)
+        #else
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            sidebarColumn
+        } detail: {
+            detailContainerView
+                .macEditorToolbarRoleIfAvailable()
+        }
+        .navigationSplitViewStyle(.balanced)
+        #endif
+    }
+
+    /// Aurora visualization layered beneath the split view content.
+    /// The mini player now lives inside the detail column itself, while the
+    /// aurora remains a full-window background treatment.
     private func detailColumnAurora(totalSize: CGSize) -> some View {
         return AuroraVisualizationView(
             playbackService: DependencyContainer.shared.playbackService,
@@ -1637,10 +1680,12 @@ public struct SidebarView: View {
                 TabViewFactory.viewContent(for: tab, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
             }
         }
-            .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+            detailColumnChrome {
                 destinationView(for: destination)
                     .auroraBackgroundSupport()
             }
+        }
     }
 
     /// Sidebar row for a pinned item, showing artwork preview instead of an icon.
