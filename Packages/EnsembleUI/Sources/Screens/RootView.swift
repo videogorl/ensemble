@@ -274,22 +274,7 @@ public struct RootView: View {
             .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
                 isLowPowerMode = newValue
             }
-            .if(usesFullScreenNowPlayingPresentation) { view in
-                view.fullScreenCover(
-                    isPresented: $isNowPlayingPresented,
-                    onDismiss: clearPresentedNowPlayingViewModel
-                ) {
-                    nowPlayingPresentationContent
-                }
-            }
-            .if(!supportsViewportNowPlayingPresentation && !usesFullScreenNowPlayingPresentation) { view in
-                view.sheet(
-                    isPresented: $isNowPlayingPresented,
-                    onDismiss: clearPresentedNowPlayingViewModel
-                ) {
-                    nowPlayingPresentationContent
-                }
-            }
+            .modifier(NowPlayingPresentationModifier(rootView: self))
             .task {
                 let deps = DependencyContainer.shared
                 deps.accountManager.loadAccounts()
@@ -399,7 +384,7 @@ public struct RootView: View {
         )
     }
 
-    private var supportsViewportNowPlayingPresentation: Bool {
+    fileprivate var supportsViewportNowPlayingPresentation: Bool {
         #if os(macOS)
         return true
         #else
@@ -407,7 +392,7 @@ public struct RootView: View {
         #endif
     }
 
-    private var usesFullScreenNowPlayingPresentation: Bool {
+    fileprivate var usesFullScreenNowPlayingPresentation: Bool {
         #if os(iOS)
         if #available(iOS 16.0, *) {
             return UIDevice.current.userInterfaceIdiom == .pad
@@ -418,7 +403,7 @@ public struct RootView: View {
         #endif
     }
 
-    private var nowPlayingPresentationContent: some View {
+    fileprivate var nowPlayingPresentationContent: some View {
         NowPlayingSheetView(
             viewModel: presentedNowPlayingViewModel,
             namespace: playerNamespace,
@@ -427,6 +412,10 @@ public struct RootView: View {
         )
         .accentColor(settingsManager.accentColor.color)
         .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
+    }
+
+    fileprivate var nowPlayingPresentationBinding: Binding<Bool> {
+        $isNowPlayingPresented
     }
 
     private func presentNowPlaying(with viewModel: NowPlayingViewModel) {
@@ -446,7 +435,44 @@ public struct RootView: View {
         }
     }
 
-    private func clearPresentedNowPlayingViewModel() {
+    fileprivate func clearPresentedNowPlayingViewModel() {
         activeNowPlayingPresentationViewModel = nil
+    }
+}
+
+private struct NowPlayingPresentationModifier: ViewModifier {
+    let rootView: RootView
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if rootView.usesFullScreenNowPlayingPresentation {
+            content.fullScreenCover(
+                isPresented: rootView.nowPlayingPresentationBinding,
+                onDismiss: rootView.clearPresentedNowPlayingViewModel
+            ) {
+                rootView.nowPlayingPresentationContent
+            }
+        } else if !rootView.supportsViewportNowPlayingPresentation {
+            content.sheet(
+                isPresented: rootView.nowPlayingPresentationBinding,
+                onDismiss: rootView.clearPresentedNowPlayingViewModel
+            ) {
+                rootView.nowPlayingPresentationContent
+            }
+        } else {
+            content
+        }
+        #else
+        if !rootView.supportsViewportNowPlayingPresentation {
+            content.sheet(
+                isPresented: rootView.nowPlayingPresentationBinding,
+                onDismiss: rootView.clearPresentedNowPlayingViewModel
+            ) {
+                rootView.nowPlayingPresentationContent
+            }
+        } else {
+            content
+        }
+        #endif
     }
 }

@@ -9,10 +9,12 @@ public struct NowPlayingSheetView: View {
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @State private var dismissDragOffset: CGFloat = 0
 
     private let namespace: Namespace.ID?
     private let animationID: String?
     private let dismissAction: (() -> Void)?
+    private let dismissThreshold: CGFloat = 120
 
     public init(
         viewModel: NowPlayingViewModel,
@@ -38,10 +40,13 @@ public struct NowPlayingSheetView: View {
                     .onTapGesture {
                         handleDismiss()
                     }
+                    .gesture(dismissDragGesture)
 
                 NowPlayingCarousel(viewModel: viewModel, currentPage: $viewModel.currentPage)
             }
         }
+        .offset(y: dismissDragOffset)
+        .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.86), value: dismissDragOffset)
     }
 
     private var backgroundView: some View {
@@ -91,7 +96,28 @@ public struct NowPlayingSheetView: View {
             .frame(width: 36, height: 5)
     }
 
+    private var dismissDragGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                guard value.translation.height > 0 else {
+                    dismissDragOffset = 0
+                    return
+                }
+
+                // Keep dismissal responsive without letting the view lag too far behind the finger.
+                dismissDragOffset = value.translation.height * 0.72
+            }
+            .onEnded { value in
+                if value.translation.height > dismissThreshold || value.predictedEndTranslation.height > dismissThreshold {
+                    handleDismiss()
+                } else {
+                    dismissDragOffset = 0
+                }
+            }
+    }
+
     private func handleDismiss() {
+        dismissDragOffset = 0
         if let dismissAction {
             dismissAction()
         } else {
