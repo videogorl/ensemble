@@ -20,8 +20,6 @@ public struct PlaylistsView: View {
     @State private var creatingPlaylistToastID: UUID?
     @State private var playlistForEditSheet: Playlist?
     @State private var displayPlaylistPendingDelete: DisplayPlaylist?
-    // Keyboard-heavy editors flip shared root/presenter suppression before the
-    // modal enters the hierarchy so iOS 26 keyboard relayout stays stable.
     @State private var showCreatePlaylistPush = false
     @State private var renamePushPlaylist: Playlist?
     @State private var renamePushDP: DisplayPlaylist?
@@ -44,7 +42,7 @@ public struct PlaylistsView: View {
     }
 
     private var isKeyboardEditorActive: Bool {
-        showCreatePlaylistPush || renamePushPlaylist != nil || renamePushDP != nil
+        renamePushPlaylist != nil || renamePushDP != nil
     }
 
     private var isPresenterChromeHidden: Bool {
@@ -173,7 +171,7 @@ public struct PlaylistsView: View {
             .ignoresSafeArea(.keyboard)
             #endif
             // Text input editors
-            .keyboardSafeEditorPresentation(isPresented: $showCreatePlaylistPush) {
+            .sheet(isPresented: $showCreatePlaylistPush) {
                 CreatePlaylistView(
                     serverOptions: nowPlayingVM.playlistServerOptions(),
                     isMergeEnabled: viewModel.isMergeEnabled
