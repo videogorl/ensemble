@@ -1190,6 +1190,14 @@ public struct SidebarView: View {
 
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom) {
+            Color.clear
+                .frame(
+                    height: isShowingNowPlaying
+                        ? 0
+                        : TrackListLayoutMetrics.miniPlayerContainerInset
+                )
+        }
         .navigationSplitViewColumnWidth(min: 260, ideal: 260, max: 260)
         .toolbar {
             ToolbarItem { Spacer() }
