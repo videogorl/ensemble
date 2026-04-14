@@ -24,6 +24,7 @@ public struct SearchView: View {
     @State private var hasAnySources = DependencyContainer.shared.accountManager.hasAnySources
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var hasEnabledLibrariesState = false
+    @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
     // Targeted NVM observation: only re-evaluate on track/playlist target changes
     @State private var currentTrackId: String?
     @State private var nvmRecentPlaylistTitle: String?
@@ -83,6 +84,9 @@ public struct SearchView: View {
         }
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
+        }
+        .onReceive(DependencyContainer.shared.accountManager.$isAwaitingCloudSources) { awaiting in
+            if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
         }
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
@@ -181,7 +185,30 @@ public struct SearchView: View {
 
     @ViewBuilder
     private var exploreView: some View {
-        if !hasAnySources {
+        if isRestoringCloudSources {
+            VStack(spacing: 16) {
+                Spacer()
+
+                Image(systemName: "music.note.list")
+                    .font(.system(size: 60))
+                    .foregroundColor(.secondary)
+
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Restoring libraries from iCloud…")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                }
+
+                Text("This can take a moment on first launch.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Spacer()
+            }
+            .padding(.top, 40)
+        } else if !hasAnySources {
             VStack(spacing: 16) {
                 Spacer()
 
@@ -780,7 +807,19 @@ public struct SearchView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.secondary)
             
-            if isSyncing {
+            if isRestoringCloudSources {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Restoring libraries from iCloud…")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                }
+
+                Text("This can take a moment on first launch.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            } else if isSyncing {
                 Text("Sync in progress…")
                     .font(.title3)
                     .foregroundColor(.secondary)
@@ -1192,7 +1231,19 @@ public struct SearchView: View {
             Text("No Results")
                 .font(.title2)
 
-            if !hasAnySources {
+            if isRestoringCloudSources {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Restoring libraries from iCloud…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+
+                Text("This can take a moment on first launch.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            } else if !hasAnySources {
                 Text("No music sources connected")
                     .font(.subheadline)
                     .foregroundColor(.secondary)

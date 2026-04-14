@@ -173,7 +173,20 @@ public struct ArtistsView: View {
             Text("No Artists")
                 .font(.title2)
 
-            if !libraryVM.hasAnySources {
+            if libraryVM.isRestoringCloudSources {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text("Restoring libraries from iCloud…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Text("This can take a moment on first launch.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            } else if !libraryVM.hasAnySources {
                 Text("No music sources connected")
                     .font(.subheadline)
                     .foregroundColor(.secondary)

@@ -13,6 +13,7 @@ public final class LibraryViewModel: ObservableObject {
     @Published public private(set) var isSyncing = false
     @Published public private(set) var hasAnySources = false
     @Published public private(set) var hasEnabledLibraries = false
+    @Published public private(set) var isRestoringCloudSources = false
     
     // Sort preferences
     @Published public var trackSortOption: TrackSortOption = .title {
@@ -108,6 +109,10 @@ public final class LibraryViewModel: ObservableObject {
                 }
             }
             .assign(to: &$hasEnabledLibraries)
+
+        accountManager.$isAwaitingCloudSources
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isRestoringCloudSources)
 
         // Reflect account/library enablement changes immediately in cached browse surfaces.
         accountManager.$plexAccounts

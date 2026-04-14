@@ -684,6 +684,7 @@ public final class DependencyContainer: @unchecked Sendable {
                                     config = acctMgr.applyingSyncedLibraryFlags(to: config)
                                 }
                                 acctMgr.addPlexAccount(config)
+                                acctMgr.setAwaitingCloudSources(false)
                                 syncCoordinatorRef.refreshProviders()
                                 EnsembleLogger.info("Sync: discovered account \(credential.accountId) with \(result.servers.count) servers")
 
@@ -738,6 +739,10 @@ public final class DependencyContainer: @unchecked Sendable {
                     let disabledSourcesToCleanup = Array(Set(result.disabledSources + acctMgr.disabledSources()))
                     if !disabledSourcesToCleanup.isEmpty {
                         await syncCoordinatorRef.cleanupRemovedSourcesIfPresent(disabledSourcesToCleanup)
+                    }
+
+                    if !acctMgr.hasAnySources && !syncToggles.hasCompletedFirstConnect {
+                        self.scheduleSyncBootstrap(reason: "remote-library-flags", feature: .sources)
                     }
 
                     guard result.hasChanges else { return }
@@ -1065,6 +1070,7 @@ public final class DependencyContainer: @unchecked Sendable {
         syncSettingsManager.setFeatureState(.bootstrapping, for: .sources)
 
         if accountManager.hasSyncedCloudCredentials() {
+            accountManager.setAwaitingCloudSources(false)
             let newAccounts = accountManager.pullSyncCredentials()
             syncSettingsManager.recordFeatureActivity(
                 for: .sources,
@@ -1080,15 +1086,18 @@ public final class DependencyContainer: @unchecked Sendable {
 
         guard accountManager.hasAnySources else {
             if shouldKeepFirstConnectPending {
+                accountManager.setAwaitingCloudSources(true)
                 EnsembleLogger.info("Sync bootstrap: waiting for iCloud sources after \(reason)")
                 syncSettingsManager.setFeatureState(.waitingForTransport, for: .sources)
                 return false
             }
 
+            accountManager.setAwaitingCloudSources(false)
             syncSettingsManager.setFeatureState(.idle, for: .sources)
             return true
         }
 
+        accountManager.setAwaitingCloudSources(false)
         EnsembleLogger.info("Sync bootstrap: seeding local sources after \(reason)")
         accountManager.seedCloudSyncCredentialsFromLocal()
         syncSettingsManager.recordFeatureActivity(

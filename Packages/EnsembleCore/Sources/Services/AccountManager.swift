@@ -41,6 +41,7 @@ public final class AccountManager: ObservableObject {
     }
 
     @Published public private(set) var plexAccounts: [PlexAccountConfig] = []
+    @Published public private(set) var isAwaitingCloudSources = false
 
     private let keychain: KeychainServiceProtocol
     private let connectionRegistry: ServerConnectionRegistry?
@@ -69,6 +70,12 @@ public final class AccountManager: ObservableObject {
 
         plexAccounts = (try? JSONDecoder().decode([PlexAccountConfig].self, from: data)) ?? []
         _ = enforceAuthTokenPolicy()
+    }
+
+    /// Tracks whether first-connect source hydration is still waiting on iCloud.
+    public func setAwaitingCloudSources(_ awaiting: Bool) {
+        guard isAwaitingCloudSources != awaiting else { return }
+        isAwaitingCloudSources = awaiting
     }
 
     private func saveAccounts() {
@@ -644,8 +651,21 @@ public final class AccountManager: ObservableObject {
 
     private func applyAuthMigrationIfNeeded() -> Bool {
         let defaults = UserDefaults.standard
+        let hasStoredMigrationVersion = defaults.object(forKey: Self.authMigrationVersionKey) != nil
         let previousVersion = defaults.integer(forKey: Self.authMigrationVersionKey)
         guard previousVersion < Self.authMigrationVersion else {
+            return false
+        }
+
+        // A true fresh install has no stored account payload yet. In that case
+        // there is nothing to migrate, so mark the migration as satisfied and
+        // let iCloud-synced accounts hydrate normally.
+        if !hasStoredMigrationVersion,
+           (try? keychain.get(KeychainKey.plexAccounts)) == nil {
+            defaults.set(Self.authMigrationVersion, forKey: Self.authMigrationVersionKey)
+            EnsembleLogger.debug(
+                "🔐 AccountManager: Marked auth migration v\(Self.authMigrationVersion) complete on fresh install"
+            )
             return false
         }
 

@@ -28,6 +28,7 @@ public struct PlaylistsView: View {
     // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
     @State private var isStageFlowActive = false
     @State private var latestContainerSize: CGSize = .zero
+    @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
@@ -118,6 +119,9 @@ public struct PlaylistsView: View {
                 }
             } message: {
                 Text("This will permanently delete \"\(playlistPendingSwipeDelete?.title ?? "this playlist")\" from Plex.")
+            }
+            .onReceive(accountManager.$isAwaitingCloudSources) { awaiting in
+                if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
             }
             // Alert: confirm delete for merged playlists (affects all servers)
             .alert("Delete Merged Playlist?", isPresented: Binding(
@@ -411,7 +415,19 @@ public struct PlaylistsView: View {
             Text("No Playlists")
                 .font(.title2)
 
-            if !accountManager.hasAnySources {
+            if isRestoringCloudSources {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Restoring libraries from iCloud…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+
+                Text("This can take a moment on first launch.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            } else if !accountManager.hasAnySources {
                 Text("No music sources connected")
                     .font(.subheadline)
                     .foregroundColor(.secondary)

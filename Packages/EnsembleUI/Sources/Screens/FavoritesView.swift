@@ -22,6 +22,7 @@ public struct FavoritesView: View {
     @State private var hasAnySources = DependencyContainer.shared.accountManager.hasAnySources
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var hasEnabledLibrariesState = false
+    @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
     @State private var showFilterSheet = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     // Targeted NVM observation: only re-evaluate when track/playlist target changes
@@ -127,6 +128,9 @@ public struct FavoritesView: View {
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }
+        .onReceive(DependencyContainer.shared.accountManager.$isAwaitingCloudSources) { awaiting in
+            if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
+        }
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
         }
@@ -199,7 +203,19 @@ public struct FavoritesView: View {
             Text("No Favorites Yet")
                 .font(.title2)
             
-            if !hasAnySources {
+            if isRestoringCloudSources {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Restoring libraries from iCloud…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+
+                Text("This can take a moment on first launch.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            } else if !hasAnySources {
                 Text("No music sources connected")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
