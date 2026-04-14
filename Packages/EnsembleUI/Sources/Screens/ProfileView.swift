@@ -81,16 +81,8 @@ public struct ProfileView: View {
         #if os(iOS)
         .ignoresSafeArea(.keyboard)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarHidden(showingNameEditor)
-        .if(showingNameEditor) { view in
-            if #available(iOS 16.0, *) {
-                view.toolbar(.hidden, for: .navigationBar)
-            } else {
-                view
-            }
-        }
         #endif
-        .keyboardSafeEditorPresentation(isPresented: $showingNameEditor) {
+        .sheet(isPresented: $showingNameEditor) {
             TextInputView(
                 title: "Edit Name",
                 placeholder: "Your Name",

@@ -114,6 +114,30 @@ public struct MainTabView: View {
         navigationCoordinator.activeAuxiliaryPresentation != nil
     }
 
+    private var profileSheetBinding: Binding<Bool> {
+        Binding(
+            get: { navigationCoordinator.activeAuxiliaryPresentation == .profile },
+            set: { isPresented in
+                guard !isPresented,
+                      navigationCoordinator.activeAuxiliaryPresentation == .profile else { return }
+                navigationCoordinator.dismissAuxiliaryPresentation()
+            }
+        )
+    }
+
+    private var downloadsAuxiliaryBinding: Binding<NavigationCoordinator.AuxiliaryPresentation?> {
+        Binding(
+            get: {
+                navigationCoordinator.activeAuxiliaryPresentation == .downloads ? .downloads : nil
+            },
+            set: { destination in
+                guard destination == nil,
+                      navigationCoordinator.activeAuxiliaryPresentation == .downloads else { return }
+                navigationCoordinator.dismissAuxiliaryPresentation()
+            }
+        )
+    }
+
     private var isRootChromeSuppressed: Bool {
         isImmersiveMode || navigationCoordinator.isKeyboardEditorPresented
     }
@@ -282,7 +306,13 @@ public struct MainTabView: View {
                 }
             }
             #if os(iOS)
-            .phoneSafeAuxiliaryPresentation(item: $navigationCoordinator.activeAuxiliaryPresentation, onDismiss: {
+            .sheet(isPresented: profileSheetBinding, onDismiss: {
+                navigationCoordinator.dismissAuxiliaryPresentation()
+            }) {
+                ProfilePresentationContainer()
+                    .accentColor(settingsManager.accentColor.color)
+            }
+            .phoneSafeAuxiliaryPresentation(item: downloadsAuxiliaryBinding, onDismiss: {
                 navigationCoordinator.dismissAuxiliaryPresentation()
             }) { destination in
                 AuxiliaryPresentationView(destination: destination)
@@ -761,6 +791,30 @@ public struct SidebarView: View {
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
 
+    private var profileSheetBinding: Binding<Bool> {
+        Binding(
+            get: { navigationCoordinator.activeAuxiliaryPresentation == .profile },
+            set: { isPresented in
+                guard !isPresented,
+                      navigationCoordinator.activeAuxiliaryPresentation == .profile else { return }
+                navigationCoordinator.dismissAuxiliaryPresentation()
+            }
+        )
+    }
+
+    private var downloadsAuxiliaryBinding: Binding<NavigationCoordinator.AuxiliaryPresentation?> {
+        Binding(
+            get: {
+                navigationCoordinator.activeAuxiliaryPresentation == .downloads ? .downloads : nil
+            },
+            set: { destination in
+                guard destination == nil,
+                      navigationCoordinator.activeAuxiliaryPresentation == .downloads else { return }
+                navigationCoordinator.dismissAuxiliaryPresentation()
+            }
+        )
+    }
+
     // Cached sidebar playlist items driven by .onReceive — avoids computed property
     // re-evaluation issues on macOS where NavigationSplitView can swallow updates.
     @State private var cachedSmartPlaylists: [SidebarPlaylistItem] = []
@@ -1094,7 +1148,13 @@ public struct SidebarView: View {
             #endif
         }
         #if os(iOS)
-        .phoneSafeAuxiliaryPresentation(item: $navigationCoordinator.activeAuxiliaryPresentation, onDismiss: {
+        .sheet(isPresented: profileSheetBinding, onDismiss: {
+            navigationCoordinator.dismissAuxiliaryPresentation()
+        }) {
+            ProfilePresentationContainer()
+                .accentColor(settingsManager.accentColor.color)
+        }
+        .phoneSafeAuxiliaryPresentation(item: downloadsAuxiliaryBinding, onDismiss: {
             navigationCoordinator.dismissAuxiliaryPresentation()
         }) { destination in
             AuxiliaryPresentationView(destination: destination)
@@ -1305,7 +1365,7 @@ public struct SidebarView: View {
             ToolbarItem { Spacer() }
             ToolbarItemGroup(placement: .primaryActionIfAvailable) {
                 Button { navigationCoordinator.openDownloads() } label: {
-                    Image(systemName: "arrow.down.circle")
+                    Image(systemName: "arrow.down")
                 }
                 .help("Downloads")
                 ProfileToolbarButton()

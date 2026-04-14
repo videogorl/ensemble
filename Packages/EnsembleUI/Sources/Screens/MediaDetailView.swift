@@ -147,7 +147,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         showFilterSheet = true
                     } label: {
                         ZStack(alignment: .topTrailing) {
-                            Image(systemName: "line.3.horizontal.decrease.circle")
+                            Image(systemName: "line.3.horizontal.decrease")
 
                             if viewModel.filterOptions.hasActiveFilters {
                                 Circle()
@@ -167,7 +167,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         showFilterSheet = true
                     } label: {
                         ZStack(alignment: .topTrailing) {
-                            Image(systemName: "line.3.horizontal.decrease.circle")
+                            Image(systemName: "line.3.horizontal.decrease")
 
                             if viewModel.filterOptions.hasActiveFilters {
                                 Circle()
@@ -509,7 +509,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .disabled(!playlistMenuActions.canDelete)
             }
         } label: {
-            Image(systemName: "ellipsis.circle")
+            Image(systemName: "ellipsis")
         }
     }
 

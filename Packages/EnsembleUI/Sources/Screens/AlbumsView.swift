@@ -128,7 +128,7 @@ public struct AlbumsView: View {
                             showFilterSheet = true
                         } label: {
                             ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                Image(systemName: "line.3.horizontal.decrease")
 
                                 // Badge indicator when filters are active
                                 if libraryVM.albumsFilterOptions.hasActiveFilters {
@@ -175,7 +175,7 @@ public struct AlbumsView: View {
                             showFilterSheet = true
                         } label: {
                             ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                Image(systemName: "line.3.horizontal.decrease")
                                 if libraryVM.albumsFilterOptions.hasActiveFilters {
                                     Circle()
                                         .fill(Color.red)
@@ -242,7 +242,7 @@ public struct AlbumsView: View {
                     }
                 }
             }
-            .keyboardSafeEditorPresentation(isPresented: $showFilterSheet) {
+            .sheet(isPresented: $showFilterSheet) {
                 FilterSheet(
                     filterOptions: $libraryVM.albumsFilterOptions,
                     availableArtists: availableArtists,

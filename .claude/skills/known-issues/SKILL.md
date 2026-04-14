@@ -29,6 +29,13 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
   3. `simctl get_app_container <watch> com.videogorl.ensemble.watchkitapp` still reports no installed app until the watch app is installed separately or the pair is run from Xcode
 - **Workaround:** For paired watch validation, prefer Xcode's paired run flow. If using CLI tooling, treat the phone install and watch install as separate steps instead of assuming the embedded watch bundle will be registered automatically.
 
+### iOS 26 Keyboard Presenter Guardrails (Apr 13, 2026)
+- **Location:** `View+Extensions.swift`, `MainTabView.swift`, `PlaylistsView.swift`, `ProfileView.swift`, filter screens
+- **Issue:** A broad iPhone workaround pushed ordinary text-input flows into `keyboardSafeEditorPresentation(...)` and pre-hidden chrome. That masked the real root-layout issue, swallowed valid presentations, and forced unnecessary full-screen editors.
+- **Current rule:** Ordinary short rename/create/filter flows should use plain `.sheet` presentation again. The specialized keyboard helper is reserved for the small set of remaining root-owned presenters that still require isolation and have been explicitly validated as such.
+- **Remaining guarded surfaces:** Treat `MainTabView`'s pinned/sidebar playlist rename presenters as intentionally isolated. `MediaDetailView`'s shared filter presenter is still on the helper until it is revalidated with a normal sheet.
+- **Practical impact:** If a future change reaches for `keyboardSafeEditorPresentation(...)` by default, treat that as a likely regression unless the root presenter is demonstrably unstable with a normal sheet.
+
 ### iOS 26 Simulator Keyboard Haptics Log Noise (Apr 7, 2026)
 - **Location:** Simulator runtime only, triggered while opening text-input flows such as the Profile name editor
 - **Issue:** The iOS 26 simulator logs repeated CoreHaptics errors like `_UIKBFeedbackGenerator: Error creating CHHapticPattern` and `hapticpatternlibrary.plist couldn’t be opened` when the software keyboard appears

@@ -37,17 +37,16 @@ These are core design decisions that must be maintained throughout the app.
 - **Shared row actions:** Use `TrackRowInteractionModel` to resolve per-track context-menu availability, recent-playlist gating, and favorite state for both `TrackRow` and `MediaTrackList` paths instead of duplicating that logic per framework
 
 ### Keyboard-Heavy Editors (iPhone)
-- Present rename/create text editors with `keyboardSafeEditorPresentation(...)` from `View+Extensions.swift`
-- Any modal flow that contains a plain `TextField` or other keyboard-driven form input, including filter sheets with year fields, should also use `keyboardSafeEditorPresentation(...)` on iPhone instead of a raw `.sheet` or `.alert`
-- On iPhone, that helper must use `fullScreenCover` so the presenting navigation/search container stays out of the keyboard layout pass
+- Default to a normal `.sheet` for short rename/create/filter flows on iPhone, including profile-name, playlist creation, album/favorites/artists/songs filters, and the validated playlist rename flows.
+- Do **not** pre-emptively hide root tab, mini-player, or navigation/search chrome for those ordinary sheets. Broad chrome suppression was the workaround that masked the iOS 26 keyboard regression and also swallowed valid presentations.
+- Reserve `keyboardSafeEditorPresentation(...)` for the few remaining root-owned presenters that are still intentionally isolated, such as the pinned/sidebar playlist rename presenters in `MainTabView` and any shared/root presenter that has not yet been revalidated with a normal sheet.
+- On iPhone, that helper still uses `fullScreenCover` so the presenting root container stays out of the keyboard layout pass when isolation is actually required.
 - Root tab shells should own keyboard/search avoidance decisions. Child detail views should not inherit an active search or keyboard presenter from an offscreen tab.
-- Root auxiliary flows that can lead into keyboard editors, such as Profile, should also prefer a full-screen cover on iPhone instead of a sheet for the same reason
-- Full-screen auxiliary flows on iPhone need their own explicit dismiss control; do not rely on sheet affordances that no longer exist
-- Do not pre-hide root tab, mini-player, or searchable-header chrome for the entire auxiliary transition; only suppress root chrome for the actual keyboard editor presentation or other immersive modes
-- Searchable root presenters can still need their own local navigation/search suppression during the actual keyboard editor presentation; Albums specifically must hide its navigation/search chrome while `navigationCoordinator.isKeyboardEditorPresented` is true
+- Context-menu metadata editors are a separate case: use `phoneSafeAuxiliaryPresentation(...)` with a short dismissal delay so the menu teardown finishes before presentation begins.
+- Profile should present as a normal sheet again on iPhone.
+- Do not pre-hide root tab, mini-player, or searchable-header chrome for the entire auxiliary transition; only suppress root chrome for actual immersive modes or the remaining explicitly-isolated keyboard presenters.
 - The helper owns keyboard-editor registration timing; do not duplicate `beginKeyboardEditorPresentation()` or `endKeyboardEditorPresentation()` inside the editor view itself
-- Keyboard editors can use a local `NavigationStack`/`NavigationView` plus system toolbar actions for a native look, as long as the presentation is isolated with `keyboardSafeEditorPresentation(...)`
-- When the presenting screen still lives inside a navigation container, hide that navigation bar while the editor is active; prefer `.toolbar(.hidden, for: .navigationBar)` on iOS 16+
+- Keyboard editors can use a local `NavigationStack`/`NavigationView` plus system toolbar actions for a native look whether they are hosted in a normal sheet or one of the remaining isolated presenters.
 - For any modal text-input flow with an explicit Done/Cancel action, dismiss the focused field first and delay the modal dismissal slightly so the keyboard animation completes before the presentation tears down
 
 **NestedNavigationLink Pattern** (in `MainTabView.swift`):
