@@ -8,9 +8,9 @@
 
 | Status | Count |
 |--------|-------|
-| Bugs Found | 4 |
+| Bugs Found | 3 |
 | OK (Correct Usage) | 6 |
-| Needs Review | 6 |
+| Needs Review | 7 |
 
 ## Bugs Found
 
@@ -29,11 +29,6 @@
 
 **Should be:** Plain `.sheet(isPresented:)`.
 
-### 4. `Packages/EnsembleUI/Sources/Screens/MediaDetailView.swift:279`
-**Current code:** Detail filter used `keyboardSafeEditorPresentation(isPresented:)`.
-
-**Should be:** Plain `.sheet(isPresented:)`.
-
 ## Correct Usage (Reference)
 - `Packages/EnsembleUI/Sources/Screens/AlbumsView.swift:245` - Album filter already restored to plain `.sheet(...)`.
 - `Packages/EnsembleUI/Sources/Screens/ProfileView.swift:85` - Profile name editor uses plain `.sheet(...)`.
@@ -47,5 +42,6 @@
 - `Packages/EnsembleUI/Sources/Screens/PlaylistsView.swift:195` - Smart playlist rename from root list; same risk family.
 - `Packages/EnsembleUI/Sources/Screens/PlaylistsView.swift:937` - In-screen playlist rename prompt; likely coupled to the original regression surface.
 - `Packages/EnsembleUI/Sources/Screens/MergedPlaylistDetailView.swift:97` - Merged playlist rename; same rename presenter family.
+- `Packages/EnsembleUI/Sources/Screens/MediaDetailView.swift:279` - Shared detail filter presenter was not exposed by the populated iPhone 26.2 dataset, so it remains on the safer helper until it can be exercised directly.
 - `Packages/EnsembleUI/Sources/Components/TrackRow.swift:76` - Track metadata editor still uses `keyboardSafeEditorPresentation(...)`, but the iPhone Songs surface is backed by `MediaTrackList`, so this path was not exercised in the iOS 26 sweep.
 - `Packages/EnsembleUI/Sources/Screens/MainTabView.swift:1160` and `:1170` - Root-coordinated playlist rename presenters; these are part of the remaining high-risk root-chrome path and should be changed only with dedicated runtime verification.

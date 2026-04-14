@@ -276,7 +276,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var contentWithOptionalFilter: some View {
         if showFilter {
             baseContent
-                .sheet(isPresented: $showFilterSheet) {
+                .keyboardSafeEditorPresentation(isPresented: $showFilterSheet) {
                     FilterSheet(filterOptions: $viewModel.filterOptions)
                 }
         } else {
