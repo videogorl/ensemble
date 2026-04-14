@@ -224,8 +224,9 @@ public extension View {
         #endif
     }
 
-    /// Presents keyboard-heavy editors in a full-screen cover on iPhone so the
-    /// underlying navigation/search container stays out of the keyboard layout pass.
+    /// Presents the remaining keyboard-sensitive root-owned editors in a
+    /// full-screen cover on iPhone. Most short rename/create/filter flows should
+    /// use a normal `.sheet` unless they are a known unstable root presenter.
     @ViewBuilder
     func keyboardSafeEditorPresentation<Content: View>(
         isPresented: Binding<Bool>,
@@ -267,8 +268,8 @@ public extension View {
         #endif
     }
 
-    /// Presents root auxiliary flows full-screen on iPhone so the underlying
-    /// tab/navigation/search chrome stays out of interactive keyboard updates.
+    /// Presents root auxiliary flows full-screen on iPhone when they still need
+    /// isolation from the underlying tab/navigation/search chrome.
     @ViewBuilder
     func phoneSafeAuxiliaryPresentation<Item: Identifiable, Content: View>(
         item: Binding<Item?>,

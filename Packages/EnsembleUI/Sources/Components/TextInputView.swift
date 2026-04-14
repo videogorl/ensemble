@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// A focused text-input editor used for short rename flows.
-/// The presenter freezes keyboard-sensitive chrome before showing this editor
-/// so the underlying navigation/search container stays out of the relayout loop.
+/// Presenters decide whether this lives in a normal sheet or a specialized
+/// root-owned presenter based on the surrounding container.
 struct TextInputView: View {
     let title: String
     var message: String = ""

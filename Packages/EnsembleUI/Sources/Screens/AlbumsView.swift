@@ -128,7 +128,7 @@ public struct AlbumsView: View {
                             showFilterSheet = true
                         } label: {
                             ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                Image(systemName: "line.3.horizontal.decrease")
 
                                 // Badge indicator when filters are active
                                 if libraryVM.albumsFilterOptions.hasActiveFilters {
@@ -175,7 +175,7 @@ public struct AlbumsView: View {
                             showFilterSheet = true
                         } label: {
                             ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                Image(systemName: "line.3.horizontal.decrease")
                                 if libraryVM.albumsFilterOptions.hasActiveFilters {
                                     Circle()
                                         .fill(Color.red)

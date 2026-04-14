@@ -48,7 +48,7 @@ public struct ArtistsView: View {
                             showFilterSheet = true
                         } label: {
                             ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                Image(systemName: "line.3.horizontal.decrease")
 
                                 // Badge indicator when filters are active
                                 if libraryVM.artistsFilterOptions.hasActiveFilters {
@@ -95,7 +95,7 @@ public struct ArtistsView: View {
                             showFilterSheet = true
                         } label: {
                             ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                Image(systemName: "line.3.horizontal.decrease")
                                 if libraryVM.artistsFilterOptions.hasActiveFilters {
                                     Circle()
                                         .fill(Color.red)
@@ -481,7 +481,7 @@ public struct ArtistDetailView: View {
                 )
             }
         } label: {
-            Image(systemName: "ellipsis.circle")
+            Image(systemName: "ellipsis")
         }
     }
     
