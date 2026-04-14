@@ -49,7 +49,7 @@ struct TabViewFactory {
 /// Main tab bar view for iPhone (5-tab classic iOS style)
 public struct MainTabView: View {
     @StateObject private var libraryVM: LibraryViewModel
-    @StateObject private var nowPlayingVM: NowPlayingViewModel
+    private let nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     // Observation-extracted: networkMonitor publishes on every network state change,
@@ -57,22 +57,13 @@ public struct MainTabView: View {
     // listen to just that property and store it in @State.
     private let networkMonitor = DependencyContainer.shared.networkMonitor
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
-    // Observation-extracted: only isLowPowerMode is used, avoid root view invalidation
-    private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
-    @Environment(\.presentViewportNowPlaying) private var presentViewportNowPlaying
-
-    @Namespace private var playerNamespace
-    private let artworkAnimationID = "nowPlayingArtwork"
-    
-    @State private var showingSheetNowPlaying = false
     @State private var didSetInitialTab = false
     @State private var isImmersiveMode = false
     @State private var immersiveModeClearWorkItem: DispatchWorkItem?
     // Extracted observation state — avoids full root invalidation from singleton publishers
     @State private var networkState: NetworkState = DependencyContainer.shared.networkMonitor.networkState
-    @State private var isLowPowerMode: Bool = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     #if os(iOS)
     @State private var keyboardVisible = false
     #endif
@@ -82,20 +73,11 @@ public struct MainTabView: View {
         Array(settingsManager.enabledTabs.prefix(4))
     }
 
-    public init() {
+    @MainActor
+    public init(nowPlayingVM: NowPlayingViewModel) {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
-        self._nowPlayingVM = StateObject(wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel())
+        self.nowPlayingVM = nowPlayingVM
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
-    }
-
-    private var usesViewportNowPlayingPresentation: Bool {
-        #if os(macOS)
-        return true
-        #elseif os(iOS)
-        return UIDevice.current.userInterfaceIdiom == .pad
-        #else
-        return false
-        #endif
     }
 
     private var isKeyboardVisible: Bool {
@@ -107,11 +89,7 @@ public struct MainTabView: View {
     }
 
     private var isShowingNowPlaying: Bool {
-        usesViewportNowPlayingPresentation ? isViewportNowPlayingPresented : showingSheetNowPlaying
-    }
-
-    private var isAuxiliaryPresentationActive: Bool {
-        navigationCoordinator.activeAuxiliaryPresentation != nil
+        isViewportNowPlayingPresented
     }
 
     private var profileSheetBinding: Binding<Bool> {
@@ -174,29 +152,27 @@ public struct MainTabView: View {
             let stageFlowFallbackImmersive = shouldForceStageFlowImmersive(for: geometry.size)
             let rootChromeSuppressed = isRootChromeSuppressed || stageFlowFallbackImmersive
 
-            let rootView = ZStack(alignment: .bottom) {
-                // Main content layer with TabView
-                VStack(spacing: 0) {
-                    tabBarVisibility(
-                        TabView(selection: tabBinding) {
-                            ForEach(barTabs) { tab in
-                                tabRootView(for: tab)
-                                    .tag(tab)
-                                    .tabItem {
-                                        Label(tab.displayTitle, systemImage: tab.systemImage)
-                                    }
-                            }
-
-                            tabRootView(for: .settings, isMoreRoot: true)
-                                .tag(TabItem.settings)
+            let rootView = VStack(spacing: 0) {
+                tabBarVisibility(
+                    TabView(selection: tabBinding) {
+                        ForEach(barTabs) { tab in
+                            tabRootView(for: tab)
+                                .tag(tab)
                                 .tabItem {
-                                    Label("More", systemImage: "ellipsis")
+                                    Label(tab.displayTitle, systemImage: tab.systemImage)
                                 }
-                        },
-                                    isHidden: rootChromeSuppressed
-                    )
-                    .applyTabViewStyle(sidebarAdaptable: useSidebarAdaptable)
-                }
+                        }
+
+                        tabRootView(for: .settings, isMoreRoot: true)
+                            .tag(TabItem.settings)
+                            .tabItem {
+                                Label("More", systemImage: "ellipsis")
+                            }
+                    },
+                    isHidden: rootChromeSuppressed
+                )
+                .applyTabViewStyle(sidebarAdaptable: useSidebarAdaptable)
+            }
                 // iOS 15: set additionalSafeAreaInsets on each tab's navigation controller
                 // so content scrolls behind the tab bar with proper mini player clearance.
                 // The 70pt covers the mini player height + spacing above the tab bar.
@@ -205,39 +181,6 @@ public struct MainTabView: View {
                     isVisible: !isShowingNowPlaying && !isKeyboardVisible && !rootChromeSuppressed && !navigationCoordinator.isKeyboardEditorPresented
                 )
                 .zIndex(0)
-
-                // MiniPlayer extracted into sub-view so MainTabView body has
-                // no NVM-dependent branching. Body still re-evaluates (because
-                // of @StateObject) but produces a stable view tree — SwiftUI
-                // can efficiently skip diffing the content.
-                MainTabNowPlayingOverlay(
-                    nowPlayingVM: nowPlayingVM,
-                    showingNowPlaying: Binding(
-                        get: { isShowingNowPlaying },
-                        set: { newValue in
-                            if usesViewportNowPlayingPresentation {
-                                if newValue {
-                                    presentViewportNowPlaying(nowPlayingVM)
-                                }
-                            } else {
-                                showingSheetNowPlaying = newValue
-                            }
-                        }
-                    ),
-                    isImmersiveMode: rootChromeSuppressed,
-                    isKeyboardVisible: isKeyboardVisible,
-                    isKeyboardEditorPresented: navigationCoordinator.isKeyboardEditorPresented,
-                    namespace: playerNamespace,
-                    animationID: artworkAnimationID,
-                    accentColor: settingsManager.accentColor.color,
-                    miniPlayerBottomLift: miniPlayerBottomLift
-                )
-            }
-            .onAppear {
-                // Register the active NowPlayingViewModel so the external display
-                // SceneDelegate (AirPlay screen mirroring) can observe the same instance.
-                DependencyContainer.shared.activeNowPlayingViewModel = nowPlayingVM
-            }
             .task {
                 // Sync selectedTab with the actual first visible tab on launch.
                 // selectedTab defaults to .home, but the user may have reordered
@@ -256,9 +199,6 @@ public struct MainTabView: View {
             // avoiding full root view invalidation from singleton objectWillChange.
             .onReceive(networkMonitor.$networkState) { newValue in
                 networkState = newValue
-            }
-            .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
-                isLowPowerMode = newValue
             }
             #if os(iOS)
             .onReceive(Publishers.keyboardHeight.map { $0 > 0 }.removeDuplicates()) { newValue in
@@ -289,22 +229,6 @@ public struct MainTabView: View {
                     }
                 }
             }
-            .if(!usesViewportNowPlayingPresentation) { view in
-                view.sheet(isPresented: $showingSheetNowPlaying) {
-                    NowPlayingSheetView(
-                        viewModel: nowPlayingVM,
-                        namespace: playerNamespace,
-                        animationID: artworkAnimationID,
-                        dismissAction: {
-                            showingSheetNowPlaying = false
-                        }
-                    )
-                    .accentColor(settingsManager.accentColor.color)
-                    .environment(\.dismissViewportNowPlaying, {
-                        showingSheetNowPlaying = false
-                    })
-                }
-            }
             #if os(iOS)
             .sheet(isPresented: profileSheetBinding, onDismiss: {
                 navigationCoordinator.dismissAuxiliaryPresentation()
@@ -330,6 +254,16 @@ public struct MainTabView: View {
 
             applyChromeVisibilityObservation(
                 to: rootView
+                    .background(
+                        RootChromeFrameRegistrationView(
+                            bottomPadding: miniPlayerBottomLift,
+                            showsMiniPlayer: !isShowingNowPlaying &&
+                                !isKeyboardVisible &&
+                                !rootChromeSuppressed &&
+                                !navigationCoordinator.isKeyboardEditorPresented,
+                            priority: 0
+                        )
+                    )
                     .overlay(alignment: .top) {
                         if !rootChromeSuppressed {
                             OfflineIndicatorOverlay(
@@ -478,22 +412,6 @@ public struct MainTabView: View {
                 #endif
             }
         }
-        .overlay(alignment: .bottom) {
-            if settingsManager.auroraVisualizationEnabled &&
-                    !isShowingNowPlaying &&
-                    !isAuxiliaryPresentationActive &&
-                !isRootChromeSuppressed &&
-                !navigationCoordinator.isKeyboardEditorPresented {
-                AuroraVisualizationView(
-                    playbackService: DependencyContainer.shared.playbackService,
-                    accentColor: settingsManager.accentColor.color,
-                    isPaused: isShowingNowPlaying,
-                    isLowPowerMode: isLowPowerMode
-                )
-                .ignoresSafeArea(.all)
-                .allowsHitTesting(false)
-            }
-        }
     }
 
     private func pathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
@@ -582,54 +500,6 @@ public struct MainTabView: View {
         #else
         return false
         #endif
-    }
-}
-
-// MARK: - Now Playing Overlay
-
-/// Extracted sub-view that owns the NVM observation for MiniPlayer.
-/// MainTabView's body no longer branches on NVM properties, so SwiftUI
-/// can skip diffing the full TabView tree when NVM publishes.
-private struct MainTabNowPlayingOverlay: View {
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    @Binding var showingNowPlaying: Bool
-    let isImmersiveMode: Bool
-    let isKeyboardVisible: Bool
-    let isKeyboardEditorPresented: Bool
-    var namespace: Namespace.ID
-    let animationID: String
-    let accentColor: Color
-    let miniPlayerBottomLift: CGFloat
-
-    var body: some View {
-        // Persistent MiniPlayer (above tab bar)
-        if !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode && !isKeyboardEditorPresented {
-            let isFloating: Bool = {
-                #if os(iOS)
-                if #available(iOS 18.0, *) {
-                    return true
-                }
-                #endif
-                return false
-            }()
-
-            MiniPlayer(
-                viewModel: nowPlayingVM,
-                isFloating: isFloating,
-                namespace: namespace,
-                animationID: animationID
-            ) {
-                withAnimation(.interactiveSpring(response: 0.45, dampingFraction: 0.85)) {
-                    showingNowPlaying = true
-                }
-            }
-            .accentColor(accentColor)
-            .alignmentGuide(.bottom) { dimensions in
-                dimensions[.bottom] + miniPlayerBottomLift
-            }
-            .zIndex(2)
-        }
-
     }
 }
 
@@ -747,31 +617,25 @@ public struct SidebarView: View {
     }
 
     @StateObject private var libraryVM: LibraryViewModel
-    @StateObject private var nowPlayingVM: NowPlayingViewModel
+    private let nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var pinnedVM: PinnedViewModel
     @StateObject private var playlistsVM: PlaylistViewModel
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
-    // Observation-extracted: only isLowPowerMode is used from this monitor
-    private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     private let pinManager = DependencyContainer.shared.pinManager
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
-    @Environment(\.presentViewportNowPlaying) private var presentViewportNowPlaying
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
     #endif
 
-    @Namespace private var playerNamespace
-    private let artworkAnimationID = "nowPlayingArtwork"
     private enum CompactColumnPreference: Int {
         case sidebar
         case detail
     }
 
     @State private var selection: SidebarSelection? = .library(.home)
-    @State private var showingSheetNowPlaying = false
     @State private var pinnedDetailPath: [NavigationCoordinator.Destination] = []
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var compactColumnPreference: CompactColumnPreference = .detail
@@ -781,8 +645,6 @@ public struct SidebarView: View {
     @State private var mergedPlaylistPendingRename: DisplayPlaylist?
     @State private var playlistPendingDelete: Playlist?
     @State private var mergedPlaylistPendingDelete: DisplayPlaylist?
-    // Extracted observation state — avoids full root invalidation from powerStateMonitor
-    @State private var isLowPowerMode: Bool = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
@@ -816,26 +678,49 @@ public struct SidebarView: View {
     @State private var cachedSmartPlaylists: [SidebarPlaylistItem] = []
     @State private var cachedRegularPlaylists: [SidebarPlaylistItem] = []
 
-    public init() {
+    @MainActor
+    public init(nowPlayingVM: NowPlayingViewModel) {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
-        self._nowPlayingVM = StateObject(wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel())
+        self.nowPlayingVM = nowPlayingVM
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
         self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
         self._playlistsVM = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
     }
 
-    private var usesViewportNowPlayingPresentation: Bool {
-        #if os(macOS)
-        return true
-        #elseif os(iOS)
-        return UIDevice.current.userInterfaceIdiom == .pad
-        #else
-        return false
-        #endif
+    private var isShowingNowPlaying: Bool {
+        isViewportNowPlayingPresented
     }
 
-    private var isShowingNowPlaying: Bool {
-        usesViewportNowPlayingPresentation ? isViewportNowPlayingPresented : showingSheetNowPlaying
+    private var isShowingCompactSidebarRoot: Bool {
+        guard compactColumnPreference == .sidebar else {
+            return false
+        }
+
+        guard let selection else {
+            return true
+        }
+
+        switch selection {
+        case .library(let tab):
+            return sidebarPath(for: tab).isEmpty
+        case .playlist, .mergedPlaylist, .pin:
+            return false
+        }
+    }
+
+    private func sidebarPath(for tab: TabItem) -> [NavigationCoordinator.Destination] {
+        switch tab {
+        case .home: return navigationCoordinator.homePath
+        case .songs: return navigationCoordinator.songsPath
+        case .artists: return navigationCoordinator.artistsPath
+        case .albums: return navigationCoordinator.albumsPath
+        case .genres: return navigationCoordinator.genresPath
+        case .playlists: return navigationCoordinator.playlistsPath
+        case .favorites: return navigationCoordinator.favoritesPath
+        case .search: return navigationCoordinator.searchPath
+        case .downloads: return navigationCoordinator.downloadsPath
+        case .settings: return navigationCoordinator.settingsPath
+        }
     }
 
     /// Rebuild the cached sidebar playlist @State from the VM's current data.
@@ -1146,22 +1031,6 @@ public struct SidebarView: View {
             navigationCoordinator.dismissAuxiliaryPresentation()
         }
         #endif
-        .if(!usesViewportNowPlayingPresentation) { view in
-            view.sheet(isPresented: $showingSheetNowPlaying) {
-                NowPlayingSheetView(
-                    viewModel: nowPlayingVM,
-                    namespace: playerNamespace,
-                    animationID: artworkAnimationID,
-                    dismissAction: {
-                        showingSheetNowPlaying = false
-                    }
-                )
-                .accentColor(deps.settingsManager.accentColor.color)
-                .environment(\.dismissViewportNowPlaying, {
-                    showingSheetNowPlaying = false
-                })
-            }
-        }
         // Add account sheet presented at root level so it survives
         // view content recreation on foreground transitions
         .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
@@ -1243,11 +1112,6 @@ public struct SidebarView: View {
             let count = mergedPlaylistPendingDelete?.playlists.count ?? 0
             Text("This will permanently delete \"\(mergedPlaylistPendingDelete?.title ?? "")\" from \(count) server\(count == 1 ? "" : "s").")
         }
-        .onAppear {
-            // Register the active NowPlayingViewModel so the external display
-            // SceneDelegate (AirPlay screen mirroring) can observe the same instance.
-            DependencyContainer.shared.activeNowPlayingViewModel = nowPlayingVM
-        }
         .task {
             // Load all sidebar data concurrently so playlists appear
             // immediately rather than waiting for library refresh to finish.
@@ -1255,10 +1119,6 @@ public struct SidebarView: View {
             async let pinsLoad: () = pinnedVM.loadPinnedItems()
             async let playlistsLoad: () = playlistsVM.loadPlaylists()
             _ = await (libRefresh, pinsLoad, playlistsLoad)
-        }
-        // Observation-extracted receiver for powerStateMonitor
-        .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
-            isLowPowerMode = newValue
         }
         // Keep NavigationCoordinator.selectedTab in sync with sidebar selection
         // so navigate(to:) pushes onto the correct section's NavigationStack
@@ -1450,26 +1310,27 @@ public struct SidebarView: View {
     }
 
     private var detailContainerView: some View {
-        detailColumnChrome {
-            detailView
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+        detailView
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
     private func playlistDetailNavigationStack(playlistID: String, sourceKey: String?) -> some View {
-        NavigationStack(path: sidebarPathBinding(for: .playlists)) {
-            detailColumnChrome {
-                PlaylistDetailLoader(
-                    playlistId: playlistID,
-                    playlistSourceKey: sourceKey,
-                    nowPlayingVM: nowPlayingVM
-                )
-            }
-            .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                detailColumnChrome {
-                    destinationView(for: destination)
-                        .auroraBackgroundSupport()
+        detailColumnNavigationHost {
+            NavigationStack(path: sidebarPathBinding(for: .playlists)) {
+                detailChromeRegistrationHost {
+                    PlaylistDetailLoader(
+                        playlistId: playlistID,
+                        playlistSourceKey: sourceKey,
+                        nowPlayingVM: nowPlayingVM
+                    )
+                }
+                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                    detailChromeRegistrationHost(
+                        priority: max(sidebarPath(for: .playlists).count, 1)
+                    ) {
+                        destinationView(for: destination)
+                    }
                 }
             }
         }
@@ -1478,18 +1339,21 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private func mergedPlaylistDetailNavigationStack(title: String, isSmart: Bool) -> some View {
-        NavigationStack(path: sidebarPathBinding(for: .playlists)) {
-            detailColumnChrome {
-                MergedPlaylistDetailLoader(
-                    title: title,
-                    isSmart: isSmart,
-                    nowPlayingVM: nowPlayingVM
-                )
-            }
-            .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                detailColumnChrome {
-                    destinationView(for: destination)
-                        .auroraBackgroundSupport()
+        detailColumnNavigationHost {
+            NavigationStack(path: sidebarPathBinding(for: .playlists)) {
+                detailChromeRegistrationHost {
+                    MergedPlaylistDetailLoader(
+                        title: title,
+                        isSmart: isSmart,
+                        nowPlayingVM: nowPlayingVM
+                    )
+                }
+                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                    detailChromeRegistrationHost(
+                        priority: max(sidebarPath(for: .playlists).count, 1)
+                    ) {
+                        destinationView(for: destination)
+                    }
                 }
             }
         }
@@ -1501,9 +1365,11 @@ public struct SidebarView: View {
     /// comparison logic when the selected section changes.
     @ViewBuilder
     private func sidebarNavigationStack(for tab: TabItem) -> some View {
-        NavigationStack(path: sidebarPathBinding(for: tab)) {
-            detailColumnChrome {
-                sidebarContentView(for: tab)
+        detailColumnNavigationHost {
+            NavigationStack(path: sidebarPathBinding(for: tab)) {
+                detailChromeRegistrationHost {
+                    sidebarContentView(for: tab)
+                }
             }
         }
     }
@@ -1525,14 +1391,17 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private func pinnedDetailNavigationStack(id: String, type: PinnedItemType) -> some View {
-        NavigationStack(path: $pinnedDetailPath) {
-            detailColumnChrome {
-                pinnedDetailRootView(id: id, type: type)
-            }
-            .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                detailColumnChrome {
-                    destinationView(for: destination)
-                        .auroraBackgroundSupport()
+        detailColumnNavigationHost {
+            NavigationStack(path: $pinnedDetailPath) {
+                detailChromeRegistrationHost {
+                    pinnedDetailRootView(id: id, type: type)
+                }
+                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                    detailChromeRegistrationHost(
+                        priority: max(pinnedDetailPath.count, 1)
+                    ) {
+                        destinationView(for: destination)
+                    }
                 }
             }
         }
@@ -1551,59 +1420,37 @@ public struct SidebarView: View {
         }
     }
 
-    private var splitColumnMiniPlayer: some View {
-        GeometryReader { proxy in
-            let horizontalPadding: CGFloat = 24
-            let bottomPadding: CGFloat = 20
-            let availableWidth = max(proxy.size.width - (horizontalPadding * 2), 0)
-            let miniPlayerWidth = min(540, availableWidth)
-
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-                MiniPlayer(
-                    viewModel: nowPlayingVM,
-                    isFloating: true,
-                    namespace: playerNamespace,
-                    animationID: artworkAnimationID
-                ) {
-                    withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                        if usesViewportNowPlayingPresentation {
-                            presentViewportNowPlaying(nowPlayingVM)
-                        } else {
-                            showingSheetNowPlaying = true
-                        }
-                    }
-                }
-                .frame(width: miniPlayerWidth)
-                .accentColor(deps.settingsManager.accentColor.color)
-                .padding(.horizontal, horizontalPadding)
-                .padding(.bottom, bottomPadding)
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottom)
-            .allowsHitTesting(!isShowingNowPlaying)
-        }
-        .transition(.identity)
-    }
-
     @ViewBuilder
-    private func detailColumnChrome<Content: View>(
+    private func detailColumnNavigationHost<Content: View>(
         @ViewBuilder content: () -> Content
     ) -> some View {
-        let builtContent = content()
+        content()
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Register the currently visible detail/root screen with the root chrome layer.
+    /// This keeps the shared mini player anchored to the live content frame even
+    /// while NavigationSplitView collapses or expands around a pushed destination.
+    @ViewBuilder
+    private func detailChromeRegistrationHost<Content: View>(
+        priority: Int = 0,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let registeredContent = content()
         GeometryReader { proxy in
-            ZStack(alignment: .bottom) {
-                if settingsManager.auroraVisualizationEnabled && !isShowingNowPlaying {
-                    detailColumnAurora(totalSize: proxy.size)
-                }
-
-                builtContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                if !isShowingNowPlaying {
-                    splitColumnMiniPlayer
-                }
+            ZStack(alignment: .topLeading) {
+                Color.clear
+                registeredContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .frame(width: proxy.size.width, height: proxy.size.height)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            .background(
+                RootChromeFrameRegistrationView(
+                    bottomPadding: min(max(proxy.safeAreaInsets.bottom + 12, 20), 32),
+                    showsMiniPlayer: !isShowingNowPlaying,
+                    priority: priority
+                )
+            )
         }
     }
 
@@ -1628,7 +1475,7 @@ public struct SidebarView: View {
         #if os(iOS)
         let preferredCompactColumn = Binding<NavigationSplitViewColumn>(
             get: {
-                compactColumnPreference == .sidebar ? .sidebar : .detail
+                isShowingCompactSidebarRoot ? .sidebar : .detail
             },
             set: { newValue in
                 compactColumnPreference = newValue == .sidebar ? .sidebar : .detail
@@ -1655,21 +1502,6 @@ public struct SidebarView: View {
         #endif
     }
 
-    /// Aurora visualization layered beneath the split view content.
-    /// The mini player now lives inside the detail column itself, while the
-    /// aurora remains a full-window background treatment.
-    private func detailColumnAurora(totalSize: CGSize) -> some View {
-        return AuroraVisualizationView(
-            playbackService: DependencyContainer.shared.playbackService,
-            accentColor: settingsManager.accentColor.color,
-            isPaused: isShowingNowPlaying,
-            isLowPowerMode: isLowPowerMode
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .ignoresSafeArea(.all)
-        .allowsHitTesting(false)
-    }
-
     /// Sidebar section content with navigation destinations registered for path-based push
     @ViewBuilder
     private func sidebarContentView(for tab: TabItem) -> some View {
@@ -1681,9 +1513,10 @@ public struct SidebarView: View {
             }
         }
         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-            detailColumnChrome {
+            detailChromeRegistrationHost(
+                priority: max(sidebarPath(for: tab).count, 1)
+            ) {
                 destinationView(for: destination)
-                    .auroraBackgroundSupport()
             }
         }
     }

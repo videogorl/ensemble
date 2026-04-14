@@ -1,53 +1,210 @@
+import Combine
 import EnsembleCore
 import SwiftUI
+#if canImport(UIKit) && !os(watchOS)
+import UIKit
+#endif
+
+enum RootChromeCoordinateSpace {
+    static let name = "RootChromeCoordinateSpace"
+}
+
+struct RootChromeRegistration {
+    let bounds: Anchor<CGRect>?
+    let bottomPadding: CGFloat
+    let showsMiniPlayer: Bool
+    let priority: Int
+
+    static let hidden = RootChromeRegistration(
+        bounds: nil,
+        bottomPadding: 0,
+        showsMiniPlayer: false,
+        priority: .min
+    )
+}
+
+struct RootChromeLayout: Equatable {
+    let frame: CGRect
+    let bottomPadding: CGFloat
+    let showsMiniPlayer: Bool
+
+    static let hidden = RootChromeLayout(
+        frame: .zero,
+        bottomPadding: 0,
+        showsMiniPlayer: false
+    )
+
+    var hasRenderableFrame: Bool {
+        frame.width > 0 && frame.height > 0
+    }
+}
+
+private struct RootChromeRegistrationPreferenceKey: PreferenceKey {
+    static var defaultValue: RootChromeRegistration = .hidden
+
+    static func reduce(value: inout RootChromeRegistration, nextValue: () -> RootChromeRegistration) {
+        let next = nextValue()
+        if next.priority >= value.priority {
+            value = next
+        }
+    }
+}
+
+struct RootChromeFrameRegistrationView: View {
+    let bottomPadding: CGFloat
+    let showsMiniPlayer: Bool
+    let priority: Int
+
+    var body: some View {
+        Color.clear.anchorPreference(
+            key: RootChromeRegistrationPreferenceKey.self,
+            value: .bounds
+        ) { bounds in
+            RootChromeRegistration(
+                bounds: bounds,
+                bottomPadding: bottomPadding,
+                showsMiniPlayer: showsMiniPlayer,
+                priority: priority
+            )
+        }
+    }
+}
+
+private struct RootMiniPlayerOverlay: View {
+    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let layout: RootChromeLayout
+    let accentColor: Color
+    let namespace: Namespace.ID
+    let animationID: String
+    let presentNowPlaying: () -> Void
+
+    private var miniPlayerWidth: CGFloat {
+        min(540, max(layout.frame.width - 32, 0))
+    }
+
+    var body: some View {
+        if layout.showsMiniPlayer && layout.hasRenderableFrame && miniPlayerWidth > 0 {
+            MiniPlayer(
+                viewModel: nowPlayingVM,
+                isFloating: true,
+                namespace: namespace,
+                animationID: animationID
+            ) {
+                withAnimation(.interactiveSpring(response: 0.45, dampingFraction: 0.85)) {
+                    presentNowPlaying()
+                }
+            }
+            .accentColor(accentColor)
+            .frame(width: miniPlayerWidth)
+            .padding(.bottom, layout.bottomPadding)
+            .frame(
+                width: layout.frame.width,
+                height: layout.frame.height,
+                alignment: .bottom
+            )
+            .offset(x: layout.frame.minX, y: layout.frame.minY)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .transition(.identity)
+        }
+    }
+}
 
 /// Root view that renders the main content directly (no auth gate)
 @available(iOS 15.0, macOS 12.0, watchOS 8.0, *)
 public struct RootView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
-    @State private var isViewportNowPlayingPresented = false
-    @State private var activeViewportNowPlayingViewModel: NowPlayingViewModel?
+    private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    @StateObject private var nowPlayingVM = DependencyContainer.shared.makeNowPlayingViewModel()
+    @State private var isNowPlayingPresented = false
+    @State private var activeNowPlayingPresentationViewModel: NowPlayingViewModel?
+    @State private var isLowPowerMode = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
+    @Namespace private var playerNamespace
+    private let artworkAnimationID = "nowPlayingArtwork"
 
     public init() {}
 
     public var body: some View {
-        ZStack {
-            mainContentView
+        GeometryReader { proxy in
+            ZStack {
+                mainContentView
+                    .zIndex(1)
 
-            if supportsViewportNowPlayingPresentation,
-               isViewportNowPlayingPresented,
-               let activeViewportNowPlayingViewModel {
-                NowPlayingViewportRoot(
-                    viewModel: activeViewportNowPlayingViewModel,
-                    dismissAction: dismissViewportNowPlaying
-                )
-                .accentColor(settingsManager.accentColor.color)
-                .ignoresSafeArea()
-                .transition(.opacity)
-                .zIndex(10)
+                if settingsManager.auroraVisualizationEnabled && !isNowPlayingPresented {
+                    AuroraVisualizationView(
+                        playbackService: DependencyContainer.shared.playbackService,
+                        accentColor: settingsManager.accentColor.color,
+                        isLowPowerMode: isLowPowerMode
+                    )
+                    .allowsHitTesting(false)
+                    .zIndex(2)
+                }
+
+                if supportsViewportNowPlayingPresentation && isNowPlayingPresented {
+                    NowPlayingViewportRoot(
+                        viewModel: presentedNowPlayingViewModel,
+                        dismissAction: dismissNowPlaying
+                    )
+                    .accentColor(settingsManager.accentColor.color)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .zIndex(10)
+                }
             }
-        }
-        .environment(\.isViewportNowPlayingPresented, supportsViewportNowPlayingPresentation && isViewportNowPlayingPresented)
-        .environment(\.presentViewportNowPlaying, presentViewportNowPlaying(with:))
-        .environment(\.dismissViewportNowPlaying, dismissViewportNowPlaying)
-        .accentColor(settingsManager.accentColor.color)
-        .onAppear {
-            updateAppearance()
-        }
-        .onChange(of: settingsManager.accentColor) { _ in
-            updateAppearance()
-        }
-        .onChange(of: settingsManager.auroraVisualizationEnabled) { _ in
-            updateAppearance()
-        }
-        .task {
-            let deps = DependencyContainer.shared
-            deps.accountManager.loadAccounts()
-            // Pre-populate server health states so tracks from unchecked servers
-            // are dimmed until health checks confirm reachability.
-            deps.serverHealthChecker.prepopulateUnknownStates()
-            deps.syncCoordinator.refreshProviders()
-            _ = await deps.siriMediaIndexStore.rebuildIndex()
+            .coordinateSpace(name: RootChromeCoordinateSpace.name)
+            .overlayPreferenceValue(RootChromeRegistrationPreferenceKey.self) { registration in
+                if !isNowPlayingPresented {
+                    RootMiniPlayerOverlay(
+                        nowPlayingVM: nowPlayingVM,
+                        layout: resolvedRootChromeLayout(from: registration, in: proxy),
+                        accentColor: settingsManager.accentColor.color,
+                        namespace: playerNamespace,
+                        animationID: artworkAnimationID,
+                        presentNowPlaying: presentNowPlayingFromMiniPlayer
+                    )
+                    .zIndex(5)
+                }
+            }
+            .environment(\.isViewportNowPlayingPresented, isNowPlayingPresented)
+            .environment(\.presentViewportNowPlaying, presentNowPlaying(with:))
+            .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
+            .accentColor(settingsManager.accentColor.color)
+            .onAppear {
+                updateAppearance()
+                DependencyContainer.shared.activeNowPlayingViewModel = nowPlayingVM
+            }
+            .onChange(of: settingsManager.accentColor) { _ in
+                updateAppearance()
+            }
+            .onChange(of: settingsManager.auroraVisualizationEnabled) { _ in
+                updateAppearance()
+            }
+            .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
+                isLowPowerMode = newValue
+            }
+            .if(!supportsViewportNowPlayingPresentation) { view in
+                view.sheet(
+                    isPresented: $isNowPlayingPresented,
+                    onDismiss: clearPresentedNowPlayingViewModel
+                ) {
+                    NowPlayingSheetView(
+                        viewModel: presentedNowPlayingViewModel,
+                        namespace: playerNamespace,
+                        animationID: artworkAnimationID,
+                        dismissAction: dismissNowPlaying
+                    )
+                    .accentColor(settingsManager.accentColor.color)
+                    .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
+                }
+            }
+            .task {
+                let deps = DependencyContainer.shared
+                deps.accountManager.loadAccounts()
+                // Pre-populate server health states so tracks from unchecked servers
+                // are dimmed until health checks confirm reachability.
+                deps.serverHealthChecker.prepopulateUnknownStates()
+                deps.syncCoordinator.refreshProviders()
+                _ = await deps.siriMediaIndexStore.rebuildIndex()
+            }
         }
     }
 
@@ -104,19 +261,48 @@ public struct RootView: View {
     private var mainContentView: some View {
         #if os(iOS)
         if #available(iOS 16.0, *), UIDevice.current.userInterfaceIdiom == .pad {
-            SidebarView()
+            SidebarView(nowPlayingVM: nowPlayingVM)
         } else {
-            MainTabView()
+            MainTabView(nowPlayingVM: nowPlayingVM)
         }
         #elseif os(macOS)
         if #available(macOS 13.0, *) {
-            SidebarView()
+            SidebarView(nowPlayingVM: nowPlayingVM)
         } else {
-            MainTabView()
+            MainTabView(nowPlayingVM: nowPlayingVM)
         }
         #else
-        MainTabView()
+        MainTabView(nowPlayingVM: nowPlayingVM)
         #endif
+    }
+
+    private var presentedNowPlayingViewModel: NowPlayingViewModel {
+        activeNowPlayingPresentationViewModel ?? nowPlayingVM
+    }
+
+    private func resolvedRootChromeLayout(
+        from registration: RootChromeRegistration,
+        in proxy: GeometryProxy
+    ) -> RootChromeLayout {
+        let rootBounds = CGRect(origin: .zero, size: proxy.size)
+
+        guard rootBounds.width > 0,
+              rootBounds.height > 0,
+              let bounds = registration.bounds else {
+            return .hidden
+        }
+
+        let visibleFrame = proxy[bounds].intersection(rootBounds)
+
+        guard visibleFrame.width > 0, visibleFrame.height > 0 else {
+            return .hidden
+        }
+
+        return RootChromeLayout(
+            frame: visibleFrame,
+            bottomPadding: registration.bottomPadding,
+            showsMiniPlayer: registration.showsMiniPlayer
+        )
     }
 
     private var supportsViewportNowPlayingPresentation: Bool {
@@ -132,16 +318,24 @@ public struct RootView: View {
         #endif
     }
 
-    private func presentViewportNowPlaying(with viewModel: NowPlayingViewModel) {
-        activeViewportNowPlayingViewModel = viewModel
+    private func presentNowPlaying(with viewModel: NowPlayingViewModel) {
+        activeNowPlayingPresentationViewModel = viewModel
         withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
-            isViewportNowPlayingPresented = true
+            isNowPlayingPresented = true
         }
     }
 
-    private func dismissViewportNowPlaying() {
+    private func presentNowPlayingFromMiniPlayer() {
+        presentNowPlaying(with: nowPlayingVM)
+    }
+
+    private func dismissNowPlaying() {
         withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
-            isViewportNowPlayingPresented = false
+            isNowPlayingPresented = false
         }
+    }
+
+    private func clearPresentedNowPlayingViewModel() {
+        activeNowPlayingPresentationViewModel = nil
     }
 }
