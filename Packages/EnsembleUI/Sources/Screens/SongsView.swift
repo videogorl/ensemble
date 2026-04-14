@@ -277,7 +277,7 @@ public struct SongsView: View {
                 cachedStageFlowAlbums = rebuiltAlbums
             }
         }
-        .keyboardSafeEditorPresentation(isPresented: $showFilterSheet) {
+        .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.tracksFilterOptions,
                 availableGenres: libraryVM.availableTrackGenres,
