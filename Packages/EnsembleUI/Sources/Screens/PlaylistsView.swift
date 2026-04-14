@@ -155,7 +155,6 @@ public struct PlaylistsView: View {
             .stageFlowImmersiveMode(isActive: isPresenterChromeHidden)
             #if os(iOS)
             .preference(key: ChromeVisibilityPreferenceKey.self, value: isPresenterChromeHidden)
-            .navigationBarTitleDisplayMode(.inline)
             .navigationBarHidden(isPresenterChromeHidden)
             .if(isPresenterChromeHidden) { view in
                 if #available(iOS 16.0, *) {

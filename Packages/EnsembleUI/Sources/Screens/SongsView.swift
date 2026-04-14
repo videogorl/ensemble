@@ -119,9 +119,6 @@ public struct SongsView: View {
         .statusBar(hidden: isStageFlowActive)
         #endif
         .navigationTitle(isPresenterChromeHidden ? "" : "Songs")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
         .if(!isPresenterChromeHidden) { view in
             view.searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
         }

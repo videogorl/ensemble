@@ -117,6 +117,7 @@ public struct SearchView: View {
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
+        .navigationTitle("Search")
         .profileToolbar()
         // Search chrome belongs to the active root Search screen only.
         // Leaving it attached while Search is offscreen or pushed into detail

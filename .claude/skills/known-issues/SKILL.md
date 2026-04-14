@@ -77,6 +77,12 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Resolved Issues
 
+### Sparse Genre Chips After Cloud Restore (RESOLVED Apr 14, 2026)
+- **Location:** `SyncCoordinator.performStartupSync`, `LibraryRepository.fetchGenreCoverageStats`, `LibraryViewModel`
+- **Symptom:** Fresh installs restored the genre catalog, but only a tiny subset of album/track `genreNames`, so Albums/Artists/Songs/playlist detail could show zero or one chip even though the library had many genres.
+- **Root cause:** Startup policy trusted recent `lastSyncedAt` and stayed on incremental sync, which cannot backfill unchanged album/track `genreNames`. Even after the repair sync ran, browse surfaces were not guaranteed to reload on that same first launch.
+- **Fix:** Added a per-source genre coverage check that forces a one-time full sync when the genre catalog exists but album/track coverage is implausibly sparse. `LibraryViewModel` now also reloads once when startup sync completes so repaired genre chips appear on the first launch without a relaunch.
+
 ### Phase 8 Performance & Bug-Fix — Run 6 Findings (Apr 2, 2026)
 - **Resolved (April 2, 2026)**
 - **Source:** Run 6 session log on iPhone 6s (A9, iOS 15.8.7). Phase 7 fixes confirmed working. Five new issues identified and fixed.

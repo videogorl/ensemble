@@ -140,6 +140,19 @@ public final class LibraryViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Startup sync can repair restored metadata before the UI has a chance to
+        // subscribe to granular change events. Force one post-startup reload so
+        // the first launch reflects repaired genres, artwork metadata, and counts.
+        syncCoordinator.$lastStartupSyncCompletion
+            .receive(on: DispatchQueue.main)
+            .compactMap { $0 }
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    await self?.loadLibrary()
+                }
+            }
+            .store(in: &cancellables)
+
         // Save filter options when they change
         setupFilterPersistence()
 
