@@ -74,7 +74,6 @@ public struct ArtistGrid: View {
     let onArtistTap: ((Artist) -> Void)?
     @Environment(\.dependencies) private var deps
     @State private var editingArtist: Artist?
-    @State private var isEditingArtist = false
 
     private let columns = [
         GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16, alignment: .top)
@@ -107,9 +106,6 @@ public struct ArtistGrid: View {
                                 // completes before the editor presentation begins.
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                                     editingArtist = artist
-                                    DispatchQueue.main.async {
-                                        isEditingArtist = true
-                                    }
                                 }
                             }
                         )
@@ -131,9 +127,6 @@ public struct ArtistGrid: View {
                                 // completes before the editor presentation begins.
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                                     editingArtist = artist
-                                    DispatchQueue.main.async {
-                                        isEditingArtist = true
-                                    }
                                 }
                             }
                         )
@@ -142,47 +135,41 @@ public struct ArtistGrid: View {
             }
         }
         .padding(.horizontal)
-        .keyboardSafeEditorPresentation(isPresented: $isEditingArtist) {
-            if let artist = editingArtist {
-                MetadataEditSheet(kind: .artist, currentTitle: artist.name) { newTitle in
-                    do {
-                        try await deps.metadataMutationService.editArtist(
-                            artist,
-                            request: MetadataEditRequest(title: newTitle)
+        // Context-menu metadata editors already present full-screen on iPhone.
+        // Skipping the keyboard tracker here avoids dismissing the selection
+        // while the menu teardown is still unwinding.
+        .phoneSafeAuxiliaryPresentation(item: $editingArtist) { artist in
+            MetadataEditSheet(kind: .artist, currentTitle: artist.name) { newTitle in
+                do {
+                    try await deps.metadataMutationService.editArtist(
+                        artist,
+                        request: MetadataEditRequest(title: newTitle)
+                    )
+                    await MainActor.run {
+                        deps.toastCenter.show(
+                            ToastPayload(
+                                style: .success,
+                                iconSystemName: "checkmark.circle.fill",
+                                title: "Artist updated",
+                                message: "\"\(newTitle)\" was saved to Plex.",
+                                dedupeKey: "artist-edit-\(artist.id)"
+                            )
                         )
-                        await MainActor.run {
-                            deps.toastCenter.show(
-                                ToastPayload(
-                                    style: .success,
-                                    iconSystemName: "checkmark.circle.fill",
-                                    title: "Artist updated",
-                                    message: "\"\(newTitle)\" was saved to Plex.",
-                                    dedupeKey: "artist-edit-\(artist.id)"
-                                )
-                            )
-                        }
-                    } catch {
-                        await MainActor.run {
-                            deps.toastCenter.show(
-                                ToastPayload(
-                                    style: .error,
-                                    iconSystemName: "exclamationmark.triangle.fill",
-                                    title: "Couldn't edit artist",
-                                    message: error.localizedDescription,
-                                    dedupeKey: "artist-edit-failed-\(artist.id)"
-                                )
-                            )
-                        }
-                        throw error
                     }
+                } catch {
+                    await MainActor.run {
+                        deps.toastCenter.show(
+                            ToastPayload(
+                                style: .error,
+                                iconSystemName: "exclamationmark.triangle.fill",
+                                title: "Couldn't edit artist",
+                                message: error.localizedDescription,
+                                dedupeKey: "artist-edit-failed-\(artist.id)"
+                            )
+                        )
+                    }
+                    throw error
                 }
-            } else {
-                EmptyView()
-            }
-        }
-        .onChange(of: isEditingArtist) { isPresented in
-            if !isPresented {
-                editingArtist = nil
             }
         }
     }
