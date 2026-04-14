@@ -15,7 +15,7 @@ public enum AlbumCardLayoutMetrics {
         case .shelf:
             return .card
         case .prominent:
-            return .small // 200px allows grid stretching, previously .card (160)
+            return .small
         }
     }
 
@@ -29,7 +29,7 @@ public enum AlbumCardLayoutMetrics {
         case .shelf:
             return 140
         case .prominent:
-            return 160 // ensures 2-column layout on iPhone
+            return 136
         }
     }
 
@@ -40,7 +40,7 @@ public enum AlbumCardLayoutMetrics {
         case .shelf:
             return 180
         case .prominent:
-            return 220
+            return 172
         }
     }
 
@@ -63,9 +63,12 @@ public struct AlbumCard: View {
     }
 
     public var body: some View {
+        let artworkCornerRadius = ArtworkCornerRadius.square(for: layout.artworkSize)
+        let artistLine = album.artistName ?? " "
+        let yearLine = album.year.map(String.init) ?? " "
+
         VStack(alignment: .leading, spacing: 8) {
-            ArtworkView(album: album, size: layout.artworkSize, cornerRadius: 8, isResponsive: true)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            ArtworkView(album: album, size: layout.artworkSize, cornerRadius: artworkCornerRadius, isResponsive: true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(album.title)
@@ -78,15 +81,27 @@ public struct AlbumCard: View {
                     Text(artist)
                         .font(.caption)
                         .foregroundColor(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(1)
+                } else {
+                    Text(artistLine)
+                        .font(.caption)
+                        .foregroundColor(.clear)
+                        .lineLimit(1)
                 }
 
                 if let year = album.year {
                     Text(String(year))
                         .font(.caption2)
                         .foregroundColor(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text(yearLine)
+                        .font(.caption2)
+                        .foregroundColor(.clear)
+                        .lineLimit(1)
                 }
             }
+            .frame(height: 66, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .multilineTextAlignment(.leading)
@@ -109,6 +124,9 @@ public struct AlbumGrid: View {
 
     @Environment(\.dependencies) private var deps
     @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var editingAlbum: Album?
+    @State private var isEditingAlbum = false
+    @State private var pendingAlbumDeletion: Album?
 
     public init(
         albums: [Album],
@@ -131,9 +149,26 @@ public struct AlbumGrid: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                            playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
-                        }
+                        AlbumActionsContextMenu(
+                            album: album,
+                            nowPlayingVM: nowPlayingVM,
+                            presentPlaylistPicker: { tracks, title in
+                                playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                            },
+                            onEditMetadata: {
+                                // Context-menu initiated editors can be dropped when toggled in
+                                // the same transaction as menu dismissal on iOS.
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                    editingAlbum = album
+                                    DispatchQueue.main.async {
+                                        isEditingAlbum = true
+                                    }
+                                }
+                            },
+                            onDelete: {
+                                pendingAlbumDeletion = album
+                            }
+                        )
                     }
                 } else {
                     // iOS 15 fallback
@@ -144,16 +179,125 @@ public struct AlbumGrid: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                            playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
-                        }
+                        AlbumActionsContextMenu(
+                            album: album,
+                            nowPlayingVM: nowPlayingVM,
+                            presentPlaylistPicker: { tracks, title in
+                                playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                            },
+                            onEditMetadata: {
+                                // Context-menu initiated editors can be dropped when toggled in
+                                // the same transaction as menu dismissal on iOS.
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                    editingAlbum = album
+                                    DispatchQueue.main.async {
+                                        isEditingAlbum = true
+                                    }
+                                }
+                            },
+                            onDelete: {
+                                pendingAlbumDeletion = album
+                            }
+                        )
                     }
                 }
             }
         }
-        .padding(.horizontal)
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
+        }
+        .keyboardSafeEditorPresentation(isPresented: $isEditingAlbum) {
+            if let album = editingAlbum {
+                MetadataEditSheet(kind: .album, currentTitle: album.title) { newTitle in
+                    do {
+                        try await deps.metadataMutationService.editAlbum(
+                            album,
+                            request: MetadataEditRequest(title: newTitle)
+                        )
+                        await MainActor.run {
+                            deps.toastCenter.show(
+                                ToastPayload(
+                                    style: .success,
+                                    iconSystemName: "checkmark.circle.fill",
+                                    title: "Album updated",
+                                    message: "\"\(newTitle)\" was saved to Plex.",
+                                    dedupeKey: "album-edit-\(album.id)"
+                                )
+                            )
+                        }
+                    } catch {
+                        await MainActor.run {
+                            deps.toastCenter.show(
+                                ToastPayload(
+                                    style: .error,
+                                    iconSystemName: "exclamationmark.triangle.fill",
+                                    title: "Couldn't edit album",
+                                    message: error.localizedDescription,
+                                    dedupeKey: "album-edit-failed-\(album.id)"
+                                )
+                            )
+                        }
+                        throw error
+                    }
+                }
+            } else {
+                EmptyView()
+            }
+        }
+        .onChange(of: isEditingAlbum) { isPresented in
+            if !isPresented {
+                editingAlbum = nil
+            }
+        }
+        .confirmationDialog(
+            "Delete Album?",
+            isPresented: Binding(
+                get: { pendingAlbumDeletion != nil },
+                set: { if !$0 { pendingAlbumDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let album = pendingAlbumDeletion {
+                Button("Delete Album", role: .destructive) {
+                    Task {
+                        do {
+                            try await deps.metadataMutationService.deleteAlbum(album)
+                            await MainActor.run {
+                                deps.toastCenter.show(
+                                    ToastPayload(
+                                        style: .success,
+                                        iconSystemName: "trash.fill",
+                                        title: "Album deleted",
+                                        message: "\"\(album.title)\" was removed from Plex.",
+                                        dedupeKey: "album-delete-\(album.id)"
+                                    )
+                                )
+                                pendingAlbumDeletion = nil
+                            }
+                        } catch {
+                            await MainActor.run {
+                                deps.toastCenter.show(
+                                    ToastPayload(
+                                        style: .error,
+                                        iconSystemName: "exclamationmark.triangle.fill",
+                                        title: "Couldn't delete album",
+                                        message: error.localizedDescription,
+                                        dedupeKey: "album-delete-failed-\(album.id)"
+                                    )
+                                )
+                                pendingAlbumDeletion = nil
+                            }
+                        }
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingAlbumDeletion = nil
+            }
+        } message: {
+            if let album = pendingAlbumDeletion {
+                Text("This permanently deletes \"\(album.title)\" from the Plex server and removes its local cache.")
+            }
         }
     }
 

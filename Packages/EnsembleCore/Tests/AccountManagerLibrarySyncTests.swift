@@ -117,6 +117,27 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         )
     }
 
+    func testDisabledSourcesReturnsCurrentDisabledLibraries() {
+        let manager = AccountManager(keychain: TestKeychain())
+        manager.addPlexAccount(
+            makeAccount(
+                libraries: [
+                    PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: true),
+                    PlexLibraryConfig(id: "lib-2", key: "2", title: "Alt", isEnabled: false),
+                    PlexLibraryConfig(id: "lib-3", key: "3", title: "Third", isEnabled: false)
+                ]
+            )
+        )
+
+        XCTAssertEqual(
+            Set(manager.disabledSources().map(\.compositeKey)),
+            Set([
+                "plex:account-1:server-1:2",
+                "plex:account-1:server-1:3"
+            ])
+        )
+    }
+
     func testPendingLibraryFlagsApplyToLaterDiscoveredAccount() throws {
         let manager = AccountManager(keychain: TestKeychain())
 

@@ -15,19 +15,7 @@ public struct SyncSettingsView: View {
     public var body: some View {
         List {
             Section {
-                // Master sync toggle
-                Toggle(isOn: $syncSettings.isMasterSyncEnabled) {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Sync This Device")
-                            Text("Sync app data across your devices via iCloud")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    } icon: {
-                        Image(systemName: "icloud")
-                    }
-                }
+                masterToggleRow
             }
 
             Section {
@@ -54,39 +42,25 @@ public struct SyncSettingsView: View {
                     }
                 }
                 .disabled(syncSettings.isManualSyncInProgress)
-
-                if let lastManualSyncDate = syncSettings.lastManualSyncDate {
-                    statusTimestampRow(
-                        title: "Last Manual Sync",
-                        timestamp: lastManualSyncDate
-                    )
-                }
             } header: {
                 Text("Actions")
             }
 
             Section {
-                statusRow(profileStatusPresentation)
-
-                ForEach(SyncSettingsManager.SyncFeature.allCases) { feature in
-                    statusRow(featureStatusPresentation(for: feature))
-                }
+                profileStatusRow
             } header: {
-                Text("Status")
-            } footer: {
-                Text("Rows show the last push or pull this device observed. Use Sync Now if a new device looks partially synced.")
+                Text("Profile")
             }
 
-            // Individual feature toggles
             if syncSettings.isMasterSyncEnabled {
                 Section {
                     ForEach(SyncSettingsManager.SyncFeature.allCases) { feature in
-                        featureToggle(for: feature)
+                        featureRow(for: feature)
                     }
                 } header: {
                     Text("Features")
                 } footer: {
-                    Text("Sync settings are per-device. Turning off a toggle on this device won't affect other devices.")
+                    Text("Rows show the last push or pull this device observed. Turning off a toggle only affects this device.")
                 }
             }
         }
@@ -109,33 +83,41 @@ public struct SyncSettingsView: View {
         let timestamp: Date?
     }
 
-    @ViewBuilder
-    private func featureToggle(for feature: SyncSettingsManager.SyncFeature) -> some View {
-        let isToggleable = syncSettings.isFeatureToggleable(feature)
+    private var masterToggleRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $syncSettings.isMasterSyncEnabled) {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Sync This Device")
+                        Text("Sync app data across your devices via iCloud.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "icloud")
+                }
+            }
 
-        Toggle(isOn: Binding(
-            get: { syncSettings.rawToggleValue(feature) },
-            set: { syncSettings.setFeatureEnabled(feature, enabled: $0) }
-        )) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(feature.displayName)
-                Text(feature.subtitle)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            if let lastManualSyncDate = syncSettings.lastManualSyncDate {
+                HStack(spacing: 8) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .foregroundColor(.secondary)
+                    Text("Last manual sync \(formattedTimestamp(lastManualSyncDate))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
         }
-        .disabled(!isToggleable)
+        .padding(.vertical, 2)
     }
 
-    @ViewBuilder
-    private func statusRow(_ presentation: StatusPresentation) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private var profileStatusRow: some View {
+        let presentation = profileStatusPresentation
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Label(presentation.title, systemImage: presentation.symbolName)
                     .foregroundColor(.primary)
-
                 Spacer()
-
                 Text(presentation.status)
                     .font(.caption.weight(.semibold))
                     .foregroundColor(presentation.tint)
@@ -154,13 +136,59 @@ public struct SyncSettingsView: View {
         .padding(.vertical, 2)
     }
 
-    @ViewBuilder
-    private func statusTimestampRow(title: String, timestamp: Date) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Text(formattedTimestamp(timestamp))
-                .foregroundColor(.secondary)
+    private func featureRow(for feature: SyncSettingsManager.SyncFeature) -> some View {
+        let presentation = featureStatusPresentation(for: feature)
+        let isToggleable = syncSettings.isFeatureToggleable(feature)
+
+        return VStack(alignment: .leading, spacing: 10) {
+            Toggle(isOn: Binding(
+                get: { syncSettings.rawToggleValue(feature) },
+                set: { syncSettings.setFeatureEnabled(feature, enabled: $0) }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(feature.displayName)
+                    Text(feature.subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .disabled(!isToggleable)
+
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: presentation.symbolName)
+                    .foregroundColor(presentation.tint)
+                    .frame(width: 16)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(presentation.status)
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(presentation.tint)
+
+                    Text(presentation.detail)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    if !isToggleable, let dependencyMessage = dependencyMessage(for: feature) {
+                        Text(dependencyMessage)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    } else if let timestamp = presentation.timestamp {
+                        Text("Updated \(formattedTimestamp(timestamp))")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func dependencyMessage(for feature: SyncSettingsManager.SyncFeature) -> String? {
+        switch feature {
+        case .libraries where !syncSettings.rawToggleValue(.sources):
+            return "Enable Sources on this device to sync library selection."
+        default:
+            return nil
         }
     }
 

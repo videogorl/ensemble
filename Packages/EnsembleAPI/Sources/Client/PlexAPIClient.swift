@@ -170,6 +170,18 @@ public struct PlexLibrarySelection: Sendable {
     }
 }
 
+public struct PlexMetadataFieldUpdate: Sendable, Equatable {
+    public let fieldName: String
+    public let value: String?
+    public let isLocked: Bool?
+
+    public init(fieldName: String, value: String? = nil, isLocked: Bool? = nil) {
+        self.fieldName = fieldName
+        self.value = value
+        self.isLocked = isLocked
+    }
+}
+
 public actor PlexAPIClient {
     private enum DownloadQueueError: LocalizedError {
         case queueNotAvailable
@@ -927,6 +939,38 @@ public actor PlexAPIClient {
     /// Delete a playlist.
     public func deletePlaylist(playlistId: String) async throws {
         _ = try await serverRequestDELETE(path: "/playlists/\(playlistId)")
+    }
+
+    /// Delete one or more metadata items from the library.
+    public func deleteMetadata(ids: [String]) async throws {
+        guard !ids.isEmpty else { return }
+        _ = try await serverRequestDELETE(path: "/library/metadata/\(ids.joined(separator: ","))")
+    }
+
+    /// Update metadata fields using Plex's section bulk-edit endpoint.
+    public func updateMetadata(
+        sectionId: String,
+        metadataType: Int,
+        ids: [String],
+        fieldUpdates: [PlexMetadataFieldUpdate]
+    ) async throws {
+        guard !ids.isEmpty, !fieldUpdates.isEmpty else { return }
+
+        var query: [String: String] = [
+            "type": String(metadataType),
+            "id": ids.joined(separator: ",")
+        ]
+
+        for update in fieldUpdates {
+            if let value = update.value {
+                query["\(update.fieldName).value"] = value
+            }
+            if let isLocked = update.isLocked {
+                query["\(update.fieldName).locked"] = isLocked ? "1" : "0"
+            }
+        }
+
+        _ = try await serverRequestPUT(path: "/library/sections/\(sectionId)/all", query: query)
     }
 
     /// Remove a specific playlist item from a playlist

@@ -32,6 +32,9 @@ public struct SearchView: View {
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     @State private var isSearchTabActive = DependencyContainer.shared.navigationCoordinator.selectedTab == .search
     @State private var isSearchPathEmpty = DependencyContainer.shared.navigationCoordinator.searchPath.isEmpty
+    @State private var isMoreSearchRootActive = SearchView.isMoreSearchRootPath(
+        DependencyContainer.shared.navigationCoordinator.settingsPath
+    )
     @Environment(\.dependencies) private var deps
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
@@ -95,9 +98,13 @@ public struct SearchView: View {
             let isEmpty = path.isEmpty
             if isEmpty != isSearchPathEmpty { isSearchPathEmpty = isEmpty }
         }
+        .onReceive(navigationCoordinator.$settingsPath) { path in
+            let isMoreRoot = Self.isMoreSearchRootPath(path)
+            if isMoreRoot != isMoreSearchRootActive { isMoreSearchRootActive = isMoreRoot }
+        }
         .onChange(of: shouldShowSearchChrome) { shouldShow in
             EnsembleLogger.debug(
-                "🔎 SearchView search chrome active=\(shouldShow) (tabActive: \(isSearchTabActive), pathEmpty: \(isSearchPathEmpty))"
+                "🔎 SearchView search chrome active=\(shouldShow) (tabActive: \(isSearchTabActive), pathEmpty: \(isSearchPathEmpty), moreRoot: \(isMoreSearchRootActive))"
             )
             if !shouldShow {
                 collapseSearchPresentation()
@@ -111,11 +118,23 @@ public struct SearchView: View {
         // Leaving it attached while Search is offscreen or pushed into detail
         // leaks stale toolbar/search-controller state into other tabs/destinations.
         let content = baseContent.if(shouldShowSearchChrome) { view in
+            #if os(iOS)
+            view
+                .searchable(
+                    text: $viewModel.searchQuery,
+                    placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Songs, artists, albums, playlists"
+                )
+                .onSubmit(of: .search) {
+                    viewModel.commitCurrentSearch()
+                }
+            #else
             view
                 .searchable(text: $viewModel.searchQuery, prompt: "Songs, artists, albums, playlists")
                 .onSubmit(of: .search) {
                     viewModel.commitCurrentSearch()
                 }
+            #endif
         }
         if #available(iOS 18.0, macOS 15.0, *) {
             if shouldShowSearchChrome {
@@ -129,7 +148,19 @@ public struct SearchView: View {
     }
 
     private var shouldShowSearchChrome: Bool {
-        isSearchTabActive && isSearchPathEmpty
+        // Search chrome should be visible on both the dedicated Search tab root
+        // and the More -> Search root destination.
+        (isSearchTabActive && isSearchPathEmpty) || isMoreSearchRootActive
+    }
+
+    private static func isMoreSearchRootPath(
+        _ path: [NavigationCoordinator.Destination]
+    ) -> Bool {
+        guard path.count == 1 else { return false }
+        if case .view(.search) = path[0] {
+            return true
+        }
+        return false
     }
 
     private func handleSearchResultNavigation() {

@@ -17,12 +17,14 @@ public struct SongsView: View {
 
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var selectedAlbum: SongsStageFlowAlbum?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var isStageFlowActive = false
+    @State private var latestContainerSize: CGSize = .zero
     @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
     // Targeted observation: only re-evaluate when these specific values change,
     // not when any of offlineDownloadService's 5+ @Published props update
@@ -35,6 +37,14 @@ public struct SongsView: View {
         #else
         false
         #endif
+    }
+
+    private var isKeyboardEditorActive: Bool {
+        navigationCoordinator.isKeyboardEditorPresented
+    }
+
+    private var isPresenterChromeHidden: Bool {
+        isStageFlowActive || isKeyboardEditorActive
     }
     
     private var backgroundColor: Color {
@@ -69,10 +79,12 @@ public struct SongsView: View {
             GeometryReader { geometry in
                 Color.clear
                     .onAppear {
+                        latestContainerSize = geometry.size
                         let active = supportsStageFlow && geometry.size.width > geometry.size.height
                         if active != isStageFlowActive { isStageFlowActive = active }
                     }
                     .onChange(of: geometry.size) { newSize in
+                        latestContainerSize = newSize
                         let shouldBeActive = supportsStageFlow && newSize.width > newSize.height
                         if shouldBeActive && !isStageFlowActive {
                             isStageFlowActive = true
@@ -86,8 +98,7 @@ public struct SongsView: View {
                                 // title display mode, and content simultaneously mid-rotation
                                 // causes NavigationView layout hangs on iOS 15.
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    let screen = UIScreen.main.bounds
-                                    if screen.width < screen.height {
+                                    if latestContainerSize.width < latestContainerSize.height {
                                         isStageFlowActive = false
                                     }
                                 }
@@ -99,19 +110,21 @@ public struct SongsView: View {
                     }
             }
         )
-        .hideTabBarIfAvailable(isHidden: isStageFlowActive)
+        .hideTabBarIfAvailable(isHidden: isPresenterChromeHidden)
         .stageFlowRotationSupport(isEnabled: supportsStageFlow)
-        .stageFlowImmersiveMode(isActive: isStageFlowActive)
+        .stageFlowImmersiveMode(isActive: isPresenterChromeHidden)
         #if os(iOS)
-        .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
-        .navigationBarHidden(isStageFlowActive)
+        .preference(key: ChromeVisibilityPreferenceKey.self, value: isPresenterChromeHidden)
+        .navigationBarHidden(isPresenterChromeHidden)
         .statusBar(hidden: isStageFlowActive)
         #endif
-        .navigationTitle(isStageFlowActive ? "" : "Songs")
+        .navigationTitle(isPresenterChromeHidden ? "" : "Songs")
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         #endif
-        .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
+        .if(!isPresenterChromeHidden) { view in
+            view.searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
+        }
         .refreshable {
             await libraryVM.refreshFromServer()
         }
@@ -119,7 +132,7 @@ public struct SongsView: View {
                 .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
-                if !libraryVM.tracks.isEmpty && !isStageFlowActive {
+                if !libraryVM.tracks.isEmpty && !isPresenterChromeHidden {
                     HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
@@ -184,7 +197,7 @@ public struct SongsView: View {
             #else
             ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
-                if !libraryVM.tracks.isEmpty && !isStageFlowActive {
+                if !libraryVM.tracks.isEmpty && !isPresenterChromeHidden {
                     HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
@@ -375,10 +388,10 @@ public struct SongsView: View {
                                     proxy.scrollTo(letter, anchor: .top)
                                 }
                             )
-                            .frame(maxHeight: .infinity)
-                            .ignoresSafeArea(.container, edges: .top)
+                            .libraryScrollIndexPositioning()
                         }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 #else
                 // macOS indexed mode: List with Section headers + native swipe actions
@@ -457,10 +470,10 @@ public struct SongsView: View {
                                     proxy.scrollTo(letter, anchor: .top)
                                 }
                             )
-                            .frame(maxHeight: .infinity)
-                            .ignoresSafeArea(.container, edges: .top)
+                            .libraryScrollIndexPositioning()
                         }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 #endif
             } else {

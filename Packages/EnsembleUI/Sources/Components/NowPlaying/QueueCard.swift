@@ -310,7 +310,7 @@ public struct QueueCard: View {
     private func macOSQueueRow(item: QueueItem, isAutoplay: Bool) -> some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Artwork thumbnail
-            ArtworkView(track: item.track, size: .tiny, cornerRadius: 4)
+            ArtworkView(track: item.track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
 
             // Track info
             VStack(alignment: .leading, spacing: 2) {

@@ -20,8 +20,8 @@ public struct PlaylistsView: View {
     @State private var creatingPlaylistToastID: UUID?
     @State private var playlistForEditSheet: Playlist?
     @State private var displayPlaylistPendingDelete: DisplayPlaylist?
-    // Keyboard-heavy editors are lifted into their own presentation so the
-    // current navigation/search container stays out of iOS 26's feedback path.
+    // Keyboard-heavy editors flip shared root/presenter suppression before the
+    // modal enters the hierarchy so iOS 26 keyboard relayout stays stable.
     @State private var showCreatePlaylistPush = false
     @State private var renamePushPlaylist: Playlist?
     @State private var renamePushDP: DisplayPlaylist?
@@ -29,6 +29,7 @@ public struct PlaylistsView: View {
     @State private var cachedDisplayedPlaylists: [DisplayPlaylist] = []
     // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
     @State private var isStageFlowActive = false
+    @State private var latestContainerSize: CGSize = .zero
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
@@ -44,6 +45,10 @@ public struct PlaylistsView: View {
 
     private var isKeyboardEditorActive: Bool {
         showCreatePlaylistPush || renamePushPlaylist != nil || renamePushDP != nil
+    }
+
+    private var isPresenterChromeHidden: Bool {
+        isStageFlowActive || isKeyboardEditorActive
     }
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: PlaylistViewModel? = nil) {
@@ -71,10 +76,12 @@ public struct PlaylistsView: View {
             GeometryReader { geometry in
                 Color.clear
                     .onAppear {
+                        latestContainerSize = geometry.size
                         let active = supportsStageFlow && geometry.size.width > geometry.size.height
                         if active != isStageFlowActive { isStageFlowActive = active }
                     }
                     .onChange(of: geometry.size) { newSize in
+                        latestContainerSize = newSize
                         let shouldBeActive = supportsStageFlow && newSize.width > newSize.height
                         if shouldBeActive && !isStageFlowActive {
                             isStageFlowActive = true
@@ -87,8 +94,7 @@ public struct PlaylistsView: View {
                                 // before switching the view tree, preventing NavigationView
                                 // layout hangs from simultaneous nav bar + content changes.
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    let screen = UIScreen.main.bounds
-                                    if screen.width < screen.height {
+                                    if latestContainerSize.width < latestContainerSize.height {
                                         isStageFlowActive = false
                                     }
                                 }
@@ -146,14 +152,14 @@ public struct PlaylistsView: View {
                     )
                 }
             }
-            .hideTabBarIfAvailable(isHidden: isStageFlowActive)
+            .hideTabBarIfAvailable(isHidden: isPresenterChromeHidden)
             .stageFlowRotationSupport(isEnabled: supportsStageFlow)
-            .stageFlowImmersiveMode(isActive: isStageFlowActive)
+            .stageFlowImmersiveMode(isActive: isPresenterChromeHidden)
             #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isPresenterChromeHidden)
             .navigationBarTitleDisplayMode(.inline)
-            .navigationBarHidden(isStageFlowActive || isKeyboardEditorActive)
-            .if(isStageFlowActive || isKeyboardEditorActive) { view in
+            .navigationBarHidden(isPresenterChromeHidden)
+            .if(isPresenterChromeHidden) { view in
                 if #available(iOS 16.0, *) {
                     view.toolbar(.hidden, for: .navigationBar)
                 } else {
@@ -162,7 +168,7 @@ public struct PlaylistsView: View {
             }
             .statusBar(hidden: isStageFlowActive)
             #endif
-            .navigationTitle(isStageFlowActive ? "" : "Playlists")
+            .navigationTitle(isPresenterChromeHidden ? "" : "Playlists")
             #if os(iOS)
             .ignoresSafeArea(.keyboard)
             #endif
@@ -205,7 +211,7 @@ public struct PlaylistsView: View {
                     }
                 }
             }
-            .if(!isKeyboardEditorActive) { view in
+            .if(!isPresenterChromeHidden) { view in
                 view.searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             }
             .task {
@@ -1114,7 +1120,7 @@ public struct PlaylistDetailView: View {
         List {
             ForEach(editedTracks, id: \.id) { track in
                 HStack(spacing: 12) {
-                    ArtworkView(track: track, size: .tiny, cornerRadius: 4)
+                    ArtworkView(track: track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
                     VStack(alignment: .leading, spacing: 4) {
                         Text(track.title)
                         Text(track.artistName ?? "")

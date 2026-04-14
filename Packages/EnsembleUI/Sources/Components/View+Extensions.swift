@@ -17,7 +17,8 @@ private struct DismissViewportNowPlayingKey: EnvironmentKey {
 }
 
 /// Tracks keyboard-heavy editor presentation from the presenting view so root
-/// chrome can settle before the editor enters the hierarchy.
+/// chrome can settle before the editor enters the hierarchy, regardless of
+/// whether the editor is shown in a sheet or another presentation shell.
 private struct KeyboardEditorPresentationTracker: ViewModifier {
     let isActive: Bool
 
@@ -223,8 +224,8 @@ public extension View {
         #endif
     }
 
-    /// Presents keyboard-heavy editors in a full-screen cover on iPhone so the
-    /// underlying navigation/search container stays out of the keyboard layout pass.
+    /// Presents keyboard-heavy editors while marking the presenter as keyboard
+    /// active so root chrome and keyboard-driven insets stay frozen underneath.
     @ViewBuilder
     func keyboardSafeEditorPresentation<Content: View>(
         isPresented: Binding<Bool>,
@@ -234,15 +235,7 @@ public extension View {
             KeyboardEditorPresentationTracker(isActive: isPresented.wrappedValue)
         )
 
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            presentingView.fullScreenCover(isPresented: isPresented, content: content)
-        } else {
-            presentingView.sheet(isPresented: isPresented, content: content)
-        }
-        #else
         presentingView.sheet(isPresented: isPresented, content: content)
-        #endif
     }
 
     /// Item-based variant of keyboardSafeEditorPresentation.
@@ -255,15 +248,7 @@ public extension View {
             KeyboardEditorPresentationTracker(isActive: item.wrappedValue != nil)
         )
 
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            presentingView.fullScreenCover(item: item, content: content)
-        } else {
-            presentingView.sheet(item: item, content: content)
-        }
-        #else
         presentingView.sheet(item: item, content: content)
-        #endif
     }
 
     /// Presents root auxiliary flows full-screen on iPhone so the underlying

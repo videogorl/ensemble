@@ -73,6 +73,8 @@ public struct ArtistGrid: View {
     let nowPlayingVM: NowPlayingViewModel
     let onArtistTap: ((Artist) -> Void)?
     @Environment(\.dependencies) private var deps
+    @State private var editingArtist: Artist?
+    @State private var isEditingArtist = false
 
     private let columns = [
         GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16, alignment: .top)
@@ -97,7 +99,20 @@ public struct ArtistGrid: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
+                        ArtistActionsContextMenu(
+                            artist: artist,
+                            nowPlayingVM: nowPlayingVM,
+                            onEditMetadata: {
+                                // Delay presentation by a tick so the context menu dismissal
+                                // completes before the editor presentation begins.
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                    editingArtist = artist
+                                    DispatchQueue.main.async {
+                                        isEditingArtist = true
+                                    }
+                                }
+                            }
+                        )
                     }
                 } else {
                     // iOS 15 fallback: using legacy NavigationLink for nested navigation support
@@ -108,12 +123,68 @@ public struct ArtistGrid: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
+                        ArtistActionsContextMenu(
+                            artist: artist,
+                            nowPlayingVM: nowPlayingVM,
+                            onEditMetadata: {
+                                // Delay presentation by a tick so the context menu dismissal
+                                // completes before the editor presentation begins.
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                    editingArtist = artist
+                                    DispatchQueue.main.async {
+                                        isEditingArtist = true
+                                    }
+                                }
+                            }
+                        )
                     }
                 }
             }
         }
         .padding(.horizontal)
+        .keyboardSafeEditorPresentation(isPresented: $isEditingArtist) {
+            if let artist = editingArtist {
+                MetadataEditSheet(kind: .artist, currentTitle: artist.name) { newTitle in
+                    do {
+                        try await deps.metadataMutationService.editArtist(
+                            artist,
+                            request: MetadataEditRequest(title: newTitle)
+                        )
+                        await MainActor.run {
+                            deps.toastCenter.show(
+                                ToastPayload(
+                                    style: .success,
+                                    iconSystemName: "checkmark.circle.fill",
+                                    title: "Artist updated",
+                                    message: "\"\(newTitle)\" was saved to Plex.",
+                                    dedupeKey: "artist-edit-\(artist.id)"
+                                )
+                            )
+                        }
+                    } catch {
+                        await MainActor.run {
+                            deps.toastCenter.show(
+                                ToastPayload(
+                                    style: .error,
+                                    iconSystemName: "exclamationmark.triangle.fill",
+                                    title: "Couldn't edit artist",
+                                    message: error.localizedDescription,
+                                    dedupeKey: "artist-edit-failed-\(artist.id)"
+                                )
+                            )
+                        }
+                        throw error
+                    }
+                }
+            } else {
+                EmptyView()
+            }
+        }
+        .onChange(of: isEditingArtist) { isPresented in
+            if !isPresented {
+                editingArtist = nil
+            }
+        }
     }
 
     private func artistCardContent(_ artist: Artist) -> some View {

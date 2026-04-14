@@ -48,10 +48,14 @@ public struct PlaylistPickerSheet: View {
                 } else {
                     ForEach(filteredPlaylists) { playlist in
                         Button {
-                            Task { await addToPlaylist(playlist) }
+                            addToPlaylist(playlist)
                         } label: {
                             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                                ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)
+                                ArtworkView(
+                                    playlist: playlist,
+                                    size: .tiny,
+                                    cornerRadius: ArtworkCornerRadius.square(for: .tiny)
+                                )
 
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(playlist.title)
@@ -65,7 +69,6 @@ public struct PlaylistPickerSheet: View {
                         }
                         .disabled(
                             isSubmitting ||
-                            nowPlayingVM.isPlaylistMutationInProgress ||
                             nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0
                         )
                     }
@@ -81,7 +84,6 @@ public struct PlaylistPickerSheet: View {
                     }
                     .disabled(
                         isSubmitting ||
-                        nowPlayingVM.isPlaylistMutationInProgress ||
                         inferredServerSourceKey == nil ||
                         compatibleTrackCountForSelectedServer == 0
                     )
@@ -170,8 +172,7 @@ public struct PlaylistPickerSheet: View {
         }
     }
 
-    private func addToPlaylist(_ playlist: Playlist) async {
-        guard !isSubmitting, !nowPlayingVM.isPlaylistMutationInProgress else { return }
+    private func addToPlaylist(_ playlist: Playlist) {
         let compatibleTracks = nowPlayingVM.tracks(tracks, compatibleWithServerSourceKey: playlist.sourceCompositeKey)
         guard !compatibleTracks.isEmpty else {
             deps.toastCenter.show(
@@ -185,26 +186,25 @@ public struct PlaylistPickerSheet: View {
             )
             return
         }
-        isSubmitting = true
-        defer { isSubmitting = false }
-
-        do {
-            _ = try await nowPlayingVM.addTracks(compatibleTracks, to: playlist)
-            dismiss()
-        } catch {
-            deps.toastCenter.show(
-                ToastPayload(
-                    style: .error,
-                    iconSystemName: "xmark.octagon.fill",
-                    title: "Could not add to playlist",
-                    message: error.localizedDescription,
-                    action: ToastAction(title: "Retry") {
-                        Task { await addToPlaylist(playlist) }
-                    },
-                    isPersistent: true,
-                    dedupeKey: "playlist-add-error-\(playlist.id)"
+        dismiss()
+        Task {
+            do {
+                _ = try await nowPlayingVM.addTracksOptimistically(compatibleTracks, to: playlist)
+            } catch {
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: .error,
+                        iconSystemName: "xmark.octagon.fill",
+                        title: "Could not add to playlist",
+                        message: error.localizedDescription,
+                        action: ToastAction(title: "Retry") {
+                            addToPlaylist(playlist)
+                        },
+                        isPersistent: true,
+                        dedupeKey: "playlist-add-error-\(playlist.id)"
+                    )
                 )
-            )
+            }
         }
     }
 

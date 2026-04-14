@@ -183,7 +183,10 @@ struct PlaybackHandoffCoordinator {
         }
     }
 
-    mutating func handleSettleWindowFinished(now: Date) -> Outcome {
+    mutating func handleSettleWindowFinished(
+        now: Date,
+        playbackState: PlaybackState
+    ) -> Outcome {
         guard case .settlingNewDevice(let until) = state.routeTransition else {
             return makeOutcome(summary: "settle window ignored", actions: [])
         }
@@ -192,13 +195,22 @@ struct PlaybackHandoffCoordinator {
         }
 
         state.routeTransition = .idle
-        return makeOutcome(
-            summary: "settle window finished",
-            actions: [
-                .refreshPresentationLatency,
-                .setRouteChangeInProgress(false)
-            ]
-        )
+        var actions: [Action] = [
+            .refreshPresentationLatency,
+            .setRouteChangeInProgress(false)
+        ]
+
+        // Route handoff can leave AVPlayer stalled in buffering even though the
+        // interruption/route transition state is clear. Re-assert playback once
+        // the settle window expires so users don't need to tap play manually.
+        if playbackState == .buffering,
+           (state.pauseReason == nil || state.pauseReason == .disconnect),
+           state.interruption == .none {
+            state.pauseReason = nil
+            actions.append(.resumePlayback(.system))
+        }
+
+        return makeOutcome(summary: "settle window finished", actions: actions)
     }
 
     mutating func handleInterruptionBegan(
@@ -227,13 +239,27 @@ struct PlaybackHandoffCoordinator {
         state.interruption = .ended(shouldResume: shouldResume)
 
         var actions: [Action] = [.setInterrupted(false)]
-        if shouldResume,
-           state.pauseReason == .interruption,
-           playbackState == .buffering {
-            state.pauseReason = nil
+        if state.pauseReason == .interruption,
+           playbackState == .buffering || playbackState == .paused {
+            if shouldResume {
+                state.pauseReason = nil
+                state.interruption = .none
+                actions.append(.resumePlayback(.system))
+                return makeOutcome(summary: "interruption ended with resume", actions: actions)
+            }
+
+            // If the system says "do not resume", buffering should not remain visible.
+            // Move to a stable paused state so the user can intentionally resume.
             state.interruption = .none
-            actions.append(.resumePlayback(.system))
-            return makeOutcome(summary: "interruption ended with resume", actions: actions)
+            if playbackState == .buffering {
+                actions.append(.pausePlayback(.interruption))
+                return makeOutcome(summary: "interruption ended without resume (pause)", actions: actions)
+            }
+            return makeOutcome(summary: "interruption ended without resume", actions: actions)
+        }
+
+        if !shouldResume {
+            state.interruption = .none
         }
 
         return makeOutcome(summary: "interruption ended", actions: actions)
@@ -248,6 +274,12 @@ struct PlaybackHandoffCoordinator {
     }
 
     mutating func handlePlaybackStopped() {
+        state.pauseReason = nil
+        state.interruption = .none
+        state.routeTransition = .idle
+    }
+
+    mutating func resetForExplicitPlaybackStart() {
         state.pauseReason = nil
         state.interruption = .none
         state.routeTransition = .idle
