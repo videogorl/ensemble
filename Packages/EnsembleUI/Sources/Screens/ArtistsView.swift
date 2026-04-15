@@ -493,7 +493,7 @@ public struct ArtistDetailView: View {
                 )
             }
         } label: {
-            Image(systemName: "ellipsis")
+            Image(systemName: "ellipsis.circle")
         }
     }
     

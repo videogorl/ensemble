@@ -499,7 +499,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .disabled(!playlistMenuActions.canDelete)
             }
         } label: {
-            Image(systemName: "ellipsis")
+            Image(systemName: "ellipsis.circle")
         }
     }
 

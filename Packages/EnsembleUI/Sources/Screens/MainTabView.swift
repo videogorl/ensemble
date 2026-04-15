@@ -56,6 +56,7 @@ public struct MainTabView: View {
     // which would invalidate the entire root view. We only need networkState, so we
     // listen to just that property and store it in @State.
     private let networkMonitor = DependencyContainer.shared.networkMonitor
+    private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
@@ -64,6 +65,7 @@ public struct MainTabView: View {
     @State private var immersiveModeClearWorkItem: DispatchWorkItem?
     // Extracted observation state — avoids full root invalidation from singleton publishers
     @State private var networkState: NetworkState = DependencyContainer.shared.networkMonitor.networkState
+    @State private var isLowPowerMode: Bool = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     #if os(iOS)
     @State private var keyboardVisible = false
     #endif
@@ -85,6 +87,14 @@ public struct MainTabView: View {
         return keyboardVisible
         #else
         return false
+        #endif
+    }
+
+    private var showsPhoneAuroraOverlay: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
         #endif
     }
 
@@ -199,6 +209,9 @@ public struct MainTabView: View {
             // avoiding full root view invalidation from singleton objectWillChange.
             .onReceive(networkMonitor.$networkState) { newValue in
                 networkState = newValue
+            }
+            .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
+                isLowPowerMode = newValue
             }
             #if os(iOS)
             .onReceive(Publishers.keyboardHeight.map { $0 > 0 }.removeDuplicates()) { newValue in
@@ -411,6 +424,23 @@ public struct MainTabView: View {
                 #if os(iOS)
                 .navigationViewStyle(.stack)
                 #endif
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if showsPhoneAuroraOverlay &&
+                settingsManager.auroraVisualizationEnabled &&
+                !isShowingNowPlaying &&
+                !isRootChromeSuppressed &&
+                !navigationCoordinator.isKeyboardEditorPresented &&
+                navigationCoordinator.activeAuxiliaryPresentation == nil {
+                AuroraVisualizationView(
+                    playbackService: DependencyContainer.shared.playbackService,
+                    accentColor: settingsManager.accentColor.color,
+                    isPaused: isShowingNowPlaying,
+                    isLowPowerMode: isLowPowerMode
+                )
+                .ignoresSafeArea(.all)
+                .allowsHitTesting(false)
             }
         }
     }
@@ -1206,7 +1236,7 @@ public struct SidebarView: View {
             ToolbarItem { Spacer() }
             ToolbarItemGroup(placement: .primaryActionIfAvailable) {
                 Button { navigationCoordinator.openDownloads() } label: {
-                    Image(systemName: "arrow.down")
+                    Image(systemName: "arrow.down.circle")
                 }
                 .help("Downloads")
                 ProfileToolbarButton()

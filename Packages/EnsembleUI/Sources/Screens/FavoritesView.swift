@@ -163,7 +163,7 @@ public struct FavoritesView: View {
                 }
             }
         } label: {
-            Label("More", systemImage: "ellipsis")
+            Label("More", systemImage: "ellipsis.circle")
         }
     }
 

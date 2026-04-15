@@ -186,7 +186,7 @@ public struct SongsView: View {
                                 Label("Play All", systemImage: "play.fill")
                             }
                         } label: {
-                            Image(systemName: "ellipsis")
+                            Image(systemName: "ellipsis.circle")
                         }
                     }
                 }
@@ -249,7 +249,7 @@ public struct SongsView: View {
                                 Label("Play All", systemImage: "play.fill")
                             }
                         } label: {
-                            Image(systemName: "ellipsis")
+                            Image(systemName: "ellipsis.circle")
                         }
                     }
                 }
