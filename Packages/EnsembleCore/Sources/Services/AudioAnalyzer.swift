@@ -329,16 +329,17 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         let capturedFileURL = fileURL
         let capturedPriority = priority
         let capturedThrottled = throttled
-        let analysisTask = Task { [weak self] in
+        let service = self
+        let analysisTask = Task { [service] in
             let timeline = await Self.analyzeInBackground(
                 fileURL: capturedFileURL,
                 priority: capturedPriority,
                 throttled: capturedThrottled
             ) { partialSnapshots, fps, analyzedDur, totalDur in
                 // Progressive update: publish partial timeline to main actor
-                Task { @MainActor [weak self] in
-                    guard let self, !Task.isCancelled else { return }
-                    self.timelines[trackId] = FrequencyTimeline(
+                Task { @MainActor [service] in
+                    guard !Task.isCancelled else { return }
+                    service.timelines[trackId] = FrequencyTimeline(
                         snapshots: partialSnapshots,
                         framesPerSecond: fps,
                         duration: totalDur,
@@ -346,10 +347,10 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                     )
                 }
             }
-            guard !Task.isCancelled, let self else { return }
+            guard !Task.isCancelled else { return }
 
             if let timeline {
-                self.timelines[trackId] = timeline
+                service.timelines[trackId] = timeline
 
                 // Save sidecar for downloaded files (not temp/cache files)
                 // Downloaded files live in the app's Documents/Downloads directory
@@ -368,7 +369,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                 #endif
             }
 
-            self.analysisTasks.removeValue(forKey: trackId)
+            service.analysisTasks.removeValue(forKey: trackId)
         }
         analysisTasks[trackId] = analysisTask
         // Only await if this task hasn't been replaced by a higher-priority one.
@@ -620,7 +621,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
         // Log-spaced frequency band edges (60Hz - 16kHz, 24 bands)
         let logMin = log10(60.0), logMax = log10(16000.0)
-        var bandEdges = (0...bandCount).map { i in
+        let bandEdges = (0...bandCount).map { i in
             pow(10, logMin + (Double(i) / Double(bandCount)) * (logMax - logMin))
         }
 
@@ -701,14 +702,19 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                 // FFT
                 realParts = [Float](repeating: 0, count: fftSize / 2)
                 imagParts = [Float](repeating: 0, count: fftSize / 2)
-                var splitComplex = DSPSplitComplex(realp: &realParts, imagp: &imagParts)
-                windowedSamples.withUnsafeBufferPointer { bufferPtr in
-                    bufferPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { complexPtr in
-                        vDSP_ctoz(complexPtr, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
+                realParts.withUnsafeMutableBufferPointer { realPtr in
+                    imagParts.withUnsafeMutableBufferPointer { imagPtr in
+                        guard let realBase = realPtr.baseAddress, let imagBase = imagPtr.baseAddress else { return }
+                        var splitComplex = DSPSplitComplex(realp: realBase, imagp: imagBase)
+                        windowedSamples.withUnsafeBufferPointer { bufferPtr in
+                            bufferPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { complexPtr in
+                                vDSP_ctoz(complexPtr, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
+                            }
+                        }
+                        vDSP_fft_zrip(fftSetup, &splitComplex, 1, log2n, FFTDirection(FFT_FORWARD))
+                        vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
                     }
                 }
-                vDSP_fft_zrip(fftSetup, &splitComplex, 1, log2n, FFTDirection(FFT_FORWARD))
-                vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
                 var divisor = Float(fftSize * 2)
                 vDSP_vsdiv(magnitudes, 1, &divisor, &normalizedMags, 1, vDSP_Length(fftSize / 2))
 
