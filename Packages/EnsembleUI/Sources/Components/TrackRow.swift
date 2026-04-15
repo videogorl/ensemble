@@ -255,7 +255,7 @@ public struct TrackRow: View {
         Menu {
             contextMenuItems
         } label: {
-            Image(systemName: "ellipsis")
+            Image(systemName: "ellipsis.circle")
                 .font(.body.weight(.semibold))
                 .foregroundColor(.secondary)
                 .frame(width: 28, height: 28)
