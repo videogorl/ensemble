@@ -288,6 +288,7 @@ Sources/
 |   +-- ArtistCard.swift              # Grid card for artists
 |   +-- ArtistDetailLoader.swift      # Async loader for artist detail with loading/error states
 |   +-- ArtworkColorExtractor.swift   # Actor-based color extraction from artwork for dynamic gradients
+|   +-- ArtworkDetailBackground.swift # Shared detail-screen blurred artwork + overlay treatment used by MediaDetailView and download detail screens
 |   +-- ArtworkView.swift             # Lazy-loading artwork with Nuke
 |   +-- CompositeArtworkView.swift    # Composite 2x2 artwork grid for merged playlists + PlaylistArtwork wrapper
 |   +-- AuroraVisualizationView.swift # Aurora-style background visualization of music loudness

@@ -95,7 +95,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var currentTrackId: String?
     @State private var nvmLastPlaylistTargetId: String?
     @Environment(\.dependencies) private var deps
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
@@ -585,40 +584,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         #endif
     }
     
-    private var backgroundOverlayColor: Color {
-        #if os(iOS)
-        return colorScheme == .dark ? .black : Color(UIColor.systemBackground)
-        #else
-        return colorScheme == .dark ? .black : Color(NSColor.windowBackgroundColor)
-        #endif
-    }
-
     private var backgroundGradient: some View {
-        ZStack {
-            BlurredArtworkBackground(
-                image: artworkImage,
-                topDimming: colorScheme == .dark ? 0.1 : 0.05,
-                bottomDimming: colorScheme == .dark ? 0.4 : 0.3,
-                overlayColor: backgroundOverlayColor
-            )
-
-            // Legibility overlay matching NowPlayingView treatment
-            if colorScheme == .dark {
-                Color.black.opacity(0.45)
-                    .allowsHitTesting(false)
-            } else {
-                backgroundOverlayColor.opacity(0.7)
-                    .allowsHitTesting(false)
-            }
-        }
-        .mask(
-            LinearGradient(
-                colors: [.white, .clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
-        .frame(height: 500)
+        ArtworkDetailBackground(image: artworkImage)
     }
     
     private func loadArtworkImage(path: String, sourceKey: String?) async {
