@@ -10,6 +10,7 @@ public struct MoreView: View {
     let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     @State private var isEditing = false
 
@@ -76,7 +77,7 @@ public struct MoreView: View {
                     } else {
                         // iOS 15 Fallback: Use manual push to coordinator to sync with NavigationView
                         Button {
-                            deps.navigationCoordinator.push(.view(tab), in: .settings)
+                            navigationCoordinator.push(.view(tab), in: .settings)
                         } label: {
                             HStack {
                                 Label(tab.displayTitle, systemImage: tab.systemImage)
@@ -100,7 +101,7 @@ public struct MoreView: View {
                     } else {
                         // iOS 15 Fallback
                         Button {
-                            deps.navigationCoordinator.push(.view(tab), in: .settings)
+                            navigationCoordinator.push(.view(tab), in: .settings)
                         } label: {
                             HStack {
                                 Label(tab.displayTitle, systemImage: tab.systemImage)

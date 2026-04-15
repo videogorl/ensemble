@@ -68,16 +68,27 @@ public struct AuroraVisualizationView: View {
     /// When true, reduces to 1 glow pass at 15fps to conserve battery
     private let isLowPowerMode: Bool
 
+    /// Whether the aurora is allowed to intentionally bleed beyond its host bounds.
+    /// Root shells want the wider glow treatment; split detail panes need a clipped surface.
+    private let expandsBeyondBounds: Bool
+
     /// True on A9 (dual-core) and other ≤2-core devices.
     /// Stored once at init time — processorCount never changes at runtime,
     /// and drawAurora() runs at 15-30fps so we don't want ProcessInfo on the hot path.
     private let isLowCoreDevice: Bool
 
-    public init(playbackService: PlaybackServiceProtocol, accentColor: Color, isPaused: Bool = false, isLowPowerMode: Bool = false) {
+    public init(
+        playbackService: PlaybackServiceProtocol,
+        accentColor: Color,
+        isPaused: Bool = false,
+        isLowPowerMode: Bool = false,
+        expandsBeyondBounds: Bool = true
+    ) {
         self.playbackService = playbackService
         self.accentColor = accentColor
         self.isPaused = isPaused
         self.isLowPowerMode = isLowPowerMode
+        self.expandsBeyondBounds = expandsBeyondBounds
         self.isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
     }
 
@@ -111,14 +122,16 @@ public struct AuroraVisualizationView: View {
                         time: timeline.date.timeIntervalSinceReferenceDate
                     )
                 }
-                .frame(width: geometry.size.width + 80)
+                .frame(width: expandsBeyondBounds ? geometry.size.width + 80 : geometry.size.width)
                 .frame(height: maxHeight + 40) // Slightly taller to allow for bottom overflow
-                .offset(x: -40, y: 15) // Offset down to hide the very bottom of the pool
+                .offset(x: expandsBeyondBounds ? -40 : 0, y: 15) // Offset down to hide the very bottom of the pool
             }
             .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .opacity(isVisible ? 0.7 : 0) // Reduced overall opacity for transparency
-        .ignoresSafeArea()
+        .if(expandsBeyondBounds) { view in
+            view.ignoresSafeArea()
+        }
         .allowsHitTesting(false)
         .onReceive(playbackService.frequencyBandsPublisher) { bands in
             frequencyBands = bands

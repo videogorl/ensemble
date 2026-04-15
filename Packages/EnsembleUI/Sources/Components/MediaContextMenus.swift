@@ -13,6 +13,7 @@ struct AlbumActionsContextMenu: View {
     var customPinAction: ((Bool) -> Void)? = nil
 
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
 
     var body: some View {
@@ -140,10 +141,7 @@ struct AlbumActionsContextMenu: View {
             return
         }
 
-        DependencyContainer.shared.navigationCoordinator.push(
-            .artist(id: artistId),
-            in: DependencyContainer.shared.navigationCoordinator.selectedTab
-        )
+        self.navigationCoordinator.push(.artist(id: artistId), in: self.navigationCoordinator.selectedTab)
     }
 
     private func withAlbumTracks(_ album: Album, perform action: @escaping ([Track]) -> Void) {

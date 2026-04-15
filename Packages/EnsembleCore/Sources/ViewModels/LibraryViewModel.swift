@@ -13,6 +13,7 @@ public final class LibraryViewModel: ObservableObject {
     @Published public private(set) var isSyncing = false
     @Published public private(set) var hasAnySources = false
     @Published public private(set) var hasEnabledLibraries = false
+    @Published public private(set) var isRestoringCloudSources = false
     
     // Sort preferences
     @Published public var trackSortOption: TrackSortOption = .title {
@@ -109,6 +110,10 @@ public final class LibraryViewModel: ObservableObject {
             }
             .assign(to: &$hasEnabledLibraries)
 
+        accountManager.$isAwaitingCloudSources
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isRestoringCloudSources)
+
         // Reflect account/library enablement changes immediately in cached browse surfaces.
         accountManager.$plexAccounts
             .receive(on: DispatchQueue.main)
@@ -129,6 +134,19 @@ public final class LibraryViewModel: ObservableObject {
             .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
             .sink { [weak self] change in
                 EnsembleLogger.debug("📚 LibraryViewModel: reloading after content change for \(change.source.compositeKey)")
+                Task { @MainActor in
+                    await self?.loadLibrary()
+                }
+            }
+            .store(in: &cancellables)
+
+        // Startup sync can repair restored metadata before the UI has a chance to
+        // subscribe to granular change events. Force one post-startup reload so
+        // the first launch reflects repaired genres, artwork metadata, and counts.
+        syncCoordinator.$lastStartupSyncCompletion
+            .receive(on: DispatchQueue.main)
+            .compactMap { $0 }
+            .sink { [weak self] _ in
                 Task { @MainActor in
                     await self?.loadLibrary()
                 }

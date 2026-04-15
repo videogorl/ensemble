@@ -23,7 +23,7 @@ private struct KeyboardEditorPresentationTracker: ViewModifier {
     let isActive: Bool
 
     @State private var isRegistered = false
-    private let navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     func body(content: Content) -> some View {
         content

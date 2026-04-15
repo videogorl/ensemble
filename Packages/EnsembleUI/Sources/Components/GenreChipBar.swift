@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Genre Chip Bar
 
 /// Horizontal scrollable chip bar for quick genre filtering.
-/// Only renders when there are 2+ available genres.
+/// Renders whenever there is at least one available genre.
 /// Three-state toggle: tap to include → tap to exclude → tap to clear.
 /// Include uses OR logic (any selected genre matches).
 /// Exclude hides items matching any excluded genre.
@@ -29,7 +29,7 @@ public struct GenreChipBar: View {
     }
 
     public var body: some View {
-        if availableGenres.count >= 2 {
+        if !availableGenres.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     // Clear button — animates width to/from zero so it doesn't

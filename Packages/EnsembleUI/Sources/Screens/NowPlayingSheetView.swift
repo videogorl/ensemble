@@ -9,10 +9,12 @@ public struct NowPlayingSheetView: View {
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @State private var dismissDragOffset: CGFloat = 0
 
     private let namespace: Namespace.ID?
     private let animationID: String?
     private let dismissAction: (() -> Void)?
+    private let dismissThreshold: CGFloat = 120
 
     public init(
         viewModel: NowPlayingViewModel,
@@ -27,21 +29,30 @@ public struct NowPlayingSheetView: View {
     }
 
     public var body: some View {
-        ZStack {
-            backgroundView
+        GeometryReader { geometry in
+            ZStack {
+                backgroundView
 
-            VStack(spacing: 0) {
-                dismissPill
-                    .padding(.top, 28)
-                    .padding(.bottom, 8)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        handleDismiss()
+                VStack(spacing: 0) {
+                    dismissPill
+                        .padding(.top, 28)
+                        .padding(.bottom, 8)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            handleDismiss()
+                        }
+                        .gesture(dismissDragGesture)
+
+                    if usesWideNowPlayingLayout(for: geometry.size) {
+                        wideLayout(for: geometry)
+                    } else {
+                        NowPlayingCarousel(viewModel: viewModel, currentPage: $viewModel.currentPage)
                     }
-
-                NowPlayingCarousel(viewModel: viewModel, currentPage: $viewModel.currentPage)
+                }
             }
         }
+        .offset(y: dismissDragOffset)
+        .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.86), value: dismissDragOffset)
     }
 
     private var backgroundView: some View {
@@ -91,7 +102,116 @@ public struct NowPlayingSheetView: View {
             .frame(width: 36, height: 5)
     }
 
+    private func usesWideNowPlayingLayout(for size: CGSize) -> Bool {
+        let minimumPanelWidth: CGFloat = 320
+        let minimumWideWidth = (24 * 2) + 20 + (minimumPanelWidth * 2)
+        return size.width >= minimumWideWidth && size.width > size.height * 0.82
+    }
+
+    @ViewBuilder
+    private func wideLayout(for geometry: GeometryProxy) -> some View {
+        VStack(spacing: 20) {
+            wideHeader
+
+            HStack(alignment: .top, spacing: 20) {
+                ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+                    .frame(width: panelWidth(for: geometry))
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
+
+                wideDetailPanel
+                    .frame(width: panelWidth(for: geometry))
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, max(geometry.safeAreaInsets.top, 8))
+        .padding(.bottom, 24)
+    }
+
+    private var wideHeader: some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(viewModel.currentTrack?.title ?? "Now Playing")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+
+                if let artist = viewModel.currentTrack?.artistName, !artist.isEmpty {
+                    Text(artist)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            Picker("Panel", selection: widePanelSelection) {
+                Text("Queue").tag(0)
+                Text("Lyrics").tag(2)
+                Text("Info").tag(3)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 300)
+        }
+        .frame(maxWidth: 1120)
+    }
+
+    private var widePanelSelection: Binding<Int> {
+        Binding(
+            get: {
+                if viewModel.currentPage == 3 { return 3 }
+                if viewModel.currentPage == 2 { return 2 }
+                return 0
+            },
+            set: { newValue in
+                viewModel.currentPage = newValue
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var wideDetailPanel: some View {
+        if viewModel.currentPage == 3 {
+            InfoCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+        } else if viewModel.currentPage == 2 {
+            LyricsCard(
+                viewModel: viewModel,
+                currentPage: $viewModel.currentPage,
+                isLowPowerMode: powerStateMonitor.isLowPowerMode
+            )
+        } else {
+            QueueCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+        }
+    }
+
+    private func panelWidth(for geometry: GeometryProxy) -> CGFloat {
+        let available = min(geometry.size.width - 48, 1120)
+        return max((available - 20) / 2, 0)
+    }
+
+    private var dismissDragGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                guard value.translation.height > 0 else {
+                    dismissDragOffset = 0
+                    return
+                }
+
+                // Keep dismissal responsive without letting the view lag too far behind the finger.
+                dismissDragOffset = value.translation.height * 0.72
+            }
+            .onEnded { value in
+                if value.translation.height > dismissThreshold || value.predictedEndTranslation.height > dismissThreshold {
+                    handleDismiss()
+                } else {
+                    dismissDragOffset = 0
+                }
+            }
+    }
+
     private func handleDismiss() {
+        dismissDragOffset = 0
         if let dismissAction {
             dismissAction()
         } else {

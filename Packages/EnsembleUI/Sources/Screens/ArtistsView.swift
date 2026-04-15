@@ -5,6 +5,7 @@ import Nuke
 public struct ArtistsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
@@ -31,9 +32,6 @@ public struct ArtistsView: View {
             }
         }
         .navigationTitle("Artists")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
         .searchable(text: $libraryVM.artistsFilterOptions.searchText, prompt: "Filter artists")
         .refreshable {
             await libraryVM.refreshFromServer()
@@ -173,14 +171,27 @@ public struct ArtistsView: View {
             Text("No Artists")
                 .font(.title2)
 
-            if !libraryVM.hasAnySources {
+            if libraryVM.isRestoringCloudSources {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text("Restoring libraries from iCloud…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Text("This can take a moment on first launch.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            } else if !libraryVM.hasAnySources {
                 Text("No music sources connected")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -204,7 +215,7 @@ public struct ArtistsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                    navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)
@@ -320,6 +331,7 @@ public struct ArtistDetailView: View {
     let nowPlayingVM: NowPlayingViewModel
 
     @Environment(\.dependencies) private var dependencies
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
@@ -481,7 +493,7 @@ public struct ArtistDetailView: View {
                 )
             }
         } label: {
-            Image(systemName: "ellipsis")
+            Image(systemName: "ellipsis.circle")
         }
     }
     
@@ -930,7 +942,7 @@ public struct ArtistDetailView: View {
                 },
                 onGoToAlbum: { track in
                     if let albumId = track.albumRatingKey {
-                        DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                        self.navigationCoordinator.push(.album(id: albumId), in: self.navigationCoordinator.selectedTab)
                     }
                 },
                 onShareLink: { track in

@@ -120,6 +120,30 @@ public struct TrackReparentInfo: Sendable {
     }
 }
 
+/// Summarizes how much persisted album/track genre metadata exists for a source.
+/// Used to detect restored stores that have the genre catalog but not the per-item genre fields.
+public struct GenreCoverageStats: Sendable, Equatable {
+    public let albumCount: Int
+    public let albumsWithGenreNames: Int
+    public let trackCount: Int
+    public let tracksWithGenreNames: Int
+    public let genreCatalogCount: Int
+
+    public init(
+        albumCount: Int,
+        albumsWithGenreNames: Int,
+        trackCount: Int,
+        tracksWithGenreNames: Int,
+        genreCatalogCount: Int
+    ) {
+        self.albumCount = albumCount
+        self.albumsWithGenreNames = albumsWithGenreNames
+        self.trackCount = trackCount
+        self.tracksWithGenreNames = tracksWithGenreNames
+        self.genreCatalogCount = genreCatalogCount
+    }
+}
+
 public protocol LibraryRepositoryProtocol: Sendable {
     /// Refresh the context to ensure fresh data from the store
     func refreshContext() async
@@ -241,6 +265,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date]
     func fetchTrackTimestamps(forSource sourceKey: String) async throws -> [String: Date]
     func fetchTrackRatings(forSource sourceKey: String) async throws -> [String: Int16]
+    func fetchGenreCoverageStats(forSource sourceKey: String) async throws -> GenreCoverageStats?
     func removeOrphanedGenres(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
 
     // Batch upserts (single context + single save for full sync performance)
@@ -259,6 +284,7 @@ public extension LibraryRepositoryProtocol {
     func deleteAlbum(ratingKey: String, sourceCompositeKey: String?) async throws {}
     func updateTrackTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws {}
     func deleteTrack(ratingKey: String, sourceCompositeKey: String?) async throws {}
+    func fetchGenreCoverageStats(forSource sourceKey: String) async throws -> GenreCoverageStats? { nil }
 }
 
 public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
@@ -1634,6 +1660,53 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                         result[track.ratingKey] = track.rating
                     }
                     continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Returns per-source genre coverage so startup sync can repair sparse restored stores.
+    public func fetchGenreCoverageStats(forSource sourceKey: String) async throws -> GenreCoverageStats? {
+        try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let albumCountRequest: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
+                    albumCountRequest.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    let albumCount = try context.count(for: albumCountRequest)
+
+                    let albumWithGenresRequest: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
+                    albumWithGenresRequest.predicate = NSPredicate(
+                        format: "source.compositeKey == %@ AND genreNames != nil AND genreNames != ''",
+                        sourceKey
+                    )
+                    let albumsWithGenreNames = try context.count(for: albumWithGenresRequest)
+
+                    let trackCountRequest: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
+                    trackCountRequest.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    let trackCount = try context.count(for: trackCountRequest)
+
+                    let trackWithGenresRequest: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
+                    trackWithGenresRequest.predicate = NSPredicate(
+                        format: "source.compositeKey == %@ AND genreNames != nil AND genreNames != ''",
+                        sourceKey
+                    )
+                    let tracksWithGenreNames = try context.count(for: trackWithGenresRequest)
+
+                    let genreCountRequest: NSFetchRequest<CDGenre> = CDGenre.fetchRequest()
+                    genreCountRequest.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    let genreCatalogCount = try context.count(for: genreCountRequest)
+
+                    continuation.resume(
+                        returning: GenreCoverageStats(
+                            albumCount: albumCount,
+                            albumsWithGenreNames: albumsWithGenreNames,
+                            trackCount: trackCount,
+                            tracksWithGenreNames: tracksWithGenreNames,
+                            genreCatalogCount: genreCatalogCount
+                        )
+                    )
                 } catch {
                     continuation.resume(throwing: error)
                 }

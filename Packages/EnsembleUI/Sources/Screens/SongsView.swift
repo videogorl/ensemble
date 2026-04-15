@@ -17,7 +17,7 @@ public struct SongsView: View {
 
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
@@ -119,9 +119,6 @@ public struct SongsView: View {
         .statusBar(hidden: isStageFlowActive)
         #endif
         .navigationTitle(isPresenterChromeHidden ? "" : "Songs")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
         .if(!isPresenterChromeHidden) { view in
             view.searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
         }
@@ -189,7 +186,7 @@ public struct SongsView: View {
                                 Label("Play All", systemImage: "play.fill")
                             }
                         } label: {
-                            Image(systemName: "ellipsis")
+                            Image(systemName: "ellipsis.circle")
                         }
                     }
                 }
@@ -252,7 +249,7 @@ public struct SongsView: View {
                                 Label("Play All", systemImage: "play.fill")
                             }
                         } label: {
-                            Image(systemName: "ellipsis")
+                            Image(systemName: "ellipsis.circle")
                         }
                     }
                 }
@@ -311,14 +308,27 @@ public struct SongsView: View {
             Text("No Songs")
                 .font(.title2)
 
-            if !libraryVM.hasAnySources {
+            if libraryVM.isRestoringCloudSources {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text("Restoring libraries from iCloud…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Text("This can take a moment on first launch.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            } else if !libraryVM.hasAnySources {
                 Text("No music sources connected")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -342,7 +352,7 @@ public struct SongsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                    navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)
@@ -423,12 +433,12 @@ public struct SongsView: View {
                                             onAddToRecentPlaylist: { addToRecentPlaylist(track) },
                                             onGoToAlbum: {
                                                 if let albumId = track.albumRatingKey {
-                                                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                                    navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
                                                 }
                                             },
                                             onGoToArtist: {
                                                 if let artistId = track.artistRatingKey {
-                                                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                                    navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
                                                 }
                                             },
                                             onShareLink: {
@@ -548,12 +558,12 @@ public struct SongsView: View {
                 },
                 onGoToAlbum: { track in
                     if let albumId = track.albumRatingKey {
-                        DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                        navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
                     }
                 },
                 onGoToArtist: { track in
                     if let artistId = track.artistRatingKey {
-                        DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                        navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
                     }
                 },
                 onShareLink: { track in
@@ -588,12 +598,12 @@ public struct SongsView: View {
                     onAddToRecentPlaylist: { addToRecentPlaylist(track) },
                     onGoToAlbum: {
                         if let albumId = track.albumRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                            navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
                         }
                     },
                     onGoToArtist: {
                         if let artistId = track.artistRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                            navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
                         }
                     },
                     onShareLink: {
@@ -656,12 +666,12 @@ public struct SongsView: View {
             },
             onGoToAlbum: { track in
                 if let albumId = track.albumRatingKey {
-                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                    navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
                 }
             },
             onGoToArtist: { track in
                 if let artistId = track.artistRatingKey {
-                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                    navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
                 }
             },
             onShareLink: { track in
@@ -694,12 +704,12 @@ public struct SongsView: View {
                     onAddToRecentPlaylist: { addToRecentPlaylist(track) },
                     onGoToAlbum: {
                         if let albumId = track.albumRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                            navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
                         }
                     },
                     onGoToArtist: {
                         if let artistId = track.artistRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                            navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
                         }
                     },
                     onShareLink: {
