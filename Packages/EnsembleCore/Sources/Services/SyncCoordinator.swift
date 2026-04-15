@@ -247,209 +247,17 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Sync all enabled sources
     public func syncAll() async {
-        guard !isSyncing else { return }
-        isSyncing = true
-        defer { isSyncing = false }
-
-        // Clean up any duplicate playlists from previous syncs
-        try? await playlistRepository.removeDuplicatePlaylists()
-        
-        // Track which servers have had their playlists synced
-        var syncedServerKeys = Set<String>()
-
-        for (_, provider) in syncProviders {
-            let sourceId = provider.sourceIdentifier
-            let previousStatus = sourceStatuses[sourceId]
-            let currentConnectionState = sourceStatuses[sourceId]?.connectionState ?? .unknown
-            
-            sourceStatuses[sourceId] = MusicSourceStatus(
-                syncStatus: .syncing(progress: 0),
-                connectionState: currentConnectionState
-            )
-
-            do {
-                // Sync library content (artists, albums, tracks, genres)
-                let libraryResult = try await provider.syncLibrary(
-                    to: libraryRepository,
-                    progressHandler: { [weak self] progress in
-                        Task { @MainActor in
-                            guard let self = self else { return }
-                            // Library sync takes up 70% of the progress
-                            self.throttledProgressUpdate(for: sourceId, mappedProgress: progress * 0.7)
-                        }
-                    }
-                )
-
-                // Invalidate artwork for tracks whose album changed during sync
-                let reparentedTracks = libraryRepository.drainTrackReparentInfo()
-                if !reparentedTracks.isEmpty {
-                    EnsembleLogger.debug("[Sync] \(reparentedTracks.count) track(s) reparented — invalidating artwork")
-                    await onTrackAlbumChanged?(reparentedTracks)
-                }
-
-                // Pre-cache artwork for albums
-                await cacheArtworkForSource(sourceId: sourceId, provider: provider)
-                
-                // Sync playlists once per server
-                var playlistResult: PlaylistSyncResult?
-                let serverKey = "\(sourceId.accountId):\(sourceId.serverId)"
-                if !syncedServerKeys.contains(serverKey) {
-                    syncedServerKeys.insert(serverKey)
-                    playlistResult = try await provider.syncPlaylists(
-                        to: playlistRepository,
-                        progressHandler: { [weak self] progress in
-                            Task { @MainActor in
-                                guard let self = self else { return }
-                                // Playlist sync takes up the remaining 20%
-                                self.throttledProgressUpdate(for: sourceId, mappedProgress: 0.8 + (progress * 0.2))
-                            }
-                        }
-                    )
-                }
-                
-                let syncedAt = Date()
-                let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
-                    for: sourceId,
-                    fallback: currentConnectionState
-                )
-                sourceStatuses[sourceId] = MusicSourceStatus(
-                    syncStatus: .lastSynced(syncedAt),
-                    connectionState: resolvedConnectionState
-                )
-                publishContentChangeIfNeeded(
-                    for: sourceId,
-                    libraryResult: libraryResult,
-                    playlistResult: playlistResult,
-                    syncedAt: syncedAt
-                )
-                SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
-            } catch is CancellationError {
-                restoreStatusAfterCancellation(
-                    for: sourceId,
-                    previousStatus: previousStatus,
-                    fallbackConnectionState: currentConnectionState
-                )
-            } catch {
-                sourceStatuses[sourceId] = MusicSourceStatus(
-                    syncStatus: .error(syncErrorMessage(for: error)),
-                    connectionState: effectiveConnectionState(for: currentConnectionState)
-                )
-            }
-        }
+        await syncExecutionController().syncAll(providers: syncProviders)
     }
 
     /// Sync a single source.
     public func sync(source: MusicSourceIdentifier) async {
-        await syncSingleSource(source, publishGlobalSyncState: true)
+        await syncExecutionController().sync(source: source, providers: syncProviders)
     }
 
     /// Sync a scoped set of sources while publishing one global sync lifecycle.
     public func sync(sources: [MusicSourceIdentifier]) async {
-        var uniqueSources: [MusicSourceIdentifier] = []
-        var seenCompositeKeys = Set<String>()
-        for source in sources where seenCompositeKeys.insert(source.compositeKey).inserted {
-            uniqueSources.append(source)
-        }
-        guard !uniqueSources.isEmpty else { return }
-
-        let shouldPublishGlobalSyncState = !isSyncing
-        if shouldPublishGlobalSyncState {
-            isSyncing = true
-        }
-        defer {
-            if shouldPublishGlobalSyncState {
-                isSyncing = false
-            }
-        }
-
-        for source in uniqueSources {
-            await syncSingleSource(source, publishGlobalSyncState: false)
-        }
-    }
-
-    private func syncSingleSource(
-        _ source: MusicSourceIdentifier,
-        publishGlobalSyncState: Bool
-    ) async {
-        guard let provider = syncProviders[source.compositeKey] else { return }
-
-        let shouldPublishGlobalSyncState = publishGlobalSyncState && !isSyncing
-        if shouldPublishGlobalSyncState {
-            isSyncing = true
-        }
-        defer {
-            if shouldPublishGlobalSyncState {
-                isSyncing = false
-            }
-        }
-
-        let currentConnectionState = sourceStatuses[source]?.connectionState ?? .unknown
-        let previousStatus = sourceStatuses[source]
-        sourceStatuses[source] = MusicSourceStatus(
-            syncStatus: .syncing(progress: 0),
-            connectionState: currentConnectionState
-        )
-
-        do {
-            // Sync library content
-            let libraryResult = try await provider.syncLibrary(
-                to: libraryRepository,
-                progressHandler: { [weak self] progress in
-                    Task { @MainActor in
-                        guard let self = self else { return }
-                        // Library sync takes up 80% of the progress
-                        self.throttledProgressUpdate(for: source, mappedProgress: progress * 0.8)
-                    }
-                }
-            )
-
-            // Invalidate artwork for tracks whose album changed during sync
-            let reparentedTracks = libraryRepository.drainTrackReparentInfo()
-            if !reparentedTracks.isEmpty {
-                EnsembleLogger.debug("[Sync] \(reparentedTracks.count) track(s) reparented — invalidating artwork")
-                await onTrackAlbumChanged?(reparentedTracks)
-            }
-
-            // Sync playlists for this server
-            let playlistResult = try await provider.syncPlaylists(
-                to: playlistRepository,
-                progressHandler: { [weak self] progress in
-                    Task { @MainActor in
-                        guard let self = self else { return }
-                        // Playlist sync takes up the remaining 20%
-                        self.throttledProgressUpdate(for: source, mappedProgress: 0.8 + (progress * 0.2))
-                    }
-                }
-            )
-
-            let syncedAt = Date()
-            let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
-                for: source,
-                fallback: currentConnectionState
-            )
-            sourceStatuses[source] = MusicSourceStatus(
-                syncStatus: .lastSynced(syncedAt),
-                connectionState: resolvedConnectionState
-            )
-            publishContentChangeIfNeeded(
-                for: source,
-                libraryResult: libraryResult,
-                playlistResult: playlistResult,
-                syncedAt: syncedAt
-            )
-            SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
-        } catch is CancellationError {
-            restoreStatusAfterCancellation(
-                for: source,
-                previousStatus: previousStatus,
-                fallbackConnectionState: currentConnectionState
-            )
-        } catch {
-            sourceStatuses[source] = MusicSourceStatus(
-                syncStatus: .error(syncErrorMessage(for: error)),
-                connectionState: effectiveConnectionState(for: currentConnectionState)
-            )
-        }
+        await syncExecutionController().sync(sources: sources, providers: syncProviders)
     }
 
     private func connectionStateAfterSuccessfulSync(
@@ -545,255 +353,12 @@ public final class SyncCoordinator: ObservableObject {
     
     /// Sync all enabled sources incrementally (only fetch changes since last sync)
     public func syncAllIncremental() async {
-        guard !isSyncing else {
-            EnsembleLogger.debug("⏳ syncAllIncremental: Already syncing, skipping")
-            return
-        }
-        isSyncing = true
-        defer { isSyncing = false }
-        EnsembleLogger.debug("🔄 syncAllIncremental: Starting...")
-        
-        // Track which servers have had their playlists synced
-        var syncedServerKeys = Set<String>()
-        
-        for (_, provider) in syncProviders {
-            let sourceId = provider.sourceIdentifier
-            let previousStatus = sourceStatuses[sourceId]
-            let currentConnectionState = sourceStatuses[sourceId]?.connectionState ?? .unknown
-            
-            // Get last sync timestamp
-            guard let lastSyncDate = await loadLastSyncDate(for: sourceId) else {
-                // No previous sync - fall back to full sync
-                EnsembleLogger.debug("⚠️ No previous sync found for \(sourceId.compositeKey), performing full sync")
-                sourceStatuses[sourceId] = MusicSourceStatus(
-                    syncStatus: .syncing(progress: 0),
-                    connectionState: currentConnectionState
-                )
-                
-                do {
-                    let libraryResult = try await provider.syncLibrary(
-                        to: libraryRepository,
-                        progressHandler: { [weak self] progress in
-                            Task { @MainActor in
-                                guard let self = self else { return }
-                                self.throttledProgressUpdate(for: sourceId, mappedProgress: progress * 0.9)
-                            }
-                        }
-                    )
-
-                    // Invalidate artwork for tracks whose album changed during sync
-                    let reparentedTracks = libraryRepository.drainTrackReparentInfo()
-                    if !reparentedTracks.isEmpty {
-                        EnsembleLogger.debug("[Sync] \(reparentedTracks.count) track(s) reparented — invalidating artwork")
-                        await onTrackAlbumChanged?(reparentedTracks)
-                    }
-
-                    let syncedAt = Date()
-                    let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
-                        for: sourceId,
-                        fallback: currentConnectionState
-                    )
-                    sourceStatuses[sourceId] = MusicSourceStatus(
-                        syncStatus: .lastSynced(syncedAt),
-                        connectionState: resolvedConnectionState
-                    )
-                    publishContentChangeIfNeeded(
-                        for: sourceId,
-                        libraryResult: libraryResult,
-                        syncedAt: syncedAt
-                    )
-                    SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
-                } catch is CancellationError {
-                    restoreStatusAfterCancellation(
-                        for: sourceId,
-                        previousStatus: previousStatus,
-                        fallbackConnectionState: currentConnectionState
-                    )
-                } catch {
-                    sourceStatuses[sourceId] = MusicSourceStatus(
-                        syncStatus: .error(syncErrorMessage(for: error)),
-                        connectionState: effectiveConnectionState(for: currentConnectionState)
-                    )
-                }
-                continue
-            }
-            
-            sourceStatuses[sourceId] = MusicSourceStatus(
-                syncStatus: .syncing(progress: 0),
-                connectionState: currentConnectionState
-            )
-            
-            do {
-                // Incremental sync library content
-                // Subtract 5s buffer to catch items updated just before the last sync completed
-                let timestamp = lastSyncDate.timeIntervalSince1970 - 5
-                let libraryResult = try await provider.syncLibraryIncremental(
-                    since: timestamp,
-                    to: libraryRepository,
-                    progressHandler: { [weak self] progress in
-                        Task { @MainActor in
-                            guard let self = self else { return }
-                            self.throttledProgressUpdate(for: sourceId, mappedProgress: progress * 0.9)
-                        }
-                    }
-                )
-
-                // Invalidate artwork for tracks whose album changed during sync
-                let reparentedTracks = libraryRepository.drainTrackReparentInfo()
-                if !reparentedTracks.isEmpty {
-                    EnsembleLogger.debug("[Sync] \(reparentedTracks.count) track(s) reparented — invalidating artwork")
-                    await onTrackAlbumChanged?(reparentedTracks)
-                }
-
-                // Sync playlists incrementally once per server
-                var playlistResult: PlaylistSyncResult?
-                let serverKey = "\(sourceId.accountId):\(sourceId.serverId)"
-                if !syncedServerKeys.contains(serverKey) {
-                    syncedServerKeys.insert(serverKey)
-                    playlistResult = try await provider.syncPlaylistsIncremental(
-                        to: playlistRepository,
-                        progressHandler: { [weak self] progress in
-                            Task { @MainActor in
-                                guard let self = self else { return }
-                                self.throttledProgressUpdate(for: sourceId, mappedProgress: 0.9 + (progress * 0.1))
-                            }
-                        }
-                    )
-
-                    // Notify playlist views that data may have changed
-                    let serverSourceKey = "\(sourceId.type.rawValue):\(sourceId.accountId):\(sourceId.serverId)"
-                    notifyPlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
-                }
-                
-                let syncedAt = Date()
-                let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
-                    for: sourceId,
-                    fallback: currentConnectionState
-                )
-                sourceStatuses[sourceId] = MusicSourceStatus(
-                    syncStatus: .lastSynced(syncedAt),
-                    connectionState: resolvedConnectionState
-                )
-                publishContentChangeIfNeeded(
-                    for: sourceId,
-                    libraryResult: libraryResult,
-                    playlistResult: playlistResult,
-                    syncedAt: syncedAt
-                )
-                SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
-            } catch is CancellationError {
-                restoreStatusAfterCancellation(
-                    for: sourceId,
-                    previousStatus: previousStatus,
-                    fallbackConnectionState: currentConnectionState
-                )
-            } catch {
-                sourceStatuses[sourceId] = MusicSourceStatus(
-                    syncStatus: .error(syncErrorMessage(for: error)),
-                    connectionState: effectiveConnectionState(for: currentConnectionState)
-                )
-            }
-        }
+        await syncExecutionController().syncAllIncremental(providers: syncProviders)
     }
     
     /// Sync a single source incrementally (only fetch changes since last sync)
     public func syncIncremental(source: MusicSourceIdentifier) async {
-        guard let provider = syncProviders[source.compositeKey] else { return }
-
-        let overallStart = CFAbsoluteTimeGetCurrent()
-        let currentConnectionState = sourceStatuses[source]?.connectionState ?? .unknown
-        let previousStatus = sourceStatuses[source]
-
-        // Get last sync timestamp
-        guard let lastSyncDate = await loadLastSyncDate(for: source) else {
-            // No previous sync - fall back to full sync
-            EnsembleLogger.debug("⚠️ No previous sync found for \(source.compositeKey), performing full sync")
-            await sync(source: source)
-            return
-        }
-        
-        sourceStatuses[source] = MusicSourceStatus(
-            syncStatus: .syncing(progress: 0),
-            connectionState: currentConnectionState
-        )
-        
-        do {
-            // Incremental sync library content
-            // Subtract 5s buffer to catch items updated just before the last sync completed
-            // (guards against clock skew between server and client)
-            let timestamp = lastSyncDate.timeIntervalSince1970 - 5
-            let libraryResult = try await provider.syncLibraryIncremental(
-                since: timestamp,
-                to: libraryRepository,
-                progressHandler: { [weak self] progress in
-                    Task { @MainActor in
-                        guard let self = self else { return }
-                        self.throttledProgressUpdate(for: source, mappedProgress: progress * 0.9)
-                    }
-                }
-            )
-
-            // Invalidate artwork for tracks whose album changed during sync
-            let reparentedTracks = libraryRepository.drainTrackReparentInfo()
-            if !reparentedTracks.isEmpty {
-                EnsembleLogger.debug("[Sync] \(reparentedTracks.count) track(s) reparented — invalidating artwork")
-                await onTrackAlbumChanged?(reparentedTracks)
-            }
-
-            // Sync playlists incrementally (only changed playlists, not all)
-            let playlistPhaseStart = CFAbsoluteTimeGetCurrent()
-            let playlistResult = try await provider.syncPlaylistsIncremental(
-                to: playlistRepository,
-                progressHandler: { [weak self] progress in
-                    Task { @MainActor in
-                        guard let self = self else { return }
-                        self.throttledProgressUpdate(for: source, mappedProgress: 0.9 + (progress * 0.1))
-                    }
-                }
-            )
-
-            EnsembleLogger.debug("⏱️ SyncCoordinator: playlist phase took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistPhaseStart))s")
-
-            // Cache all artwork so it's always available offline.
-            // Each helper skips items already cached, so this is fast on repeat runs.
-            await cacheAlbumArtwork(sourceId: source, provider: provider)
-            await cacheArtistArtwork(sourceId: source, provider: provider)
-            await cachePlaylistArtwork(sourceId: source, provider: provider)
-
-            // Notify playlist views that data may have changed (incremental sync includes playlists)
-            let serverSourceKey = "\(source.type.rawValue):\(source.accountId):\(source.serverId)"
-            notifyPlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
-
-            EnsembleLogger.debug("⏱️ SyncCoordinator: incremental sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - overallStart))s for \(source.compositeKey)")
-
-            let syncedAt = Date()
-            let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
-                for: source,
-                fallback: currentConnectionState
-            )
-            sourceStatuses[source] = MusicSourceStatus(
-                syncStatus: .lastSynced(syncedAt),
-                connectionState: resolvedConnectionState
-            )
-            publishContentChangeIfNeeded(
-                for: source,
-                libraryResult: libraryResult,
-                playlistResult: playlistResult,
-                syncedAt: syncedAt
-            )
-            SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
-        } catch is CancellationError {
-            restoreStatusAfterCancellation(
-                for: source,
-                previousStatus: previousStatus,
-                fallbackConnectionState: currentConnectionState
-            )
-        } catch {
-            sourceStatuses[source] = MusicSourceStatus(
-                syncStatus: .error(syncErrorMessage(for: error)),
-                connectionState: effectiveConnectionState(for: currentConnectionState)
-            )
-        }
+        await syncExecutionController().syncIncremental(source: source, providers: syncProviders)
     }
 
     /// Sync only playlists incrementally (fast, no library sync)
@@ -1136,79 +701,7 @@ public final class SyncCoordinator: ObservableObject {
     /// - If last sync > 1 hour: incremental sync
     /// - Otherwise: skip (data is fresh enough)
     public func performStartupSync() async {
-        EnsembleLogger.debug("🚀 Performing startup sync...")
-
-        // Don't sync if offline
-        guard !isOffline else {
-            EnsembleLogger.debug("📴 Offline - skipping startup sync")
-            return
-        }
-
-        // Don't sync if already syncing
-        guard !isSyncing else {
-            EnsembleLogger.debug("⏳ Sync already in progress - skipping startup sync")
-            return
-        }
-
-        // Check if we have any sources configured
-        guard !syncProviders.isEmpty else {
-            EnsembleLogger.debug("ℹ️ No sync providers configured - skipping startup sync")
-            return
-        }
-
-        // Run health checks first so serverStates is populated before sync begins.
-        // This ensures TrackAvailabilityResolver has accurate data from the start,
-        // and tracks from offline servers are correctly dimmed in the UI.
-        // Skip if performStartupHealthChecks() already started (e.g. from AppDelegate's
-        // earlyHealthCheckTask) — avoids redundant probing while the early pass is in flight.
-        let ranStartupHealthChecks = await runStartupHealthChecksIfNeeded(
-            reason: "startup sync",
-            completionMessage: "🏥 Startup health checks complete"
-        )
-        if !enabledServerKeysForHealthChecks().isEmpty && !ranStartupHealthChecks {
-            EnsembleLogger.debug("🏥 Skipping startup sync health checks — already handled by the early startup path")
-            // Still update source states in case they weren't synced
-            updateSourceConnectionStates()
-        }
-        
-        // Determine sync strategy: full if >24h or never synced, incremental otherwise.
-        // Always run at least an incremental sync on cold start so the user sees
-        // changes made on other devices or via Plex Web since the last session.
-        var needsFullSync = false
-
-        for (_, provider) in syncProviders {
-            let sourceId = provider.sourceIdentifier
-
-            if await sourceNeedsGenreMetadataRepair(sourceId) {
-                EnsembleLogger.info("🧩 Source \(sourceId.compositeKey) has sparse restored genre metadata - forcing full sync repair")
-                needsFullSync = true
-                break
-            }
-
-            if let lastSyncDate = await loadLastSyncDate(for: sourceId) {
-                let hoursSinceSync = Date().timeIntervalSince(lastSyncDate) / 3600
-
-                if hoursSinceSync > 24 {
-                    EnsembleLogger.debug("⏰ Source \(sourceId.compositeKey) last synced \(Int(hoursSinceSync)) hours ago - needs full sync")
-                    needsFullSync = true
-                    break
-                }
-            } else {
-                EnsembleLogger.debug("⏰ Source \(sourceId.compositeKey) has never been synced - needs full sync")
-                needsFullSync = true
-                break
-            }
-        }
-
-        if needsFullSync {
-            EnsembleLogger.debug("🔄 Starting full sync on startup...")
-            await syncAll()
-        } else {
-            EnsembleLogger.debug("🔄 Starting incremental sync on startup...")
-            await syncAllIncremental()
-        }
-
-        lastStartupSyncCompletion = Date()
+        await syncExecutionController().performStartupSync(providers: syncProviders)
     }
 
     /// Detect restored stores that have the genre catalog but not the per-item genre fields.
@@ -1248,6 +741,48 @@ public final class SyncCoordinator: ObservableObject {
             : 1.0
 
         return albumCoverage < 0.10 || trackCoverage < 0.10
+    }
+
+    private func processReparentedTracks() async {
+        let reparentedTracks = libraryRepository.drainTrackReparentInfo()
+        if !reparentedTracks.isEmpty {
+            EnsembleLogger.debug("[Sync] \(reparentedTracks.count) track(s) reparented — invalidating artwork")
+            await onTrackAlbumChanged?(reparentedTracks)
+        }
+    }
+
+    private func syncExecutionController() -> SyncExecutionController {
+        SyncExecutionController(
+            dependencies: .init(
+                libraryRepository: libraryRepository,
+                playlistRepository: playlistRepository,
+                isSyncing: { self.isSyncing },
+                setIsSyncing: { self.isSyncing = $0 },
+                isOffline: { self.isOffline },
+                statusForSource: { self.sourceStatuses[$0] },
+                setStatus: { self.sourceStatuses[$0] = $1 },
+                loadLastSyncDate: { await self.loadLastSyncDate(for: $0) },
+                removeDuplicatePlaylists: { try? await self.playlistRepository.removeDuplicatePlaylists() },
+                publishProgress: { self.throttledProgressUpdate(for: $0, mappedProgress: $1) },
+                processReparentedTracks: { await self.processReparentedTracks() },
+                cacheArtworkForSource: { await self.cacheArtworkForSource(sourceId: $0, provider: $1) },
+                cacheAlbumArtwork: { await self.cacheAlbumArtwork(sourceId: $0, provider: $1) },
+                cacheArtistArtwork: { await self.cacheArtistArtwork(sourceId: $0, provider: $1) },
+                cachePlaylistArtwork: { await self.cachePlaylistArtwork(sourceId: $0, provider: $1) },
+                notifyPlaylistRefreshCompleted: { self.notifyPlaylistRefreshCompleted(serverSourceKey: $0) },
+                connectionStateAfterSuccessfulSync: { await self.connectionStateAfterSuccessfulSync(for: $0, fallback: $1) },
+                publishContentChange: { self.publishContentChangeIfNeeded(for: $0, libraryResult: $1, playlistResult: $2, syncedAt: $3) },
+                restoreStatusAfterCancellation: { self.restoreStatusAfterCancellation(for: $0, previousStatus: $1, fallbackConnectionState: $2) },
+                syncErrorMessage: { self.syncErrorMessage(for: $0) },
+                effectiveConnectionState: { self.effectiveConnectionState(for: $0) },
+                postSiriRebuildRequest: { SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed") },
+                sourceNeedsGenreMetadataRepair: { await self.sourceNeedsGenreMetadataRepair($0) },
+                runStartupHealthChecksIfNeeded: { await self.runStartupHealthChecksIfNeeded(reason: $0, completionMessage: $1) },
+                enabledServerKeysForHealthChecks: { self.enabledServerKeysForHealthChecks() },
+                updateSourceConnectionStates: { self.updateSourceConnectionStates() },
+                setLastStartupSyncCompletion: { self.lastStartupSyncCompletion = $0 }
+            )
+        )
     }
 
     /// Ensure the server connection is ready for a given track
