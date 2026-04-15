@@ -75,6 +75,8 @@ Sources/
 |   +-- PlexAPIClient+Library.swift    # Library-section, inventory, hubs, search, and rating endpoints split from PlexAPIClient
 |   +-- PlexAPIClient+Metadata.swift   # Single-item metadata fetch/edit endpoints split from PlexAPIClient
 |   +-- PlexAPIClient+Playlists.swift  # Playlist list/mutation endpoints split from PlexAPIClient
+|   +-- PlexAPIClient+Playback.swift   # Stream URL resolution, transcode decisions, and two-phase playback assembly split from PlexAPIClient
+|   +-- PlexAPIClient+Downloads.swift  # Universal-download and download-queue transport helpers split from PlexAPIClient
 |   +-- PlexErrorClassification.swift  # Unified error taxonomy for failover/retry decisions
 |   +-- PlexRequestBuilder.swift       # Pure URLRequest/header assembly helper shared by PlexAPIClient transport paths
 |   +-- PlexWebSocketManager.swift     # Per-server WebSocket connections with exponential backoff (actor)
