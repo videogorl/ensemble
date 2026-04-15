@@ -124,11 +124,13 @@ struct EnsembleApp: App {
             Window("Profile", id: NavigationCoordinator.AuxiliaryPresentation.profile.windowID) {
                 ProfilePresentationContainer()
                     .environment(\.dependencies, DependencyContainer.shared)
+                    .environmentObject(DependencyContainer.shared.navigationCoordinator)
                     .frame(minWidth: 720, minHeight: 560)
             }
             Window("Downloads", id: NavigationCoordinator.AuxiliaryPresentation.downloads.windowID) {
                 DownloadsPresentationContainer()
                     .environment(\.dependencies, DependencyContainer.shared)
+                    .environmentObject(DependencyContainer.shared.navigationCoordinator)
                     .frame(minWidth: 900, minHeight: 640)
             }
         }

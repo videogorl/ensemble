@@ -16,6 +16,7 @@ public final class HomeViewModel: ObservableObject {
     @Published public private(set) var error: String?
     @Published public private(set) var hasConfiguredAccounts = false
     @Published public private(set) var hasEnabledLibraries = false
+    @Published public private(set) var isRestoringCloudSources = false
     
     // Edit mode state
     @Published public var isEditingOrder = false
@@ -94,6 +95,10 @@ public final class HomeViewModel: ObservableObject {
         self.hubOrderManager = hubOrderManager
         self.visibilityStore = visibilityStore ?? .shared
         updateSourceAvailability()
+
+        accountManager.$isAwaitingCloudSources
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isRestoringCloudSources)
         
         // Load cached hubs immediately for offline-first experience
         Task { @MainActor in

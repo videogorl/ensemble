@@ -92,6 +92,8 @@ public final class SyncCoordinator: ObservableObject {
     @Published public private(set) var lastHealthCheckCompletion: Date?
     /// Narrow sync output for consumers that care about actual data changes, not transport churn.
     @Published public private(set) var lastContentChange: SyncContentChange?
+    /// Published after the launch-triggered sync finishes so browse surfaces can do a one-shot refresh.
+    @Published public private(set) var lastStartupSyncCompletion: Date?
 
     public let accountManager: AccountManager
     public let networkMonitor: NetworkMonitor
@@ -1111,6 +1113,12 @@ public final class SyncCoordinator: ObservableObject {
         for (_, provider) in syncProviders {
             let sourceId = provider.sourceIdentifier
 
+            if await sourceNeedsGenreMetadataRepair(sourceId) {
+                EnsembleLogger.info("🧩 Source \(sourceId.compositeKey) has sparse restored genre metadata - forcing full sync repair")
+                needsFullSync = true
+                break
+            }
+
             if let lastSyncDate = await loadLastSyncDate(for: sourceId) {
                 let hoursSinceSync = Date().timeIntervalSince(lastSyncDate) / 3600
 
@@ -1133,6 +1141,47 @@ public final class SyncCoordinator: ObservableObject {
             EnsembleLogger.debug("🔄 Starting incremental sync on startup...")
             await syncAllIncremental()
         }
+
+        lastStartupSyncCompletion = Date()
+    }
+
+    /// Detect restored stores that have the genre catalog but not the per-item genre fields.
+    /// Incremental sync cannot backfill those unchanged albums/tracks, so we force one full repair sync.
+    private func sourceNeedsGenreMetadataRepair(_ sourceId: MusicSourceIdentifier) async -> Bool {
+        do {
+            guard let stats = try await libraryRepository.fetchGenreCoverageStats(forSource: sourceId.compositeKey) else {
+                return false
+            }
+
+            guard Self.shouldRepairSparseGenreMetadata(stats) else {
+                return false
+            }
+
+            EnsembleLogger.debug(
+                "🧩 Genre coverage repair check for \(sourceId.compositeKey): " +
+                "albums=\(stats.albumsWithGenreNames)/\(stats.albumCount), " +
+                "tracks=\(stats.tracksWithGenreNames)/\(stats.trackCount), " +
+                "genreCatalog=\(stats.genreCatalogCount)"
+            )
+            return true
+        } catch {
+            EnsembleLogger.error("Failed to inspect genre coverage for \(sourceId.compositeKey): \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    internal static func shouldRepairSparseGenreMetadata(_ stats: GenreCoverageStats) -> Bool {
+        guard stats.genreCatalogCount >= 3 else { return false }
+        guard stats.albumCount >= 10 || stats.trackCount >= 50 else { return false }
+
+        let albumCoverage = stats.albumCount > 0
+            ? Double(stats.albumsWithGenreNames) / Double(stats.albumCount)
+            : 1.0
+        let trackCoverage = stats.trackCount > 0
+            ? Double(stats.tracksWithGenreNames) / Double(stats.trackCount)
+            : 1.0
+
+        return albumCoverage < 0.10 || trackCoverage < 0.10
     }
 
     /// Whether the watch must block launch on a startup sync to produce usable local browse data.

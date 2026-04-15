@@ -22,6 +22,7 @@ public struct FavoritesView: View {
     @State private var hasAnySources = DependencyContainer.shared.accountManager.hasAnySources
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var hasEnabledLibrariesState = false
+    @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
     @State private var showFilterSheet = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     // Targeted NVM observation: only re-evaluate when track/playlist target changes
@@ -32,6 +33,7 @@ public struct FavoritesView: View {
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     private var backgroundColor: Color {
         #if os(macOS)
@@ -127,6 +129,9 @@ public struct FavoritesView: View {
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }
+        .onReceive(DependencyContainer.shared.accountManager.$isAwaitingCloudSources) { awaiting in
+            if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
+        }
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
         }
@@ -158,7 +163,7 @@ public struct FavoritesView: View {
                 }
             }
         } label: {
-            Label("More", systemImage: "ellipsis")
+            Label("More", systemImage: "ellipsis.circle")
         }
     }
 
@@ -199,14 +204,26 @@ public struct FavoritesView: View {
             Text("No Favorites Yet")
                 .font(.title2)
             
-            if !hasAnySources {
+            if isRestoringCloudSources {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Restoring libraries from iCloud…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+
+                Text("This can take a moment on first launch.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            } else if !hasAnySources {
                 Text("No music sources connected")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -230,7 +247,7 @@ public struct FavoritesView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                    navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)
@@ -288,12 +305,12 @@ public struct FavoritesView: View {
             },
             onGoToAlbum: { track in
                 if let albumId = track.albumRatingKey {
-                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                    navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
                 }
             },
             onGoToArtist: { track in
                 if let artistId = track.artistRatingKey {
-                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                    navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
                 }
             },
             onShareLink: { track in

@@ -4,7 +4,7 @@ import SwiftUI
 public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dependencies) private var deps
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
@@ -109,9 +109,6 @@ public struct AlbumsView: View {
             .statusBar(hidden: isStageFlowActive)
             #endif
             .navigationTitle(isPresenterChromeHidden ? "" : "Albums")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
             .if(!isPresenterChromeHidden) { view in
                 view.searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
             }
@@ -279,14 +276,27 @@ public struct AlbumsView: View {
             Text("No Albums")
                 .font(.title2)
 
-            if !libraryVM.hasAnySources {
+            if libraryVM.isRestoringCloudSources {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text("Restoring libraries from iCloud…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Text("This can take a moment on first launch.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            } else if !libraryVM.hasAnySources {
                 Text("No music sources connected")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -310,7 +320,7 @@ public struct AlbumsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                    navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)

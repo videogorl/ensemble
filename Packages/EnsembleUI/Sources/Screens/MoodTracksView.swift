@@ -17,6 +17,7 @@ public struct MoodTracksView: View {
     let mood: Mood
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @StateObject private var viewModel: SearchViewModel
     @State private var moodTracks: [Track] = []
     @State private var isLoading = true
@@ -73,12 +74,12 @@ public struct MoodTracksView: View {
                 },
                 onGoToAlbum: { track in
                     if let albumId = track.albumRatingKey {
-                        DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                        navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
                     }
                 },
                 onGoToArtist: { track in
                     if let artistId = track.artistRatingKey {
-                        DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                        navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
                     }
                 },
                 onShareLink: { track in

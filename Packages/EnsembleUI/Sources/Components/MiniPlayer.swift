@@ -14,10 +14,14 @@ public struct MiniPlayer: View {
     let onTap: () -> Void
 
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var verticalOffset: CGFloat = 0
     @State private var showingPlaylistPicker = false
 
     private let isFloating: Bool
+    private let showsWaveform: Bool
+    private let waveformColor: Color
+    private let horizontalPadding: CGFloat
     private let pillCornerRadius: CGFloat = 28
 
     private let namespace: Namespace.ID?
@@ -26,12 +30,18 @@ public struct MiniPlayer: View {
     public init(
         viewModel: NowPlayingViewModel,
         isFloating: Bool = false,
+        showsWaveform: Bool = false,
+        waveformColor: Color = .primary,
+        horizontalPadding: CGFloat? = nil,
         namespace: Namespace.ID? = nil,
         animationID: String? = nil,
         onTap: @escaping () -> Void
     ) {
         self.viewModel = viewModel
         self.isFloating = isFloating
+        self.showsWaveform = showsWaveform
+        self.waveformColor = waveformColor
+        self.horizontalPadding = horizontalPadding ?? (isFloating ? 20 : 12)
         self.namespace = namespace
         self.animationID = animationID
         self.onTap = onTap
@@ -72,7 +82,7 @@ public struct MiniPlayer: View {
                     }
                 }
         )
-        .padding(.horizontal, isFloating ? 20 : 12)
+        .padding(.horizontal, horizontalPadding)
         .padding(.bottom, isFloating ? 6 : 4)
         .offset(y: verticalOffset)
         .contextMenu {
@@ -111,7 +121,7 @@ public struct MiniPlayer: View {
                 Section {
                     if let albumId = track.albumRatingKey {
                         Button {
-                            DependencyContainer.shared.navigationCoordinator.navigate(to: .album(id: albumId))
+                            navigationCoordinator.navigate(to: .album(id: albumId))
                         } label: {
                             Label("Go to Album", systemImage: "square.stack")
                         }
@@ -119,7 +129,7 @@ public struct MiniPlayer: View {
 
                     if let artistId = track.artistRatingKey {
                         Button {
-                            DependencyContainer.shared.navigationCoordinator.navigate(to: .artist(id: artistId))
+                            navigationCoordinator.navigate(to: .artist(id: artistId))
                         } label: {
                             Label("Go to Artist", systemImage: "person.circle")
                         }
@@ -147,7 +157,13 @@ public struct MiniPlayer: View {
     /// Composed of scoped sub-views so observation stays local.
     /// The parent body (above) doesn't re-evaluate when NVM publishes.
     private var pillContent: some View {
-        MiniPlayerTrackInfo(viewModel: viewModel, namespace: namespace, animationID: animationID)
+        MiniPlayerTrackInfo(
+            viewModel: viewModel,
+            showsWaveform: showsWaveform,
+            waveformColor: waveformColor,
+            namespace: namespace,
+            animationID: animationID
+        )
     }
 }
 
@@ -159,6 +175,8 @@ public struct MiniPlayer: View {
 /// context menu) stays untouched.
 private struct MiniPlayerTrackInfo: View {
     @ObservedObject var viewModel: NowPlayingViewModel
+    let showsWaveform: Bool
+    let waveformColor: Color
     let namespace: Namespace.ID?
     let animationID: String?
 
@@ -199,95 +217,12 @@ private struct MiniPlayerTrackInfo: View {
             }
 
             if let track = viewModel.currentTrack {
-                // Content
-                HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                    // Artwork
-                    ZStack {
-                        ArtworkView(
-                            path: track.thumbPath,
-                            sourceKey: track.sourceCompositeKey,
-                            ratingKey: track.id,
-                            fallbackPath: track.fallbackThumbPath,
-                            fallbackRatingKey: track.fallbackRatingKey,
-                            size: .tiny,
-                            cornerRadius: artworkCornerRadius,
-                            isResponsive: true
-                        )
-                        .frame(width: artworkDimension, height: artworkDimension)
-                        .aspectRatio(1, contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
-                        .ifLet(namespace, animationID) { view, ns, id in
-                            view.matchedGeometryEffect(id: id, in: ns, isSource: true)
-                        }
+                Group {
+                    if showsWaveform {
+                        largeScreenTrackRow(for: track)
+                    } else {
+                        compactTrackRow(for: track)
                     }
-                    .frame(width: artworkDimension, height: artworkDimension)
-
-                    // Track info (swipable)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(track.title)
-                            .font(.subheadline)
-                            .fontWeight(.bold)
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-
-                        if let artist = track.artistName {
-                            Text(artist)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                    .offset(x: dragOffset)
-                    .opacity(opacity)
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture()
-                            .onChanged { value in
-                                // Horizontal only
-                                if abs(value.translation.width) > abs(value.translation.height) {
-                                    dragOffset = value.translation.width
-                                    opacity = 1.0 - min(abs(value.translation.width) / 200, 0.5)
-                                }
-                            }
-                            .onEnded { value in
-                                let threshold: CGFloat = 80
-                                if value.translation.width > threshold {
-                                    withAnimation(.spring(response: 0.3)) {
-                                        dragOffset = 200
-                                        opacity = 0
-                                    }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                        viewModel.previous()
-                                        withAnimation(.spring(response: 0.3)) {
-                                            dragOffset = 0
-                                            opacity = 1.0
-                                        }
-                                    }
-                                } else if value.translation.width < -threshold {
-                                    withAnimation(.spring(response: 0.3)) {
-                                        dragOffset = -200
-                                        opacity = 0
-                                    }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                        viewModel.next()
-                                        withAnimation(.spring(response: 0.3)) {
-                                            dragOffset = 0
-                                            opacity = 1.0
-                                        }
-                                    }
-                                } else {
-                                    withAnimation(.spring(response: 0.3)) {
-                                        dragOffset = 0
-                                        opacity = 1.0
-                                    }
-                                }
-                            }
-                    )
-
-                    Spacer()
-
-                    // Playback controls (scoped sub-view for play state changes)
-                    MiniPlayerControls(viewModel: viewModel)
                 }
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
                 .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
@@ -315,6 +250,152 @@ private struct MiniPlayerTrackInfo: View {
         // Keep layout tightly bound to rendered content height to avoid oversized touch regions.
         .fixedSize(horizontal: false, vertical: true)
         .clipped()
+    }
+
+    @ViewBuilder
+    private func compactTrackRow(for track: Track) -> some View {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+            trackInfoLane(for: track)
+
+            Spacer(minLength: 0)
+
+            MiniPlayerControls(viewModel: viewModel)
+                .layoutPriority(0.4)
+        }
+    }
+
+    @ViewBuilder
+    private func largeScreenTrackRow(for track: Track) -> some View {
+        GeometryReader { geometry in
+            let laneSpacing = TrackListLayoutMetrics.rowInterItemSpacing
+            let laneWidth = max((geometry.size.width - (laneSpacing * 2)) / 3, 0)
+
+            HStack(spacing: laneSpacing) {
+                trackInfoLane(for: track)
+                    .frame(width: laneWidth, alignment: .leading)
+
+                MiniPlayerWaveform(
+                    viewModel: viewModel,
+                    waveformColor: waveformColor
+                )
+                .frame(width: laneWidth, height: 18)
+
+                MiniPlayerControls(viewModel: viewModel)
+                    .frame(width: laneWidth, alignment: .trailing)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
+        .frame(height: max(artworkDimension, 34))
+    }
+
+    @ViewBuilder
+    private func trackInfoLane(for track: Track) -> some View {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+            // Artwork
+            ZStack {
+                ArtworkView(
+                    path: track.thumbPath,
+                    sourceKey: track.sourceCompositeKey,
+                    ratingKey: track.id,
+                    fallbackPath: track.fallbackThumbPath,
+                    fallbackRatingKey: track.fallbackRatingKey,
+                    size: .tiny,
+                    cornerRadius: artworkCornerRadius,
+                    isResponsive: true
+                )
+                .frame(width: artworkDimension, height: artworkDimension)
+                .aspectRatio(1, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
+                .ifLet(namespace, animationID) { view, ns, id in
+                    view.matchedGeometryEffect(id: id, in: ns, isSource: true)
+                }
+            }
+            .frame(width: artworkDimension, height: artworkDimension)
+
+            // Track info (swipable)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.title)
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                if let artist = track.artistName {
+                    Text(artist)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .layoutPriority(showsWaveform ? 0.65 : 1)
+        .offset(x: dragOffset)
+        .opacity(opacity)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    // Horizontal only
+                    if abs(value.translation.width) > abs(value.translation.height) {
+                        dragOffset = value.translation.width
+                        opacity = 1.0 - min(abs(value.translation.width) / 200, 0.5)
+                    }
+                }
+                .onEnded { value in
+                    let threshold: CGFloat = 80
+                    if value.translation.width > threshold {
+                        withAnimation(.spring(response: 0.3)) {
+                            dragOffset = 200
+                            opacity = 0
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            viewModel.previous()
+                            withAnimation(.spring(response: 0.3)) {
+                                dragOffset = 0
+                                opacity = 1.0
+                            }
+                        }
+                    } else if value.translation.width < -threshold {
+                        withAnimation(.spring(response: 0.3)) {
+                            dragOffset = -200
+                            opacity = 0
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            viewModel.next()
+                            withAnimation(.spring(response: 0.3)) {
+                                dragOffset = 0
+                                opacity = 1.0
+                            }
+                        }
+                    } else {
+                        withAnimation(.spring(response: 0.3)) {
+                            dragOffset = 0
+                            opacity = 1.0
+                        }
+                    }
+                }
+        )
+    }
+}
+
+private struct MiniPlayerWaveform: View {
+    @ObservedObject var viewModel: NowPlayingViewModel
+    let waveformColor: Color
+    @State private var waveformHeights: [Double] = []
+
+    var body: some View {
+        WaveformView(
+            progress: viewModel.progress,
+            bufferedProgress: viewModel.bufferedProgress,
+            color: waveformColor,
+            heights: waveformHeights
+        )
+        .opacity(0.9)
+        .onReceive(viewModel.waveformHeightsPublisher) { heights in
+            waveformHeights = heights
+        }
     }
 }
 

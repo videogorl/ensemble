@@ -16,6 +16,8 @@ These are core design decisions that must be maintained throughout the app.
 - **More tab support:** First 4 enabled tabs in tab bar, remaining tabs via "More" tab (5th position)
 - **Tab customization:** Users enable/disable tabs via Settings; disabled tabs hidden from tab bar
 - **Visible tabs sync:** `NavigationCoordinator.visibleTabs` synced from MainTabView for fallback logic
+- **Window-scoped navigation:** `RootView` creates the `NavigationCoordinator` for that scene/window and injects it with `.environmentObject(...)`. Do not read `DependencyContainer.shared.navigationCoordinator` from screen or component code for user-driven navigation, or multiple iPad/macOS windows will mirror each other's pushes.
+- **Top-level iPhone titles:** Root tab destinations should use the system large-title behavior by default. Don't force `.inline` on top-level browse/search screens; let the title appear large at rest and collapse naturally as content scrolls.
 - **Search chrome ownership:** In tab-based navigation, attach `.searchable` only while that tab is the active root screen. Collapse/remove search chrome before pushing detail or switching away so stale `UISearchController` state doesn't leak padding, keyboard state, or toolbar behavior into pushed views or other tabs.
 
 ### Deep Linking

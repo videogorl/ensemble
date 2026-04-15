@@ -6,14 +6,12 @@ import SwiftUI
 /// On tap, opens the profile sheet via NavigationCoordinator.
 public struct ProfileToolbarButton: View {
     @ObservedObject private var profileStore: UserProfileStore
-    private let navigationCoordinator: NavigationCoordinator
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     public init(
-        profileStore: UserProfileStore = DependencyContainer.shared.userProfileStore,
-        navigationCoordinator: NavigationCoordinator = DependencyContainer.shared.navigationCoordinator
+        profileStore: UserProfileStore = DependencyContainer.shared.userProfileStore
     ) {
         self.profileStore = profileStore
-        self.navigationCoordinator = navigationCoordinator
     }
 
     public var body: some View {
@@ -36,7 +34,7 @@ public struct ProfileToolbarButton: View {
                 .frame(width: 28, height: 28)
                 .clipShape(Circle())
         } else {
-            Image(systemName: "person")
+            Image(systemName: "person.circle")
                 .font(.title3)
         }
     }
@@ -106,7 +104,7 @@ private struct LocalToolbarProfileImage: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
-                Image(systemName: "person")
+                Image(systemName: "person.circle")
                     .font(.title3)
             }
         }

@@ -4,7 +4,7 @@ import SwiftUI
 public struct GenresView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @State private var searchText = ""
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     public init(libraryVM: LibraryViewModel) {
         self.libraryVM = libraryVM
@@ -57,7 +57,20 @@ public struct GenresView: View {
             Text("No Genres")
                 .font(.title2)
 
-            if !libraryVM.hasAnySources {
+            if libraryVM.isRestoringCloudSources {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text("Restoring libraries from iCloud…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Text("This can take a moment on first launch.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            } else if !libraryVM.hasAnySources {
                 Text("No music sources connected")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
@@ -88,7 +101,7 @@ public struct GenresView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                    navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)

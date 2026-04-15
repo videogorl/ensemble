@@ -51,6 +51,16 @@ final class AccountManagerAuthPolicyTests: XCTestCase {
         XCTAssertEqual(UserDefaults.standard.integer(forKey: migrationDefaultsKey), 2)
     }
 
+    func testLoadAccountsMarksMigrationCompleteOnFreshInstall() {
+        let keychain = TestKeychain()
+        let manager = AccountManager(keychain: keychain)
+
+        manager.loadAccounts()
+
+        XCTAssertTrue(manager.plexAccounts.isEmpty)
+        XCTAssertEqual(UserDefaults.standard.integer(forKey: migrationDefaultsKey), 2)
+    }
+
     func testExpiredAccountIsRemovedDuringPolicyEnforcement() {
         UserDefaults.standard.set(2, forKey: migrationDefaultsKey)
 

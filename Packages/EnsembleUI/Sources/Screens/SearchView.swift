@@ -16,7 +16,7 @@ public struct SearchView: View {
     @FocusState private var isSearchFieldFocused: Bool
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var pinnedVM: PinnedViewModel
-    private let navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var isPinnedExpanded = false
     @State private var isEditingPins = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
@@ -24,17 +24,16 @@ public struct SearchView: View {
     @State private var hasAnySources = DependencyContainer.shared.accountManager.hasAnySources
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var hasEnabledLibrariesState = false
+    @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
     // Targeted NVM observation: only re-evaluate on track/playlist target changes
     @State private var currentTrackId: String?
     @State private var nvmRecentPlaylistTitle: String?
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
-    @State private var isSearchTabActive = DependencyContainer.shared.navigationCoordinator.selectedTab == .search
-    @State private var isSearchPathEmpty = DependencyContainer.shared.navigationCoordinator.searchPath.isEmpty
-    @State private var isMoreSearchRootActive = SearchView.isMoreSearchRootPath(
-        DependencyContainer.shared.navigationCoordinator.settingsPath
-    )
+    @State private var isSearchTabActive = false
+    @State private var isSearchPathEmpty = true
+    @State private var isMoreSearchRootActive = false
     @Environment(\.dependencies) private var deps
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
@@ -84,6 +83,9 @@ public struct SearchView: View {
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }
+        .onReceive(DependencyContainer.shared.accountManager.$isAwaitingCloudSources) { awaiting in
+            if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
+        }
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
         }
@@ -113,6 +115,12 @@ public struct SearchView: View {
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
+        .onAppear {
+            isSearchTabActive = navigationCoordinator.selectedTab == .search
+            isSearchPathEmpty = navigationCoordinator.searchPath.isEmpty
+            isMoreSearchRootActive = Self.isMoreSearchRootPath(navigationCoordinator.settingsPath)
+        }
+        .navigationTitle("Search")
         .profileToolbar()
         // Search chrome belongs to the active root Search screen only.
         // Leaving it attached while Search is offscreen or pushed into detail
@@ -181,7 +189,30 @@ public struct SearchView: View {
 
     @ViewBuilder
     private var exploreView: some View {
-        if !hasAnySources {
+        if isRestoringCloudSources {
+            VStack(spacing: 16) {
+                Spacer()
+
+                Image(systemName: "music.note.list")
+                    .font(.system(size: 60))
+                    .foregroundColor(.secondary)
+
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Restoring libraries from iCloud…")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                }
+
+                Text("This can take a moment on first launch.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Spacer()
+            }
+            .padding(.top, 40)
+        } else if !hasAnySources {
             VStack(spacing: 16) {
                 Spacer()
 
@@ -194,7 +225,7 @@ public struct SearchView: View {
                     .foregroundColor(.secondary)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -780,7 +811,19 @@ public struct SearchView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.secondary)
             
-            if isSyncing {
+            if isRestoringCloudSources {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Restoring libraries from iCloud…")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                }
+
+                Text("This can take a moment on first launch.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            } else if isSyncing {
                 Text("Sync in progress…")
                     .font(.title3)
                     .foregroundColor(.secondary)
@@ -790,7 +833,7 @@ public struct SearchView: View {
                     .foregroundColor(.secondary)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                    navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)
@@ -986,7 +1029,7 @@ public struct SearchView: View {
 
                         if let albumId = track.albumRatingKey {
                             Button {
-                                DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
                             } label: {
                                 Label("Go to Album", systemImage: "square.stack")
                             }
@@ -994,7 +1037,7 @@ public struct SearchView: View {
 
                         if let artistId = track.artistRatingKey {
                             Button {
-                                DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
                             } label: {
                                 Label("Go to Artist", systemImage: "person.circle")
                             }
@@ -1072,16 +1115,16 @@ public struct SearchView: View {
                 },
                 onGoToAlbum: { track in
                     guard let albumId = track.albumRatingKey else { return }
-                    DependencyContainer.shared.navigationCoordinator.push(
+                    navigationCoordinator.push(
                         .album(id: albumId),
-                        in: DependencyContainer.shared.navigationCoordinator.selectedTab
+                        in: navigationCoordinator.selectedTab
                     )
                 },
                 onGoToArtist: { track in
                     guard let artistId = track.artistRatingKey else { return }
-                    DependencyContainer.shared.navigationCoordinator.push(
+                    navigationCoordinator.push(
                         .artist(id: artistId),
-                        in: DependencyContainer.shared.navigationCoordinator.selectedTab
+                        in: navigationCoordinator.selectedTab
                     )
                 },
                 onShareLink: { track in
@@ -1192,13 +1235,25 @@ public struct SearchView: View {
             Text("No Results")
                 .font(.title2)
 
-            if !hasAnySources {
+            if isRestoringCloudSources {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Restoring libraries from iCloud…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+
+                Text("This can take a moment on first launch.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            } else if !hasAnySources {
                 Text("No music sources connected")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -1221,7 +1276,7 @@ public struct SearchView: View {
                     .foregroundColor(.secondary)
 
                 Button {
-                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                    navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)

@@ -77,7 +77,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - `openSettings()` / `openDownloads()` -- Shared auxiliary presentation entry points for large-screen sidebar/actions
   - `activeAuxiliaryPresentation` / `auxiliaryWindowRequest` -- Root-level modal/window routing state; screens should request presentation through the coordinator instead of owning duplicated sheet state
   - On iPhone, `Profile` is routed through `activeAuxiliaryPresentation` but presented as a normal root sheet in `MainTabView`; `Downloads` keeps the auxiliary full-screen presenter because it still benefits from root-shell isolation
-- Large-screen Now Playing presentation is split at the UI layer: `NowPlayingSheetView` remains the phone sheet container, `NowPlayingViewportRoot` owns the iPad/macOS viewport layout, and macOS window chrome is coordinated separately through `WindowChromeBridge` so toolbar content can swap without moving the titlebar/traffic lights
+- `RootView` owns the scene/window-scoped `NavigationCoordinator` and `NowPlayingViewModel`, while playback services remain shared through `DependencyContainer`. This keeps multiple iPad/macOS windows on independent navigation paths without forking playback state.
+- Large-screen Now Playing presentation is split at the UI layer: `NowPlayingSheetView` is the shared iPhone/iPad sheet-style presenter, while `NowPlayingViewportRoot` is reserved for macOS viewport presentation and coordinated separately through `WindowChromeBridge` so toolbar content can swap without moving the titlebar/traffic lights
 - `PlaybackService` -- AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion). Publishes both raw transport time (`currentTime`) and presentation-adjusted time (`presentationTime`) so lyrics/Aurora can compensate for AirPlay/Bluetooth output delay without affecting seek/reporting semantics. `frequencyBands` uses `CurrentValueSubject` (not `@Published`) to avoid firing `objectWillChange` at 30Hz. Uses `ProgressiveStreamLoader` for transcode streams and `streamLoaders` dict for lifecycle management
 - `PlaybackHandoffCoordinator` -- Internal playback-handoff reducer extracted from `PlaybackService`; owns disconnect/interruption/remote-command pause intent, settle-window policy, and handoff logging decisions while the service remains the side-effect boundary
 - `PlaybackQueueStore` -- Persists queue/history restoration state outside `PlaybackService`; writes a single snapshot plus legacy keys so queue-restoration refactors can proceed without breaking existing installs
@@ -153,7 +154,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - **Purpose:** All SwiftUI views and reusable components
 
 **Key Views:**
-- `RootView` -- Adapts by platform: tab navigation on iPhone, sidebar on iPad/macOS
+- `RootView` -- Adapts by platform: tab navigation on iPhone, sidebar on iPad/macOS; also owns the root aurora layer, the single shared mini player overlay, and the scene-local navigation/Now Playing coordinators
 - `MiniPlayer` -- Persistent compact player overlay across all screens
 - `MediaDetailView` -- Unified detail view using `MediaDetailViewModelProtocol` (supports Artist, Album, Playlist, Favorites)
 - `ArtworkView` -- Local-first artwork loading with automatic fallback to network
