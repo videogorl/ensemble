@@ -6,6 +6,7 @@ import SwiftUI
 public struct HomeView: View {
     @StateObject private var viewModel: HomeViewModel
     let nowPlayingVM: NowPlayingViewModel
+    @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
     // Targeted singleton observation: only fires when sync state changes (for empty state)
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var playlistPickerTracks: [Track]?
@@ -28,7 +29,7 @@ public struct HomeView: View {
                 hubsScrollView
             }
         }
-        .navigationTitle("Feed")
+        .navigationTitle(feedTitle)
         .profileToolbar()
         .toolbar {
             #if os(macOS)
@@ -69,6 +70,15 @@ public struct HomeView: View {
         .refreshable {
             await viewModel.refresh()
         }
+    }
+
+    private var feedTitle: String {
+        if let displayName = profileStore.profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !displayName.isEmpty {
+            return "\(displayName.possessiveForm) Feed"
+        }
+
+        return "Feed"
     }
     
     private var loadingView: some View {

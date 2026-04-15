@@ -1799,6 +1799,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private func refreshPresentationTime() {
         presentationTime = presentationTime(for: currentTime)
+        let syncedPresentationTime = presentationTime
+        Task { @MainActor [audioAnalyzer] in
+            audioAnalyzer.updatePlaybackPosition(syncedPresentationTime)
+        }
     }
 
     private func refreshPresentationLatencyEstimate() {

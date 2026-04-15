@@ -92,7 +92,9 @@ private struct RootMiniPlayerOverlay: View {
 
     private var miniPlayerWidth: CGFloat {
         if isPhoneLayout {
-            return max(layout.frame.width, 0)
+            // Match the native iPhone tab bar pill width instead of spanning the
+            // full content frame edge-to-edge.
+            return max(layout.frame.width - 16, 0)
         }
         return min(620, max(layout.frame.width - 32, 0))
     }
@@ -412,6 +414,7 @@ public struct RootView: View {
         )
         .accentColor(settingsManager.accentColor.color)
         .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
+        .environmentObject(navigationCoordinator)
     }
 
     fileprivate var nowPlayingPresentationBinding: Binding<Bool> {

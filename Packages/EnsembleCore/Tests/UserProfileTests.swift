@@ -63,6 +63,14 @@ final class UserProfileTests: XCTestCase {
         XCTAssertTrue(profile.isEmpty)
     }
 
+    func testPossessiveFormAddsApostropheSForMostNames() {
+        XCTAssertEqual("Alex".possessiveForm, "Alex's")
+    }
+
+    func testPossessiveFormUsesTrailingApostropheForNamesEndingInS() {
+        XCTAssertEqual("James".possessiveForm, "James'")
+    }
+
     // MARK: - Store Conflict Tests
 
     @MainActor

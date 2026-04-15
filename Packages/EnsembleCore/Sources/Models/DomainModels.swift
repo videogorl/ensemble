@@ -677,6 +677,24 @@ public extension String {
         }
         return firstChar
     }
+
+    /// Returns a display-friendly possessive form for names and labels.
+    var possessiveForm: String {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+
+        if trimmed.hasSuffix("'") || trimmed.hasSuffix("’") {
+            return trimmed
+        }
+
+        if let lastScalar = trimmed.unicodeScalars.last,
+           CharacterSet.letters.contains(lastScalar),
+           String(lastScalar).caseInsensitiveCompare("s") == .orderedSame {
+            return trimmed + "'"
+        }
+
+        return trimmed + "'s"
+    }
 }
 
 // MARK: - Sort Options
