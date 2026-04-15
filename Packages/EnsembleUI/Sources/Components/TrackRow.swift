@@ -256,7 +256,7 @@ public struct TrackRow: View {
             contextMenuItems
         } label: {
             Image(systemName: "ellipsis")
-                .font(.body.weight(.semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.secondary)
                 .frame(width: 25, height: 25)
                 .contentShape(Rectangle())

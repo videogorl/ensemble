@@ -115,7 +115,9 @@ public class TrackTableViewCell: UITableViewCell {
         contentView.addSubview(durationLabel)
 
         overflowButton.translatesAutoresizingMaskIntoConstraints = false
-        overflowButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+        let overflowSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        overflowButton.setPreferredSymbolConfiguration(overflowSymbolConfiguration, forImageIn: .normal)
+        overflowButton.setImage(UIImage(systemName: "ellipsis", withConfiguration: overflowSymbolConfiguration), for: .normal)
         overflowButton.tintColor = .secondaryLabel
         overflowButton.showsMenuAsPrimaryAction = true
         overflowButton.setContentHuggingPriority(.required, for: .horizontal)
