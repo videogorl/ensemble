@@ -143,9 +143,6 @@ public final class OfflineDownloadService: ObservableObject {
     private var qualityMismatchByTargetKey: [String: Int] = [:]
     private var failedTracksByTargetKey: [String: Int] = [:]
 
-    /// Debounced notification task so individual download completions don't
-    /// spam `downloadsDidChange` during bulk queue processing.
-    private var downloadChangeNotificationTask: Task<Void, Never>?
     /// Coalesces expensive target progress refreshes so queue/network churn
     /// doesn't rebuild every target on each state transition.
     private var fullProgressRefreshTask: Task<Void, Never>?
@@ -167,6 +164,32 @@ public final class OfflineDownloadService: ObservableObject {
             playlistRepository: playlistRepository,
             downloadManager: downloadManager,
             currentDownloadQuality: { [weak self] in self?.currentDownloadQuality() ?? "original" }
+        )
+    )
+    private lazy var notificationBridge = OfflineDownloadNotificationBridge(
+        dependencies: .init(
+            fetchPendingDownloadCount: { [weak self] in
+                guard let self else { return 0 }
+                return (try? await self.downloadManager.fetchPendingDownloads().count) ?? 0
+            },
+            refreshActiveDownloadRatingKeys: { [weak self] in
+                await self?.refreshActiveDownloadRatingKeys()
+            },
+            refreshViewContext: {
+                CoreDataStack.shared.refreshViewContext()
+            },
+            postDownloadsDidChange: {
+                NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
+            },
+            showCompletionToast: { [weak self] in
+                self?.toastCenter.show(
+                    ToastPayload(
+                        style: .success,
+                        iconSystemName: "arrow.down.circle.fill",
+                        title: "Downloads Complete"
+                    )
+                )
+            }
         )
     )
     private lazy var queueCoordinator = DownloadQueueCoordinator(
@@ -193,11 +216,7 @@ public final class OfflineDownloadService: ObservableObject {
                 self?.backgroundExecutionCoordinator.finishCurrentTask(success: success)
             },
             showCompletionToast: { [weak self] in
-                self?.toastCenter.show(ToastPayload(
-                    style: .success,
-                    iconSystemName: "arrow.down.circle.fill",
-                    title: "Downloads Complete"
-                ))
+                self?.notificationBridge.showQueueCompletionToast()
             }
         )
     )
@@ -476,8 +495,7 @@ public final class OfflineDownloadService: ObservableObject {
             removalInProgress.removeAll()
             targets.removeAll()
 
-            CoreDataStack.shared.refreshViewContext()
-            NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
+            notificationBridge.notifyDownloadsChangedImmediately()
 
             EnsembleLogger.debug("🗑️ Removed all downloads, targets, and files")
         } catch {
@@ -670,8 +688,7 @@ public final class OfflineDownloadService: ObservableObject {
             )
 
             if totalRequeued > 0 {
-                CoreDataStack.shared.refreshViewContext()
-                NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
+                notificationBridge.notifyDownloadsChangedImmediately()
             }
 
             return OfflineDownloadQualityRefreshResult(
@@ -710,8 +727,7 @@ public final class OfflineDownloadService: ObservableObject {
             let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
             backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
 
-            CoreDataStack.shared.refreshViewContext()
-            NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
+            notificationBridge.notifyDownloadsChangedImmediately()
         } catch {
             EnsembleLogger.debug("❌ Failed enabling offline target \(key): \(error.localizedDescription)")
         }
@@ -761,8 +777,7 @@ public final class OfflineDownloadService: ObservableObject {
             await refreshAllTargetProgresses()
 
             // Notify track-displaying VMs so they re-fetch and reflect updated offline state
-            CoreDataStack.shared.refreshViewContext()
-            NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
+            notificationBridge.notifyDownloadsChangedImmediately()
         } catch {
             removalInProgress.removeValue(forKey: key)
             EnsembleLogger.debug("❌ Failed disabling offline target \(key): \(error.localizedDescription)")
@@ -2085,25 +2100,7 @@ public final class OfflineDownloadService: ObservableObject {
     /// bulk queue processing. Refreshes the view context first so managed objects
     /// reflect the latest background-context saves (e.g. CDTrack.localFilePath).
     private func scheduleDownloadChangeNotification() {
-        downloadChangeNotificationTask?.cancel()
-        downloadChangeNotificationTask = Task { @MainActor [weak self] in
-            // Longer debounce during bulk downloads to avoid spamming UI updates.
-            // Completions arrive faster than 1s so the short debounce never fires.
-            let pendingCount = (try? await self?.downloadManager.fetchPendingDownloads().count) ?? 0
-            let debounceNs: UInt64 = pendingCount > 3 ? 3_000_000_000 : 1_000_000_000
-            try? await Task.sleep(nanoseconds: debounceNs)
-            guard !Task.isCancelled else { return }
-            // Force-refault all view context objects so the next fetch reads
-            // the latest store data (localFilePath, download status, etc.).
-            CoreDataStack.shared.refreshViewContext()
-            // Update active download set so TrackRow spinners reflect completions
-            await self?.refreshActiveDownloadRatingKeys()
-            NotificationCenter.default.post(
-                name: OfflineDownloadService.downloadsDidChange,
-                object: nil
-            )
-            self?.downloadChangeNotificationTask = nil
-        }
+        notificationBridge.scheduleDownloadsChanged()
     }
 
     private func observeNetworkState() {
