@@ -951,10 +951,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var isFastSeeking = false
     private var fastSeekForward = true
     private var fallbackReverseTimer: Timer?
-    private var nowPlayingArtworkTask: Task<Void, Never>?
-    private var nowPlayingArtworkRequestKey: String?
-    private var nowPlayingArtworkTrackID: String?
-    private var nowPlayingArtwork: MPMediaItemArtwork?
     private var presentationRouteKind: PresentationRouteKind = .builtInOrWired
     private var effectivePresentationLatency: TimeInterval = 0
 
@@ -975,6 +971,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let audioAnalyzer: AudioAnalyzerProtocol
     private let downloadManager: DownloadManagerProtocol
     private let queueStore: PlaybackQueueStore
+    private let queueController: PlaybackQueueController
+    private let prefetchController: PlaybackPrefetchController
+    private let nowPlayingBridge: PlaybackNowPlayingBridge
 
     /// Thread-safe check for aurora visualizer setting (reads UserDefaults directly
     /// to avoid @MainActor isolation issues with SettingsManager).
@@ -1117,41 +1116,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Records the currently playing item to history before advancing
     private func recordToHistory(_ item: QueueItem) {
-        // Flatten the item source to .history or .continuePlaying
-        // This ensures autoplay source (with sparkle icon) is removed in history
-        var historyItem = item
-        if historyItem.source == .autoplay || historyItem.source == .upNext {
-            historyItem.source = .continuePlaying
-        }
-        
-        // Avoid consecutive duplicates
-        if playbackHistory.last?.track.id != item.track.id {
-            playbackHistory.append(historyItem)
-            if playbackHistory.count > maxHistorySize {
-                playbackHistory.removeFirst()
-            }
-        }
-        
-        // Also ensure duplicate trimming in case we navigated back/forth
-        // If the item exists earlier in history, we might want to move it to end?
-        // But for "history" it's a chronological log. 
-        // A -> B -> A means A was played twice. That's correct behavior for a history log.
-        // However, if the user perceives this as "duplicates", maybe they want unique history?
-        // Standard behavior (Apple Music, Spotify) is chronological.
-        // User's complaint "duplicates get made" likely refers to the "Autoplay" icon persisting or 
-        // the fact that "Autoplay" creates new items which then get logged.
-        // By preventing consecutive duplicates, we handle simple pauses/seeks.
+        queueController.recordToHistory(item, playbackHistory: &playbackHistory)
     }
 
     /// Flattens autoplay items that appear before the given index to .continuePlaying.
     /// Called when a user inserts or moves a non-autoplay item among autoplay items.
     private func flattenAutoplayItemsBeforeIndex(_ index: Int) {
-        let start = currentQueueIndex + 1
-        for i in start..<min(index, queue.count) {
-            if queue[i].source == .autoplay {
-                queue[i].source = .continuePlaying
-            }
-        }
+        queueController.flattenAutoplayItemsBeforeIndex(
+            index,
+            currentQueueIndex: currentQueueIndex,
+            queue: &queue
+        )
     }
 
     // MARK: - Initialization
@@ -1169,6 +1144,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.audioAnalyzer = audioAnalyzer
         self.downloadManager = downloadManager
         self.queueStore = PlaybackQueueStore()
+        self.queueController = PlaybackQueueController(queueStore: self.queueStore, maxHistorySize: 100)
+        self.prefetchController = PlaybackPrefetchController()
+        self.nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader)
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -1197,6 +1175,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.audioAnalyzer = audioAnalyzer
         self.downloadManager = downloadManager
         self.queueStore = queueStore
+        self.queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: 100)
+        self.prefetchController = PlaybackPrefetchController()
+        self.nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader)
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -2079,109 +2060,52 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     // MARK: - Remote Commands
 
     private func setupRemoteCommands() {
-        let commandCenter = MPRemoteCommandCenter.shared()
-
-        commandCenter.playCommand.addTarget { [weak self] _ in
-            EnsembleLogger.debug("[Handoff] remote play command received")
-            Task { @MainActor [weak self] in
-                self?.resumeInternally(source: .system)
-            }
-            return .success
-        }
-
-        commandCenter.pauseCommand.addTarget { [weak self] _ in
-            EnsembleLogger.debug("[Handoff] remote pause command received")
-            Task { @MainActor [weak self] in
-                self?.pauseInternally(source: .system)
-            }
-            return .success
-        }
-
-        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
-            EnsembleLogger.debug("[Handoff] remote toggle command received")
-            Task { @MainActor [weak self] in
-                if self?.playbackState == .playing {
-                    self?.pauseInternally(source: .system)
-                } else {
-                    self?.resumeInternally(source: .system)
+        nowPlayingBridge.installRemoteCommands(
+            handlers: PlaybackNowPlayingCommandHandlers(
+                play: { [weak self] in
+                    Task { @MainActor [weak self] in
+                        self?.resumeInternally(source: .system)
+                    }
+                },
+                pause: { [weak self] in
+                    Task { @MainActor [weak self] in
+                        self?.pauseInternally(source: .system)
+                    }
+                },
+                toggle: { [weak self] in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        if self.playbackState == .playing {
+                            self.pauseInternally(source: .system)
+                        } else {
+                            self.resumeInternally(source: .system)
+                        }
+                    }
+                },
+                next: { [weak self] in self?.next() },
+                previous: { [weak self] in self?.previous() },
+                seek: { [weak self] position in self?.seek(to: position) },
+                cycleRepeatMode: { [weak self] in self?.cycleRepeatMode() },
+                toggleShuffle: { [weak self] in self?.toggleShuffle() },
+                rateLike: { [weak self] in self?.toggleLike(isLike: true) ?? .commandFailed },
+                rateDislike: { [weak self] in self?.toggleLike(isLike: false) ?? .commandFailed },
+                currentPlaybackState: { [weak self] in self?.playbackState ?? .stopped },
+                currentTime: { [weak self] in self?.currentTime ?? 0 },
+                trackAge: { [weak self] in
+                    guard let self else { return 0 }
+                    return CACurrentMediaTime() - self.trackStartWallTime
+                },
+                shouldAcceptSkip: { [weak self] in
+                    guard let self else { return false }
+                    let now = CACurrentMediaTime()
+                    if now - self.lastRemoteSkipTime < 0.3 {
+                        return false
+                    }
+                    self.lastRemoteSkipTime = now
+                    return true
                 }
-            }
-            return .success
-        }
-
-        // Debounce remote skip commands — PlayerRemoteXPC media services reset
-        // (err=-12860) can fire nextTrackCommand multiple times in rapid succession,
-        // causing phantom skips. 300ms filters spurious re-fires while allowing
-        // intentional rapid skips (typically >500ms apart).
-        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
-            guard let self else { return .noActionableNowPlayingItem }
-            let now = CACurrentMediaTime()
-            if now - self.lastRemoteSkipTime < 0.3 {
-                return .success
-            }
-            self.lastRemoteSkipTime = now
-            self.next()
-            return .success
-        }
-
-        commandCenter.previousTrackCommand.addTarget { [weak self] _ in
-            guard let self else { return .noActionableNowPlayingItem }
-            let now = CACurrentMediaTime()
-            if now - self.lastRemoteSkipTime < 0.3 {
-                return .success
-            }
-            self.lastRemoteSkipTime = now
-            self.previous()
-            return .success
-        }
-
-        commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent,
-                  let self else {
-                return .commandFailed
-            }
-
-            let position = event.positionTime
-            let trackAge = CACurrentMediaTime() - self.trackStartWallTime
-
-            // Reject stale position commands that arrive shortly after a track change.
-            // iOS can send changePlaybackPositionCommand with a position from the
-            // previous NowPlaying scrubber state when the duration changes between tracks.
-            // A seek >30s away from current position within 5s of track start is almost
-            // certainly stale — the user couldn't have manually scrubbed that far yet.
-            if trackAge < 5.0 && trackAge > 0 {
-                let delta = abs(position - self.currentTime)
-                if delta > 30.0 {
-                    EnsembleLogger.debug("[RemoteSeek] Rejected stale position command: target=\(String(format: "%.1f", position))s current=\(String(format: "%.1f", self.currentTime))s trackAge=\(String(format: "%.1f", trackAge))s")
-                    return .success
-                }
-            }
-
-            EnsembleLogger.debug("[RemoteSeek] Accepted: \(String(format: "%.1f", position))s (current=\(String(format: "%.1f", self.currentTime))s, trackAge=\(String(format: "%.1f", trackAge))s)")
-            self.seek(to: position)
-            return .success
-        }
-
-        commandCenter.changeRepeatModeCommand.addTarget { [weak self] _ in
-            self?.cycleRepeatMode()
-            return .success
-        }
-
-        commandCenter.changeShuffleModeCommand.addTarget { [weak self] _ in
-            self?.toggleShuffle()
-            return .success
-        }
-        
-        // Like/Dislike commands
-        commandCenter.likeCommand.isEnabled = true
-        commandCenter.likeCommand.addTarget { [weak self] _ in
-            self?.toggleLike(isLike: true) ?? .commandFailed
-        }
-        
-        commandCenter.dislikeCommand.isEnabled = true
-        commandCenter.dislikeCommand.addTarget { [weak self] _ in
-            self?.toggleLike(isLike: false) ?? .commandFailed
-        }
+            )
+        )
     }
     
     private func toggleLike(isLike: Bool) -> MPRemoteCommandHandlerStatus {
@@ -3620,34 +3544,44 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Cache a resolved file URL with LRU eviction.
     /// Not MainActor-isolated — called from resolveAudioFile's background Task.
     private func cacheFileURL(_ url: URL, for trackId: String) {
-        resolvedFileURLs[trackId] = url
-        resolvedFileURLsLRU.removeAll { $0 == trackId }
-        resolvedFileURLsLRU.insert(trackId, at: 0)
-        while resolvedFileURLsLRU.count > maxCachedFileURLs {
-            if let evictedId = resolvedFileURLsLRU.popLast() {
-                resolvedFileURLs.removeValue(forKey: evictedId)
-                transportCoordinator.evict(trackId: evictedId, includeDecision: false, cancelTask: true)
-            }
-        }
-        cleanupStreamCacheFiles()
+        prefetchController.cacheFileURL(
+            url,
+            for: trackId,
+            resolvedFileURLs: &resolvedFileURLs,
+            resolvedFileURLsLRU: &resolvedFileURLsLRU,
+            maxCachedFileURLs: maxCachedFileURLs,
+            evictTransportTrack: { [transportCoordinator] trackId, includeDecision, cancelTask in
+                transportCoordinator.evict(
+                    trackId: trackId,
+                    includeDecision: includeDecision,
+                    cancelTask: cancelTask
+                )
+            },
+            cleanup: { [weak self] in self?.cleanupStreamCacheFiles() }
+        )
     }
 
     /// Get a cached file URL if available, updating LRU order.
     @MainActor
     private func getCachedFileURL(for trackId: String) -> URL? {
-        guard let url = resolvedFileURLs[trackId] else { return nil }
-        resolvedFileURLsLRU.removeAll { $0 == trackId }
-        resolvedFileURLsLRU.insert(trackId, at: 0)
-        return url
+        prefetchController.cachedFileURL(
+            for: trackId,
+            resolvedFileURLs: &resolvedFileURLs,
+            resolvedFileURLsLRU: &resolvedFileURLsLRU
+        )
     }
 
     /// Clear all cached file URLs.
     @MainActor
     private func clearFileURLCache() {
-        resolvedFileURLs.removeAll()
-        resolvedFileURLsLRU.removeAll()
-        transportCoordinator.clear(removeDecisions: false)
-        cleanupStreamCacheFiles()
+        prefetchController.clearFileURLCache(
+            resolvedFileURLs: &resolvedFileURLs,
+            resolvedFileURLsLRU: &resolvedFileURLsLRU,
+            clearTransport: { [transportCoordinator] in
+                transportCoordinator.clear(removeDecisions: false)
+            },
+            cleanup: { [weak self] in self?.cleanupStreamCacheFiles() }
+        )
         EnsembleLogger.debug("[Cache] Cleared file URL cache")
     }
 
@@ -3655,83 +3589,55 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Preserves resolved URLs that overlap with the new queue.
     @MainActor
     private func evictPlayerItemsNotIn(_ keepTrackIds: Set<String>) {
-        let evictIds = Set(resolvedFileURLs.keys).subtracting(keepTrackIds)
-        guard !evictIds.isEmpty else {
+        let evictedCount = prefetchController.evictPlayerItemsNotIn(
+            keepTrackIds,
+            resolvedFileURLs: &resolvedFileURLs,
+            resolvedFileURLsLRU: &resolvedFileURLsLRU,
+            evictTransportTrack: { [transportCoordinator] trackId, includeDecision, cancelTask in
+                transportCoordinator.evict(
+                    trackId: trackId,
+                    includeDecision: includeDecision,
+                    cancelTask: cancelTask
+                )
+            },
+            cleanup: { [weak self] in self?.cleanupStreamCacheFiles() }
+        )
+        guard evictedCount > 0 else {
             EnsembleLogger.debug("[Cache] Fully overlaps new queue — nothing to evict")
             return
         }
-        for id in evictIds {
-            resolvedFileURLs.removeValue(forKey: id)
-            transportCoordinator.evict(trackId: id, includeDecision: true, cancelTask: true)
-        }
-        resolvedFileURLsLRU.removeAll { evictIds.contains($0) }
-        cleanupStreamCacheFiles()
-        EnsembleLogger.debug("[Cache] Evicted \(evictIds.count) cached URLs + decisions, kept \(resolvedFileURLs.count)")
+        EnsembleLogger.debug("[Cache] Evicted \(evictedCount) cached URLs + decisions, kept \(resolvedFileURLs.count)")
     }
 
     /// Remove temporary stream cache files created by downloadUniversalStreamToFile.
     /// Keeps only files for the current playback neighborhood (current, next 2, previous 1),
     /// plus files that are scheduled in the AudioEngine's gapless queue or actively downloading.
     private func cleanupStreamCacheFiles() {
-        let cacheDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
-        guard FileManager.default.fileExists(atPath: cacheDir.path) else { return }
-
-        // Build allowlist: current track + next 2 + previous 1
-        var keepIds = Set(resolvedFileURLs.keys)
-        if currentQueueIndex >= 0, !queue.isEmpty {
-            var neighborhood = Set<String>()
-            if currentQueueIndex < queue.count {
-                neighborhood.insert(queue[currentQueueIndex].track.id)
-            }
-            for offset in 1...2 {
-                let nextIdx = currentQueueIndex + offset
-                if nextIdx < queue.count {
-                    neighborhood.insert(queue[nextIdx].track.id)
-                }
-            }
-            if currentQueueIndex > 0 {
-                neighborhood.insert(queue[currentQueueIndex - 1].track.id)
-            }
-            // Use the tighter neighborhood if we have queue context
-            keepIds = neighborhood
-        }
-
-        // Protect files scheduled in the AudioEngine's gapless FIFO queue —
-        // these may have been moved outside the neighborhood by queue reordering
-        // but are still referenced by the playerNode for upcoming playback.
-        if let engineIds = audioEngine?.scheduledTrackIds {
-            keepIds.formUnion(engineIds)
-        }
-
-        // Protect files with in-flight downloads to avoid deleting partially-written files
-        keepIds.formUnion(transportCoordinator.activeLoaderTrackIDs())
-
-        guard let files = try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path) else {
-            try? FileManager.default.removeItem(at: cacheDir)
-            return
-        }
-
-        var removedCount = 0
-        for file in files {
-            // Filenames are "{ratingKey}_{sessionId}.mp3" or ".caf" or ".audio"
-            let ratingKey = file.prefix(while: { $0 != "_" })
-            if !ratingKey.isEmpty && !keepIds.contains(String(ratingKey)) {
-                try? FileManager.default.removeItem(at: cacheDir.appendingPathComponent(file))
-                removedCount += 1
-            }
-        }
-
-        if removedCount > 0 {
-            EnsembleLogger.debug("🗑️ Stream cache cleanup: removed \(removedCount), kept \(files.count - removedCount)")
-        }
+        prefetchController.cleanupStreamCacheFiles(
+            using: PlaybackStreamCacheContext(
+                resolvedFileURLs: resolvedFileURLs,
+                queue: queue,
+                currentQueueIndex: currentQueueIndex,
+                scheduledTrackIDs: Array(audioEngine?.scheduledTrackIds ?? []),
+                activeLoaderTrackIDs: Array(transportCoordinator.activeLoaderTrackIDs())
+            )
+        )
     }
 
     @MainActor
     private func removeCachedPlayerItem(for trackID: String) {
-        resolvedFileURLs.removeValue(forKey: trackID)
-        transportCoordinator.evict(trackId: trackID, includeDecision: false, cancelTask: true)
-        resolvedFileURLsLRU.removeAll { $0 == trackID }
+        prefetchController.removeCachedPlayerItem(
+            for: trackID,
+            resolvedFileURLs: &resolvedFileURLs,
+            resolvedFileURLsLRU: &resolvedFileURLsLRU,
+            evictTransportTrack: { [transportCoordinator] trackId, includeDecision, cancelTask in
+                transportCoordinator.evict(
+                    trackId: trackId,
+                    includeDecision: includeDecision,
+                    cancelTask: cancelTask
+                )
+            }
+        )
     }
 
     // MARK: - Private Methods
@@ -5182,16 +5088,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let upcomingTrackIDs: [String] = upcomingQueueIndices(depth: 2).map { queue[$0].track.id }
 
         // Skip tracks already scheduled in the engine — their audio is downloaded and loaded
-        let alreadyScheduled = audioEngine?.scheduledTrackIds ?? []
-        let staleTrackIDs = upcomingTrackIDs.filter { !alreadyScheduled.contains($0) }
-
-        // Evict cached file URLs and cancel in-flight downloads for tracks that need re-resolution.
-        // Stream decisions are kept — they're endpoint-independent.
-        for id in staleTrackIDs {
-            resolvedFileURLs.removeValue(forKey: id)
-            resolvedFileURLsLRU.removeAll { $0 == id }
-            transportCoordinator.evict(trackId: id, includeDecision: false, cancelTask: true)
-        }
+        let alreadyScheduled = Array(audioEngine?.scheduledTrackIds ?? [])
+        let staleTrackIDs = prefetchController.evictUpcomingStaleTrackURLs(
+            upcomingTrackIDs: upcomingTrackIDs,
+            alreadyScheduledTrackIDs: alreadyScheduled,
+            resolvedFileURLs: &resolvedFileURLs,
+            resolvedFileURLsLRU: &resolvedFileURLsLRU,
+            evictTransportTrack: { [transportCoordinator] trackId, includeDecision, cancelTask in
+                transportCoordinator.evict(
+                    trackId: trackId,
+                    includeDecision: includeDecision,
+                    cancelTask: cancelTask
+                )
+            }
+        )
 
         if staleTrackIDs.isEmpty {
             EnsembleLogger.debug("[rebuildQueue] Network transition — all upcoming tracks already scheduled, nothing to rebuild")
@@ -5249,142 +5159,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     // MARK: - Now Playing Info
 
     private func updateNowPlayingInfo() {
-        guard let track = currentTrack else {
-            cancelNowPlayingArtworkLoad(clearArtwork: true)
-            updateFeedbackCommandState(isLiked: false, isDisliked: false)
-            return
-        }
-        let feedbackFlags = Self.feedbackFlags(for: track.rating)
-        let isLiked = feedbackFlags.isLiked
-        let isDisliked = feedbackFlags.isDisliked
-        let artworkIdentity = track.thumbPath ?? track.fallbackThumbPath ?? track.id
-        let artworkSourceKey = track.thumbPath != nil ? track.id : (track.fallbackRatingKey ?? track.id)
-        let artworkRequestKey = "\(artworkSourceKey)|\(artworkIdentity)|\(track.sourceCompositeKey ?? "")"
-
-        let rate: Double = playbackState == .playing ? 1.0 : 0.0
-
-        // During the loading state, the engine may still have the PREVIOUS track's file
-        // loaded. Using `duration` (which prefers engine fileDuration) would publish the
-        // old track's duration under the new track's title, confusing the iOS NowPlaying
-        // scrubber. The scrubber then sends a changePlaybackPositionCommand to "correct"
-        // the position — causing a phantom seek. Use metadata duration during loading.
-        let effectiveDuration: TimeInterval
-        if playbackState == .loading {
-            effectiveDuration = track.duration
-        } else {
-            effectiveDuration = duration
-        }
-
-        var info: [String: Any] = [
-            MPMediaItemPropertyTitle: track.title,
-            MPMediaItemPropertyPlaybackDuration: effectiveDuration,
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
-            MPNowPlayingInfoPropertyPlaybackRate: rate,
-            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0
-        ]
-
-        if let artist = track.artistName {
-            info[MPMediaItemPropertyArtist] = artist
-        }
-
-        if let album = track.albumName {
-            info[MPMediaItemPropertyAlbumTitle] = album
-        }
-
-        if nowPlayingArtworkTrackID == track.id, let nowPlayingArtwork {
-            info[MPMediaItemPropertyArtwork] = nowPlayingArtwork
-        }
-
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-
-        syncNowPlayingPlaybackState()
-        updateFeedbackCommandState(isLiked: isLiked, isDisliked: isDisliked)
-
-        EnsembleLogger.debug("[NowPlaying] Updated: '\(track.title)' rate=\(rate) elapsed=\(String(format: "%.1f", currentTime))s duration=\(String(format: "%.1f", effectiveDuration))s state=\(playbackState)")
-
-        guard nowPlayingArtworkRequestKey != artworkRequestKey else { return }
-        cancelNowPlayingArtworkLoad(clearArtwork: false)
-        nowPlayingArtworkRequestKey = artworkRequestKey
-
-        // Keep lock-screen artwork loading to one task per track/artwork key.
-        nowPlayingArtworkTask = Task { [weak self] in
-            guard let self else { return }
-
-            guard let url = await self.artworkLoader.artworkURLAsync(
-                for: track.thumbPath,
-                sourceKey: track.sourceCompositeKey,
-                ratingKey: track.id,
-                fallbackPath: track.fallbackThumbPath,
-                fallbackRatingKey: track.fallbackRatingKey,
-                size: 600
-            ) else {
-                return
-            }
-
-            if Task.isCancelled { return }
-
-            let request = ImageRequest(url: url)
-            guard let image = try? await ImagePipeline.shared.image(for: request) else {
-                return
-            }
-
-            if Task.isCancelled { return }
-
-            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in
-                image
-            }
-
-            await MainActor.run {
-                guard self.currentTrack?.id == track.id else { return }
-                self.nowPlayingArtwork = artwork
-                self.nowPlayingArtworkTrackID = track.id
-                var currentInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-                currentInfo[MPMediaItemPropertyArtwork] = artwork
-                MPNowPlayingInfoCenter.default().nowPlayingInfo = currentInfo
-                self.syncNowPlayingPlaybackState()
-            }
-        }
-    }
-
-    /// Synchronises `MPNowPlayingInfoCenter.default().playbackState` with the
-    /// app's internal `playbackState`.  Must be called **after** every assignment
-    /// to `…nowPlayingInfo` because that assignment can reset the property.
-    private func syncNowPlayingPlaybackState() {
-        let mpState: MPNowPlayingPlaybackState
-        switch playbackState {
-        case .playing:
-            mpState = .playing
-        case .paused:
-            mpState = .paused
-        case .stopped:
-            mpState = .stopped
-        case .loading, .buffering:
-            // Transient — leave the last reported state.
-            return
-        case .failed:
-            mpState = .stopped
-        }
-        MPNowPlayingInfoCenter.default().playbackState = mpState
-        EnsembleLogger.debug("[NowPlaying] Synced playbackState → \(mpState.rawValue) (app=\(playbackState))")
+        nowPlayingBridge.updateNowPlayingInfo(makeNowPlayingState())
     }
 
     private func cancelNowPlayingArtworkLoad(clearArtwork: Bool) {
-        nowPlayingArtworkTask?.cancel()
-        nowPlayingArtworkTask = nil
-        nowPlayingArtworkRequestKey = nil
-        if clearArtwork {
-            nowPlayingArtworkTrackID = nil
-            nowPlayingArtwork = nil
-        }
+        nowPlayingBridge.cancelArtworkLoad(clearArtwork: clearArtwork)
     }
 
     private func updateNowPlayingProgress() {
-        guard var info = MPNowPlayingInfoCenter.default().nowPlayingInfo else { return }
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
-        info[MPMediaItemPropertyPlaybackDuration] = duration
-        info[MPNowPlayingInfoPropertyPlaybackRate] = playbackState == .playing ? 1.0 : 0.0
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-        syncNowPlayingPlaybackState()
+        nowPlayingBridge.updateNowPlayingProgress(
+            currentTime: currentTime,
+            duration: duration,
+            playbackState: playbackState
+        )
     }
 
     /// Push Now Playing info with `playbackRate = 1.0` during skip transitions.
@@ -5393,21 +5180,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// The slight position inaccuracy (~1s) is corrected when audio starts and the
     /// periodic timer takes over with real values.
     private func pushNowPlayingForSkipTransition() {
-        updateNowPlayingInfo()
-        // Override the rate that updateNowPlayingInfo set (which would be 0.0
-        // since playbackState is .loading during skip transitions)
-        if var info = MPNowPlayingInfoCenter.default().nowPlayingInfo {
-            info[MPNowPlayingInfoPropertyPlaybackRate] = 1.0
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-            // Skip transitions should appear as "playing" on the lock screen
-            MPNowPlayingInfoCenter.default().playbackState = .playing
-        }
+        nowPlayingBridge.pushNowPlayingForSkipTransition(makeNowPlayingState())
     }
 
     private func updateFeedbackCommandState(isLiked: Bool, isDisliked: Bool) {
-        let commandCenter = MPRemoteCommandCenter.shared()
-        commandCenter.likeCommand.isActive = isLiked
-        commandCenter.dislikeCommand.isActive = isDisliked
+        nowPlayingBridge.updateFeedbackCommandState(isLiked: isLiked, isDisliked: isDisliked)
+    }
+
+    private func makeNowPlayingState() -> PlaybackNowPlayingState {
+        let feedbackFlags = Self.feedbackFlags(for: currentTrack?.rating ?? 0)
+        return PlaybackNowPlayingState(
+            track: currentTrack,
+            playbackState: playbackState,
+            currentTime: currentTime,
+            duration: duration,
+            isLiked: feedbackFlags.isLiked,
+            isDisliked: feedbackFlags.isDisliked
+        )
     }
 
     private func trackWithRating(_ track: Track, rating: Int) -> Track {
@@ -5459,7 +5248,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// main/audio thread is never blocked.
     private func savePlaybackState() {
         lastPlaybackSnapshotTime = currentTime
-        queueStore.save(
+        queueController.saveSnapshot(
             queue: queue,
             history: playbackHistory,
             currentIndex: currentQueueIndex,
@@ -5487,7 +5276,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func restorePlaybackState() async {
         EnsembleLogger.debug("🔄 restorePlaybackState() called")
 
-        guard let snapshot = queueStore.load() else {
+        guard let snapshot = queueController.loadSnapshot() else {
             EnsembleLogger.debug("🔄 No queue snapshot found in queue store")
             return
         }

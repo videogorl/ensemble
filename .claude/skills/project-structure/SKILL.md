@@ -153,9 +153,12 @@ Sources/
 |   +-- AudioPlaybackEngine.swift      # Gapless local-file playback engine with route recovery and instrumental mode support
 |   +-- PlaybackHandoffCoordinator.swift # Disconnect/interruption/remote-command handoff reducer extracted from PlaybackService
 |   +-- PlaybackQueueStore.swift       # Queue/history restoration persistence extracted from PlaybackService
+|   +-- PlaybackQueueController.swift  # Queue/history mutation + queue snapshot persistence extracted from PlaybackService
 |   +-- PlaybackLaunchCoordinator.swift # Successful playback launch path (visualizer load, engine start, recovery seek, prefetch) extracted from PlaybackService
 |   +-- PlaybackRecoveryPolicy.swift   # Buffering/stall-recovery policy extracted from PlaybackService
 |   +-- PlaybackSessionStateMachine.swift # Playback session request/retry/failure policy extracted from PlaybackService
+|   +-- PlaybackPrefetchController.swift # Resolved-file URL cache + stream-cache cleanup policy extracted from PlaybackService
+|   +-- PlaybackNowPlayingBridge.swift # Lock-screen metadata + remote-command wiring extracted from PlaybackService
 |   +-- PlaybackTransportCoordinator.swift # Stream/local transport resolution + progressive-loader cache extracted from PlaybackService
 |   +-- ProgressiveStreamLoader.swift  # AVAssetResourceLoaderDelegate bridge for chunked transcode streams
 |   +-- ArtworkLoader.swift            # Persistent artwork caching & loading
