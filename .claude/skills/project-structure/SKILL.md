@@ -71,6 +71,7 @@ Sources/
 +-- Client/
 |   +-- PlexConnectionPolicy.swift     # Endpoint descriptors, routing policies, refresh/probe result models
 |   +-- PlexAPIClient.swift            # HTTP client for Plex API (actor)
+|   +-- PlexAPIClient+Connections.swift # Server connection accessors, capability fetch, and connection refresh endpoints split from PlexAPIClient
 |   +-- PlexAPIClient+Library.swift    # Library-section, inventory, hubs, search, and rating endpoints split from PlexAPIClient
 |   +-- PlexAPIClient+Metadata.swift   # Single-item metadata fetch/edit endpoints split from PlexAPIClient
 |   +-- PlexAPIClient+Playlists.swift  # Playlist list/mutation endpoints split from PlexAPIClient

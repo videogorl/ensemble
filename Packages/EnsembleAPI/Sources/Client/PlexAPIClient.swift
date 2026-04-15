@@ -239,9 +239,9 @@ public actor PlexAPIClient {
     private let deviceName: String
     private let failoverManager: ConnectionFailoverManager
 
-    private let serverConnection: PlexServerConnection
-    private let selectedLibrary: PlexLibrarySelection?
-    private var currentServerURL: String  // The currently active server URL
+    let serverConnection: PlexServerConnection
+    let selectedLibrary: PlexLibrarySelection?
+    var currentServerURL: String  // The currently active server URL
 
     // Centralized endpoint registry — when set, failover results are reported back
     private let connectionRegistry: ServerConnectionRegistry?
@@ -334,24 +334,6 @@ public actor PlexAPIClient {
         }
     }
 
-    // MARK: - Server Connection
-
-    public func getServerConnection() -> PlexServerConnection {
-        serverConnection
-    }
-
-    // MARK: - Library Selection
-
-    public func getLibrarySelection() -> PlexLibrarySelection? {
-        selectedLibrary
-    }
-
-    /// Get all music library sections
-    public func getMusicLibrarySections() async throws -> [PlexLibrarySection] {
-        let sections = try await getLibrarySections()
-        return sections.filter { $0.isMusicLibrary }
-    }
-
     // MARK: - Plex.tv API (for auth flow - takes token as parameter)
 
     /// Get user's servers/resources
@@ -377,23 +359,6 @@ public actor PlexAPIClient {
     }
 
     // MARK: - Server API
-
-    /// Wrapper for decoding the server root response (`GET /`), which carries capability
-    /// attributes directly on the `MediaContainer` element rather than in a child array.
-    private struct PlexServerRootResponse: Codable {
-        let mediaContainer: PlexServerCapabilities
-        enum CodingKeys: String, CodingKey {
-            case mediaContainer = "MediaContainer"
-        }
-    }
-
-    /// Fetch server-level capabilities from the root endpoint (`GET /`).
-    /// Returns feature flags like Plex Pass status, lyrics, radio, and transcoding support.
-    public func getServerCapabilities() async throws -> PlexServerCapabilities {
-        let data = try await serverRequest(path: "/")
-        let response = try JSONDecoder().decode(PlexServerRootResponse.self, from: data)
-        return response.mediaContainer
-    }
 
     // MARK: - Timeline & Scrobbling
 
@@ -1941,7 +1906,7 @@ public actor PlexAPIClient {
     // MARK: - Connection Management
     
     /// Attempt to find a policy-compliant working connection if current one fails.
-    private func attemptFailover() async throws -> ConnectionSelectionResult {
+    func attemptFailover() async throws -> ConnectionSelectionResult {
         #if DEBUG
         EnsembleLogger.debug("🔄 Attempting connection failover...")
         #endif
@@ -1979,45 +1944,6 @@ public actor PlexAPIClient {
         EnsembleLogger.debug("✅ Found working connection: \(endpoint.url)")
         #endif
         return selection
-    }
-
-    /// Get the current active server URL
-    public func getCurrentServerURL() -> String {
-        currentServerURL
-    }
-
-    /// Update the current server URL (e.g., from external health checks or registry sync).
-    public func updateCurrentServerURL(_ url: String) {
-        #if DEBUG
-        EnsembleLogger.debug("🔄 PlexAPIClient: Updating current server URL to: \(url)")
-        #endif
-        currentServerURL = url
-    }
-
-    /// Proactively test and update to the best available connection.
-    @discardableResult
-    public func refreshConnection() async throws -> ConnectionRefreshResult {
-        #if DEBUG
-        EnsembleLogger.debug("🔄 PlexAPIClient: Refreshing connection...")
-        #endif
-        let previousURL = currentServerURL
-        let selection = try await attemptFailover()
-        guard let selected = selection.selected else {
-            throw PlexAPIError.noServerSelected
-        }
-        let outcome: ConnectionRefreshResult.RefreshOutcome = (selected.url == previousURL) ? .unchanged : .switched
-        #if DEBUG
-        EnsembleLogger.debug(
-            "✅ PlexAPIClient: Connection refreshed host=\(selected.safeHostDescription) outcome=\(outcome.rawValue)"
-        )
-        #endif
-        return ConnectionRefreshResult(
-            outcome: outcome,
-            selectedEndpoint: selected,
-            probeCount: selection.probes.count,
-            skippedInsecureCount: selection.skippedInsecureCount,
-            reusedPreferredPath: selection.reusedPreferredPath
-        )
     }
 
     // MARK: - Private Methods

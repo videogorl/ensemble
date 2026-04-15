@@ -34,7 +34,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - Decision parsing: `callTranscodeDecision()` → `TranscodeDecisionResult` (directplay/copy/transcode)
   - Playback tracking: `reportTimeline()`, `scrobble()`
   - Waveform data: `getLoudnessTimeline(forStreamId:subsample:)`
-  - File-partitioned endpoint groups now live beside the actor in `PlexAPIClient+Library`, `PlexAPIClient+Metadata`, and `PlexAPIClient+Playlists`, while shared request execution/failover remains in `PlexAPIClient.swift`
+  - File-partitioned endpoint groups now live beside the actor in `PlexAPIClient+Connections`, `PlexAPIClient+Library`, `PlexAPIClient+Metadata`, and `PlexAPIClient+Playlists`, while shared request execution/failover remains in `PlexAPIClient.swift`
 - `PlexRequestBuilder` -- Pure URLRequest/header assembly helper used by PlexAPIClient's shared transport paths
 - `StreamDecision` / `TranscodeStreamDecision` -- Endpoint-independent streaming decisions (cached across network transitions)
 - `PlexConnectionPolicy` types -- Endpoint descriptors, ordering policies, probe classifications, and structured refresh outcomes
