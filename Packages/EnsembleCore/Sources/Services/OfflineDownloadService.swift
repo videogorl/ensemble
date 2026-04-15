@@ -166,6 +166,12 @@ public final class OfflineDownloadService: ObservableObject {
             currentDownloadQuality: { [weak self] in self?.currentDownloadQuality() ?? "original" }
         )
     )
+    private lazy var cleanupCoordinator = OfflineDownloadCleanupCoordinator(
+        dependencies: .init(
+            downloadManager: downloadManager,
+            targetRepository: targetRepository
+        )
+    )
     private lazy var notificationBridge = OfflineDownloadNotificationBridge(
         dependencies: .init(
             fetchPendingDownloadCount: { [weak self] in
@@ -268,14 +274,7 @@ public final class OfflineDownloadService: ObservableObject {
         observeSyncCompletions()
 
         Task {
-            // Self-heal download metadata first: verify files on disk,
-            // mark missing/invalid downloads as failed so progress counts
-            // are accurate before we compute target state.
-            _ = try? await downloadManager.fetchDownloads()
-
-            // Scan for truncated audio files that passed basic payload checks
-            // but have significantly shorter duration than expected (e.g. interrupted downloads)
-            await scanForTruncatedDownloads()
+            await runDownloadHealing()
 
             await refreshState()
             // Reset stale .downloading status from previous app session.
@@ -302,10 +301,7 @@ public final class OfflineDownloadService: ObservableObject {
     /// Extended refresh that also runs download file self-healing.
     /// Use for pull-to-refresh to detect missing files and orphaned targets.
     public func refreshStateWithHealing() async {
-        // Verify files on disk, mark missing/invalid downloads as failed
-        _ = try? await downloadManager.fetchDownloads()
-        // Catch truncated audio files (interrupted downloads that passed basic checks)
-        await scanForTruncatedDownloads()
+        await runDownloadHealing()
         await refreshState()
     }
 
@@ -2094,6 +2090,24 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     // MARK: - Sync / Network Reconciliation
+
+    /// Runs the best-effort healing steps that keep persisted downloads aligned
+    /// with target memberships before the UI recomputes its snapshots.
+    private func runDownloadHealing() async {
+        // Verify files on disk, mark missing/invalid downloads as failed.
+        _ = try? await downloadManager.fetchDownloads()
+        // Catch truncated audio files (interrupted downloads that passed basic checks).
+        await scanForTruncatedDownloads()
+
+        do {
+            let removedCount = try await cleanupCoordinator.removeOrphanedCompletedDownloads()
+            if removedCount > 0 {
+                EnsembleLogger.debug("🧹 OfflineDownloadService: removed \(removedCount) orphaned completed download(s)")
+            }
+        } catch {
+            EnsembleLogger.debug("❌ Failed removing orphaned completed downloads: \(error.localizedDescription)")
+        }
+    }
 
     /// Schedules a debounced `downloadsDidChange` notification so detail views
     /// re-fetch tracks after individual downloads complete without flooding during

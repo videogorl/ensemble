@@ -172,8 +172,9 @@ Sources/
 |   +-- HubRepository.swift            # Hub data persistence (CDHub/CDHubItem)
 |   +-- HubOrderManager.swift          # User-customizable hub section ordering
 |   +-- BackgroundSyncScheduler.swift  # iOS BGAppRefreshTask scheduling for background sync
-|   +-- OfflineDownloadService.swift   # Target-based offline queue, reconciliation, and progress tracking
+|   +-- OfflineDownloadService.swift   # Target-based offline queue, reconciliation, progress tracking, and healing orchestration
 |   +-- DownloadQueueCoordinator.swift # Sole owner of offline queue task lifecycle and worker orchestration
+|   +-- OfflineDownloadCleanupCoordinator.swift # Best-effort orphaned-download cleanup for completed files that no longer have any offline target membership
 |   +-- DownloadRetryPolicy.swift      # Stateful offline retry and direct-fallback policy
 |   +-- DownloadTargetReconciler.swift # Membership resolution and orphan cleanup for offline targets
 |   +-- OfflineDownloadNotificationBridge.swift # Debounced downloadsDidChange fan-out + queue completion toast seam extracted from OfflineDownloadService
@@ -249,6 +250,7 @@ Tests/
 +-- DownloadRetryPolicyTests.swift # Transfer retry accounting and direct-fallback gating coverage
 +-- DownloadTargetReconcilerTests.swift # Target membership resolution and orphan cleanup coverage
 +-- OfflineDownloadNotificationBridgeTests.swift # Debounced downloadsDidChange fan-out and toast routing coverage
++-- OfflineDownloadCleanupCoordinatorTests.swift # Orphaned completed-download sweep coverage
 +-- HomeViewModelRefreshPolicyTests.swift
 +-- ServerHealthCheckerClassificationTests.swift
 +-- SettingsManagerConnectionPolicyTests.swift

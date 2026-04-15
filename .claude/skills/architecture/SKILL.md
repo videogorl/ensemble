@@ -127,9 +127,11 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `OfflineDownloadService` (@MainActor) -- Target-based offline orchestration (reconciliation, progress publishing, reference-counted cleanup, façade for queue control)
   - Uses an internal `DownloadWorkMode` policy (`interactivePlayback`, `foregroundIdle`, `background`) so playback-sensitive sessions throttle queue concurrency and coalesce expensive target-progress publishes instead of treating every queue/network event as full-speed work
   - Delegates debounced `downloadsDidChange` fan-out, view-context refresh routing, and queue-completion toast presentation to `OfflineDownloadNotificationBridge` so queue/target logic stays separate from UI-facing notifications
+  - Runs `OfflineDownloadCleanupCoordinator` during startup and healing refreshes to remove completed downloads whose track files no longer belong to any offline target membership
 - `DownloadQueueCoordinator` (@MainActor) -- Sole owner of offline queue task lifecycle, worker fan-out, background wakeup handling, and queue wind-down/restart decisions
 - `DownloadRetryPolicy` (@MainActor) -- Stateful transfer retry accounting and direct-original fallback gating for offline downloads
 - `DownloadTargetReconciler` -- Resolves offline target memberships, queues missing downloads, and deletes orphaned download files when targets change
+- `OfflineDownloadCleanupCoordinator` (@MainActor) -- Internal offline seam extracted from `OfflineDownloadService`; scans completed downloads for zero-membership tracks and removes stray files/records during startup and healing refreshes
 - `OfflineDownloadNotificationBridge` (@MainActor) -- Internal offline seam extracted from `OfflineDownloadService`; owns debounced `downloadsDidChange` posting, refresh fan-out, and queue-completion toast routing while the service keeps target and transfer logic
 - `OfflineBackgroundExecutionCoordinator` (@MainActor) -- Optional iOS 26+ `BGContinuedProcessingTask` adapter; no-op on unsupported platforms/OS versions
 - `FrequencyAnalysisService` -- Pre-computed audio frequency analysis using Accelerate FFT; produces `FrequencyTimeline` data for visualizer display decoupled from the audio pipeline
