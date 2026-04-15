@@ -192,7 +192,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     func applyRatingLocally(trackId: String, rating: Int) async
 
     /// Update the visualizer's playback position (for scrubber drag sync)
-    func updateVisualizerPosition(_ time: TimeInterval)
+    @MainActor func updateVisualizerPosition(_ time: TimeInterval)
 
     /// Returns codec and file size of the file currently being decoded by AVPlayer
     func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?)
@@ -938,6 +938,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     #if canImport(UIKit)
     private var trackTransitionBackgroundTask: UIBackgroundTaskIdentifier = .invalid
     #endif
+
+    /// Resolve the latest reachability value on the main actor for transport work
+    /// that executes behind a Sendable async dependency surface.
+    @MainActor
+    private func currentTransportNetworkState() -> NetworkState {
+        networkMonitor.networkState
+    }
     private var activeSeek: SeekOperation?
     private var seekCounter: UInt64 = 0
     /// True while rate-based fast-seeking (long-press skip) is active.
@@ -1011,7 +1018,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private lazy var transportCoordinator = PlaybackTransportCoordinator(
         dependencies: .init(
             networkState: { [weak self] in
-                await MainActor.run { self?.networkMonitor.networkState ?? .unknown }
+                await self?.currentTransportNetworkState() ?? .unknown
             },
             preparedLocalPlaybackURL: { [weak self] path in
                 self?.preparedLocalPlaybackURL(forPath: path) ?? URL(fileURLWithPath: path)
@@ -3892,11 +3899,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
             loadingStateTask?.cancel()
             endTrackTransitionBackgroundTask()
+            let failureMessage = lastError?.localizedDescription ?? "Failed to load track"
             await MainActor.run {
                 self.isSkipTransitionInProgress = false
                 self.disarmSkipTransitionSafety()
                 self.audioEngine?.pause()
-                self.playbackState = .failed(lastError?.localizedDescription ?? "Failed to load track")
+                self.playbackState = .failed(failureMessage)
             }
         case .generic(let message):
             consecutivePlaybackFailures += 1
@@ -4726,7 +4734,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Debounce the expensive reload (2s) — if the user is rapidly toggling
             // quality settings, only the final selection triggers a stream reload
             self.qualityDebounceTask?.cancel()
-            self.qualityDebounceTask = Task { [weak self] in
+            self.qualityDebounceTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 guard !Task.isCancelled, let self else { return }
                 await self.reloadCurrentTrackForQualityChange()
@@ -5144,29 +5152,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if decision.shouldHandleReconnect {
             EnsembleLogger.debug("✅ Network reconnected")
 
-            // If playback failed due to network, try to recover.
             if case .failed = playbackState {
-                if true /* engine always plays from local files */ {
-                    EnsembleLogger.debug("ℹ️ Skipping reconnect retry for local playback failure")
-                    return
-                }
-                EnsembleLogger.debug("🔄 Network back - attempting to resume playback")
-                await retryCurrentTrack(forceConnectionRefresh: false, reason: "network-reconnect")
+                EnsembleLogger.debug("ℹ️ Skipping reconnect retry — audio engine is already playing from local files")
+                return
             } else if playbackState == .buffering {
                 EnsembleLogger.debug("🔄 Network back - attempting to resume buffering")
                 try? audioEngine?.resume()
             }
         } else if decision.shouldHandleDisconnect {
             EnsembleLogger.debug("⚠️ Network disconnected during playback")
-
-            // If we're truly streaming (not playing from any local file, including
-            // cached stream files), move to failed state. true /* engine always plays from local files */
-            // checks both offline downloads AND stream cache files via AVURLAsset.url.isFileURL.
             if currentTrack != nil,
-               !true /* engine always plays from local files */,
                playbackState == .playing || playbackState == .buffering {
-                EnsembleLogger.debug("⚠️ No network and streaming - switching to failed state")
-                playbackState = .failed("Lost network connection")
+                EnsembleLogger.debug("ℹ️ No failure transition needed — audio engine continues from local files")
             }
         }
     }

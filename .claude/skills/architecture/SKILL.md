@@ -64,6 +64,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `DependencyContainer` (singleton) -- Wires all services, creates ViewModels, injected via SwiftUI environment
 - `AccountManager` (@MainActor) -- Manages multiple Plex accounts, servers, and libraries
 - `PlexAccountDiscoveryService` -- Discovers account identity + normalized server/library inventory during add-account and reconciliation flows
+- `LocalNetworkPermissionProbe` -- Onboarding helper that prompts for local-network access before Plex server discovery work
 - `SyncCoordinator` (@MainActor) -- Orchestrates library syncing across all enabled sources; provides timeline reporting and scrobbling methods
   - Publishes `lastContentChange` for consumers that need actual library/playlist mutations; `sourceStatuses` remains the transport/progress surface
   - Delegates health-refresh gating/coalescing to `RefreshOrchestrator` so foreground/network-triggered probes share one cooldown/staleness path
@@ -80,6 +81,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `RootView` owns the scene/window-scoped `NavigationCoordinator` and `NowPlayingViewModel`, while playback services remain shared through `DependencyContainer`. This keeps multiple iPad/macOS windows on independent navigation paths without forking playback state.
 - Large-screen Now Playing presentation is split at the UI layer: `NowPlayingSheetView` is the shared iPhone/iPad sheet-style presenter, while `NowPlayingViewportRoot` is reserved for macOS viewport presentation and coordinated separately through `WindowChromeBridge` so toolbar content can swap without moving the titlebar/traffic lights
 - `PlaybackService` -- AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion). Publishes both raw transport time (`currentTime`) and presentation-adjusted time (`presentationTime`) so lyrics/Aurora can compensate for AirPlay/Bluetooth output delay without affecting seek/reporting semantics. `frequencyBands` uses `CurrentValueSubject` (not `@Published`) to avoid firing `objectWillChange` at 30Hz. Uses `ProgressiveStreamLoader` for transcode streams and `streamLoaders` dict for lifecycle management
+- `AudioPlaybackEngine` -- Gapless local-file playback engine used behind `PlaybackService`; owns route recovery, scheduling, and instrumental-mode audio graph concerns
 - `PlaybackHandoffCoordinator` -- Internal playback-handoff reducer extracted from `PlaybackService`; owns disconnect/interruption/remote-command pause intent, settle-window policy, and handoff logging decisions while the service remains the side-effect boundary
 - `PlaybackQueueStore` -- Persists queue/history restoration state outside `PlaybackService`; writes a single snapshot plus legacy keys so queue-restoration refactors can proceed without breaking existing installs
 - `PlaybackLaunchCoordinator` -- Internal playback-launch seam extracted from `PlaybackService`; owns the successful-resolution path (visualizer planning, engine load, recovery seek application, and prefetch kickoff) while the façade still owns queue mutation and transport retry loops
@@ -126,6 +128,11 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `PowerStateMonitor` (@MainActor ObservableObject) -- Observes iOS Low Power Mode via `NSProcessInfoPowerStateDidChange` and publishes `isLowPowerMode: Bool`. Consumers (Aurora visualizer, LyricsCard, download service) read this to reduce GPU passes, frame rates, and network work when the device is in LPM
 - `SongLinkService` (actor) -- Resolves universal song.link URLs for tracks and albums via MusicKit catalog search + song.link API; in-memory cache with positive/negative entries
 - `ShareService` (@MainActor) -- Coordinates share payloads: link (song.link/Apple Music URL), text (fallback), or file (local download or temp download via Plex stream URL)
+- `MutationCoordinator` (@MainActor) -- Unified online/offline mutation queue for ratings, playlist changes, and scrobbles
+- `MetadataMutationService` -- Metadata edit coordination for tracks/albums/artists/playlists, plus invalidation notifications that refresh browse/detail surfaces
+- `SiriAffinityCoordinator` (@MainActor) -- Executes Siri love/dislike/remove-rating requests against the current track
+- `SiriAddToPlaylistCoordinator` (@MainActor) -- Executes Siri add-to-playlist requests and routes them through the optimistic mutation path
+- `SiriMediaUserContextManager` -- Persists recent Siri playback context to improve subsequent media resolution and ranking
 
 **Key Models:**
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
@@ -650,7 +657,7 @@ Visually merges same-named playlists across multiple Plex servers into a single 
 
 ## Subsystem: Persistent Session Logging
 
-Real-time dual-write logging for TestFlight diagnostics. Each `EnsembleLogger` method writes to both `os.log` (existing) and a session file (new) via a static `fileLogHandler` closure. `PersistentLogService` (in EnsembleCore) owns the `LogFileWriter` which serializes file I/O on a private `DispatchQueue`. Session files are stored at `Library/Application Support/Ensemble/Logs/`. Handlers for Core/API/Persistence loggers are wired in `DependencyContainer`; UI and App loggers are wired in `EnsembleApp` on first activation. The logger API uses `@autoclosure` for zero-cost in release when file logging is disabled.
+Real-time dual-write logging for TestFlight diagnostics. Each `EnsembleLogger` method writes to both `os.log` and a session file via a static `fileLogHandler` closure so debug-level traces remain available in release/TestFlight builds. `PersistentLogService` (in EnsembleCore) owns the `LogFileWriter` which serializes file I/O on a private `DispatchQueue`. Session files are stored at `Library/Application Support/Ensemble/Logs/`. Handlers for Core/API/Persistence loggers are wired in `DependencyContainer`; UI and App loggers are wired in `EnsembleApp` on first activation.
 
 - **Key types:** `PersistentLogService`, `LogFileWriter` (private), `LogSession`
 - **Key files:** `PersistentLogService.swift`, all `EnsembleLogger.swift` files, `DependencyContainer.swift`, `EnsembleApp.swift`

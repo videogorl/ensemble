@@ -648,11 +648,15 @@ public final class NowPlayingViewModel: ObservableObject {
 
         blurGenerationTask = Task.detached(priority: .utility) { [weak self] in
             let blurred = NowPlayingViewModel.generateBlurredImage(from: source)
-            await MainActor.run {
-                guard let self, self.currentLoadTrackID == trackID else { return }
-                self.blurredArtworkImage = blurred
-            }
+            await self?.applyGeneratedBlurredArtwork(blurred, for: trackID)
         }
+    }
+
+    /// Apply a completed blur render only if it still matches the currently-loaded track.
+    @MainActor
+    private func applyGeneratedBlurredArtwork(_ blurred: PlatformImage?, for trackID: String) {
+        guard currentLoadTrackID == trackID else { return }
+        blurredArtworkImage = blurred
     }
 
     /// Pre-render blurred artwork using Core Image.

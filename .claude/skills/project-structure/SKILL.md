@@ -18,13 +18,14 @@ ensemble/
 +-- scripts/
 |   +-- compile_coredata_model.sh # Compiles SwiftPM CoreData model bundle for package tests
 |   +-- verify_package_baseline.sh # Rebuilds the SwiftPM CoreData bundle, then runs package tests with pass/fail summary
-|   +-- capture_runtime_baseline.sh # Summarizes a trace + log pair for repeatable runtime baselines
+|   +-- capture_runtime_baseline.sh # Captures or summarizes repeatable simulator/runtime baselines (OS log + persistent log + optional trace)
 |   +-- plex_hls_spike.sh        # Bounded PMS music-HLS viability probe used before transport changes
 |   +-- update_build_number.sh    # Sets deterministic CFBundleVersion for app + Siri extension builds
 |
 +-- docs/
 |   +-- investigations/
 |       +-- 2026-04-03-plex-hls-spike.md # Written verdict from the PMS music-HLS spike
+|       +-- 2026-04-14-repo-audit-baseline.md # Ranked audit findings + baseline verification notes
 |
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/
@@ -137,6 +138,8 @@ Sources/
 |   +-- UserProfile.swift              # Profile data model (displayName, profileImagePath, lastModified)
 +-- Services/
 |   +-- AccountManager.swift           # Multi-account configuration (MainActor) + pushSyncCredentials/pullSyncCredentials/exportLibraryFlags/applyLibraryFlags
+|   +-- PlexAccountDiscoveryService.swift # Discovers account identity + normalized server/library inventory for add-account and reconciliation flows
+|   +-- LocalNetworkPermissionProbe.swift # Local-network permission prompt helper used during account onboarding
 |   +-- SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
 |   +-- RefreshOrchestrator.swift      # Health-refresh gating, cooldown/staleness policy, and startup-health ownership extracted from SyncCoordinator
 |   +-- NetworkLifecycleController.swift # App-foreground and network-transition policy extracted from SyncCoordinator
@@ -147,6 +150,7 @@ Sources/
 |   +-- PlexMusicSourceSyncProvider.swift # Plex implementation of sync protocol
 |   +-- NavigationCoordinator.swift    # Centralized navigation state management (MainActor)
 |   +-- PlaybackService.swift          # AVPlayer wrapper with queue/shuffle/repeat
+|   +-- AudioPlaybackEngine.swift      # Gapless local-file playback engine with route recovery and instrumental mode support
 |   +-- PlaybackHandoffCoordinator.swift # Disconnect/interruption/remote-command handoff reducer extracted from PlaybackService
 |   +-- PlaybackQueueStore.swift       # Queue/history restoration persistence extracted from PlaybackService
 |   +-- PlaybackLaunchCoordinator.swift # Successful playback launch path (visualizer load, engine start, recovery seek, prefetch) extracted from PlaybackService
@@ -185,7 +189,12 @@ Sources/
 |   +-- SongLinkService.swift          # Universal song.link URL resolution via MusicKit + song.link API
 |   +-- ShareService.swift             # Share payload coordinator (link/file/text) with temp download support
 |   +-- LyricsService.swift            # LRC parser, lyrics models (LyricsLine/ParsedLyrics/LyricsState), LyricsService fetch pipeline + offline sidecar
+|   +-- MutationCoordinator.swift      # Unified online/offline mutation queue for ratings, playlists, and scrobbles
+|   +-- MetadataMutationService.swift  # Metadata edit coordination + invalidation notifications for UI refresh
 |   +-- PersistentLogService.swift     # Persistent session logging with real-time file writes for TestFlight diagnostics
+|   +-- SiriAffinityCoordinator.swift  # In-app Siri love/dislike coordinator using the playback + mutation services
+|   +-- SiriAddToPlaylistCoordinator.swift # In-app Siri add-to-playlist coordinator with optimistic queueing
+|   +-- SiriMediaUserContextManager.swift # Persists recency/context hints that improve Siri media ranking
 |   +-- UserProfileStore.swift        # @MainActor ObservableObject for local profile persistence + image processing
 |   +-- CloudSyncService.swift        # CloudKit actor for private database sync (push/pull/subscribe)
 |   +-- SyncSettingsManager.swift    # Master + per-feature iCloud sync toggles (UserDefaults, per-device)

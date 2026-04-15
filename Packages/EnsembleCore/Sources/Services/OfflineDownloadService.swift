@@ -66,7 +66,7 @@ enum DownloadWorkMode: Equatable, Sendable {
 @MainActor
 public final class OfflineDownloadService: ObservableObject {
     /// Posted when download targets change (enable/disable/quality refresh) so track-displaying VMs can re-fetch
-    public static let downloadsDidChange = Notification.Name("OfflineDownloadsDidChange")
+    nonisolated public static let downloadsDidChange = Notification.Name("OfflineDownloadsDidChange")
     private enum DownloadProcessingError: LocalizedError {
         case invalidHTTPStatus(Int)
         case emptyPayload(String)

@@ -18,8 +18,8 @@ public enum EnsembleStartupTiming {
     }
 }
 
-/// Package-level logger for EnsembleCore. Uses @autoclosure so message strings
-/// are not constructed unless needed — zero cost when file logging is disabled in release.
+/// Package-level logger for EnsembleCore. Writes to the unified log and the
+/// optional persistent session sink used for TestFlight diagnostics.
 public enum EnsembleLogger {
     private static let logger = Logger(subsystem: "com.videogorl.ensemble", category: "core")
 
@@ -43,14 +43,9 @@ public enum EnsembleLogger {
     }
 
     public static func debug(_ message: @autoclosure () -> String) {
-        #if DEBUG
         let msg = message()
         logger.debug("\(msg, privacy: .public)")
         fileLogHandler?("DEBUG", category, msg)
-        #else
-        guard let handler = fileLogHandler else { return }
-        handler("DEBUG", category, message())
-        #endif
     }
 
     static func info(_ message: @autoclosure () -> String) {
