@@ -64,6 +64,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 
 **Key Services:**
 - `DependencyContainer` (singleton) -- Wires all services, creates ViewModels, injected via SwiftUI environment
+  - Bootstrap is staged through private bundle builders (`CoreBootstrap`, `NetworkBootstrap`, `SyncBootstrap`, `PlaybackBootstrap`, `MutationBootstrap`, `SiriBootstrap`) so subsystem construction stays grouped and behavior-preserving refactors do not collapse back into one monolithic initializer
+  - Cross-subsystem callbacks are attached in one explicit `wireCrossSubsystemCallbacks()` phase after construction; WebSocket, offline, playback, artwork, profile/cloud, and KVS wiring should be added there rather than inline in the initializer
 - `AccountManager` (@MainActor) -- Manages multiple Plex accounts, servers, and libraries
 - `PlexAccountDiscoveryService` -- Discovers account identity + normalized server/library inventory during add-account and reconciliation flows
 - `LocalNetworkPermissionProbe` -- Onboarding helper that prompts for local-network access before Plex server discovery work
@@ -191,6 +193,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 
 - **MVVM** -- All ViewModels are `@MainActor` ObservableObjects using Combine publishers
 - **Dependency Injection** -- Centralized `DependencyContainer` singleton, injected through SwiftUI environment key
+  - Keep construction grouped by subsystem bundle and keep post-init callback/circular wiring in `wireCrossSubsystemCallbacks()` helpers instead of reopening the initializer
 - **Actor-based concurrency** -- Thread-safe networking with `PlexAPIClient` and `PlexAuthService` actors
 - **Repository pattern** -- Protocol abstractions for CoreData access (`LibraryRepositoryProtocol`, `PlaylistRepositoryProtocol`)
 - **Protocol-based view reuse** -- `MediaDetailViewModelProtocol` enables single `MediaDetailView` for multiple content types (Artist, Album, Playlist, Favorites)

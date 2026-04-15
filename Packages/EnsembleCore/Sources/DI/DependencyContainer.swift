@@ -97,704 +97,143 @@ public final class DependencyContainer: @unchecked Sendable {
 
     // MARK: - Initialization
 
+    private struct CoreBootstrap {
+        let keychain: KeychainServiceProtocol
+        let coreDataStack: CoreDataStack
+        let authService: PlexAuthService
+        let libraryRepository: LibraryRepositoryProtocol
+        let playlistRepository: PlaylistRepositoryProtocol
+        let hubRepository: HubRepositoryProtocol
+        let moodRepository: MoodRepositoryProtocol
+        let downloadManager: DownloadManagerProtocol
+        let offlineDownloadTargetRepository: OfflineDownloadTargetRepositoryProtocol
+        let artworkDownloadManager: ArtworkDownloadManagerProtocol
+        let pendingMutationRepository: PendingMutationRepository
+        let settingsManager: SettingsManager
+        let navigationCoordinator: NavigationCoordinator
+        let hubOrderManager: HubOrderManager
+        let pinManager: PinManager
+        let toastCenter: ToastCenter
+        let libraryVisibilityStore: LibraryVisibilityStore
+        let powerStateMonitor: PowerStateMonitor
+        let persistentLogService: PersistentLogService
+        let userProfileStore: UserProfileStore
+        let cloudSyncService: CloudSyncService
+        let syncSettingsManager: SyncSettingsManager
+        let kvsSyncService: KVSSyncService
+    }
+
+    private struct NetworkBootstrap {
+        let connectionRegistry: ServerConnectionRegistry
+        let accountManager: AccountManager
+        let accountDiscoveryService: PlexAccountDiscoveryService
+        let networkMonitor: NetworkMonitor
+        let serverHealthChecker: ServerHealthChecker
+        let webSocketCoordinator: PlexWebSocketCoordinator
+        let trackAvailabilityResolver: TrackAvailabilityResolver
+    }
+
+    private struct SyncBootstrap {
+        let syncCoordinator: SyncCoordinator
+    }
+
+    private struct PlaybackBootstrap {
+        let lyricsService: LyricsService
+        let artworkLoader: ArtworkLoaderProtocol
+        let audioAnalyzer: AudioAnalyzerProtocol
+        let playbackService: PlaybackService
+        let cacheManager: CacheManager
+        let songLinkService: SongLinkService
+        let shareService: ShareService
+    }
+
+    private struct MutationBootstrap {
+        let offlineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinator
+        let offlineDownloadService: OfflineDownloadService
+        let mutationCoordinator: MutationCoordinator
+        let metadataMutationService: MetadataMutationService
+    }
+
+    private struct SiriBootstrap {
+        let siriMediaIndexStore: SiriMediaIndexStore
+        let siriPlaybackCoordinator: SiriPlaybackCoordinator
+        let siriAffinityCoordinator: SiriAffinityCoordinator
+        let siriAddToPlaylistCoordinator: SiriAddToPlaylistCoordinator
+        let siriMediaUserContextManager: SiriMediaUserContextManager
+    }
+
     private init() {
-        // Core infrastructure
-        keychain = KeychainService.shared
-        coreDataStack = CoreDataStack.shared
-        authService = PlexAuthService(keychain: keychain)
-
-        // Network infrastructure — single source of truth for endpoint state
-        let registry = ServerConnectionRegistry()
-        connectionRegistry = registry
-
-        // Repositories
-        libraryRepository = LibraryRepository(coreDataStack: coreDataStack)
-        playlistRepository = PlaylistRepository(coreDataStack: coreDataStack)
-        hubRepository = HubRepository()
-        moodRepository = MoodRepository(coreDataStack: coreDataStack)
-        downloadManager = DownloadManager(coreDataStack: coreDataStack)
-        offlineDownloadTargetRepository = OfflineDownloadTargetRepository(coreDataStack: coreDataStack)
-        artworkDownloadManager = ArtworkDownloadManager(coreDataStack: coreDataStack)
-        let pendingMutationRepo = PendingMutationRepository(coreDataStack: coreDataStack)
-
-        // Multi-source management - initialize on main actor
-        let keychainRef = keychain
-        let libraryRef = libraryRepository
-        let playlistRef = playlistRepository
-        let downloadManagerRef = downloadManager
-        let offlineTargetRepoRef = offlineDownloadTargetRepository
-        let artworkDownloadRef = artworkDownloadManager
-
-        let am = MainActor.assumeIsolated {
-            AccountManager(keychain: keychainRef, connectionRegistry: registry)
-        }
-        accountManager = am
-        accountDiscoveryService = PlexAccountDiscoveryService(keychain: keychainRef)
-
-        // Network monitoring (must be created before SyncCoordinator)
-        let nm = MainActor.assumeIsolated {
-            NetworkMonitor()
-        }
-        networkMonitor = nm
-
-        // Server health checking (must be created before SyncCoordinator)
-        let shc = MainActor.assumeIsolated {
-            ServerHealthChecker(accountManager: am, networkMonitor: nm, connectionRegistry: registry)
-        }
-        serverHealthChecker = shc
-
-        syncCoordinator = MainActor.assumeIsolated {
-            SyncCoordinator(
-                accountManager: am,
-                libraryRepository: libraryRef,
-                playlistRepository: playlistRef,
-                artworkDownloadManager: artworkDownloadRef,
-                networkMonitor: nm,
-                serverHealthChecker: shc,
-                connectionRegistry: registry
-            )
-        }
-        let syncCoordinatorRef = syncCoordinator
-
-        // Read Plex client identifier for WebSocket headers
-        let plexClientId = (try? keychain.get(KeychainKey.plexClientIdentifier)) ?? UUID().uuidString
-
-        // WebSocket coordinator for real-time server notifications
-        let wsc = MainActor.assumeIsolated {
-            PlexWebSocketCoordinator(
-                accountManager: am,
-                connectionRegistry: registry,
-                serverHealthChecker: shc,
-                clientIdentifier: plexClientId
-            )
-        }
-        webSocketCoordinator = wsc
-
-        // Wire WebSocket events to SyncCoordinator
-        MainActor.assumeIsolated {
-            wsc.onLibraryUpdate = { [weak syncCoordinatorRef] sectionKey in
-                await syncCoordinatorRef?.syncSectionIncremental(sectionKey: sectionKey)
-            }
-            wsc.onPlaylistUpdate = { [weak syncCoordinatorRef] serverKey in
-                await syncCoordinatorRef?.syncServerPlaylistsIncremental(serverKey: serverKey)
-            }
-            wsc.onConnectionAvailabilityChanged = { [weak syncCoordinatorRef] hasActiveWebSocket in
-                syncCoordinatorRef?.adjustTimersForWebSocket(hasActiveWebSocket: hasActiveWebSocket)
-            }
-            wsc.onServerOffline = { serverKey in
-                // Parse serverKey and trigger health check
-                let parts = serverKey.split(separator: ":", maxSplits: 1)
-                guard parts.count == 2 else { return }
-                let accountId = String(parts[0])
-                let serverId = String(parts[1])
-                _ = await shc.checkServer(accountId: accountId, serverId: serverId)
-            }
-            wsc.onServerHealthy = { [weak shc] serverKey in
-                // Reset health check TTL by updating state directly
-                let parts = serverKey.split(separator: ":", maxSplits: 1)
-                guard parts.count == 2, let shc else { return }
-                let accountId = String(parts[0])
-                let serverId = String(parts[1])
-                let currentState = await MainActor.run {
-                    shc.getServerState(accountId: accountId, serverId: serverId)
-                }
-                // If server was unknown/offline, run a health check to establish proper state
-                if !currentState.isAvailable {
-                    _ = await shc.checkServer(accountId: accountId, serverId: serverId)
-                }
-            }
-
-        }
-
-        // Track availability resolver — reactive per-server + per-download availability
-        trackAvailabilityResolver = MainActor.assumeIsolated {
-            TrackAvailabilityResolver(
-                networkMonitor: nm,
-                serverHealthChecker: shc,
-                downloadManager: downloadManagerRef
-            )
-        }
-
-        let offlineBackgroundCoordinatorRef = MainActor.assumeIsolated {
-            OfflineBackgroundExecutionCoordinator()
-        }
-        offlineBackgroundExecutionCoordinator = offlineBackgroundCoordinatorRef
-
-        // Toast center created early so OfflineDownloadService can reference it
-        let toastCenterRef = MainActor.assumeIsolated { ToastCenter() }
-        toastCenter = toastCenterRef
-
-        // Lyrics service — fetching, parsing, and caching lyrics
-        // Created before OfflineDownloadService so downloads can pre-cache lyrics
-        let lyricsServiceRef = MainActor.assumeIsolated {
-            LyricsService(syncCoordinator: syncCoordinatorRef)
-        }
-        lyricsService = lyricsServiceRef
-
-        let offlineServiceRef = MainActor.assumeIsolated {
-            OfflineDownloadService(
-                downloadManager: downloadManagerRef,
-                targetRepository: offlineTargetRepoRef,
-                libraryRepository: libraryRef,
-                playlistRepository: playlistRef,
-                syncCoordinator: syncCoordinatorRef,
-                networkMonitor: nm,
-                backgroundExecutionCoordinator: offlineBackgroundCoordinatorRef,
-                artworkDownloadManager: artworkDownloadRef,
-                toastCenter: toastCenterRef,
-                lyricsService: lyricsServiceRef
-            )
-        }
-        offlineDownloadService = offlineServiceRef
-
-        MainActor.assumeIsolated {
-            syncCoordinatorRef.onPlaylistRefreshCompleted = { [weak offlineServiceRef] serverSourceKey in
-                Task { @MainActor in
-                    await offlineServiceRef?.handlePlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
-                }
-            }
-
-            syncCoordinatorRef.onFavoritesRatingChanged = { [weak offlineServiceRef] in
-                await offlineServiceRef?.reconcileFavoritesTargetIfEnabled()
-            }
-
-            // When PMS download queue completes an item, restart the download
-            // service queue so it picks up prepared downloads promptly.
-            wsc.onDownloadQueueCompleted = { [weak offlineServiceRef] in
-                await offlineServiceRef?.handleDownloadQueueCompleted()
-            }
-        }
-
-        // Power state monitor — observes Low Power Mode for battery-aware behavior
-        let powerMonitorRef = MainActor.assumeIsolated { PowerStateMonitor() }
-        powerStateMonitor = powerMonitorRef
-
-        // Persistent log service — real-time session file logging for TestFlight diagnostics.
-        // Wires handlers for Core, API, and Persistence loggers. UI + App wired from EnsembleApp.
-        let logServiceRef = MainActor.assumeIsolated { PersistentLogService() }
-        persistentLogService = logServiceRef
-        MainActor.assumeIsolated { logServiceRef.installHandlers() }
-
-        // User profile store — local persistence for profile name + avatar
-        let profileStoreRef = MainActor.assumeIsolated { UserProfileStore() }
-        userProfileStore = profileStoreRef
-
-        // Cloud sync service — CloudKit sync for profile data (and future sync targets)
-        let cloudSyncRef = CloudSyncService()
-        cloudSyncService = cloudSyncRef
-
-        // Sync settings — per-device toggle control for iCloud sync features
-        let syncSettingsRef = MainActor.assumeIsolated { SyncSettingsManager() }
-        syncSettingsManager = syncSettingsRef
-
-        // KVS sync service — NSUbiquitousKeyValueStore for settings, pins, library flags
-        let kvsRef = MainActor.assumeIsolated { KVSSyncService() }
-        kvsSyncService = kvsRef
-
-        // Wire profile updates to CloudKit push
-        MainActor.assumeIsolated {
-            profileStoreRef.onProfileUpdated = { [weak profileStoreRef] profile in
-                let imageData = profileStoreRef?.getProfileImageData()
-                Task {
-                    await cloudSyncRef.pushProfile(profile, imageData: imageData)
-                    let transportState = await cloudSyncRef.currentProfileTransportState()
-                    await MainActor.run {
-                        syncSettingsRef.setProfileStatus(
-                            phase: .transport(transportState),
-                            direction: .pushedFromThisDevice,
-                            detail: "Pushed profile changes from this device."
-                        )
-                    }
-                }
-            }
-        }
-
-        // Wire CloudKit remote changes to local profile store
-        let profileStoreForCloud = profileStoreRef
-        Task {
-            await cloudSyncRef.setRemoteChangeHandler { [profileStoreForCloud] profile, imageData in
-                await MainActor.run {
-                    profileStoreForCloud.applyRemoteProfile(profile, imageData: imageData)
-                    syncSettingsRef.setProfileStatus(
-                        phase: .transport(.available),
-                        direction: .pulledFromICloud,
-                        detail: "Pulled profile changes from iCloud."
-                    )
-                }
-            }
-
-            await cloudSyncRef.subscribeToChanges()
-        }
-
-        // Pause/resume downloads when Low Power Mode is toggled
-        let offlineServiceForPower = offlineServiceRef
-        MainActor.assumeIsolated {
-            var powerCancellable: AnyCancellable?
-            let powerMonitor = powerMonitorRef
-            powerCancellable = powerMonitor.$isLowPowerMode
-                .dropFirst() // Skip initial value — only react to changes
-                .sink { [weak offlineServiceForPower] isLowPower in
-                    _ = powerCancellable // retain
-                    Task { @MainActor in
-                        await offlineServiceForPower?.setLowPowerModePaused(isLowPower)
-                    }
-                }
-        }
-
-        // Services using sync coordinator
-        // Note: artworkLoader must be created before playbackService since it's a dependency
-        let artworkLoaderRef = ArtworkLoader(syncCoordinator: syncCoordinator)
-        artworkLoader = artworkLoaderRef
-
-        // Wire artwork invalidation from WebSocket events to the artwork loader
-        let artworkLoaderForWS = artworkLoaderRef
-        MainActor.assumeIsolated {
-            wsc.onArtworkInvalidation = { ratingKey, typeString in
-                let type: ArtworkType
-                switch typeString {
-                case "album": type = .album
-                case "artist": type = .artist
-                default: type = .album
-                }
-                await artworkLoaderForWS.invalidateArtwork(ratingKey: ratingKey, type: type)
-            }
-        }
-        
-        // Pre-computed frequency analyzer (decoupled from audio pipeline)
-        let audioAnalyzerRef = MainActor.assumeIsolated {
-            FrequencyAnalysisService()
-        }
-        audioAnalyzer = audioAnalyzerRef
-
-        let playbackServiceRef = PlaybackService(
-            syncCoordinator: syncCoordinator,
-            networkMonitor: nm,
-            artworkLoader: artworkLoaderRef,
-            audioAnalyzer: audioAnalyzerRef,
-            downloadManager: downloadManagerRef
+        let core = Self.buildCoreBootstrap()
+        let network = Self.buildNetworkBootstrap(core: core)
+        let sync = Self.buildSyncBootstrap(core: core, network: network)
+        let playback = Self.buildPlaybackBootstrap(core: core, network: network, sync: sync)
+        let mutation = Self.buildMutationBootstrap(
+            core: core,
+            network: network,
+            sync: sync,
+            playback: playback
         )
-        playbackService = playbackServiceRef
-        siriPlaybackCoordinator = MainActor.assumeIsolated {
-            SiriPlaybackCoordinator(
-                accountManager: am,
-                libraryRepository: libraryRef,
-                playlistRepository: playlistRef,
-                playbackService: playbackServiceRef
-            )
-        }
+        let siri = Self.buildSiriBootstrap(
+            core: core,
+            network: network,
+            sync: sync,
+            playback: playback,
+            mutation: mutation
+        )
 
-        // Wire playback observation so sidecar analysis prioritizes the playing track.
-        // When a track with a local file starts playing and its sidecar doesn't exist yet,
-        // it moves to the front of the analysis queue for fast visualizer readiness.
-        MainActor.assumeIsolated {
-            offlineServiceRef.observePlayback(
-                trackPublisher: playbackServiceRef.currentTrackPublisher,
-                playbackStatePublisher: playbackServiceRef.playbackStatePublisher
-            )
-            syncCoordinatorRef.shouldDeferForegroundHealthRefresh = { [weak offlineServiceRef] in
-                offlineServiceRef?.shouldDeferForegroundHealthRefresh ?? false
-            }
-        }
+        keychain = core.keychain
+        coreDataStack = core.coreDataStack
+        authService = core.authService
+        libraryRepository = core.libraryRepository
+        playlistRepository = core.playlistRepository
+        hubRepository = core.hubRepository
+        moodRepository = core.moodRepository
+        downloadManager = core.downloadManager
+        offlineDownloadTargetRepository = core.offlineDownloadTargetRepository
+        artworkDownloadManager = core.artworkDownloadManager
+        settingsManager = core.settingsManager
+        navigationCoordinator = core.navigationCoordinator
+        hubOrderManager = core.hubOrderManager
+        pinManager = core.pinManager
+        toastCenter = core.toastCenter
+        libraryVisibilityStore = core.libraryVisibilityStore
+        powerStateMonitor = core.powerStateMonitor
+        persistentLogService = core.persistentLogService
+        userProfileStore = core.userProfileStore
+        cloudSyncService = core.cloudSyncService
+        syncSettingsManager = core.syncSettingsManager
+        kvsSyncService = core.kvsSyncService
 
-        // Settings manager
-        settingsManager = MainActor.assumeIsolated {
-            SettingsManager()
-        }
+        connectionRegistry = network.connectionRegistry
+        accountManager = network.accountManager
+        accountDiscoveryService = network.accountDiscoveryService
+        networkMonitor = network.networkMonitor
+        serverHealthChecker = network.serverHealthChecker
+        webSocketCoordinator = network.webSocketCoordinator
+        trackAvailabilityResolver = network.trackAvailabilityResolver
 
-        let downloadRef = downloadManager
+        syncCoordinator = sync.syncCoordinator
 
-        // Navigation coordinator
-        navigationCoordinator = MainActor.assumeIsolated {
-            NavigationCoordinator()
-        }
-        
-        // Hub order manager
-        hubOrderManager = HubOrderManager()
+        lyricsService = playback.lyricsService
+        artworkLoader = playback.artworkLoader
+        audioAnalyzer = playback.audioAnalyzer
+        playbackService = playback.playbackService
+        cacheManager = playback.cacheManager
+        songLinkService = playback.songLinkService
+        shareService = playback.shareService
 
-        // Pin manager
-        pinManager = MainActor.assumeIsolated {
-            PinManager()
-        }
+        offlineBackgroundExecutionCoordinator = mutation.offlineBackgroundExecutionCoordinator
+        offlineDownloadService = mutation.offlineDownloadService
+        mutationCoordinator = mutation.mutationCoordinator
+        metadataMutationService = mutation.metadataMutationService
 
-        libraryVisibilityStore = MainActor.assumeIsolated {
-            LibraryVisibilityStore()
-        }
+        siriMediaIndexStore = siri.siriMediaIndexStore
+        siriPlaybackCoordinator = siri.siriPlaybackCoordinator
+        siriAffinityCoordinator = siri.siriAffinityCoordinator
+        siriAddToPlaylistCoordinator = siri.siriAddToPlaylistCoordinator
+        siriMediaUserContextManager = siri.siriMediaUserContextManager
 
-        siriMediaIndexStore = MainActor.assumeIsolated {
-            SiriMediaIndexStore(
-                libraryRepository: libraryRef,
-                playlistRepository: playlistRef
-            )
-        }
-
-        siriMediaUserContextManager = MainActor.assumeIsolated {
-            SiriMediaUserContextManager(
-                libraryRepository: libraryRef,
-                playlistRepository: playlistRef
-            )
-        }
-
-        // Cache manager - must be initialized after downloadManager and lyricsService
-        cacheManager = MainActor.assumeIsolated {
-            CacheManager(
-                libraryRepository: libraryRef,
-                artworkDownloadManager: artworkDownloadRef,
-                downloadManager: downloadRef,
-                lyricsService: lyricsServiceRef
-            )
-        }
-
-        // Mutation coordinator — unified mutation routing with offline queue support
-        let mutationCoordinatorRef = MainActor.assumeIsolated {
-            MutationCoordinator(
-                repository: pendingMutationRepo,
-                networkMonitor: nm,
-                syncCoordinator: syncCoordinatorRef
-            )
-        }
-        mutationCoordinator = mutationCoordinatorRef
-
-        metadataMutationService = MainActor.assumeIsolated {
-            MetadataMutationService(
-                libraryRepository: libraryRef,
-                downloadManager: downloadManagerRef,
-                targetRepository: offlineTargetRepoRef,
-                artworkDownloadManager: artworkDownloadRef,
-                isOffline: { syncCoordinatorRef.isOffline },
-                canManageServer: { accountId, serverId in
-                    am.plexAccounts
-                        .first(where: { $0.id == accountId })?
-                        .servers
-                        .first(where: { $0.id == serverId })?
-                        .owned ?? false
-                },
-                makeClient: { accountId, serverId in
-                    am.makeAPIClient(accountId: accountId, serverId: serverId)
-                },
-                clearLyricsCache: { ratingKey, sourceCompositeKey in
-                    lyricsServiceRef.clearCache(forTrackRatingKey: ratingKey, sourceCompositeKey: sourceCompositeKey)
-                },
-                removeDeletedTracksFromPlayback: { trackIDs in
-                    playbackServiceRef.removeDeletedTracks(trackIDs)
-                }
-            )
-        }
-
-        siriAffinityCoordinator = MainActor.assumeIsolated {
-            SiriAffinityCoordinator(
-                playbackService: playbackServiceRef,
-                mutationCoordinator: mutationCoordinatorRef,
-                toastCenter: toastCenterRef
-            )
-        }
-
-        siriAddToPlaylistCoordinator = MainActor.assumeIsolated {
-            SiriAddToPlaylistCoordinator(
-                playbackService: playbackServiceRef,
-                mutationCoordinator: mutationCoordinatorRef,
-                playlistRepository: playlistRef,
-                toastCenter: toastCenterRef
-            )
-        }
-
-        // Wire mutation coordinator into PlaybackService for offline lock-screen rating support
-        MainActor.assumeIsolated {
-            playbackServiceRef.setMutationCoordinator(mutationCoordinatorRef)
-        }
-
-        // Sync aurora visualization setting to frequency analyzer.
-        // When disabled, the 30Hz display timer won't start — saves measurable CPU on A9.
-        MainActor.assumeIsolated {
-            audioAnalyzerRef.visualizationEnabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
-        }
-
-        // Sharing services — SongLinkService resolves universal links, ShareService coordinates payloads
-        #if canImport(MusicKit)
-        let songLinkRef = SongLinkService(searcher: MusicKitCatalogSearcher())
-        #else
-        // watchOS 8 fallback — MusicKit unavailable, links will fall back to plain text
-        let songLinkRef = SongLinkService(searcher: NoOpMusicCatalogSearcher())
-        #endif
-        songLinkService = songLinkRef
-
-        shareService = MainActor.assumeIsolated {
-            ShareService(
-                songLinkService: songLinkRef,
-                syncCoordinator: syncCoordinatorRef,
-                downloadManager: downloadManagerRef
-            )
-        }
-
-        // Wire up artwork cache invalidation when server connections change.
-        // Must be done after all properties are initialized.
-        let syncRef = syncCoordinator
-        MainActor.assumeIsolated {
-            syncRef.onConnectionsRefreshed = { [weak artworkLoaderRef] in
-                await artworkLoaderRef?.invalidateURLCache()
-            }
-
-            // When tracks are reparented (album changed), invalidate cached artwork
-            // for the old album so ArtworkView re-fetches the correct cover
-            syncRef.onTrackAlbumChanged = { [weak artworkLoaderRef] reparentedTracks in
-                guard let artworkLoader = artworkLoaderRef else { return }
-                for info in reparentedTracks {
-                    // Invalidate old album artwork (stale cache entry)
-                    await artworkLoader.invalidateArtwork(ratingKey: info.oldAlbumRatingKey, type: .album)
-                    // Invalidate track-level artwork if it was cached under the track's own key
-                    await artworkLoader.invalidateArtwork(ratingKey: info.trackRatingKey, type: .album)
-                }
-            }
-
-            syncRef.onSourceCleanup = { [weak lyricsServiceRef] sourceKey in
-                lyricsServiceRef?.clearCache(forSourceCompositeKey: sourceKey)
-                // Remove download stubs and offline targets for the removed source
-                try? await offlineTargetRepoRef.deleteTargets(forSourceCompositeKey: sourceKey)
-                try? await downloadManagerRef.deleteDownloads(forSourceCompositeKey: sourceKey)
-            }
-        }
-
-        // Wire KVS sync for settings, pins, and library flags with deferred bootstrap.
-        MainActor.assumeIsolated {
-            let settings = settingsManager
-            let kvs = kvsRef
-            let syncToggles = syncSettingsRef
-            let pins = pinManager
-            let acctMgr = accountManager
-            let discovery = accountDiscoveryService
-
-            kvsRef.onRemoteAccentColorChanged = { [weak self] colorName in
-                guard let self else { return }
-                guard syncToggles.isFeatureEnabled(.accentColor) else { return }
-                self.lastSyncedAccentColor = colorName
-                syncToggles.recordFeatureActivity(
-                    for: .accentColor,
-                    state: .appliedRemote,
-                    direction: .pulledFromICloud,
-                    detail: "Pulled accent color from iCloud."
-                )
-                guard settings.accentColorName != colorName else { return }
-                settings.setAccentColor(AppAccentColor(rawValue: colorName) ?? .blue)
-            }
-
-            kvsRef.onRemoteSwipeLayoutChanged = { [weak self] data in
-                guard let self else { return }
-                guard syncToggles.isFeatureEnabled(.swipeActions) else { return }
-                guard let layout = try? JSONDecoder().decode(TrackSwipeLayout.self, from: data) else { return }
-                self.lastSyncedSwipeLayout = layout
-                syncToggles.recordFeatureActivity(
-                    for: .swipeActions,
-                    state: .appliedRemote,
-                    direction: .pulledFromICloud,
-                    detail: "Pulled swipe actions from iCloud."
-                )
-                guard settings.trackSwipeLayout != layout else { return }
-                settings.trackSwipeLayout = layout
-            }
-
-            settings.objectWillChange
-                .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-                .sink { [weak self, weak settings, weak kvs, weak syncToggles] _ in
-                    guard let self, let settings, let kvs, let syncToggles else { return }
-                    if syncToggles.isFeatureEnabled(.accentColor),
-                       settings.accentColorName != self.lastSyncedAccentColor {
-                        self.lastSyncedAccentColor = settings.accentColorName
-                        syncToggles.recordFeatureActivity(
-                            for: .accentColor,
-                            state: .seededLocal,
-                            direction: .pushedFromThisDevice,
-                            detail: "Pushed accent color from this device."
-                        )
-                        kvs.pushString(settings.accentColorName, forKey: KVSSyncService.KVSKey.accentColor)
-                    }
-
-                    guard syncToggles.isFeatureEnabled(.swipeActions) else { return }
-                    let currentLayout = settings.trackSwipeLayout
-                    guard currentLayout != self.lastSyncedSwipeLayout else { return }
-                    self.lastSyncedSwipeLayout = currentLayout
-                    syncToggles.recordFeatureActivity(
-                        for: .swipeActions,
-                        state: .seededLocal,
-                        direction: .pushedFromThisDevice,
-                        detail: "Pushed swipe actions from this device."
-                    )
-                    if let data = try? JSONEncoder().encode(currentLayout) {
-                        kvs.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
-                    }
-                }
-                .store(in: &kvsSyncCancellables)
-
-            kvsRef.onRemotePinsChanged = { [weak self, weak pins] data in
-                guard let self, let pins else { return }
-                guard syncToggles.isFeatureEnabled(.pins) else { return }
-                self.lastSyncedPinsData = data
-                syncToggles.recordFeatureActivity(
-                    for: .pins,
-                    state: .appliedRemote,
-                    direction: .pulledFromICloud,
-                    detail: "Pulled pins from iCloud."
-                )
-                if let remotePins = try? JSONDecoder().decode([PinnedItem].self, from: data) {
-                    pins.applyRemotePins(remotePins)
-                }
-            }
-
-            pins.objectWillChange
-                .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-                .sink { [weak self, weak pins, weak kvs, weak syncToggles] _ in
-                    guard let self, let pins, let kvs, let syncToggles else { return }
-                    guard syncToggles.isFeatureEnabled(.pins) else { return }
-                    if let lastApply = pins.lastRemoteApplyTime,
-                       Date().timeIntervalSince(lastApply) < 2.0 {
-                        return
-                    }
-                    guard let data = pins.exportPinsData(), data != self.lastSyncedPinsData else { return }
-                    self.lastSyncedPinsData = data
-                    syncToggles.recordFeatureActivity(
-                        for: .pins,
-                        state: .seededLocal,
-                        direction: .pushedFromThisDevice,
-                        detail: "Pushed pins from this device."
-                    )
-                    kvs.pushData(data, forKey: KVSSyncService.KVSKey.pins)
-                }
-                .store(in: &kvsSyncCancellables)
-
-            acctMgr.onNewAccountsFromSync = { [weak acctMgr, weak syncToggles] newCredentials in
-                guard let acctMgr, let syncToggles else { return }
-                guard syncToggles.isFeatureEnabled(.sources) else { return }
-                syncToggles.recordFeatureActivity(
-                    for: .sources,
-                    state: .appliedRemote,
-                    direction: .pulledFromICloud,
-                    detail: "Pulled sources from iCloud."
-                )
-
-                for credential in newCredentials {
-                    Task {
-                        do {
-                            let result = try await discovery.discoverAccount(authToken: credential.authToken)
-                            await MainActor.run {
-                                var config = PlexAccountConfig(
-                                    id: credential.accountId,
-                                    email: credential.email,
-                                    plexUsername: credential.plexUsername,
-                                    displayTitle: credential.displayTitle,
-                                    authToken: credential.authToken,
-                                    servers: result.servers
-                                )
-                                if syncToggles.isFeatureEnabled(.libraries) {
-                                    config = acctMgr.applyingSyncedLibraryFlags(to: config)
-                                }
-                                acctMgr.addPlexAccount(config)
-                                acctMgr.setAwaitingCloudSources(false)
-                                syncCoordinatorRef.refreshProviders()
-                                EnsembleLogger.info("Sync: discovered account \(credential.accountId) with \(result.servers.count) servers")
-
-                                let enabledSources = config.servers.flatMap { server in
-                                    server.libraries.compactMap { library -> MusicSourceIdentifier? in
-                                        guard library.isEnabled else { return nil }
-                                        return MusicSourceIdentifier(
-                                            type: .plex,
-                                            accountId: config.id,
-                                            serverId: server.id,
-                                            libraryId: library.key
-                                        )
-                                    }
-                                }
-
-                                if !enabledSources.isEmpty {
-                                    Task {
-                                        await syncCoordinatorRef.sync(sources: enabledSources)
-                                    }
-                                }
-                            }
-                        } catch {
-                            await MainActor.run {
-                                syncToggles.recordFeatureActivity(
-                                    for: .sources,
-                                    state: .error,
-                                    direction: nil,
-                                    detail: "Failed to pull sources from iCloud."
-                                )
-                            }
-                            EnsembleLogger.error("Sync: failed to discover account \(credential.accountId): \(error)")
-                        }
-                    }
-                }
-            }
-
-            kvsRef.onRemoteLibraryFlagsChanged = { [weak acctMgr] data in
-                guard let acctMgr else { return }
-                guard syncToggles.isFeatureEnabled(.libraries) else { return }
-                Task { @MainActor in
-                    let result = acctMgr.applyLibraryFlags(data)
-                    syncToggles.recordFeatureActivity(
-                        for: .libraries,
-                        state: .appliedRemote,
-                        direction: .pulledFromICloud,
-                        detail: "Pulled library selection from iCloud."
-                    )
-
-                    // Reconcile disabled sources on every remote library-flag payload,
-                    // even when no flags changed this run. This prevents stale cached
-                    // data from disabled libraries from leaking into browse surfaces.
-                    let disabledSourcesToCleanup = Array(Set(result.disabledSources + acctMgr.disabledSources()))
-                    if !disabledSourcesToCleanup.isEmpty {
-                        await syncCoordinatorRef.cleanupRemovedSourcesIfPresent(disabledSourcesToCleanup)
-                    }
-
-                    if !acctMgr.hasAnySources && !syncToggles.hasCompletedFirstConnect {
-                        self.scheduleSyncBootstrap(reason: "remote-library-flags", feature: .sources)
-                    }
-
-                    guard result.hasChanges else { return }
-
-                    syncCoordinatorRef.refreshProviders()
-
-                    for server in result.serversNeedingPlaylistCleanup {
-                        await syncCoordinatorRef.cleanupServerPlaylists(
-                            accountId: server.accountId,
-                            serverId: server.serverId
-                        )
-                    }
-
-                    if !result.enabledSources.isEmpty {
-                        await syncCoordinatorRef.sync(sources: result.enabledSources)
-                    }
-                }
-            }
-
-            acctMgr.objectWillChange
-                .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-                .sink { [weak acctMgr, weak kvs, weak syncToggles] _ in
-                    guard let acctMgr, let kvs, let syncToggles else { return }
-                    guard syncToggles.isFeatureEnabled(.libraries) else { return }
-                    if let data = acctMgr.exportLibraryFlags() {
-                        syncToggles.recordFeatureActivity(
-                            for: .libraries,
-                            state: .seededLocal,
-                            direction: .pushedFromThisDevice,
-                            detail: "Pushed library selection from this device."
-                        )
-                        kvs.pushData(data, forKey: KVSSyncService.KVSKey.libraryFlags)
-                    }
-                }
-                .store(in: &kvsSyncCancellables)
-
-            kvsRef.onInitialSyncCompleted = { [weak self, weak syncToggles] in
-                guard let self, let syncToggles else { return }
-                guard syncToggles.isMasterSyncEnabled, !syncToggles.hasCompletedFirstConnect else { return }
-                self.scheduleSyncBootstrap(reason: "kvs-initial-sync")
-            }
-
-            syncSettingsRef.onMasterSyncEnabled = { [weak self] in
-                self?.scheduleSyncBootstrap(reason: "master-enabled")
-            }
-
-            syncSettingsRef.onFeatureReEnabled = { [weak self] feature in
-                self?.scheduleSyncBootstrap(reason: "feature-reenabled", feature: feature)
-            }
-        }
+        wireCrossSubsystemCallbacks()
 
         MainActor.assumeIsolated {
             lastSyncedAccentColor = settingsManager.accentColorName
@@ -805,6 +244,664 @@ public final class DependencyContainer: @unchecked Sendable {
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.refreshSyncState(reason: "launch")
+        }
+    }
+
+    // MARK: - Bootstrap Builders
+
+    private static func buildCoreBootstrap() -> CoreBootstrap {
+        let keychain = KeychainService.shared
+        let coreDataStack = CoreDataStack.shared
+
+        return CoreBootstrap(
+            keychain: keychain,
+            coreDataStack: coreDataStack,
+            authService: PlexAuthService(keychain: keychain),
+            libraryRepository: LibraryRepository(coreDataStack: coreDataStack),
+            playlistRepository: PlaylistRepository(coreDataStack: coreDataStack),
+            hubRepository: HubRepository(),
+            moodRepository: MoodRepository(coreDataStack: coreDataStack),
+            downloadManager: DownloadManager(coreDataStack: coreDataStack),
+            offlineDownloadTargetRepository: OfflineDownloadTargetRepository(coreDataStack: coreDataStack),
+            artworkDownloadManager: ArtworkDownloadManager(coreDataStack: coreDataStack),
+            pendingMutationRepository: PendingMutationRepository(coreDataStack: coreDataStack),
+            settingsManager: MainActor.assumeIsolated { SettingsManager() },
+            navigationCoordinator: MainActor.assumeIsolated { NavigationCoordinator() },
+            hubOrderManager: HubOrderManager(),
+            pinManager: MainActor.assumeIsolated { PinManager() },
+            toastCenter: MainActor.assumeIsolated { ToastCenter() },
+            libraryVisibilityStore: MainActor.assumeIsolated { LibraryVisibilityStore() },
+            powerStateMonitor: MainActor.assumeIsolated { PowerStateMonitor() },
+            persistentLogService: MainActor.assumeIsolated { PersistentLogService() },
+            userProfileStore: MainActor.assumeIsolated { UserProfileStore() },
+            cloudSyncService: CloudSyncService(),
+            syncSettingsManager: MainActor.assumeIsolated { SyncSettingsManager() },
+            kvsSyncService: MainActor.assumeIsolated { KVSSyncService() }
+        )
+    }
+
+    private static func buildNetworkBootstrap(core: CoreBootstrap) -> NetworkBootstrap {
+        let connectionRegistry = ServerConnectionRegistry()
+        let accountManager = MainActor.assumeIsolated {
+            AccountManager(keychain: core.keychain, connectionRegistry: connectionRegistry)
+        }
+        let accountDiscoveryService = PlexAccountDiscoveryService(keychain: core.keychain)
+        let networkMonitor = MainActor.assumeIsolated { NetworkMonitor() }
+        let serverHealthChecker = MainActor.assumeIsolated {
+            ServerHealthChecker(
+                accountManager: accountManager,
+                networkMonitor: networkMonitor,
+                connectionRegistry: connectionRegistry
+            )
+        }
+
+        let plexClientId = (try? core.keychain.get(KeychainKey.plexClientIdentifier)) ?? UUID().uuidString
+        let webSocketCoordinator = MainActor.assumeIsolated {
+            PlexWebSocketCoordinator(
+                accountManager: accountManager,
+                connectionRegistry: connectionRegistry,
+                serverHealthChecker: serverHealthChecker,
+                clientIdentifier: plexClientId
+            )
+        }
+
+        let trackAvailabilityResolver = MainActor.assumeIsolated {
+            TrackAvailabilityResolver(
+                networkMonitor: networkMonitor,
+                serverHealthChecker: serverHealthChecker,
+                downloadManager: core.downloadManager
+            )
+        }
+
+        return NetworkBootstrap(
+            connectionRegistry: connectionRegistry,
+            accountManager: accountManager,
+            accountDiscoveryService: accountDiscoveryService,
+            networkMonitor: networkMonitor,
+            serverHealthChecker: serverHealthChecker,
+            webSocketCoordinator: webSocketCoordinator,
+            trackAvailabilityResolver: trackAvailabilityResolver
+        )
+    }
+
+    private static func buildSyncBootstrap(
+        core: CoreBootstrap,
+        network: NetworkBootstrap
+    ) -> SyncBootstrap {
+        let syncCoordinator = MainActor.assumeIsolated {
+            SyncCoordinator(
+                accountManager: network.accountManager,
+                libraryRepository: core.libraryRepository,
+                playlistRepository: core.playlistRepository,
+                artworkDownloadManager: core.artworkDownloadManager,
+                networkMonitor: network.networkMonitor,
+                serverHealthChecker: network.serverHealthChecker,
+                connectionRegistry: network.connectionRegistry
+            )
+        }
+
+        return SyncBootstrap(syncCoordinator: syncCoordinator)
+    }
+
+    private static func buildPlaybackBootstrap(
+        core: CoreBootstrap,
+        network: NetworkBootstrap,
+        sync: SyncBootstrap
+    ) -> PlaybackBootstrap {
+        let lyricsService = MainActor.assumeIsolated {
+            LyricsService(syncCoordinator: sync.syncCoordinator)
+        }
+        let artworkLoader = ArtworkLoader(syncCoordinator: sync.syncCoordinator)
+        let audioAnalyzer = MainActor.assumeIsolated {
+            FrequencyAnalysisService()
+        }
+        let playbackService = PlaybackService(
+            syncCoordinator: sync.syncCoordinator,
+            networkMonitor: network.networkMonitor,
+            artworkLoader: artworkLoader,
+            audioAnalyzer: audioAnalyzer,
+            downloadManager: core.downloadManager
+        )
+        let cacheManager = MainActor.assumeIsolated {
+            CacheManager(
+                libraryRepository: core.libraryRepository,
+                artworkDownloadManager: core.artworkDownloadManager,
+                downloadManager: core.downloadManager,
+                lyricsService: lyricsService
+            )
+        }
+
+        #if canImport(MusicKit)
+        let songLinkService = SongLinkService(searcher: MusicKitCatalogSearcher())
+        #else
+        let songLinkService = SongLinkService(searcher: NoOpMusicCatalogSearcher())
+        #endif
+
+        let shareService = MainActor.assumeIsolated {
+            ShareService(
+                songLinkService: songLinkService,
+                syncCoordinator: sync.syncCoordinator,
+                downloadManager: core.downloadManager
+            )
+        }
+
+        return PlaybackBootstrap(
+            lyricsService: lyricsService,
+            artworkLoader: artworkLoader,
+            audioAnalyzer: audioAnalyzer,
+            playbackService: playbackService,
+            cacheManager: cacheManager,
+            songLinkService: songLinkService,
+            shareService: shareService
+        )
+    }
+
+    private static func buildMutationBootstrap(
+        core: CoreBootstrap,
+        network: NetworkBootstrap,
+        sync: SyncBootstrap,
+        playback: PlaybackBootstrap
+    ) -> MutationBootstrap {
+        let offlineBackgroundExecutionCoordinator = MainActor.assumeIsolated {
+            OfflineBackgroundExecutionCoordinator()
+        }
+        let offlineDownloadService = MainActor.assumeIsolated {
+            OfflineDownloadService(
+                downloadManager: core.downloadManager,
+                targetRepository: core.offlineDownloadTargetRepository,
+                libraryRepository: core.libraryRepository,
+                playlistRepository: core.playlistRepository,
+                syncCoordinator: sync.syncCoordinator,
+                networkMonitor: network.networkMonitor,
+                backgroundExecutionCoordinator: offlineBackgroundExecutionCoordinator,
+                artworkDownloadManager: core.artworkDownloadManager,
+                toastCenter: core.toastCenter,
+                lyricsService: playback.lyricsService
+            )
+        }
+        let mutationCoordinator = MainActor.assumeIsolated {
+            MutationCoordinator(
+                repository: core.pendingMutationRepository,
+                networkMonitor: network.networkMonitor,
+                syncCoordinator: sync.syncCoordinator
+            )
+        }
+        let metadataMutationService = MainActor.assumeIsolated {
+            MetadataMutationService(
+                libraryRepository: core.libraryRepository,
+                downloadManager: core.downloadManager,
+                targetRepository: core.offlineDownloadTargetRepository,
+                artworkDownloadManager: core.artworkDownloadManager,
+                isOffline: { sync.syncCoordinator.isOffline },
+                canManageServer: { accountId, serverId in
+                    network.accountManager.plexAccounts
+                        .first(where: { $0.id == accountId })?
+                        .servers
+                        .first(where: { $0.id == serverId })?
+                        .owned ?? false
+                },
+                makeClient: { accountId, serverId in
+                    network.accountManager.makeAPIClient(accountId: accountId, serverId: serverId)
+                },
+                clearLyricsCache: { ratingKey, sourceCompositeKey in
+                    playback.lyricsService.clearCache(
+                        forTrackRatingKey: ratingKey,
+                        sourceCompositeKey: sourceCompositeKey
+                    )
+                },
+                removeDeletedTracksFromPlayback: { trackIDs in
+                    playback.playbackService.removeDeletedTracks(trackIDs)
+                }
+            )
+        }
+
+        return MutationBootstrap(
+            offlineBackgroundExecutionCoordinator: offlineBackgroundExecutionCoordinator,
+            offlineDownloadService: offlineDownloadService,
+            mutationCoordinator: mutationCoordinator,
+            metadataMutationService: metadataMutationService
+        )
+    }
+
+    private static func buildSiriBootstrap(
+        core: CoreBootstrap,
+        network: NetworkBootstrap,
+        sync: SyncBootstrap,
+        playback: PlaybackBootstrap,
+        mutation: MutationBootstrap
+    ) -> SiriBootstrap {
+        let siriMediaIndexStore = MainActor.assumeIsolated {
+            SiriMediaIndexStore(
+                libraryRepository: core.libraryRepository,
+                playlistRepository: core.playlistRepository
+            )
+        }
+        let siriPlaybackCoordinator = MainActor.assumeIsolated {
+            SiriPlaybackCoordinator(
+                accountManager: network.accountManager,
+                libraryRepository: core.libraryRepository,
+                playlistRepository: core.playlistRepository,
+                playbackService: playback.playbackService
+            )
+        }
+        let siriAffinityCoordinator = MainActor.assumeIsolated {
+            SiriAffinityCoordinator(
+                playbackService: playback.playbackService,
+                mutationCoordinator: mutation.mutationCoordinator,
+                toastCenter: core.toastCenter
+            )
+        }
+        let siriAddToPlaylistCoordinator = MainActor.assumeIsolated {
+            SiriAddToPlaylistCoordinator(
+                playbackService: playback.playbackService,
+                mutationCoordinator: mutation.mutationCoordinator,
+                playlistRepository: core.playlistRepository,
+                toastCenter: core.toastCenter
+            )
+        }
+        let siriMediaUserContextManager = MainActor.assumeIsolated {
+            SiriMediaUserContextManager(
+                libraryRepository: core.libraryRepository,
+                playlistRepository: core.playlistRepository
+            )
+        }
+
+        return SiriBootstrap(
+            siriMediaIndexStore: siriMediaIndexStore,
+            siriPlaybackCoordinator: siriPlaybackCoordinator,
+            siriAffinityCoordinator: siriAffinityCoordinator,
+            siriAddToPlaylistCoordinator: siriAddToPlaylistCoordinator,
+            siriMediaUserContextManager: siriMediaUserContextManager
+        )
+    }
+
+    // MARK: - Bootstrap Wiring
+
+    private func wireCrossSubsystemCallbacks() {
+        MainActor.assumeIsolated {
+            persistentLogService.installHandlers()
+            wireWebSocketCallbacks()
+            wireOfflineCallbacks()
+            wirePlaybackCallbacks()
+            wireArtworkCallbacks()
+            wireProfileAndCloudCallbacks()
+            wireKVSSyncCallbacks()
+        }
+    }
+
+    @MainActor
+    private func wireWebSocketCallbacks() {
+        webSocketCoordinator.onLibraryUpdate = { [weak syncCoordinator] sectionKey in
+            await syncCoordinator?.syncSectionIncremental(sectionKey: sectionKey)
+        }
+        webSocketCoordinator.onPlaylistUpdate = { [weak syncCoordinator] serverKey in
+            await syncCoordinator?.syncServerPlaylistsIncremental(serverKey: serverKey)
+        }
+        webSocketCoordinator.onConnectionAvailabilityChanged = { [weak syncCoordinator] hasActiveWebSocket in
+            syncCoordinator?.adjustTimersForWebSocket(hasActiveWebSocket: hasActiveWebSocket)
+        }
+        webSocketCoordinator.onServerOffline = { [weak serverHealthChecker] serverKey in
+            let parts = serverKey.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2, let serverHealthChecker else { return }
+            let accountId = String(parts[0])
+            let serverId = String(parts[1])
+            _ = await serverHealthChecker.checkServer(accountId: accountId, serverId: serverId)
+        }
+        webSocketCoordinator.onServerHealthy = { [weak serverHealthChecker] serverKey in
+            let parts = serverKey.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2, let serverHealthChecker else { return }
+            let accountId = String(parts[0])
+            let serverId = String(parts[1])
+            let currentState = await MainActor.run {
+                serverHealthChecker.getServerState(accountId: accountId, serverId: serverId)
+            }
+            if !currentState.isAvailable {
+                _ = await serverHealthChecker.checkServer(accountId: accountId, serverId: serverId)
+            }
+        }
+        webSocketCoordinator.onDownloadQueueCompleted = { [weak offlineDownloadService] in
+            await offlineDownloadService?.handleDownloadQueueCompleted()
+        }
+        webSocketCoordinator.onArtworkInvalidation = { [weak self] ratingKey, typeString in
+            let type: ArtworkType
+            switch typeString {
+            case "album": type = .album
+            case "artist": type = .artist
+            default: type = .album
+            }
+            guard let artworkLoader = self?.artworkLoader as? ArtworkLoader else { return }
+            await artworkLoader.invalidateArtwork(ratingKey: ratingKey, type: type)
+        }
+    }
+
+    @MainActor
+    private func wireOfflineCallbacks() {
+        syncCoordinator.onPlaylistRefreshCompleted = { [weak offlineDownloadService] serverSourceKey in
+            Task { @MainActor in
+                await offlineDownloadService?.handlePlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
+            }
+        }
+        syncCoordinator.onFavoritesRatingChanged = { [weak offlineDownloadService] in
+            await offlineDownloadService?.reconcileFavoritesTargetIfEnabled()
+        }
+        offlineDownloadService.observePlayback(
+            trackPublisher: playbackService.currentTrackPublisher,
+            playbackStatePublisher: playbackService.playbackStatePublisher
+        )
+        syncCoordinator.shouldDeferForegroundHealthRefresh = { [weak offlineDownloadService] in
+            offlineDownloadService?.shouldDeferForegroundHealthRefresh ?? false
+        }
+
+        var powerCancellable: AnyCancellable?
+        powerCancellable = powerStateMonitor.$isLowPowerMode
+            .dropFirst()
+            .sink { [weak offlineDownloadService] isLowPower in
+                _ = powerCancellable
+                Task { @MainActor in
+                    await offlineDownloadService?.setLowPowerModePaused(isLowPower)
+                }
+            }
+    }
+
+    @MainActor
+    private func wirePlaybackCallbacks() {
+        playbackService.setMutationCoordinator(mutationCoordinator)
+        if let audioAnalyzer = audioAnalyzer as? FrequencyAnalysisService {
+            audioAnalyzer.visualizationEnabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
+        }
+    }
+
+    @MainActor
+    private func wireArtworkCallbacks() {
+        syncCoordinator.onConnectionsRefreshed = { [weak self] in
+            await self?.artworkLoader.invalidateURLCache()
+        }
+        syncCoordinator.onTrackAlbumChanged = { [weak self] reparentedTracks in
+            guard let artworkLoader = self?.artworkLoader as? ArtworkLoader else { return }
+            for info in reparentedTracks {
+                await artworkLoader.invalidateArtwork(ratingKey: info.oldAlbumRatingKey, type: .album)
+                await artworkLoader.invalidateArtwork(ratingKey: info.trackRatingKey, type: .album)
+            }
+        }
+        syncCoordinator.onSourceCleanup = { [weak self] sourceKey in
+            guard let self else { return }
+            self.lyricsService.clearCache(forSourceCompositeKey: sourceKey)
+            try? await self.offlineDownloadTargetRepository.deleteTargets(forSourceCompositeKey: sourceKey)
+            try? await self.downloadManager.deleteDownloads(forSourceCompositeKey: sourceKey)
+        }
+    }
+
+    @MainActor
+    private func wireProfileAndCloudCallbacks() {
+        userProfileStore.onProfileUpdated = { [weak userProfileStore, weak cloudSyncService, weak syncSettingsManager] profile in
+            let imageData = userProfileStore?.getProfileImageData()
+            Task {
+                await cloudSyncService?.pushProfile(profile, imageData: imageData)
+                let transportState = await cloudSyncService?.currentProfileTransportState() ?? .unknown
+                await MainActor.run {
+                    syncSettingsManager?.setProfileStatus(
+                        phase: .transport(transportState),
+                        direction: .pushedFromThisDevice,
+                        detail: "Pushed profile changes from this device."
+                    )
+                }
+            }
+        }
+
+        let profileStore = userProfileStore
+        let syncSettings = syncSettingsManager
+        Task { [weak cloudSyncService] in
+            await cloudSyncService?.setRemoteChangeHandler { [profileStore] profile, imageData in
+                await MainActor.run {
+                    profileStore.applyRemoteProfile(profile, imageData: imageData)
+                    syncSettings.setProfileStatus(
+                        phase: .transport(.available),
+                        direction: .pulledFromICloud,
+                        detail: "Pulled profile changes from iCloud."
+                    )
+                }
+            }
+            await cloudSyncService?.subscribeToChanges()
+        }
+    }
+
+    @MainActor
+    private func wireKVSSyncCallbacks() {
+        let settings = settingsManager
+        let kvs = kvsSyncService
+        let syncToggles = syncSettingsManager
+        let pins = pinManager
+        let acctMgr = accountManager
+        let discovery = accountDiscoveryService
+
+        kvsSyncService.onRemoteAccentColorChanged = { [weak self] colorName in
+            guard let self else { return }
+            guard syncToggles.isFeatureEnabled(.accentColor) else { return }
+            self.lastSyncedAccentColor = colorName
+            syncToggles.recordFeatureActivity(
+                for: .accentColor,
+                state: .appliedRemote,
+                direction: .pulledFromICloud,
+                detail: "Pulled accent color from iCloud."
+            )
+            guard settings.accentColorName != colorName else { return }
+            settings.setAccentColor(AppAccentColor(rawValue: colorName) ?? .blue)
+        }
+
+        kvsSyncService.onRemoteSwipeLayoutChanged = { [weak self] data in
+            guard let self else { return }
+            guard syncToggles.isFeatureEnabled(.swipeActions) else { return }
+            guard let layout = try? JSONDecoder().decode(TrackSwipeLayout.self, from: data) else { return }
+            self.lastSyncedSwipeLayout = layout
+            syncToggles.recordFeatureActivity(
+                for: .swipeActions,
+                state: .appliedRemote,
+                direction: .pulledFromICloud,
+                detail: "Pulled swipe actions from iCloud."
+            )
+            guard settings.trackSwipeLayout != layout else { return }
+            settings.trackSwipeLayout = layout
+        }
+
+        settings.objectWillChange
+            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+            .sink { [weak self, weak settings, weak kvs, weak syncToggles] _ in
+                guard let self, let settings, let kvs, let syncToggles else { return }
+                if syncToggles.isFeatureEnabled(.accentColor),
+                   settings.accentColorName != self.lastSyncedAccentColor {
+                    self.lastSyncedAccentColor = settings.accentColorName
+                    syncToggles.recordFeatureActivity(
+                        for: .accentColor,
+                        state: .seededLocal,
+                        direction: .pushedFromThisDevice,
+                        detail: "Pushed accent color from this device."
+                    )
+                    kvs.pushString(settings.accentColorName, forKey: KVSSyncService.KVSKey.accentColor)
+                }
+
+                guard syncToggles.isFeatureEnabled(.swipeActions) else { return }
+                let currentLayout = settings.trackSwipeLayout
+                guard currentLayout != self.lastSyncedSwipeLayout else { return }
+                self.lastSyncedSwipeLayout = currentLayout
+                syncToggles.recordFeatureActivity(
+                    for: .swipeActions,
+                    state: .seededLocal,
+                    direction: .pushedFromThisDevice,
+                    detail: "Pushed swipe actions from this device."
+                )
+                if let data = try? JSONEncoder().encode(currentLayout) {
+                    kvs.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
+                }
+            }
+            .store(in: &kvsSyncCancellables)
+
+        kvsSyncService.onRemotePinsChanged = { [weak self, weak pins] data in
+            guard let self, let pins else { return }
+            guard syncToggles.isFeatureEnabled(.pins) else { return }
+            self.lastSyncedPinsData = data
+            syncToggles.recordFeatureActivity(
+                for: .pins,
+                state: .appliedRemote,
+                direction: .pulledFromICloud,
+                detail: "Pulled pins from iCloud."
+            )
+            if let remotePins = try? JSONDecoder().decode([PinnedItem].self, from: data) {
+                pins.applyRemotePins(remotePins)
+            }
+        }
+
+        pins.objectWillChange
+            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+            .sink { [weak self, weak pins, weak kvs, weak syncToggles] _ in
+                guard let self, let pins, let kvs, let syncToggles else { return }
+                guard syncToggles.isFeatureEnabled(.pins) else { return }
+                if let lastApply = pins.lastRemoteApplyTime,
+                   Date().timeIntervalSince(lastApply) < 2.0 {
+                    return
+                }
+                guard let data = pins.exportPinsData(), data != self.lastSyncedPinsData else { return }
+                self.lastSyncedPinsData = data
+                syncToggles.recordFeatureActivity(
+                    for: .pins,
+                    state: .seededLocal,
+                    direction: .pushedFromThisDevice,
+                    detail: "Pushed pins from this device."
+                )
+                kvs.pushData(data, forKey: KVSSyncService.KVSKey.pins)
+            }
+            .store(in: &kvsSyncCancellables)
+
+        acctMgr.onNewAccountsFromSync = { [weak self, weak acctMgr, weak syncToggles] newCredentials in
+            guard let self, let acctMgr, let syncToggles else { return }
+            guard syncToggles.isFeatureEnabled(.sources) else { return }
+            syncToggles.recordFeatureActivity(
+                for: .sources,
+                state: .appliedRemote,
+                direction: .pulledFromICloud,
+                detail: "Pulled sources from iCloud."
+            )
+
+            for credential in newCredentials {
+                Task {
+                    do {
+                        let result = try await discovery.discoverAccount(authToken: credential.authToken)
+                        await MainActor.run {
+                            var config = PlexAccountConfig(
+                                id: credential.accountId,
+                                email: credential.email,
+                                plexUsername: credential.plexUsername,
+                                displayTitle: credential.displayTitle,
+                                authToken: credential.authToken,
+                                servers: result.servers
+                            )
+                            if syncToggles.isFeatureEnabled(.libraries) {
+                                config = acctMgr.applyingSyncedLibraryFlags(to: config)
+                            }
+                            acctMgr.addPlexAccount(config)
+                            acctMgr.setAwaitingCloudSources(false)
+                            self.syncCoordinator.refreshProviders()
+                            EnsembleLogger.info("Sync: discovered account \(credential.accountId) with \(result.servers.count) servers")
+
+                            let enabledSources = config.servers.flatMap { server in
+                                server.libraries.compactMap { library -> MusicSourceIdentifier? in
+                                    guard library.isEnabled else { return nil }
+                                    return MusicSourceIdentifier(
+                                        type: .plex,
+                                        accountId: config.id,
+                                        serverId: server.id,
+                                        libraryId: library.key
+                                    )
+                                }
+                            }
+
+                            if !enabledSources.isEmpty {
+                                Task {
+                                    await self.syncCoordinator.sync(sources: enabledSources)
+                                }
+                            }
+                        }
+                    } catch {
+                        await MainActor.run {
+                            syncToggles.recordFeatureActivity(
+                                for: .sources,
+                                state: .error,
+                                direction: nil,
+                                detail: "Failed to pull sources from iCloud."
+                            )
+                        }
+                        EnsembleLogger.error("Sync: failed to discover account \(credential.accountId): \(error)")
+                    }
+                }
+            }
+        }
+
+        kvsSyncService.onRemoteLibraryFlagsChanged = { [weak self, weak acctMgr] data in
+            guard let self, let acctMgr else { return }
+            guard syncToggles.isFeatureEnabled(.libraries) else { return }
+            Task { @MainActor in
+                let result = acctMgr.applyLibraryFlags(data)
+                syncToggles.recordFeatureActivity(
+                    for: .libraries,
+                    state: .appliedRemote,
+                    direction: .pulledFromICloud,
+                    detail: "Pulled library selection from iCloud."
+                )
+
+                let disabledSourcesToCleanup = Array(Set(result.disabledSources + acctMgr.disabledSources()))
+                if !disabledSourcesToCleanup.isEmpty {
+                    await self.syncCoordinator.cleanupRemovedSourcesIfPresent(disabledSourcesToCleanup)
+                }
+
+                if !acctMgr.hasAnySources && !syncToggles.hasCompletedFirstConnect {
+                    self.scheduleSyncBootstrap(reason: "remote-library-flags", feature: .sources)
+                }
+
+                guard result.hasChanges else { return }
+
+                self.syncCoordinator.refreshProviders()
+
+                for server in result.serversNeedingPlaylistCleanup {
+                    await self.syncCoordinator.cleanupServerPlaylists(
+                        accountId: server.accountId,
+                        serverId: server.serverId
+                    )
+                }
+
+                if !result.enabledSources.isEmpty {
+                    await self.syncCoordinator.sync(sources: result.enabledSources)
+                }
+            }
+        }
+
+        acctMgr.objectWillChange
+            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+            .sink { [weak acctMgr, weak kvs, weak syncToggles] _ in
+                guard let acctMgr, let kvs, let syncToggles else { return }
+                guard syncToggles.isFeatureEnabled(.libraries) else { return }
+                if let data = acctMgr.exportLibraryFlags() {
+                    syncToggles.recordFeatureActivity(
+                        for: .libraries,
+                        state: .seededLocal,
+                        direction: .pushedFromThisDevice,
+                        detail: "Pushed library selection from this device."
+                    )
+                    kvs.pushData(data, forKey: KVSSyncService.KVSKey.libraryFlags)
+                }
+            }
+            .store(in: &kvsSyncCancellables)
+
+        kvsSyncService.onInitialSyncCompleted = { [weak self, weak syncToggles] in
+            guard let self, let syncToggles else { return }
+            guard syncToggles.isMasterSyncEnabled, !syncToggles.hasCompletedFirstConnect else { return }
+            self.scheduleSyncBootstrap(reason: "kvs-initial-sync")
+        }
+
+        syncSettingsManager.onMasterSyncEnabled = { [weak self] in
+            self?.scheduleSyncBootstrap(reason: "master-enabled")
+        }
+
+        syncSettingsManager.onFeatureReEnabled = { [weak self] feature in
+            self?.scheduleSyncBootstrap(reason: "feature-reenabled", feature: feature)
         }
     }
 
