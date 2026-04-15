@@ -217,111 +217,11 @@ private struct MiniPlayerTrackInfo: View {
             }
 
             if let track = viewModel.currentTrack {
-                VStack(spacing: 6) {
-                    HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                        // Artwork
-                        ZStack {
-                            ArtworkView(
-                                path: track.thumbPath,
-                                sourceKey: track.sourceCompositeKey,
-                                ratingKey: track.id,
-                                fallbackPath: track.fallbackThumbPath,
-                                fallbackRatingKey: track.fallbackRatingKey,
-                                size: .tiny,
-                                cornerRadius: artworkCornerRadius,
-                                isResponsive: true
-                            )
-                            .frame(width: artworkDimension, height: artworkDimension)
-                            .aspectRatio(1, contentMode: .fit)
-                            .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
-                            .ifLet(namespace, animationID) { view, ns, id in
-                                view.matchedGeometryEffect(id: id, in: ns, isSource: true)
-                            }
-                        }
-                        .frame(width: artworkDimension, height: artworkDimension)
-
-                        // Track info (swipable)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(track.title)
-                                .font(.subheadline)
-                                .fontWeight(.bold)
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
-
-                            if let artist = track.artistName {
-                                Text(artist)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-                        .frame(
-                            minWidth: 0,
-                            maxWidth: showsWaveform ? 150 : .infinity,
-                            alignment: .leading
-                        )
-                        .layoutPriority(showsWaveform ? 0.45 : 1)
-                        .offset(x: dragOffset)
-                        .opacity(opacity)
-                        .contentShape(Rectangle())
-                        .gesture(
-                            DragGesture()
-                                .onChanged { value in
-                                    // Horizontal only
-                                    if abs(value.translation.width) > abs(value.translation.height) {
-                                        dragOffset = value.translation.width
-                                        opacity = 1.0 - min(abs(value.translation.width) / 200, 0.5)
-                                    }
-                                }
-                                .onEnded { value in
-                                    let threshold: CGFloat = 80
-                                    if value.translation.width > threshold {
-                                        withAnimation(.spring(response: 0.3)) {
-                                            dragOffset = 200
-                                            opacity = 0
-                                        }
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                            viewModel.previous()
-                                            withAnimation(.spring(response: 0.3)) {
-                                                dragOffset = 0
-                                                opacity = 1.0
-                                            }
-                                        }
-                                    } else if value.translation.width < -threshold {
-                                        withAnimation(.spring(response: 0.3)) {
-                                            dragOffset = -200
-                                            opacity = 0
-                                        }
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                            viewModel.next()
-                                            withAnimation(.spring(response: 0.3)) {
-                                                dragOffset = 0
-                                                opacity = 1.0
-                                            }
-                                        }
-                                    } else {
-                                        withAnimation(.spring(response: 0.3)) {
-                                            dragOffset = 0
-                                            opacity = 1.0
-                                        }
-                                    }
-                                }
-                        )
-
-                        if showsWaveform {
-                            MiniPlayerWaveform(
-                                viewModel: viewModel,
-                                waveformColor: waveformColor
-                            )
-                                .frame(minWidth: 130, maxWidth: .infinity)
-                                .frame(height: 18)
-                                .layoutPriority(0.8)
-                        } else {
-                            Spacer(minLength: 0)
-                        }
-
-                        // Playback controls (scoped sub-view for play state changes)
-                        MiniPlayerControls(viewModel: viewModel)
+                Group {
+                    if showsWaveform {
+                        largeScreenTrackRow(for: track)
+                    } else {
+                        compactTrackRow(for: track)
                     }
                 }
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
@@ -350,6 +250,133 @@ private struct MiniPlayerTrackInfo: View {
         // Keep layout tightly bound to rendered content height to avoid oversized touch regions.
         .fixedSize(horizontal: false, vertical: true)
         .clipped()
+    }
+
+    @ViewBuilder
+    private func compactTrackRow(for track: Track) -> some View {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+            trackInfoLane(for: track)
+
+            Spacer(minLength: 0)
+
+            MiniPlayerControls(viewModel: viewModel)
+                .layoutPriority(0.4)
+        }
+    }
+
+    @ViewBuilder
+    private func largeScreenTrackRow(for track: Track) -> some View {
+        GeometryReader { geometry in
+            let laneSpacing = TrackListLayoutMetrics.rowInterItemSpacing
+            let laneWidth = max((geometry.size.width - (laneSpacing * 2)) / 3, 0)
+
+            HStack(spacing: laneSpacing) {
+                trackInfoLane(for: track)
+                    .frame(width: laneWidth, alignment: .leading)
+
+                MiniPlayerWaveform(
+                    viewModel: viewModel,
+                    waveformColor: waveformColor
+                )
+                .frame(width: laneWidth, height: 18)
+
+                MiniPlayerControls(viewModel: viewModel)
+                    .frame(width: laneWidth, alignment: .trailing)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
+        .frame(height: max(artworkDimension, 34))
+    }
+
+    @ViewBuilder
+    private func trackInfoLane(for track: Track) -> some View {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+            // Artwork
+            ZStack {
+                ArtworkView(
+                    path: track.thumbPath,
+                    sourceKey: track.sourceCompositeKey,
+                    ratingKey: track.id,
+                    fallbackPath: track.fallbackThumbPath,
+                    fallbackRatingKey: track.fallbackRatingKey,
+                    size: .tiny,
+                    cornerRadius: artworkCornerRadius,
+                    isResponsive: true
+                )
+                .frame(width: artworkDimension, height: artworkDimension)
+                .aspectRatio(1, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
+                .ifLet(namespace, animationID) { view, ns, id in
+                    view.matchedGeometryEffect(id: id, in: ns, isSource: true)
+                }
+            }
+            .frame(width: artworkDimension, height: artworkDimension)
+
+            // Track info (swipable)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.title)
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                if let artist = track.artistName {
+                    Text(artist)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .layoutPriority(showsWaveform ? 0.65 : 1)
+        .offset(x: dragOffset)
+        .opacity(opacity)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    // Horizontal only
+                    if abs(value.translation.width) > abs(value.translation.height) {
+                        dragOffset = value.translation.width
+                        opacity = 1.0 - min(abs(value.translation.width) / 200, 0.5)
+                    }
+                }
+                .onEnded { value in
+                    let threshold: CGFloat = 80
+                    if value.translation.width > threshold {
+                        withAnimation(.spring(response: 0.3)) {
+                            dragOffset = 200
+                            opacity = 0
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            viewModel.previous()
+                            withAnimation(.spring(response: 0.3)) {
+                                dragOffset = 0
+                                opacity = 1.0
+                            }
+                        }
+                    } else if value.translation.width < -threshold {
+                        withAnimation(.spring(response: 0.3)) {
+                            dragOffset = -200
+                            opacity = 0
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            viewModel.next()
+                            withAnimation(.spring(response: 0.3)) {
+                                dragOffset = 0
+                                opacity = 1.0
+                            }
+                        }
+                    } else {
+                        withAnimation(.spring(response: 0.3)) {
+                            dragOffset = 0
+                            opacity = 1.0
+                        }
+                    }
+                }
+        )
     }
 }
 

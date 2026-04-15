@@ -94,7 +94,7 @@ private struct RootMiniPlayerOverlay: View {
         if isPhoneLayout {
             return max(layout.frame.width, 0)
         }
-        return min(540, max(layout.frame.width - 32, 0))
+        return min(620, max(layout.frame.width - 32, 0))
     }
 
     var body: some View {
