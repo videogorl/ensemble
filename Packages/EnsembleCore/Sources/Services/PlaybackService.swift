@@ -3556,9 +3556,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     includeDecision: includeDecision,
                     cancelTask: cancelTask
                 )
-            },
-            cleanup: { [weak self] in self?.cleanupStreamCacheFiles() }
+            }
         )
+        cleanupStreamCacheFiles()
     }
 
     /// Get a cached file URL if available, updating LRU order.
@@ -3580,8 +3580,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             clearTransport: { [transportCoordinator] in
                 transportCoordinator.clear(removeDecisions: false)
             },
-            cleanup: { [weak self] in self?.cleanupStreamCacheFiles() }
         )
+        cleanupStreamCacheFiles()
         EnsembleLogger.debug("[Cache] Cleared file URL cache")
     }
 
@@ -3599,9 +3599,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     includeDecision: includeDecision,
                     cancelTask: cancelTask
                 )
-            },
-            cleanup: { [weak self] in self?.cleanupStreamCacheFiles() }
+            }
         )
+        if evictedCount > 0 {
+            cleanupStreamCacheFiles()
+        }
         guard evictedCount > 0 else {
             EnsembleLogger.debug("[Cache] Fully overlaps new queue — nothing to evict")
             return

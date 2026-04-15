@@ -16,8 +16,7 @@ final class PlaybackPrefetchController {
         resolvedFileURLs: inout [String: URL],
         resolvedFileURLsLRU: inout [String],
         maxCachedFileURLs: Int,
-        evictTransportTrack: (String, Bool, Bool) -> Void,
-        cleanup: () -> Void
+        evictTransportTrack: (String, Bool, Bool) -> Void
     ) {
         resolvedFileURLs[trackId] = url
         resolvedFileURLsLRU.removeAll { $0 == trackId }
@@ -28,8 +27,6 @@ final class PlaybackPrefetchController {
             resolvedFileURLs.removeValue(forKey: evictedId)
             evictTransportTrack(evictedId, false, true)
         }
-
-        cleanup()
     }
 
     func cachedFileURL(
@@ -46,21 +43,18 @@ final class PlaybackPrefetchController {
     func clearFileURLCache(
         resolvedFileURLs: inout [String: URL],
         resolvedFileURLsLRU: inout [String],
-        clearTransport: () -> Void,
-        cleanup: () -> Void
+        clearTransport: () -> Void
     ) {
         resolvedFileURLs.removeAll()
         resolvedFileURLsLRU.removeAll()
         clearTransport()
-        cleanup()
     }
 
     func evictPlayerItemsNotIn(
         _ keepTrackIds: Set<String>,
         resolvedFileURLs: inout [String: URL],
         resolvedFileURLsLRU: inout [String],
-        evictTransportTrack: (String, Bool, Bool) -> Void,
-        cleanup: () -> Void
+        evictTransportTrack: (String, Bool, Bool) -> Void
     ) -> Int {
         let evictIds = Set(resolvedFileURLs.keys).subtracting(keepTrackIds)
         guard !evictIds.isEmpty else { return 0 }
@@ -71,7 +65,6 @@ final class PlaybackPrefetchController {
         }
 
         resolvedFileURLsLRU.removeAll { evictIds.contains($0) }
-        cleanup()
         return evictIds.count
     }
 
