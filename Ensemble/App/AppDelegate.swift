@@ -980,12 +980,6 @@ func executeSiriPlaybackInBackground(
         os_log(.default, "SIRI_APP: [origin=%{public}@] Server connectivity ready", origin)
 
         do {
-            // Configure audio session with .playback category and .longFormAudio
-            // policy BEFORE activation. This tells iOS we're a music app eligible
-            // for cross-device routing (HomePod Siri → iPhone AirPlay).
-            //
-            // On iOS 26, setCategory can fail with Code=-50 if the audio system
-            // isn't ready yet. Retry up to 3 times with short delays.
             let playbackService = DependencyContainer.shared.playbackService
             var categoryConfigured = playbackService.ensureAudioSessionConfigured()
             if !categoryConfigured {
@@ -1000,48 +994,25 @@ func executeSiriPlaybackInBackground(
                 }
             }
 
-            // Ask the system to prepare AirPlay route selection. For Siri
-            // requests from HomePod, this triggers the system to establish an
-            // AirPlay session back to the requesting device. Must be called
-            // after setCategory but before setActive/playback.
-            let session = AVAudioSession.sharedInstance()
-            let shouldStartPlayback = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                session.prepareRouteSelectionForPlayback { shouldActivate, routeSelection in
-                    os_log(
-                        .default,
-                        "SIRI_APP: [origin=%{public}@] prepareRouteSelection: shouldActivate=%d, route=%{public}@",
-                        origin,
-                        shouldActivate ? 1 : 0,
-                        routeSelection == .local ? "local" : "external"
-                    )
-                    continuation.resume(returning: shouldActivate)
-                }
-            }
-
-            if shouldStartPlayback {
-                do {
-                    try session.setActive(true)
-                } catch {
-                    os_log(.error, "SIRI_APP: [origin=%{public}@] setActive failed: %{public}@, retrying", origin, error.localizedDescription)
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    try? session.setActive(true)
-                }
-            } else {
+            let shouldStartPlayback = await playbackService.preparePlaybackRouteSelection()
+            os_log(
+                .default,
+                "SIRI_APP: [origin=%{public}@] prepareRouteSelection: shouldActivate=%d",
+                origin,
+                shouldStartPlayback ? 1 : 0
+            )
+            if !shouldStartPlayback {
                 os_log(.info, "SIRI_APP: [origin=%{public}@] System declined route activation — activating anyway", origin)
-                try? session.setActive(true)
             }
+            await playbackService.activatePlaybackAudioSession(shouldStartPlayback: shouldStartPlayback)
 
-            let initialRoute = AVAudioSession.sharedInstance().currentRoute.outputs
-                .map { "\($0.portType.rawValue):\($0.portName)" }
-                .joined(separator: ",")
+            let initialRoute = playbackService.currentAudioRouteDescription()
             os_log(.default, "SIRI_APP: [origin=%{public}@] Audio session activated; initial route: %{public}@", origin, initialRoute)
 
             os_log(.default, "SIRI_APP: [origin=%{public}@] Calling coordinator.execute()", origin)
             try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
 
-            let routeAfter = AVAudioSession.sharedInstance().currentRoute.outputs
-                .map { "\($0.portType.rawValue):\($0.portName)" }
-                .joined(separator: ",")
+            let routeAfter = playbackService.currentAudioRouteDescription()
             os_log(.default, "SIRI_APP: [origin=%{public}@] Coordinator execute SUCCESS; route: %{public}@", origin, routeAfter)
 
             // Complete the intent response AFTER playback starts. Keeping

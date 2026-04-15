@@ -883,14 +883,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// The unified audio engine for all playback (replaces AVQueuePlayer)
     private var audioEngine: AudioPlaybackEngine?
-    /// Pre-resolved audio file URLs keyed by trackId (replaces AVPlayerItem cache)
-    private var resolvedFileURLs: [String: URL] = [:]
-    private var resolvedFileURLsLRU: [String] = []
     private let maxCachedFileURLs = 10
-    /// Track IDs currently being resolved for gapless prefetch.
-    /// Guards against TOCTOU race where two concurrent prefetchUpcomingItems calls
-    /// both pass the isTrackScheduled check before either completes scheduleNext().
-    private var prefetchingTrackIds: Set<String> = []
     /// Combine subscription for engine time updates
     private var engineTimeCancellable: AnyCancellable?
     private var loadingStateTask: Task<Void, Never>?  // Delayed loading state transition
@@ -931,8 +924,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var handoffEventCounter: UInt64 = 0
     private var lastUnexpectedPauseAt: Date?
     private var unexpectedPauseCount = 0
-    private var audioSessionInterruptionObserver: Any?
-    private var audioSessionRouteChangeObserver: Any?
     /// Background task identifier used to keep the app alive during track transitions.
     /// Without this, iOS may suspend the app between tracks when no audio is playing.
     #if canImport(UIKit)
@@ -974,6 +965,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let queueController: PlaybackQueueController
     private let prefetchController: PlaybackPrefetchController
     private let nowPlayingBridge: PlaybackNowPlayingBridge
+    private let audioSessionCoordinator: PlaybackAudioSessionCoordinator
+    private let startupCoordinator: PlaybackStartupCoordinator
+    private let resolvedFileCache: PlaybackResolvedFileCache
+    internal private(set) var startupRestoreStatus: PlaybackStartupRestoreStatus = .notAttempted
 
     /// Thread-safe check for aurora visualizer setting (reads UserDefaults directly
     /// to avoid @MainActor isolation issues with SettingsManager).
@@ -1147,6 +1142,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.queueController = PlaybackQueueController(queueStore: self.queueStore, maxHistorySize: 100)
         self.prefetchController = PlaybackPrefetchController()
         self.nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader)
+        self.audioSessionCoordinator = PlaybackAudioSessionCoordinator()
+        self.startupCoordinator = PlaybackStartupCoordinator()
+        self.resolvedFileCache = PlaybackResolvedFileCache(maxCachedFileURLs: self.maxCachedFileURLs)
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -1178,6 +1176,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: 100)
         self.prefetchController = PlaybackPrefetchController()
         self.nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader)
+        self.audioSessionCoordinator = PlaybackAudioSessionCoordinator()
+        self.startupCoordinator = PlaybackStartupCoordinator()
+        self.resolvedFileCache = PlaybackResolvedFileCache(maxCachedFileURLs: self.maxCachedFileURLs)
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -1194,6 +1195,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     deinit {
         cleanup()
+        audioSessionCoordinator.stopObserving()
         accountSourcesObservation?.cancel()
         accountSourcesObservation = nil
         qualityDebounceTask?.cancel()
@@ -1685,35 +1687,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     // MARK: - Audio Session
 
     /// Whether the audio session category has been configured.
-    /// Deferred from app launch to first playback to avoid Code=-50 errors
-    /// when the audio system isn't ready at didFinishLaunching.
-    private var isAudioSessionConfigured = false
-
     private func setupAudioSession() {
         #if !os(macOS)
-        let session = AVAudioSession.sharedInstance()
-
-        // Register notification observers immediately (these don't require
-        // the category to be set and must be ready before any playback)
-        audioSessionInterruptionObserver = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.interruptionNotification,
-            object: session,
-            queue: .main
-        ) { [weak self] notification in
-            Task { @MainActor in
+        audioSessionCoordinator.startObserving(
+            onInterruption: { [weak self] notification in
                 self?.handleAudioSessionInterruption(notification)
-            }
-        }
-
-        audioSessionRouteChangeObserver = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.routeChangeNotification,
-            object: session,
-            queue: .main
-        ) { [weak self] notification in
-            Task { @MainActor in
+            },
+            onRouteChange: { [weak self] notification in
                 self?.handleAudioSessionRouteChange(notification)
             }
-        }
+        )
         #endif
     }
 
@@ -1729,34 +1712,37 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @discardableResult
     public func ensureAudioSessionConfigured() -> Bool {
         #if !os(macOS)
-        guard !isAudioSessionConfigured else { return true }
-        do {
-            let session = AVAudioSession.sharedInstance()
-            // longFormAudio tells the system this is a music app eligible for
-            // cross-device routing (e.g. HomePod Siri → iPhone AirPlay). Without
-            // it, iOS won't establish an AirPlay session from a Siri-initiated
-            // HomePod request. No explicit options needed: .playback category
-            // allows AirPlay and Bluetooth A2DP by default. Explicit options
-            // trigger error -12981 on iOS 26 background Siri launches.
-            try session.setCategory(
-                .playback,
-                mode: .default,
-                policy: .longFormAudio,
-                options: []
-            )
-            isAudioSessionConfigured = true
-            refreshPresentationLatencyEstimate()
-            EnsembleLogger.debug("🔊 Audio session category configured (deferred from launch)")
-            return true
-        } catch {
-            // iOS 26: setCategory can fail with Code=-50 early in the app lifecycle.
-            // AVPlayer auto-activates the session on playback, so this is non-fatal.
-            // Flag stays false so the next call will retry.
-            EnsembleLogger.debug("⚠️ Audio session setCategory failed (will retry on next call): \(error)")
-            return false
+        return audioSessionCoordinator.ensureConfigured { [weak self] in
+            self?.refreshPresentationLatencyEstimate()
         }
         #else
         return true
+        #endif
+    }
+
+    /// Ask the system to prepare route selection before Siri/HomePod playback.
+    public func preparePlaybackRouteSelection() async -> Bool {
+        #if !os(macOS)
+        return await audioSessionCoordinator.prepareRouteSelectionForPlayback()
+        #else
+        return true
+        #endif
+    }
+
+    /// Activate the playback session after route selection completes.
+    public func activatePlaybackAudioSession(shouldStartPlayback: Bool) async {
+        #if !os(macOS)
+        await audioSessionCoordinator.activateForPlayback(shouldStartPlayback: shouldStartPlayback)
+        refreshPresentationLatencyEstimate()
+        #endif
+    }
+
+    /// Current route description for Siri flow logging and startup diagnostics.
+    public func currentAudioRouteDescription() -> String {
+        #if !os(macOS)
+        return audioSessionCoordinator.currentRouteDescription()
+        #else
+        return ""
         #endif
     }
 
@@ -2682,7 +2668,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         consecutivePlaybackFailures = 0
         queueExhaustedTimestamps.removeAll()
         isSkipTransitionInProgress = false
-        prefetchingTrackIds.removeAll()
+        _ = resolvedFileCache.clear()
         disarmSkipTransitionSafety()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         MPNowPlayingInfoCenter.default().playbackState = .stopped
@@ -3547,9 +3533,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         prefetchController.cacheFileURL(
             url,
             for: trackId,
-            resolvedFileURLs: &resolvedFileURLs,
-            resolvedFileURLsLRU: &resolvedFileURLsLRU,
-            maxCachedFileURLs: maxCachedFileURLs,
+            cache: resolvedFileCache,
             evictTransportTrack: { [transportCoordinator] trackId, includeDecision, cancelTask in
                 transportCoordinator.evict(
                     trackId: trackId,
@@ -3566,8 +3550,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func getCachedFileURL(for trackId: String) -> URL? {
         prefetchController.cachedFileURL(
             for: trackId,
-            resolvedFileURLs: &resolvedFileURLs,
-            resolvedFileURLsLRU: &resolvedFileURLsLRU
+            cache: resolvedFileCache
         )
     }
 
@@ -3575,8 +3558,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func clearFileURLCache() {
         prefetchController.clearFileURLCache(
-            resolvedFileURLs: &resolvedFileURLs,
-            resolvedFileURLsLRU: &resolvedFileURLsLRU,
+            cache: resolvedFileCache,
             clearTransport: { [transportCoordinator] in
                 transportCoordinator.clear(removeDecisions: false)
             },
@@ -3591,8 +3573,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func evictPlayerItemsNotIn(_ keepTrackIds: Set<String>) {
         let evictedCount = prefetchController.evictPlayerItemsNotIn(
             keepTrackIds,
-            resolvedFileURLs: &resolvedFileURLs,
-            resolvedFileURLsLRU: &resolvedFileURLsLRU,
+            cache: resolvedFileCache,
             evictTransportTrack: { [transportCoordinator] trackId, includeDecision, cancelTask in
                 transportCoordinator.evict(
                     trackId: trackId,
@@ -3608,7 +3589,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             EnsembleLogger.debug("[Cache] Fully overlaps new queue — nothing to evict")
             return
         }
-        EnsembleLogger.debug("[Cache] Evicted \(evictedCount) cached URLs + decisions, kept \(resolvedFileURLs.count)")
+        EnsembleLogger.debug("[Cache] Evicted \(evictedCount) cached URLs + decisions, kept \(resolvedFileCache.count)")
     }
 
     /// Remove temporary stream cache files created by downloadUniversalStreamToFile.
@@ -3616,8 +3597,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// plus files that are scheduled in the AudioEngine's gapless queue or actively downloading.
     private func cleanupStreamCacheFiles() {
         prefetchController.cleanupStreamCacheFiles(
-            using: PlaybackStreamCacheContext(
-                resolvedFileURLs: resolvedFileURLs,
+            using: resolvedFileCache.snapshot(
                 queue: queue,
                 currentQueueIndex: currentQueueIndex,
                 scheduledTrackIDs: Array(audioEngine?.scheduledTrackIds ?? []),
@@ -3630,8 +3610,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func removeCachedPlayerItem(for trackID: String) {
         prefetchController.removeCachedPlayerItem(
             for: trackID,
-            resolvedFileURLs: &resolvedFileURLs,
-            resolvedFileURLsLRU: &resolvedFileURLsLRU,
+            cache: resolvedFileCache,
             evictTransportTrack: { [transportCoordinator] trackId, includeDecision, cancelTask in
                 transportCoordinator.evict(
                     trackId: trackId,
@@ -4036,7 +4015,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Determine codec from file extension
         let codec: String? = {
-            guard let url = resolvedFileURLs[trackId] else { return nil }
+            guard let url = resolvedFileCache.cachedFileURL(for: trackId) else { return nil }
             switch url.pathExtension.lowercased() {
             case "mp3": return "mp3"
             case "m4a", "aac": return "aac"
@@ -4061,7 +4040,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 return size
             }
             // Resolved file URL
-            if let url = resolvedFileURLs[trackId],
+            if let url = resolvedFileCache.cachedFileURL(for: trackId),
                let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                let size = attrs[.size] as? Int64 {
                 return size
@@ -4263,12 +4242,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Guard against TOCTOU race: two concurrent calls can both pass
         // isTrackScheduled before either reaches scheduleNext(). The in-flight
         // set closes this window so only the first caller proceeds.
-        guard !prefetchingTrackIds.contains(track.id) else {
+        guard await MainActor.run(body: { resolvedFileCache.beginPrefetch(for: track.id) }) else {
             EnsembleLogger.debug("[prefetch] Already in-flight for '\(track.title)' — skipping duplicate")
             return
         }
-        prefetchingTrackIds.insert(track.id)
-        defer { prefetchingTrackIds.remove(track.id) }
+        defer {
+            Task { @MainActor [resolvedFileCache] in
+                resolvedFileCache.endPrefetch(for: track.id)
+            }
+        }
 
         EnsembleLogger.debug("[prefetch] Upcoming '\(track.title)' source=\(track.sourceCompositeKey ?? "nil")")
 
@@ -4727,7 +4709,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         audioEngine?.clearScheduledFiles()
 
         // Evict all cached items except the currently-playing track
-        let idsToEvict = resolvedFileURLs.keys.filter { $0 != currentId }
+        let idsToEvict = resolvedFileCache.trackIDs.filter { $0 != currentId }
         for id in idsToEvict {
             removeCachedPlayerItem(for: id)
         }
@@ -5094,8 +5076,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let staleTrackIDs = prefetchController.evictUpcomingStaleTrackURLs(
             upcomingTrackIDs: upcomingTrackIDs,
             alreadyScheduledTrackIDs: alreadyScheduled,
-            resolvedFileURLs: &resolvedFileURLs,
-            resolvedFileURLsLRU: &resolvedFileURLsLRU,
+            cache: resolvedFileCache,
             evictTransportTrack: { [transportCoordinator] trackId, includeDecision, cancelTask in
                 transportCoordinator.evict(
                     trackId: trackId,
@@ -5129,8 +5110,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         engineTimeCancellable = nil
 
         // Clear caches
-        resolvedFileURLs.removeAll()
-        resolvedFileURLsLRU.removeAll()
+        _ = resolvedFileCache.clear()
         transportCoordinator.clear(removeDecisions: true)
 
         // Cancel network observations
@@ -5191,13 +5171,26 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private func makeNowPlayingState() -> PlaybackNowPlayingState {
         let feedbackFlags = Self.feedbackFlags(for: currentTrack?.rating ?? 0)
+        let hasCurrentTrack = currentTrack != nil
+        let canSkipForward = queue.indices.contains(currentQueueIndex + 1) || repeatMode == .all
+        let canSkipBackward = currentQueueIndex > 0 || !playbackHistory.isEmpty || currentTime > 3
+        let canPlay = hasCurrentTrack && playbackState != .playing
+        let canPause = hasCurrentTrack && (playbackState == .playing || playbackState == .buffering || playbackState == .loading)
+        let canSeek = hasCurrentTrack && duration > 0
         return PlaybackNowPlayingState(
             track: currentTrack,
             playbackState: playbackState,
             currentTime: currentTime,
             duration: duration,
             isLiked: feedbackFlags.isLiked,
-            isDisliked: feedbackFlags.isDisliked
+            isDisliked: feedbackFlags.isDisliked,
+            canPlay: canPlay,
+            canPause: canPause,
+            canSkipForward: canSkipForward,
+            canSkipBackward: canSkipBackward,
+            canSeek: canSeek,
+            canToggleShuffle: !queue.isEmpty,
+            canCycleRepeatMode: !queue.isEmpty
         )
     }
 
@@ -5277,9 +5270,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Restore playback state from UserDefaults
     public func restorePlaybackState() async {
         EnsembleLogger.debug("🔄 restorePlaybackState() called")
+        startupRestoreStatus = .notAttempted
 
         guard let snapshot = queueController.loadSnapshot() else {
             EnsembleLogger.debug("🔄 No queue snapshot found in queue store")
+            startupRestoreStatus = .noSnapshot
             return
         }
 
@@ -5291,95 +5286,87 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         guard !snapshot.queue.isEmpty else {
             EnsembleLogger.debug("🔄 Queue store contained history only")
+            startupRestoreStatus = .historyOnly(count: snapshot.history.count)
             return
         }
 
         EnsembleLogger.debug("🔄 Decoded \(snapshot.queue.count) queue items from queue store")
         EnsembleLogger.debug("🔄 Restoring: index \(snapshot.currentIndex), time \(snapshot.currentTime)s")
-        await restoreQueueFromItems(snapshot.queue, index: snapshot.currentIndex, time: snapshot.currentTime)
-        EnsembleLogger.debug("🔄 Restoration complete - paused at \(snapshot.currentTime)s")
+        await applyRestoredSnapshot(snapshot)
     }
 
-    /// Restore queue from QueueItem array without starting playback.
-    /// Pre-buffers the current track in the background so tapping play is instant.
-    private func restoreQueueFromItems(_ items: [QueueItem], index: Int, time: TimeInterval) async {
-        guard !items.isEmpty, index >= 0, index < items.count else { return }
+    private func applyRestoredSnapshot(_ snapshot: PlaybackQueueSnapshot) async {
+        guard snapshot.currentIndex >= 0, snapshot.currentIndex < snapshot.queue.count else {
+            startupRestoreStatus = .noSnapshot
+            return
+        }
 
-        let pruneResult = Self.pruneDuplicateFutureAutoplayItems(queue: items, currentQueueIndex: index)
-        let restoredItems = pruneResult.queue
-
-        if pruneResult.removedItemCount > 0 {
+        let track = await resolveTrackForPlaybackIfNeeded(snapshot.queue[snapshot.currentIndex].track)
+        let serverReady = await MainActor.run { syncCoordinator.lastHealthCheckCompletion != nil }
+        guard let decision = startupCoordinator.makeRestoreDecision(
+            snapshot: snapshot,
+            resolvedTrack: track,
+            playbackState: playbackState,
+            existingQueueCount: queue.count,
+            isShuffleEnabled: isShuffleEnabled,
+            serverReady: serverReady
+        ) else {
             EnsembleLogger.debug(
-                "🔄 Pruned \(pruneResult.removedItemCount) duplicate future autoplay track(s) from restored queue"
+                "🔄 restorePlaybackState: skipping — playback already active (state=\(playbackState), queue=\(queue.count))"
+            )
+            startupRestoreStatus = .skippedBecausePlaybackAlreadyActive
+            return
+        }
+
+        if decision.removedAutoplayCount > 0 {
+            EnsembleLogger.debug(
+                "🔄 Pruned \(decision.removedAutoplayCount) duplicate future autoplay track(s) from restored queue"
             )
         }
 
-        // Resolve the track off-main-thread (may do file I/O)
-        let track = await resolveTrackForPlaybackIfNeeded(restoredItems[index].track)
-
-        // All @Published property mutations must happen on the main thread
         await MainActor.run {
-            let restoredTime = Self.restoredPausedSeekTime(savedTime: time, duration: track.duration)
-
-            // If playback has already been initiated (e.g. by a Siri intent that raced
-            // ahead of restoration), don't overwrite the active queue.
-            if playbackState == .playing || playbackState == .loading || !queue.isEmpty {
-                EnsembleLogger.debug("🔄 restoreQueueFromItems: skipping — playback already active (state=\(playbackState), queue=\(queue.count))")
-                return
-            }
-
-            // Disable shuffle on restore
-            if isShuffleEnabled {
+            if decision.shouldDisableShuffle {
                 isShuffleEnabled = false
                 UserDefaults.standard.set(false, forKey: "isShuffleEnabled")
             }
 
-            // Set up queue preserving source tags
-            queue = restoredItems
-            originalQueue = restoredItems
-            currentQueueIndex = index
-            currentTrack = track
-            updatePlaybackTimes(rawTime: restoredTime)
-            waveformHeights = []  // Clear old waveform immediately
-
-            generateWaveform(for: track.id)
+            queue = decision.queue
+            originalQueue = decision.queue
+            currentQueueIndex = decision.currentIndex
+            currentTrack = decision.track
+            updatePlaybackTimes(rawTime: decision.restoredTime)
+            waveformHeights = []
+            generateWaveform(for: decision.track.id)
             playbackState = .paused
             updateNowPlayingInfo()
+            pendingPreBufferTime = decision.restoredTime
 
-            // Signal that we need to pre-buffer once a server is reachable.
-            // For local files or if the server is already confirmed reachable,
-            // pre-buffer immediately. Otherwise handleHealthCheckCompletion()
-            // will trigger it when the next health check passes.
-            pendingPreBufferTime = restoredTime
-
-            if pruneResult.removedItemCount > 0 {
+            if decision.removedAutoplayCount > 0 {
                 savePlaybackState()
             }
         }
 
-        // Pre-buffer immediately for local files (instant, no network).
-        // Streaming tracks defer pre-buffer by 3s to avoid a ~3MB transcode
-        // download during the critical launch window. If the user taps play
-        // before the timer fires, resume() handles it via playCurrentQueueItem().
-        if track.localFilePath != nil {
+        startupRestoreStatus = .restored(
+            trackID: decision.track.id,
+            time: decision.restoredTime,
+            mode: decision.prebufferMode
+        )
+
+        switch decision.prebufferMode {
+        case .none, .waitForHealthCheck:
+            break
+        case .immediateLocal:
             await preBufferRestoredTrack()
-        } else {
-            // Schedule deferred pre-buffer. Health checks may have already
-            // completed (AppDelegate awaits them before calling restore),
-            // so handleHealthCheckCompletion() won't fire again. Schedule
-            // the pre-buffer directly with a 3s delay.
-            let serverReady = await MainActor.run { syncCoordinator.lastHealthCheckCompletion != nil }
-            if serverReady {
-                EnsembleLogger.debug("🔄 Scheduling deferred pre-buffer (3s delay, server already reachable)")
-                preBufferTask = Task { @MainActor [weak self] in
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    await self?.preBufferRestoredTrack()
-                    self?.preBufferTask = nil
-                }
+        case .deferredAfterDelay:
+            EnsembleLogger.debug("🔄 Scheduling deferred pre-buffer (3s delay, server already reachable)")
+            preBufferTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await self?.preBufferRestoredTrack()
+                self?.preBufferTask = nil
             }
-            // If server is not ready, handleHealthCheckCompletion() will
-            // trigger deferred pre-buffer when the next health check passes.
         }
+
+        EnsembleLogger.debug("🔄 Restoration complete - paused at \(snapshot.currentTime)s")
     }
 
     private func resolveTrackForPlaybackIfNeeded(_ track: Track) async -> Track {

@@ -26,6 +26,13 @@ struct PlaybackNowPlayingState {
     let duration: TimeInterval
     let isLiked: Bool
     let isDisliked: Bool
+    let canPlay: Bool
+    let canPause: Bool
+    let canSkipForward: Bool
+    let canSkipBackward: Bool
+    let canSeek: Bool
+    let canToggleShuffle: Bool
+    let canCycleRepeatMode: Bool
 }
 
 /// Owns lock-screen metadata plus remote command registration.
@@ -120,6 +127,7 @@ final class PlaybackNowPlayingBridge {
         guard let track = state.track else {
             cancelArtworkLoad(clearArtwork: true)
             updateFeedbackCommandState(isLiked: false, isDisliked: false)
+            updateCommandAvailability(state)
             return
         }
 
@@ -134,8 +142,13 @@ final class PlaybackNowPlayingBridge {
             MPMediaItemPropertyPlaybackDuration: effectiveDuration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: state.currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: rate,
-            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue
         ]
+
+        if effectiveDuration > 0 {
+            info[MPNowPlayingInfoPropertyPlaybackProgress] = min(max(state.currentTime / effectiveDuration, 0), 1)
+        }
 
         if let artist = track.artistName {
             info[MPMediaItemPropertyArtist] = artist
@@ -152,6 +165,7 @@ final class PlaybackNowPlayingBridge {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         syncNowPlayingPlaybackState(state.playbackState)
         updateFeedbackCommandState(isLiked: state.isLiked, isDisliked: state.isDisliked)
+        updateCommandAvailability(state)
 
         EnsembleLogger.debug("[NowPlaying] Updated: '\(track.title)' rate=\(rate) elapsed=\(String(format: "%.1f", state.currentTime))s duration=\(String(format: "%.1f", effectiveDuration))s state=\(state.playbackState)")
 
@@ -201,6 +215,9 @@ final class PlaybackNowPlayingBridge {
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
         info[MPMediaItemPropertyPlaybackDuration] = duration
         info[MPNowPlayingInfoPropertyPlaybackRate] = playbackState == .playing ? 1.0 : 0.0
+        if duration > 0 {
+            info[MPNowPlayingInfoPropertyPlaybackProgress] = min(max(currentTime / duration, 0), 1)
+        }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         syncNowPlayingPlaybackState(playbackState)
     }
@@ -228,6 +245,20 @@ final class PlaybackNowPlayingBridge {
         let commandCenter = MPRemoteCommandCenter.shared()
         commandCenter.likeCommand.isActive = isLiked
         commandCenter.dislikeCommand.isActive = isDisliked
+    }
+
+    func updateCommandAvailability(_ state: PlaybackNowPlayingState) {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        commandCenter.playCommand.isEnabled = state.canPlay
+        commandCenter.pauseCommand.isEnabled = state.canPause
+        commandCenter.togglePlayPauseCommand.isEnabled = state.canPlay || state.canPause
+        commandCenter.nextTrackCommand.isEnabled = state.canSkipForward
+        commandCenter.previousTrackCommand.isEnabled = state.canSkipBackward
+        commandCenter.changePlaybackPositionCommand.isEnabled = state.canSeek
+        commandCenter.changeShuffleModeCommand.isEnabled = state.canToggleShuffle
+        commandCenter.changeRepeatModeCommand.isEnabled = state.canCycleRepeatMode
+        commandCenter.likeCommand.isEnabled = state.track != nil
+        commandCenter.dislikeCommand.isEnabled = state.track != nil
     }
 
     private func applyArtwork(

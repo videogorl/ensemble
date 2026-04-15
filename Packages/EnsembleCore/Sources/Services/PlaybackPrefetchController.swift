@@ -13,83 +13,64 @@ final class PlaybackPrefetchController {
     func cacheFileURL(
         _ url: URL,
         for trackId: String,
-        resolvedFileURLs: inout [String: URL],
-        resolvedFileURLsLRU: inout [String],
-        maxCachedFileURLs: Int,
+        cache: PlaybackResolvedFileCache,
         evictTransportTrack: (String, Bool, Bool) -> Void
     ) {
-        resolvedFileURLs[trackId] = url
-        resolvedFileURLsLRU.removeAll { $0 == trackId }
-        resolvedFileURLsLRU.insert(trackId, at: 0)
-
-        while resolvedFileURLsLRU.count > maxCachedFileURLs {
-            guard let evictedId = resolvedFileURLsLRU.popLast() else { break }
-            resolvedFileURLs.removeValue(forKey: evictedId)
+        for evictedId in cache.store(url, for: trackId) {
             evictTransportTrack(evictedId, false, true)
         }
     }
 
     func cachedFileURL(
         for trackId: String,
-        resolvedFileURLs: inout [String: URL],
-        resolvedFileURLsLRU: inout [String]
+        cache: PlaybackResolvedFileCache
     ) -> URL? {
-        guard let url = resolvedFileURLs[trackId] else { return nil }
-        resolvedFileURLsLRU.removeAll { $0 == trackId }
-        resolvedFileURLsLRU.insert(trackId, at: 0)
-        return url
+        cache.cachedFileURL(for: trackId)
     }
 
     func clearFileURLCache(
-        resolvedFileURLs: inout [String: URL],
-        resolvedFileURLsLRU: inout [String],
+        cache: PlaybackResolvedFileCache,
         clearTransport: () -> Void
     ) {
-        resolvedFileURLs.removeAll()
-        resolvedFileURLsLRU.removeAll()
+        _ = cache.clear()
         clearTransport()
     }
 
     func evictPlayerItemsNotIn(
         _ keepTrackIds: Set<String>,
-        resolvedFileURLs: inout [String: URL],
-        resolvedFileURLsLRU: inout [String],
+        cache: PlaybackResolvedFileCache,
         evictTransportTrack: (String, Bool, Bool) -> Void
     ) -> Int {
-        let evictIds = Set(resolvedFileURLs.keys).subtracting(keepTrackIds)
+        let evictIds = cache.evictNotIn(keepTrackIds)
         guard !evictIds.isEmpty else { return 0 }
 
         for id in evictIds {
-            resolvedFileURLs.removeValue(forKey: id)
             evictTransportTrack(id, true, true)
         }
-
-        resolvedFileURLsLRU.removeAll { evictIds.contains($0) }
         return evictIds.count
     }
 
     func removeCachedPlayerItem(
         for trackID: String,
-        resolvedFileURLs: inout [String: URL],
-        resolvedFileURLsLRU: inout [String],
+        cache: PlaybackResolvedFileCache,
         evictTransportTrack: (String, Bool, Bool) -> Void
     ) {
-        resolvedFileURLs.removeValue(forKey: trackID)
-        resolvedFileURLsLRU.removeAll { $0 == trackID }
-        evictTransportTrack(trackID, false, true)
+        if cache.remove(trackId: trackID) {
+            evictTransportTrack(trackID, false, true)
+        }
     }
 
     func evictUpcomingStaleTrackURLs(
         upcomingTrackIDs: [String],
         alreadyScheduledTrackIDs: [String],
-        resolvedFileURLs: inout [String: URL],
-        resolvedFileURLsLRU: inout [String],
+        cache: PlaybackResolvedFileCache,
         evictTransportTrack: (String, Bool, Bool) -> Void
     ) -> [String] {
-        let staleTrackIDs = upcomingTrackIDs.filter { !alreadyScheduledTrackIDs.contains($0) }
+        let staleTrackIDs = cache.evictUpcomingStaleTrackURLs(
+            upcomingTrackIDs: upcomingTrackIDs,
+            alreadyScheduledTrackIDs: alreadyScheduledTrackIDs
+        )
         for id in staleTrackIDs {
-            resolvedFileURLs.removeValue(forKey: id)
-            resolvedFileURLsLRU.removeAll { $0 == id }
             evictTransportTrack(id, false, true)
         }
         return staleTrackIDs
