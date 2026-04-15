@@ -115,7 +115,7 @@ public class TrackTableViewCell: UITableViewCell {
         contentView.addSubview(durationLabel)
 
         overflowButton.translatesAutoresizingMaskIntoConstraints = false
-        overflowButton.setImage(UIImage(systemName: "ellipsis.circle"), for: .normal)
+        overflowButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
         overflowButton.tintColor = .secondaryLabel
         overflowButton.showsMenuAsPrimaryAction = true
         overflowButton.setContentHuggingPriority(.required, for: .horizontal)
@@ -168,8 +168,8 @@ public class TrackTableViewCell: UITableViewCell {
 
             overflowButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.rowHorizontalPadding),
             overflowButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            overflowButton.widthAnchor.constraint(equalToConstant: 28),
-            overflowButton.heightAnchor.constraint(equalToConstant: 28),
+            overflowButton.widthAnchor.constraint(equalToConstant: 25),
+            overflowButton.heightAnchor.constraint(equalToConstant: 25),
             
             playingIndicator.trailingAnchor.constraint(equalTo: overflowButton.leadingAnchor, constant: -8),
             playingIndicator.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
