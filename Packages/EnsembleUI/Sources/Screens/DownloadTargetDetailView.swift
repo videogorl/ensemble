@@ -9,6 +9,7 @@ public struct DownloadTargetDetailView: View {
     @StateObject private var viewModel: DownloadTargetDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
+    @Environment(\.colorScheme) private var colorScheme
     @State private var artworkImage: UIImage?
     @State private var currentArtworkPath: String?
     @State private var isRefreshing = false
@@ -74,12 +75,33 @@ public struct DownloadTargetDetailView: View {
 
     // MARK: - Background
 
+    private var backgroundOverlayColor: Color {
+        #if os(iOS)
+        return colorScheme == .dark ? .black : Color(UIColor.systemBackground)
+        #else
+        return colorScheme == .dark ? .black : Color(NSColor.windowBackgroundColor)
+        #endif
+    }
+
     private var backgroundGradient: some View {
-        BlurredArtworkBackground(
-            image: artworkImage,
-            topDimming: 0.1,
-            bottomDimming: 0.4
-        )
+        ZStack {
+            BlurredArtworkBackground(
+                image: artworkImage,
+                topDimming: colorScheme == .dark ? 0.1 : 0.05,
+                bottomDimming: colorScheme == .dark ? 0.4 : 0.3,
+                overlayColor: backgroundOverlayColor
+            )
+
+            // Match MediaDetailView's legibility wash so light mode keeps the
+            // artwork blur atmospheric without letting dark tones overpower text.
+            if colorScheme == .dark {
+                Color.black.opacity(0.45)
+                    .allowsHitTesting(false)
+            } else {
+                backgroundOverlayColor.opacity(0.7)
+                    .allowsHitTesting(false)
+            }
+        }
         .mask(
             LinearGradient(
                 colors: [.white, .clear],
