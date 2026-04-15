@@ -847,39 +847,146 @@ public final class SyncCoordinator: ObservableObject {
         return playlists.map { Playlist(from: $0) }
     }
 
+    private func playlistMutationController() -> PlaylistMutationController {
+        PlaylistMutationController(
+            dependencies: .init(
+                validateServerSourceKey: { [weak self] serverSourceKey in
+                    self?.parseServerSourceKey(serverSourceKey) != nil
+                },
+                fetchPlaylists: { [weak self] sourceKey in
+                    guard let self else { return [] }
+                    return try await self.fetchPlaylists(forServerSourceKey: sourceKey)
+                },
+                filteredTrackIDsForServer: { [weak self] tracks, serverSourceKey in
+                    guard let self else { return [] }
+                    return await self.filteredTrackIDsForServer(
+                        tracks: tracks,
+                        serverSourceKey: serverSourceKey
+                    )
+                },
+                createRemotePlaylist: { [weak self] title, trackIDs, serverSourceKey in
+                    guard let self else { throw PlaylistMutationError.invalidSource }
+                    try await self.createRemotePlaylist(
+                        title: title,
+                        trackIDs: trackIDs,
+                        serverSourceKey: serverSourceKey
+                    )
+                },
+                reconcileCreatedPlaylist: { [weak self] title, trackIDs, serverSourceKey, isEmptyCreate in
+                    guard let self else { return nil }
+                    return await self.reconcileCreatedPlaylist(
+                        title: title,
+                        filteredTrackIds: trackIDs,
+                        serverSourceKey: serverSourceKey,
+                        isEmptyCreate: isEmptyCreate
+                    )
+                },
+                addTracksToRemotePlaylist: { [weak self] playlistID, trackIDs, serverSourceKey in
+                    guard let self else { throw PlaylistMutationError.invalidSource }
+                    try await self.addTracksToRemotePlaylist(
+                        playlistId: playlistID,
+                        trackIDs: trackIDs,
+                        serverSourceKey: serverSourceKey
+                    )
+                },
+                renameRemotePlaylist: { [weak self] playlistID, newTitle, serverSourceKey in
+                    guard let self else { throw PlaylistMutationError.invalidSource }
+                    try await self.renameRemotePlaylist(
+                        playlistId: playlistID,
+                        newTitle: newTitle,
+                        serverSourceKey: serverSourceKey
+                    )
+                },
+                deleteRemotePlaylist: { [weak self] playlistID, serverSourceKey in
+                    guard let self else { throw PlaylistMutationError.invalidSource }
+                    try await self.deleteRemotePlaylist(
+                        playlistId: playlistID,
+                        serverSourceKey: serverSourceKey
+                    )
+                },
+                replaceRemotePlaylistContents: { [weak self] playlistID, trackIDs, serverSourceKey in
+                    guard let self else { throw PlaylistMutationError.invalidSource }
+                    try await self.replaceRemotePlaylistContents(
+                        playlistId: playlistID,
+                        trackIDs: trackIDs,
+                        serverSourceKey: serverSourceKey
+                    )
+                },
+                persistLastPlaylistTarget: { [weak self] playlist in
+                    self?.persistLastPlaylistTarget(from: playlist)
+                },
+                clearLastPlaylistTargetIfNeeded: { [weak self] playlist in
+                    self?.clearLastPlaylistTargetIfNeeded(deletedPlaylist: playlist)
+                },
+                refreshServerPlaylists: { [weak self] serverSourceKey in
+                    guard let self else { return }
+                    if let refreshServerPlaylistsHandlerForTesting {
+                        await refreshServerPlaylistsHandlerForTesting(serverSourceKey)
+                    } else {
+                        await self.refreshServerPlaylists(serverSourceKey: serverSourceKey)
+                    }
+                }
+            )
+        )
+    }
+
     /// Create a new playlist and immediately refresh local cache for that server.
     public func createPlaylist(
         title: String,
         tracks: [Track],
         serverSourceKey: String
     ) async throws -> PlaylistMutationResult {
-        guard let server = parseServerSourceKey(serverSourceKey) else {
-            throw PlaylistMutationError.invalidSource
-        }
+        try await playlistMutationController().createPlaylist(
+            title: title,
+            tracks: tracks,
+            serverSourceKey: serverSourceKey
+        )
+    }
 
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let existingPlaylists = try await fetchPlaylists(forServerSourceKey: serverSourceKey)
-        if existingPlaylists.contains(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
-            throw PlaylistMutationError.duplicateName
-        }
+    /// Add tracks to an existing playlist and refresh local cache for the playlist's server.
+    public func addTracksToPlaylist(_ tracks: [Track], playlist: Playlist) async throws -> PlaylistMutationResult {
+        try await playlistMutationController().addTracksToPlaylist(tracks, playlist: playlist)
+    }
 
-        let filteredTrackIds = await filteredTrackIDsForServer(tracks: tracks, serverSourceKey: serverSourceKey)
-        guard tracks.isEmpty || !filteredTrackIds.isEmpty else {
-            throw PlaylistMutationError.emptySelection
-        }
+    /// Rename a playlist and refresh server playlists.
+    public func renamePlaylist(_ playlist: Playlist, to newTitle: String) async throws {
+        try await playlistMutationController().renamePlaylist(playlist, to: newTitle)
+    }
 
-        guard let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+    /// Delete a playlist and refresh server playlists.
+    public func deletePlaylist(_ playlist: Playlist) async throws {
+        try await playlistMutationController().deletePlaylist(playlist)
+    }
+
+    /// Replace playlist contents in the provided order and refresh local cache.
+    public func replacePlaylistContents(_ playlist: Playlist, with orderedTracks: [Track]) async throws {
+        try await playlistMutationController().replacePlaylistContents(playlist, with: orderedTracks)
+    }
+
+    /// Save queue snapshot tracks to a playlist.
+    public func saveQueueSnapshot(_ tracks: [Track], to playlist: Playlist) async throws -> PlaylistMutationResult {
+        try await addTracksToPlaylist(tracks, playlist: playlist)
+    }
+
+    /// Execute the remote create flow, including the empty-playlist seed fallback.
+    private func createRemotePlaylist(
+        title: String,
+        trackIDs: [String],
+        serverSourceKey: String
+    ) async throws {
+        guard let server = parseServerSourceKey(serverSourceKey),
+              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
             throw PlaylistMutationError.invalidSource
         }
 
         do {
             try await apiClient.createPlaylist(
-                title: trimmed,
-                trackRatingKeys: filteredTrackIds,
+                title: title,
+                trackRatingKeys: trackIDs,
                 serverIdentifier: server.serverId
             )
         } catch let error as PlexAPIError {
-            guard tracks.isEmpty,
+            guard trackIDs.isEmpty,
                   case .httpError(statusCode: 400) = error,
                   let seedTrackID = await seedTrackIDForServer(
                     serverSourceKey: serverSourceKey,
@@ -891,20 +998,32 @@ public final class SyncCoordinator: ObservableObject {
 
             EnsembleLogger.debug("ℹ️ Empty playlist create returned 400; retrying with seed track fallback")
             try await apiClient.createPlaylist(
-                title: trimmed,
+                title: title,
                 trackRatingKeys: [seedTrackID],
                 serverIdentifier: server.serverId
             )
 
             if let createdPlaylist = try? await apiClient.getPlaylists()
-                .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+                .first(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) {
                 try? await apiClient.clearPlaylistItems(playlistId: createdPlaylist.ratingKey)
             }
         }
+    }
+
+    /// Reconcile a newly created remote playlist into the local cache and return the target.
+    private func reconcileCreatedPlaylist(
+        title: String,
+        filteredTrackIds: [String],
+        serverSourceKey: String,
+        isEmptyCreate: Bool
+    ) async -> Playlist? {
+        guard let server = parseServerSourceKey(serverSourceKey),
+              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+            return nil
+        }
 
         if let createdRemotePlaylist = try? await apiClient.getPlaylists()
-            .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
-            let isEmptyCreate = tracks.isEmpty
+            .first(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) {
             _ = try? await playlistRepository.upsertPlaylist(
                 ratingKey: createdRemotePlaylist.ratingKey,
                 key: createdRemotePlaylist.key,
@@ -919,150 +1038,97 @@ public final class SyncCoordinator: ObservableObject {
                 lastPlayed: createdRemotePlaylist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 sourceCompositeKey: serverSourceKey
             )
-            // Link tracks immediately so the playlist detail view shows them without
-        // waiting for the background refresh pass.
-        try? await playlistRepository.setPlaylistTracks(
-            isEmptyCreate ? [] : filteredTrackIds,
-            forPlaylist: createdRemotePlaylist.ratingKey,
-            sourceCompositeKey: serverSourceKey
-        )
 
-            persistLastPlaylistTarget(
-                from: Playlist(
-                    id: createdRemotePlaylist.ratingKey,
-                    key: createdRemotePlaylist.key,
-                    title: createdRemotePlaylist.title,
-                    summary: createdRemotePlaylist.summary,
-                    isSmart: createdRemotePlaylist.smart ?? false,
-                    trackCount: isEmptyCreate ? 0 : (createdRemotePlaylist.leafCount ?? 0),
-                    duration: TimeInterval(isEmptyCreate ? 0 : (createdRemotePlaylist.duration ?? 0)),
-                    compositePath: createdRemotePlaylist.composite,
-                    dateAdded: createdRemotePlaylist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                    dateModified: createdRemotePlaylist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                    lastPlayed: createdRemotePlaylist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                    sourceCompositeKey: serverSourceKey
-                )
+            try? await playlistRepository.setPlaylistTracks(
+                isEmptyCreate ? [] : filteredTrackIds,
+                forPlaylist: createdRemotePlaylist.ratingKey,
+                sourceCompositeKey: serverSourceKey
             )
-        } else if let createdPlaylist = try? await fetchPlaylists(forServerSourceKey: serverSourceKey)
-            .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
-            persistLastPlaylistTarget(from: createdPlaylist)
+
+            return Playlist(
+                id: createdRemotePlaylist.ratingKey,
+                key: createdRemotePlaylist.key,
+                title: createdRemotePlaylist.title,
+                summary: createdRemotePlaylist.summary,
+                isSmart: createdRemotePlaylist.smart ?? false,
+                trackCount: isEmptyCreate ? 0 : (createdRemotePlaylist.leafCount ?? 0),
+                duration: TimeInterval(isEmptyCreate ? 0 : (createdRemotePlaylist.duration ?? 0)),
+                compositePath: createdRemotePlaylist.composite,
+                dateAdded: createdRemotePlaylist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: createdRemotePlaylist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                lastPlayed: createdRemotePlaylist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                sourceCompositeKey: serverSourceKey
+            )
         }
 
-        // Kick off cache refresh asynchronously so UI can return immediately.
-        Task { [weak self] in
-            await self?.refreshServerPlaylists(serverSourceKey: serverSourceKey)
-        }
-
-        let skippedCount = max(0, tracks.count - filteredTrackIds.count)
-        return PlaylistMutationResult(addedCount: filteredTrackIds.count, skippedCount: skippedCount)
+        return try? await fetchPlaylists(forServerSourceKey: serverSourceKey)
+            .first(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame })
     }
 
-    /// Add tracks to an existing playlist and refresh local cache for the playlist's server.
-    public func addTracksToPlaylist(_ tracks: [Track], playlist: Playlist) async throws -> PlaylistMutationResult {
-        guard !playlist.isSmart else {
-            throw PlaylistMutationError.smartPlaylistReadOnly
-        }
-        guard let serverSourceKey = playlist.sourceCompositeKey,
-              let server = parseServerSourceKey(serverSourceKey),
+    private func addTracksToRemotePlaylist(
+        playlistId: String,
+        trackIDs: [String],
+        serverSourceKey: String
+    ) async throws {
+        guard let server = parseServerSourceKey(serverSourceKey),
               let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
             throw PlaylistMutationError.invalidSource
-        }
-
-        let filteredTrackIds = await filteredTrackIDsForServer(tracks: tracks, serverSourceKey: serverSourceKey)
-        guard !filteredTrackIds.isEmpty else {
-            throw PlaylistMutationError.emptySelection
         }
 
         try await apiClient.addItemsToPlaylist(
-            playlistId: playlist.id,
-            trackRatingKeys: filteredTrackIds,
+            playlistId: playlistId,
+            trackRatingKeys: trackIDs,
             serverIdentifier: server.serverId
         )
-
-        // Keep the mutation path responsive; refresh cache in background.
-        Task { [weak self] in
-            await self?.refreshServerPlaylists(serverSourceKey: serverSourceKey)
-        }
-
-        persistLastPlaylistTarget(from: playlist)
-        let skippedCount = max(0, tracks.count - filteredTrackIds.count)
-        return PlaylistMutationResult(addedCount: filteredTrackIds.count, skippedCount: skippedCount)
     }
 
-    /// Rename a playlist and refresh server playlists.
-    public func renamePlaylist(_ playlist: Playlist, to newTitle: String) async throws {
-        guard !playlist.isSmart else {
-            throw PlaylistMutationError.smartPlaylistReadOnly
-        }
-        guard let serverSourceKey = playlist.sourceCompositeKey,
-              let server = parseServerSourceKey(serverSourceKey),
+    private func renameRemotePlaylist(
+        playlistId: String,
+        newTitle: String,
+        serverSourceKey: String
+    ) async throws {
+        guard let server = parseServerSourceKey(serverSourceKey),
               let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
             throw PlaylistMutationError.invalidSource
         }
 
-        let existingPlaylists = try await fetchPlaylists(forServerSourceKey: serverSourceKey)
-        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if existingPlaylists.contains(where: { $0.id != playlist.id && $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
-            throw PlaylistMutationError.duplicateName
-        }
-
-        try await apiClient.renamePlaylist(playlistId: playlist.id, newTitle: trimmed)
-        await refreshServerPlaylists(serverSourceKey: serverSourceKey)
+        try await apiClient.renamePlaylist(playlistId: playlistId, newTitle: newTitle)
     }
 
-    /// Delete a playlist and refresh server playlists.
-    public func deletePlaylist(_ playlist: Playlist) async throws {
-        guard !playlist.isSmart else {
-            throw PlaylistMutationError.smartPlaylistReadOnly
-        }
-        guard let serverSourceKey = playlist.sourceCompositeKey,
-              let server = parseServerSourceKey(serverSourceKey),
+    private func deleteRemotePlaylist(
+        playlistId: String,
+        serverSourceKey: String
+    ) async throws {
+        guard let server = parseServerSourceKey(serverSourceKey),
               let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
             throw PlaylistMutationError.invalidSource
         }
 
         if let playlistDeleteHandlerForTesting {
-            try await playlistDeleteHandlerForTesting(apiClient, playlist.id)
+            try await playlistDeleteHandlerForTesting(apiClient, playlistId)
         } else {
-            try await apiClient.deletePlaylist(playlistId: playlist.id)
-        }
-
-        clearLastPlaylistTargetIfNeeded(deletedPlaylist: playlist)
-
-        if let refreshServerPlaylistsHandlerForTesting {
-            await refreshServerPlaylistsHandlerForTesting(serverSourceKey)
-        } else {
-            await refreshServerPlaylists(serverSourceKey: serverSourceKey)
+            try await apiClient.deletePlaylist(playlistId: playlistId)
         }
     }
 
-    /// Replace playlist contents in the provided order and refresh local cache.
-    public func replacePlaylistContents(_ playlist: Playlist, with orderedTracks: [Track]) async throws {
-        guard !playlist.isSmart else {
-            throw PlaylistMutationError.smartPlaylistReadOnly
-        }
-        guard let serverSourceKey = playlist.sourceCompositeKey,
-              let server = parseServerSourceKey(serverSourceKey),
+    private func replaceRemotePlaylistContents(
+        playlistId: String,
+        trackIDs: [String],
+        serverSourceKey: String
+    ) async throws {
+        guard let server = parseServerSourceKey(serverSourceKey),
               let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
             throw PlaylistMutationError.invalidSource
         }
 
-        let filteredTrackIds = await filteredTrackIDsForServer(tracks: orderedTracks, serverSourceKey: serverSourceKey)
-        try await apiClient.clearPlaylistItems(playlistId: playlist.id)
-        if !filteredTrackIds.isEmpty {
+        try await apiClient.clearPlaylistItems(playlistId: playlistId)
+        if !trackIDs.isEmpty {
             try await apiClient.addItemsToPlaylist(
-                playlistId: playlist.id,
-                trackRatingKeys: filteredTrackIds,
+                playlistId: playlistId,
+                trackRatingKeys: trackIDs,
                 serverIdentifier: server.serverId
             )
         }
-
-        await refreshServerPlaylists(serverSourceKey: serverSourceKey)
-    }
-
-    /// Save queue snapshot tracks to a playlist.
-    public func saveQueueSnapshot(_ tracks: [Track], to playlist: Playlist) async throws -> PlaylistMutationResult {
-        try await addTracksToPlaylist(tracks, playlist: playlist)
     }
 
     /// Perform appropriate sync on app startup based on staleness
