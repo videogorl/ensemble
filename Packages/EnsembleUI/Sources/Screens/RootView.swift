@@ -92,9 +92,8 @@ private struct RootMiniPlayerOverlay: View {
 
     private var miniPlayerWidth: CGFloat {
         if isPhoneLayout {
-            // Match the native iPhone tab bar pill width instead of spanning the
-            // full content frame edge-to-edge.
-            return max(layout.frame.width - 16, 0)
+            // Match the native iPhone tab bar capsule inset more closely.
+            return max(layout.frame.width - 32, 0)
         }
         return min(620, max(layout.frame.width - 32, 0))
     }

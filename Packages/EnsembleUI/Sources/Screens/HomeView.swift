@@ -73,8 +73,12 @@ public struct HomeView: View {
     }
 
     private var feedTitle: String {
-        if let displayName = profileStore.profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !displayName.isEmpty {
+        if let rawDisplayName = profileStore.profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawDisplayName.isEmpty {
+            let displayName = rawDisplayName.textualDisplayName.isEmpty
+                ? rawDisplayName
+                : rawDisplayName.textualDisplayName
+
             return "\(displayName.possessiveForm) Feed"
         }
 

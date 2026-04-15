@@ -695,6 +695,28 @@ public extension String {
 
         return trimmed + "'s"
     }
+
+    /// Removes decorative emoji/symbol scalars while preserving readable text.
+    var textualDisplayName: String {
+        let filteredScalars = unicodeScalars.filter { scalar in
+            if scalar.properties.isEmojiPresentation || scalar.properties.isEmoji {
+                return false
+            }
+
+            switch scalar.properties.generalCategory {
+            case .otherSymbol, .modifierSymbol, .mathSymbol, .currencySymbol:
+                return false
+            default:
+                return true
+            }
+        }
+
+        let sanitized = String(String.UnicodeScalarView(filteredScalars))
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return sanitized
+    }
 }
 
 // MARK: - Sort Options

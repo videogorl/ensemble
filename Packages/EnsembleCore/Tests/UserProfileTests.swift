@@ -71,6 +71,14 @@ final class UserProfileTests: XCTestCase {
         XCTAssertEqual("James".possessiveForm, "James'")
     }
 
+    func testTextualDisplayNameRemovesDecorativeEmoji() {
+        XCTAssertEqual("Lissy 💕".textualDisplayName, "Lissy")
+    }
+
+    func testTextualDisplayNamePreservesReadablePunctuation() {
+        XCTAssertEqual("P!nk".textualDisplayName, "P!nk")
+    }
+
     // MARK: - Store Conflict Tests
 
     @MainActor
