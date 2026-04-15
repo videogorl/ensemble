@@ -22,15 +22,10 @@ public struct DownloadTargetDetailView: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .top) {
-            // Blurred artwork background — fades out downward
-            backgroundGradient
-                .ignoresSafeArea()
-
+        MediaDetailSurface(artworkImage: artworkImage) {
             ScrollView {
                 VStack(spacing: 0) {
-                    headerView
-                    actionButtons
+                    detailHeader
                     trackListSection
                 }
             }
@@ -72,77 +67,85 @@ public struct DownloadTargetDetailView: View {
         }
     }
 
-    // MARK: - Background
-
-    private var backgroundGradient: some View {
-        ArtworkDetailBackground(image: artworkImage)
-    }
-
     // MARK: - Header
 
-    private var headerView: some View {
-        let artworkCornerRadius = ArtworkCornerRadius.square(for: ArtworkSize.medium)
+    private var detailHeader: some View {
+        MediaDetailSurface<EmptyView>.Header(
+            topContent: {
+                EmptyView()
+            },
+            artwork: {
+                ArtworkView(
+                    path: viewModel.thumbPath,
+                    sourceKey: viewModel.summary.sourceCompositeKey,
+                    ratingKey: viewModel.summary.ratingKey,
+                    size: .medium,
+                    cornerRadius: ArtworkCornerRadius.square(for: ArtworkSize.medium)
+                )
+                .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
+            },
+            metadata: { alignment in
+                headerMetadata(alignment: alignment)
+            },
+            compactActions: {
+                actionButtons(horizontalPadding: true)
+            },
+            wideActions: { _ in
+                actionButtons(horizontalPadding: false)
+            }
+        )
+    }
 
-        return VStack(spacing: 16) {
-            ArtworkView(
-                path: viewModel.thumbPath,
-                sourceKey: viewModel.summary.sourceCompositeKey,
-                ratingKey: viewModel.summary.ratingKey,
-                size: .medium,
-                cornerRadius: artworkCornerRadius
-            )
-            .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
-
-            VStack(spacing: 8) {
-                // Title links to the original item (album/artist/playlist)
-                if canLinkToOriginalItem {
-                    NavigationLink {
-                        originalItemDestination()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(viewModel.summary.title)
-                                .font(.title2)
-                                .fontWeight(.bold)
-                                .multilineTextAlignment(.center)
-                                .foregroundColor(.accentColor)
-                            Image(systemName: "arrow.up.forward")
-                                .font(.caption)
-                                .foregroundColor(.accentColor)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    Text(viewModel.summary.title)
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .multilineTextAlignment(.center)
-                }
-
-                Text(headerSubtitle)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-
-                // Progress info while downloading — uses live stats from track rows
-                if viewModel.liveStatus != .completed && viewModel.liveTotalCount > 0 {
-                    VStack(spacing: 4) {
-                        ProgressView(value: Double(viewModel.liveProgress))
-                            .progressViewStyle(.linear)
-                            .frame(maxWidth: 280)
-
-                        Text("\(viewModel.liveCompletedCount) of \(viewModel.liveTotalCount) tracks • \(statusLabel(for: viewModel.liveStatus))")
+    private func headerMetadata(alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 8) {
+            if canLinkToOriginalItem {
+                NavigationLink {
+                    originalItemDestination()
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(viewModel.summary.title)
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .multilineTextAlignment(alignment == .center ? .center : .leading)
+                            .foregroundColor(.accentColor)
+                        Image(systemName: "arrow.up.forward")
                             .font(.caption)
-                            .foregroundColor(statusColor(for: viewModel.liveStatus))
+                            .foregroundColor(.accentColor)
                     }
+                    .frame(maxWidth: alignment == .center ? .infinity : nil, alignment: alignment == .center ? .center : .leading)
                 }
+                .buttonStyle(.plain)
+            } else {
+                Text(viewModel.summary.title)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .multilineTextAlignment(alignment == .center ? .center : .leading)
+            }
+
+            Text(headerSubtitle)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(alignment == .center ? .center : .leading)
+
+            if viewModel.liveStatus != .completed && viewModel.liveTotalCount > 0 {
+                VStack(alignment: alignment, spacing: 4) {
+                    ProgressView(value: Double(viewModel.liveProgress))
+                        .progressViewStyle(.linear)
+                        .frame(maxWidth: 280)
+
+                    Text("\(viewModel.liveCompletedCount) of \(viewModel.liveTotalCount) tracks • \(statusLabel(for: viewModel.liveStatus))")
+                        .font(.caption)
+                        .foregroundColor(statusColor(for: viewModel.liveStatus))
+                        .multilineTextAlignment(alignment == .center ? .center : .leading)
+                }
+                .frame(maxWidth: alignment == .center ? .infinity : nil, alignment: alignment == .center ? .center : .leading)
             }
         }
-        .padding()
     }
 
     // MARK: - Action Buttons
 
-    private var actionButtons: some View {
+    private func actionButtons(horizontalPadding: Bool) -> some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Button {
                 nowPlayingVM.play(tracks: viewModel.playableTracks)
@@ -174,7 +177,7 @@ public struct DownloadTargetDetailView: View {
                 .cornerRadius(10)
             }
         }
-        .padding(.horizontal)
+        .padding(.horizontal, horizontalPadding ? TrackListLayoutMetrics.rowHorizontalPadding : 0)
         .padding(.bottom)
         .chromelessMediaControlButton()
         .disabled(viewModel.playableTracks.isEmpty)
@@ -230,36 +233,31 @@ public struct DownloadTargetDetailView: View {
         } else {
             queueStatusBanner
 
-            LazyVStack(spacing: 0) {
-                ForEach(viewModel.tracks) { row in
-                    TrackDownloadRowView(row: row, currentQuality: downloadQuality) {
-                        Task { await viewModel.retryDownload(row: row) }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        // Play from this track when it's completed
-                        guard row.status == .completed else { return }
-                        if let index = viewModel.playableTracks.firstIndex(where: { $0.id == row.trackRatingKey }) {
-                            nowPlayingVM.play(tracks: viewModel.playableTracks, startingAt: index)
+            MediaDetailSurface<EmptyView>.ListCard {
+                LazyVStack(spacing: 0) {
+                    ForEach(viewModel.tracks) { row in
+                        TrackDownloadRowView(row: row, currentQuality: downloadQuality) {
+                            Task { await viewModel.retryDownload(row: row) }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            // Play from this track when it's completed
+                            guard row.status == .completed else { return }
+                            if let index = viewModel.playableTracks.firstIndex(where: { $0.id == row.trackRatingKey }) {
+                                nowPlayingVM.play(tracks: viewModel.playableTracks, startingAt: index)
+                            }
+                        }
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+
+                        if row.id != viewModel.tracks.last?.id {
+                            Divider()
+                                .padding(.leading, TrackListLayoutMetrics.artworkLeadingInset)
                         }
                     }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-
-                    if row.id != viewModel.tracks.last?.id {
-                        Divider()
-                            .padding(.leading, TrackListLayoutMetrics.artworkLeadingInset)
-                    }
                 }
+                // Animate when tracks re-sort (e.g. completed tracks slide to bottom)
+                .animation(.easeInOut(duration: 0.35), value: viewModel.tracks.map { "\($0.id)-\($0.status.rawValue)" })
             }
-            // Animate when tracks re-sort (e.g. completed tracks slide to bottom)
-            .animation(.easeInOut(duration: 0.35), value: viewModel.tracks.map { "\($0.id)-\($0.status.rawValue)" })
-            #if os(iOS)
-            .background(Color(UIColor.secondarySystemGroupedBackground))
-            #else
-            .background(Color(NSColor.controlBackgroundColor))
-            #endif
-            .cornerRadius(12)
-            .padding(.horizontal)
             .padding(.bottom, TrackListLayoutMetrics.miniPlayerBottomSpacing)
         }
     }

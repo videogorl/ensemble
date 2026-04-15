@@ -89,8 +89,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var showToolbarActions = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var lastPlaylistQuickTarget: Playlist?
-    @State private var headerContainerWidth: CGFloat = 0
-    @State private var headerActionColumnWidth: CGFloat = 0
     // Targeted NVM observation: only re-evaluate on track/playlist target changes
     @State private var currentTrackId: String?
     @State private var nvmLastPlaylistTargetId: String?
@@ -527,11 +525,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// embedded as the table's `tableHeaderView`. This lets the album art and action buttons
     /// scroll naturally with the track list while preserving UIKit cell recycling.
     private var baseContent: some View {
-        ZStack(alignment: .top) {
-            // Background gradient
-            backgroundGradient
-                .ignoresSafeArea()
-
+        MediaDetailSurface(artworkImage: artworkImage) {
             #if os(iOS)
             // Always use MediaTrackList (UITableView), even with 0 tracks.
             // Loading/empty indicators are shown via tableFooterContent.
@@ -544,10 +538,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             List {
                 // Header section: artwork, metadata, genre chips
                 Section {
-                    wideHeaderView
-                    if let genreChipContent {
-                        genreChipContent
-                    }
+                    tableHeaderForTrackList
                 }
                 .hideListRowSeparator()
                 .listRowInsets(EdgeInsets())
@@ -583,11 +574,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
     }
-    
-    private var backgroundGradient: some View {
-        ArtworkDetailBackground(image: artworkImage)
-    }
-    
     private func loadArtworkImage(path: String, sourceKey: String?) async {
         await MainActor.run {
             self.currentLoadPath = path
@@ -680,74 +666,23 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
     }
 
-    /// Compact (vertical) header layout for iPhone — artwork centered above text.
-    private var headerView: some View {
-        VStack(spacing: 16) {
-            headerArtwork
-            .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
+    private func headerMetadata(alignment: HorizontalAlignment) -> some View {
+        let textAlignment: TextAlignment = alignment == .center ? .center : .leading
 
-            VStack(spacing: 8) {
-                Text(headerData.title)
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .multilineTextAlignment(.center)
-                    .background(TitleOffsetTracker(coordinateSpace: "mediaDetailScroll"))
+        return VStack(alignment: alignment, spacing: 8) {
+            Text(headerData.title)
+                .font(.title2)
+                .fontWeight(.bold)
+                .multilineTextAlignment(textAlignment)
+                .background(TitleOffsetTracker(coordinateSpace: "mediaDetailScroll"))
 
-                subtitleView(alignment: .center)
+            subtitleView(alignment: textAlignment)
 
-                Text(headerData.metadataLine)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
+            Text(headerData.metadataLine)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(textAlignment)
         }
-        .padding()
-    }
-
-    /// Wide (horizontal) header layout for iPad and macOS —
-    /// artwork on the left, metadata and action buttons on the right.
-    private var wideHeaderView: some View {
-        HStack(alignment: .center, spacing: 24) {
-            // Artwork on the left
-            headerArtwork
-            .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
-
-            // Metadata and action buttons on the right
-            VStack(alignment: .leading, spacing: 8) {
-                Text(headerData.title)
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .multilineTextAlignment(.leading)
-                    .background(TitleOffsetTracker(coordinateSpace: "mediaDetailScroll"))
-
-                subtitleView(alignment: .leading)
-
-                Text(headerData.metadataLine)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-
-                // Action buttons below metadata
-                wideActionButtons
-                    .padding(.top, 4)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                GeometryReader { geometry in
-                    Color.clear
-                        .onAppear {
-                            let newWidth = geometry.size.width
-                            if abs(headerActionColumnWidth - newWidth) > 1 {
-                                headerActionColumnWidth = newWidth
-                            }
-                        }
-                        .onChange(of: geometry.size.width) { newWidth in
-                            if abs(headerActionColumnWidth - newWidth) > 1 {
-                                headerActionColumnWidth = newWidth
-                            }
-                        }
-                }
-            )
-        }
-        .padding()
     }
 
     private var actionButtons: some View {
@@ -794,9 +729,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     /// Compact action buttons for the wide header layout — don't stretch to fill width.
-    private var wideActionButtons: some View {
+    private func wideActionButtons(availableWidth: CGFloat) -> some View {
         Group {
-            if wideActionButtonAvailableWidth < 300 {
+            if availableWidth < 300 {
                 VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                     widePlayButton(horizontalPadding: 18, expands: true)
                     wideShuffleButton(horizontalPadding: 18, expands: true)
@@ -808,7 +743,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         }
                     }
                 }
-            } else if wideActionButtonAvailableWidth < 420 {
+            } else if availableWidth < 420 {
                 VStack(alignment: .leading, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                     HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                         widePlayButton(horizontalPadding: 18)
@@ -832,10 +767,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
         .chromelessMediaControlButton()
         .disabled(viewModel.filteredTracks.isEmpty)
-    }
-
-    private var wideActionButtonAvailableWidth: CGFloat {
-        headerActionColumnWidth > 0 ? headerActionColumnWidth : headerContainerWidth
     }
 
     private func widePlayButton(horizontalPadding: CGFloat = 24, expands: Bool = false) -> some View {
@@ -1048,39 +979,24 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// The header is structurally identical across all states (loading, empty, populated)
     /// so the genre chips and artwork maintain consistent positioning.
     private var tableHeaderForTrackList: some View {
-        VStack(spacing: 0) {
-            if let genreChipContent {
-                genreChipContent
-            }
-            adaptiveHeaderView
-        }
-    }
-
-    @ViewBuilder
-    private var adaptiveHeaderView: some View {
-        Group {
-            if headerContainerWidth >= 620 {
-                wideHeaderView
-            } else {
-                VStack(spacing: 0) {
-                    headerView
-                    actionButtons
+        MediaDetailSurface<EmptyView>.Header(
+            topContent: {
+                if let genreChipContent {
+                    genreChipContent
                 }
-            }
-        }
-        .background(
-            GeometryReader { geometry in
-                Color.clear
-                    .onAppear {
-                        if abs(headerContainerWidth - geometry.size.width) > 1 {
-                            headerContainerWidth = geometry.size.width
-                        }
-                    }
-                    .onChange(of: geometry.size.width) { newWidth in
-                        if abs(headerContainerWidth - newWidth) > 1 {
-                            headerContainerWidth = newWidth
-                        }
-                    }
+            },
+            artwork: {
+                headerArtwork
+                    .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
+            },
+            metadata: { alignment in
+                headerMetadata(alignment: alignment)
+            },
+            compactActions: {
+                actionButtons
+            },
+            wideActions: { availableWidth in
+                wideActionButtons(availableWidth: availableWidth)
             }
         )
     }

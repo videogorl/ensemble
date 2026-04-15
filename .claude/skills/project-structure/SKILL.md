@@ -300,6 +300,7 @@ Sources/
 |   +-- ArtworkColorExtractor.swift   # Actor-based color extraction from artwork for dynamic gradients
 |   +-- ArtworkDetailBackground.swift # Shared detail-screen blurred artwork + overlay treatment used by MediaDetailView and download detail screens
 |   +-- ArtworkView.swift             # Lazy-loading artwork with Nuke
+|   +-- MediaDetailSurface.swift     # Shared media-detail shell (adaptive header + list card styling) used by MediaDetailView and DownloadTargetDetailView
 |   +-- CompositeArtworkView.swift    # Composite 2x2 artwork grid for merged playlists + PlaylistArtwork wrapper
 |   +-- AuroraVisualizationView.swift # Aurora-style background visualization of music loudness
 |   +-- BlurredArtworkBackground.swift # Heavily blurred artwork background with contrast/saturation
