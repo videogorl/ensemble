@@ -177,6 +177,7 @@ Sources/
 |   +-- OfflineDownloadCleanupCoordinator.swift # Best-effort orphaned-download cleanup for completed files that no longer have any offline target membership
 |   +-- DownloadRetryPolicy.swift      # Stateful offline retry and direct-fallback policy
 |   +-- DownloadTargetReconciler.swift # Membership resolution and orphan cleanup for offline targets
+|   +-- DownloadTransferExecutor.swift # Direct-download/download-queue transfer pipeline, validation, recovery, and post-completion side effects extracted from OfflineDownloadService
 |   +-- OfflineDownloadNotificationBridge.swift # Debounced downloadsDidChange fan-out + queue completion toast seam extracted from OfflineDownloadService
 |   +-- OfflineBackgroundExecutionCoordinator.swift # Optional iOS 26+ BG continued-processing adapter
 |   +-- MoodRepository.swift           # Mood data persistence (CDMood)
@@ -249,6 +250,7 @@ Tests/
 +-- DownloadQueueCoordinatorTests.swift # Queue lifecycle ownership, background wakeup, and restart coverage
 +-- DownloadRetryPolicyTests.swift # Transfer retry accounting and direct-fallback gating coverage
 +-- DownloadTargetReconcilerTests.swift # Target membership resolution and orphan cleanup coverage
++-- DownloadTransferExecutorTests.swift # Direct-download/download-queue transfer execution and fallback coverage
 +-- OfflineDownloadNotificationBridgeTests.swift # Debounced downloadsDidChange fan-out and toast routing coverage
 +-- OfflineDownloadCleanupCoordinatorTests.swift # Orphaned completed-download sweep coverage
 +-- HomeViewModelRefreshPolicyTests.swift
