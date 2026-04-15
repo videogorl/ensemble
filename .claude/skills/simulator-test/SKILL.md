@@ -14,6 +14,8 @@ Use this skill whenever a change must be validated in the running app. The defau
 
 Do not treat simulator validation as optional for user-visible work. This skill exists so the agent can iterate without asking the user to manually operate the app.
 
+For repeatable cold-launch baselines, prefer `scripts/capture_runtime_baseline.sh --capture-startup` after the app is installed. It captures both the simulator OS log stream and the latest `PersistentLogService` session log, then prints a filtered summary.
+
 ---
 
 ## MCP-First Workflow

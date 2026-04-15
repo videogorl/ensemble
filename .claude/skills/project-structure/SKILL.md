@@ -18,13 +18,15 @@ ensemble/
 +-- scripts/
 |   +-- compile_coredata_model.sh # Compiles SwiftPM CoreData model bundle for package tests
 |   +-- verify_package_baseline.sh # Rebuilds the SwiftPM CoreData bundle, then runs package tests with pass/fail summary
-|   +-- capture_runtime_baseline.sh # Summarizes a trace + log pair for repeatable runtime baselines
+|   +-- capture_runtime_baseline.sh # Captures or summarizes repeatable simulator/runtime baselines (OS log + persistent log + optional trace)
+|   +-- check_core_warning_budget.sh # Builds EnsembleCore and fails when Core-package compiler warnings exceed the current budget
 |   +-- plex_hls_spike.sh        # Bounded PMS music-HLS viability probe used before transport changes
 |   +-- update_build_number.sh    # Sets deterministic CFBundleVersion for app + Siri extension builds
 |
 +-- docs/
 |   +-- investigations/
 |       +-- 2026-04-03-plex-hls-spike.md # Written verdict from the PMS music-HLS spike
+|       +-- 2026-04-14-repo-audit-baseline.md # Ranked audit findings + baseline verification notes
 |
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/
@@ -70,7 +72,14 @@ Sources/
 +-- Client/
 |   +-- PlexConnectionPolicy.swift     # Endpoint descriptors, routing policies, refresh/probe result models
 |   +-- PlexAPIClient.swift            # HTTP client for Plex API (actor)
+|   +-- PlexAPIClient+Connections.swift # Server connection accessors, capability fetch, and connection refresh endpoints split from PlexAPIClient
+|   +-- PlexAPIClient+Library.swift    # Library-section, inventory, hubs, search, and rating endpoints split from PlexAPIClient
+|   +-- PlexAPIClient+Metadata.swift   # Single-item metadata fetch/edit endpoints split from PlexAPIClient
+|   +-- PlexAPIClient+Playlists.swift  # Playlist list/mutation endpoints split from PlexAPIClient
+|   +-- PlexAPIClient+Playback.swift   # Stream URL resolution, transcode decisions, and two-phase playback assembly split from PlexAPIClient
+|   +-- PlexAPIClient+Downloads.swift  # Universal-download and download-queue transport helpers split from PlexAPIClient
 |   +-- PlexErrorClassification.swift  # Unified error taxonomy for failover/retry decisions
+|   +-- PlexRequestBuilder.swift       # Pure URLRequest/header assembly helper shared by PlexAPIClient transport paths
 |   +-- PlexWebSocketManager.swift     # Per-server WebSocket connections with exponential backoff (actor)
 |   +-- ServerConnectionRegistry.swift # Single source of truth for per-server endpoints (actor)
 |   +-- ConnectionFailoverManager.swift # Server connection resilience
@@ -137,7 +146,11 @@ Sources/
 |   +-- UserProfile.swift              # Profile data model (displayName, profileImagePath, lastModified)
 +-- Services/
 |   +-- AccountManager.swift           # Multi-account configuration (MainActor) + pushSyncCredentials/pullSyncCredentials/exportLibraryFlags/applyLibraryFlags
+|   +-- PlexAccountDiscoveryService.swift # Discovers account identity + normalized server/library inventory for add-account and reconciliation flows
+|   +-- LocalNetworkPermissionProbe.swift # Local-network permission prompt helper used during account onboarding
 |   +-- SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
+|   +-- PlaylistMutationController.swift # Playlist create/rename/delete/replace control-flow seam extracted from SyncCoordinator
+|   +-- SyncExecutionController.swift  # Full/incremental/startup sync execution seam extracted from SyncCoordinator
 |   +-- RefreshOrchestrator.swift      # Health-refresh gating, cooldown/staleness policy, and startup-health ownership extracted from SyncCoordinator
 |   +-- NetworkLifecycleController.swift # App-foreground and network-transition policy extracted from SyncCoordinator
 |   +-- PeriodicSyncController.swift   # Foreground periodic-sync timer scheduling + WebSocket-aware interval policy extracted from SyncCoordinator
@@ -147,12 +160,20 @@ Sources/
 |   +-- PlexMusicSourceSyncProvider.swift # Plex implementation of sync protocol
 |   +-- NavigationCoordinator.swift    # Centralized navigation state management (MainActor)
 |   +-- PlaybackService.swift          # AVPlayer wrapper with queue/shuffle/repeat
+|   +-- AudioPlaybackEngine.swift      # Gapless local-file playback engine with route recovery and instrumental mode support
+|   +-- PlaybackAudioSessionCoordinator.swift # AVAudioSession configuration/activation + interruption/route observation extracted from PlaybackService
 |   +-- PlaybackHandoffCoordinator.swift # Disconnect/interruption/remote-command handoff reducer extracted from PlaybackService
 |   +-- PlaybackQueueStore.swift       # Queue/history restoration persistence extracted from PlaybackService
+|   +-- PlaybackQueueController.swift  # Queue/history mutation + queue snapshot persistence extracted from PlaybackService
+|   +-- PlaybackStartupCoordinator.swift # Restored-playback snapshot validation + prebuffer decision policy extracted from PlaybackService
 |   +-- PlaybackLaunchCoordinator.swift # Successful playback launch path (visualizer load, engine start, recovery seek, prefetch) extracted from PlaybackService
 |   +-- PlaybackRecoveryPolicy.swift   # Buffering/stall-recovery policy extracted from PlaybackService
 |   +-- PlaybackSessionStateMachine.swift # Playback session request/retry/failure policy extracted from PlaybackService
+|   +-- PlaybackResolvedFileCache.swift # Serialized resolved-file URL cache + prefetch in-flight bookkeeping extracted from PlaybackService
+|   +-- PlaybackPrefetchController.swift # Resolved-file cache eviction + stream-cache cleanup policy extracted from PlaybackService
+|   +-- PlaybackNowPlayingBridge.swift # Lock-screen metadata + command-availability wiring extracted from PlaybackService
 |   +-- PlaybackTransportCoordinator.swift # Stream/local transport resolution + progressive-loader cache extracted from PlaybackService
+|   +-- AppBootstrapDiagnostics.swift # Structured cold-launch bootstrap summary service (accounts/sync/playback/offline/audio session)
 |   +-- ProgressiveStreamLoader.swift  # AVAssetResourceLoaderDelegate bridge for chunked transcode streams
 |   +-- ArtworkLoader.swift            # Persistent artwork caching & loading
 |   +-- CacheManager.swift             # Cache size tracking & management (MainActor)
@@ -163,10 +184,13 @@ Sources/
 |   +-- HubRepository.swift            # Hub data persistence (CDHub/CDHubItem)
 |   +-- HubOrderManager.swift          # User-customizable hub section ordering
 |   +-- BackgroundSyncScheduler.swift  # iOS BGAppRefreshTask scheduling for background sync
-|   +-- OfflineDownloadService.swift   # Target-based offline queue, reconciliation, and progress tracking
+|   +-- OfflineDownloadService.swift   # Target-based offline queue, reconciliation, progress tracking, and healing orchestration
 |   +-- DownloadQueueCoordinator.swift # Sole owner of offline queue task lifecycle and worker orchestration
+|   +-- OfflineDownloadCleanupCoordinator.swift # Best-effort orphaned-download cleanup for completed files that no longer have any offline target membership
 |   +-- DownloadRetryPolicy.swift      # Stateful offline retry and direct-fallback policy
 |   +-- DownloadTargetReconciler.swift # Membership resolution and orphan cleanup for offline targets
+|   +-- DownloadTransferExecutor.swift # Direct-download/download-queue transfer pipeline, validation, recovery, and post-completion side effects extracted from OfflineDownloadService
+|   +-- OfflineDownloadNotificationBridge.swift # Debounced downloadsDidChange fan-out + queue completion toast seam extracted from OfflineDownloadService
 |   +-- OfflineBackgroundExecutionCoordinator.swift # Optional iOS 26+ BG continued-processing adapter
 |   +-- MoodRepository.swift           # Mood data persistence (CDMood)
 |   +-- LibraryVisibilityStore.swift   # Persisted visibility profiles + active profile state
@@ -185,7 +209,12 @@ Sources/
 |   +-- SongLinkService.swift          # Universal song.link URL resolution via MusicKit + song.link API
 |   +-- ShareService.swift             # Share payload coordinator (link/file/text) with temp download support
 |   +-- LyricsService.swift            # LRC parser, lyrics models (LyricsLine/ParsedLyrics/LyricsState), LyricsService fetch pipeline + offline sidecar
+|   +-- MutationCoordinator.swift      # Unified online/offline mutation queue for ratings, playlists, and scrobbles
+|   +-- MetadataMutationService.swift  # Metadata edit coordination + invalidation notifications for UI refresh
 |   +-- PersistentLogService.swift     # Persistent session logging with real-time file writes for TestFlight diagnostics
+|   +-- SiriAffinityCoordinator.swift  # In-app Siri love/dislike coordinator using the playback + mutation services
+|   +-- SiriAddToPlaylistCoordinator.swift # In-app Siri add-to-playlist coordinator with optimistic queueing
+|   +-- SiriMediaUserContextManager.swift # Persists recency/context hints that improve Siri media ranking
 |   +-- UserProfileStore.swift        # @MainActor ObservableObject for local profile persistence + image processing
 |   +-- CloudSyncService.swift        # CloudKit actor for private database sync (push/pull/subscribe)
 |   +-- SyncSettingsManager.swift    # Master + per-feature iCloud sync toggles (UserDefaults, per-device)
@@ -233,6 +262,9 @@ Tests/
 +-- DownloadQueueCoordinatorTests.swift # Queue lifecycle ownership, background wakeup, and restart coverage
 +-- DownloadRetryPolicyTests.swift # Transfer retry accounting and direct-fallback gating coverage
 +-- DownloadTargetReconcilerTests.swift # Target membership resolution and orphan cleanup coverage
++-- DownloadTransferExecutorTests.swift # Direct-download/download-queue transfer execution and fallback coverage
++-- OfflineDownloadNotificationBridgeTests.swift # Debounced downloadsDidChange fan-out and toast routing coverage
++-- OfflineDownloadCleanupCoordinatorTests.swift # Orphaned completed-download sweep coverage
 +-- HomeViewModelRefreshPolicyTests.swift
 +-- ServerHealthCheckerClassificationTests.swift
 +-- SettingsManagerConnectionPolicyTests.swift
@@ -268,7 +300,9 @@ Sources/
 |   +-- ArtistCard.swift              # Grid card for artists
 |   +-- ArtistDetailLoader.swift      # Async loader for artist detail with loading/error states
 |   +-- ArtworkColorExtractor.swift   # Actor-based color extraction from artwork for dynamic gradients
+|   +-- ArtworkDetailBackground.swift # Shared detail-screen blurred artwork + overlay treatment used by MediaDetailView and download detail screens
 |   +-- ArtworkView.swift             # Lazy-loading artwork with Nuke
+|   +-- MediaDetailSurface.swift     # Shared media-detail shell (adaptive header + list card styling) used by MediaDetailView and DownloadTargetDetailView
 |   +-- CompositeArtworkView.swift    # Composite 2x2 artwork grid for merged playlists + PlaylistArtwork wrapper
 |   +-- AuroraVisualizationView.swift # Aurora-style background visualization of music loudness
 |   +-- BlurredArtworkBackground.swift # Heavily blurred artwork background with contrast/saturation

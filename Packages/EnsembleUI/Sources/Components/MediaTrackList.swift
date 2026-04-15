@@ -980,7 +980,7 @@ public struct MediaTrackList: UIViewRepresentable {
             let resolvedActions = interactionModel.resolve(for: track)
             guard resolvedActions.hasContextMenu else { return nil }
             
-            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
                 var topActions: [UIAction] = []
                 
                 if let onPlayNext = resolvedActions.onPlayNext {

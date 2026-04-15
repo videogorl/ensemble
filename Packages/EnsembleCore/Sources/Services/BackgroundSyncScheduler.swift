@@ -22,8 +22,7 @@ public final class BackgroundSyncScheduler {
         #if targetEnvironment(simulator)
         EnsembleLogger.debug("ℹ️ Background refresh scheduling skipped on simulator")
         return
-        #endif
-
+        #else
         guard #available(iOS 16.0, *) else {
             EnsembleLogger.debug("ℹ️ Background refresh scheduling skipped on iOS 15")
             return
@@ -47,6 +46,7 @@ public final class BackgroundSyncScheduler {
         } catch {
             EnsembleLogger.debug("❌ Failed to schedule background refresh: \(error.localizedDescription)")
         }
+        #endif
     }
     
     /// Cancel any pending background refresh

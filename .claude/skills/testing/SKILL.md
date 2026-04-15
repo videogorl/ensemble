@@ -45,6 +45,9 @@ swift test --package-path Packages/EnsembleCore
 swift test --package-path Packages/EnsemblePersistence
 swift test --package-path Packages/EnsembleUI
 
+# Keep the Core warning budget at or below the current baseline
+scripts/check_core_warning_budget.sh
+
 # Run all tests via Xcode (slower but comprehensive)
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
   -sdk iphonesimulator \

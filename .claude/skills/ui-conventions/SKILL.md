@@ -155,6 +155,8 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - **Corner radius:** Albums/playlists use 8pt; artists use 70pt (circular)
 - **Shadows:** `Color.black.opacity(0.15)` with radius 6 for card depth
 - **Blurred backgrounds:** NowPlayingView and detail views use `BlurredArtworkBackground`
+- **Shared detail artwork wash:** `MediaDetailView` and `DownloadTargetDetailView` must use `ArtworkDetailBackground` for the blurred header image so dark/light overlay behavior stays identical across detail screens
+- **Shared detail shell:** Media-style detail screens should build their hero artwork, metadata block, action row, and list-card styling on `MediaDetailSurface` so `MediaDetailView` and `DownloadTargetDetailView` do not drift on spacing, wide-layout behavior, or light/dark presentation
 
 ### Typography & Spacing
 - **System fonts:** SF Pro with semantic styles (.headline, .subheadline, etc.)

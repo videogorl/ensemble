@@ -11,8 +11,8 @@ import AppKit
 import BackgroundTasks
 #endif
 
-/// App-target logger. Uses @autoclosure so message strings are not constructed
-/// unless needed — zero cost when file logging is disabled in release.
+/// App-target logger. Writes to the unified log and the optional persistent
+/// session sink used for TestFlight diagnostics.
 enum AppLogger {
     private static let logger = Logger(subsystem: "com.videogorl.ensemble", category: "app")
 
@@ -22,14 +22,9 @@ enum AppLogger {
     private static let category = "app"
 
     static func debug(_ message: @autoclosure () -> String) {
-        #if DEBUG
         let msg = message()
         logger.debug("\(msg, privacy: .public)")
         fileLogHandler?("DEBUG", category, msg)
-        #else
-        guard let handler = fileLogHandler else { return }
-        handler("DEBUG", category, message())
-        #endif
     }
 }
 
@@ -307,6 +302,8 @@ struct EnsembleApp: App {
                         }
                         await syncCoordinator.performStartupSync()
                         AppLogger.debug("💻 macOS: Startup sync complete")
+                        let dependencyContainer = await MainActor.run { DependencyContainer.shared }
+                        await dependencyContainer.emitColdLaunchDiagnostics()
                     }
                 }
             case .background:

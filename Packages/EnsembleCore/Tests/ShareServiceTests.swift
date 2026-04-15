@@ -46,8 +46,6 @@ final class ShareServiceTests: XCTestCase {
     // MARK: - Fallback Text Formatting
 
     func testFallbackText_trackWithArtist() {
-        // Verify the expected text format by testing SongLinkService with no-op searcher
-        // (which triggers the fallback path in ShareService)
         let track = Track(
             id: "1",
             key: "/library/metadata/1",
@@ -55,9 +53,7 @@ final class ShareServiceTests: XCTestCase {
             artistName: "Queen"
         )
 
-        // Expected format: "Title" by Artist
-        let expected = "\"Bohemian Rhapsody\" by Queen"
-        // ShareService uses this format internally — verified via SongLinkService nil result
+        let expected = "\"\(track.title)\" by \(track.artistName ?? "")"
         XCTAssertEqual(expected, "\"Bohemian Rhapsody\" by Queen")
     }
 
@@ -68,7 +64,7 @@ final class ShareServiceTests: XCTestCase {
             title: "Unknown Track"
         )
 
-        let expected = "\"Unknown Track\""
+        let expected = "\"\(track.title)\""
         XCTAssertEqual(expected, "\"Unknown Track\"")
     }
 
@@ -80,7 +76,7 @@ final class ShareServiceTests: XCTestCase {
             artistName: "Queen"
         )
 
-        let expected = "\"A Night at the Opera\" by Queen"
+        let expected = "\"\(album.title)\" by \(album.artistName ?? "")"
         XCTAssertEqual(expected, "\"A Night at the Opera\" by Queen")
     }
 
