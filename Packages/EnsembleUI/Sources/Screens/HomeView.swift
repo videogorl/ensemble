@@ -73,16 +73,21 @@ public struct HomeView: View {
     }
 
     private var feedTitle: String {
-        if let rawDisplayName = profileStore.profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !rawDisplayName.isEmpty {
-            let displayName = rawDisplayName.textualDisplayName.isEmpty
-                ? rawDisplayName
-                : rawDisplayName.textualDisplayName
-
+        if let displayName = profileDisplayName {
             return "\(displayName.possessiveForm) Feed"
         }
 
         return "Feed"
+    }
+
+    private var profileDisplayName: String? {
+        guard let rawDisplayName = profileStore.profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawDisplayName.isEmpty else {
+            return nil
+        }
+
+        let sanitizedName = rawDisplayName.textualDisplayName
+        return sanitizedName.isEmpty ? rawDisplayName : sanitizedName
     }
     
     private var loadingView: some View {
@@ -211,6 +216,16 @@ public struct HomeView: View {
     private var hubsScrollView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
+                if let profileImageURL = profileStore.profileImageURL {
+                    FeedProfileHero(
+                        url: profileImageURL,
+                        reloadToken: profileStore.profile.lastModified,
+                        displayName: profileDisplayName,
+                        title: feedTitle
+                    )
+                    .padding(.horizontal)
+                }
+
                 ForEach(viewModel.hubs) { hub in
                     HubSection(hub: hub, nowPlayingVM: nowPlayingVM, playlistPickerTracks: $playlistPickerTracks)
                 }
@@ -227,6 +242,91 @@ public struct HomeView: View {
                 }
         )
         .miniPlayerBottomSpacing()
+    }
+}
+
+private struct FeedProfileHero: View {
+    let url: URL
+    let reloadToken: Date
+    let displayName: String?
+    let title: String
+
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            ArtworkDetailBackground(image: image, height: 220)
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+
+            LinearGradient(
+                colors: [.clear, Color.black.opacity(0.12), Color.black.opacity(0.34)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .allowsHitTesting(false)
+
+            HStack(alignment: .center, spacing: 16) {
+                avatar
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(displayName ?? title)
+                        .font(.title3.weight(.bold))
+                        .foregroundColor(.white)
+
+                    Text(title)
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.82))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(20)
+        }
+        .frame(height: 220)
+        .shadow(color: .black.opacity(0.14), radius: 16, y: 8)
+        .onAppear { loadImage() }
+        .onChange(of: url) { _ in loadImage() }
+        .onChange(of: reloadToken) { _ in loadImage() }
+    }
+
+    private var avatar: some View {
+        Group {
+            if let image {
+                #if canImport(UIKit)
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                #elseif canImport(AppKit)
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                #endif
+            } else {
+                Image(systemName: "person.crop.circle.fill")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .foregroundColor(.white.opacity(0.88))
+                    .padding(14)
+                    .background(Color.white.opacity(0.16))
+            }
+        }
+        .frame(width: 80, height: 80)
+        .background(Color.white.opacity(0.12))
+        .clipShape(Circle())
+        .overlay(
+            Circle()
+                .stroke(Color.white.opacity(0.38), lineWidth: 1)
+        )
+    }
+
+    private func loadImage() {
+        #if canImport(UIKit)
+        image = UIImage(contentsOfFile: url.path)
+        #elseif canImport(AppKit)
+        image = NSImage(contentsOf: url)
+        #endif
     }
 }
 
