@@ -59,6 +59,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let shareService: ShareService
     public let powerStateMonitor: PowerStateMonitor
     public let persistentLogService: PersistentLogService
+    internal let appBootstrapDiagnostics: AppBootstrapDiagnostics
 
     // MARK: - Profile & Cloud Sync
 
@@ -232,6 +233,12 @@ public final class DependencyContainer: @unchecked Sendable {
         siriAffinityCoordinator = siri.siriAffinityCoordinator
         siriAddToPlaylistCoordinator = siri.siriAddToPlaylistCoordinator
         siriMediaUserContextManager = siri.siriMediaUserContextManager
+        appBootstrapDiagnostics = Self.buildAppBootstrapDiagnostics(
+            network: network,
+            sync: sync,
+            playback: playback,
+            mutation: mutation
+        )
 
         wireCrossSubsystemCallbacks()
 
@@ -512,6 +519,98 @@ public final class DependencyContainer: @unchecked Sendable {
             siriAffinityCoordinator: siriAffinityCoordinator,
             siriAddToPlaylistCoordinator: siriAddToPlaylistCoordinator,
             siriMediaUserContextManager: siriMediaUserContextManager
+        )
+    }
+
+    private static func buildAppBootstrapDiagnostics(
+        network: NetworkBootstrap,
+        sync: SyncBootstrap,
+        playback: PlaybackBootstrap,
+        mutation: MutationBootstrap
+    ) -> AppBootstrapDiagnostics {
+        AppBootstrapDiagnostics(
+            dependencies: .init(
+                launchTimeProvider: {
+                    EnsembleStartupTiming.launchTime
+                },
+                accountSummaryProvider: { @MainActor in
+                    let enabledSources = network.accountManager.enabledSources()
+                    let selectedSource = enabledSources.first
+                    let selectedServer = selectedSource.flatMap { source in
+                        network.accountManager.plexAccounts
+                            .first(where: { $0.id == source.accountId })?
+                            .servers
+                            .first(where: { $0.id == source.serverId })
+                    }
+
+                    let accountState: String
+                    if network.accountManager.plexAccounts.isEmpty {
+                        accountState = "no-accounts"
+                    } else if enabledSources.isEmpty {
+                        accountState = "accounts-loaded-no-enabled-libraries"
+                    } else {
+                        accountState = "ready"
+                    }
+
+                    return AppBootstrapAccountSummary(
+                        accountState: accountState,
+                        accountCount: network.accountManager.plexAccounts.count,
+                        enabledLibraryCount: enabledSources.count,
+                        selectedServerName: selectedServer?.name,
+                        selectedServerKey: selectedSource.map { "\($0.accountId):\($0.serverId)" }
+                    )
+                },
+                syncSummaryProvider: { @MainActor in
+                    let readiness: String
+                    if sync.syncCoordinator.isOffline {
+                        readiness = "offline"
+                    } else if sync.syncCoordinator.isSyncing {
+                        readiness = "syncing"
+                    } else if sync.syncCoordinator.lastStartupSyncCompletion != nil {
+                        readiness = "ready"
+                    } else {
+                        readiness = "pending-startup-sync"
+                    }
+
+                    return AppBootstrapSyncSummary(
+                        readiness: readiness,
+                        sourceStatusCount: sync.syncCoordinator.sourceStatuses.count,
+                        lastStartupSyncCompletion: sync.syncCoordinator.lastStartupSyncCompletion
+                    )
+                },
+                playbackSummaryProvider: { @MainActor playbackRestoreWasSuppressedForSiri in
+                    let restoreOutcome: String
+                    if playbackRestoreWasSuppressedForSiri {
+                        restoreOutcome = "skipped-because-siri-intent-pending"
+                    } else {
+                        switch playback.playbackService.startupRestoreStatus {
+                        case .notAttempted:
+                            restoreOutcome = "not-attempted"
+                        case .noSnapshot:
+                            restoreOutcome = "no-snapshot"
+                        case .historyOnly(let count):
+                            restoreOutcome = "history-only(\(count))"
+                        case .skippedBecausePlaybackAlreadyActive:
+                            restoreOutcome = "skipped-because-playback-already-active"
+                        case .restored(let trackID, let time, let mode):
+                            restoreOutcome = "restored(track=\(trackID),time=\(String(format: "%.1f", time)),mode=\(mode))"
+                        }
+                    }
+
+                    return AppBootstrapPlaybackSummary(
+                        restoreOutcome: restoreOutcome,
+                        routeKind: playback.playbackService.currentPresentationRouteKindDescription,
+                        routeDescription: playback.playbackService.currentAudioRouteDescription(),
+                        audioSessionConfigured: playback.playbackService.isAudioSessionConfiguredForDiagnostics
+                    )
+                },
+                offlineCleanupProvider: { @MainActor in
+                    mutation.offlineDownloadService.lastHealingSummary
+                },
+                logInfo: { message in
+                    EnsembleLogger.info(message)
+                }
+            )
         )
     }
 
@@ -915,6 +1014,15 @@ public final class DependencyContainer: @unchecked Sendable {
         syncSettingsManager.beginManualSync()
         defer { syncSettingsManager.finishManualSync() }
         await refreshSyncState(reason: "manual")
+    }
+
+    @MainActor
+    public func emitColdLaunchDiagnostics(
+        playbackRestoreWasSuppressedForSiri: Bool = false
+    ) async {
+        await appBootstrapDiagnostics.emitColdLaunchSummary(
+            playbackRestoreWasSuppressedForSiri: playbackRestoreWasSuppressedForSiri
+        )
     }
 
     @MainActor

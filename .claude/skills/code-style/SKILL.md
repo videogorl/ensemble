@@ -82,6 +82,7 @@ Rules:
 - Not required for simple ViewModels or UI-only code
 - App is in active beta testing — account for edge cases in CoreData model
 - Validate inputs before saving to CoreData; handle nil/missing fields defensively
+- For `EnsembleCore` refactors, keep compiler warnings at the current floor by running `scripts/check_core_warning_budget.sh` before committing
 
 ## MVVM Pattern
 

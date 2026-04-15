@@ -302,6 +302,8 @@ struct EnsembleApp: App {
                         }
                         await syncCoordinator.performStartupSync()
                         AppLogger.debug("💻 macOS: Startup sync complete")
+                        let dependencyContainer = await MainActor.run { DependencyContainer.shared }
+                        await dependencyContainer.emitColdLaunchDiagnostics()
                     }
                 }
             case .background:

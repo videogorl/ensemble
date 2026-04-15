@@ -137,4 +137,8 @@ final class PlaybackAudioSessionCoordinator {
         return ""
         #endif
     }
+
+    var isConfiguredForDiagnostics: Bool {
+        isConfigured
+    }
 }

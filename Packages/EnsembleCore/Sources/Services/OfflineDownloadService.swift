@@ -41,6 +41,25 @@ public struct OfflineDownloadQualityRefreshResult: Sendable {
     }
 }
 
+struct OfflineDownloadHealingSummary: Equatable, Sendable {
+    let ranAt: Date?
+    let orphanedCompletedDownloadsRemoved: Int
+    let errorDescription: String?
+
+    static let notRun = OfflineDownloadHealingSummary(
+        ranAt: nil,
+        orphanedCompletedDownloadsRemoved: 0,
+        errorDescription: nil
+    )
+
+    var diagnosticsDescription: String {
+        guard let ranAt else { return "not-run" }
+        let timestamp = ISO8601DateFormatter().string(from: ranAt)
+        let errorText = errorDescription ?? "none"
+        return "removed=\(orphanedCompletedDownloadsRemoved),error=\(errorText),at=\(timestamp)"
+    }
+}
+
 /// Describes why the download queue is currently idle or paused
 public enum QueueStatusReason: Equatable, Sendable {
     case idle
@@ -75,6 +94,7 @@ public final class OfflineDownloadService: ObservableObject {
     @Published public private(set) var removalInProgress: [String: RemovalProgress] = [:]
     /// Track ratingKeys currently pending or actively downloading — used by TrackRow to show spinners.
     @Published public private(set) var activeDownloadRatingKeys: Set<String> = []
+    internal private(set) var lastHealingSummary: OfflineDownloadHealingSummary = .notRun
 
     private let downloadManager: DownloadManagerProtocol
     private let targetRepository: OfflineDownloadTargetRepositoryProtocol
@@ -1545,6 +1565,7 @@ public final class OfflineDownloadService: ObservableObject {
     /// Runs the best-effort healing steps that keep persisted downloads aligned
     /// with target memberships before the UI recomputes its snapshots.
     private func runDownloadHealing() async {
+        let runStartedAt = Date()
         // Verify files on disk, mark missing/invalid downloads as failed.
         _ = try? await downloadManager.fetchDownloads()
         // Catch truncated audio files (interrupted downloads that passed basic checks).
@@ -1552,10 +1573,20 @@ public final class OfflineDownloadService: ObservableObject {
 
         do {
             let removedCount = try await cleanupCoordinator.removeOrphanedCompletedDownloads()
+            lastHealingSummary = OfflineDownloadHealingSummary(
+                ranAt: runStartedAt,
+                orphanedCompletedDownloadsRemoved: removedCount,
+                errorDescription: nil
+            )
             if removedCount > 0 {
                 EnsembleLogger.debug("🧹 OfflineDownloadService: removed \(removedCount) orphaned completed download(s)")
             }
         } catch {
+            lastHealingSummary = OfflineDownloadHealingSummary(
+                ranAt: runStartedAt,
+                orphanedCompletedDownloadsRemoved: 0,
+                errorDescription: error.localizedDescription
+            )
             EnsembleLogger.debug("❌ Failed removing orphaned completed downloads: \(error.localizedDescription)")
         }
     }

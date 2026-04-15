@@ -18,6 +18,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     /// Stored early health check task so executeSiriPlaybackInBackground can
     /// await it instead of running redundant checks. Set in didFinishLaunching.
     fileprivate var earlyHealthCheckTask: Task<Void, Never>?
+    fileprivate var playbackRestoreTask: Task<Void, Never>?
+    fileprivate var startupSyncTask: Task<Void, Never>?
+    fileprivate var coldLaunchDiagnosticsTask: Task<Void, Never>?
+    fileprivate var startupRestoreWasSuppressedForSiri = false
 
     /// Set synchronously in `application(_:handlerFor:)` when iOS delivers a Siri
     /// intent during launch. Used to suppress playback restoration so Siri playback
@@ -52,6 +56,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
         AppLogger.debug("📱 AppDelegate: didFinishLaunching at \(Date())")
         EnsembleStartupTiming.launchTime = AppDelegate.launchTime
+        startupRestoreWasSuppressedForSiri = false
 
         NotificationCenter.default.addObserver(
             self,
@@ -123,12 +128,15 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Skip restoration if a Siri playback execution is already in-flight — the Siri
         // handler's intent arrives before restoration completes, so restoring would
         // overwrite the Siri-initiated queue with the previous session's track.
-        Task.detached(priority: .utility) {
+        playbackRestoreTask = Task.detached(priority: .utility) {
             // Wait for early health checks to finish (they populate server endpoints)
             await self.earlyHealthCheckTask?.value
 
             let hasPending = await MainActor.run { (UIApplication.shared.delegate as? AppDelegate)?.hasPendingSiriIntent ?? false }
             if hasPending || SiriPlaybackExecutionGate.isExecuting {
+                await MainActor.run {
+                    self.startupRestoreWasSuppressedForSiri = true
+                }
                 AppLogger.debug("📱 AppDelegate: Skipping playback restoration — Siri intent pending/in-flight")
                 return
             }
@@ -171,7 +179,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
         // Perform startup sync (non-blocking, runs in background at .utility priority).
         // Normal launches start immediately; Siri launches wait briefly for audio session.
-        Task.detached(priority: .utility) {
+        startupSyncTask = Task.detached(priority: .utility) {
             // Check if Siri playback was recently triggered. If so, wait a short time
             // to let the audio session activate and route selection complete.
             // Sync at .utility priority won't compete meaningfully with the Siri audio
@@ -196,6 +204,22 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             await MainActor.run {
                 syncCoordinator.startPeriodicSync()
             }
+        }
+
+        // Emit one structured startup summary after the launch pipeline settles so
+        // device logs capture the post-bootstrap sync/playback/offline state in a
+        // single line instead of requiring manual reconstruction from many events.
+        coldLaunchDiagnosticsTask = Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            await self.earlyHealthCheckTask?.value
+            await self.playbackRestoreTask?.value
+            await self.startupSyncTask?.value
+            let playbackRestoreWasSuppressedForSiri = await MainActor.run {
+                self.startupRestoreWasSuppressedForSiri
+            }
+            await DependencyContainer.shared.emitColdLaunchDiagnostics(
+                playbackRestoreWasSuppressedForSiri: playbackRestoreWasSuppressedForSiri
+            )
         }
         
         AppLogger.debug("📱 AppDelegate: didFinishLaunching returning at \(Date())")

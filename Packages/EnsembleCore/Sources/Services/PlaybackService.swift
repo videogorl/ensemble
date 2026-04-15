@@ -1746,6 +1746,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #endif
     }
 
+    internal var currentPresentationRouteKindDescription: String {
+        String(describing: presentationRouteKind)
+    }
+
+    internal var isAudioSessionConfiguredForDiagnostics: Bool {
+        audioSessionCoordinator.isConfiguredForDiagnostics
+    }
+
     private func presentationTime(for rawTime: TimeInterval) -> TimeInterval {
         Self.resolvedPresentationTime(
             rawTime: rawTime,
