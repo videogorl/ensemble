@@ -432,6 +432,7 @@ public struct MainTabView: View {
         }
         .overlay(alignment: .bottom) {
             if showsPhoneAuroraOverlay &&
+                navigationCoordinator.selectedTab == tab &&
                 settingsManager.auroraVisualizationEnabled &&
                 !isShowingNowPlaying &&
                 !isRootChromeSuppressed &&
