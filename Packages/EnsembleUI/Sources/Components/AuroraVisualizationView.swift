@@ -96,7 +96,7 @@ public struct AuroraVisualizationView: View {
 
     /// Frame rate: 30fps normal, 15fps in Low Power Mode or on ≤2-core devices (A9/A10).
     private var frameInterval: Double {
-        usesLowCostSurfaceTier || isLowPowerMode || isLowCoreDevice ? 1.0 / 15.0 : 1.0 / 30.0
+        isLowPowerMode || isLowCoreDevice ? 1.0 / 15.0 : 1.0 / 30.0
     }
 
     private var usesLowCostSurfaceTier: Bool {

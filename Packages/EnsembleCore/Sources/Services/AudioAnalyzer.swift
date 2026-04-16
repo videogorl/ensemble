@@ -15,15 +15,6 @@ public enum VisualizationConsumer: String, CaseIterable, Sendable {
     case stageFlow
     case externalDisplay
     case rootBackdrop
-
-    var prefersLowCostUpdateRate: Bool {
-        switch self {
-        case .phoneOverlay, .rootBackdrop:
-            return true
-        case .nowPlayingSheet, .nowPlayingViewport, .stageFlow, .externalDisplay:
-            return false
-        }
-    }
 }
 
 // MARK: - Audio Analyzer Protocol
@@ -514,8 +505,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     private var desiredDisplayFPS: Double? {
         guard !visibleVisualizationConsumers.isEmpty else { return nil }
-        let requiresHighRate = visibleVisualizationConsumers.contains { !$0.prefersLowCostUpdateRate }
-        return requiresHighRate ? highTargetFPS : lowTargetFPS
+        return highTargetFPS
     }
 
     private func updateDisplayTimerState(trigger: String) {

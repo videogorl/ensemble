@@ -191,7 +191,11 @@ public struct RootView: View {
     }
 
     private var showsRootBackgroundAurora: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom != .phone
+        #else
         true
+        #endif
     }
 
     public init() {
