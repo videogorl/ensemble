@@ -15,15 +15,10 @@ public struct AuroraVisualizationView: View {
 
     // MARK: - State
 
-    @State private var frequencyBands: [Double] = []
     @State private var playbackState: PlaybackState = .stopped
     @State private var isVisible: Bool = false
     @State private var isMounted = false
-    /// Smoothed band values for fluid animation
-    @State private var smoothedBands: [Double] = Array(repeating: 0.0, count: 24)
-    /// Peak hold for each band (visual drama)
-    @State private var peakHolds: [Double] = Array(repeating: 0.0, count: 24)
-    @State private var peakDecayTimers: [Double] = Array(repeating: 0.0, count: 24)
+    @StateObject private var renderModel = AuroraRenderModel()
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -133,9 +128,8 @@ public struct AuroraVisualizationView: View {
         }
         .allowsHitTesting(false)
         .onReceive(playbackService.frequencyBandsPublisher) { bands in
-            frequencyBands = bands
             if playbackState == .playing {
-                advanceRenderState(with: bands)
+                ingestBands(bands)
             }
         }
         .onReceive(playbackService.playbackStatePublisher) { state in
@@ -148,12 +142,11 @@ public struct AuroraVisualizationView: View {
         }
         .onAppear {
             isMounted = true
-            frequencyBands = playbackService.frequencyBands
             let currentState = playbackService.playbackState
             playbackState = currentState
             updateConsumerRegistration()
             if currentState == .playing {
-                advanceRenderState(with: frequencyBands)
+                ingestBands(playbackService.frequencyBands)
             }
             // Snap directly without animation: onAppear fires on tab switches too,
             // and we don't want the aurora to fade in every time the user changes tabs.
@@ -182,9 +175,7 @@ public struct AuroraVisualizationView: View {
         case .stopped, .failed:
             newVisibility = false
             // Reset band state so stale values don't flash when playback resumes
-            smoothedBands = Array(repeating: 0.0, count: bandCount)
-            peakHolds = Array(repeating: 0.0, count: bandCount)
-            peakDecayTimers = Array(repeating: 0.0, count: bandCount)
+            renderModel.reset()
         }
 
         guard newVisibility != isVisible else { return }
@@ -206,41 +197,17 @@ public struct AuroraVisualizationView: View {
         playbackService.setVisualizationConsumer(consumer, isVisible: shouldRegisterConsumer)
     }
 
-    /// Advances the smoothed aurora state from incoming analyzer samples instead of mutating
-    /// SwiftUI state during Canvas rendering.
-    private func advanceRenderState(with rawBands: [Double]) {
-        let targetBands = calculateBandValues(from: rawBands)
-        var newSmoothed = smoothedBands
-        var newPeakHolds = peakHolds
-        var newPeakTimers = peakDecayTimers
-        let deltaTime = frameInterval
-
-        for index in 0..<bandCount {
-            let target = targetBands[index]
-            let current = smoothedBands[index]
-
-            if target > current {
-                newSmoothed[index] = current + (target - current) * (1.0 - attackFactor)
-            } else {
-                newSmoothed[index] = current + (target - current) * (1.0 - decayFactor)
-            }
-
-            if newSmoothed[index] > newPeakHolds[index] {
-                newPeakHolds[index] = newSmoothed[index]
-                newPeakTimers[index] = peakHoldTime
-            } else if newPeakTimers[index] > 0 {
-                newPeakTimers[index] -= deltaTime
-            } else {
-                newPeakHolds[index] = max(
-                    newSmoothed[index],
-                    newPeakHolds[index] - peakDecayRate * deltaTime
-                )
-            }
-        }
-
-        smoothedBands = newSmoothed
-        peakHolds = newPeakHolds
-        peakDecayTimers = newPeakTimers
+    /// Advances the smoothed aurora state from analyzer samples without publishing
+    /// SwiftUI updates on every FFT tick.
+    private func ingestBands(_ rawBands: [Double]) {
+        renderModel.advance(
+            targetBands: calculateBandValues(from: rawBands),
+            attackFactor: attackFactor,
+            decayFactor: decayFactor,
+            peakHoldTime: peakHoldTime,
+            peakDecayRate: peakDecayRate,
+            deltaTime: frameInterval
+        )
     }
 
     // MARK: - Drawing
@@ -248,7 +215,7 @@ public struct AuroraVisualizationView: View {
     /// Main drawing function for the aurora frequency visualization
     private func drawAurora(context: GraphicsContext, size: CGSize) {
         // Non-playing states freeze the last rendered frame because TimelineView pauses.
-        let bandsToRender = smoothedBands
+        let bandsToRender = renderModel.renderedBands
 
         if isLowPowerMode {
             drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 10, opacity: 0.50)
@@ -538,5 +505,56 @@ public struct AuroraVisualizationView: View {
                 endPoint: CGPoint(x: poolRect.midX, y: poolRect.maxY)
             )
         )
+    }
+}
+
+/// Keeps live aurora band state off the SwiftUI observation path so analyzer ticks
+/// do not invalidate root-level view trees on every update.
+private final class AuroraRenderModel: ObservableObject {
+    private let bandCount = 24
+    private var smoothedBands = Array(repeating: 0.0, count: 24)
+    private var peakHolds = Array(repeating: 0.0, count: 24)
+    private var peakDecayTimers = Array(repeating: 0.0, count: 24)
+
+    var renderedBands: [Double] {
+        smoothedBands
+    }
+
+    func reset() {
+        smoothedBands = Array(repeating: 0.0, count: bandCount)
+        peakHolds = Array(repeating: 0.0, count: bandCount)
+        peakDecayTimers = Array(repeating: 0.0, count: bandCount)
+    }
+
+    func advance(
+        targetBands: [Double],
+        attackFactor: Double,
+        decayFactor: Double,
+        peakHoldTime: Double,
+        peakDecayRate: Double,
+        deltaTime: Double
+    ) {
+        for index in 0..<bandCount {
+            let target = targetBands[index]
+            let current = smoothedBands[index]
+
+            if target > current {
+                smoothedBands[index] = current + (target - current) * (1.0 - attackFactor)
+            } else {
+                smoothedBands[index] = current + (target - current) * (1.0 - decayFactor)
+            }
+
+            if smoothedBands[index] > peakHolds[index] {
+                peakHolds[index] = smoothedBands[index]
+                peakDecayTimers[index] = peakHoldTime
+            } else if peakDecayTimers[index] > 0 {
+                peakDecayTimers[index] -= deltaTime
+            } else {
+                peakHolds[index] = max(
+                    smoothedBands[index],
+                    peakHolds[index] - peakDecayRate * deltaTime
+                )
+            }
+        }
     }
 }
