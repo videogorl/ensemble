@@ -378,6 +378,7 @@ public struct MainTabView: View {
     
     private func handleTabTap(_ tag: TabItem) {
         if navigationCoordinator.selectedTab == tag {
+            EnsembleLogger.debug("🧭 Tab selection repeated tab=\(String(describing: tag))")
             // Already on this tab — pop to root or focus search
             if !pathForTab(tag).isEmpty {
                 navigationCoordinator.popToRoot(tab: tag)
@@ -385,6 +386,9 @@ public struct MainTabView: View {
                 searchVM.requestFocus()
             }
         } else {
+            EnsembleLogger.debug(
+                "🧭 Tab selection changed from=\(String(describing: navigationCoordinator.selectedTab)) to=\(String(describing: tag))"
+            )
             navigationCoordinator.selectedTab = tag
         }
 
@@ -435,6 +439,7 @@ public struct MainTabView: View {
                 navigationCoordinator.activeAuxiliaryPresentation == nil {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
+                    consumer: .phoneOverlay,
                     accentColor: settingsManager.accentColor.color,
                     isPaused: isShowingNowPlaying,
                     isLowPowerMode: isLowPowerMode
@@ -1157,6 +1162,7 @@ public struct SidebarView: View {
         // so navigate(to:) pushes onto the correct section's NavigationStack
         .onChange(of: selection) { newSelection in
             if let tab = newSelection?.correspondingTab {
+                EnsembleLogger.debug("🧭 Sidebar selection changed to=\(String(describing: tab))")
                 navigationCoordinator.selectedTab = tab
             }
             #if os(iOS)

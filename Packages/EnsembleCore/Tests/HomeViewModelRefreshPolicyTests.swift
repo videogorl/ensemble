@@ -139,11 +139,15 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         )
         let hubRepository = MockHubRepository()
         hubRepository.cachedHubs = cachedHubs
+        let hubLoader = HomeHubLoader(
+            accountManager: accountManager,
+            hubRepository: hubRepository
+        )
 
         let viewModel = HomeViewModel(
             accountManager: accountManager,
             syncCoordinator: coordinator,
-            hubRepository: hubRepository
+            hubLoader: hubLoader
         )
 
         return Harness(
@@ -267,6 +271,23 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 420_000_000)
 
         XCTAssertEqual(refreshCount, 0)
+    }
+
+    func testHiddenViewClearsDeferredAutoRefresh() async {
+        let sut = makeViewModel()
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.clearPendingAutoRefreshForTesting()
+
+        sut.handleViewVisibilityChange(isVisible: true)
+        sut.handleScrollInteraction(isInteracting: true)
+        sut.requestAutoRefreshForTesting(reason: .syncCompleted)
+        XCTAssertTrue(sut.hasPendingAutoRefreshForTesting)
+
+        sut.handleViewVisibilityChange(isVisible: false)
+        try? await Task.sleep(nanoseconds: 60_000_000)
+
+        XCTAssertFalse(sut.hasPendingAutoRefreshForTesting)
     }
 
     func testNoEnabledLibrariesClearsCachedFeedContent() async {

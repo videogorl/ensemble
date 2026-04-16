@@ -10,6 +10,7 @@ public struct AuroraVisualizationView: View {
     // MARK: - Dependencies
 
     private let playbackService: PlaybackServiceProtocol
+    private let consumer: VisualizationConsumer
     private let accentColor: Color
 
     // MARK: - State
@@ -17,6 +18,7 @@ public struct AuroraVisualizationView: View {
     @State private var frequencyBands: [Double] = []
     @State private var playbackState: PlaybackState = .stopped
     @State private var isVisible: Bool = false
+    @State private var isMounted = false
     /// Smoothed band values for fluid animation
     @State private var smoothedBands: [Double] = Array(repeating: 0.0, count: 24)
     /// Peak hold for each band (visual drama)
@@ -39,9 +41,6 @@ public struct AuroraVisualizationView: View {
     /// Height of the solid "pool" at the bottom
     private let poolHeight: CGFloat = 48
 
-    /// Smoothing factor for band animations (lower = snappier response)
-    private let smoothingFactor: Double = 1.5
-    
     /// Attack smoothing (how fast bands rise) - increased for smoother transitions
     private let attackFactor: Double = 0.7
     
@@ -53,12 +52,6 @@ public struct AuroraVisualizationView: View {
     
     /// Peak decay rate per second
     private let peakDecayRate: Double = 1.5
-
-    /// Breathing animation speed when paused
-    private let breathingSpeed: Double = 0.75
-
-    /// Breathing amplitude (how much bands move when paused)
-    private let breathingAmplitude: Double = 0.15
 
     // MARK: - Init
 
@@ -79,12 +72,14 @@ public struct AuroraVisualizationView: View {
 
     public init(
         playbackService: PlaybackServiceProtocol,
+        consumer: VisualizationConsumer,
         accentColor: Color,
         isPaused: Bool = false,
         isLowPowerMode: Bool = false,
         expandsBeyondBounds: Bool = true
     ) {
         self.playbackService = playbackService
+        self.consumer = consumer
         self.accentColor = accentColor
         self.isPaused = isPaused
         self.isLowPowerMode = isLowPowerMode
@@ -106,7 +101,15 @@ public struct AuroraVisualizationView: View {
 
     /// Frame rate: 30fps normal, 15fps in Low Power Mode or on ≤2-core devices (A9/A10).
     private var frameInterval: Double {
-        isLowPowerMode || isLowCoreDevice ? 1.0 / 15.0 : 1.0 / 30.0
+        usesLowCostSurfaceTier || isLowPowerMode || isLowCoreDevice ? 1.0 / 15.0 : 1.0 / 30.0
+    }
+
+    private var usesLowCostSurfaceTier: Bool {
+        consumer == .phoneOverlay || consumer == .rootBackdrop
+    }
+
+    private var shouldRegisterConsumer: Bool {
+        isMounted && !isPaused
     }
 
     public var body: some View {
@@ -114,13 +117,9 @@ public struct AuroraVisualizationView: View {
             // Fully paused when not actively playing (see isTimelinePaused).
             // The Canvas + 3 blur passes on 24 bands is too expensive to run
             // just for the subtle breathing animation.
-            TimelineView(.animation(minimumInterval: frameInterval, paused: isTimelinePaused)) { timeline in
+            TimelineView(.animation(minimumInterval: frameInterval, paused: isTimelinePaused)) { _ in
                 Canvas { context, size in
-                    drawAurora(
-                        context: context,
-                        size: size,
-                        time: timeline.date.timeIntervalSinceReferenceDate
-                    )
+                    drawAurora(context: context, size: size)
                 }
                 .frame(width: expandsBeyondBounds ? geometry.size.width + 80 : geometry.size.width)
                 .frame(height: maxHeight + 40) // Slightly taller to allow for bottom overflow
@@ -135,6 +134,9 @@ public struct AuroraVisualizationView: View {
         .allowsHitTesting(false)
         .onReceive(playbackService.frequencyBandsPublisher) { bands in
             frequencyBands = bands
+            if playbackState == .playing {
+                advanceRenderState(with: bands)
+            }
         }
         .onReceive(playbackService.playbackStatePublisher) { state in
             // Deduplicate: skip repeated state values to avoid redundant visibility checks
@@ -145,13 +147,25 @@ public struct AuroraVisualizationView: View {
             updateVisibility(for: state, animated: true)
         }
         .onAppear {
+            isMounted = true
             frequencyBands = playbackService.frequencyBands
             let currentState = playbackService.playbackState
             playbackState = currentState
+            updateConsumerRegistration()
+            if currentState == .playing {
+                advanceRenderState(with: frequencyBands)
+            }
             // Snap directly without animation: onAppear fires on tab switches too,
             // and we don't want the aurora to fade in every time the user changes tabs.
             // The animated fade is reserved for actual play/stop transitions via onReceive.
             updateVisibility(for: currentState, animated: false)
+        }
+        .onDisappear {
+            isMounted = false
+            updateConsumerRegistration()
+        }
+        .onChange(of: isPaused) { _ in
+            updateConsumerRegistration()
         }
     }
 
@@ -188,129 +202,89 @@ public struct AuroraVisualizationView: View {
         }
     }
 
-    // MARK: - Drawing
+    private func updateConsumerRegistration() {
+        playbackService.setVisualizationConsumer(consumer, isVisible: shouldRegisterConsumer)
+    }
 
-    /// Main drawing function for the aurora frequency visualization
-    private func drawAurora(context: GraphicsContext, size: CGSize, time: Double) {
-        // Only show active frequency data when actually playing;
-        // buffering/loading/paused all settle to resting state
-        let isPlaying = playbackState == .playing
-
-        // Calculate target band values from real-time frequency data
-        let targetBands = calculateBandValues(time: time, isPlaying: isPlaying)
-
-        // Smooth the bands with fast attack, slower decay for natural feel
+    /// Advances the smoothed aurora state from incoming analyzer samples instead of mutating
+    /// SwiftUI state during Canvas rendering.
+    private func advanceRenderState(with rawBands: [Double]) {
+        let targetBands = calculateBandValues(from: rawBands)
         var newSmoothed = smoothedBands
         var newPeakHolds = peakHolds
         var newPeakTimers = peakDecayTimers
-        
-        let deltaTime: Double = 1.0 / 30.0 // Approximate frame delta (30fps cap)
-        
-        for i in 0..<bandCount {
-            let target = targetBands[i]
-            let current = smoothedBands[i]
-            
-            // Attack/decay smoothing
+        let deltaTime = frameInterval
+
+        for index in 0..<bandCount {
+            let target = targetBands[index]
+            let current = smoothedBands[index]
+
             if target > current {
-                // Fast attack on rising signal
-                newSmoothed[i] = current + (target - current) * (1.0 - attackFactor)
+                newSmoothed[index] = current + (target - current) * (1.0 - attackFactor)
             } else {
-                // Slower decay on falling signal
-                newSmoothed[i] = current + (target - current) * (1.0 - decayFactor)
+                newSmoothed[index] = current + (target - current) * (1.0 - decayFactor)
             }
-            
-            // Peak hold logic
-            if newSmoothed[i] > newPeakHolds[i] {
-                // New peak
-                newPeakHolds[i] = newSmoothed[i]
-                newPeakTimers[i] = peakHoldTime
-            } else if newPeakTimers[i] > 0 {
-                // Hold the peak
-                newPeakTimers[i] -= deltaTime
+
+            if newSmoothed[index] > newPeakHolds[index] {
+                newPeakHolds[index] = newSmoothed[index]
+                newPeakTimers[index] = peakHoldTime
+            } else if newPeakTimers[index] > 0 {
+                newPeakTimers[index] -= deltaTime
             } else {
-                // Decay the peak
-                newPeakHolds[i] = max(newSmoothed[i], newPeakHolds[i] - peakDecayRate * deltaTime)
+                newPeakHolds[index] = max(
+                    newSmoothed[index],
+                    newPeakHolds[index] - peakDecayRate * deltaTime
+                )
             }
         }
 
-        // Update state for next frame
-        DispatchQueue.main.async {
-            self.smoothedBands = newSmoothed
-            self.peakHolds = newPeakHolds
-            self.peakDecayTimers = newPeakTimers
-        }
+        smoothedBands = newSmoothed
+        peakHolds = newPeakHolds
+        peakDecayTimers = newPeakTimers
+    }
 
-        // Three rendering tiers based on device capability:
-        // - Low Power Mode: 1 pass at 15fps (battery preservation, user opt-in)
-        // - Low-core (A9/A10, ≤2 cores): 2 passes at 15fps — drops ~67% of rendering
-        //   cost vs full mode while preserving visual quality better than 1-pass mode.
-        //   Opacities slightly bumped to compensate for the missing middle pass.
-        // - Normal (A12+, 4+ cores): 3 passes at 30fps, full quality.
+    // MARK: - Drawing
+
+    /// Main drawing function for the aurora frequency visualization
+    private func drawAurora(context: GraphicsContext, size: CGSize) {
+        // Non-playing states freeze the last rendered frame because TimelineView pauses.
+        let bandsToRender = smoothedBands
+
         if isLowPowerMode {
-            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 10, opacity: 0.50)
-        } else if isLowCoreDevice {
-            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 18, opacity: 0.28)
-            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 8,  opacity: 0.42)
+            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 10, opacity: 0.50)
+        } else if usesLowCostSurfaceTier || isLowCoreDevice {
+            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 18, opacity: 0.28)
+            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 8,  opacity: 0.42)
         } else {
-            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 18, opacity: 0.25)
-            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 12, opacity: 0.30)
-            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 8,  opacity: 0.35)
+            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 18, opacity: 0.25)
+            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 12, opacity: 0.30)
+            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 8,  opacity: 0.35)
         }
-        
-        // Peak highlights (subtle)
-        if isPlaying {
-            // drawPeakLayer(context: context, size: size, peaks: newPeakHolds)
-        }
-        
+
         drawBottomPool(context: context, size: size)
-        // drawSaturationGradient(context: context, size: size)
         drawDarkeningGradient(context: context, size: size)
     }
 
-    /// Calculates the intensity value for each frequency band
-    /// When playing: uses real-time frequency analysis from AudioAnalyzer
-    /// When paused/stopped: uses gentle breathing animation
-    private func calculateBandValues(time: Double, isPlaying: Bool) -> [Double] {
+    /// Maps analyzer output into the aurora's rendered band response curve.
+    private func calculateBandValues(from inputBands: [Double]) -> [Double] {
         var bands = [Double](repeating: 0.0, count: bandCount)
 
-        if isPlaying {
-            if !frequencyBands.isEmpty {
-                // Use real-time frequency data from audio analyzer
-                // frequencyBands is already normalized to 0.0-1.0 range
-                for i in 0..<min(bandCount, frequencyBands.count) {
-                    let normalizedPosition = Double(i) / Double(bandCount - 1)
-
-                    // Slight amplitude boost for low frequencies
-                    let bassBoost = 1.0 + (1.0 - normalizedPosition) * 0.4
-                    let rawValue = min(1.0, frequencyBands[i] * bassBoost)
-
-                    // Per-band response curve: shapes how contrasty vs sensitive each range is.
-                    // Bass (0.0): exponent ~1.3 — contrasty, quiet bass stays low, loud bass pops.
-                    // Mids (0.5): exponent ~0.7 — gentle lift, keeps presence.
-                    // Highs (1.0): exponent ~0.45 — sensitive, brief transients register visibly.
-                    let exponent = bandResponseExponent(normalizedPosition: normalizedPosition)
-                    let shaped = pow(max(0.001, rawValue), exponent)
-
-                    // Lower floor for bass so quiet moments don't look "always on"
-                    let floor = 0.02 + normalizedPosition * 0.04
-                    bands[i] = max(floor, shaped)
-                }
-            } else {
-                // No frequency data yet, show minimal activity
-                for i in 0..<bandCount {
-                    bands[i] = 0.1
-                }
+        if !inputBands.isEmpty {
+            for i in 0..<min(bandCount, inputBands.count) {
+                let normalizedPosition = Double(i) / Double(bandCount - 1)
+                let bassBoost = 1.0 + (1.0 - normalizedPosition) * 0.4
+                let rawValue = min(1.0, inputBands[i] * bassBoost)
+                let exponent = bandResponseExponent(normalizedPosition: normalizedPosition)
+                let shaped = pow(max(0.001, rawValue), exponent)
+                let floor = 0.02 + normalizedPosition * 0.04
+                bands[i] = max(floor, shaped)
             }
         } else {
-            // Gentle breathing animation when paused
             for i in 0..<bandCount {
-                bands[i] = calculateBreathingValue(bandIndex: i, time: time)
+                bands[i] = 0.1
             }
         }
 
-        // Lateral blend: spread energy from active bands into their neighbors so the
-        // aurora reads as one connected curtain rather than isolated clusters.
-        // Applied as a partial mix (40% smoothed, 60% original) to preserve dynamic peaks.
         return lateralBlend(bands: bands, sigma: 2.2, mix: 0.4)
     }
 
@@ -340,26 +314,6 @@ public struct AuroraVisualizationView: View {
         }
 
         return result
-    }
-
-    /// Calculates gentle breathing animation value for a band when paused
-    private func calculateBreathingValue(bandIndex: Int, time: Double) -> Double {
-        let normalizedPosition = Double(bandIndex) / Double(bandCount - 1)
-        let breathTime = time * breathingSpeed
-
-        // Multiple overlapping sine waves for organic breathing
-        let primaryBreath = sin(breathTime * 0.8) * 0.5 + 0.5
-        let phaseOffset = normalizedPosition * Double.pi * 2
-        let secondaryBreath = sin(breathTime * 1.3 + phaseOffset) * 0.3
-        let tertiaryBreath = sin(breathTime * 2.1 + phaseOffset * 0.7) * 0.1
-
-        // Bass-heavy shape even when paused
-        let bassShape = 1.0 + (1.0 - normalizedPosition) * 0.3
-
-        let breathValue = (primaryBreath + secondaryBreath + tertiaryBreath) * breathingAmplitude
-        let baseValue = 0.15 * bassShape
-
-        return max(0.05, min(0.4, baseValue + breathValue))
     }
 
     /// Returns the gamma exponent used to shape each band's response curve.

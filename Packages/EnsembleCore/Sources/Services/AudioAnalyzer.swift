@@ -8,6 +8,24 @@ import os
 private let logger = Logger(subsystem: "com.felicity.Ensemble", category: "AudioAnalyzer")
 #endif
 
+public enum VisualizationConsumer: String, CaseIterable, Sendable {
+    case phoneOverlay
+    case nowPlayingSheet
+    case nowPlayingViewport
+    case stageFlow
+    case externalDisplay
+    case rootBackdrop
+
+    var prefersLowCostUpdateRate: Bool {
+        switch self {
+        case .phoneOverlay, .rootBackdrop:
+            return true
+        case .nowPlayingSheet, .nowPlayingViewport, .stageFlow, .externalDisplay:
+            return false
+        }
+    }
+}
+
 // MARK: - Audio Analyzer Protocol
 
 /// Protocol for pre-computed frequency analysis decoupled from the audio pipeline.
@@ -59,6 +77,9 @@ public protocol AudioAnalyzerProtocol: AnyObject {
     /// Whether aurora visualization is enabled. When false, the 30Hz display timer
     /// is not started, saving CPU on low-end devices.
     @MainActor var visualizationEnabled: Bool { get set }
+
+    /// Registers whether a visualization surface is currently onscreen.
+    @MainActor func setVisualizationConsumer(_ consumer: VisualizationConsumer, isVisible: Bool)
 }
 
 // MARK: - Frequency Snapshot
@@ -195,7 +216,8 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     private let fftSize = 1024
     private let minFrequency: Double = 60.0
     private let maxFrequency: Double = 16000.0
-    private let targetFPS: Double = 30.0
+    private let highTargetFPS: Double = 30.0
+    private let lowTargetFPS: Double = 15.0
 
     // MARK: - Published State
 
@@ -215,6 +237,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     /// 30Hz display timer
     private var displayTimer: Timer?
+    private var activeDisplayFPS: Double?
 
     /// Last known playback position (set by updatePlaybackPosition)
     private var currentPlaybackTime: TimeInterval = 0
@@ -231,13 +254,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     public var visualizationEnabled: Bool = true {
         didSet {
             guard visualizationEnabled != oldValue else { return }
-            if !visualizationEnabled {
-                // Stop the 30Hz timer immediately when disabled
-                stopDisplayTimer()
-            } else if activeTrackId != nil && !isPaused {
-                // Re-enable: start the timer if we have an active, unpaused track
-                startDisplayTimer()
-            }
+            updateDisplayTimerState(trigger: "visualizationEnabled")
         }
     }
 
@@ -248,6 +265,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     /// In-flight analysis tasks (to avoid duplicate work)
     private var analysisTasks: [String: Task<Void, Never>] = [:]
+    private var visibleVisualizationConsumers = Set<VisualizationConsumer>()
 
     // MARK: - Init
 
@@ -392,12 +410,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         // Clear bands immediately so stale data from the previous track doesn't persist
         frequencyBands = Array(repeating: 0.0, count: bandCount)
 
-        // Only start the 30Hz display timer when visualization is enabled.
-        // On A9 (dual-core), the timer + Gaussian blending + array allocations
-        // consume measurable CPU even when the aurora Canvas isn't rendering.
-        if visualizationEnabled {
-            startDisplayTimer()
-        }
+        updateDisplayTimerState(trigger: "activateTimeline")
 
         #if DEBUG
         let hasTimeline = timelines[trackId] != nil
@@ -416,7 +429,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         // If we evicted the active timeline, clear the display
         if activeTrackId == trackId {
             activeTrackId = nil
-            stopDisplayTimer()
+            updateDisplayTimerState(trigger: "evictTimeline")
             frequencyBands = Array(repeating: 0.0, count: bandCount)
         }
     }
@@ -431,8 +444,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     // MARK: - Lifecycle
 
     public func stopAnalysis() {
-        displayTimer?.invalidate()
-        displayTimer = nil
+        stopDisplayTimer(reason: "stopAnalysis")
         activeTrackId = nil
         isPaused = false
         timelines.removeAll()
@@ -447,7 +459,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     public func pauseUpdates() {
         isPaused = true
-        stopDisplayTimer() // Actually stop the timer, not just flag — saves ~3ms/sec of main thread
+        updateDisplayTimerState(trigger: "pauseUpdates")
 
         #if DEBUG
         logger.debug("Frequency updates paused (timer stopped)")
@@ -458,13 +470,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         guard isPaused else { return }
         isPaused = false
         positionUpdateWallTime = CACurrentMediaTime()
-
-        // Restart the timer now that we're unpaused.
-        // Also handles the case where visualization was enabled after activateTimeline()
-        // was called without it (e.g. user toggles aurora on mid-playback).
-        if visualizationEnabled && activeTrackId != nil {
-            startDisplayTimer()
-        }
+        updateDisplayTimerState(trigger: "resumeUpdates")
 
         #if DEBUG
         logger.debug("Frequency updates resumed (timer restarted)")
@@ -477,37 +483,103 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     /// the music-pause state is preserved for when the app returns to foreground.
     public func enterBackground() {
         isBackgrounded = true
-        stopDisplayTimer()
+        updateDisplayTimerState(trigger: "enterBackground")
     }
 
     /// Restart the display timer when the app foregrounds — but only if music was
     /// actively playing (not paused by the user or a track transition).
     public func exitBackground() {
         isBackgrounded = false
-        if !isPaused && visualizationEnabled && activeTrackId != nil {
-            startDisplayTimer()
+        updateDisplayTimerState(trigger: "exitBackground")
+    }
+
+    public func setVisualizationConsumer(_ consumer: VisualizationConsumer, isVisible: Bool) {
+        let changed: Bool
+        if isVisible {
+            changed = visibleVisualizationConsumers.insert(consumer).inserted
+        } else {
+            changed = visibleVisualizationConsumers.remove(consumer) != nil
         }
+
+        guard changed else { return }
+
+        #if DEBUG
+        logger.debug("Visualization consumer \(consumer.rawValue) visible=\(isVisible) total=\(self.visibleVisualizationConsumers.count)")
+        #endif
+
+        updateDisplayTimerState(trigger: "consumer:\(consumer.rawValue)")
     }
 
     // MARK: - Display Timer
 
-    /// Start a 30Hz timer that reads the active timeline and publishes bands.
+    private var desiredDisplayFPS: Double? {
+        guard !visibleVisualizationConsumers.isEmpty else { return nil }
+        let requiresHighRate = visibleVisualizationConsumers.contains { !$0.prefersLowCostUpdateRate }
+        return requiresHighRate ? highTargetFPS : lowTargetFPS
+    }
+
+    private func updateDisplayTimerState(trigger: String) {
+        guard visualizationEnabled else {
+            stopDisplayTimer(reason: "\(trigger):visualizationDisabled")
+            return
+        }
+
+        guard !isBackgrounded else {
+            stopDisplayTimer(reason: "\(trigger):backgrounded")
+            return
+        }
+
+        guard activeTrackId != nil else {
+            stopDisplayTimer(reason: "\(trigger):noActiveTrack")
+            return
+        }
+
+        guard !isPaused else {
+            stopDisplayTimer(reason: "\(trigger):paused")
+            return
+        }
+
+        guard let fps = desiredDisplayFPS else {
+            stopDisplayTimer(reason: "\(trigger):noVisibleConsumers")
+            return
+        }
+
+        startDisplayTimer(fps: fps, reason: trigger)
+    }
+
+    /// Start a timer that reads the active timeline and publishes bands.
     /// Timer runs on RunLoop.main so tickDisplay() executes on the main thread directly
-    /// without the overhead of a Task { @MainActor } hop 30x/sec.
-    private func startDisplayTimer() {
-        displayTimer?.invalidate()
-        let timer = Timer(timeInterval: 1.0 / targetFPS, repeats: true) { [weak self] _ in
+    /// without the overhead of a Task { @MainActor } hop on every frame.
+    private func startDisplayTimer(fps: Double, reason: String) {
+        if displayTimer != nil, activeDisplayFPS == fps {
+            return
+        }
+
+        stopDisplayTimer(reason: "\(reason):restart")
+
+        let timer = Timer(timeInterval: 1.0 / fps, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.tickDisplay()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
         displayTimer = timer
+        activeDisplayFPS = fps
+
+        #if DEBUG
+        logger.debug("Display timer started fps=\(fps, format: .fixed(precision: 0)) reason=\(reason)")
+        #endif
     }
 
-    private func stopDisplayTimer() {
+    private func stopDisplayTimer(reason: String) {
+        guard displayTimer != nil else { return }
         displayTimer?.invalidate()
         displayTimer = nil
+        activeDisplayFPS = nil
+
+        #if DEBUG
+        logger.debug("Display timer stopped reason=\(reason)")
+        #endif
     }
 
     /// Called ~30 times per second by the display timer
@@ -529,6 +601,18 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         // chain 30x/sec when the visualizer is showing silence or a held frame
         guard newBands != frequencyBands else { return }
         frequencyBands = newBands
+    }
+
+    internal var visibleVisualizationConsumersForTesting: Set<VisualizationConsumer> {
+        visibleVisualizationConsumers
+    }
+
+    internal var isDisplayTimerRunningForTesting: Bool {
+        displayTimer != nil
+    }
+
+    internal var activeDisplayFPSForTesting: Double? {
+        activeDisplayFPS
     }
 
     // MARK: - Static FFT Analysis (runs on background thread)

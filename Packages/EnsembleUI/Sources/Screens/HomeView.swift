@@ -393,7 +393,7 @@ struct HubItemCard: View {
                 path: item.thumbPath,
                 sourceKey: item.sourceCompositeKey,
                 ratingKey: item.id,
-                size: .small,
+                size: .card,
                 cornerRadius: isArtist
                     ? ArtworkCornerRadius.circle(for: artworkDimension)
                     : ArtworkCornerRadius.square(for: artworkDimension),

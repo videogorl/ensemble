@@ -27,6 +27,7 @@ public struct AuroraBackgroundContainer<Content: View>: View {
             if isEnabled {
                 AuroraVisualizationView(
                     playbackService: playbackService,
+                    consumer: .rootBackdrop,
                     accentColor: accentColor
                 )
                 .ignoresSafeArea()

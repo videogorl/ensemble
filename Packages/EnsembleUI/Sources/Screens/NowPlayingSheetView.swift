@@ -86,6 +86,7 @@ public struct NowPlayingSheetView: View {
             if settingsManager.auroraVisualizationEnabled {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
+                    consumer: .nowPlayingSheet,
                     accentColor: settingsManager.accentColor.color,
                     isLowPowerMode: powerStateMonitor.isLowPowerMode
                 )

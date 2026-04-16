@@ -194,6 +194,9 @@ public protocol PlaybackServiceProtocol: AnyObject {
     /// Update the visualizer's playback position (for scrubber drag sync)
     @MainActor func updateVisualizerPosition(_ time: TimeInterval)
 
+    /// Register whether an aurora surface is currently onscreen.
+    @MainActor func setVisualizationConsumer(_ consumer: VisualizationConsumer, isVisible: Bool)
+
     /// Returns codec and file size of the file currently being decoded by AVPlayer
     func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?)
 
@@ -4941,6 +4944,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     public func updateVisualizerPosition(_ time: TimeInterval) {
         audioAnalyzer.updatePlaybackPosition(time)
+    }
+
+    public func setVisualizationConsumer(_ consumer: VisualizationConsumer, isVisible: Bool) {
+        audioAnalyzer.setVisualizationConsumer(consumer, isVisible: isVisible)
     }
 
     @MainActor
