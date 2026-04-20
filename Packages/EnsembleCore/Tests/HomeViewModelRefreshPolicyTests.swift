@@ -143,11 +143,15 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             accountManager: accountManager,
             hubRepository: hubRepository
         )
+        let libraryRepository = MockLibraryRepository()
+        let playlistRepository = MockPlaylistRepository()
 
         let viewModel = HomeViewModel(
             accountManager: accountManager,
             syncCoordinator: coordinator,
-            hubLoader: hubLoader
+            hubLoader: hubLoader,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository
         )
 
         return Harness(
@@ -336,5 +340,82 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertTrue(sut.hubs.isEmpty)
         XCTAssertTrue(sut.hasConfiguredAccounts)
         XCTAssertFalse(sut.hasEnabledLibraries)
+    }
+
+    func testLocalAvailabilityFilterDropsUnresolvedItemsAndEmptyHubs() async throws {
+        let available = Set([
+            "album-1|plex:account-1:server-1:lib-1",
+            "track-1|plex:account-1:server-1:lib-1"
+        ])
+
+        let hubs = [
+            Hub(
+                id: "hub-1",
+                title: "Mixed",
+                type: "mixed",
+                items: [
+                    HubItem(
+                        id: "album-1",
+                        type: "album",
+                        title: "Album One",
+                        subtitle: "Artist One",
+                        thumbPath: nil,
+                        year: 2025,
+                        sourceCompositeKey: "plex:account-1:server-1:lib-1"
+                    ),
+                    HubItem(
+                        id: "album-2",
+                        type: "album",
+                        title: "Album Two",
+                        subtitle: "Artist Two",
+                        thumbPath: nil,
+                        year: 2024,
+                        sourceCompositeKey: "plex:account-1:server-1:lib-1"
+                    )
+                ],
+                context: "hub.music.artist"
+            ),
+            Hub(
+                id: "hub-2",
+                title: "Tracks",
+                type: "mixed",
+                items: [
+                    HubItem(
+                        id: "track-1",
+                        type: "track",
+                        title: "Track One",
+                        subtitle: "Artist",
+                        thumbPath: nil,
+                        year: nil,
+                        sourceCompositeKey: "plex:account-1:server-1:lib-1"
+                    )
+                ]
+            ),
+            Hub(
+                id: "hub-3",
+                title: "Playlists",
+                type: "playlist",
+                items: [
+                    HubItem(
+                        id: "playlist-1",
+                        type: "playlist",
+                        title: "Playlist",
+                        subtitle: nil,
+                        thumbPath: nil,
+                        year: nil,
+                        sourceCompositeKey: "plex:account-1:server-1:lib-1"
+                    )
+                ]
+            )
+        ]
+
+        let filtered = try await HomeViewModel.filterHubsForLocalAvailability(hubs) { item in
+            available.contains("\(item.id)|\(item.sourceCompositeKey)")
+        }
+
+        XCTAssertEqual(filtered.count, 2)
+        XCTAssertEqual(filtered[0].items.map(\.id), ["album-1"])
+        XCTAssertEqual(filtered[0].context, "hub.music.artist")
+        XCTAssertEqual(filtered[1].items.map(\.id), ["track-1"])
     }
 }

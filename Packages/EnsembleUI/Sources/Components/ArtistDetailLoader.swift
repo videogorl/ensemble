@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ArtistDetailLoader: View {
     let artistId: String
+    let artistSourceKey: String?
     let nowPlayingVM: NowPlayingViewModel
     @State private var artist: Artist?
     @State private var isLoading = true
@@ -11,6 +12,12 @@ struct ArtistDetailLoader: View {
     @State private var loadTask: Task<Void, Never>?
     
     @Environment(\.dependencies) private var deps
+
+    init(artistId: String, artistSourceKey: String? = nil, nowPlayingVM: NowPlayingViewModel) {
+        self.artistId = artistId
+        self.artistSourceKey = artistSourceKey
+        self.nowPlayingVM = nowPlayingVM
+    }
     
     var body: some View {
         Group {
@@ -55,7 +62,10 @@ struct ArtistDetailLoader: View {
     @MainActor
     private func loadArtist() async {
         do {
-            if let cdArtist = try await deps.libraryRepository.fetchArtist(ratingKey: artistId) {
+            if let cdArtist = try await deps.libraryRepository.fetchArtist(
+                ratingKey: artistId,
+                sourceCompositeKey: artistSourceKey
+            ) {
                 self.artist = Artist(from: cdArtist)
             }
             self.isLoading = false

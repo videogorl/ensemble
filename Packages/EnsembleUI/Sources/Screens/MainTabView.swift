@@ -509,10 +509,10 @@ public struct MainTabView: View {
     @ViewBuilder
     private func destinationContentView(for destination: NavigationCoordinator.Destination) -> some View {
         switch destination {
-        case .artist(let id):
-            ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
-        case .album(let id):
-            AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
+        case .artist(let id, let sourceKey):
+            ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+        case .album(let id, let sourceKey):
+            AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .playlist(let id, let sourceKey):
             PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .mergedPlaylist(let title, let isSmart):
@@ -1756,10 +1756,10 @@ public struct SidebarView: View {
     @ViewBuilder
     private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
         switch destination {
-        case .artist(let id):
-            ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
-        case .album(let id):
-            AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
+        case .artist(let id, let sourceKey):
+            ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+        case .album(let id, let sourceKey):
+            AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .playlist(let id, let sourceKey):
             PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .mergedPlaylist(let title, let isSmart):

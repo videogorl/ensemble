@@ -1774,6 +1774,8 @@ public final class DependencyContainer: @unchecked Sendable {
             accountManager: accountManager,
             syncCoordinator: syncCoordinator,
             hubLoader: homeHubLoader,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
             hubOrderManager: hubOrderManager,
             visibilityStore: libraryVisibilityStore
         )

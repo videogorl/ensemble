@@ -203,6 +203,36 @@ final class PlaybackServiceTests: XCTestCase {
         )
     }
 
+    func testPrefetchedTrackIsNotScheduledAfterItBecomesCurrent() {
+        XCTAssertFalse(
+            PlaybackService.shouldSchedulePrefetchedTrack(
+                prefetchedTrackID: "track-2",
+                currentTrackID: "track-2",
+                nextUpcomingTrackID: "track-3"
+            )
+        )
+    }
+
+    func testPrefetchedTrackIsNotScheduledWhenUpcomingQueueChanges() {
+        XCTAssertFalse(
+            PlaybackService.shouldSchedulePrefetchedTrack(
+                prefetchedTrackID: "track-2",
+                currentTrackID: "track-1",
+                nextUpcomingTrackID: "track-3"
+            )
+        )
+    }
+
+    func testPrefetchedTrackSchedulesOnlyWhenStillNextUpcoming() {
+        XCTAssertTrue(
+            PlaybackService.shouldSchedulePrefetchedTrack(
+                prefetchedTrackID: "track-2",
+                currentTrackID: "track-1",
+                nextUpcomingTrackID: "track-2"
+            )
+        )
+    }
+
     func testTrackFormattedDuration() {
         let track = Track(
             id: "1",

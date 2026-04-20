@@ -4318,6 +4318,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return indices
     }
 
+    internal static func shouldSchedulePrefetchedTrack(
+        prefetchedTrackID: String,
+        currentTrackID: String?,
+        nextUpcomingTrackID: String?
+    ) -> Bool {
+        guard prefetchedTrackID != currentTrackID else { return false }
+        guard nextUpcomingTrackID == prefetchedTrackID else { return false }
+        return true
+    }
+
     private func prefetchUpcomingItems(depth: Int) async {
         guard let engine = audioEngine else { return }
 
@@ -4382,6 +4392,29 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     await evictTruncatedFile(fileURL: fileURL, track: track, fileDuration: fileDuration, expectedDuration: expectedDuration)
                     fileURL = try await resolveAudioFile(for: track)
                 }
+            }
+
+            let scheduleContext = await MainActor.run { [weak self] in
+                guard let self else {
+                    return (currentTrackID: Optional<String>.none, nextUpcomingTrackID: Optional<String>.none)
+                }
+
+                let currentTrackID = self.queue.indices.contains(self.currentQueueIndex)
+                    ? self.queue[self.currentQueueIndex].track.id
+                    : self.currentTrack?.id
+                let nextUpcomingTrackID = self.upcomingQueueIndices(depth: depth).first.map { self.queue[$0].track.id }
+                return (currentTrackID: currentTrackID, nextUpcomingTrackID: nextUpcomingTrackID)
+            }
+
+            guard Self.shouldSchedulePrefetchedTrack(
+                prefetchedTrackID: track.id,
+                currentTrackID: scheduleContext.currentTrackID,
+                nextUpcomingTrackID: scheduleContext.nextUpcomingTrackID
+            ) else {
+                EnsembleLogger.debug(
+                    "[prefetch] '\(track.title)' no longer matches upcoming queue current=\(scheduleContext.currentTrackID ?? "nil") next=\(scheduleContext.nextUpcomingTrackID ?? "nil")"
+                )
+                return
             }
 
             // Final guard: another caller may have scheduled while we were resolving

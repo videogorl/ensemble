@@ -1,5 +1,6 @@
 import Combine
 import EnsembleAPI
+import EnsemblePersistence
 import Foundation
 
 /// ViewModel for the Home screen that displays dynamic content hubs from Plex servers
@@ -28,6 +29,8 @@ public final class HomeViewModel: ObservableObject {
     private let hubLoader: HomeHubLoaderProtocol
     private let hubOrderManager: HubOrderManager
     private let visibilityStore: LibraryVisibilityStore
+    private let libraryRepository: LibraryRepositoryProtocol
+    private let playlistRepository: PlaylistRepositoryProtocol
     private var cancellables = Set<AnyCancellable>()
     private var refreshTriggerCancellables = Set<AnyCancellable>()
     private var loadTask: Task<Void, Never>?
@@ -39,6 +42,9 @@ public final class HomeViewModel: ObservableObject {
     private var deferredAutoRefreshTask: Task<Void, Never>?
     private var pendingHubSnapshot: [Hub]?
     private var pendingHubApplyTask: Task<Void, Never>?
+    // Preserve the server snapshot separately so Feed can stay a local-library
+    // projection without mutating the cached hub payload itself.
+    private var rawHubSnapshot: [Hub] = []
     private var unfilteredHubs: [Hub] = []
 
     // Startup suppression: the explicit .task load IS the startup load;
@@ -78,12 +84,16 @@ public final class HomeViewModel: ObservableObject {
         accountManager: AccountManager,
         syncCoordinator: SyncCoordinator,
         hubLoader: HomeHubLoaderProtocol,
+        libraryRepository: LibraryRepositoryProtocol,
+        playlistRepository: PlaylistRepositoryProtocol,
         hubOrderManager: HubOrderManager = HubOrderManager(),
         visibilityStore: LibraryVisibilityStore? = nil
     ) {
         self.accountManager = accountManager
         self.syncCoordinator = syncCoordinator
         self.hubLoader = hubLoader
+        self.libraryRepository = libraryRepository
+        self.playlistRepository = playlistRepository
         self.hubOrderManager = hubOrderManager
         self.visibilityStore = visibilityStore ?? .shared
         updateSourceAvailability()
@@ -100,9 +110,11 @@ public final class HomeViewModel: ObservableObject {
                 self.currentSourceName = cachedSnapshot.metadata.currentSourceName
 
                 if !cachedSnapshot.orderedHubs.isEmpty {
-                    self.unfilteredHubs = cachedSnapshot.orderedHubs
+                    self.rawHubSnapshot = cachedSnapshot.orderedHubs
+                    let availableHubs = await self.filterHubsForLocalAvailability(cachedSnapshot.orderedHubs)
+                    self.unfilteredHubs = availableHubs
                     self.hubs = Self.filterHubsForVisibility(
-                        cachedSnapshot.orderedHubs,
+                        availableHubs,
                         hiddenSourceCompositeKeys: self.visibilityStore.hiddenSourceCompositeKeys
                     )
                     EnsembleStartupTiming.logTTFMP(milestone: "Cached hubs visible (\(self.hubs.count) hubs)")
@@ -185,7 +197,7 @@ public final class HomeViewModel: ObservableObject {
 
             currentSourceKey = snapshot.metadata.currentSourceKey
             currentSourceName = snapshot.metadata.currentSourceName
-            applyHubSnapshot(
+            await applyHubSnapshot(
                 snapshot.orderedHubs,
                 deferIfInteracting: deferUIUpdatesWhileInteracting,
                 source: "network"
@@ -339,10 +351,12 @@ public final class HomeViewModel: ObservableObject {
         }
     }
 
-    private func applyHubSnapshot(_ snapshot: [Hub], deferIfInteracting: Bool, source: String) {
-        unfilteredHubs = snapshot
+    private func applyHubSnapshot(_ snapshot: [Hub], deferIfInteracting: Bool, source: String) async {
+        rawHubSnapshot = snapshot
+        let availableSnapshot = await filterHubsForLocalAvailability(snapshot)
+        unfilteredHubs = availableSnapshot
         let visibleSnapshot = Self.filterHubsForVisibility(
-            snapshot,
+            availableSnapshot,
             hiddenSourceCompositeKeys: visibilityStore.hiddenSourceCompositeKeys
         )
 
@@ -448,7 +462,95 @@ public final class HomeViewModel: ObservableObject {
             }
 
             guard !visibleItems.isEmpty else { return nil }
-            return Hub(id: hub.id, title: hub.title, type: hub.type, items: visibleItems)
+            return Hub(id: hub.id, title: hub.title, type: hub.type, items: visibleItems, context: hub.context)
+        }
+    }
+
+    internal static func filterHubsForLocalAvailability(
+        _ hubs: [Hub],
+        itemExists: @escaping @Sendable (HubItem) async throws -> Bool
+    ) async rethrows -> [Hub] {
+        var filteredHubs: [Hub] = []
+        filteredHubs.reserveCapacity(hubs.count)
+
+        for hub in hubs {
+            var availableItems: [HubItem] = []
+            availableItems.reserveCapacity(hub.items.count)
+
+            for item in hub.items {
+                if try await itemExists(item) {
+                    availableItems.append(item)
+                }
+            }
+
+            guard !availableItems.isEmpty else { continue }
+            filteredHubs.append(
+                Hub(
+                    id: hub.id,
+                    title: hub.title,
+                    type: hub.type,
+                    items: availableItems,
+                    context: hub.context
+                )
+            )
+        }
+
+        return filteredHubs
+    }
+
+    private func filterHubsForLocalAvailability(_ hubs: [Hub]) async -> [Hub] {
+        do {
+            let filteredHubs = try await Self.filterHubsForLocalAvailability(hubs) { [libraryRepository, playlistRepository] item in
+                try await Self.hubItemExistsInLocalLibrary(
+                    item,
+                    libraryRepository: libraryRepository,
+                    playlistRepository: playlistRepository
+                )
+            }
+
+            let filteredItemCount = filteredHubs.reduce(into: 0) { $0 += $1.items.count }
+            let rawItemCount = hubs.reduce(into: 0) { $0 += $1.items.count }
+            if filteredItemCount != rawItemCount {
+                EnsembleLogger.debug(
+                    "🏠 Feed local availability filtered hiddenItems=\(rawItemCount - filteredItemCount) visibleItems=\(filteredItemCount)"
+                )
+            }
+
+            return filteredHubs
+        } catch {
+            EnsembleLogger.debug("🏠 Feed local availability filter failed: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    private static func hubItemExistsInLocalLibrary(
+        _ item: HubItem,
+        libraryRepository: LibraryRepositoryProtocol,
+        playlistRepository: PlaylistRepositoryProtocol
+    ) async throws -> Bool {
+        switch item.type {
+        case "album":
+            return try await libraryRepository.fetchAlbum(
+                ratingKey: item.id,
+                sourceCompositeKey: item.sourceCompositeKey
+            ) != nil
+        case "artist":
+            return try await libraryRepository.fetchArtist(
+                ratingKey: item.id,
+                sourceCompositeKey: item.sourceCompositeKey
+            ) != nil
+        case "playlist":
+            return try await playlistRepository.fetchPlaylist(
+                ratingKey: item.id,
+                sourceCompositeKey: item.sourceCompositeKey
+            ) != nil
+        case "track":
+            return try await libraryRepository.fetchTrack(
+                ratingKey: item.id,
+                sourceCompositeKey: item.sourceCompositeKey
+            ) != nil
+        default:
+            return false
         }
     }
 
@@ -515,6 +617,7 @@ public final class HomeViewModel: ObservableObject {
         loadTask?.cancel()
         isLoading = false
         error = nil
+        rawHubSnapshot = []
         unfilteredHubs = []
         hubs = []
         editableHubs = []
@@ -593,7 +696,9 @@ public final class HomeViewModel: ObservableObject {
         EnsembleLogger.debug("[HubOrder] Applying default order to \(serverHubs.count) server hubs")
         let orderedServerHubs = hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
         let orderedSnapshot = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: unfilteredHubs)
-        applyHubSnapshot(orderedSnapshot, deferIfInteracting: false, source: "resetOrder")
+        Task { @MainActor [weak self] in
+            await self?.applyHubSnapshot(orderedSnapshot, deferIfInteracting: false, source: "resetOrder")
+        }
 
         // Clear debounce and reload hubs to show the reset order
         lastLoadTime = nil

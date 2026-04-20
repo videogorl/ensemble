@@ -431,8 +431,8 @@ struct HubItemCard: View {
     
     private var destination: NavigationCoordinator.Destination? {
         switch item.type {
-        case "album": return .album(id: item.id)
-        case "artist": return .artist(id: item.id)
+        case "album": return .album(id: item.id, sourceKey: item.sourceCompositeKey)
+        case "artist": return .artist(id: item.id, sourceKey: item.sourceCompositeKey)
         case "playlist": return .playlist(id: item.id, sourceKey: item.sourceCompositeKey)
         default: return nil
         }
@@ -442,9 +442,17 @@ struct HubItemCard: View {
     private var destinationView: some View {
         switch item.type {
         case "album":
-            AlbumDetailLoader(albumId: item.id, nowPlayingVM: nowPlayingVM)
+            AlbumDetailLoader(
+                albumId: item.id,
+                albumSourceKey: item.sourceCompositeKey,
+                nowPlayingVM: nowPlayingVM
+            )
         case "artist":
-            ArtistDetailLoader(artistId: item.id, nowPlayingVM: nowPlayingVM)
+            ArtistDetailLoader(
+                artistId: item.id,
+                artistSourceKey: item.sourceCompositeKey,
+                nowPlayingVM: nowPlayingVM
+            )
         case "playlist":
             PlaylistDetailLoader(
                 playlistId: item.id,
@@ -544,7 +552,7 @@ struct HubItemCard: View {
             if let artistId = album.artistRatingKey {
                 Button {
                     self.navigationCoordinator.push(
-                        .artist(id: artistId),
+                        .artist(id: artistId, sourceKey: item.sourceCompositeKey),
                         in: self.navigationCoordinator.selectedTab
                     )
                 } label: {
@@ -681,7 +689,7 @@ struct HubItemCard: View {
         if let albumId = track.albumRatingKey {
             Button {
                 self.navigationCoordinator.push(
-                    .album(id: albumId),
+                    .album(id: albumId, sourceKey: track.sourceCompositeKey),
                     in: self.navigationCoordinator.selectedTab
                 )
             } label: {
@@ -692,7 +700,7 @@ struct HubItemCard: View {
         if let artistId = track.artistRatingKey {
             Button {
                 self.navigationCoordinator.push(
-                    .artist(id: artistId),
+                    .artist(id: artistId, sourceKey: track.sourceCompositeKey),
                     in: self.navigationCoordinator.selectedTab
                 )
             } label: {
