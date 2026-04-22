@@ -254,7 +254,7 @@ final class QueueNavigationTests: XCTestCase {
         if case .playIndex(let idx) = action {
             XCTAssertEqual(idx, 5)
         } else {
-            XCTFail("Expected .playIndex, got \(action)")
+            XCTFail("Expected .playIndex, got \(String(describing: action))")
         }
 
         // Should record current (0) + skipped tracks (1,2,3,4) = 5 items

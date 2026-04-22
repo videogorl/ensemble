@@ -161,6 +161,7 @@ public struct ExternalDisplayNowPlayingView: View {
             if settingsManager.auroraVisualizationEnabled {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
+                    consumer: .externalDisplay,
                     accentColor: settingsManager.accentColor.color,
                     isLowPowerMode: powerStateMonitor.isLowPowerMode
                 )

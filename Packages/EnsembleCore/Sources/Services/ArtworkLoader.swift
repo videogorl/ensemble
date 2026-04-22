@@ -251,16 +251,12 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // Determine which path and ratingKey to use.
         let actualPath: String?
         let actualRatingKey: String?
-        let usedFallback: Bool
-        
         if path != nil && !path!.isEmpty {
             actualPath = path
             actualRatingKey = ratingKey
-            usedFallback = false
         } else if fallbackPath != nil && !fallbackPath!.isEmpty {
             actualPath = fallbackPath
             actualRatingKey = fallbackRatingKey
-            usedFallback = true
         } else {
             return nil
         }

@@ -92,7 +92,9 @@ private struct RootMiniPlayerOverlay: View {
 
     private var miniPlayerWidth: CGFloat {
         if isPhoneLayout {
-            return max(layout.frame.width, 0)
+            // Keep the mini player aligned to the tab bar capsule while leaving
+            // just enough extra width to avoid looking visually under-hung.
+            return max(layout.frame.width - 28, 0)
         }
         return min(620, max(layout.frame.width - 32, 0))
     }
@@ -189,7 +191,11 @@ public struct RootView: View {
     }
 
     private var showsRootBackgroundAurora: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom != .phone
+        #else
         true
+        #endif
     }
 
     public init() {
@@ -211,6 +217,7 @@ public struct RootView: View {
                     !auroraAboveContent {
                     AuroraVisualizationView(
                         playbackService: DependencyContainer.shared.playbackService,
+                        consumer: .rootBackdrop,
                         accentColor: settingsManager.accentColor.color,
                         isLowPowerMode: isLowPowerMode
                     )
@@ -224,6 +231,7 @@ public struct RootView: View {
                 if settingsManager.auroraVisualizationEnabled && !isNowPlayingPresented && auroraAboveContent {
                     AuroraVisualizationView(
                         playbackService: DependencyContainer.shared.playbackService,
+                        consumer: .rootBackdrop,
                         accentColor: settingsManager.accentColor.color,
                         isLowPowerMode: isLowPowerMode
                     )
@@ -412,6 +420,7 @@ public struct RootView: View {
         )
         .accentColor(settingsManager.accentColor.color)
         .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
+        .environmentObject(navigationCoordinator)
     }
 
     fileprivate var nowPlayingPresentationBinding: Binding<Bool> {

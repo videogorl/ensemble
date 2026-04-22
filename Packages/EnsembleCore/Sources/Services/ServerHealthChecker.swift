@@ -349,9 +349,7 @@ public final class ServerHealthChecker: ObservableObject {
                 await registry.updateEndpoint(for: serverKey, endpoint: workingEndpoint, source: .healthCheck)
             }
 
-            await MainActor.run {
-                serverFailureReasons.removeValue(forKey: serverKey)
-            }
+            serverFailureReasons.removeValue(forKey: serverKey)
             return .connected(url: workingEndpoint.url)
         } else {
             // Connection metadata can become stale (for example after WAN IP changes).
@@ -390,9 +388,7 @@ public final class ServerHealthChecker: ObservableObject {
                         await registry.updateEndpoint(for: serverKey, endpoint: refreshedWorkingEndpoint, source: .healthCheck)
                     }
 
-                    await MainActor.run {
-                        serverFailureReasons.removeValue(forKey: serverKey)
-                    }
+                    serverFailureReasons.removeValue(forKey: serverKey)
                     return .connected(url: refreshedWorkingEndpoint.url)
                 }
             }

@@ -6,6 +6,8 @@ import SwiftUI
 public struct HomeView: View {
     @StateObject private var viewModel: HomeViewModel
     let nowPlayingVM: NowPlayingViewModel
+    @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
+    @State private var profileBackgroundImage: UIImage?
     // Targeted singleton observation: only fires when sync state changes (for empty state)
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var playlistPickerTracks: [Track]?
@@ -19,16 +21,24 @@ public struct HomeView: View {
     }
     
     public var body: some View {
-        Group {
-            if viewModel.isLoading && viewModel.hubs.isEmpty {
-                loadingView
-            } else if viewModel.hubs.isEmpty {
-                emptyView
-            } else {
-                hubsScrollView
+        ZStack(alignment: .top) {
+            if profileBackgroundImage != nil {
+                ArtworkDetailBackground(image: profileBackgroundImage, height: 340)
+                    .allowsHitTesting(false)
+                    .ignoresSafeArea(edges: .top)
+            }
+
+            Group {
+                if viewModel.isLoading && viewModel.hubs.isEmpty {
+                    loadingView
+                } else if viewModel.hubs.isEmpty {
+                    emptyView
+                } else {
+                    hubsScrollView
+                }
             }
         }
-        .navigationTitle("Feed")
+        .navigationTitle(feedTitle)
         .profileToolbar()
         .toolbar {
             #if os(macOS)
@@ -60,6 +70,9 @@ public struct HomeView: View {
         .task {
             await viewModel.loadHubs()
         }
+        .task(id: profileBackgroundReloadKey) {
+            loadProfileBackgroundImage()
+        }
         .onAppear {
             viewModel.handleViewVisibilityChange(isVisible: true)
         }
@@ -69,6 +82,30 @@ public struct HomeView: View {
         .refreshable {
             await viewModel.refresh()
         }
+    }
+
+    private var feedTitle: String {
+        if let displayName = profileDisplayName {
+            return "\(displayName.possessiveForm) Feed"
+        }
+
+        return "Feed"
+    }
+
+    private var profileDisplayName: String? {
+        guard let rawDisplayName = profileStore.profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawDisplayName.isEmpty else {
+            return nil
+        }
+
+        let sanitizedName = rawDisplayName.textualDisplayName
+        return sanitizedName.isEmpty ? rawDisplayName : sanitizedName
+    }
+
+    private var profileBackgroundReloadKey: String {
+        let imagePath = profileStore.profile.profileImagePath ?? "none"
+        let modified = profileStore.profile.lastModified.timeIntervalSinceReferenceDate
+        return "\(imagePath)-\(modified)"
     }
     
     private var loadingView: some View {
@@ -214,6 +251,19 @@ public struct HomeView: View {
         )
         .miniPlayerBottomSpacing()
     }
+
+    private func loadProfileBackgroundImage() {
+        guard let url = profileStore.profileImageURL else {
+            profileBackgroundImage = nil
+            return
+        }
+
+        #if canImport(UIKit)
+        profileBackgroundImage = UIImage(contentsOfFile: url.path)
+        #elseif canImport(AppKit)
+        profileBackgroundImage = NSImage(contentsOf: url)
+        #endif
+    }
 }
 
 // MARK: - Hub Section
@@ -343,7 +393,7 @@ struct HubItemCard: View {
                 path: item.thumbPath,
                 sourceKey: item.sourceCompositeKey,
                 ratingKey: item.id,
-                size: .small,
+                size: .card,
                 cornerRadius: isArtist
                     ? ArtworkCornerRadius.circle(for: artworkDimension)
                     : ArtworkCornerRadius.square(for: artworkDimension),
@@ -381,8 +431,8 @@ struct HubItemCard: View {
     
     private var destination: NavigationCoordinator.Destination? {
         switch item.type {
-        case "album": return .album(id: item.id)
-        case "artist": return .artist(id: item.id)
+        case "album": return .album(id: item.id, sourceKey: item.sourceCompositeKey)
+        case "artist": return .artist(id: item.id, sourceKey: item.sourceCompositeKey)
         case "playlist": return .playlist(id: item.id, sourceKey: item.sourceCompositeKey)
         default: return nil
         }
@@ -392,9 +442,17 @@ struct HubItemCard: View {
     private var destinationView: some View {
         switch item.type {
         case "album":
-            AlbumDetailLoader(albumId: item.id, nowPlayingVM: nowPlayingVM)
+            AlbumDetailLoader(
+                albumId: item.id,
+                albumSourceKey: item.sourceCompositeKey,
+                nowPlayingVM: nowPlayingVM
+            )
         case "artist":
-            ArtistDetailLoader(artistId: item.id, nowPlayingVM: nowPlayingVM)
+            ArtistDetailLoader(
+                artistId: item.id,
+                artistSourceKey: item.sourceCompositeKey,
+                nowPlayingVM: nowPlayingVM
+            )
         case "playlist":
             PlaylistDetailLoader(
                 playlistId: item.id,
@@ -494,7 +552,7 @@ struct HubItemCard: View {
             if let artistId = album.artistRatingKey {
                 Button {
                     self.navigationCoordinator.push(
-                        .artist(id: artistId),
+                        .artist(id: artistId, sourceKey: item.sourceCompositeKey),
                         in: self.navigationCoordinator.selectedTab
                     )
                 } label: {
@@ -631,7 +689,7 @@ struct HubItemCard: View {
         if let albumId = track.albumRatingKey {
             Button {
                 self.navigationCoordinator.push(
-                    .album(id: albumId),
+                    .album(id: albumId, sourceKey: track.sourceCompositeKey),
                     in: self.navigationCoordinator.selectedTab
                 )
             } label: {
@@ -642,7 +700,7 @@ struct HubItemCard: View {
         if let artistId = track.artistRatingKey {
             Button {
                 self.navigationCoordinator.push(
-                    .artist(id: artistId),
+                    .artist(id: artistId, sourceKey: track.sourceCompositeKey),
                     in: self.navigationCoordinator.selectedTab
                 )
             } label: {

@@ -34,6 +34,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - Decision parsing: `callTranscodeDecision()` → `TranscodeDecisionResult` (directplay/copy/transcode)
   - Playback tracking: `reportTimeline()`, `scrobble()`
   - Waveform data: `getLoudnessTimeline(forStreamId:subsample:)`
+  - File-partitioned endpoint groups now live beside the actor in `PlexAPIClient+Connections`, `PlexAPIClient+Library`, `PlexAPIClient+Metadata`, `PlexAPIClient+Playlists`, `PlexAPIClient+Playback`, and `PlexAPIClient+Downloads`, while shared request execution/failover remains in `PlexAPIClient.swift`
+- `PlexRequestBuilder` -- Pure URLRequest/header assembly helper used by PlexAPIClient's shared transport paths
 - `StreamDecision` / `TranscodeStreamDecision` -- Endpoint-independent streaming decisions (cached across network transitions)
 - `PlexConnectionPolicy` types -- Endpoint descriptors, ordering policies, probe classifications, and structured refresh outcomes
 - `PlexErrorClassification` -- Unified error taxonomy (transport vs. semantic) for failover and retry decisions
@@ -62,10 +64,15 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 
 **Key Services:**
 - `DependencyContainer` (singleton) -- Wires all services, creates ViewModels, injected via SwiftUI environment
+  - Bootstrap is staged through private bundle builders (`CoreBootstrap`, `NetworkBootstrap`, `SyncBootstrap`, `PlaybackBootstrap`, `MutationBootstrap`, `SiriBootstrap`) so subsystem construction stays grouped and behavior-preserving refactors do not collapse back into one monolithic initializer
+  - Cross-subsystem callbacks are attached in one explicit `wireCrossSubsystemCallbacks()` phase after construction; WebSocket, offline, playback, artwork, profile/cloud, and KVS wiring should be added there rather than inline in the initializer
 - `AccountManager` (@MainActor) -- Manages multiple Plex accounts, servers, and libraries
 - `PlexAccountDiscoveryService` -- Discovers account identity + normalized server/library inventory during add-account and reconciliation flows
+- `LocalNetworkPermissionProbe` -- Onboarding helper that prompts for local-network access before Plex server discovery work
 - `SyncCoordinator` (@MainActor) -- Orchestrates library syncing across all enabled sources; provides timeline reporting and scrobbling methods
   - Publishes `lastContentChange` for consumers that need actual library/playlist mutations; `sourceStatuses` remains the transport/progress surface
+  - Delegates playlist create/rename/delete/replace control flow to `PlaylistMutationController` so mutation validation, duplicate checks, refresh triggering, and target persistence stay out of the main sync facade
+  - Delegates full/incremental/startup sync execution to `SyncExecutionController` so sync loops, per-source status transitions, playlist-once-per-server handling, and incremental fallback logic stay out of the main facade
   - Delegates health-refresh gating/coalescing to `RefreshOrchestrator` so foreground/network-triggered probes share one cooldown/staleness path
   - Delegates app-foreground and network-transition policy to `NetworkLifecycleController` so lifecycle events produce explicit refresh/invalidation plans before side effects run
   - Delegates API-client endpoint synchronization and registry observation to `ServerConnectionController` so sync flow no longer owns registry subscription tasks directly
@@ -79,16 +86,28 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - On iPhone, `Profile` is routed through `activeAuxiliaryPresentation` but presented as a normal root sheet in `MainTabView`; `Downloads` keeps the auxiliary full-screen presenter because it still benefits from root-shell isolation
 - `RootView` owns the scene/window-scoped `NavigationCoordinator` and `NowPlayingViewModel`, while playback services remain shared through `DependencyContainer`. This keeps multiple iPad/macOS windows on independent navigation paths without forking playback state.
 - Large-screen Now Playing presentation is split at the UI layer: `NowPlayingSheetView` is the shared iPhone/iPad sheet-style presenter, while `NowPlayingViewportRoot` is reserved for macOS viewport presentation and coordinated separately through `WindowChromeBridge` so toolbar content can swap without moving the titlebar/traffic lights
-- `PlaybackService` -- AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion). Publishes both raw transport time (`currentTime`) and presentation-adjusted time (`presentationTime`) so lyrics/Aurora can compensate for AirPlay/Bluetooth output delay without affecting seek/reporting semantics. `frequencyBands` uses `CurrentValueSubject` (not `@Published`) to avoid firing `objectWillChange` at 30Hz. Uses `ProgressiveStreamLoader` for transcode streams and `streamLoaders` dict for lifecycle management
+- `PlaybackService` -- AVPlayer façade for queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion). Publishes both raw transport time (`currentTime`) and presentation-adjusted time (`presentationTime`) so lyrics/Aurora can compensate for AirPlay/Bluetooth output delay without affecting seek/reporting semantics. `frequencyBands` uses `CurrentValueSubject` (not `@Published`) to avoid firing `objectWillChange` at 30Hz. Delegates audio-session policy, startup restoration, resolved-file cache ownership, prefetch cleanup, and now-playing metadata to narrower internal collaborators.
+- `AudioPlaybackEngine` -- Gapless local-file playback engine used behind `PlaybackService`; owns route recovery, scheduling, and instrumental-mode audio graph concerns
+- `PlaybackAudioSessionCoordinator` -- Internal audio-session seam extracted from `PlaybackService`; owns `AVAudioSession` category/policy configuration, interruption + route-change observation, Siri/HomePod route preparation, and activation helpers so audio-session policy is not split across `PlaybackService` and `AppDelegate`
 - `PlaybackHandoffCoordinator` -- Internal playback-handoff reducer extracted from `PlaybackService`; owns disconnect/interruption/remote-command pause intent, settle-window policy, and handoff logging decisions while the service remains the side-effect boundary
 - `PlaybackQueueStore` -- Persists queue/history restoration state outside `PlaybackService`; writes a single snapshot plus legacy keys so queue-restoration refactors can proceed without breaking existing installs
+- `PlaybackQueueController` -- Internal queue/history seam extracted from `PlaybackService`; owns queue snapshot persistence plus autoplay flattening/history normalization while the service remains the playback side-effect boundary
+- `PlaybackStartupCoordinator` -- Internal restored-playback seam extracted from `PlaybackService`; owns snapshot validation, duplicate-autoplay pruning, deferred vs immediate prebuffer decisions, and restore outcome classification while the façade still applies side effects
 - `PlaybackLaunchCoordinator` -- Internal playback-launch seam extracted from `PlaybackService`; owns the successful-resolution path (visualizer planning, engine load, recovery seek application, and prefetch kickoff) while the façade still owns queue mutation and transport retry loops
 - `PlaybackRecoveryPolicy` -- Internal playback buffering/stall policy seam extracted from `PlaybackService`; owns buffering profiles, conservative-mode escalation, prefetch throttling, and unexpected-pause recovery decisions while `PlaybackService` remains the façade
 - `PlaybackSessionStateMachine` -- Internal playback-session seam extracted from `PlaybackService`; owns request validation, retry policy, supersession checks, and terminal failure classification for `playCurrentQueueItem` while queue mutation and engine control remain in the façade
+- `PlaybackResolvedFileCache` -- Internal serialized cache store extracted from `PlaybackService`; owns resolved-file URL storage, LRU eviction, stream-cache cleanup context snapshots, and prefetch in-flight bookkeeping so playback startup/prefetch flows do not mutate shared dictionaries directly
+- `PlaybackPrefetchController` -- Internal prefetch/cache seam extracted from `PlaybackService`; owns resolved-file cache eviction, temporary stream-cache cleanup, and network-transition re-prefetch invalidation policy while the backing cache state lives in `PlaybackResolvedFileCache`
+- `PlaybackNowPlayingBridge` -- Internal lock-screen seam extracted from `PlaybackService`; owns `MPNowPlayingInfoCenter` metadata, artwork loading, feedback-command state, command enablement, and remote-command registration
 - `PlaybackTransportCoordinator` -- Internal transport seam extracted from `PlaybackService`; owns stream-decision caching, in-flight resolution deduplication, and progressive-loader lifecycle for local-file vs streaming resolution without changing playback queue semantics
+- `AppBootstrapDiagnostics` -- Internal cold-launch diagnostics service wired through `DependencyContainer`; emits one structured startup summary after health checks, playback restoration, and startup sync settle so device logs capture account/sync/playback/offline bootstrap state in a single record
 - `ProgressiveStreamLoader` -- AVAssetResourceLoaderDelegate + URLSessionDataDelegate bridge. Proxies PMS's chunked transcode stream (via custom `ensemble-transcode://` scheme) to AVPlayer progressively, writing to a growing temp file. Post-download callbacks: `onDownloadComplete` for frequency analysis, `onDownloadFailed` for HTTP errors and invalid payloads. Validates HTTP status (non-2xx → `ProgressiveStreamError.httpError`) and payload size (< 256 bytes → `.invalidPayload`). Error body captured to diagnostic buffer (not written to audio file)
 - `ProgressiveStreamError` -- Error type for stream download failures: `.httpError(statusCode:bodySnippet:)` and `.invalidPayload(bytesReceived:)`. Mapped to `PlaybackError` in `PlaybackService.mapToPlaybackError`
 - `HubRepository` -- Repository for hub data persistence (implements `HubRepositoryProtocol`); manages CDHub/CDHubItem entities
+- `HomeHubLoader` -- Shared Feed hub snapshot loader used by both `HomeViewModel` and `BackgroundSyncScheduler` refresh paths
+  - Loads cached hub snapshots without creating UI observers
+  - Fetches + merges hubs, persists failed hub keys, and reapplies `HubOrderManager` ordering before returning a `HomeHubSnapshot`
+  - Keeps background refresh work in a non-UI service so transient `HomeViewModel` instances are never created just to refresh Feed data
 - `HubOrderManager` -- Manages user-customizable hub section ordering per music source
   - Persists custom order to UserDefaults with per-source keys
   - `applyOrder(to:for:)` -- Reorders fetched hubs according to saved preferences
@@ -98,6 +117,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `CacheManager` (@MainActor) -- Tracks cache sizes and provides cache clearing functionality
 - `NetworkMonitor` (@MainActor) -- Proactive network connectivity monitoring using NWPathMonitor with 1s debouncing
 - `RefreshOrchestrator` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns health-refresh coalescing, cooldown/staleness checks, and startup-health claim tracking while `SyncCoordinator` remains the façade
+- `SyncExecutionController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns full/incremental/startup sync execution, progress routing, and cancellation/error status restoration while the coordinator keeps helper side effects and published state
 - `NetworkLifecycleController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns app-foreground and observed-network transition policy (offline state, refresh triggers, and startup-transition skipping) while the coordinator applies side effects
 - `PeriodicSyncController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns foreground periodic-sync timer scheduling and WebSocket-aware polling interval changes while `SyncCoordinator` keeps the actual sync policy
 - `PlaylistRefreshController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns server-scoped playlist refresh resolution (incremental vs fallback full sync) for mutation refreshes, playlist-only sync, and WebSocket-triggered playlist updates
@@ -105,7 +125,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `ServerHealthChecker` -- Concurrent health checks for all configured servers with automatic failover
 - `ServerConnectionController` (@MainActor) -- Internal network seam extracted from `SyncCoordinator`; owns registry-driven API-client URL updates and explicit endpoint refresh fan-out while `SyncCoordinator` remains the façade
 - `SettingsManager` (@MainActor) -- Manages accent colors, customizable tab configuration, and track swipe action layout settings
-- `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for hub refresh ~every 15min (system-controlled)
+- `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for hub refresh ~every 15min (system-controlled); background execution should call `HomeHubLoader` directly instead of instantiating `HomeViewModel`
 - `MoodRepository` -- Mood data persistence (CDMood)
 - `LibraryVisibilityStore` (@MainActor) -- Persists visibility profiles and active profile state for source-level browse filtering
 - `ToastCenter` (@MainActor) -- App-wide toast notification coordination
@@ -118,16 +138,29 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `SiriPlaybackCoordinator` -- Executes Siri playback payloads in app process using existing playback queue entry points
 - `OfflineDownloadService` (@MainActor) -- Target-based offline orchestration (reconciliation, progress publishing, reference-counted cleanup, façade for queue control)
   - Uses an internal `DownloadWorkMode` policy (`interactivePlayback`, `foregroundIdle`, `background`) so playback-sensitive sessions throttle queue concurrency and coalesce expensive target-progress publishes instead of treating every queue/network event as full-speed work
+  - Delegates debounced `downloadsDidChange` fan-out, view-context refresh routing, and queue-completion toast presentation to `OfflineDownloadNotificationBridge` so queue/target logic stays separate from UI-facing notifications
+  - Runs `OfflineDownloadCleanupCoordinator` during startup and healing refreshes to remove completed downloads whose track files no longer belong to any offline target membership
+  - Delegates direct-download, download-queue, file validation, completion recovery, and per-track post-completion work to `DownloadTransferExecutor` so retry policy and target-refresh logic stay in the façade
 - `DownloadQueueCoordinator` (@MainActor) -- Sole owner of offline queue task lifecycle, worker fan-out, background wakeup handling, and queue wind-down/restart decisions
 - `DownloadRetryPolicy` (@MainActor) -- Stateful transfer retry accounting and direct-original fallback gating for offline downloads
 - `DownloadTargetReconciler` -- Resolves offline target memberships, queues missing downloads, and deletes orphaned download files when targets change
+- `DownloadTransferExecutor` (@MainActor) -- Internal offline seam extracted from `OfflineDownloadService`; owns download-queue vs direct-original transfer execution, payload validation, completion recovery, artwork/lyrics/sidecar post-processing, and direct-fallback bookkeeping while the service keeps membership checks, retry policy, and target refresh decisions
+- `OfflineDownloadCleanupCoordinator` (@MainActor) -- Internal offline seam extracted from `OfflineDownloadService`; scans completed downloads for zero-membership tracks and removes stray files/records during startup and healing refreshes
+- `OfflineDownloadNotificationBridge` (@MainActor) -- Internal offline seam extracted from `OfflineDownloadService`; owns debounced `downloadsDidChange` posting, refresh fan-out, and queue-completion toast routing while the service keeps target and transfer logic
 - `OfflineBackgroundExecutionCoordinator` (@MainActor) -- Optional iOS 26+ `BGContinuedProcessingTask` adapter; no-op on unsupported platforms/OS versions
 - `FrequencyAnalysisService` -- Pre-computed audio frequency analysis using Accelerate FFT; produces `FrequencyTimeline` data for visualizer display decoupled from the audio pipeline
+  - Owns a `VisualizationConsumer` visibility registry (`phoneOverlay`, `nowPlayingSheet`, `nowPlayingViewport`, `stageFlow`, `externalDisplay`, `rootBackdrop`) so the display timer only runs while at least one visible surface needs frames
+  - Downgrades to 15fps when only low-cost consumers are visible and escalates back to 30fps when a dedicated Now Playing surface is active
 - `PowerStateMonitor` (@MainActor ObservableObject) -- Observes iOS Low Power Mode via `NSProcessInfoPowerStateDidChange` and publishes `isLowPowerMode: Bool`. Consumers (Aurora visualizer, LyricsCard, download service) read this to reduce GPU passes, frame rates, and network work when the device is in LPM
 - `SongLinkService` (actor) -- Resolves universal song.link URLs for tracks and albums via MusicKit catalog search + song.link API; in-memory cache with positive/negative entries
 - `ShareService` (@MainActor) -- Coordinates share payloads: link (song.link/Apple Music URL), text (fallback), or file (local download or temp download via Plex stream URL)
 - `WatchBootstrapCoordinator` (@MainActor) -- watch launch orchestration seam that stages local account load, synchronizable keychain discovery, KVS hydration, provider refresh, network monitor start, and first-sync gating for independent watch startup
 - `WatchConnectivityCoordinator` (@MainActor) -- thin Watch Connectivity boundary for immediate remote commands (`sendMessage`) and latest-state sync (`applicationContext`); publishes remote now-playing snapshots and selected playback target while keeping watch library data sourced locally/directly
+- `MutationCoordinator` (@MainActor) -- Unified online/offline mutation queue for ratings, playlist changes, and scrobbles
+- `MetadataMutationService` -- Metadata edit coordination for tracks/albums/artists/playlists, plus invalidation notifications that refresh browse/detail surfaces
+- `SiriAffinityCoordinator` (@MainActor) -- Executes Siri love/dislike/remove-rating requests against the current track
+- `SiriAddToPlaylistCoordinator` (@MainActor) -- Executes Siri add-to-playlist requests and routes them through the optimistic mutation path
+- `SiriMediaUserContextManager` -- Persists recent Siri playback context to improve subsequent media resolution and ranking
 
 **Key Models:**
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
@@ -174,6 +207,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 
 - **MVVM** -- All ViewModels are `@MainActor` ObservableObjects using Combine publishers
 - **Dependency Injection** -- Centralized `DependencyContainer` singleton, injected through SwiftUI environment key
+  - Keep construction grouped by subsystem bundle and keep post-init callback/circular wiring in `wireCrossSubsystemCallbacks()` helpers instead of reopening the initializer
 - **Actor-based concurrency** -- Thread-safe networking with `PlexAPIClient` and `PlexAuthService` actors
 - **Repository pattern** -- Protocol abstractions for CoreData access (`LibraryRepositoryProtocol`, `PlaylistRepositoryProtocol`)
 - **Protocol-based view reuse** -- `MediaDetailViewModelProtocol` enables single `MediaDetailView` for multiple content types (Artist, Album, Playlist, Favorites)
@@ -261,10 +295,10 @@ Displays audio waveforms in NowPlayingView:
 
 Frequency analysis is pre-computed on disk and decoupled from the audio pipeline:
 
-1. **FrequencyAnalysisService** (`EnsembleCore`) -- Analyzes audio files using Accelerate FFT (1024-pt FFT, 24 log-spaced bands 60Hz-16kHz). Produces `FrequencyTimeline` (time-indexed frequency snapshots at 30fps, ~216KB per 5-min song). Manages an in-memory cache of active timelines.
+1. **FrequencyAnalysisService** (`EnsembleCore`) -- Analyzes audio files using Accelerate FFT (1024-pt FFT, 24 log-spaced bands 60Hz-16kHz). Produces `FrequencyTimeline` (time-indexed frequency snapshots at 30fps, ~216KB per 5-min song). Manages an in-memory cache of active timelines plus a `VisualizationConsumer` registry for currently visible aurora surfaces.
 2. **FrequencyTimeline** -- Model containing an array of `FrequencySnapshot` frames with timestamps and band magnitudes. Supports binary serialization for sidecar persistence.
 3. **FrequencyTimelinePersistence** -- Reads/writes `.freq` binary sidecar files alongside offline downloads for instant visualizer load on cached tracks.
-4. **PlaybackService Integration** -- On track load, requests analysis from `FrequencyAnalysisService`. A 30Hz display timer reads `player.currentTime()` and looks up the matching frame from the active timeline. No `MTAudioProcessingTap`, `audioMix`, fade timers, or simulated bands.
+4. **PlaybackService Integration** -- On track load, requests analysis from `FrequencyAnalysisService`. A demand-driven display timer reads `player.currentTime()` and looks up the matching frame from the active timeline only while at least one registered visualizer surface is visible. No `MTAudioProcessingTap`, `audioMix`, fade timers, or simulated bands.
 5. **Scrubber Sync** -- `ControlsCard` scrubber drag calls `NowPlayingViewModel.updateVisualizerPosition()` so the visualizer tracks seek position in real time.
 6. **Offline Sidecar** -- `OfflineDownloadService` generates `.freq` sidecar after downloading a track. `DownloadManager` cleans up sidecars when downloads are removed.
 7. **Extension Probing** -- `FrequencyAnalysisService` probes unrecognized file extensions to determine if they are readable audio formats before attempting analysis.
@@ -275,11 +309,11 @@ Dynamic background effect that reacts to music intensity:
 
 1. **Root Integration** -- Mounted in `RootView` using a `ZStack` at the bottom layer.
 2. **Reactivity** -- Observes `PlaybackService` for playback state, current time, and frequency band data from the pre-computed `FrequencyTimeline`.
-3. **Sampling** -- `AuroraVisualizationView` samples frequency bands using `currentTime / duration` to drive real-time animation intensity.
-4. **Drawing** -- Uses `Canvas` and `TimelineView(.animation(minimumInterval: 1/30))` to draw overlapping fan-shaped sectors with radial gradients at 30fps.
-5. **Blending** -- Overlapping sectors naturally create "denser" areas of light as they intersect. 3 glow passes (blur=18, 12, 8) for depth.
+3. **Sampling** -- `AuroraVisualizationView` advances a lightweight render model from `PlaybackService.frequencyBandsPublisher`; the `Canvas` draw path is render-only and does not mutate SwiftUI state per frame.
+4. **Drawing** -- Uses `Canvas` and `TimelineView` to draw overlapping fan-shaped sectors with radial gradients. Phone-root consumers (`phoneOverlay`, `rootBackdrop`) run in the low-cost tier at 15fps with fewer glow passes; dedicated Now Playing surfaces escalate to the richer 30fps tier.
+5. **Blending** -- Overlapping sectors naturally create "denser" areas of light as they intersect. Full-quality surfaces still use 3 glow passes (blur=18, 12, 8); low-cost surfaces cap the effect at 2 passes.
 6. **Transparency Seam** -- Root views of tabs and navigation destinations use `.auroraBackgroundSupport()` to hide system backgrounds and let the aurora show through.
-7. **Policy** -- Only visible when `playbackState` is `.playing` or `.buffering`, with a 1s fade transition. Paused when Now Playing sheet is open (`isPaused` parameter from `MainTabView`).
+7. **Policy** -- Visibility is registered explicitly through `PlaybackService.setVisualizationConsumer(_:isVisible:)`. Feed/root surfaces keep the visualizer on the low-cost tier, while sheet/viewport/stage surfaces request full quality. Hidden surfaces deregister immediately so they do not keep the analysis timer alive.
 8. **Low Power Mode** -- When `PowerStateMonitor.isLowPowerMode` is true, aurora drops to 1 glow pass at 15fps (from 3 passes at 30fps). `LyricsCard` also disables progressive blur in LPM. Downloads are auto-paused/resumed on LPM toggle via `DependencyContainer` wiring.
 
 ## Subsystem: Hub-Based Home Screen
@@ -673,7 +707,7 @@ Visually merges same-named playlists across multiple Plex servers into a single 
 
 ## Subsystem: Persistent Session Logging
 
-Real-time dual-write logging for TestFlight diagnostics. Each `EnsembleLogger` method writes to both `os.log` (existing) and a session file (new) via a static `fileLogHandler` closure. `PersistentLogService` (in EnsembleCore) owns the `LogFileWriter` which serializes file I/O on a private `DispatchQueue`. Session files are stored at `Library/Application Support/Ensemble/Logs/`. Handlers for Core/API/Persistence loggers are wired in `DependencyContainer`; UI and App loggers are wired in `EnsembleApp` on first activation. The logger API uses `@autoclosure` for zero-cost in release when file logging is disabled.
+Real-time dual-write logging for TestFlight diagnostics. Each `EnsembleLogger` method writes to both `os.log` and a session file via a static `fileLogHandler` closure so debug-level traces remain available in release/TestFlight builds. `PersistentLogService` (in EnsembleCore) owns the `LogFileWriter` which serializes file I/O on a private `DispatchQueue`. Session files are stored at `Library/Application Support/Ensemble/Logs/`. Handlers for Core/API/Persistence loggers are wired in `DependencyContainer`; UI and App loggers are wired in `EnsembleApp` on first activation.
 
 - **Key types:** `PersistentLogService`, `LogFileWriter` (private), `LogSession`
 - **Key files:** `PersistentLogService.swift`, all `EnsembleLogger.swift` files, `DependencyContainer.swift`, `EnsembleApp.swift`

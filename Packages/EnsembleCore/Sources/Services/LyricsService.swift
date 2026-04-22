@@ -268,7 +268,7 @@ public final class LyricsService: ObservableObject {
     private let syncCoordinator: SyncCoordinator
 
     // Persistent lyrics cache directory
-    private static let lyricsCacheDir: URL = {
+    private nonisolated static let lyricsCacheDir: URL = {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent("Ensemble/LyricsCache", isDirectory: true)
     }()

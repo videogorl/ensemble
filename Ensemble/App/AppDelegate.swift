@@ -18,6 +18,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     /// Stored early health check task so executeSiriPlaybackInBackground can
     /// await it instead of running redundant checks. Set in didFinishLaunching.
     fileprivate var earlyHealthCheckTask: Task<Void, Never>?
+    fileprivate var playbackRestoreTask: Task<Void, Never>?
+    fileprivate var startupSyncTask: Task<Void, Never>?
+    fileprivate var coldLaunchDiagnosticsTask: Task<Void, Never>?
+    fileprivate var startupRestoreWasSuppressedForSiri = false
 
     /// Set synchronously in `application(_:handlerFor:)` when iOS delivers a Siri
     /// intent during launch. Used to suppress playback restoration so Siri playback
@@ -52,6 +56,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
         AppLogger.debug("📱 AppDelegate: didFinishLaunching at \(Date())")
         EnsembleStartupTiming.launchTime = AppDelegate.launchTime
+        startupRestoreWasSuppressedForSiri = false
 
         NotificationCenter.default.addObserver(
             self,
@@ -126,12 +131,15 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Skip restoration if a Siri playback execution is already in-flight — the Siri
         // handler's intent arrives before restoration completes, so restoring would
         // overwrite the Siri-initiated queue with the previous session's track.
-        Task.detached(priority: .utility) {
+        playbackRestoreTask = Task.detached(priority: .utility) {
             // Wait for early health checks to finish (they populate server endpoints)
             await self.earlyHealthCheckTask?.value
 
             let hasPending = await MainActor.run { (UIApplication.shared.delegate as? AppDelegate)?.hasPendingSiriIntent ?? false }
             if hasPending || SiriPlaybackExecutionGate.isExecuting {
+                await MainActor.run {
+                    self.startupRestoreWasSuppressedForSiri = true
+                }
                 AppLogger.debug("📱 AppDelegate: Skipping playback restoration — Siri intent pending/in-flight")
                 return
             }
@@ -174,7 +182,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
         // Perform startup sync (non-blocking, runs in background at .utility priority).
         // Normal launches start immediately; Siri launches wait briefly for audio session.
-        Task.detached(priority: .utility) {
+        startupSyncTask = Task.detached(priority: .utility) {
             // Check if Siri playback was recently triggered. If so, wait a short time
             // to let the audio session activate and route selection complete.
             // Sync at .utility priority won't compete meaningfully with the Siri audio
@@ -199,6 +207,22 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             await MainActor.run {
                 syncCoordinator.startPeriodicSync()
             }
+        }
+
+        // Emit one structured startup summary after the launch pipeline settles so
+        // device logs capture the post-bootstrap sync/playback/offline state in a
+        // single line instead of requiring manual reconstruction from many events.
+        coldLaunchDiagnosticsTask = Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            await self.earlyHealthCheckTask?.value
+            await self.playbackRestoreTask?.value
+            await self.startupSyncTask?.value
+            let playbackRestoreWasSuppressedForSiri = await MainActor.run {
+                self.startupRestoreWasSuppressedForSiri
+            }
+            await DependencyContainer.shared.emitColdLaunchDiagnostics(
+                playbackRestoreWasSuppressedForSiri: playbackRestoreWasSuppressedForSiri
+            )
         }
         
         AppLogger.debug("📱 AppDelegate: didFinishLaunching returning at \(Date())")
@@ -983,12 +1007,6 @@ func executeSiriPlaybackInBackground(
         os_log(.default, "SIRI_APP: [origin=%{public}@] Server connectivity ready", origin)
 
         do {
-            // Configure audio session with .playback category and .longFormAudio
-            // policy BEFORE activation. This tells iOS we're a music app eligible
-            // for cross-device routing (HomePod Siri → iPhone AirPlay).
-            //
-            // On iOS 26, setCategory can fail with Code=-50 if the audio system
-            // isn't ready yet. Retry up to 3 times with short delays.
             let playbackService = DependencyContainer.shared.playbackService
             var categoryConfigured = playbackService.ensureAudioSessionConfigured()
             if !categoryConfigured {
@@ -1003,48 +1021,25 @@ func executeSiriPlaybackInBackground(
                 }
             }
 
-            // Ask the system to prepare AirPlay route selection. For Siri
-            // requests from HomePod, this triggers the system to establish an
-            // AirPlay session back to the requesting device. Must be called
-            // after setCategory but before setActive/playback.
-            let session = AVAudioSession.sharedInstance()
-            let shouldStartPlayback = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                session.prepareRouteSelectionForPlayback { shouldActivate, routeSelection in
-                    os_log(
-                        .default,
-                        "SIRI_APP: [origin=%{public}@] prepareRouteSelection: shouldActivate=%d, route=%{public}@",
-                        origin,
-                        shouldActivate ? 1 : 0,
-                        routeSelection == .local ? "local" : "external"
-                    )
-                    continuation.resume(returning: shouldActivate)
-                }
-            }
-
-            if shouldStartPlayback {
-                do {
-                    try session.setActive(true)
-                } catch {
-                    os_log(.error, "SIRI_APP: [origin=%{public}@] setActive failed: %{public}@, retrying", origin, error.localizedDescription)
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    try? session.setActive(true)
-                }
-            } else {
+            let shouldStartPlayback = await playbackService.preparePlaybackRouteSelection()
+            os_log(
+                .default,
+                "SIRI_APP: [origin=%{public}@] prepareRouteSelection: shouldActivate=%d",
+                origin,
+                shouldStartPlayback ? 1 : 0
+            )
+            if !shouldStartPlayback {
                 os_log(.info, "SIRI_APP: [origin=%{public}@] System declined route activation — activating anyway", origin)
-                try? session.setActive(true)
             }
+            await playbackService.activatePlaybackAudioSession(shouldStartPlayback: shouldStartPlayback)
 
-            let initialRoute = AVAudioSession.sharedInstance().currentRoute.outputs
-                .map { "\($0.portType.rawValue):\($0.portName)" }
-                .joined(separator: ",")
+            let initialRoute = playbackService.currentAudioRouteDescription()
             os_log(.default, "SIRI_APP: [origin=%{public}@] Audio session activated; initial route: %{public}@", origin, initialRoute)
 
             os_log(.default, "SIRI_APP: [origin=%{public}@] Calling coordinator.execute()", origin)
             try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
 
-            let routeAfter = AVAudioSession.sharedInstance().currentRoute.outputs
-                .map { "\($0.portType.rawValue):\($0.portName)" }
-                .joined(separator: ",")
+            let routeAfter = playbackService.currentAudioRouteDescription()
             os_log(.default, "SIRI_APP: [origin=%{public}@] Coordinator execute SUCCESS; route: %{public}@", origin, routeAfter)
 
             // Complete the intent response AFTER playback starts. Keeping

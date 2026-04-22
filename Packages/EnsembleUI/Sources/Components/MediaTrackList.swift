@@ -39,6 +39,7 @@ public class TrackTableViewCell: UITableViewCell {
     private let downloadIcon = UIImageView()
     private let downloadSpinner = UIActivityIndicatorView(style: .medium)
     private let durationLabel = UILabel()
+    private let overflowButton = UIButton(type: .system)
     private let playingIndicator = UIImageView()
     private let trackNumberLabel = UILabel()
     private let favoriteHeartView = UIImageView()
@@ -112,6 +113,17 @@ public class TrackTableViewCell: UITableViewCell {
         durationLabel.setContentHuggingPriority(.required, for: .horizontal)
         durationLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         contentView.addSubview(durationLabel)
+
+        overflowButton.translatesAutoresizingMaskIntoConstraints = false
+        let overflowSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        overflowButton.setPreferredSymbolConfiguration(overflowSymbolConfiguration, forImageIn: .normal)
+        overflowButton.setImage(UIImage(systemName: "ellipsis", withConfiguration: overflowSymbolConfiguration), for: .normal)
+        overflowButton.tintColor = .secondaryLabel
+        overflowButton.showsMenuAsPrimaryAction = true
+        overflowButton.setContentHuggingPriority(.required, for: .horizontal)
+        overflowButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        overflowButton.accessibilityLabel = "Track Actions"
+        contentView.addSubview(overflowButton)
         
         playingIndicator.image = UIImage(systemName: "speaker.wave.3.fill")
         playingIndicator.tintColor = .systemBlue
@@ -152,11 +164,16 @@ public class TrackTableViewCell: UITableViewCell {
             downloadSpinner.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             downloadSpinner.centerXAnchor.constraint(equalTo: downloadIcon.centerXAnchor),
 
-            durationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.rowHorizontalPadding),
+            durationLabel.trailingAnchor.constraint(equalTo: overflowButton.leadingAnchor, constant: -8),
             durationLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
+
+            overflowButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.rowHorizontalPadding),
+            overflowButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            overflowButton.widthAnchor.constraint(equalToConstant: 25),
+            overflowButton.heightAnchor.constraint(equalToConstant: 25),
             
-            playingIndicator.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.rowHorizontalPadding),
+            playingIndicator.trailingAnchor.constraint(equalTo: overflowButton.leadingAnchor, constant: -8),
             playingIndicator.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             playingIndicator.widthAnchor.constraint(equalToConstant: 20),
             playingIndicator.heightAnchor.constraint(equalToConstant: 20)
@@ -188,11 +205,14 @@ public class TrackTableViewCell: UITableViewCell {
         isUnavailableOffline: Bool,
         isActivelyDownloading: Bool = false,
         isFavorited: Bool = false,
+        menu: UIMenu?,
         rowHeight: CGFloat = 68,
         artworkLoader: ArtworkLoaderProtocol
     ) {
         applyLayoutMetrics(for: rowHeight)
         titleLabel.text = track.title
+        overflowButton.menu = menu
+        overflowButton.isHidden = menu == nil
 
         // Show/hide favorite heart (positioned in existing margin, no content shift)
         favoriteHeartView.isHidden = !isFavorited
@@ -719,6 +739,8 @@ public struct MediaTrackList: UIViewRepresentable {
                         isPlaying: isPlaying,
                         isUnavailableOffline: context.coordinator.trackAvailabilityResolver.availability(for: track).shouldDim,
                         isActivelyDownloading: context.coordinator.activeDownloadRatingKeys.contains(track.id),
+                        isFavorited: context.coordinator.isTrackFavorited?(track) ?? (track.rating >= 8),
+                        menu: context.coordinator.makeContextMenu(for: track, resolvedActions: context.coordinator.interactionModel.resolve(for: track)),
                         rowHeight: context.coordinator.rowHeight,
                         artworkLoader: dependencies.artworkLoader
                     )
@@ -905,6 +927,7 @@ public struct MediaTrackList: UIViewRepresentable {
                 isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
                 isActivelyDownloading: activeDownloadRatingKeys.contains(track.id),
                 isFavorited: isTrackFavorited?(track) ?? (track.rating >= 8),
+                menu: makeContextMenu(for: track, resolvedActions: interactionModel.resolve(for: track)),
                 rowHeight: rowHeight,
                 artworkLoader: artworkLoader
             )
@@ -978,87 +1001,95 @@ public struct MediaTrackList: UIViewRepresentable {
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
             guard let track = track(at: indexPath) else { return nil }
             let resolvedActions = interactionModel.resolve(for: track)
-            guard resolvedActions.hasContextMenu else { return nil }
-            
-            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-                var topActions: [UIAction] = []
-                
-                if let onPlayNext = resolvedActions.onPlayNext {
-                    topActions.append(UIAction(title: "Play Next", image: UIImage(systemName: "text.insert")) { _ in
-                        onPlayNext()
-                    })
-                }
-                
-                if let onPlayLast = resolvedActions.onPlayLast {
-                    topActions.append(UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
-                        onPlayLast()
-                    })
-                }
-                
-                var navigationActions: [UIAction] = []
-                if let onGoToAlbum = resolvedActions.onGoToAlbum, track.albumRatingKey != nil {
-                    navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: "square.stack")) { _ in
-                        onGoToAlbum()
-                    })
-                }
-                if let onGoToArtist = resolvedActions.onGoToArtist, track.artistRatingKey != nil {
-                    navigationActions.append(UIAction(title: "Go to Artist", image: UIImage(systemName: "person.circle")) { _ in
-                        onGoToArtist()
-                    })
-                }
+            guard let menu = makeContextMenu(for: track, resolvedActions: resolvedActions) else { return nil }
 
-                var bottomActions: [UIAction] = []
-                if let onAddToRecentPlaylist = resolvedActions.onAddToRecentPlaylist,
-                   let recentPlaylistTitle = resolvedActions.recentPlaylistTitle {
-                    bottomActions.append(UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: "clock.arrow.circlepath")) { _ in
-                        onAddToRecentPlaylist()
-                    })
-                }
-
-                if let onAddToPlaylist = resolvedActions.onAddToPlaylist {
-                    bottomActions.append(UIAction(title: "Add to Playlist…", image: UIImage(systemName: "text.badge.plus")) { _ in
-                        onAddToPlaylist()
-                    })
-                }
-
-                if let onToggleFavorite = resolvedActions.onToggleFavorite {
-                    bottomActions.append(UIAction(
-                        title: resolvedActions.isFavorited ? "Unfavorite" : "Favorite",
-                        image: UIImage(systemName: resolvedActions.isFavorited ? "heart.slash" : "heart")
-                    ) { _ in
-                        onToggleFavorite()
-                    })
-                }
-                
-                // Share actions
-                var shareActions: [UIAction] = []
-                if let onShareLink = resolvedActions.onShareLink {
-                    shareActions.append(UIAction(title: "Share Link…", image: UIImage(systemName: "link")) { _ in
-                        onShareLink()
-                    })
-                }
-                if let onShareFile = resolvedActions.onShareFile {
-                    shareActions.append(UIAction(title: "Share Audio File…", image: UIImage(systemName: "square.and.arrow.up")) { _ in
-                        onShareFile()
-                    })
-                }
-
-                var children: [UIMenuElement] = []
-                if !topActions.isEmpty {
-                    children.append(UIMenu(title: "", options: .displayInline, children: topActions))
-                }
-                if !navigationActions.isEmpty {
-                    children.append(UIMenu(title: "", options: .displayInline, children: navigationActions))
-                }
-                if !bottomActions.isEmpty {
-                    children.append(UIMenu(title: "", options: .displayInline, children: bottomActions))
-                }
-                if !shareActions.isEmpty {
-                    children.append(UIMenu(title: "", options: .displayInline, children: shareActions))
-                }
-
-                return UIMenu(children: children)
+            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
+                menu
             }
+        }
+
+        func makeContextMenu(
+            for track: Track,
+            resolvedActions: TrackRowInteractionModel.ResolvedActions
+        ) -> UIMenu? {
+            guard resolvedActions.hasContextMenu else { return nil }
+
+            var topActions: [UIAction] = []
+
+            if let onPlayNext = resolvedActions.onPlayNext {
+                topActions.append(UIAction(title: "Play Next", image: UIImage(systemName: "text.insert")) { _ in
+                    onPlayNext()
+                })
+            }
+
+            if let onPlayLast = resolvedActions.onPlayLast {
+                topActions.append(UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
+                    onPlayLast()
+                })
+            }
+
+            var navigationActions: [UIAction] = []
+            if let onGoToAlbum = resolvedActions.onGoToAlbum, track.albumRatingKey != nil {
+                navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: "square.stack")) { _ in
+                    onGoToAlbum()
+                })
+            }
+            if let onGoToArtist = resolvedActions.onGoToArtist, track.artistRatingKey != nil {
+                navigationActions.append(UIAction(title: "Go to Artist", image: UIImage(systemName: "person.circle")) { _ in
+                    onGoToArtist()
+                })
+            }
+
+            var bottomActions: [UIAction] = []
+            if let onAddToRecentPlaylist = resolvedActions.onAddToRecentPlaylist,
+               let recentPlaylistTitle = resolvedActions.recentPlaylistTitle {
+                bottomActions.append(UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: "clock.arrow.circlepath")) { _ in
+                    onAddToRecentPlaylist()
+                })
+            }
+
+            if let onAddToPlaylist = resolvedActions.onAddToPlaylist {
+                bottomActions.append(UIAction(title: "Add to Playlist…", image: UIImage(systemName: "text.badge.plus")) { _ in
+                    onAddToPlaylist()
+                })
+            }
+
+            if let onToggleFavorite = resolvedActions.onToggleFavorite {
+                bottomActions.append(UIAction(
+                    title: resolvedActions.isFavorited ? "Unfavorite" : "Favorite",
+                    image: UIImage(systemName: resolvedActions.isFavorited ? "heart.slash" : "heart")
+                ) { _ in
+                    onToggleFavorite()
+                })
+            }
+
+            var shareActions: [UIAction] = []
+            if let onShareLink = resolvedActions.onShareLink {
+                shareActions.append(UIAction(title: "Share Link…", image: UIImage(systemName: "link")) { _ in
+                    onShareLink()
+                })
+            }
+            if let onShareFile = resolvedActions.onShareFile {
+                shareActions.append(UIAction(title: "Share Audio File…", image: UIImage(systemName: "square.and.arrow.up")) { _ in
+                    onShareFile()
+                })
+            }
+
+            var children: [UIMenuElement] = []
+            if !topActions.isEmpty {
+                children.append(UIMenu(title: "", options: .displayInline, children: topActions))
+            }
+            if !navigationActions.isEmpty {
+                children.append(UIMenu(title: "", options: .displayInline, children: navigationActions))
+            }
+            if !bottomActions.isEmpty {
+                children.append(UIMenu(title: "", options: .displayInline, children: bottomActions))
+            }
+            if !shareActions.isEmpty {
+                children.append(UIMenu(title: "", options: .displayInline, children: shareActions))
+            }
+
+            return UIMenu(children: children)
         }
 
         // MARK: - Drag Delegate (iPad drag-and-drop for downloaded tracks)

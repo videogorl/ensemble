@@ -69,6 +69,22 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.state.pauseReason, .disconnect)
     }
 
+    func testInterruptionBeganPausesPlaybackInsteadOfLeavingBuffering() {
+        var coordinator = PlaybackHandoffCoordinator()
+
+        let outcome = coordinator.handleInterruptionBegan(
+            now: Date(),
+            playbackState: .playing
+        )
+
+        XCTAssertEqual(outcome.actions, [
+            .setInterrupted(true),
+            .pausePlayback(.interruption)
+        ])
+        XCTAssertEqual(coordinator.state.pauseReason, .interruption)
+        XCTAssertEqual(coordinator.state.interruption, .began)
+    }
+
     func testNewDeviceAvailableStartsSettleWindowWithoutAutoResume() {
         var coordinator = PlaybackHandoffCoordinator()
         let now = Date()

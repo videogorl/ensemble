@@ -82,7 +82,7 @@ public extension View {
             // shift the index vertically while browsing.
             .frame(maxHeight: .infinity, alignment: .bottom)
             .padding(.bottom, bottomChromeInset + bottomLift)
-            .padding(.trailing, 1)
+            .padding(.trailing, -2)
         #else
         self
             .frame(maxHeight: .infinity, alignment: .bottom)
