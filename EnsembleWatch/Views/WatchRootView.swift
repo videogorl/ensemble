@@ -95,6 +95,49 @@ private struct WatchNavigationContainer<Content: View>: View {
     }
 }
 
+private struct WatchNowPlayingToolbarModifier: ViewModifier {
+    @ObservedObject var playbackHub: WatchPlaybackHub
+
+    func body(content: Content) -> some View {
+        if #available(watchOS 10.0, *) {
+            content.toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    if showsNowPlayingButton {
+                        nowPlayingButton
+                    }
+                }
+            }
+        } else {
+            content.toolbar {
+                ToolbarItem {
+                    if showsNowPlayingButton {
+                        nowPlayingButton
+                    }
+                }
+            }
+        }
+    }
+
+    private var showsNowPlayingButton: Bool {
+        playbackHub.currentTrack != nil || playbackHub.hasRemoteTargetAvailable
+    }
+
+    private var nowPlayingButton: some View {
+        NavigationLink {
+            WatchNowPlayingView(playbackHub: playbackHub)
+        } label: {
+            Image(systemName: "play.circle.fill")
+        }
+        .accessibilityLabel("Now Playing")
+    }
+}
+
+private extension View {
+    func watchNowPlayingToolbar(playbackHub: WatchPlaybackHub) -> some View {
+        modifier(WatchNowPlayingToolbarModifier(playbackHub: playbackHub))
+    }
+}
+
 private struct WatchBootstrapLoadingView: View {
     let phase: WatchBootstrapPhase
 
@@ -339,6 +382,7 @@ private struct WatchMainMenuView: View {
         .task {
             await pinnedViewModel.loadPinnedItems()
         }
+        .watchNowPlayingToolbar(playbackHub: playbackHub)
     }
 
     private var supportedTopLevelTabs: [TabItem] {
@@ -406,7 +450,7 @@ private struct WatchMainMenuView: View {
                 playbackHub: playbackHub
             )
         case .downloads:
-            WatchDownloadsView(viewModel: downloadsViewModel)
+            WatchDownloadsView(viewModel: downloadsViewModel, playbackHub: playbackHub)
         case .settings:
             EmptyView()
         }
@@ -474,6 +518,7 @@ private struct WatchFeedView: View {
         .task {
             await viewModel.loadHubs()
         }
+        .watchNowPlayingToolbar(playbackHub: playbackHub)
     }
 
     @ViewBuilder
@@ -525,6 +570,7 @@ private struct WatchTrackListView: View {
             }
         }
         .navigationTitle(title)
+        .watchNowPlayingToolbar(playbackHub: playbackHub)
     }
 }
 
@@ -547,6 +593,7 @@ private struct WatchAlbumsView: View {
         .task {
             await libraryViewModel.loadLibrary()
         }
+        .watchNowPlayingToolbar(playbackHub: playbackHub)
     }
 }
 
@@ -569,6 +616,7 @@ private struct WatchArtistsView: View {
         .task {
             await libraryViewModel.loadLibrary()
         }
+        .watchNowPlayingToolbar(playbackHub: playbackHub)
     }
 }
 
@@ -597,6 +645,7 @@ private struct WatchGenresView: View {
         .task {
             await libraryViewModel.loadLibrary()
         }
+        .watchNowPlayingToolbar(playbackHub: playbackHub)
     }
 }
 
@@ -631,11 +680,13 @@ private struct WatchPlaylistsView: View {
         .task {
             await playlistViewModel.loadPlaylists()
         }
+        .watchNowPlayingToolbar(playbackHub: playbackHub)
     }
 }
 
 private struct WatchDownloadsView: View {
     @ObservedObject var viewModel: DownloadsViewModel
+    @ObservedObject var playbackHub: WatchPlaybackHub
 
     var body: some View {
         List {
@@ -699,6 +750,7 @@ private struct WatchDownloadsView: View {
         .task {
             await viewModel.refresh()
         }
+        .watchNowPlayingToolbar(playbackHub: playbackHub)
     }
 }
 
@@ -788,6 +840,7 @@ private struct WatchSearchView: View {
         .task {
             await viewModel.loadExploreContentIfNeeded()
         }
+        .watchNowPlayingToolbar(playbackHub: playbackHub)
     }
 }
 
@@ -797,7 +850,7 @@ private struct WatchNowPlayingView: View {
     @State private var showsQueueActions = false
 
     var body: some View {
-        ScrollView {
+        let baseView = ScrollView {
             VStack(spacing: 10) {
                 if let track = playbackHub.currentTrack {
                     WatchArtworkImage(track: track, size: 120)
@@ -852,25 +905,6 @@ private struct WatchNowPlayingView: View {
             .padding()
         }
         .navigationTitle("Now Playing")
-        .toolbar {
-            ToolbarItem {
-                Button {
-                    showsTargetPicker = true
-                } label: {
-                    Image(systemName: "airplayaudio")
-                }
-                .accessibilityLabel("Playback Target")
-            }
-
-            ToolbarItem {
-                Button {
-                    showsQueueActions = true
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .accessibilityLabel("More Actions")
-            }
-        }
         .confirmationDialog("Playback Target", isPresented: $showsTargetPicker) {
             ForEach(playbackHub.availableTargets) { target in
                 Button {
@@ -892,6 +926,48 @@ private struct WatchNowPlayingView: View {
             }
             Button("Clear Queue", role: .destructive) {
                 playbackHub.clearQueue()
+            }
+        }
+
+        if #available(watchOS 10.0, *) {
+            baseView.toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showsTargetPicker = true
+                    } label: {
+                        Image(systemName: "airplayaudio")
+                    }
+                    .accessibilityLabel("Playback Target")
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showsQueueActions = true
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("More Actions")
+                }
+            }
+        } else {
+            baseView.toolbar {
+                ToolbarItem {
+                    Button {
+                        showsTargetPicker = true
+                    } label: {
+                        Image(systemName: "airplayaudio")
+                    }
+                    .accessibilityLabel("Playback Target")
+                }
+
+                ToolbarItem {
+                    Button {
+                        showsQueueActions = true
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("More Actions")
+                }
             }
         }
     }
@@ -1034,6 +1110,7 @@ private struct WatchArtistDetailView: View {
             await viewModel.loadTracks()
             isDownloadEnabled = DependencyContainer.shared.offlineDownloadService.isArtistDownloadEnabled(artist)
         }
+        .watchNowPlayingToolbar(playbackHub: playbackHub)
     }
 }
 
