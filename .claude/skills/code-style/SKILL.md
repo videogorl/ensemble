@@ -218,6 +218,17 @@ Never use `@Published` for properties updated at >2Hz in ViewModels with many su
 private let _highFreqValue = CurrentValueSubject<[Double], Never>([])
 public var highFreqValue: [Double] {
     get { _highFreqValue.value }
+
+### Keep Per-Frame Visualizer State Out Of SwiftUI Observation
+
+For `Canvas`, `TimelineView`, waveform, FFT, or other render surfaces updated every frame, do not store live render buffers in SwiftUI `@State`, `@Published`, or other observed properties. Even if the view is visually isolated, those writes can invalidate large root view trees 15-30 times per second and tank shell responsiveness.
+
+Instead:
+- Keep per-frame render state in a stable, non-publishing render model (`@StateObject` with no `@Published`, plain reference storage, or another non-observed cache).
+- Feed analyzer/timer samples into that render model.
+- Let `TimelineView` redraw on its own cadence and read the latest snapshot during rendering.
+
+Use SwiftUI-observed state only for low-frequency lifecycle changes such as visibility, playback mode, or presentation state.
     set { _highFreqValue.send(newValue) }
 }
 public var highFreqValuePublisher: AnyPublisher<[Double], Never> {
