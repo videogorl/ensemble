@@ -1790,11 +1790,18 @@ public final class SyncCoordinator: ObservableObject {
         EnsembleLogger.debug("🌐 SyncCoordinator: App entering foreground with state \(currentState.description)")
 
         let decision = networkLifecycleController.foregroundDecision(for: currentState)
+        EnsembleLogger.debug(
+            "🌐 SyncCoordinator: Foreground decision offline=\(String(describing: decision.offlineValue)) refresh=\(decision.healthRefreshRequest != nil)"
+        )
         applyOfflineDecision(decision.offlineValue)
 
         if let request = decision.healthRefreshRequest {
+            EnsembleLogger.debug(
+                "🌐 SyncCoordinator: Scheduling foreground health refresh force=\(request.forceServerRefresh)"
+            )
             scheduleHealthRefresh(reason: request.reason, forceServerRefresh: request.forceServerRefresh)
         } else if decision.offlineValue == true {
+            EnsembleLogger.debug("🌐 SyncCoordinator: Foreground health refresh skipped because app is offline")
             updateSourceConnectionStates()
         }
     }

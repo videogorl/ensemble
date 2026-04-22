@@ -227,7 +227,7 @@ struct PlaybackHandoffCoordinator {
 
         var actions: [Action] = [.setInterrupted(true)]
         if playbackState == .playing || playbackState == .buffering {
-            actions.append(.beginInterruption)
+            actions.append(.pausePlayback(.interruption))
         }
         return makeOutcome(summary: "interruption began", actions: actions)
     }

@@ -135,6 +135,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         func playFromHistory(at historyIndex: Int) async {}
         func applyRatingLocally(trackId: String, rating: Int) async {}
         func updateVisualizerPosition(_ time: TimeInterval) {}
+        func setVisualizationConsumer(_ consumer: VisualizationConsumer, isVisible: Bool) {}
         func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?) { (nil, nil) }
     }
 

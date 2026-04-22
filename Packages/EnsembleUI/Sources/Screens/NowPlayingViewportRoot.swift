@@ -96,6 +96,7 @@ struct NowPlayingViewportRoot: View {
             if settingsManager.auroraVisualizationEnabled {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
+                    consumer: .nowPlayingViewport,
                     accentColor: settingsManager.accentColor.color,
                     isLowPowerMode: powerStateMonitor.isLowPowerMode
                 )

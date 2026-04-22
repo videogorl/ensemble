@@ -203,6 +203,36 @@ final class PlaybackServiceTests: XCTestCase {
         )
     }
 
+    func testPrefetchedTrackIsNotScheduledAfterItBecomesCurrent() {
+        XCTAssertFalse(
+            PlaybackService.shouldSchedulePrefetchedTrack(
+                prefetchedTrackID: "track-2",
+                currentTrackID: "track-2",
+                nextUpcomingTrackID: "track-3"
+            )
+        )
+    }
+
+    func testPrefetchedTrackIsNotScheduledWhenUpcomingQueueChanges() {
+        XCTAssertFalse(
+            PlaybackService.shouldSchedulePrefetchedTrack(
+                prefetchedTrackID: "track-2",
+                currentTrackID: "track-1",
+                nextUpcomingTrackID: "track-3"
+            )
+        )
+    }
+
+    func testPrefetchedTrackSchedulesOnlyWhenStillNextUpcoming() {
+        XCTAssertTrue(
+            PlaybackService.shouldSchedulePrefetchedTrack(
+                prefetchedTrackID: "track-2",
+                currentTrackID: "track-1",
+                nextUpcomingTrackID: "track-2"
+            )
+        )
+    }
+
     func testTrackFormattedDuration() {
         let track = Track(
             id: "1",
@@ -388,6 +418,69 @@ final class PlaybackServiceTests: XCTestCase {
                 currentTrackID: "8877",
                 engineTrackID: "8878",
                 isSkipTransitionInProgress: true
+            )
+        )
+    }
+
+    func testAutomaticAdvanceIsSuppressedDuringInterruption() {
+        XCTAssertTrue(
+            PlaybackService.shouldSuppressAutomaticAdvanceDuringHandoff(
+                pauseReason: .interruption,
+                interruption: .began,
+                routeTransition: .idle,
+                isInterrupted: true,
+                isRouteChangeInProgress: false
+            )
+        )
+    }
+
+    func testAutomaticAdvanceIsSuppressedDuringDisconnectTransition() {
+        XCTAssertTrue(
+            PlaybackService.shouldSuppressAutomaticAdvanceDuringHandoff(
+                pauseReason: .disconnect,
+                interruption: .none,
+                routeTransition: .disconnecting(startedAt: Date()),
+                isInterrupted: false,
+                isRouteChangeInProgress: true
+            )
+        )
+    }
+
+    func testRemoteSkipCommandsDisabledWhileBuffering() {
+        XCTAssertFalse(
+            PlaybackService.remoteSkipCommandsEnabled(
+                playbackState: .buffering,
+                pauseReason: nil,
+                interruption: .none,
+                routeTransition: .idle,
+                isInterrupted: false,
+                isRouteChangeInProgress: false
+            )
+        )
+    }
+
+    func testRemoteSkipCommandsDisabledDuringInterruption() {
+        XCTAssertFalse(
+            PlaybackService.remoteSkipCommandsEnabled(
+                playbackState: .paused,
+                pauseReason: .interruption,
+                interruption: .began,
+                routeTransition: .idle,
+                isInterrupted: true,
+                isRouteChangeInProgress: false
+            )
+        )
+    }
+
+    func testRemoteSkipCommandsEnabledForStablePausedPlayback() {
+        XCTAssertTrue(
+            PlaybackService.remoteSkipCommandsEnabled(
+                playbackState: .paused,
+                pauseReason: .user,
+                interruption: .none,
+                routeTransition: .idle,
+                isInterrupted: false,
+                isRouteChangeInProgress: false
             )
         )
     }

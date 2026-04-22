@@ -135,6 +135,7 @@ struct EnsembleApp: App {
     private func handleScenePhaseChange(_ phase: ScenePhase) {
         #if os(iOS)
         Task { @MainActor in
+            AppLogger.debug("📱 Scene phase changed to \(String(describing: phase))")
             switch phase {
             case .active:
                 let isInitialActivation = !hasHandledInitialIOSActivePhase
@@ -611,11 +612,11 @@ private func performBackgroundRefresh() async {
     }
     await syncCoordinator.syncAllIncremental()
 
-    // Hub refresh for the home screen
-    let homeVM = await MainActor.run {
-        DependencyContainer.shared.makeHomeViewModel()
+    // Refresh the cached Feed snapshot directly without instantiating a UI view model.
+    let homeHubLoader = await MainActor.run {
+        DependencyContainer.shared.homeHubLoader
     }
-    await homeVM.refresh()
+    _ = await homeHubLoader.loadSnapshot(applySavedOrder: true, hubCount: "12")
 
     AppLogger.debug("✅ Background refresh complete")
 }

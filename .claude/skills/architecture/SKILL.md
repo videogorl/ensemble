@@ -104,6 +104,10 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `ProgressiveStreamLoader` -- AVAssetResourceLoaderDelegate + URLSessionDataDelegate bridge. Proxies PMS's chunked transcode stream (via custom `ensemble-transcode://` scheme) to AVPlayer progressively, writing to a growing temp file. Post-download callbacks: `onDownloadComplete` for frequency analysis, `onDownloadFailed` for HTTP errors and invalid payloads. Validates HTTP status (non-2xx → `ProgressiveStreamError.httpError`) and payload size (< 256 bytes → `.invalidPayload`). Error body captured to diagnostic buffer (not written to audio file)
 - `ProgressiveStreamError` -- Error type for stream download failures: `.httpError(statusCode:bodySnippet:)` and `.invalidPayload(bytesReceived:)`. Mapped to `PlaybackError` in `PlaybackService.mapToPlaybackError`
 - `HubRepository` -- Repository for hub data persistence (implements `HubRepositoryProtocol`); manages CDHub/CDHubItem entities
+- `HomeHubLoader` -- Shared Feed hub snapshot loader used by both `HomeViewModel` and `BackgroundSyncScheduler` refresh paths
+  - Loads cached hub snapshots without creating UI observers
+  - Fetches + merges hubs, persists failed hub keys, and reapplies `HubOrderManager` ordering before returning a `HomeHubSnapshot`
+  - Keeps background refresh work in a non-UI service so transient `HomeViewModel` instances are never created just to refresh Feed data
 - `HubOrderManager` -- Manages user-customizable hub section ordering per music source
   - Persists custom order to UserDefaults with per-source keys
   - `applyOrder(to:for:)` -- Reorders fetched hubs according to saved preferences
@@ -121,7 +125,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `ServerHealthChecker` -- Concurrent health checks for all configured servers with automatic failover
 - `ServerConnectionController` (@MainActor) -- Internal network seam extracted from `SyncCoordinator`; owns registry-driven API-client URL updates and explicit endpoint refresh fan-out while `SyncCoordinator` remains the façade
 - `SettingsManager` (@MainActor) -- Manages accent colors, customizable tab configuration, and track swipe action layout settings
-- `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for hub refresh ~every 15min (system-controlled)
+- `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for hub refresh ~every 15min (system-controlled); background execution should call `HomeHubLoader` directly instead of instantiating `HomeViewModel`
 - `MoodRepository` -- Mood data persistence (CDMood)
 - `LibraryVisibilityStore` (@MainActor) -- Persists visibility profiles and active profile state for source-level browse filtering
 - `ToastCenter` (@MainActor) -- App-wide toast notification coordination
@@ -145,6 +149,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `OfflineDownloadNotificationBridge` (@MainActor) -- Internal offline seam extracted from `OfflineDownloadService`; owns debounced `downloadsDidChange` posting, refresh fan-out, and queue-completion toast routing while the service keeps target and transfer logic
 - `OfflineBackgroundExecutionCoordinator` (@MainActor) -- Optional iOS 26+ `BGContinuedProcessingTask` adapter; no-op on unsupported platforms/OS versions
 - `FrequencyAnalysisService` -- Pre-computed audio frequency analysis using Accelerate FFT; produces `FrequencyTimeline` data for visualizer display decoupled from the audio pipeline
+  - Owns a `VisualizationConsumer` visibility registry (`phoneOverlay`, `nowPlayingSheet`, `nowPlayingViewport`, `stageFlow`, `externalDisplay`, `rootBackdrop`) so the display timer only runs while at least one visible surface needs frames
+  - Downgrades to 15fps when only low-cost consumers are visible and escalates back to 30fps when a dedicated Now Playing surface is active
 - `PowerStateMonitor` (@MainActor ObservableObject) -- Observes iOS Low Power Mode via `NSProcessInfoPowerStateDidChange` and publishes `isLowPowerMode: Bool`. Consumers (Aurora visualizer, LyricsCard, download service) read this to reduce GPU passes, frame rates, and network work when the device is in LPM
 - `SongLinkService` (actor) -- Resolves universal song.link URLs for tracks and albums via MusicKit catalog search + song.link API; in-memory cache with positive/negative entries
 - `ShareService` (@MainActor) -- Coordinates share payloads: link (song.link/Apple Music URL), text (fallback), or file (local download or temp download via Plex stream URL)
@@ -280,10 +286,10 @@ Displays audio waveforms in NowPlayingView:
 
 Frequency analysis is pre-computed on disk and decoupled from the audio pipeline:
 
-1. **FrequencyAnalysisService** (`EnsembleCore`) -- Analyzes audio files using Accelerate FFT (1024-pt FFT, 24 log-spaced bands 60Hz-16kHz). Produces `FrequencyTimeline` (time-indexed frequency snapshots at 30fps, ~216KB per 5-min song). Manages an in-memory cache of active timelines.
+1. **FrequencyAnalysisService** (`EnsembleCore`) -- Analyzes audio files using Accelerate FFT (1024-pt FFT, 24 log-spaced bands 60Hz-16kHz). Produces `FrequencyTimeline` (time-indexed frequency snapshots at 30fps, ~216KB per 5-min song). Manages an in-memory cache of active timelines plus a `VisualizationConsumer` registry for currently visible aurora surfaces.
 2. **FrequencyTimeline** -- Model containing an array of `FrequencySnapshot` frames with timestamps and band magnitudes. Supports binary serialization for sidecar persistence.
 3. **FrequencyTimelinePersistence** -- Reads/writes `.freq` binary sidecar files alongside offline downloads for instant visualizer load on cached tracks.
-4. **PlaybackService Integration** -- On track load, requests analysis from `FrequencyAnalysisService`. A 30Hz display timer reads `player.currentTime()` and looks up the matching frame from the active timeline. No `MTAudioProcessingTap`, `audioMix`, fade timers, or simulated bands.
+4. **PlaybackService Integration** -- On track load, requests analysis from `FrequencyAnalysisService`. A demand-driven display timer reads `player.currentTime()` and looks up the matching frame from the active timeline only while at least one registered visualizer surface is visible. No `MTAudioProcessingTap`, `audioMix`, fade timers, or simulated bands.
 5. **Scrubber Sync** -- `ControlsCard` scrubber drag calls `NowPlayingViewModel.updateVisualizerPosition()` so the visualizer tracks seek position in real time.
 6. **Offline Sidecar** -- `OfflineDownloadService` generates `.freq` sidecar after downloading a track. `DownloadManager` cleans up sidecars when downloads are removed.
 7. **Extension Probing** -- `FrequencyAnalysisService` probes unrecognized file extensions to determine if they are readable audio formats before attempting analysis.
@@ -294,11 +300,11 @@ Dynamic background effect that reacts to music intensity:
 
 1. **Root Integration** -- Mounted in `RootView` using a `ZStack` at the bottom layer.
 2. **Reactivity** -- Observes `PlaybackService` for playback state, current time, and frequency band data from the pre-computed `FrequencyTimeline`.
-3. **Sampling** -- `AuroraVisualizationView` samples frequency bands using `currentTime / duration` to drive real-time animation intensity.
-4. **Drawing** -- Uses `Canvas` and `TimelineView(.animation(minimumInterval: 1/30))` to draw overlapping fan-shaped sectors with radial gradients at 30fps.
-5. **Blending** -- Overlapping sectors naturally create "denser" areas of light as they intersect. 3 glow passes (blur=18, 12, 8) for depth.
+3. **Sampling** -- `AuroraVisualizationView` advances a lightweight render model from `PlaybackService.frequencyBandsPublisher`; the `Canvas` draw path is render-only and does not mutate SwiftUI state per frame.
+4. **Drawing** -- Uses `Canvas` and `TimelineView` to draw overlapping fan-shaped sectors with radial gradients. Phone-root consumers (`phoneOverlay`, `rootBackdrop`) run in the low-cost tier at 15fps with fewer glow passes; dedicated Now Playing surfaces escalate to the richer 30fps tier.
+5. **Blending** -- Overlapping sectors naturally create "denser" areas of light as they intersect. Full-quality surfaces still use 3 glow passes (blur=18, 12, 8); low-cost surfaces cap the effect at 2 passes.
 6. **Transparency Seam** -- Root views of tabs and navigation destinations use `.auroraBackgroundSupport()` to hide system backgrounds and let the aurora show through.
-7. **Policy** -- Only visible when `playbackState` is `.playing` or `.buffering`, with a 1s fade transition. Paused when Now Playing sheet is open (`isPaused` parameter from `MainTabView`).
+7. **Policy** -- Visibility is registered explicitly through `PlaybackService.setVisualizationConsumer(_:isVisible:)`. Feed/root surfaces keep the visualizer on the low-cost tier, while sheet/viewport/stage surfaces request full quality. Hidden surfaces deregister immediately so they do not keep the analysis timer alive.
 8. **Low Power Mode** -- When `PowerStateMonitor.isLowPowerMode` is true, aurora drops to 1 glow pass at 15fps (from 3 passes at 30fps). `LyricsCard` also disables progressive blur in LPM. Downloads are auto-paused/resumed on LPM toggle via `DependencyContainer` wiring.
 
 ## Subsystem: Hub-Based Home Screen

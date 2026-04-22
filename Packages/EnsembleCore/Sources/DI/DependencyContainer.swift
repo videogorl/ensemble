@@ -40,6 +40,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let artworkLoader: ArtworkLoaderProtocol
     public let settingsManager: SettingsManager
     public let cacheManager: CacheManager
+    public let homeHubLoader: HomeHubLoaderProtocol
     public let navigationCoordinator: NavigationCoordinator
     public let hubOrderManager: HubOrderManager
     public let pinManager: PinManager
@@ -222,6 +223,11 @@ public final class DependencyContainer: @unchecked Sendable {
         cacheManager = playback.cacheManager
         songLinkService = playback.songLinkService
         shareService = playback.shareService
+        homeHubLoader = HomeHubLoader(
+            accountManager: accountManager,
+            hubRepository: hubRepository,
+            hubOrderManager: hubOrderManager
+        )
 
         offlineBackgroundExecutionCoordinator = mutation.offlineBackgroundExecutionCoordinator
         offlineDownloadService = mutation.offlineDownloadService
@@ -1767,7 +1773,9 @@ public final class DependencyContainer: @unchecked Sendable {
         HomeViewModel(
             accountManager: accountManager,
             syncCoordinator: syncCoordinator,
-            hubRepository: hubRepository,
+            hubLoader: homeHubLoader,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
             hubOrderManager: hubOrderManager,
             visibilityStore: libraryVisibilityStore
         )

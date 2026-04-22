@@ -208,6 +208,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         if settingsManager.auroraVisualizationEnabled {
             AuroraVisualizationView(
                 playbackService: DependencyContainer.shared.playbackService,
+                consumer: .stageFlow,
                 accentColor: settingsManager.accentColor.color,
                 isPaused: false,
                 isLowPowerMode: powerStateMonitor.isLowPowerMode

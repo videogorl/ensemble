@@ -151,6 +151,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     // Artists
     func fetchArtists() async throws -> [CDArtist]
     func fetchArtist(ratingKey: String) async throws -> CDArtist?
+    func fetchArtist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDArtist?
     func updateArtistName(ratingKey: String, sourceCompositeKey: String?, name: String) async throws
     func upsertArtist(
         ratingKey: String,
@@ -167,6 +168,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     // Albums
     func fetchAlbums() async throws -> [CDAlbum]
     func fetchAlbum(ratingKey: String) async throws -> CDAlbum?
+    func fetchAlbum(ratingKey: String, sourceCompositeKey: String?) async throws -> CDAlbum?
     func updateAlbumTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws
     func deleteAlbum(ratingKey: String, sourceCompositeKey: String?) async throws
     func fetchAlbums(forArtist artistRatingKey: String) async throws -> [CDAlbum]
@@ -279,6 +281,16 @@ public protocol LibraryRepositoryProtocol: Sendable {
 }
 
 public extension LibraryRepositoryProtocol {
+    func fetchArtist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDArtist? {
+        try await fetchArtist(ratingKey: ratingKey)
+    }
+
+    func fetchAlbum(ratingKey: String, sourceCompositeKey: String?) async throws -> CDAlbum? {
+        try await fetchAlbum(ratingKey: ratingKey)
+    }
+}
+
+public extension LibraryRepositoryProtocol {
     func updateArtistName(ratingKey: String, sourceCompositeKey: String?, name: String) async throws {}
     func updateAlbumTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws {}
     func deleteAlbum(ratingKey: String, sourceCompositeKey: String?) async throws {}
@@ -347,11 +359,23 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
     }
 
     public func fetchArtist(ratingKey: String) async throws -> CDArtist? {
+        try await fetchArtist(ratingKey: ratingKey, sourceCompositeKey: nil)
+    }
+
+    public func fetchArtist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDArtist? {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDArtist.fetchRequest()
-                request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                if let sourceCompositeKey {
+                    request.predicate = NSPredicate(
+                        format: "ratingKey == %@ AND sourceCompositeKey == %@",
+                        ratingKey,
+                        sourceCompositeKey
+                    )
+                } else {
+                    request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                }
                 do {
                     let artist = try context.fetch(request).first
                     continuation.resume(returning: artist)
@@ -499,11 +523,23 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
     }
 
     public func fetchAlbum(ratingKey: String) async throws -> CDAlbum? {
+        try await fetchAlbum(ratingKey: ratingKey, sourceCompositeKey: nil)
+    }
+
+    public func fetchAlbum(ratingKey: String, sourceCompositeKey: String?) async throws -> CDAlbum? {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDAlbum.fetchRequest()
-                request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                if let sourceCompositeKey {
+                    request.predicate = NSPredicate(
+                        format: "ratingKey == %@ AND sourceCompositeKey == %@",
+                        ratingKey,
+                        sourceCompositeKey
+                    )
+                } else {
+                    request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                }
                 do {
                     let album = try context.fetch(request).first
                     continuation.resume(returning: album)
