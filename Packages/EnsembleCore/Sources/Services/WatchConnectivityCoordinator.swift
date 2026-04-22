@@ -17,12 +17,14 @@ public final class WatchConnectivityCoordinator: NSObject, ObservableObject {
         static let selectedTarget = "selectedTarget"
         static let credentialRequest = "credentialRequest"
         static let syncCredentials = "syncCredentials"
+        static let syncPins = "syncPins"
     }
 
     @Published public private(set) var isSupported: Bool
     @Published public private(set) var isPhoneReachable: Bool
     @Published public private(set) var remoteSnapshot: WatchRemoteSessionSnapshot?
     @Published public private(set) var companionCredentials: [SyncableAccountCredential]
+    @Published public private(set) var companionPinsData: Data?
     @Published public private(set) var selectedPlaybackTarget: WatchPlaybackTarget
 
     public var commandHandler: ((WatchRemoteCommand) async -> WatchRemoteCommandResponse)?
@@ -36,6 +38,7 @@ public final class WatchConnectivityCoordinator: NSObject, ObservableObject {
     private let reachabilityProvider: () -> Bool
     private var lastPublishedSnapshot: WatchRemoteSessionSnapshot?
     private var lastPublishedCredentials: [SyncableAccountCredential] = []
+    private var lastPublishedPinsData: Data?
 
     public override convenience init() {
         #if canImport(WatchConnectivity) && (os(iOS) || os(watchOS))
@@ -90,6 +93,7 @@ public final class WatchConnectivityCoordinator: NSObject, ObservableObject {
         self.reachabilityProvider = reachabilityProvider
         self.isPhoneReachable = reachabilityProvider()
         self.companionCredentials = []
+        self.companionPinsData = nil
         self.selectedPlaybackTarget = .watchLocal
         super.init()
 
@@ -203,6 +207,18 @@ public final class WatchConnectivityCoordinator: NSObject, ObservableObject {
         publishLatestContext()
     }
 
+    public func publishPinsData(_ data: Data) {
+        companionPinsData = data
+        EnsembleLogger.debug("WatchConnectivityCoordinator: publishing pins payload bytes=\(data.count)")
+
+        guard lastPublishedPinsData != data else {
+            return
+        }
+
+        lastPublishedPinsData = data
+        publishLatestContext()
+    }
+
     func handleIncomingApplicationContext(_ context: [String: Any]) {
         if let snapshotData = context[PayloadKey.snapshot] as? Data,
            let snapshot = try? decoder.decode(WatchRemoteSessionSnapshot.self, from: snapshotData) {
@@ -216,6 +232,11 @@ public final class WatchConnectivityCoordinator: NSObject, ObservableObject {
            let credentials = try? decoder.decode([SyncableAccountCredential].self, from: credentialData) {
             companionCredentials = credentials
             EnsembleLogger.debug("WatchConnectivityCoordinator: received application context credentials count=\(credentials.count)")
+        }
+
+        if let pinData = context[PayloadKey.syncPins] as? Data {
+            companionPinsData = pinData
+            EnsembleLogger.debug("WatchConnectivityCoordinator: received application context pins bytes=\(pinData.count)")
         }
 
         refreshReachability()
@@ -293,6 +314,10 @@ public final class WatchConnectivityCoordinator: NSObject, ObservableObject {
 
         if let credentialData = try? encoder.encode(companionCredentials) {
             context[PayloadKey.syncCredentials] = credentialData
+        }
+
+        if let companionPinsData {
+            context[PayloadKey.syncPins] = companionPinsData
         }
 
         do {

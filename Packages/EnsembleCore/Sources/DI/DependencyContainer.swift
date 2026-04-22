@@ -668,6 +668,26 @@ public final class DependencyContainer: @unchecked Sendable {
         accountManager.onCredentialSnapshotUpdated = { [weak watchConnectivityCoordinator] credentials in
             watchConnectivityCoordinator?.publishSyncCredentials(credentials)
         }
+        watchConnectivityCoordinator.publishPinsData(pinManager.exportPinsData() ?? Data("[]".utf8))
+
+        pinManager.objectWillChange
+            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+            .sink { [weak pinManager, weak watchConnectivityCoordinator] _ in
+                guard let pinManager, let watchConnectivityCoordinator else { return }
+                watchConnectivityCoordinator.publishPinsData(pinManager.exportPinsData() ?? Data("[]".utf8))
+            }
+            .store(in: &watchConnectivityCancellables)
+
+        watchConnectivityCoordinator.$companionPinsData
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak pinManager] data in
+                guard let self, let pinManager else { return }
+                guard let remotePins = try? JSONDecoder().decode([PinnedItem].self, from: data) else { return }
+                self.lastSyncedPinsData = data
+                pinManager.applyRemotePins(remotePins)
+            }
+            .store(in: &watchConnectivityCancellables)
 
         #if os(iOS)
         watchConnectivityCoordinator.commandHandler = { [weak playbackService, weak watchConnectivityCoordinator] command in

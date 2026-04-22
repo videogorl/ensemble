@@ -296,6 +296,18 @@ private struct WatchMainMenuView: View {
 
     var body: some View {
         List {
+            if !pinnedViewModel.resolvedPins.isEmpty {
+                Section("Pins") {
+                    ForEach(pinnedViewModel.resolvedPins, id: \.id) { pin in
+                        NavigationLink {
+                            pinDestination(for: pin)
+                        } label: {
+                            WatchPinRow(pin: pin)
+                        }
+                    }
+                }
+            }
+
             if playbackHub.currentTrack != nil || playbackHub.hasRemoteTargetAvailable {
                 NavigationLink {
                     WatchNowPlayingView(playbackHub: playbackHub)
@@ -313,20 +325,17 @@ private struct WatchMainMenuView: View {
                     }
                 }
             }
-
-            if !pinnedViewModel.resolvedPins.isEmpty {
-                Section("Pins") {
-                    ForEach(pinnedViewModel.resolvedPins, id: \.id) { pin in
-                        NavigationLink {
-                            pinDestination(for: pin)
-                        } label: {
-                            WatchPinRow(pin: pin)
-                        }
-                    }
-                }
-            }
         }
         .navigationTitle("Ensemble")
+        .refreshable {
+            await homeViewModel.loadHubs()
+            await libraryViewModel.loadLibrary()
+            await playlistViewModel.loadPlaylists()
+            await favoritesViewModel.loadTracks()
+            await searchViewModel.loadExploreContentIfNeeded()
+            await downloadsViewModel.refresh()
+            await pinnedViewModel.loadPinnedItems()
+        }
         .task {
             await pinnedViewModel.loadPinnedItems()
         }
