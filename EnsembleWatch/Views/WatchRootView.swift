@@ -351,14 +351,6 @@ private struct WatchMainMenuView: View {
                 }
             }
 
-            if playbackHub.currentTrack != nil || playbackHub.hasRemoteTargetAvailable {
-                NavigationLink {
-                    WatchNowPlayingView(playbackHub: playbackHub)
-                } label: {
-                    Label("Now Playing", systemImage: "play.circle.fill")
-                }
-            }
-
             Section("Browse") {
                 ForEach(supportedTopLevelTabs) { item in
                     NavigationLink {
@@ -845,6 +837,7 @@ private struct WatchSearchView: View {
 }
 
 private struct WatchNowPlayingView: View {
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var playbackHub: WatchPlaybackHub
     @State private var showsTargetPicker = false
     @State private var showsQueueActions = false
@@ -892,6 +885,18 @@ private struct WatchNowPlayingView: View {
                         }
                     }
                     .buttonStyle(.plain)
+
+                    HStack {
+                        Spacer()
+
+                        Button {
+                            showsTargetPicker = true
+                        } label: {
+                            Image(systemName: "airplayaudio")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Playback Target")
+                    }
                 } else {
                     VStack(spacing: 8) {
                         Image(systemName: "music.note")
@@ -933,11 +938,11 @@ private struct WatchNowPlayingView: View {
             baseView.toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        showsTargetPicker = true
+                        dismiss()
                     } label: {
-                        Image(systemName: "airplayaudio")
+                        Image(systemName: "xmark")
                     }
-                    .accessibilityLabel("Playback Target")
+                    .accessibilityLabel("Close Now Playing")
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
@@ -953,11 +958,11 @@ private struct WatchNowPlayingView: View {
             baseView.toolbar {
                 ToolbarItem {
                     Button {
-                        showsTargetPicker = true
+                        dismiss()
                     } label: {
-                        Image(systemName: "airplayaudio")
+                        Image(systemName: "xmark")
                     }
-                    .accessibilityLabel("Playback Target")
+                    .accessibilityLabel("Close Now Playing")
                 }
 
                 ToolbarItem {
