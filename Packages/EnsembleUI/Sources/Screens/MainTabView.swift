@@ -51,6 +51,7 @@ public struct MainTabView: View {
     @StateObject private var libraryVM: LibraryViewModel
     private let nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
+    @StateObject private var contextMenuMetadataEditorCoordinator = ContextMenuMetadataEditorCoordinator()
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     // Observation-extracted: networkMonitor publishes on every network state change,
     // which would invalidate the entire root view. We only need networkState, so we
@@ -264,9 +265,17 @@ public struct MainTabView: View {
                     .frame(width: 720, height: 560)
                 #endif
             }
+            .keyboardSafeEditorPresentation(item: $contextMenuMetadataEditorCoordinator.request) { request in
+                MetadataEditSheet(
+                    kind: request.kind,
+                    currentTitle: request.currentTitle,
+                    onSave: request.onSave
+                )
+            }
 
             applyChromeVisibilityObservation(
                 to: rootView
+                    .environmentObject(contextMenuMetadataEditorCoordinator)
                     .background(
                         RootChromeFrameRegistrationView(
                             bottomPadding: miniPlayerBottomLift,
@@ -660,6 +669,7 @@ public struct SidebarView: View {
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var pinnedVM: PinnedViewModel
     @StateObject private var playlistsVM: PlaylistViewModel
+    @StateObject private var contextMenuMetadataEditorCoordinator = ContextMenuMetadataEditorCoordinator()
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     private let pinManager = DependencyContainer.shared.pinManager
@@ -1078,6 +1088,13 @@ public struct SidebarView: View {
                 .frame(width: 720, height: 560)
             #endif
         }
+        .keyboardSafeEditorPresentation(item: $contextMenuMetadataEditorCoordinator.request) { request in
+            MetadataEditSheet(
+                kind: request.kind,
+                currentTitle: request.currentTitle,
+                onSave: request.onSave
+            )
+        }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
@@ -1173,6 +1190,7 @@ public struct SidebarView: View {
             #endif
             pinnedDetailPath.removeAll()
         }
+        .environmentObject(contextMenuMetadataEditorCoordinator)
     }
 
     private var sidebarColumn: some View {
