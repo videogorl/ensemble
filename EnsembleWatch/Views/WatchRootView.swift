@@ -336,27 +336,28 @@ private struct WatchMainMenuView: View {
     @ObservedObject var downloadsViewModel: DownloadsViewModel
     @ObservedObject var nowPlayingViewModel: NowPlayingViewModel
     @ObservedObject var playbackHub: WatchPlaybackHub
+    @State private var selectedPinID: String?
 
     var body: some View {
         List {
-            if !pinnedViewModel.resolvedPins.isEmpty {
-                Section("Pins") {
-                    ForEach(pinnedViewModel.resolvedPins, id: \.id) { pin in
-                        NavigationLink {
-                            pinDestination(for: pin)
-                        } label: {
-                            WatchPinRow(pin: pin)
-                        }
-                    }
-                }
-            }
-
             Section("Browse") {
                 ForEach(supportedTopLevelTabs) { item in
                     NavigationLink {
                         topLevelDestination(for: item)
                     } label: {
                         Label(item.displayTitle, systemImage: item.systemImage)
+                    }
+                }
+            }
+
+            if !pinnedViewModel.resolvedPins.isEmpty {
+                Section("Pins") {
+                    ForEach(pinnedViewModel.resolvedPins, id: \.id) { pin in
+                        WatchNavigationRow(isActive: pinSelectionBinding(for: pin.id)) {
+                            WatchPinRow(pin: pin)
+                        } destination: {
+                            pinDestination(for: pin)
+                        }
                     }
                 }
             }
@@ -377,15 +378,27 @@ private struct WatchMainMenuView: View {
         .watchNowPlayingToolbar(playbackHub: playbackHub)
     }
 
-    private var supportedTopLevelTabs: [TabItem] {
-        settingsManager.enabledTabs.filter {
-            switch $0 {
-            case .home, .songs, .artists, .albums, .genres, .playlists, .favorites, .search, .downloads:
-                return true
-            case .settings:
-                return false
+    private func pinSelectionBinding(for id: String) -> Binding<Bool> {
+        Binding(
+            get: { selectedPinID == id },
+            set: { isActive in
+                selectedPinID = isActive ? id : nil
             }
-        }
+        )
+    }
+
+    private var supportedTopLevelTabs: [TabItem] {
+        [
+            .home,
+            .songs,
+            .artists,
+            .albums,
+            .genres,
+            .playlists,
+            .favorites,
+            .search,
+            .downloads
+        ]
     }
 
     @ViewBuilder
@@ -467,19 +480,43 @@ private struct WatchMainMenuView: View {
     }
 }
 
+private struct WatchNavigationRow<Label: View, Destination: View>: View {
+    @Binding var isActive: Bool
+    let label: () -> Label
+    let destination: () -> Destination
+
+    var body: some View {
+        Button {
+            isActive = true
+        } label: {
+            label()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .background {
+            NavigationLink(isActive: $isActive) {
+                destination()
+            } label: {
+                EmptyView()
+            }
+            .hidden()
+        }
+    }
+}
+
 private struct WatchPinRow: View {
     let pin: ResolvedPin
 
     var body: some View {
         switch pin {
         case .album(let album, _):
-            Label(album.title, systemImage: "square.stack")
+            WatchAlbumRow(album: album)
         case .artist(let artist, _):
-            Label(artist.name, systemImage: "person.2")
+            WatchArtistRow(artist: artist)
         case .playlist(let playlist, _):
-            Label(playlist.title, systemImage: "music.note.list")
+            WatchPlaylistRow(playlist: playlist)
         case .mergedPlaylist(let displayPlaylist, _):
-            Label(displayPlaylist.title, systemImage: "music.note.list")
+            WatchDisplayPlaylistRow(displayPlaylist: displayPlaylist)
         }
     }
 }
@@ -525,19 +562,19 @@ private struct WatchFeedView: View {
             NavigationLink {
                 WatchAlbumDetailView(album: album, playbackHub: playbackHub, nowPlayingViewModel: nowPlayingViewModel)
             } label: {
-                Label(album.title, systemImage: "square.stack")
+                WatchAlbumRow(album: album)
             }
         } else if let artist = item.artist {
             NavigationLink {
                 WatchArtistDetailView(artist: artist, playbackHub: playbackHub, nowPlayingViewModel: nowPlayingViewModel)
             } label: {
-                Label(artist.name, systemImage: "person.2")
+                WatchArtistRow(artist: artist)
             }
         } else if let playlist = item.playlist {
             NavigationLink {
                 WatchPlaylistDetailView(playlist: playlist, playbackHub: playbackHub, nowPlayingViewModel: nowPlayingViewModel)
             } label: {
-                Label(playlist.title, systemImage: "music.note.list")
+                WatchPlaylistRow(playlist: playlist)
             }
         }
     }
@@ -577,7 +614,7 @@ private struct WatchAlbumsView: View {
                 NavigationLink {
                     WatchAlbumDetailView(album: album, playbackHub: playbackHub, nowPlayingViewModel: nowPlayingViewModel)
                 } label: {
-                    Label(album.title, systemImage: "square.stack")
+                    WatchAlbumRow(album: album)
                 }
             }
         }
@@ -600,7 +637,7 @@ private struct WatchArtistsView: View {
                 NavigationLink {
                     WatchArtistDetailView(artist: artist, playbackHub: playbackHub, nowPlayingViewModel: nowPlayingViewModel)
                 } label: {
-                    Label(artist.name, systemImage: "person.2")
+                    WatchArtistRow(artist: artist)
                 }
             }
         }
@@ -664,7 +701,7 @@ private struct WatchPlaylistsView: View {
                         )
                     }
                 } label: {
-                    Label(displayPlaylist.title, systemImage: "music.note.list")
+                    WatchDisplayPlaylistRow(displayPlaylist: displayPlaylist)
                 }
             }
         }
@@ -770,7 +807,7 @@ private struct WatchSearchView: View {
                             NavigationLink {
                                 WatchAlbumDetailView(album: album, playbackHub: playbackHub, nowPlayingViewModel: nowPlayingViewModel)
                             } label: {
-                                Label(album.title, systemImage: "clock")
+                                WatchAlbumRow(album: album, secondaryText: "Recently Played")
                             }
                         }
                     }
@@ -782,7 +819,7 @@ private struct WatchSearchView: View {
                             NavigationLink {
                                 WatchArtistDetailView(artist: artist, playbackHub: playbackHub, nowPlayingViewModel: nowPlayingViewModel)
                             } label: {
-                                Label(artist.name, systemImage: "person.2")
+                                WatchArtistRow(artist: artist)
                             }
                         }
                     }
@@ -794,7 +831,7 @@ private struct WatchSearchView: View {
                             NavigationLink {
                                 WatchAlbumDetailView(album: album, playbackHub: playbackHub, nowPlayingViewModel: nowPlayingViewModel)
                             } label: {
-                                Label(album.title, systemImage: "square.stack")
+                                WatchAlbumRow(album: album)
                             }
                         }
                     }
@@ -806,7 +843,7 @@ private struct WatchSearchView: View {
                             NavigationLink {
                                 WatchPlaylistDetailView(playlist: playlist, playbackHub: playbackHub, nowPlayingViewModel: nowPlayingViewModel)
                             } label: {
-                                Label(playlist.title, systemImage: "music.note.list")
+                                WatchPlaylistRow(playlist: playlist)
                             }
                         }
                     }
@@ -1066,7 +1103,7 @@ private struct WatchArtistDetailView: View {
                         NavigationLink {
                             WatchAlbumDetailView(album: album, playbackHub: playbackHub, nowPlayingViewModel: nowPlayingViewModel)
                         } label: {
-                            Label(album.title, systemImage: "square.stack")
+                            WatchAlbumRow(album: album)
                         }
                     }
                 }
@@ -1299,22 +1336,158 @@ private struct WatchTrackLabel: View {
     let track: Track
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(track.title)
-                .lineLimit(1)
-            if let artist = track.artistName {
-                Text(artist)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+        WatchMediaRow(
+            title: track.title,
+            secondaryText: track.artistName,
+            artworkShape: .roundedRectangle,
+            artworkPath: track.thumbPath,
+            sourceCompositeKey: track.sourceCompositeKey,
+            ratingKey: track.id,
+            fallbackPath: track.fallbackThumbPath,
+            fallbackRatingKey: track.fallbackRatingKey,
+            placeholderSystemImage: "music.note"
+        )
+    }
+}
+
+private struct WatchAlbumRow: View {
+    let album: Album
+    var secondaryText: String?
+
+    var body: some View {
+        WatchMediaRow(
+            title: album.title,
+            secondaryText: secondaryText ?? album.artistName ?? album.albumArtist,
+            artworkShape: .roundedRectangle,
+            artworkPath: album.thumbPath,
+            sourceCompositeKey: album.sourceCompositeKey,
+            ratingKey: album.id,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            placeholderSystemImage: "square.stack"
+        )
+    }
+}
+
+private struct WatchArtistRow: View {
+    let artist: Artist
+
+    var body: some View {
+        WatchMediaRow(
+            title: artist.name,
+            secondaryText: nil,
+            artworkShape: .circle,
+            artworkPath: artist.thumbPath,
+            sourceCompositeKey: artist.sourceCompositeKey,
+            ratingKey: artist.id,
+            fallbackPath: artist.fallbackThumbPath,
+            fallbackRatingKey: artist.fallbackRatingKey,
+            placeholderSystemImage: "person.2"
+        )
+    }
+}
+
+private struct WatchPlaylistRow: View {
+    let playlist: Playlist
+
+    var body: some View {
+        WatchMediaRow(
+            title: playlist.title,
+            secondaryText: nil,
+            artworkShape: .roundedRectangle,
+            artworkPath: playlist.compositePath,
+            sourceCompositeKey: playlist.sourceCompositeKey,
+            ratingKey: playlist.id,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            placeholderSystemImage: "music.note.list"
+        )
+    }
+}
+
+private struct WatchDisplayPlaylistRow: View {
+    let displayPlaylist: DisplayPlaylist
+
+    var body: some View {
+        WatchMediaRow(
+            title: displayPlaylist.title,
+            secondaryText: nil,
+            artworkShape: .roundedRectangle,
+            artworkPath: displayPlaylist.compositePath,
+            sourceCompositeKey: displayPlaylist.sourceCompositeKey,
+            ratingKey: displayPlaylist.primaryPlaylist.id,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            placeholderSystemImage: "music.note.list"
+        )
+    }
+}
+
+private struct WatchMediaRow: View {
+    let title: String
+    let secondaryText: String?
+    let artworkShape: WatchArtworkShape
+    let artworkPath: String?
+    let sourceCompositeKey: String?
+    let ratingKey: String?
+    let fallbackPath: String?
+    let fallbackRatingKey: String?
+    let placeholderSystemImage: String
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
                     .lineLimit(1)
+
+                if let secondaryText, !secondaryText.isEmpty {
+                    Text(secondaryText)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } icon: {
+            WatchArtworkThumbnail(
+                size: 34,
+                shape: artworkShape,
+                artworkPath: artworkPath,
+                sourceCompositeKey: sourceCompositeKey,
+                ratingKey: ratingKey,
+                fallbackPath: fallbackPath,
+                fallbackRatingKey: fallbackRatingKey,
+                placeholderSystemImage: placeholderSystemImage
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private enum WatchArtworkShape {
+    case roundedRectangle
+    case circle
+
+    var cornerRadius: CGFloat {
+        switch self {
+        case .roundedRectangle:
+            return 8
+        case .circle:
+            return 999
         }
     }
 }
 
-private struct WatchArtworkImage: View {
-    let track: Track
+private struct WatchArtworkThumbnail: View {
     let size: CGFloat
+    let shape: WatchArtworkShape
+    let artworkPath: String?
+    let sourceCompositeKey: String?
+    let ratingKey: String?
+    let fallbackPath: String?
+    let fallbackRatingKey: String?
+    let placeholderSystemImage: String
     @State private var artworkURL: URL?
 
     var body: some View {
@@ -1335,26 +1508,50 @@ private struct WatchArtworkImage: View {
             }
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .task(id: track.id) {
+        .clipShape(RoundedRectangle(cornerRadius: shape.cornerRadius, style: .continuous))
+        .task(id: cacheIdentity) {
             artworkURL = await DependencyContainer.shared.artworkLoader.artworkURLAsync(
-                for: track.thumbPath,
-                sourceKey: track.sourceCompositeKey,
-                ratingKey: track.id,
-                fallbackPath: track.fallbackThumbPath,
-                fallbackRatingKey: track.fallbackRatingKey,
+                for: artworkPath,
+                sourceKey: sourceCompositeKey,
+                ratingKey: ratingKey,
+                fallbackPath: fallbackPath,
+                fallbackRatingKey: fallbackRatingKey,
                 size: Int(size * 3)
             )
         }
     }
 
+    private var cacheIdentity: String {
+        [ratingKey, artworkPath, fallbackRatingKey, fallbackPath, sourceCompositeKey]
+            .compactMap { $0 }
+            .joined(separator: "|")
+    }
+
     private var artworkPlaceholder: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: shape.cornerRadius, style: .continuous)
                 .fill(Color.secondary.opacity(0.16))
-            Image(systemName: "music.note")
-                .font(.title2)
+            Image(systemName: placeholderSystemImage)
+                .font(.system(size: size * 0.45))
                 .foregroundColor(.secondary)
         }
+    }
+}
+
+private struct WatchArtworkImage: View {
+    let track: Track
+    let size: CGFloat
+
+    var body: some View {
+        WatchArtworkThumbnail(
+            size: size,
+            shape: .roundedRectangle,
+            artworkPath: track.thumbPath,
+            sourceCompositeKey: track.sourceCompositeKey,
+            ratingKey: track.id,
+            fallbackPath: track.fallbackThumbPath,
+            fallbackRatingKey: track.fallbackRatingKey,
+            placeholderSystemImage: "music.note"
+        )
     }
 }

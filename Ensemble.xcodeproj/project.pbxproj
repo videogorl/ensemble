@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		9926CB082F43A106004A19A3 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 9926CB072F43A106004A19A3 /* AppIcon.icon */; };
+		9926CB092F43A106004A19A3 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 9926CB072F43A106004A19A3 /* AppIcon.icon */; };
 		E0001001 /* EnsembleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001000 /* EnsembleApp.swift */; };
 		E0001003 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001002 /* AppDelegate.swift */; };
 		E0001030 /* ExternalDisplaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001031 /* ExternalDisplaySceneDelegate.swift */; };
@@ -372,6 +373,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E0002005 /* Assets.xcassets in Resources */,
+				9926CB092F43A106004A19A3 /* AppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
