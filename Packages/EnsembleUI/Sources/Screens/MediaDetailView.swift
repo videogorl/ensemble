@@ -48,6 +48,8 @@ public struct PlaylistDetailMenuActions {
 }
 
 public struct AlbumDetailMenuActions {
+    let onEditMetadata: () -> Void
+    let onDelete: () -> Void
     let onPlayNext: () -> Void
     let onPlayLast: () -> Void
 }
@@ -312,139 +314,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                             : "line.3.horizontal.decrease.circle"
                     )
                 }
+
+                Divider()
             }
-
-            Button {
-                if let customAction = customPinAction {
-                    customAction(isPinned)
-                } else if isPinned {
-                    pinManager.unpin(id: ratingKey)
-                } else {
-                    pinManager.pin(
-                        id: ratingKey,
-                        sourceKey: headerData.sourceKey ?? "",
-                        type: mediaType,
-                        title: headerData.title
-                    )
-                }
-            } label: {
-                if isPinned {
-                    Label("Unpin", systemImage: "pin.slash")
-                } else {
-                    Label("Pin", systemImage: "pin.fill")
-                }
-            }
-
-            if let sourceKey {
-                switch mediaType {
-                case .album:
-                    let album = Album(
-                        id: ratingKey,
-                        key: headerData.ratingKey ?? ratingKey,
-                        title: headerData.title,
-                        artistName: headerData.subtitle,
-                        sourceCompositeKey: sourceKey
-                    )
-                    let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
-                    Button {
-                        Task {
-                            await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
-                        }
-                    } label: {
-                        Label(
-                            isDownloaded ? "Remove Download" : "Download",
-                            systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-                        )
-                    }
-
-                case .artist:
-                    let artist = Artist(
-                        id: ratingKey,
-                        key: headerData.ratingKey ?? ratingKey,
-                        name: headerData.title,
-                        summary: nil,
-                        thumbPath: headerData.artworkPath,
-                        artPath: nil,
-                        sourceCompositeKey: sourceKey
-                    )
-                    let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
-                    Button {
-                        Task {
-                            await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
-                        }
-                    } label: {
-                        Label(
-                            isDownloaded ? "Remove Download" : "Download",
-                            systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-                        )
-                    }
-
-                case .playlist:
-                    let playlist = Playlist(
-                        id: ratingKey,
-                        key: headerData.ratingKey ?? ratingKey,
-                        title: headerData.title,
-                        summary: nil,
-                        isSmart: false,
-                        trackCount: 0,
-                        duration: 0,
-                        sourceCompositeKey: sourceKey
-                    )
-                    let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
-                    Button {
-                        Task {
-                            await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
-                        }
-                    } label: {
-                        Label(
-                            isDownloaded ? "Remove Download" : "Download",
-                            systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-                        )
-                    }
-                }
-            }
-
-            // Share album link
-            if viewModel is AlbumDetailViewModel {
-                let album = Album(
-                    id: ratingKey,
-                    key: headerData.ratingKey ?? ratingKey,
-                    title: headerData.title,
-                    artistName: headerData.subtitle,
-                    sourceCompositeKey: sourceKey ?? ""
-                )
-                Button {
-                    ShareActions.shareAlbumLink(album, deps: deps)
-                } label: {
-                    Label("Share Link…", systemImage: "link")
-                }
-            }
-
-            Divider()
 
             if viewModel is AlbumDetailViewModel {
-                if let lastPlaylistQuickTarget {
-                    if nowPlayingVM.compatibleTrackCount(viewModel.filteredTracks, for: lastPlaylistQuickTarget) > 0 {
-                        Button {
-                            Task {
-                                _ = try? await nowPlayingVM.addTracks(viewModel.filteredTracks, to: lastPlaylistQuickTarget)
-                            }
-                        } label: {
-                            Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: "clock.arrow.circlepath")
-                        }
-                    }
-                }
-
-                Button {
-                    presentPlaylistPicker(with: viewModel.filteredTracks)
-                } label: {
-                    Label("Add to Playlist…", systemImage: "text.badge.plus")
-                }
-                .disabled(viewModel.filteredTracks.isEmpty)
-
                 if let albumMenuActions {
-                    Divider()
-
                     Button {
                         albumMenuActions.onPlayNext()
                     } label: {
@@ -455,6 +330,186 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         albumMenuActions.onPlayLast()
                     } label: {
                         Label("Play Last", systemImage: "text.append")
+                    }
+
+                    if let lastPlaylistQuickTarget {
+                        if nowPlayingVM.compatibleTrackCount(viewModel.filteredTracks, for: lastPlaylistQuickTarget) > 0 {
+                            Button {
+                                Task {
+                                    _ = try? await nowPlayingVM.addTracks(viewModel.filteredTracks, to: lastPlaylistQuickTarget)
+                                }
+                            } label: {
+                                Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: "clock.arrow.circlepath")
+                            }
+                        }
+                    }
+
+                    Button {
+                        presentPlaylistPicker(with: viewModel.filteredTracks)
+                    } label: {
+                        Label("Add to Playlist…", systemImage: "text.badge.plus")
+                    }
+                    .disabled(viewModel.filteredTracks.isEmpty)
+
+                    Divider()
+
+                    let album = Album(
+                        id: ratingKey,
+                        key: headerData.ratingKey ?? ratingKey,
+                        title: headerData.title,
+                        artistName: headerData.subtitle,
+                        sourceCompositeKey: sourceKey ?? ""
+                    )
+                    Button {
+                        ShareActions.shareAlbumLink(album, deps: deps)
+                    } label: {
+                        Label("Share Link…", systemImage: "link")
+                    }
+
+                    Button {
+                        if let customAction = customPinAction {
+                            customAction(isPinned)
+                        } else if isPinned {
+                            pinManager.unpin(id: ratingKey)
+                        } else {
+                            pinManager.pin(
+                                id: ratingKey,
+                                sourceKey: headerData.sourceKey ?? "",
+                                type: mediaType,
+                                title: headerData.title
+                            )
+                        }
+                    } label: {
+                        if isPinned {
+                            Label("Unpin", systemImage: "pin.slash")
+                        } else {
+                            Label("Pin", systemImage: "pin.fill")
+                        }
+                    }
+
+                    if let sourceKey {
+                        let album = Album(
+                            id: ratingKey,
+                            key: headerData.ratingKey ?? ratingKey,
+                            title: headerData.title,
+                            artistName: headerData.subtitle,
+                            sourceCompositeKey: sourceKey
+                        )
+                        let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
+                        Button {
+                            Task {
+                                await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
+                            }
+                        } label: {
+                            Label(
+                                isDownloaded ? "Remove Download" : "Download",
+                                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
+                            )
+                        }
+                    }
+
+                    Button {
+                        albumMenuActions.onEditMetadata()
+                    } label: {
+                        Label("Edit Metadata…", systemImage: "pencil")
+                    }
+
+                    Divider()
+
+                    Button(role: .destructive) {
+                        albumMenuActions.onDelete()
+                    } label: {
+                        Label("Delete Album", systemImage: "trash")
+                    }
+                }
+            } else {
+                Button {
+                    if let customAction = customPinAction {
+                        customAction(isPinned)
+                    } else if isPinned {
+                        pinManager.unpin(id: ratingKey)
+                    } else {
+                        pinManager.pin(
+                            id: ratingKey,
+                            sourceKey: headerData.sourceKey ?? "",
+                            type: mediaType,
+                            title: headerData.title
+                        )
+                    }
+                } label: {
+                    if isPinned {
+                        Label("Unpin", systemImage: "pin.slash")
+                    } else {
+                        Label("Pin", systemImage: "pin.fill")
+                    }
+                }
+
+                if let sourceKey {
+                    switch mediaType {
+                    case .album:
+                        let album = Album(
+                            id: ratingKey,
+                            key: headerData.ratingKey ?? ratingKey,
+                            title: headerData.title,
+                            artistName: headerData.subtitle,
+                            sourceCompositeKey: sourceKey
+                        )
+                        let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
+                        Button {
+                            Task {
+                                await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
+                            }
+                        } label: {
+                            Label(
+                                isDownloaded ? "Remove Download" : "Download",
+                                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
+                            )
+                        }
+
+                    case .artist:
+                        let artist = Artist(
+                            id: ratingKey,
+                            key: headerData.ratingKey ?? ratingKey,
+                            name: headerData.title,
+                            summary: nil,
+                            thumbPath: headerData.artworkPath,
+                            artPath: nil,
+                            sourceCompositeKey: sourceKey
+                        )
+                        let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
+                        Button {
+                            Task {
+                                await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
+                            }
+                        } label: {
+                            Label(
+                                isDownloaded ? "Remove Download" : "Download",
+                                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
+                            )
+                        }
+
+                    case .playlist:
+                        let playlist = Playlist(
+                            id: ratingKey,
+                            key: headerData.ratingKey ?? ratingKey,
+                            title: headerData.title,
+                            summary: nil,
+                            isSmart: false,
+                            trackCount: 0,
+                            duration: 0,
+                            sourceCompositeKey: sourceKey
+                        )
+                        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
+                        Button {
+                            Task {
+                                await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
+                            }
+                        } label: {
+                            Label(
+                                isDownloaded ? "Remove Download" : "Download",
+                                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
+                            )
+                        }
                     }
                 }
             }

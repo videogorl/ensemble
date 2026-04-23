@@ -7,13 +7,12 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         var coordinator = PlaybackHandoffCoordinator()
         let now = Date()
 
-        let outcome = coordinator.handleRouteChange(
-            reason: .oldDeviceUnavailable,
-            now: now,
-            settleUntil: nil,
+        let outcome = coordinator.handle(
+            .routeChanged(reason: .oldDeviceUnavailable, now: now, settleUntil: nil),
             playbackState: .playing
         )
 
+        XCTAssertEqual(outcome.category, .audioSessionRouteChange)
         XCTAssertEqual(coordinator.state.pauseReason, .disconnect)
         XCTAssertEqual(coordinator.state.interruption, .none)
         XCTAssertEqual(outcome.actions, [
@@ -31,12 +30,10 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
 
     func testDisconnectWhileUserPausedKeepsUserPauseReason() {
         var coordinator = PlaybackHandoffCoordinator()
-        _ = coordinator.handlePauseRequest(source: .user, playbackState: .playing)
+        _ = coordinator.handle(.pauseRequested(.user), playbackState: .playing)
 
-        let outcome = coordinator.handleRouteChange(
-            reason: .oldDeviceUnavailable,
-            now: Date(),
-            settleUntil: nil,
+        let outcome = coordinator.handle(
+            .routeChanged(reason: .oldDeviceUnavailable, now: Date(), settleUntil: nil),
             playbackState: .paused
         )
 
@@ -52,15 +49,13 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         var coordinator = PlaybackHandoffCoordinator()
         let disconnectAt = Date()
 
-        _ = coordinator.handleRouteChange(
-            reason: .oldDeviceUnavailable,
-            now: disconnectAt,
-            settleUntil: nil,
+        _ = coordinator.handle(
+            .routeChanged(reason: .oldDeviceUnavailable, now: disconnectAt, settleUntil: nil),
             playbackState: .playing
         )
 
-        let outcome = coordinator.handleInterruptionBegan(
-            now: disconnectAt.addingTimeInterval(0.5),
+        let outcome = coordinator.handle(
+            .interruptionBegan(now: disconnectAt.addingTimeInterval(0.5)),
             playbackState: .paused
         )
 
@@ -72,11 +67,12 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
     func testInterruptionBeganPausesPlaybackInsteadOfLeavingBuffering() {
         var coordinator = PlaybackHandoffCoordinator()
 
-        let outcome = coordinator.handleInterruptionBegan(
-            now: Date(),
+        let outcome = coordinator.handle(
+            .interruptionBegan(now: Date()),
             playbackState: .playing
         )
 
+        XCTAssertEqual(outcome.category, .audioSessionInterruption)
         XCTAssertEqual(outcome.actions, [
             .setInterrupted(true),
             .pausePlayback(.interruption)
@@ -90,10 +86,8 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         let now = Date()
         let settleUntil = now.addingTimeInterval(2)
 
-        let outcome = coordinator.handleRouteChange(
-            reason: .newDeviceAvailable,
-            now: now,
-            settleUntil: settleUntil,
+        let outcome = coordinator.handle(
+            .routeChanged(reason: .newDeviceAvailable, now: now, settleUntil: settleUntil),
             playbackState: .paused
         )
 
@@ -123,15 +117,13 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         let now = Date()
         let settleUntil = now.addingTimeInterval(2)
 
-        _ = coordinator.handleRouteChange(
-            reason: .newDeviceAvailable,
-            now: now,
-            settleUntil: settleUntil,
+        _ = coordinator.handle(
+            .routeChanged(reason: .newDeviceAvailable, now: now, settleUntil: settleUntil),
             playbackState: .paused
         )
 
-        let outcome = coordinator.handleSettleWindowFinished(
-            now: settleUntil,
+        let outcome = coordinator.handle(
+            .settleWindowFinished(now: settleUntil),
             playbackState: .paused
         )
 
@@ -147,15 +139,13 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         let now = Date()
         let settleUntil = now.addingTimeInterval(2)
 
-        _ = coordinator.handleRouteChange(
-            reason: .newDeviceAvailable,
-            now: now,
-            settleUntil: settleUntil,
+        _ = coordinator.handle(
+            .routeChanged(reason: .newDeviceAvailable, now: now, settleUntil: settleUntil),
             playbackState: .playing
         )
 
-        let outcome = coordinator.handleSettleWindowFinished(
-            now: settleUntil,
+        let outcome = coordinator.handle(
+            .settleWindowFinished(now: settleUntil),
             playbackState: .buffering
         )
 
@@ -170,15 +160,36 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
     func testResumeRequestWhileDisconnectPausedClearsHandoffState() {
         var coordinator = PlaybackHandoffCoordinator()
 
-        _ = coordinator.handleRouteChange(
-            reason: .oldDeviceUnavailable,
-            now: Date(),
-            settleUntil: nil,
+        _ = coordinator.handle(
+            .routeChanged(reason: .oldDeviceUnavailable, now: Date(), settleUntil: nil),
             playbackState: .playing
         )
 
-        let outcome = coordinator.handleResumeRequest(
-            source: .system,
+        let outcome = coordinator.handle(
+            .resumeRequested(.system),
+            playbackState: .paused
+        )
+
+        XCTAssertEqual(outcome.actions, [
+            .setInterrupted(false),
+            .setRouteChangeInProgress(false),
+            .resumePlayback(.system)
+        ])
+        XCTAssertNil(coordinator.state.pauseReason)
+        XCTAssertEqual(coordinator.state.routeTransition, .idle)
+        XCTAssertEqual(coordinator.state.interruption, .none)
+    }
+
+    func testSystemResumeRequestClearsStaleInterruptionState() {
+        var coordinator = PlaybackHandoffCoordinator()
+
+        _ = coordinator.handle(
+            .interruptionBegan(now: Date()),
+            playbackState: .playing
+        )
+
+        let outcome = coordinator.handle(
+            .resumeRequested(.system),
             playbackState: .paused
         )
 
@@ -195,13 +206,13 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
     func testInterruptionEndWithShouldResumeOnlyResumesTrueInterruptionPause() {
         var coordinator = PlaybackHandoffCoordinator()
 
-        _ = coordinator.handleInterruptionBegan(
-            now: Date(),
+        _ = coordinator.handle(
+            .interruptionBegan(now: Date()),
             playbackState: .playing
         )
 
-        let outcome = coordinator.handleInterruptionEnded(
-            shouldResume: true,
+        let outcome = coordinator.handle(
+            .interruptionEnded(shouldResume: true),
             playbackState: .buffering
         )
 
@@ -216,13 +227,13 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
     func testInterruptionEndWithoutResumeMovesBufferingToPausedState() {
         var coordinator = PlaybackHandoffCoordinator()
 
-        _ = coordinator.handleInterruptionBegan(
-            now: Date(),
+        _ = coordinator.handle(
+            .interruptionBegan(now: Date()),
             playbackState: .playing
         )
 
-        let outcome = coordinator.handleInterruptionEnded(
-            shouldResume: false,
+        let outcome = coordinator.handle(
+            .interruptionEnded(shouldResume: false),
             playbackState: .buffering
         )
 
@@ -237,15 +248,13 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
     func testInterruptionEndDoesNotResumeDisconnectPause() {
         var coordinator = PlaybackHandoffCoordinator()
 
-        _ = coordinator.handleRouteChange(
-            reason: .oldDeviceUnavailable,
-            now: Date(),
-            settleUntil: nil,
+        _ = coordinator.handle(
+            .routeChanged(reason: .oldDeviceUnavailable, now: Date(), settleUntil: nil),
             playbackState: .playing
         )
 
-        let outcome = coordinator.handleInterruptionEnded(
-            shouldResume: true,
+        let outcome = coordinator.handle(
+            .interruptionEnded(shouldResume: true),
             playbackState: .paused
         )
 
@@ -254,6 +263,40 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         XCTAssertEqual(
             coordinator.state.interruption,
             .ended(shouldResume: true)
+        )
+    }
+
+    func testSystemManagedPauseSuppressesAutomaticAdvance() {
+        var coordinator = PlaybackHandoffCoordinator()
+
+        _ = coordinator.handle(
+            .routeChanged(reason: .oldDeviceUnavailable, now: Date(), settleUntil: nil),
+            playbackState: .playing
+        )
+
+        XCTAssertTrue(
+            coordinator.shouldSuppressAutomaticAdvance(
+                playbackState: .paused,
+                isInterrupted: false,
+                isRouteChangeInProgress: false
+            )
+        )
+    }
+
+    func testRemoteSkipCommandsDisabledDuringInterruptionSignal() {
+        var coordinator = PlaybackHandoffCoordinator()
+
+        _ = coordinator.handle(
+            .interruptionBegan(now: Date()),
+            playbackState: .playing
+        )
+
+        XCTAssertFalse(
+            coordinator.remoteSkipCommandsEnabled(
+                playbackState: .paused,
+                isInterrupted: true,
+                isRouteChangeInProgress: false
+            )
         )
     }
 }

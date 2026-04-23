@@ -1,6 +1,26 @@
 import EnsembleCore
 import SwiftUI
 
+@MainActor
+final class ContextMenuMetadataEditorCoordinator: ObservableObject {
+    struct Request: Identifiable {
+        let id = UUID()
+        let kind: MetadataEditSheet.ItemKind
+        let currentTitle: String
+        let onSave: (String) async throws -> Void
+    }
+
+    @Published var request: Request?
+
+    func present(
+        kind: MetadataEditSheet.ItemKind,
+        currentTitle: String,
+        onSave: @escaping (String) async throws -> Void
+    ) {
+        request = Request(kind: kind, currentTitle: currentTitle, onSave: onSave)
+    }
+}
+
 struct MetadataEditSheet: View {
     enum ItemKind {
         case track

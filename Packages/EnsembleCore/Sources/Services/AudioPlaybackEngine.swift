@@ -1019,9 +1019,17 @@ public final class AudioPlaybackEngine {
             // Engine restart can reset AU state — re-apply isolation parameters
             applyIsolationParameters()
         }
+        let observedPosition = currentTimeSubject.value
+        let resumePosition = Self.resolvedRouteRecoveryPosition(
+            livePosition: currentTime(),
+            observedPosition: observedPosition,
+            duration: fileDuration,
+            preferredSnapshot: observedPosition > 0 ? observedPosition : nil
+        )
         playerNode.play()
         wasPlaying = true
-        startTimeUpdates()
+        startTimeUpdates(from: resumePosition)
+        currentTimeSubject.send(resumePosition)
         EnsembleLogger.debug("[AudioEngine] Resumed")
     }
 
@@ -1182,7 +1190,11 @@ public final class AudioPlaybackEngine {
     /// after `lastRenderTime` is gone. Updating `seekFrameOffset` here gives route
     /// recovery and resume a durable source of truth for the paused position.
     private func snapshotPlaybackPositionBeforeStopping() -> TimeInterval {
-        let position = currentTime()
+        let position = Self.resolvedRouteRecoveryPosition(
+            livePosition: currentTime(),
+            observedPosition: currentTimeSubject.value,
+            duration: fileDuration
+        )
         seekFrameOffset = AVAudioFramePosition(position * sampleRate)
         playerTimeBaseOffset = 0
         captureWallTimeBase(position: position)

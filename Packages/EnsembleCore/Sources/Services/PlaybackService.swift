@@ -856,10 +856,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Prefers the engine's file-level duration (exact PCM frame count) when available,
     /// falling back to Plex catalog metadata.
     public var duration: TimeInterval {
-        if let engineDuration = audioEngine?.fileDuration, engineDuration > 0 {
-            return engineDuration
-        }
-        return currentTrack?.duration ?? 0
+        Self.effectiveDuration(
+            metadataDuration: currentTrack?.duration ?? 0,
+            itemDuration: audioEngine?.fileDuration
+        )
     }
 
     /// Splits the upcoming queue into logical sections for UI display
@@ -1814,49 +1814,26 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     static func shouldSuppressAutomaticAdvanceDuringHandoff(
-        pauseReason: PlaybackHandoffCoordinator.PauseReason?,
-        interruption: PlaybackHandoffCoordinator.InterruptionState,
-        routeTransition: PlaybackHandoffCoordinator.RouteTransitionState,
+        coordinator: PlaybackHandoffCoordinator,
+        playbackState: PlaybackState,
         isInterrupted: Bool,
         isRouteChangeInProgress: Bool
     ) -> Bool {
-        if isInterrupted || isRouteChangeInProgress {
-            return true
-        }
-
-        switch interruption {
-        case .none:
-            break
-        case .began, .ended:
-            return true
-        }
-
-        switch routeTransition {
-        case .idle:
-            break
-        case .disconnecting, .settlingNewDevice:
-            return true
-        }
-
-        return pauseReason == .disconnect || pauseReason == .interruption
+        coordinator.shouldSuppressAutomaticAdvance(
+            playbackState: playbackState,
+            isInterrupted: isInterrupted,
+            isRouteChangeInProgress: isRouteChangeInProgress
+        )
     }
 
     static func remoteSkipCommandsEnabled(
         playbackState: PlaybackState,
-        pauseReason: PlaybackHandoffCoordinator.PauseReason?,
-        interruption: PlaybackHandoffCoordinator.InterruptionState,
-        routeTransition: PlaybackHandoffCoordinator.RouteTransitionState,
+        coordinator: PlaybackHandoffCoordinator,
         isInterrupted: Bool,
         isRouteChangeInProgress: Bool
     ) -> Bool {
-        guard playbackState != .loading, playbackState != .buffering else {
-            return false
-        }
-
-        return !shouldSuppressAutomaticAdvanceDuringHandoff(
-            pauseReason: pauseReason,
-            interruption: interruption,
-            routeTransition: routeTransition,
+        coordinator.remoteSkipCommandsEnabled(
+            playbackState: playbackState,
             isInterrupted: isInterrupted,
             isRouteChangeInProgress: isRouteChangeInProgress
         )
@@ -1913,9 +1890,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private var shouldSuppressAutomaticAdvanceDuringHandoff: Bool {
         Self.shouldSuppressAutomaticAdvanceDuringHandoff(
-            pauseReason: currentPauseReason,
-            interruption: handoffCoordinator.state.interruption,
-            routeTransition: handoffCoordinator.state.routeTransition,
+            coordinator: handoffCoordinator,
+            playbackState: playbackState,
             isInterrupted: isInterrupted,
             isRouteChangeInProgress: isRouteChangeInProgress
         )
@@ -1924,9 +1900,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func syncHandoffStateWithPlaybackState() {
         switch playbackState {
         case .playing:
-            handoffCoordinator.handlePlaybackStarted()
+            _ = handoffCoordinator.handle(.playbackStarted, playbackState: playbackState)
         case .stopped, .failed:
-            handoffCoordinator.handlePlaybackStopped()
+            _ = handoffCoordinator.handle(.playbackStopped, playbackState: playbackState)
         default:
             break
         }
@@ -1982,7 +1958,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func logHandoff(event: String, outcome: PlaybackHandoffCoordinator.Outcome) {
         handoffEventCounter &+= 1
         let actionSummary = outcome.actions.map { "\($0)" }.joined(separator: ",")
-        EnsembleLogger.debug("[Handoff #\(handoffEventCounter)] event=\(event) summary=\(outcome.summary) actions=[\(actionSummary)] \(handoffStateSnapshot())")
+        EnsembleLogger.debug(
+            "[Handoff #\(handoffEventCounter)] category=\(outcome.category.rawValue) "
+                + "event=\(event) summary=\(outcome.summary) actions=[\(actionSummary)] "
+                + "\(handoffStateSnapshot())"
+        )
     }
 
     @MainActor
@@ -2006,11 +1986,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             case .pausePlayback(let reason):
                 applyPauseForHandoff(reason: reason)
 
-            case .beginInterruption:
-                if playbackState == .playing || playbackState == .buffering {
-                    playbackState = .buffering
-                }
-
             case .scheduleSettleWindow(let until):
                 handoffSettleTask?.cancel()
                 handoffSettleTask = Task { @MainActor [weak self] in
@@ -2019,8 +1994,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
                     }
                     guard let self, !Task.isCancelled else { return }
-                    let settleOutcome = self.handoffCoordinator.handleSettleWindowFinished(
-                        now: Date(),
+                    let settleOutcome = self.handoffCoordinator.handle(
+                        .settleWindowFinished(now: Date()),
                         playbackState: self.playbackState
                     )
                     self.applyHandoffOutcome(settleOutcome, event: "settleWindowFinished")
@@ -2071,9 +2046,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let now = ProcessInfo.processInfo.systemUptime
         guard Self.remoteSkipCommandsEnabled(
             playbackState: playbackState,
-            pauseReason: currentPauseReason,
-            interruption: handoffCoordinator.state.interruption,
-            routeTransition: handoffCoordinator.state.routeTransition,
+            coordinator: handoffCoordinator,
             isInterrupted: isInterrupted,
             isRouteChangeInProgress: isRouteChangeInProgress
         ) else {
@@ -2102,8 +2075,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         switch type {
         case .began:
-            let outcome = handoffCoordinator.handleInterruptionBegan(
-                now: Date(),
+            let outcome = handoffCoordinator.handle(
+                .interruptionBegan(now: Date()),
                 playbackState: playbackState
             )
             applyHandoffOutcome(outcome, event: "interruptionBegan")
@@ -2111,8 +2084,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         case .ended:
             guard let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-            let outcome = handoffCoordinator.handleInterruptionEnded(
-                shouldResume: options.contains(.shouldResume),
+            let outcome = handoffCoordinator.handle(
+                .interruptionEnded(shouldResume: options.contains(.shouldResume)),
                 playbackState: playbackState
             )
             applyHandoffOutcome(outcome, event: "interruptionEnded")
@@ -2144,10 +2117,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             settleUntil = nil
         }
 
-        let outcome = handoffCoordinator.handleRouteChange(
-            reason: handoffRouteEventReason(from: reason),
-            now: now,
-            settleUntil: settleUntil,
+        let outcome = handoffCoordinator.handle(
+            .routeChanged(
+                reason: handoffRouteEventReason(from: reason),
+                now: now,
+                settleUntil: settleUntil
+            ),
             playbackState: playbackState
         )
         applyHandoffOutcome(outcome, event: "routeChange(\(routeChangeReasonDescription(reason)))")
@@ -2320,7 +2295,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func play(tracks: [Track], startingAt index: Int) async {
         guard !tracks.isEmpty, index >= 0, index < tracks.count else { return }
 
-        handoffCoordinator.resetForExplicitPlaybackStart()
+        _ = handoffCoordinator.handle(.explicitPlaybackStart, playbackState: playbackState)
         isInterrupted = false
         isRouteChangeInProgress = false
 
@@ -2374,7 +2349,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func shufflePlay(tracks: [Track]) async {
         guard !tracks.isEmpty else { return }
 
-        handoffCoordinator.resetForExplicitPlaybackStart()
+        _ = handoffCoordinator.handle(.explicitPlaybackStart, playbackState: playbackState)
         isInterrupted = false
         isRouteChangeInProgress = false
 
@@ -2616,8 +2591,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @MainActor
     private func pauseInternally(source: PlaybackHandoffCoordinator.CommandSource) {
-        let outcome = handoffCoordinator.handlePauseRequest(
-            source: source,
+        let outcome = handoffCoordinator.handle(
+            .pauseRequested(source),
             playbackState: playbackState
         )
         applyHandoffOutcome(outcome, event: "pauseRequest(\(source.rawValue))")
@@ -2631,8 +2606,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @MainActor
     private func resumeInternally(source: PlaybackHandoffCoordinator.CommandSource) {
-        let outcome = handoffCoordinator.handleResumeRequest(
-            source: source,
+        let outcome = handoffCoordinator.handle(
+            .resumeRequested(source),
             playbackState: playbackState
         )
         applyHandoffOutcome(outcome, event: "resumeRequest(\(source.rawValue))")
@@ -4703,7 +4678,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try audioEngine?.load(fileURL: fileURL, trackId: track.id)
             let restoredTime = Self.restoredPausedSeekTime(
                 savedTime: savedTime,
-                duration: audioEngine?.fileDuration ?? track.duration
+                duration: Self.effectiveDuration(
+                    metadataDuration: track.duration,
+                    itemDuration: audioEngine?.fileDuration
+                )
             )
 
             // Seek to saved position
@@ -5321,9 +5299,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let hasCurrentTrack = currentTrack != nil
         let remoteSkipCommandsEnabled = Self.remoteSkipCommandsEnabled(
             playbackState: playbackState,
-            pauseReason: currentPauseReason,
-            interruption: handoffCoordinator.state.interruption,
-            routeTransition: handoffCoordinator.state.routeTransition,
+            coordinator: handoffCoordinator,
             isInterrupted: isInterrupted,
             isRouteChangeInProgress: isRouteChangeInProgress
         )
@@ -5609,7 +5585,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         do {
             try engine.load(fileURL: fileURL, trackId: track.id)
-            let restoredTime = Self.restoredPausedSeekTime(savedTime: time, duration: engine.fileDuration)
+            let restoredTime = Self.restoredPausedSeekTime(
+                savedTime: time,
+                duration: Self.effectiveDuration(
+                    metadataDuration: track.duration,
+                    itemDuration: engine.fileDuration
+                )
+            )
             if restoredTime > 0 {
                 try engine.seek(to: restoredTime)
                 updatePlaybackTimes(rawTime: restoredTime)

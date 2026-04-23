@@ -18,6 +18,7 @@ struct AlbumActionsContextMenu: View {
 
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
+        let isPinned = pinManager.isPinned(id: album.id)
 
         Button {
             withAlbumTracks(album) { tracks in
@@ -37,6 +38,16 @@ struct AlbumActionsContextMenu: View {
 
         Button {
             withAlbumTracks(album) { tracks in
+                nowPlayingVM.enableRadio(tracks: tracks)
+            }
+        } label: {
+            Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+        }
+
+        Divider()
+
+        Button {
+            withAlbumTracks(album) { tracks in
                 nowPlayingVM.playNext(tracks)
             }
         } label: {
@@ -51,12 +62,12 @@ struct AlbumActionsContextMenu: View {
             Label("Play Last", systemImage: "text.append")
         }
 
-        Button {
-            withAlbumTracks(album) { tracks in
-                nowPlayingVM.enableRadio(tracks: tracks)
+        if let recentTarget = nowPlayingVM.lastPlaylistTarget {
+            Button {
+                addAlbumToRecentPlaylist(album, expectedTitle: recentTarget.title)
+            } label: {
+                Label("Add to \(recentTarget.title)", systemImage: "clock.arrow.circlepath")
             }
-        } label: {
-            Label("Radio", systemImage: "dot.radiowaves.left.and.right")
         }
 
         Button {
@@ -66,6 +77,24 @@ struct AlbumActionsContextMenu: View {
         } label: {
             Label("Add to Playlist…", systemImage: "text.badge.plus")
         }
+
+        Divider()
+
+        if let artistId = album.artistRatingKey {
+            Button {
+                openArtist(artistId)
+            } label: {
+                Label("Go to Artist", systemImage: "person.circle")
+            }
+        }
+
+        Button {
+            ShareActions.shareAlbumLink(album, deps: deps)
+        } label: {
+            Label("Share Link…", systemImage: "link")
+        }
+
+        Divider()
 
         Button {
             Task {
@@ -78,29 +107,6 @@ struct AlbumActionsContextMenu: View {
             )
         }
 
-        if let artistId = album.artistRatingKey {
-            Button {
-                openArtist(artistId)
-            } label: {
-                Label("Go to Artist", systemImage: "person.circle")
-            }
-        }
-
-        if let recentTarget = nowPlayingVM.lastPlaylistTarget {
-            Button {
-                addAlbumToRecentPlaylist(album, expectedTitle: recentTarget.title)
-            } label: {
-                Label("Add to \(recentTarget.title)", systemImage: "clock.arrow.circlepath")
-            }
-        }
-
-        Button {
-            ShareActions.shareAlbumLink(album, deps: deps)
-        } label: {
-            Label("Share Link…", systemImage: "link")
-        }
-
-        let isPinned = pinManager.isPinned(id: album.id)
         Button {
             if let customPinAction {
                 customPinAction(isPinned)
@@ -127,6 +133,8 @@ struct AlbumActionsContextMenu: View {
         }
 
         if let onDelete {
+            Divider()
+
             Button(role: .destructive) {
                 onDelete()
             } label: {

@@ -63,6 +63,8 @@ public final class HomeViewModel: ObservableObject {
     // Debounce interval to prevent rapid successive loads
     private let debounceInterval: TimeInterval = 2.0
     private let idleApplyDebounceNanoseconds: UInt64 = 350_000_000
+    private let startupHealthCheckPollNanoseconds: UInt64 = 100_000_000
+    private let startupHealthCheckWaitTimeout: TimeInterval = 12.0
 
     // Rotating count for hub requests — different counts cause PMS to select
     // different dynamic hub content (e.g. "More by...", "More in..." sections)
@@ -79,6 +81,7 @@ public final class HomeViewModel: ObservableObject {
     internal private(set) var coalescedAutoRefreshCount = 0
     internal var autoRefreshRunnerForTesting: ((AutoRefreshReason) async -> Void)?
     internal var loadHubsRunnerForTesting: ((Bool, Bool) async -> Void)?
+    internal var waitForStartupHealthChecksRunnerForTesting: (() async -> Void)?
     
     public init(
         accountManager: AccountManager,
@@ -164,6 +167,9 @@ public final class HomeViewModel: ObservableObject {
             return
         }
 
+        await waitForStartupHealthChecksIfNeeded()
+        guard !Task.isCancelled else { return }
+
         // Check if we should debounce
         if let lastLoad = lastLoadTime,
            Date().timeIntervalSince(lastLoad) < debounceInterval {
@@ -210,6 +216,44 @@ public final class HomeViewModel: ObservableObject {
         }
 
         await loadTask?.value
+    }
+
+    /// Prevent the first Feed network fetch from racing ahead of startup
+    /// health checks, which can force a stale server URL to burn a full
+    /// request timeout before connection failover has a working endpoint.
+    private func waitForStartupHealthChecksIfNeeded() async {
+        guard !initialLoadCompleted else { return }
+
+        if let waitForStartupHealthChecksRunnerForTesting {
+            await waitForStartupHealthChecksRunnerForTesting()
+            return
+        }
+
+        guard syncCoordinator.lastHealthCheckCompletion == nil else { return }
+        guard !syncCoordinator.isOffline else { return }
+
+        EnsembleLogger.debug("🏠 Waiting for startup health checks before initial Feed network fetch")
+
+        let waitStart = Date()
+        while syncCoordinator.lastHealthCheckCompletion == nil && !syncCoordinator.isOffline {
+            guard !Task.isCancelled else { return }
+
+            let elapsed = Date().timeIntervalSince(waitStart)
+            if elapsed >= startupHealthCheckWaitTimeout {
+                EnsembleLogger.debug(
+                    "🏠 Startup health check wait timed out after \(String(format: "%.1f", elapsed))s; proceeding with Feed fetch"
+                )
+                return
+            }
+
+            try? await Task.sleep(nanoseconds: startupHealthCheckPollNanoseconds)
+        }
+
+        let elapsed = Date().timeIntervalSince(waitStart)
+        let reason = syncCoordinator.lastHealthCheckCompletion != nil ? "healthChecksCompleted" : "offline"
+        EnsembleLogger.debug(
+            "🏠 Initial Feed network fetch unblocked reason=\(reason) elapsed=\(String(format: "%.1f", elapsed))s"
+        )
     }
     
     /// Refresh hubs (clears debounce to force immediate reload)
