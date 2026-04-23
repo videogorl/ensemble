@@ -36,6 +36,8 @@ ensemble/
 |   |   +-- EnsembleAppShortcuts.swift # App Intents fallback entities/phrases for Siri album/playlist playback
 |   +-- Resources/
 |   |   +-- Assets.xcassets       # App icons, colors, images
+|   |   +-- Base.lproj/AppIntentVocabulary.plist # Base SiriKit sample phrases and global vocabulary
+|   |   +-- en.lproj/AppIntentVocabulary.plist   # English SiriKit sample phrases and global vocabulary
 |   +-- Info.plist
 |   +-- Ensemble.entitlements     # App entitlements (Siri + shared App Group)
 |
