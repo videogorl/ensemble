@@ -12,6 +12,7 @@ public struct ArtistsView: View {
     @State private var cachedArtistSections: [ArtistSection] = []
     // Monotonic token to drop stale async section computations.
     @State private var artistSectionComputationToken: Int = 0
+    @State private var selectedArtist: Artist?
 
     public init(
         libraryVM: LibraryViewModel,
@@ -28,12 +29,15 @@ public struct ArtistsView: View {
             } else if libraryVM.artists.isEmpty {
                 emptyView
             } else {
-                artistListView
+                adaptiveArtistView
             }
         }
         .navigationTitle("Artists")
         .searchable(text: $libraryVM.artistsFilterOptions.searchText, prompt: "Filter artists")
         .refreshable {
+            await libraryVM.refreshFromServer()
+        }
+        .refreshCommand("Refresh Artists") {
             await libraryVM.refreshFromServer()
         }
         .profileToolbar()
@@ -152,6 +156,86 @@ public struct ArtistsView: View {
                 showGenreFilter: true
             )
         }
+    }
+
+    private var adaptiveArtistView: some View {
+        LargeScreenBrowseSplitView(
+            selection: $selectedArtist,
+            compact: {
+                artistListView
+            },
+            sidebar: {
+                artistSelectionList
+            },
+            detail: { artist in
+                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
+                    .id(artist.id)
+            },
+            placeholder: {
+                LargeScreenPlaceholderView(systemImage: "person.crop.circle", title: "Select an Artist")
+            }
+        )
+    }
+
+    private var artistSelectionList: some View {
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                ScrollView {
+                    GenreChipBar(
+                        availableGenres: libraryVM.availableArtistGenres,
+                        selectedGenres: $libraryVM.artistsFilterOptions.selectedGenres,
+                        excludedGenres: $libraryVM.artistsFilterOptions.excludedGenres
+                    )
+
+                    if libraryVM.artistSortOption == .name {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(cachedArtistSections) { section in
+                                Section(header: sectionHeader(section.letter)) {
+                                    ForEach(section.artists) { artist in
+                                        artistSelectionRow(artist)
+                                    }
+                                }
+                                .id(section.letter)
+                            }
+                        }
+                        .padding(.vertical)
+                    } else {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(libraryVM.filteredArtists) { artist in
+                                artistSelectionRow(artist)
+                            }
+                        }
+                        .padding(.vertical)
+                    }
+                }
+                .miniPlayerBottomSpacing()
+
+                if libraryVM.artistSortOption == .name && !libraryVM.filteredArtists.isEmpty {
+                    ScrollIndex(
+                        letters: cachedArtistSections.map { $0.letter },
+                        currentLetter: .constant(nil),
+                        onLetterTap: { letter in
+                            proxy.scrollTo(letter, anchor: .top)
+                        }
+                    )
+                    .libraryScrollIndexPositioning()
+                }
+            }
+        }
+    }
+
+    private func artistSelectionRow(_ artist: Artist) -> some View {
+        ArtistRow(artist: artist) {
+            selectedArtist = artist
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(selectedArtist?.id == artist.id ? Color.accentColor.opacity(0.12) : Color.clear)
+        )
+        .padding(.horizontal, 8)
+        .id(artist.id)
     }
 
     private var loadingView: some View {

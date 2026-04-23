@@ -105,6 +105,40 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         func deleteAllHubs() async throws {}
     }
 
+    private final class MockHomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
+        var cachedSnapshot: HomeHubSnapshot
+        var networkSnapshot: HomeHubSnapshot?
+
+        init(cachedHubs: [Hub] = [], networkHubs: [Hub]? = nil) {
+            self.cachedSnapshot = Self.snapshot(hubs: cachedHubs)
+            self.networkSnapshot = networkHubs.map(Self.snapshot(hubs:))
+        }
+
+        func loadCachedSnapshot() async throws -> HomeHubSnapshot {
+            cachedSnapshot
+        }
+
+        func loadSnapshot(applySavedOrder: Bool, hubCount: String) async -> HomeHubSnapshot? {
+            networkSnapshot
+        }
+
+        func clearFailedHubKeys() {}
+
+        private static func snapshot(hubs: [Hub]) -> HomeHubSnapshot {
+            HomeHubSnapshot(
+                orderedHubs: hubs,
+                failedHubKeys: [],
+                metadata: HomeHubSnapshotMetadata(
+                    currentSourceKey: "plex:account-enabled:server-enabled",
+                    currentSourceName: "Editing Music",
+                    fetchTaskCount: 1,
+                    usedGlobalFallback: false,
+                    networkFetchCompletedAt: Date()
+                )
+            )
+        }
+    }
+
     private enum MockError: Error {
         case unimplemented
     }
@@ -185,6 +219,72 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             ]
         )
         return makeHarness(accounts: [enabledAccount]).viewModel
+    }
+
+    private func makeViewModel(hubLoader: HomeHubLoaderProtocol) -> (HomeViewModel, SyncCoordinator) {
+        let enabledAccount = PlexAccountConfig(
+            id: "account-enabled",
+            email: "enabled@example.com",
+            plexUsername: "enabled",
+            displayTitle: "Enabled",
+            authToken: "auth-token",
+            servers: [
+                PlexServerConfig(
+                    id: "server-enabled",
+                    name: "Enabled Server",
+                    url: "https://enabled.example.com",
+                    connections: [PlexConnectionConfig(uri: "https://enabled.example.com", local: false, relay: false, protocol: "https")],
+                    token: "token-enabled",
+                    platform: "Linux",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-enabled", key: "lib-enabled", title: "Music", isEnabled: true)
+                    ]
+                )
+            ]
+        )
+        let accountManager = AccountManager(keychain: TestKeychain())
+        accountManager.addPlexAccount(enabledAccount)
+        let networkMonitor = NetworkMonitor(
+            debounceNanoseconds: 1_000,
+            monitorQueue: DispatchQueue(label: "test.home.network.custom"),
+            monitorFactory: { SystemNetworkPathMonitor() }
+        )
+        let serverHealthChecker = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
+        let coordinator = SyncCoordinator(
+            accountManager: accountManager,
+            libraryRepository: MockLibraryRepository(),
+            playlistRepository: MockPlaylistRepository(),
+            artworkDownloadManager: MockArtworkDownloadManager(),
+            networkMonitor: networkMonitor,
+            serverHealthChecker: serverHealthChecker
+        )
+        let viewModel = HomeViewModel(
+            accountManager: accountManager,
+            syncCoordinator: coordinator,
+            hubLoader: hubLoader,
+            libraryRepository: MockLibraryRepository(),
+            playlistRepository: MockPlaylistRepository()
+        )
+        return (viewModel, coordinator)
+    }
+
+    private func makeHub(id: String = "hub-1") -> Hub {
+        Hub(
+            id: id,
+            title: "Recently Played",
+            type: "mixed",
+            items: [
+                HubItem(
+                    id: "track-1",
+                    type: "track",
+                    title: "Track One",
+                    subtitle: "Artist",
+                    thumbPath: nil,
+                    year: nil,
+                    sourceCompositeKey: "plex:account-enabled:server-enabled:lib-enabled"
+                )
+            ]
+        )
     }
 
     func testSyncCompleteTriggerDefersWhileInteracting() async {
@@ -342,6 +442,33 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertTrue(sut.hubs.isEmpty)
         XCTAssertTrue(sut.hasConfiguredAccounts)
         XCTAssertFalse(sut.hasEnabledLibraries)
+    }
+
+    func testUnavailableNetworkSnapshotPreservesExistingCachedFeedContent() async {
+        let cachedHub = makeHub()
+        let loader = MockHomeHubLoader(cachedHubs: [], networkHubs: nil)
+        let (sut, _) = makeViewModel(hubLoader: loader)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.seedHubsForTesting([cachedHub])
+
+        await sut.loadHubs()
+
+        XCTAssertEqual(sut.hubs.map(\.id), [cachedHub.id])
+    }
+
+    func testOfflineEmptyNetworkSnapshotPreservesExistingCachedFeedContent() async {
+        let cachedHub = makeHub()
+        let loader = MockHomeHubLoader(cachedHubs: [], networkHubs: [])
+        let (sut, coordinator) = makeViewModel(hubLoader: loader)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.seedHubsForTesting([cachedHub])
+        await coordinator.handleObservedNetworkStateForTesting(.offline)
+
+        await sut.loadHubs()
+
+        XCTAssertEqual(sut.hubs.map(\.id), [cachedHub.id])
     }
 
     func testLocalAvailabilityFilterDropsUnresolvedItemsAndEmptyHubs() async throws {

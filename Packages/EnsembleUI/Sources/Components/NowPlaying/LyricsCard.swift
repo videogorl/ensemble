@@ -13,6 +13,7 @@ public struct LyricsCard: View {
 
     /// When true, disables progressive blur on lyrics lines to reduce GPU work
     let isLowPowerMode: Bool
+    private let showsTransportControls: Bool
 
     // Track last scroll target to detect large jumps (seeks) vs natural progression
     @State private var lastScrollIndex: Int?
@@ -23,10 +24,16 @@ public struct LyricsCard: View {
     @State private var lyricsScrollTargetIndex: Int?
     @State private var instrumentalProgress: Double?
 
-    public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>, isLowPowerMode: Bool = false) {
+    public init(
+        viewModel: NowPlayingViewModel,
+        currentPage: Binding<Int>,
+        isLowPowerMode: Bool = false,
+        showsTransportControls: Bool = true
+    ) {
         self.viewModel = viewModel
         self._currentPage = currentPage
         self.isLowPowerMode = isLowPowerMode
+        self.showsTransportControls = showsTransportControls
     }
 
     public var body: some View {
@@ -41,13 +48,15 @@ public struct LyricsCard: View {
 
             Spacer(minLength: 0) // Push transport controls to bottom
 
-            // Secondary transport controls + page indicator spacing
-            VStack(spacing: 8) {
-                transportControlsView
-                    .padding(.top, 16)
-                Spacer().frame(height: 36) // Reserve space for fixed page indicator
+            if showsTransportControls {
+                // Secondary transport controls + page indicator spacing
+                VStack(spacing: 8) {
+                    transportControlsView
+                        .padding(.top, 16)
+                    Spacer().frame(height: 36) // Reserve space for fixed page indicator
+                }
+                .padding(.bottom, 20)
             }
-            .padding(.bottom, 20)
         }
         .onReceive(viewModel.currentLyricsLineIndexPublisher) { index in
             if index != currentLyricsLineIndex { currentLyricsLineIndex = index }

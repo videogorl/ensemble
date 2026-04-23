@@ -195,9 +195,22 @@ public final class HomeViewModel: ObservableObject {
                 applySavedOrder: applySavedOrder,
                 hubCount: self.currentHubCount
             ) else {
-                clearHubContentForUnavailableSources()
+                if hubs.isEmpty {
+                    clearHubContentForUnavailableSources()
+                } else {
+                    isLoading = false
+                    initialLoadCompleted = true
+                    loadTask = nil
+                    EnsembleLogger.debug("🏠 Feed preserving cached hubs after unavailable network snapshot")
+                }
+                return
+            }
+
+            guard !snapshot.orderedHubs.isEmpty || hubs.isEmpty || !syncCoordinator.isOffline else {
+                isLoading = false
                 initialLoadCompleted = true
                 loadTask = nil
+                EnsembleLogger.debug("🏠 Feed preserving cached hubs while offline")
                 return
             }
 
@@ -457,6 +470,12 @@ public final class HomeViewModel: ObservableObject {
     /// Mark the initial load as complete so auto-refresh tests can proceed
     internal func markInitialLoadCompletedForTesting() {
         initialLoadCompleted = true
+    }
+
+    internal func seedHubsForTesting(_ hubs: [Hub]) {
+        rawHubSnapshot = hubs
+        unfilteredHubs = hubs
+        self.hubs = hubs
     }
 
     private func startRefreshTriggerObservation() {

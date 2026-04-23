@@ -30,7 +30,7 @@ struct TabViewFactory {
             case .albums:
                 AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
             case .genres:
-                GenresView(libraryVM: libraryVM)
+                GenresView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
             case .playlists:
                 PlaylistsView(nowPlayingVM: nowPlayingVM)
             case .favorites:

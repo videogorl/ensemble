@@ -27,10 +27,22 @@ public struct ProfilePresentationContainer: View {
     public init() {}
 
     public var body: some View {
+        #if os(macOS)
+        MacAuxiliaryWindowScaffold(
+            title: "Profile",
+            subtitle: "Account, appearance, playback, and storage settings"
+        ) {
+            navigationContainer {
+                ProfileView()
+                    .navigationTitle("")
+            }
+        }
+        #else
         navigationContainer {
             ProfileView()
                 .modifier(AuxiliaryDismissToolbarModifier())
         }
+        #endif
     }
 }
 
@@ -45,10 +57,24 @@ public struct DownloadsPresentationContainer: View {
     }
 
     public var body: some View {
+        #if os(macOS)
+        MacAuxiliaryWindowScaffold(
+            title: "Downloads",
+            subtitle: "Offline libraries, targets, queue, and storage controls",
+            minWidth: 900,
+            minHeight: 640
+        ) {
+            navigationContainer {
+                DownloadsView(nowPlayingVM: nowPlayingVM)
+                    .navigationTitle("")
+            }
+        }
+        #else
         navigationContainer {
             DownloadsView(nowPlayingVM: nowPlayingVM)
                 .modifier(AuxiliaryDismissToolbarModifier())
         }
+        #endif
     }
 }
 

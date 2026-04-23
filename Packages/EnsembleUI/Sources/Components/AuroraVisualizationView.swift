@@ -18,6 +18,8 @@ public struct AuroraVisualizationView: View {
     @State private var playbackState: PlaybackState = .stopped
     @State private var isVisible: Bool = false
     @State private var isMounted = false
+    @State private var isSettlingToZero = false
+    @State private var settleToZeroTask: Task<Void, Never>?
     @StateObject private var renderModel = AuroraRenderModel()
 
     @Environment(\.colorScheme) private var colorScheme
@@ -59,6 +61,7 @@ public struct AuroraVisualizationView: View {
     /// Whether the aurora is allowed to intentionally bleed beyond its host bounds.
     /// Root shells want the wider glow treatment; split detail panes need a clipped surface.
     private let expandsBeyondBounds: Bool
+    private let activeContentMaxWidth: CGFloat?
 
     /// True on A9 (dual-core) and other ≤2-core devices.
     /// Stored once at init time — processorCount never changes at runtime,
@@ -71,7 +74,8 @@ public struct AuroraVisualizationView: View {
         accentColor: Color,
         isPaused: Bool = false,
         isLowPowerMode: Bool = false,
-        expandsBeyondBounds: Bool = true
+        expandsBeyondBounds: Bool = true,
+        activeContentMaxWidth: CGFloat? = nil
     ) {
         self.playbackService = playbackService
         self.consumer = consumer
@@ -79,6 +83,7 @@ public struct AuroraVisualizationView: View {
         self.isPaused = isPaused
         self.isLowPowerMode = isLowPowerMode
         self.expandsBeyondBounds = expandsBeyondBounds
+        self.activeContentMaxWidth = activeContentMaxWidth
         self.isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
     }
 
@@ -88,6 +93,7 @@ public struct AuroraVisualizationView: View {
     /// Paused when: occluded by NP sheet, not visible, or not actively playing.
     /// When paused, the last rendered frame stays on screen at zero GPU cost.
     private var isTimelinePaused: Bool {
+        if isSettlingToZero { return false }
         if isPaused || !isVisible { return true }
         // Only animate when actively playing — the blur passes are expensive
         // even at low frame rates. When paused, the aurora freezes in place.
@@ -129,6 +135,7 @@ public struct AuroraVisualizationView: View {
         .allowsHitTesting(false)
         .onReceive(playbackService.frequencyBandsPublisher) { bands in
             if playbackState == .playing {
+                cancelSettleToZero()
                 ingestBands(bands)
             }
         }
@@ -136,6 +143,11 @@ public struct AuroraVisualizationView: View {
             // Deduplicate: skip repeated state values to avoid redundant visibility checks
             guard state != playbackState else { return }
             playbackState = state
+            if state == .paused {
+                startSettleToZero()
+            } else if state == .playing || state == .buffering || state == .loading {
+                cancelSettleToZero()
+            }
             // Animate visibility only when the playback state actively changes.
             // This produces the desired fade-in when the user first presses play.
             updateVisibility(for: state, animated: true)
@@ -155,6 +167,8 @@ public struct AuroraVisualizationView: View {
         }
         .onDisappear {
             isMounted = false
+            settleToZeroTask?.cancel()
+            settleToZeroTask = nil
             updateConsumerRegistration()
         }
         .onChange(of: isPaused) { _ in
@@ -208,6 +222,40 @@ public struct AuroraVisualizationView: View {
             peakDecayRate: peakDecayRate,
             deltaTime: frameInterval
         )
+    }
+
+    private func startSettleToZero() {
+        settleToZeroTask?.cancel()
+        isSettlingToZero = true
+
+        settleToZeroTask = Task { @MainActor in
+            let zeroBands = [Double](repeating: 0, count: bandCount)
+            for _ in 0..<24 {
+                guard !Task.isCancelled else { return }
+                renderModel.advance(
+                    targetBands: zeroBands,
+                    attackFactor: attackFactor,
+                    decayFactor: 0.25,
+                    peakHoldTime: 0,
+                    peakDecayRate: peakDecayRate * 3,
+                    deltaTime: frameInterval
+                )
+                if renderModel.isNearZero { break }
+                try? await Task.sleep(nanoseconds: UInt64(frameInterval * 1_000_000_000))
+            }
+
+            guard !Task.isCancelled else { return }
+            isSettlingToZero = false
+            settleToZeroTask = nil
+        }
+    }
+
+    private func cancelSettleToZero() {
+        settleToZeroTask?.cancel()
+        settleToZeroTask = nil
+        if isSettlingToZero {
+            isSettlingToZero = false
+        }
     }
 
     // MARK: - Drawing
@@ -307,7 +355,9 @@ public struct AuroraVisualizationView: View {
         blur: CGFloat,
         opacity: Double
     ) {
-        let bandWidth = size.width / CGFloat(bandCount)
+        let activeWidth = activeContentMaxWidth.map { min(size.width, $0) } ?? size.width
+        let xOffset = (size.width - activeWidth) / 2
+        let bandWidth = activeWidth / CGFloat(bandCount)
         let baseOpacity = (colorScheme == .dark ? 0.7 : 0.5) * opacity
 
         for i in 0..<bandCount {
@@ -327,7 +377,7 @@ public struct AuroraVisualizationView: View {
             let height = minHeight + (maxHeight - minHeight) * CGFloat(heightFactor)
 
             // Center the band and make it very wide for ethereal overlap
-            let centerX = (CGFloat(i) + 0.5) * bandWidth
+            let centerX = xOffset + (CGFloat(i) + 0.5) * bandWidth
             let glowWidth = bandWidth * 4.5 // Wider overlap for more ethereal blending
             let x = centerX - glowWidth / 2
             let y = size.height - height - poolHeight
@@ -518,6 +568,10 @@ private final class AuroraRenderModel: ObservableObject {
 
     var renderedBands: [Double] {
         smoothedBands
+    }
+
+    var isNearZero: Bool {
+        smoothedBands.allSatisfy { $0 < 0.01 }
     }
 
     func reset() {

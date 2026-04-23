@@ -58,6 +58,9 @@ public struct DownloadsView: View {
         .refreshable {
             await viewModel.refresh()
         }
+        .refreshCommand("Refresh Downloads") {
+            await viewModel.refresh()
+        }
     }
 
     private var downloadListView: some View {

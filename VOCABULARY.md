@@ -864,6 +864,80 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 ---
 
+## LargeScreenBrowseSplitView
+
+- **View name:** `LargeScreenBrowseSplitView`
+- **Canonical name:** LargeScreenBrowseSplitView
+- **Area:** Shared (Components)
+- **Platform:** iPadOS regular width, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Selection pane | list | Left-side browse list for choosing an artist, playlist, or genre | `listContent` |
+| Detail pane | region | Right-side surface showing the selected item's detail or tracks | `detailContent` |
+| Placeholder pane | region | Empty detail state prompting the user to select an item | `LargeScreenPlaceholderView` |
+| Compact fallback | state | Existing iPhone push-navigation layout used when split view is not active | `compactContent` |
+
+---
+
+## Songs Table
+
+- **View name:** `SongsView` large-screen table
+- **Canonical name:** Songs table
+- **Area:** Songs
+- **Platform:** iPadOS regular width, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Table header | region | Column title row for visible song metadata | `songsTableHeader` |
+| Table row | control | Dense playable track row with context menu actions | `songsTableRow` |
+| Column menu | menu | Toolbar menu for showing, hiding, or resetting table columns | `songsTableColumnMenu`, `SongsTableColumn` |
+| Favorite column | indicator | Star column showing favorited tracks | `favorite` |
+| Downloaded column | indicator | Download status column for locally available tracks | `downloaded` |
+
+---
+
+## RefreshCommandAction
+
+- **View name:** `RefreshCommandAction`
+- **Canonical name:** Refresh command action
+- **Area:** Shared (Components)
+- **Platform:** macOS, iPadOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Focused refresh action | action | Async refresh closure registered by the currently focused refreshable screen | `.refreshCommand` |
+| Refresh command | action | App command invoking the focused refresh action | `View > Refresh`, `Command-R` |
+
+---
+
+## MacAuxiliaryWindowScaffold
+
+- **View name:** `MacAuxiliaryWindowScaffold`
+- **Canonical name:** Mac auxiliary window scaffold
+- **Area:** Shared (Components)
+- **Platform:** macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Window header | region | Native auxiliary-window header with title and optional subtitle | `title`, `subtitle` |
+| Window content | region | Embedded Profile, Downloads, or similar auxiliary content | `content` |
+| Minimum size | state | Window sizing floor applied by the scaffold | `minWidth`, `minHeight` |
+
+---
+
 ## StageFlowView
 
 - **View name:** `StageFlowView`

@@ -37,6 +37,7 @@ struct EnsembleApp: App {
     #endif
 
     @Environment(\.scenePhase) private var scenePhase
+    @FocusedValue(\.ensembleRefreshAction) private var focusedRefreshAction
     @State private var hasPerformedStartupSync = false
     @State private var hasStartedLogSession = false
     @State private var hasHandledInitialIOSActivePhase = false
@@ -101,10 +102,34 @@ struct EnsembleApp: App {
                 .keyboardShortcut(",", modifiers: .command)
             }
 
+            #if os(iOS)
+            CommandGroup(after: .appSettings) {
+                Button(focusedRefreshAction?.title ?? "Refresh") {
+                    guard let action = focusedRefreshAction else { return }
+                    Task { @MainActor in
+                        await action.perform()
+                    }
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(focusedRefreshAction == nil)
+            }
+            #endif
+
             #if os(macOS)
             // Remove the sidebar toggle command (Cmd+Option+S) since
             // the sidebar is always visible and non-collapsible
             CommandGroup(replacing: .sidebar) {}
+
+            CommandGroup(after: .sidebar) {
+                Button(focusedRefreshAction?.title ?? "Refresh") {
+                    guard let action = focusedRefreshAction else { return }
+                    Task { @MainActor in
+                        await action.perform()
+                    }
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(focusedRefreshAction == nil)
+            }
 
             CommandMenu("Playback") {
                 Button("Play/Pause") {

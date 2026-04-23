@@ -98,6 +98,13 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - iOS orientation is portrait-locked by default and only unlocks landscape while a CoverFlow-capable root view is active.
 - StageFlow rotation support is registered with a per-view token and the app delays the final unregister briefly, so SwiftUI view recreation during rotation does not snap the app back to portrait.
 
+### Large-Screen Browse Surfaces
+- Artists, Playlists, and Genres use `LargeScreenBrowseSplitView` only on macOS and regular-width iPad layouts. Compact iPhone keeps the existing push-navigation list.
+- The split shell owns the left selection list and right detail pane. Keep selection rows visually dense and use `LargeScreenPlaceholderView` for empty right-pane states such as "Select an Artist".
+- Songs uses a custom dense table layout on large screens so it can keep iOS 15/macOS 12 compatibility while still supporting persisted visible columns from `SettingsManager.songsTableColumns`.
+- Do not replace compact `TrackRow` lists with table rows on iPhone. Compact Songs must keep genre chips, row swipe actions, and existing mini-player spacing.
+- Refreshable root screens should also attach `.refreshCommand { ... }` so macOS View > Refresh invokes the focused screen's same async refresh action.
+
 ### Button Labels
 
 - **Buttons that open a sheet or modal must end with an ellipsis (`…`)** — this is the Apple HIG convention signalling that the action requires further input before completing:

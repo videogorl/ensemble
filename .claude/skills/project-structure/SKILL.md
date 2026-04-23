@@ -313,6 +313,8 @@ Sources/
 |   +-- ChromeVisibilityPreferenceKey.swift # SwiftUI preference key for hiding tab bar in immersive views
 |   +-- CompactSearchRows.swift       # Compact row layouts for search results
 |   +-- DesktopSheetScaffold.swift    # Shared macOS sheet scaffold with title bar and footer actions
+|   +-- LargeScreenBrowseSplitView.swift # Adaptive regular-width browse shell with selection list + detail pane
+|   +-- MacAuxiliaryWindowScaffold.swift # Native macOS auxiliary window scaffold for Profile/Downloads-style windows
 |   +-- OfflineIndicatorOverlay.swift  # Device-aware offline connectivity indicator (DI/notch/classic)
 |   +-- SongsStageFlowAlbum.swift     # Builds StageFlow album cards from filtered song results
 |   +-- StageFlowView.swift           # Center-stage carousel with snapping and transport overlay
@@ -338,6 +340,7 @@ Sources/
 |   +-- PlaylistCard.swift            # Grid card for playlists
 |   +-- PlaylistDetailLoader.swift    # Async loader for playlist detail with loading/error states
 |   +-- QueueTableView.swift          # UIKit-backed drag-to-reorder table view for queue
+|   +-- RefreshCommandAction.swift    # Focused async refresh action bridge for View > Refresh commands
 |   +-- ScrollIndex.swift             # A-Z index for fast scrolling
 |   +-- ToastView.swift               # Toast notification overlay component
 |   +-- TrackRow.swift                # Single track row with artwork

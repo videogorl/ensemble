@@ -219,7 +219,8 @@ public struct RootView: View {
                         playbackService: DependencyContainer.shared.playbackService,
                         consumer: .rootBackdrop,
                         accentColor: settingsManager.accentColor.color,
-                        isLowPowerMode: isLowPowerMode
+                        isLowPowerMode: isLowPowerMode,
+                        activeContentMaxWidth: 670
                     )
                     .allowsHitTesting(false)
                     .zIndex(0)
@@ -233,7 +234,8 @@ public struct RootView: View {
                         playbackService: DependencyContainer.shared.playbackService,
                         consumer: .rootBackdrop,
                         accentColor: settingsManager.accentColor.color,
-                        isLowPowerMode: isLowPowerMode
+                        isLowPowerMode: isLowPowerMode,
+                        activeContentMaxWidth: 670
                     )
                     .allowsHitTesting(false)
                     .zIndex(2)
