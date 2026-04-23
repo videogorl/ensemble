@@ -423,11 +423,13 @@ final class PlaybackServiceTests: XCTestCase {
     }
 
     func testAutomaticAdvanceIsSuppressedDuringInterruption() {
+        var coordinator = PlaybackHandoffCoordinator()
+        _ = coordinator.handle(.interruptionBegan(now: Date()), playbackState: .playing)
+
         XCTAssertTrue(
             PlaybackService.shouldSuppressAutomaticAdvanceDuringHandoff(
-                pauseReason: .interruption,
-                interruption: .began,
-                routeTransition: .idle,
+                coordinator: coordinator,
+                playbackState: .paused,
                 isInterrupted: true,
                 isRouteChangeInProgress: false
             )
@@ -435,11 +437,16 @@ final class PlaybackServiceTests: XCTestCase {
     }
 
     func testAutomaticAdvanceIsSuppressedDuringDisconnectTransition() {
+        var coordinator = PlaybackHandoffCoordinator()
+        _ = coordinator.handle(
+            .routeChanged(reason: .oldDeviceUnavailable, now: Date(), settleUntil: nil),
+            playbackState: .playing
+        )
+
         XCTAssertTrue(
             PlaybackService.shouldSuppressAutomaticAdvanceDuringHandoff(
-                pauseReason: .disconnect,
-                interruption: .none,
-                routeTransition: .disconnecting(startedAt: Date()),
+                coordinator: coordinator,
+                playbackState: .paused,
                 isInterrupted: false,
                 isRouteChangeInProgress: true
             )
@@ -447,12 +454,12 @@ final class PlaybackServiceTests: XCTestCase {
     }
 
     func testRemoteSkipCommandsDisabledWhileBuffering() {
+        let coordinator = PlaybackHandoffCoordinator()
+
         XCTAssertFalse(
             PlaybackService.remoteSkipCommandsEnabled(
                 playbackState: .buffering,
-                pauseReason: nil,
-                interruption: .none,
-                routeTransition: .idle,
+                coordinator: coordinator,
                 isInterrupted: false,
                 isRouteChangeInProgress: false
             )
@@ -460,12 +467,13 @@ final class PlaybackServiceTests: XCTestCase {
     }
 
     func testRemoteSkipCommandsDisabledDuringInterruption() {
+        var coordinator = PlaybackHandoffCoordinator()
+        _ = coordinator.handle(.interruptionBegan(now: Date()), playbackState: .playing)
+
         XCTAssertFalse(
             PlaybackService.remoteSkipCommandsEnabled(
                 playbackState: .paused,
-                pauseReason: .interruption,
-                interruption: .began,
-                routeTransition: .idle,
+                coordinator: coordinator,
                 isInterrupted: true,
                 isRouteChangeInProgress: false
             )
@@ -473,12 +481,13 @@ final class PlaybackServiceTests: XCTestCase {
     }
 
     func testRemoteSkipCommandsEnabledForStablePausedPlayback() {
+        var coordinator = PlaybackHandoffCoordinator()
+        _ = coordinator.handle(.pauseRequested(.user), playbackState: .playing)
+
         XCTAssertTrue(
             PlaybackService.remoteSkipCommandsEnabled(
                 playbackState: .paused,
-                pauseReason: .user,
-                interruption: .none,
-                routeTransition: .idle,
+                coordinator: coordinator,
                 isInterrupted: false,
                 isRouteChangeInProgress: false
             )
