@@ -25,7 +25,7 @@ public struct HomeView: View {
             if profileBackgroundImage != nil {
                 ArtworkDetailBackground(image: profileBackgroundImage, height: profileBackgroundHeight)
                     .allowsHitTesting(false)
-                    .ignoresSafeArea(edges: .top)
+                    .ignoresSafeArea()
             }
 
             Group {

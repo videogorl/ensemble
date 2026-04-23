@@ -29,12 +29,11 @@ public struct ProfilePresentationContainer: View {
     public var body: some View {
         #if os(macOS)
         MacAuxiliaryWindowScaffold(
-            title: "Profile",
-            subtitle: "Account, appearance, playback, and storage settings"
+            maxWidth: 420,
+            minHeight: 560
         ) {
             navigationContainer {
                 ProfileView()
-                    .navigationTitle("")
             }
         }
         #else
@@ -59,14 +58,11 @@ public struct DownloadsPresentationContainer: View {
     public var body: some View {
         #if os(macOS)
         MacAuxiliaryWindowScaffold(
-            title: "Downloads",
-            subtitle: "Offline libraries, targets, queue, and storage controls",
-            minWidth: 900,
+            maxWidth: 420,
             minHeight: 640
         ) {
             navigationContainer {
                 DownloadsView(nowPlayingVM: nowPlayingVM)
-                    .navigationTitle("")
             }
         }
         #else

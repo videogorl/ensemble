@@ -46,6 +46,7 @@ These are core design decisions that must be maintained throughout the app.
 - Root tab shells should own keyboard/search avoidance decisions. Child detail views should not inherit an active search or keyboard presenter from an offscreen tab.
 - Context-menu metadata editors are a separate case: use `phoneSafeAuxiliaryPresentation(...)` with a short dismissal delay so the menu teardown finishes before presentation begins.
 - Profile should present as a normal sheet again on iPhone.
+- Profile and Downloads should use the same single-column rhythm on macOS auxiliary windows as they do on iOS sheets. Host them through `MacAuxiliaryWindowScaffold` at about 420pt max width instead of adding a separate macOS header/chrome layer.
 - Do not pre-hide root tab, mini-player, or searchable-header chrome for the entire auxiliary transition; only suppress root chrome for actual immersive modes or the remaining explicitly-isolated keyboard presenters.
 - The helper owns keyboard-editor registration timing; do not duplicate `beginKeyboardEditorPresentation()` or `endKeyboardEditorPresentation()` inside the editor view itself
 - Keyboard editors can use a local `NavigationStack`/`NavigationView` plus system toolbar actions for a native look whether they are hosted in a normal sheet or one of the remaining isolated presenters.

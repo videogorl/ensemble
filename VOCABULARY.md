@@ -898,7 +898,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Table header | region | Column title row for visible song metadata | `songsTableHeader` |
 | Table row | control | Dense playable track row with context menu actions | `songsTableRow` |
 | Column menu | menu | Toolbar menu for showing, hiding, or resetting table columns | `songsTableColumnMenu`, `SongsTableColumn` |
-| Favorite column | indicator | Star column showing favorited tracks | `favorite` |
+| Favorite column | indicator | Heart column showing favorited tracks | `favorite` |
 | Downloaded column | indicator | Download status column for locally available tracks | `downloaded` |
 
 ---
@@ -932,9 +932,9 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Window header | region | Native auxiliary-window header with title and optional subtitle | `title`, `subtitle` |
-| Window content | region | Embedded Profile, Downloads, or similar auxiliary content | `content` |
-| Minimum size | state | Window sizing floor applied by the scaffold | `minWidth`, `minHeight` |
+| Window content | region | Embedded Profile, Downloads, or similar auxiliary content centered in a single-column macOS window | `content` |
+| Maximum width | state | Width cap that keeps Profile/Downloads aligned with their iOS single-column layouts | `maxWidth` |
+| Minimum height | state | Window height floor applied by the scaffold | `minHeight` |
 
 ---
 

@@ -64,14 +64,6 @@ struct NowPlayingViewportRoot: View {
                 .padding(.bottom, 24)
             }
         }
-        .onAppear {
-            // Viewport layout always shows ControlsCard on the left.
-            // Carousel page 1 (Controls) has no panel equivalent in this layout —
-            // normalize to Queue (0) so QueueCard's isVisible check passes.
-            if viewModel.currentPage == 1 {
-                viewModel.currentPage = 0
-            }
-        }
     }
 
     private var backgroundView: some View {
@@ -111,7 +103,8 @@ struct NowPlayingViewportRoot: View {
                     playbackService: DependencyContainer.shared.playbackService,
                     consumer: .nowPlayingViewport,
                     accentColor: settingsManager.accentColor.color,
-                    isLowPowerMode: powerStateMonitor.isLowPowerMode
+                    isLowPowerMode: powerStateMonitor.isLowPowerMode,
+                    activeContentMaxWidth: 670
                 )
                 .allowsHitTesting(false)
                 .opacity(0.7)
@@ -125,10 +118,10 @@ struct NowPlayingViewportRoot: View {
             Spacer()
 
             Picker("Panel", selection: panelSelection(for: mode)) {
+                Text("Queue").tag(0)
                 if mode == .singlePanel {
                     Text("Controls").tag(1)
                 }
-                Text("Queue").tag(0)
                 Text("Lyrics").tag(2)
                 Text("Info").tag(3)
             }

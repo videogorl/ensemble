@@ -103,7 +103,7 @@ struct EnsembleApp: App {
             }
 
             #if os(iOS)
-            CommandGroup(after: .appSettings) {
+            CommandMenu("View") {
                 Button(focusedRefreshAction?.title ?? "Refresh") {
                     guard let action = focusedRefreshAction else { return }
                     Task { @MainActor in
@@ -145,13 +145,13 @@ struct EnsembleApp: App {
                 ProfilePresentationContainer()
                     .environment(\.dependencies, DependencyContainer.shared)
                     .environmentObject(DependencyContainer.shared.navigationCoordinator)
-                    .frame(minWidth: 720, minHeight: 560)
+                    .frame(minWidth: 380, idealWidth: 420, maxWidth: 420, minHeight: 560, idealHeight: 640)
             }
             Window("Downloads", id: NavigationCoordinator.AuxiliaryPresentation.downloads.windowID) {
                 DownloadsPresentationContainer()
                     .environment(\.dependencies, DependencyContainer.shared)
                     .environmentObject(DependencyContainer.shared.navigationCoordinator)
-                    .frame(minWidth: 900, minHeight: 640)
+                    .frame(minWidth: 380, idealWidth: 420, maxWidth: 420, minHeight: 640, idealHeight: 720)
             }
         }
         #endif

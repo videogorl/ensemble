@@ -552,6 +552,9 @@ public struct SongsView: View {
         return size.width >= 840
     }
 
+    private var songsTableColumnSpacing: CGFloat { 18 }
+    private var songsTableHorizontalPadding: CGFloat { 20 }
+
     @ViewBuilder
     private var songsTableView: some View {
         VStack(spacing: 0) {
@@ -562,13 +565,25 @@ public struct SongsView: View {
             )
             .padding(.vertical, 8)
 
-            songsTableHeader
+            GeometryReader { geometry in
+                let tableWidth = songsTableContentWidth(for: geometry.size.width)
 
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(libraryVM.filteredTracks.enumerated()), id: \.element.id) { index, track in
-                        songsTableRow(track, index: index)
+                ScrollView(.horizontal, showsIndicators: tableWidth > geometry.size.width) {
+                    VStack(spacing: 0) {
+                        songsTableHeader
+                            .frame(width: tableWidth, alignment: .leading)
+
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                ForEach(Array(libraryVM.filteredTracks.enumerated()), id: \.element.id) { index, track in
+                                    songsTableRow(track, index: index)
+                                        .frame(width: tableWidth, alignment: .leading)
+                                }
+                            }
+                        }
+                        .frame(width: tableWidth, height: max(geometry.size.height - 38, 0))
                     }
+                    .frame(width: tableWidth, height: geometry.size.height, alignment: .topLeading)
                 }
             }
         }
@@ -579,30 +594,54 @@ public struct SongsView: View {
     }
 
     private var songsTableHeader: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: songsTableColumnSpacing) {
             ForEach(settingsManager.songsTableColumns) { column in
-                Text(column.title)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
+                songsTableHeaderCell(column)
                     .frame(width: width(for: column), alignment: alignment(for: column))
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 7)
+        .font(.caption.weight(.semibold))
+        .lineLimit(1)
+        .padding(.horizontal, songsTableHorizontalPadding)
+        .padding(.vertical, 9)
         .background(Color.secondary.opacity(0.08))
     }
 
+    @ViewBuilder
+    private func songsTableHeaderCell(_ column: SongsTableColumn) -> some View {
+        if let sortOption = sortOption(for: column) {
+            Button {
+                toggleSongsTableSort(sortOption)
+            } label: {
+                HStack(spacing: 4) {
+                    Text(column.title)
+                    if libraryVM.trackSortOption == sortOption {
+                        Image(systemName: libraryVM.tracksFilterOptions.sortDirection == .ascending
+                              ? "chevron.up" : "chevron.down")
+                            .font(.caption2)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: alignment(for: column))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+        } else {
+            Text(column.title)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: alignment(for: column))
+        }
+    }
+
     private func songsTableRow(_ track: Track, index: Int) -> some View {
-        HStack(spacing: 0) {
+        HStack(spacing: songsTableColumnSpacing) {
             ForEach(settingsManager.songsTableColumns) { column in
                 songsTableCell(column: column, track: track)
                     .frame(width: width(for: column), alignment: alignment(for: column))
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 5)
+        .font(.callout)
+        .padding(.horizontal, songsTableHorizontalPadding)
+        .padding(.vertical, 9)
         .background(index.isMultiple(of: 2) ? Color.secondary.opacity(0.055) : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture {
@@ -638,7 +677,7 @@ public struct SongsView: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
                 if track.rating >= 8 {
-                    Image(systemName: "star.fill")
+                    Image(systemName: "heart.fill")
                         .font(.caption)
                         .foregroundColor(.accentColor)
                 }
@@ -657,7 +696,7 @@ public struct SongsView: View {
             Text(track.genres.first ?? "")
                 .lineLimit(1)
         case .favorite:
-            Image(systemName: track.rating >= 8 ? "star.fill" : "star")
+            Image(systemName: track.rating >= 8 ? "heart.fill" : "heart")
                 .foregroundColor(track.rating >= 8 ? .accentColor : .secondary.opacity(0.45))
         case .plays:
             Text(track.playCount > 0 ? "\(track.playCount)" : "")
@@ -676,16 +715,16 @@ public struct SongsView: View {
         }
     }
 
-    private func width(for column: SongsTableColumn) -> CGFloat? {
+    private func width(for column: SongsTableColumn) -> CGFloat {
         switch column {
         case .title:
-            return 260
+            return 280
         case .time:
-            return 66
+            return 72
         case .artist:
-            return 180
+            return 190
         case .album:
-            return 220
+            return 230
         case .genre:
             return 150
         case .favorite:
@@ -699,6 +738,16 @@ public struct SongsView: View {
         }
     }
 
+    private func songsTableContentWidth(for availableWidth: CGFloat) -> CGFloat {
+        let columns = settingsManager.songsTableColumns
+        let columnWidth = columns.reduce(CGFloat.zero) { partial, column in
+            partial + width(for: column)
+        }
+        let spacing = CGFloat(max(columns.count - 1, 0)) * songsTableColumnSpacing
+        let minimumWidth = columnWidth + spacing + (songsTableHorizontalPadding * 2)
+        return max(availableWidth, minimumWidth)
+    }
+
     private func alignment(for column: SongsTableColumn) -> Alignment {
         switch column {
         case .time, .plays:
@@ -707,6 +756,37 @@ public struct SongsView: View {
             return .center
         default:
             return .leading
+        }
+    }
+
+    private func sortOption(for column: SongsTableColumn) -> TrackSortOption? {
+        switch column {
+        case .title:
+            return .title
+        case .time:
+            return .duration
+        case .artist:
+            return .artist
+        case .album:
+            return .album
+        case .favorite:
+            return .rating
+        case .plays:
+            return .playCount
+        case .dateAdded:
+            return .dateAdded
+        case .genre, .downloaded:
+            return nil
+        }
+    }
+
+    private func toggleSongsTableSort(_ option: TrackSortOption) {
+        if libraryVM.trackSortOption == option {
+            libraryVM.tracksFilterOptions.sortDirection =
+                libraryVM.tracksFilterOptions.sortDirection == .ascending ? .descending : .ascending
+        } else {
+            libraryVM.trackSortOption = option
+            libraryVM.tracksFilterOptions.sortDirection = option.defaultDirection
         }
     }
 

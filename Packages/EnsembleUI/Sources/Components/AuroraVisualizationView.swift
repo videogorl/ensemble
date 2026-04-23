@@ -230,14 +230,14 @@ public struct AuroraVisualizationView: View {
 
         settleToZeroTask = Task { @MainActor in
             let zeroBands = [Double](repeating: 0, count: bandCount)
-            for _ in 0..<24 {
+            for _ in 0..<36 {
                 guard !Task.isCancelled else { return }
                 renderModel.advance(
                     targetBands: zeroBands,
                     attackFactor: attackFactor,
-                    decayFactor: 0.25,
+                    decayFactor: 0.88,
                     peakHoldTime: 0,
-                    peakDecayRate: peakDecayRate * 3,
+                    peakDecayRate: peakDecayRate * 1.6,
                     deltaTime: frameInterval
                 )
                 if renderModel.isNearZero { break }
