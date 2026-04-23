@@ -37,12 +37,8 @@ public struct AlbumsView: View {
         #endif
     }
 
-    private var isKeyboardEditorActive: Bool {
-        navigationCoordinator.isKeyboardEditorPresented
-    }
-
     private var isPresenterChromeHidden: Bool {
-        isStageFlowActive || isKeyboardEditorActive
+        isStageFlowActive
     }
 
     public var body: some View {
