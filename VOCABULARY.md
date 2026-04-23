@@ -883,10 +883,10 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 ---
 
-## Songs Table
+## Large-Screen Songs Browser
 
-- **View name:** `SongsView` large-screen table
-- **Canonical name:** Songs table
+- **View name:** `SongsView` large-screen browser
+- **Canonical name:** Large-screen Songs browser
 - **Area:** Songs
 - **Platform:** iPadOS regular width, macOS
 - **Definition status:** Draft
@@ -895,11 +895,10 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Table header | region | Column title row for visible song metadata | `songsTableHeader` |
-| Table row | control | Dense playable track row with context menu actions | `songsTableRow` |
-| Column menu | menu | Toolbar menu for showing, hiding, or resetting table columns | `songsTableColumnMenu`, `SongsTableColumn` |
-| Favorite column | indicator | Heart column showing favorited tracks | `favorite` |
-| Downloaded column | indicator | Download status column for locally available tracks | `downloaded` |
+| Adaptive track row | control | Shared playable `TrackRow` with artwork, favorite heart, duration, context menu, and optional wide metadata | `TrackRow(supplementalMetadataWidth:)` |
+| Artist metadata column | text | Artist name shown beside the title when the browser is wide enough | `showsArtistMetadataColumn` |
+| Album metadata column | text | Album name shown beside artist when the browser has additional width | `showsAlbumMetadataColumn` |
+| Section index | control | Alphabetical scroll index retained for title-sorted Songs | `ScrollIndex` |
 
 ---
 

@@ -18,7 +18,6 @@ public struct SongsView: View {
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
@@ -56,7 +55,7 @@ public struct SongsView: View {
         #endif
     }
 
-    private var canShowSongsTable: Bool {
+    private var canShowLargeScreenSongBrowser: Bool {
         #if os(iOS)
         return UIDevice.current.userInterfaceIdiom != .phone
         #else
@@ -159,10 +158,6 @@ public struct SongsView: View {
                             }
                         }
 
-                        if canShowSongsTable {
-                            songsTableColumnMenu
-                        }
-
                         Menu {
                             Menu {
                                 ForEach(TrackSortOption.allCases, id: \.self) { option in
@@ -224,10 +219,6 @@ public struct SongsView: View {
                                         .offset(x: 2, y: -2)
                                 }
                             }
-                        }
-
-                        if canShowSongsTable {
-                            songsTableColumnMenu
                         }
 
                         Menu {
@@ -395,8 +386,8 @@ public struct SongsView: View {
 
     private var trackListView: some View {
         GeometryReader { geometry in
-            if usesSongsTable(for: geometry.size) {
-                songsTableView
+            if usesLargeScreenSongBrowser(for: geometry.size) {
+                largeScreenSongBrowserView(width: geometry.size.width)
             } else {
                 compactTrackListView
             }
@@ -546,17 +537,13 @@ public struct SongsView: View {
         }
     }
 
-    private func usesSongsTable(for size: CGSize) -> Bool {
-        guard canShowSongsTable else { return false }
-        guard #available(iOS 16.0, macOS 12.0, *) else { return false }
+    private func usesLargeScreenSongBrowser(for size: CGSize) -> Bool {
+        guard canShowLargeScreenSongBrowser else { return false }
         return size.width >= 840
     }
 
-    private var songsTableColumnSpacing: CGFloat { 18 }
-    private var songsTableHorizontalPadding: CGFloat { 20 }
-
     @ViewBuilder
-    private var songsTableView: some View {
+    private func largeScreenSongBrowserView(width: CGFloat) -> some View {
         VStack(spacing: 0) {
             GenreChipBar(
                 availableGenres: libraryVM.availableTrackGenres,
@@ -565,26 +552,10 @@ public struct SongsView: View {
             )
             .padding(.vertical, 8)
 
-            GeometryReader { geometry in
-                let tableWidth = songsTableContentWidth(for: geometry.size.width)
-
-                ScrollView(.horizontal, showsIndicators: tableWidth > geometry.size.width) {
-                    VStack(spacing: 0) {
-                        songsTableHeader
-                            .frame(width: tableWidth, alignment: .leading)
-
-                        ScrollView {
-                            LazyVStack(spacing: 0) {
-                                ForEach(Array(libraryVM.filteredTracks.enumerated()), id: \.element.id) { index, track in
-                                    songsTableRow(track, index: index)
-                                        .frame(width: tableWidth, alignment: .leading)
-                                }
-                            }
-                        }
-                        .frame(width: tableWidth, height: max(geometry.size.height - 38, 0))
-                    }
-                    .frame(width: tableWidth, height: geometry.size.height, alignment: .topLeading)
-                }
+            if libraryVM.trackSortOption == .title {
+                largeScreenIndexedSongList(width: width)
+            } else {
+                largeScreenFlatSongList(width: width)
             }
         }
         .miniPlayerBottomSpacing()
@@ -593,235 +564,155 @@ public struct SongsView: View {
         }
     }
 
-    private var songsTableHeader: some View {
-        HStack(spacing: songsTableColumnSpacing) {
-            ForEach(settingsManager.songsTableColumns) { column in
-                songsTableHeaderCell(column)
-                    .frame(width: width(for: column), alignment: alignment(for: column))
-            }
-        }
-        .font(.caption.weight(.semibold))
-        .lineLimit(1)
-        .padding(.horizontal, songsTableHorizontalPadding)
-        .padding(.vertical, 9)
-        .background(Color.secondary.opacity(0.08))
-    }
-
     @ViewBuilder
-    private func songsTableHeaderCell(_ column: SongsTableColumn) -> some View {
-        if let sortOption = sortOption(for: column) {
-            Button {
-                toggleSongsTableSort(sortOption)
-            } label: {
-                HStack(spacing: 4) {
-                    Text(column.title)
-                    if libraryVM.trackSortOption == sortOption {
-                        Image(systemName: libraryVM.tracksFilterOptions.sortDirection == .ascending
-                              ? "chevron.up" : "chevron.down")
-                            .font(.caption2)
+    private func largeScreenIndexedSongList(width: CGFloat) -> some View {
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(libraryVM.trackSections) { section in
+                            largeScreenSongSection(section: section, width: width)
+                                .id(section.letter)
+                        }
                     }
+                    .padding(.vertical)
                 }
-                .frame(maxWidth: .infinity, alignment: alignment(for: column))
+
+                if !libraryVM.filteredTracks.isEmpty {
+                    ScrollIndex(
+                        letters: libraryVM.trackSections.map { $0.letter },
+                        currentLetter: .constant(nil),
+                        onLetterTap: { letter in
+                            proxy.scrollTo(letter, anchor: .top)
+                        }
+                    )
+                    .libraryScrollIndexPositioning()
+                }
             }
-            .buttonStyle(.plain)
-            .foregroundColor(.secondary)
-        } else {
-            Text(column.title)
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: alignment(for: column))
         }
     }
 
-    private func songsTableRow(_ track: Track, index: Int) -> some View {
-        HStack(spacing: songsTableColumnSpacing) {
-            ForEach(settingsManager.songsTableColumns) { column in
-                songsTableCell(column: column, track: track)
-                    .frame(width: width(for: column), alignment: alignment(for: column))
+    private func largeScreenFlatSongList(width: CGFloat) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(libraryVM.filteredTracks) { track in
+                    largeScreenSongRow(track: track, width: width)
+                    songRowDivider
+                }
+            }
+            .padding(.vertical)
+        }
+    }
+
+    private func largeScreenSongSection(section: LibraryViewModel.TrackSection, width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(section.letter)
+
+            ForEach(section.tracks) { track in
+                largeScreenSongRow(track: track, width: width)
+                songRowDivider
             }
         }
-        .font(.callout)
-        .padding(.horizontal, songsTableHorizontalPadding)
-        .padding(.vertical, 9)
-        .background(index.isMultiple(of: 2) ? Color.secondary.opacity(0.055) : Color.clear)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
+    }
+
+    private func largeScreenSongRow(track: Track, width: CGFloat) -> some View {
+        let resolvedActions = largeScreenTrackInteractionModel.resolve(for: track)
+        let row = TrackRow(
+            track: track,
+            showArtwork: true,
+            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+            onPlayNext: resolvedActions.onPlayNext,
+            onPlayLast: resolvedActions.onPlayLast,
+            onAddToPlaylist: resolvedActions.onAddToPlaylist,
+            onAddToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
+            onToggleFavorite: resolvedActions.onToggleFavorite,
+            onGoToAlbum: resolvedActions.onGoToAlbum,
+            onGoToArtist: resolvedActions.onGoToArtist,
+            onShareLink: resolvedActions.onShareLink,
+            onShareFile: resolvedActions.onShareFile,
+            isFavorited: resolvedActions.isFavorited,
+            recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
+            supplementalMetadataWidth: width
+        ) {
+            playTrack(track)
         }
-        .contextMenu {
-            Button {
+
+        return Group {
+            TrackSwipeContainer(
+                track: track,
+                nowPlayingVM: nowPlayingVM,
+                onPlayNext: resolvedActions.onPlayNext,
+                onPlayLast: resolvedActions.onPlayLast,
+                onAddToPlaylist: resolvedActions.onAddToPlaylist
+            ) {
+                row
+            }
+        }
+        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
+    }
+
+    private var songRowDivider: some View {
+        Divider()
+            .padding(
+                .leading,
+                TrackListLayoutMetrics.contentLeadingInset(
+                    showArtwork: true,
+                    showTrackNumbers: false
+                )
+            )
+    }
+
+    private var largeScreenTrackInteractionModel: TrackRowInteractionModel {
+        TrackRowInteractionModel(
+            onPlayNext: { track in
                 nowPlayingVM.playNext(track)
-            } label: {
-                Label("Play Next", systemImage: "text.insert")
-            }
-
-            Button {
+            },
+            onPlayLast: { track in
                 nowPlayingVM.playLast(track)
-            } label: {
-                Label("Play Last", systemImage: "text.append")
-            }
-
-            Button {
+            },
+            onAddToPlaylist: { track in
                 presentPlaylistPicker(with: [track])
-            } label: {
-                Label("Add to Playlist…", systemImage: "text.badge.plus")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func songsTableCell(column: SongsTableColumn, track: Track) -> some View {
-        switch column {
-        case .title:
-            HStack(spacing: 6) {
-                Text(track.title)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                if track.rating >= 8 {
-                    Image(systemName: "heart.fill")
-                        .font(.caption)
-                        .foregroundColor(.accentColor)
+            },
+            onAddToRecentPlaylist: { track in
+                addToRecentPlaylist(track)
+            },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
                 }
-            }
-        case .time:
-            Text(track.formattedDuration)
-                .monospacedDigit()
-                .foregroundColor(.secondary)
-        case .artist:
-            Text(track.artistName ?? "Unknown Artist")
-                .lineLimit(1)
-        case .album:
-            Text(track.albumName ?? "Unknown Album")
-                .lineLimit(1)
-        case .genre:
-            Text(track.genres.first ?? "")
-                .lineLimit(1)
-        case .favorite:
-            Image(systemName: track.rating >= 8 ? "heart.fill" : "heart")
-                .foregroundColor(track.rating >= 8 ? .accentColor : .secondary.opacity(0.45))
-        case .plays:
-            Text(track.playCount > 0 ? "\(track.playCount)" : "")
-                .monospacedDigit()
-        case .dateAdded:
-            Text(track.dateAdded.map(Self.dateAddedFormatter.string(from:)) ?? "")
-                .lineLimit(1)
-        case .downloaded:
-            if track.isDownloaded {
-                Image(systemName: "arrow.down.circle.fill")
-                    .foregroundColor(.accentColor)
-            } else {
-                Color.clear
-                    .frame(width: 1, height: 1)
-            }
-        }
-    }
-
-    private func width(for column: SongsTableColumn) -> CGFloat {
-        switch column {
-        case .title:
-            return 280
-        case .time:
-            return 72
-        case .artist:
-            return 190
-        case .album:
-            return 230
-        case .genre:
-            return 150
-        case .favorite:
-            return 44
-        case .plays:
-            return 58
-        case .dateAdded:
-            return 150
-        case .downloaded:
-            return 92
-        }
-    }
-
-    private func songsTableContentWidth(for availableWidth: CGFloat) -> CGFloat {
-        let columns = settingsManager.songsTableColumns
-        let columnWidth = columns.reduce(CGFloat.zero) { partial, column in
-            partial + width(for: column)
-        }
-        let spacing = CGFloat(max(columns.count - 1, 0)) * songsTableColumnSpacing
-        let minimumWidth = columnWidth + spacing + (songsTableHorizontalPadding * 2)
-        return max(availableWidth, minimumWidth)
-    }
-
-    private func alignment(for column: SongsTableColumn) -> Alignment {
-        switch column {
-        case .time, .plays:
-            return .trailing
-        case .favorite, .downloaded:
-            return .center
-        default:
-            return .leading
-        }
-    }
-
-    private func sortOption(for column: SongsTableColumn) -> TrackSortOption? {
-        switch column {
-        case .title:
-            return .title
-        case .time:
-            return .duration
-        case .artist:
-            return .artist
-        case .album:
-            return .album
-        case .favorite:
-            return .rating
-        case .plays:
-            return .playCount
-        case .dateAdded:
-            return .dateAdded
-        case .genre, .downloaded:
-            return nil
-        }
-    }
-
-    private func toggleSongsTableSort(_ option: TrackSortOption) {
-        if libraryVM.trackSortOption == option {
-            libraryVM.tracksFilterOptions.sortDirection =
-                libraryVM.tracksFilterOptions.sortDirection == .ascending ? .descending : .ascending
-        } else {
-            libraryVM.trackSortOption = option
-            libraryVM.tracksFilterOptions.sortDirection = option.defaultDirection
-        }
-    }
-
-    private var songsTableColumnMenu: some View {
-        Menu {
-            ForEach(SongsTableColumn.allCases) { column in
-                Toggle(isOn: Binding(
-                    get: { isSongsTableColumnVisible(column) },
-                    set: { settingsManager.setSongsTableColumn(column, isVisible: $0) }
-                )) {
-                    Text(column.title)
+            },
+            onGoToAlbum: { track in
+                if let albumId = track.albumRatingKey {
+                    navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
                 }
-            }
+            },
+            onGoToArtist: { track in
+                if let artistId = track.artistRatingKey {
+                    navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
+                }
+            },
+            onShareLink: { track in
+                ShareActions.shareTrackLink(track, deps: deps)
+            },
+            onShareFile: { track in
+                ShareActions.shareTrackFile(track, deps: deps)
+            },
+            isTrackFavorited: { track in
+                nowPlayingVM.isTrackFavorited(track)
+            },
+            canAddToRecentPlaylist: { track in
+                recentPlaylistTitle(for: track) != nil
+            },
+            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+        )
+    }
 
-            Divider()
-
-            Button("Reset Columns") {
-                settingsManager.resetSongsTableColumnsToDefaults()
-            }
-        } label: {
-            Label("Columns", systemImage: "tablecells")
+    private func playTrack(_ track: Track) {
+        if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+            nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
         }
-        .disabled(!canShowSongsTable)
     }
-
-    private func isSongsTableColumnVisible(_ column: SongsTableColumn) -> Bool {
-        settingsManager.songsTableColumns.contains(column)
-    }
-
-    private static let dateAddedFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter
-    }()
     
     private var indexedTrackListContent: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
