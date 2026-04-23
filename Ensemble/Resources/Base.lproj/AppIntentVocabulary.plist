@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>IntentPhrases</key>
+	<array>
+		<dict>
+			<key>IntentExamples</key>
+			<array>
+				<string>Play music in Ensemble</string>
+				<string>Play my playlist in Ensemble</string>
+				<string>Play this album in Ensemble</string>
+			</array>
+			<key>IntentName</key>
+			<string>INPlayMediaIntent</string>
+		</dict>
+		<dict>
+			<key>IntentExamples</key>
+			<array>
+				<string>Add this song to my playlist in Ensemble</string>
+				<string>Add this album to my favorites in Ensemble</string>
+				<string>Add this track to a playlist in Ensemble</string>
+			</array>
+			<key>IntentName</key>
+			<string>INAddMediaIntent</string>
+		</dict>
+		<dict>
+			<key>IntentExamples</key>
+			<array>
+				<string>Love this song in Ensemble</string>
+				<string>Dislike this track in Ensemble</string>
+				<string>Like this album in Ensemble</string>
+			</array>
+			<key>IntentName</key>
+			<string>INUpdateMediaAffinityIntent</string>
+		</dict>
+	</array>
+</dict>
+</plist>
