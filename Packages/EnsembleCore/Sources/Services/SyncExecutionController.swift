@@ -31,11 +31,15 @@ final class SyncExecutionController {
         let sourceNeedsGenreMetadataRepair: (MusicSourceIdentifier) async -> Bool
         let runStartupHealthChecksIfNeeded: (String, String) async -> Bool
         let enabledServerKeysForHealthChecks: () -> Set<String>
+        let isCheckingHealth: () -> Bool
+        let lastHealthCheckCompletion: () -> Date?
         let updateSourceConnectionStates: () -> Void
         let setLastStartupSyncCompletion: (Date) -> Void
     }
 
     private let dependencies: Dependencies
+    private let startupHealthCheckPollNanoseconds: UInt64 = 100_000_000
+    private let startupHealthCheckWaitTimeout: TimeInterval = 12.0
 
     init(dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -177,6 +181,8 @@ final class SyncExecutionController {
             return
         }
 
+        await waitForStartupHealthChecksIfNeeded()
+
         let ranStartupHealthChecks = await dependencies.runStartupHealthChecksIfNeeded(
             "startup sync",
             "🏥 Startup health checks complete"
@@ -219,6 +225,33 @@ final class SyncExecutionController {
         }
 
         dependencies.setLastStartupSyncCompletion(Date())
+    }
+
+    private func waitForStartupHealthChecksIfNeeded() async {
+        guard dependencies.lastHealthCheckCompletion() == nil,
+              dependencies.isCheckingHealth() else {
+            return
+        }
+
+        let waitStart = Date()
+        EnsembleLogger.debug("🏥 SyncExecutionController: Waiting for in-flight startup health checks before sync")
+
+        while dependencies.lastHealthCheckCompletion() == nil,
+              dependencies.isCheckingHealth(),
+              Date().timeIntervalSince(waitStart) < startupHealthCheckWaitTimeout {
+            try? await Task.sleep(nanoseconds: startupHealthCheckPollNanoseconds)
+        }
+
+        if let completion = dependencies.lastHealthCheckCompletion() {
+            let elapsed = completion.timeIntervalSince(waitStart)
+            EnsembleLogger.debug(
+                "🏥 SyncExecutionController: Startup sync unblocked after health checks in \(String(format: "%.2f", max(elapsed, 0)))s"
+            )
+        } else if dependencies.isCheckingHealth() {
+            EnsembleLogger.debug(
+                "🏥 SyncExecutionController: Timed out waiting for startup health checks after \(String(format: "%.2f", startupHealthCheckWaitTimeout))s"
+            )
+        }
     }
 
     private func syncSingleSource(

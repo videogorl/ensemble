@@ -120,6 +120,58 @@ final class RefreshOrchestratorTests: XCTestCase {
         XCTAssertFalse(freshOrchestrator.beginStartupHealthChecksIfNeeded())
     }
 
+    func testSecondStartupHealthCheckCallerWaitsForInFlightRefresh() async {
+        let orchestrator = RefreshOrchestrator()
+        let now = Date(timeIntervalSince1970: 50_000)
+
+        var events: [String] = []
+        let firstTask = Task { @MainActor in
+            let didRun = await orchestrator.runStartupHealthChecksIfNeeded(
+                now: { now },
+                runRefresh: {
+                    events.append("first-start")
+                    try? await Task.sleep(nanoseconds: 80_000_000)
+                    events.append("first-end")
+                },
+                didComplete: { _ in
+                    events.append("first-complete")
+                }
+            )
+            XCTAssertTrue(didRun)
+            events.append("first-returned")
+        }
+
+        try? await Task.sleep(nanoseconds: 10_000_000)
+
+        var secondDidReturn = false
+        let secondTask = Task { @MainActor in
+            let didRun = await orchestrator.runStartupHealthChecksIfNeeded(
+                now: { now },
+                runRefresh: {
+                    XCTFail("Second startup health-check caller should wait for the in-flight refresh instead of running a duplicate pass")
+                },
+                didComplete: { _ in
+                    XCTFail("Second startup health-check caller should not mark completion")
+                }
+            )
+            XCTAssertFalse(didRun)
+            secondDidReturn = true
+            events.append("second-returned")
+        }
+
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertFalse(secondDidReturn)
+
+        await firstTask.value
+        await secondTask.value
+
+        XCTAssertEqual(events.first, "first-start")
+        XCTAssertTrue(events.contains("first-end"))
+        XCTAssertTrue(events.contains("first-complete"))
+        XCTAssertEqual(events.last, "first-returned")
+        XCTAssertEqual(events.dropLast().last, "second-returned")
+    }
+
     func testPostRatingPlaylistSyncCoalescesByServer() async {
         let orchestrator = RefreshOrchestrator(
             postRatingPlaylistDebounceNanoseconds: 10_000_000,

@@ -23,14 +23,14 @@ struct AppBootstrapPlaybackSummary: Equatable, Sendable {
 }
 
 struct AppBootstrapSummary: Equatable, Sendable {
-    let launchElapsed: TimeInterval?
+    let bootstrapElapsed: TimeInterval?
     let account: AppBootstrapAccountSummary
     let sync: AppBootstrapSyncSummary
     let playback: AppBootstrapPlaybackSummary
     let offlineCleanup: OfflineDownloadHealingSummary
 
     var logMessage: String {
-        let launch = launchElapsed.map { String(format: "%.2fs", $0) } ?? "unknown"
+        let bootstrap = bootstrapElapsed.map { String(format: "%.2fs", $0) } ?? "unknown"
         let selectedServer: String
         if let serverName = account.selectedServerName, let serverKey = account.selectedServerKey {
             selectedServer = "\(serverName) [\(serverKey)]"
@@ -47,7 +47,7 @@ struct AppBootstrapSummary: Equatable, Sendable {
 
         return [
             "[Bootstrap] cold-launch summary",
-            "launchElapsed=\(launch)",
+            "bootstrapElapsed=\(bootstrap)",
             "accountState=\(account.accountState)",
             "accounts=\(account.accountCount)",
             "enabledLibraries=\(account.enabledLibraryCount)",
@@ -93,14 +93,14 @@ final class AppBootstrapDiagnostics {
     func makeColdLaunchSummary(
         playbackRestoreWasSuppressedForSiri: Bool
     ) async -> AppBootstrapSummary {
-        let launchElapsed = dependencies.launchTimeProvider().map { Date().timeIntervalSince($0) }
+        let bootstrapElapsed = dependencies.launchTimeProvider().map { Date().timeIntervalSince($0) }
         let account = await dependencies.accountSummaryProvider()
         let sync = dependencies.syncSummaryProvider()
         let playback = dependencies.playbackSummaryProvider(playbackRestoreWasSuppressedForSiri)
         let offlineCleanup = dependencies.offlineCleanupProvider()
 
         return AppBootstrapSummary(
-            launchElapsed: launchElapsed,
+            bootstrapElapsed: bootstrapElapsed,
             account: account,
             sync: sync,
             playback: playback,
