@@ -56,6 +56,7 @@ final class AppBootstrapDiagnosticsTests: XCTestCase {
         await diagnostics.emitColdLaunchSummary(playbackRestoreWasSuppressedForSiri: true)
 
         XCTAssertEqual(logSink.messages.count, 1)
+        XCTAssertTrue(logSink.messages[0].contains("bootstrapElapsed=4.00s"))
         XCTAssertTrue(logSink.messages[0].contains("accountState=ready"))
         XCTAssertTrue(logSink.messages[0].contains("selectedServer=Living Room Plex [account:server]"))
         XCTAssertTrue(logSink.messages[0].contains("offlineCleanup=removed=3,error=none"))

@@ -61,6 +61,8 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
         let sourceIdentifier: MusicSourceIdentifier
         private(set) var fullLibrarySyncCount = 0
         private(set) var incrementalLibrarySyncCount = 0
+        var onFullLibrarySync: (() -> Void)?
+        var onIncrementalLibrarySync: (() -> Void)?
 
         init(sourceIdentifier: MusicSourceIdentifier) {
             self.sourceIdentifier = sourceIdentifier
@@ -71,6 +73,7 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
             progressHandler: @Sendable (Double) -> Void
         ) async throws -> LibrarySyncResult {
             fullLibrarySyncCount += 1
+            onFullLibrarySync?()
             progressHandler(1.0)
             return LibrarySyncResult(changedAlbums: 10, changedTracks: 50, changedGenres: 5)
         }
@@ -81,6 +84,7 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
             progressHandler: @Sendable (Double) -> Void
         ) async throws -> LibrarySyncResult {
             incrementalLibrarySyncCount += 1
+            onIncrementalLibrarySync?()
             progressHandler(1.0)
             return LibrarySyncResult()
         }
@@ -256,5 +260,85 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
         XCTAssertEqual(provider.fullLibrarySyncCount, 1)
         XCTAssertEqual(provider.incrementalLibrarySyncCount, 0)
         XCTAssertNotNil(coordinator.lastStartupSyncCompletion)
+    }
+
+    func testStartupSyncWaitsForInFlightHealthChecksBeforeIncrementalSync() async throws {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let playlistRepository = MockPlaylistRepository()
+        let artworkManager = MockArtworkDownloadManager()
+        let accountManager = AccountManager(keychain: TestKeychain())
+        accountManager.addPlexAccount(
+            PlexAccountConfig(
+                id: "account-1",
+                displayTitle: "tester",
+                authToken: "auth",
+                servers: [
+                    PlexServerConfig(
+                        id: "server-1",
+                        name: "Server",
+                        url: "https://example.com",
+                        token: "token",
+                        libraries: [
+                            PlexLibraryConfig(id: "lib-1", key: "1", title: "Music", isEnabled: true)
+                        ]
+                    )
+                ]
+            )
+        )
+
+        let networkMonitor = NetworkMonitor(
+            debounceNanoseconds: 1_000,
+            monitorQueue: DispatchQueue(label: "test.network.monitor"),
+            monitorFactory: { SystemNetworkPathMonitor() }
+        )
+        let serverHealthChecker = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
+        let coordinator = SyncCoordinator(
+            accountManager: accountManager,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            artworkDownloadManager: artworkManager,
+            networkMonitor: networkMonitor,
+            serverHealthChecker: serverHealthChecker
+        )
+        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
+
+        var healthChecksCompleted = false
+        coordinator.healthCheckRunnerForTesting = { _, _ in
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            healthChecksCompleted = true
+            return ServerHealthChecker.CheckSummary(checkedCount: 1, skippedCount: 0)
+        }
+
+        let sourceKey = sourceId.compositeKey
+        _ = try await libraryRepository.upsertMusicSource(
+            compositeKey: sourceKey,
+            type: "plex",
+            accountId: sourceId.accountId,
+            serverId: sourceId.serverId,
+            libraryId: sourceId.libraryId,
+            displayName: "Music",
+            accountName: "tester"
+        )
+        try await libraryRepository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
+
+        let provider = RecordingSyncProvider(sourceIdentifier: sourceId)
+        var syncObservedCompletedHealthChecks = false
+        provider.onIncrementalLibrarySync = {
+            syncObservedCompletedHealthChecks = healthChecksCompleted
+        }
+        coordinator.installSyncProviderForTesting(provider)
+
+        let healthTask = Task { @MainActor in
+            await coordinator.performStartupHealthChecks()
+        }
+
+        try? await Task.sleep(nanoseconds: 10_000_000)
+        await coordinator.performStartupSync()
+        await healthTask.value
+
+        XCTAssertTrue(healthChecksCompleted)
+        XCTAssertTrue(syncObservedCompletedHealthChecks)
+        XCTAssertEqual(provider.incrementalLibrarySyncCount, 1)
     }
 }

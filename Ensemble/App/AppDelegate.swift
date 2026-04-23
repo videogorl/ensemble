@@ -177,9 +177,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             DependencyContainer.shared.webSocketCoordinator.start()
         }
 
-        // Perform startup sync (non-blocking, runs in background at .utility priority).
-        // Normal launches start immediately; Siri launches wait briefly for audio session.
+        // Perform startup sync after early health checks complete so sync requests
+        // inherit the same endpoint selection as playback restore and WebSocket setup.
+        // Without this sequencing, startup sync can race a stale local URL and spend
+        // its first request budget on a timeout before failover updates the client.
         startupSyncTask = Task.detached(priority: .utility) {
+            await self.earlyHealthCheckTask?.value
+
             // Check if Siri playback was recently triggered. If so, wait a short time
             // to let the audio session activate and route selection complete.
             // Sync at .utility priority won't compete meaningfully with the Siri audio

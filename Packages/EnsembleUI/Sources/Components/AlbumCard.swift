@@ -123,8 +123,8 @@ public struct AlbumGrid: View {
     let layout: AlbumCardLayoutMetrics
 
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
     @State private var playlistPickerPayload: PlaylistPickerPayload?
-    @State private var editingAlbum: Album?
     @State private var pendingAlbumDeletion: Album?
 
     public init(
@@ -156,9 +156,44 @@ public struct AlbumGrid: View {
                             },
                             onEditMetadata: {
                                 // Context-menu initiated editors can be dropped when toggled in
-                                // the same transaction as menu dismissal on iOS.
+                                // the same transaction as menu dismissal on iOS, so hand them
+                                // off to the root presenter after the menu unwinds.
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                                    editingAlbum = album
+                                    contextMenuMetadataEditorCoordinator.present(
+                                        kind: .album,
+                                        currentTitle: album.title
+                                    ) { newTitle in
+                                        do {
+                                            try await deps.metadataMutationService.editAlbum(
+                                                album,
+                                                request: MetadataEditRequest(title: newTitle)
+                                            )
+                                            await MainActor.run {
+                                                deps.toastCenter.show(
+                                                    ToastPayload(
+                                                        style: .success,
+                                                        iconSystemName: "checkmark.circle.fill",
+                                                        title: "Album updated",
+                                                        message: "\"\(newTitle)\" was saved to Plex.",
+                                                        dedupeKey: "album-edit-\(album.id)"
+                                                    )
+                                                )
+                                            }
+                                        } catch {
+                                            await MainActor.run {
+                                                deps.toastCenter.show(
+                                                    ToastPayload(
+                                                        style: .error,
+                                                        iconSystemName: "exclamationmark.triangle.fill",
+                                                        title: "Couldn't edit album",
+                                                        message: error.localizedDescription,
+                                                        dedupeKey: "album-edit-failed-\(album.id)"
+                                                    )
+                                                )
+                                            }
+                                            throw error
+                                        }
+                                    }
                                 }
                             },
                             onDelete: {
@@ -183,9 +218,44 @@ public struct AlbumGrid: View {
                             },
                             onEditMetadata: {
                                 // Context-menu initiated editors can be dropped when toggled in
-                                // the same transaction as menu dismissal on iOS.
+                                // the same transaction as menu dismissal on iOS, so hand them
+                                // off to the root presenter after the menu unwinds.
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                                    editingAlbum = album
+                                    contextMenuMetadataEditorCoordinator.present(
+                                        kind: .album,
+                                        currentTitle: album.title
+                                    ) { newTitle in
+                                        do {
+                                            try await deps.metadataMutationService.editAlbum(
+                                                album,
+                                                request: MetadataEditRequest(title: newTitle)
+                                            )
+                                            await MainActor.run {
+                                                deps.toastCenter.show(
+                                                    ToastPayload(
+                                                        style: .success,
+                                                        iconSystemName: "checkmark.circle.fill",
+                                                        title: "Album updated",
+                                                        message: "\"\(newTitle)\" was saved to Plex.",
+                                                        dedupeKey: "album-edit-\(album.id)"
+                                                    )
+                                                )
+                                            }
+                                        } catch {
+                                            await MainActor.run {
+                                                deps.toastCenter.show(
+                                                    ToastPayload(
+                                                        style: .error,
+                                                        iconSystemName: "exclamationmark.triangle.fill",
+                                                        title: "Couldn't edit album",
+                                                        message: error.localizedDescription,
+                                                        dedupeKey: "album-edit-failed-\(album.id)"
+                                                    )
+                                                )
+                                            }
+                                            throw error
+                                        }
+                                    }
                                 }
                             },
                             onDelete: {
@@ -198,43 +268,6 @@ public struct AlbumGrid: View {
         }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
-        }
-        // Context-menu metadata editors already present full-screen on iPhone.
-        // Skipping the keyboard tracker here avoids dismissing the selection
-        // while the menu teardown is still unwinding.
-        .phoneSafeAuxiliaryPresentation(item: $editingAlbum) { album in
-            MetadataEditSheet(kind: .album, currentTitle: album.title) { newTitle in
-                do {
-                    try await deps.metadataMutationService.editAlbum(
-                        album,
-                        request: MetadataEditRequest(title: newTitle)
-                    )
-                    await MainActor.run {
-                        deps.toastCenter.show(
-                            ToastPayload(
-                                style: .success,
-                                iconSystemName: "checkmark.circle.fill",
-                                title: "Album updated",
-                                message: "\"\(newTitle)\" was saved to Plex.",
-                                dedupeKey: "album-edit-\(album.id)"
-                            )
-                        )
-                    }
-                } catch {
-                    await MainActor.run {
-                        deps.toastCenter.show(
-                            ToastPayload(
-                                style: .error,
-                                iconSystemName: "exclamationmark.triangle.fill",
-                                title: "Couldn't edit album",
-                                message: error.localizedDescription,
-                                dedupeKey: "album-edit-failed-\(album.id)"
-                            )
-                        )
-                    }
-                    throw error
-                }
-            }
         }
         .confirmationDialog(
             "Delete Album?",

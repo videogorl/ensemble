@@ -37,12 +37,8 @@ public struct AlbumsView: View {
         #endif
     }
 
-    private var isKeyboardEditorActive: Bool {
-        navigationCoordinator.isKeyboardEditorPresented
-    }
-
     private var isPresenterChromeHidden: Bool {
-        isStageFlowActive || isKeyboardEditorActive
+        isStageFlowActive
     }
 
     public var body: some View {
@@ -476,7 +472,11 @@ public struct AlbumDetailView: View {
     @StateObject private var viewModel: AlbumDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var isBioExpanded = false
+    @State private var isConfirmingDelete = false
     @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
 
     private let album: Album
 
@@ -498,6 +498,52 @@ public struct AlbumDetailView: View {
             showFilter: false,
             mediaType: .album,
             albumMenuActions: AlbumDetailMenuActions(
+                onEditMetadata: {
+                    // Menu-driven editors need the same unwind delay as context
+                    // menus so the root presenter is activated after dismissal.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        contextMenuMetadataEditorCoordinator.present(
+                            kind: .album,
+                            currentTitle: album.title
+                        ) { newTitle in
+                            do {
+                                try await deps.metadataMutationService.editAlbum(
+                                    album,
+                                    request: MetadataEditRequest(title: newTitle)
+                                )
+                                await MainActor.run {
+                                    deps.toastCenter.show(
+                                        ToastPayload(
+                                            style: .success,
+                                            iconSystemName: "checkmark.circle.fill",
+                                            title: "Album updated",
+                                            message: "\"\(newTitle)\" was saved to Plex.",
+                                            dedupeKey: "album-detail-edit-\(album.id)"
+                                        )
+                                    )
+                                }
+                            } catch {
+                                await MainActor.run {
+                                    deps.toastCenter.show(
+                                        ToastPayload(
+                                            style: .error,
+                                            iconSystemName: "exclamationmark.triangle.fill",
+                                            title: "Couldn't edit album",
+                                            message: error.localizedDescription,
+                                            dedupeKey: "album-detail-edit-failed-\(album.id)"
+                                        )
+                                    )
+                                }
+                                throw error
+                            }
+                        }
+                    }
+                },
+                onDelete: {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        isConfirmingDelete = true
+                    }
+                },
                 onPlayNext: {
                     nowPlayingVM.playNext(viewModel.filteredTracks)
                 },
@@ -507,6 +553,46 @@ public struct AlbumDetailView: View {
             ),
             additionalFooterContent: AnyView(albumMetadataFooter)
         )
+        .confirmationDialog(
+            "Delete Album?",
+            isPresented: $isConfirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Album", role: .destructive) {
+                Task {
+                    do {
+                        try await deps.metadataMutationService.deleteAlbum(album)
+                        await MainActor.run {
+                            deps.toastCenter.show(
+                                ToastPayload(
+                                    style: .success,
+                                    iconSystemName: "trash.fill",
+                                    title: "Album deleted",
+                                    message: "\"\(album.title)\" was removed from Plex.",
+                                    dedupeKey: "album-detail-delete-\(album.id)"
+                                )
+                            )
+                            dismiss()
+                        }
+                    } catch {
+                        await MainActor.run {
+                            deps.toastCenter.show(
+                                ToastPayload(
+                                    style: .error,
+                                    iconSystemName: "exclamationmark.triangle.fill",
+                                    title: "Couldn't delete album",
+                                    message: error.localizedDescription,
+                                    dedupeKey: "album-detail-delete-failed-\(album.id)"
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes \"\(album.title)\" from the Plex server and removes its local cache.")
+        }
         .task {
             await viewModel.loadAlbumDetail()
             await viewModel.loadRelatedAlbums()

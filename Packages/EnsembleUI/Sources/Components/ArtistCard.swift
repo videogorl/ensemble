@@ -73,7 +73,7 @@ public struct ArtistGrid: View {
     let nowPlayingVM: NowPlayingViewModel
     let onArtistTap: ((Artist) -> Void)?
     @Environment(\.dependencies) private var deps
-    @State private var editingArtist: Artist?
+    @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
 
     private let columns = [
         GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16, alignment: .top)
@@ -103,9 +103,43 @@ public struct ArtistGrid: View {
                             nowPlayingVM: nowPlayingVM,
                             onEditMetadata: {
                                 // Delay presentation by a tick so the context menu dismissal
-                                // completes before the editor presentation begins.
+                                // completes before the root-owned editor presentation begins.
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                                    editingArtist = artist
+                                    contextMenuMetadataEditorCoordinator.present(
+                                        kind: .artist,
+                                        currentTitle: artist.name
+                                    ) { newTitle in
+                                        do {
+                                            try await deps.metadataMutationService.editArtist(
+                                                artist,
+                                                request: MetadataEditRequest(title: newTitle)
+                                            )
+                                            await MainActor.run {
+                                                deps.toastCenter.show(
+                                                    ToastPayload(
+                                                        style: .success,
+                                                        iconSystemName: "checkmark.circle.fill",
+                                                        title: "Artist updated",
+                                                        message: "\"\(newTitle)\" was saved to Plex.",
+                                                        dedupeKey: "artist-edit-\(artist.id)"
+                                                    )
+                                                )
+                                            }
+                                        } catch {
+                                            await MainActor.run {
+                                                deps.toastCenter.show(
+                                                    ToastPayload(
+                                                        style: .error,
+                                                        iconSystemName: "exclamationmark.triangle.fill",
+                                                        title: "Couldn't edit artist",
+                                                        message: error.localizedDescription,
+                                                        dedupeKey: "artist-edit-failed-\(artist.id)"
+                                                    )
+                                                )
+                                            }
+                                            throw error
+                                        }
+                                    }
                                 }
                             }
                         )
@@ -124,9 +158,43 @@ public struct ArtistGrid: View {
                             nowPlayingVM: nowPlayingVM,
                             onEditMetadata: {
                                 // Delay presentation by a tick so the context menu dismissal
-                                // completes before the editor presentation begins.
+                                // completes before the root-owned editor presentation begins.
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                                    editingArtist = artist
+                                    contextMenuMetadataEditorCoordinator.present(
+                                        kind: .artist,
+                                        currentTitle: artist.name
+                                    ) { newTitle in
+                                        do {
+                                            try await deps.metadataMutationService.editArtist(
+                                                artist,
+                                                request: MetadataEditRequest(title: newTitle)
+                                            )
+                                            await MainActor.run {
+                                                deps.toastCenter.show(
+                                                    ToastPayload(
+                                                        style: .success,
+                                                        iconSystemName: "checkmark.circle.fill",
+                                                        title: "Artist updated",
+                                                        message: "\"\(newTitle)\" was saved to Plex.",
+                                                        dedupeKey: "artist-edit-\(artist.id)"
+                                                    )
+                                                )
+                                            }
+                                        } catch {
+                                            await MainActor.run {
+                                                deps.toastCenter.show(
+                                                    ToastPayload(
+                                                        style: .error,
+                                                        iconSystemName: "exclamationmark.triangle.fill",
+                                                        title: "Couldn't edit artist",
+                                                        message: error.localizedDescription,
+                                                        dedupeKey: "artist-edit-failed-\(artist.id)"
+                                                    )
+                                                )
+                                            }
+                                            throw error
+                                        }
+                                    }
                                 }
                             }
                         )
@@ -135,43 +203,6 @@ public struct ArtistGrid: View {
             }
         }
         .padding(.horizontal)
-        // Context-menu metadata editors already present full-screen on iPhone.
-        // Skipping the keyboard tracker here avoids dismissing the selection
-        // while the menu teardown is still unwinding.
-        .phoneSafeAuxiliaryPresentation(item: $editingArtist) { artist in
-            MetadataEditSheet(kind: .artist, currentTitle: artist.name) { newTitle in
-                do {
-                    try await deps.metadataMutationService.editArtist(
-                        artist,
-                        request: MetadataEditRequest(title: newTitle)
-                    )
-                    await MainActor.run {
-                        deps.toastCenter.show(
-                            ToastPayload(
-                                style: .success,
-                                iconSystemName: "checkmark.circle.fill",
-                                title: "Artist updated",
-                                message: "\"\(newTitle)\" was saved to Plex.",
-                                dedupeKey: "artist-edit-\(artist.id)"
-                            )
-                        )
-                    }
-                } catch {
-                    await MainActor.run {
-                        deps.toastCenter.show(
-                            ToastPayload(
-                                style: .error,
-                                iconSystemName: "exclamationmark.triangle.fill",
-                                title: "Couldn't edit artist",
-                                message: error.localizedDescription,
-                                dedupeKey: "artist-edit-failed-\(artist.id)"
-                            )
-                        )
-                    }
-                    throw error
-                }
-            }
-        }
     }
 
     private func artistCardContent(_ artist: Artist) -> some View {

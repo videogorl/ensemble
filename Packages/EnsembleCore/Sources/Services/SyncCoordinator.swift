@@ -779,6 +779,8 @@ public final class SyncCoordinator: ObservableObject {
                 sourceNeedsGenreMetadataRepair: { await self.sourceNeedsGenreMetadataRepair($0) },
                 runStartupHealthChecksIfNeeded: { await self.runStartupHealthChecksIfNeeded(reason: $0, completionMessage: $1) },
                 enabledServerKeysForHealthChecks: { self.enabledServerKeysForHealthChecks() },
+                isCheckingHealth: { self.isCheckingHealth },
+                lastHealthCheckCompletion: { self.lastHealthCheckCompletion },
                 updateSourceConnectionStates: { self.updateSourceConnectionStates() },
                 setLastStartupSyncCompletion: { self.lastStartupSyncCompletion = $0 }
             )

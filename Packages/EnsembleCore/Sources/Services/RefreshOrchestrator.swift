@@ -74,6 +74,10 @@ final class RefreshOrchestrator {
         didComplete: @escaping CompletionHandler
     ) async -> Bool {
         guard beginStartupHealthChecksIfNeeded() else {
+            if let activeHealthRefreshTask {
+                EnsembleLogger.debug("🌐 RefreshOrchestrator: Awaiting in-flight startup health checks")
+                await activeHealthRefreshTask.value
+            }
             return false
         }
 

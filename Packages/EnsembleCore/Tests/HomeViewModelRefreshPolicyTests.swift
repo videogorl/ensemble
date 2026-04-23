@@ -112,6 +112,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     private struct Harness {
         let viewModel: HomeViewModel
         let accountManager: AccountManager
+        let coordinator: SyncCoordinator
         let hubRepository: MockHubRepository
     }
 
@@ -157,6 +158,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         return Harness(
             viewModel: viewModel,
             accountManager: accountManager,
+            coordinator: coordinator,
             hubRepository: hubRepository
         )
     }
@@ -417,5 +419,73 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(filtered[0].items.map(\.id), ["album-1"])
         XCTAssertEqual(filtered[0].context, "hub.music.artist")
         XCTAssertEqual(filtered[1].items.map(\.id), ["track-1"])
+    }
+
+    func testInitialLoadWaitsForStartupHealthChecksBeforeFetchingNetworkHubs() async {
+        let harness = makeHarness(accounts: [PlexAccountConfig(
+            id: "account-enabled",
+            email: "enabled@example.com",
+            plexUsername: "enabled",
+            displayTitle: "Enabled",
+            authToken: "auth-token",
+            servers: [
+                PlexServerConfig(
+                    id: "server-enabled",
+                    name: "Enabled Server",
+                    url: "https://enabled.example.com",
+                    connections: [PlexConnectionConfig(uri: "https://enabled.example.com", local: false, relay: false, protocol: "https")],
+                    token: "token-enabled",
+                    platform: "Linux",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-enabled", key: "lib-enabled", title: "Music", isEnabled: true)
+                    ]
+                )
+            ]
+        )])
+        let sut = harness.viewModel
+        let waitStarted = expectation(description: "wait started")
+        let releaseWait = expectation(description: "release wait")
+        releaseWait.assertForOverFulfill = false
+        var loadCount = 0
+
+        sut.waitForStartupHealthChecksRunnerForTesting = { [self] in
+            waitStarted.fulfill()
+            await self.fulfillment(of: [releaseWait], timeout: 1.0)
+        }
+        sut.loadHubsRunnerForTesting = { _, _ in
+            loadCount += 1
+        }
+
+        let loadTask = Task {
+            await sut.loadHubs()
+        }
+
+        await fulfillment(of: [waitStarted], timeout: 1.0)
+        XCTAssertEqual(loadCount, 0)
+
+        releaseWait.fulfill()
+        await loadTask.value
+
+        XCTAssertEqual(loadCount, 1)
+    }
+
+    func testSubsequentLoadsDoNotWaitForStartupHealthChecks() async {
+        let sut = makeViewModel()
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+
+        var waitCallCount = 0
+        var loadCount = 0
+        sut.waitForStartupHealthChecksRunnerForTesting = {
+            waitCallCount += 1
+        }
+        sut.loadHubsRunnerForTesting = { _, _ in
+            loadCount += 1
+        }
+
+        await sut.loadHubs()
+
+        XCTAssertEqual(waitCallCount, 0)
+        XCTAssertEqual(loadCount, 1)
     }
 }
