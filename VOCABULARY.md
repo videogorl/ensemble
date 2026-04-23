@@ -896,6 +896,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
 | Adaptive track row | control | Shared playable `TrackRow` with artwork, favorite heart, duration, context menu, and optional wide metadata | `TrackRow(supplementalMetadataWidth:)` |
+| Native swipe row | interaction | Large-screen row hosted by SwiftUI `List` so Apple handles swipe reveal, full-swipe commit, and trackpad gestures | `.trackSwipeActions(...)` |
 | Artist metadata column | text | Artist name shown beside the title when the browser is wide enough | `showsArtistMetadataColumn` |
 | Album metadata column | text | Album name shown beside artist when the browser has additional width | `showsAlbumMetadataColumn` |
 | Section index | control | Alphabetical scroll index retained for title-sorted Songs | `ScrollIndex` |

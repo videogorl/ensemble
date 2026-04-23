@@ -568,15 +568,18 @@ public struct SongsView: View {
     private func largeScreenIndexedSongList(width: CGFloat) -> some View {
         ScrollViewReader { proxy in
             ZStack(alignment: .trailing) {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(libraryVM.trackSections) { section in
-                            largeScreenSongSection(section: section, width: width)
-                                .id(section.letter)
+                List {
+                    ForEach(libraryVM.trackSections) { section in
+                        Section(header: sectionHeader(section.letter)) {
+                            ForEach(section.tracks) { track in
+                                largeScreenSongRow(track: track, width: width)
+                            }
                         }
+                        .id(section.letter)
                     }
-                    .padding(.vertical)
                 }
+                .listStyle(.plain)
+                .modifier(ClearScrollContentBackgroundModifier())
 
                 if !libraryVM.filteredTracks.isEmpty {
                     ScrollIndex(
@@ -593,31 +596,19 @@ public struct SongsView: View {
     }
 
     private func largeScreenFlatSongList(width: CGFloat) -> some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(libraryVM.filteredTracks) { track in
-                    largeScreenSongRow(track: track, width: width)
-                    songRowDivider
-                }
-            }
-            .padding(.vertical)
-        }
-    }
-
-    private func largeScreenSongSection(section: LibraryViewModel.TrackSection, width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            sectionHeader(section.letter)
-
-            ForEach(section.tracks) { track in
+        List {
+            ForEach(libraryVM.filteredTracks) { track in
                 largeScreenSongRow(track: track, width: width)
-                songRowDivider
             }
         }
+        .listStyle(.plain)
+        .modifier(ClearScrollContentBackgroundModifier())
     }
 
     private func largeScreenSongRow(track: Track, width: CGFloat) -> some View {
         let resolvedActions = largeScreenTrackInteractionModel.resolve(for: track)
-        let row = TrackRow(
+
+        return TrackRow(
             track: track,
             showArtwork: true,
             isPlaying: track.id == nowPlayingVM.currentTrack?.id,
@@ -636,31 +627,15 @@ public struct SongsView: View {
         ) {
             playTrack(track)
         }
-
-        return Group {
-            TrackSwipeContainer(
-                track: track,
-                nowPlayingVM: nowPlayingVM,
-                onPlayNext: resolvedActions.onPlayNext,
-                onPlayLast: resolvedActions.onPlayLast,
-                onAddToPlaylist: resolvedActions.onAddToPlaylist
-            ) {
-                row
-            }
-        }
-        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
-    }
-
-    private var songRowDivider: some View {
-        Divider()
-            .padding(
-                .leading,
-                TrackListLayoutMetrics.contentLeadingInset(
-                    showArtwork: true,
-                    showTrackNumbers: false
-                )
-            )
+        .trackSwipeActions(
+            track: track,
+            nowPlayingVM: nowPlayingVM,
+            onPlayNext: resolvedActions.onPlayNext,
+            onPlayLast: resolvedActions.onPlayLast,
+            onAddToPlaylist: resolvedActions.onAddToPlaylist
+        )
+        .listRowBackground(Color.clear)
+        .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
     }
 
     private var largeScreenTrackInteractionModel: TrackRowInteractionModel {

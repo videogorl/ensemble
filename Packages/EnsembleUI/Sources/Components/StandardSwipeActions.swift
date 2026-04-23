@@ -147,7 +147,7 @@ extension View {
             Button {
                 onAddToPlaylist?()
             } label: {
-                Label("Add to Playlist", systemImage: "text.badge.plus")
+                Label("Add to Playlist…", systemImage: "text.badge.plus")
             }
             .tint(.orange)
 
