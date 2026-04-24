@@ -464,6 +464,13 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         alpha += pool * poolOpacity * 0.75;
 
         alpha = clamp(alpha, 0.0, 0.95);
+
+        // The blend state expects unpremultiplied source color. The glow math
+        // accumulates weighted light, so divide by alpha before presenting or
+        // the accent gets attenuated once here and once again by source-alpha.
+        if (alpha > 0.001) {
+            color = color / alpha;
+        }
         color = min(color, float3(1.0));
 
         float fade = fadeAt(p.y, u.size.y);
