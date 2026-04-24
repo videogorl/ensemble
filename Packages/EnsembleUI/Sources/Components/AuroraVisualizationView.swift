@@ -240,20 +240,21 @@ public struct AuroraVisualizationView: View {
     }
 
     private var horizonGlowOverlay: some View {
-        let bottomOpacity = colorScheme == .dark ? 0.18 : 0.24
+        let bottomOpacity = colorScheme == .dark ? 0.22 : 0.30
 
         return LinearGradient(
             gradient: Gradient(stops: [
                 .init(color: .clear, location: 0.0),
-                .init(color: .clear, location: 0.58),
-                .init(color: accentColor.opacity(bottomOpacity * 0.10), location: 0.72),
-                .init(color: accentColor.opacity(bottomOpacity * 0.46), location: 0.88),
+                .init(color: .clear, location: 0.48),
+                .init(color: accentColor.opacity(bottomOpacity * 0.08), location: 0.62),
+                .init(color: accentColor.opacity(bottomOpacity * 0.34), location: 0.78),
+                .init(color: accentColor.opacity(bottomOpacity * 0.68), location: 0.92),
                 .init(color: accentColor.opacity(bottomOpacity), location: 1.0)
             ]),
             startPoint: .top,
             endPoint: .bottom
         )
-        .blur(radius: 18)
+        .blur(radius: 22)
     }
 
     private func canvasAuroraSurface(width: CGFloat, height: CGFloat, xOffset: CGFloat) -> some View {
@@ -747,18 +748,19 @@ public struct AuroraVisualizationView: View {
     /// Adds a final soft color wash at the bottom edge so the aurora reads as
     /// emerging from a horizon after the foreground fade has softened the content.
     private func drawHorizonGlow(context: GraphicsContext, size: CGSize) {
-        let bottomOpacity = colorScheme == .dark ? 0.18 : 0.24
+        let bottomOpacity = colorScheme == .dark ? 0.22 : 0.30
         let rect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
         let glowGradient = Gradient(stops: [
             .init(color: .clear, location: 0.0),
-            .init(color: .clear, location: 0.58),
-            .init(color: accentColor.opacity(bottomOpacity * 0.10), location: 0.72),
-            .init(color: accentColor.opacity(bottomOpacity * 0.46), location: 0.88),
+            .init(color: .clear, location: 0.48),
+            .init(color: accentColor.opacity(bottomOpacity * 0.08), location: 0.62),
+            .init(color: accentColor.opacity(bottomOpacity * 0.34), location: 0.78),
+            .init(color: accentColor.opacity(bottomOpacity * 0.68), location: 0.92),
             .init(color: accentColor.opacity(bottomOpacity), location: 1.0)
         ])
 
         var glowContext = context
-        glowContext.addFilter(.blur(radius: 18))
+        glowContext.addFilter(.blur(radius: 22))
         glowContext.fill(
             Path(rect),
             with: .linearGradient(

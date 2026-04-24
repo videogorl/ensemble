@@ -383,15 +383,27 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         for (uint layer = 0; layer < u.layerCount; layer++) {
             float layerOpacity;
             float spread;
+            float heightScale;
+            float verticalSoftness;
+            float verticalBlur;
             if (u.layerCount == 1) {
                 layerOpacity = 0.50;
-                spread = 2.0;
+                spread = 2.4;
+                heightScale = 1.10;
+                verticalSoftness = 0.62;
+                verticalBlur = 1.75;
             } else if (u.layerCount == 2) {
-                layerOpacity = layer == 0 ? 0.28 : 0.42;
-                spread = layer == 0 ? 2.6 : 1.7;
+                layerOpacity = layer == 0 ? 0.20 : 0.38;
+                spread = layer == 0 ? 3.8 : 1.85;
+                heightScale = layer == 0 ? 1.26 : 1.06;
+                verticalSoftness = layer == 0 ? 0.48 : 0.70;
+                verticalBlur = layer == 0 ? 1.12 : 1.95;
             } else {
-                layerOpacity = layer == 0 ? 0.25 : (layer == 1 ? 0.30 : 0.35);
-                spread = layer == 0 ? 2.8 : (layer == 1 ? 2.1 : 1.55);
+                layerOpacity = layer == 0 ? 0.16 : (layer == 1 ? 0.26 : 0.34);
+                spread = layer == 0 ? 4.2 : (layer == 1 ? 2.55 : 1.55);
+                heightScale = layer == 0 ? 1.34 : (layer == 1 ? 1.16 : 1.0);
+                verticalSoftness = layer == 0 ? 0.42 : (layer == 1 ? 0.58 : 0.76);
+                verticalBlur = layer == 0 ? 0.92 : (layer == 1 ? 1.42 : 2.4);
             }
 
             float baseOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * layerOpacity;
@@ -400,19 +412,19 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
                 float intensity = clamp(bands[i], 0.0, 1.0);
                 float normalized = bandCount > 1 ? float(i) / float(bandCount - 1) : 0.5;
                 float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(0.35, 2.0)));
-                float height = u.minHeight + (u.maxHeight - u.minHeight) * intensity * bell;
+                float height = (u.minHeight + (u.maxHeight - u.minHeight) * intensity * bell) * heightScale;
                 float centerX = xOffset + (float(i) + 0.5) * bandWidth;
                 float glowWidth = bandWidth * 4.5 * spread;
-                float rectHeight = height + u.poolHeight;
+                float rectHeight = height + u.poolHeight * heightScale;
                 float rectMinY = u.size.y - height - u.poolHeight;
                 float rectCenterY = rectMinY + rectHeight * 0.5;
 
                 float dx = (p.x - centerX) / max(glowWidth * 0.5, 1.0);
                 float dy = (p.y - rectCenterY) / max(rectHeight * 0.5, 1.0);
-                float ellipse = exp(-(dx * dx * 1.65 + dy * dy * 2.4));
+                float ellipse = exp(-(dx * dx * 1.65 + dy * dy * verticalBlur));
                 float t = clamp((p.y - rectMinY) / max(rectHeight, 1.0), 0.0, 1.0);
                 float fromBottom = 1.0 - t;
-                float vertical = smoothBand(0.0, 0.08, fromBottom) * (1.0 - smoothBand(0.70, 1.0, fromBottom));
+                float vertical = smoothBand(0.0, 0.08, fromBottom) * (1.0 - smoothBand(verticalSoftness, 1.0, fromBottom));
                 float contribution = ellipse * vertical * max(0.30, intensity) * baseOpacity;
 
                 color += u.accentColor.rgb * contribution;
