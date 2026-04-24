@@ -106,6 +106,11 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - Do not replace compact `TrackRow` lists with table rows on iPhone. Compact Songs must keep genre chips, row swipe actions, and existing mini-player spacing.
 - Refreshable root screens should also attach `.refreshCommand { ... }` so macOS View > Refresh invokes the focused screen's same async refresh action.
 
+### Aurora Surfaces
+- `AuroraVisualizationView` should use the shared `MetalAuroraSurface` renderer when Metal is available, with the Canvas path kept as the compatibility fallback.
+- Keep root/sidebar backdrops in the low-cost surface tier and Now Playing/viewport surfaces in the richer tier. Do not throttle playback frequency publishers to reduce visual cost; change renderer tier, pass count, or frame interval at the visual surface instead.
+- Preserve the full-width backdrop/fade composition while constraining active aurora bands through `activeContentMaxWidth` when the caller provides it.
+
 ### Button Labels
 
 - **Buttons that open a sheet or modal must end with an ellipsis (`…`)** — this is the Apple HIG convention signalling that the action requires further input before completing:

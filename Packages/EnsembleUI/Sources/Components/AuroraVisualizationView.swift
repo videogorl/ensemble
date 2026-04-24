@@ -119,18 +119,8 @@ public struct AuroraVisualizationView: View {
 
     public var body: some View {
         GeometryReader { geometry in
-            // Fully paused when not actively playing (see isTimelinePaused).
-            // The Canvas + 3 blur passes on 24 bands is too expensive to run
-            // just for the subtle breathing animation.
-            TimelineView(.animation(minimumInterval: frameInterval, paused: isTimelinePaused)) { _ in
-                Canvas { context, size in
-                    drawAurora(context: context, size: size)
-                }
-                .frame(width: expandsBeyondBounds ? geometry.size.width + 80 : geometry.size.width)
-                .frame(height: maxHeight + 40) // Slightly taller to allow for bottom overflow
-                .offset(x: expandsBeyondBounds ? -40 : 0, y: 15) // Offset down to hide the very bottom of the pool
-            }
-            .frame(maxHeight: .infinity, alignment: .bottom)
+            auroraSurface(for: geometry)
+                .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .opacity(isVisible ? 0.7 : 0) // Reduced overall opacity for transparency
         .if(expandsBeyondBounds) { view in
@@ -176,6 +166,64 @@ public struct AuroraVisualizationView: View {
         }
         .onChange(of: isPaused) { _ in
             updateConsumerRegistration()
+        }
+    }
+
+    @ViewBuilder
+    private func auroraSurface(for geometry: GeometryProxy) -> some View {
+        let surfaceWidth = expandsBeyondBounds ? geometry.size.width + 80 : geometry.size.width
+        let surfaceHeight = maxHeight + 40
+        let xOffset = expandsBeyondBounds ? -40.0 : 0.0
+
+        if isMetalAuroraAvailable {
+            MetalAuroraSurface(
+                renderModel: renderModel,
+                accentColor: accentColor,
+                colorScheme: colorScheme,
+                preferredFrameInterval: frameInterval,
+                isPaused: isTimelinePaused,
+                surfaceTier: auroraSurfaceTier,
+                activeContentMaxWidth: activeContentMaxWidth,
+                bandCount: bandCount,
+                maxHeight: maxHeight,
+                minHeight: minHeight,
+                poolHeight: poolHeight
+            )
+            .frame(width: surfaceWidth, height: surfaceHeight)
+            .offset(x: xOffset, y: 15)
+        } else {
+            canvasAuroraSurface(width: surfaceWidth, height: surfaceHeight, xOffset: xOffset)
+        }
+    }
+
+    private var isMetalAuroraAvailable: Bool {
+        #if canImport(MetalKit) && !os(watchOS)
+        return MetalAuroraSurface.isAvailable
+        #else
+        return false
+        #endif
+    }
+
+    private var auroraSurfaceTier: AuroraMetalSurfaceTier {
+        if isLowPowerMode {
+            return .lowPower
+        }
+        if usesLowCostSurfaceTier || isLowCoreDevice {
+            return .ambient
+        }
+        return .immersive
+    }
+
+    private func canvasAuroraSurface(width: CGFloat, height: CGFloat, xOffset: CGFloat) -> some View {
+        // Fully paused when not actively playing (see isTimelinePaused).
+        // The Canvas fallback mirrors the Metal surface for unsupported devices.
+        TimelineView(.animation(minimumInterval: frameInterval, paused: isTimelinePaused)) { _ in
+            Canvas { context, size in
+                drawAurora(context: context, size: size)
+            }
+            .frame(width: width)
+            .frame(height: height)
+            .offset(x: xOffset, y: 15)
         }
     }
 
@@ -656,7 +704,7 @@ public struct AuroraVisualizationView: View {
 
 /// Keeps live aurora band state off the SwiftUI observation path so analyzer ticks
 /// do not invalidate root-level view trees on every update.
-private final class AuroraRenderModel: ObservableObject {
+final class AuroraRenderModel: ObservableObject {
     private let bandCount = 24
     private var smoothedBands = Array(repeating: 0.0, count: 24)
     private var peakHolds = Array(repeating: 0.0, count: 24)

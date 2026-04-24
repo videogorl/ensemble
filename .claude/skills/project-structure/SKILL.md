@@ -308,6 +308,7 @@ Sources/
 |   +-- MediaDetailSurface.swift     # Shared media-detail shell (adaptive header + list card styling) used by MediaDetailView and DownloadTargetDetailView
 |   +-- CompositeArtworkView.swift    # Composite 2x2 artwork grid for merged playlists + PlaylistArtwork wrapper
 |   +-- AuroraVisualizationView.swift # Aurora-style background visualization of music loudness
+|   +-- MetalAuroraSurface.swift      # MTKView-backed Aurora renderer with Canvas fallback support
 |   +-- BlurredArtworkBackground.swift # Heavily blurred artwork background with contrast/saturation
 |   +-- CollapsingToolbar.swift      # Shared collapsing toolbar title with nav bar appearance toggle
 |   +-- ChromeVisibilityPreferenceKey.swift # SwiftUI preference key for hiding tab bar in immersive views

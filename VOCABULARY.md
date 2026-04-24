@@ -904,6 +904,26 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 ---
 
+## AuroraVisualizationView
+
+- **View name:** `AuroraVisualizationView`
+- **Canonical name:** Aurora visualization
+- **Area:** Shared (Components)
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Aurora surface | background | Reactive colored bands and bottom glow driven by playback frequency data | `AuroraVisualizationView` |
+| Metal renderer | renderer | Preferred `MTKView` renderer for Aurora bands, bridge, pool, and fade | `MetalAuroraSurface` |
+| Canvas fallback | renderer | Compatibility renderer used when Metal cannot create the Aurora pipeline | `canvasAuroraSurface` |
+| Surface tier | state | Cost/quality choice for low-power, ambient, and immersive Aurora instances | `AuroraMetalSurfaceTier`, `auroraSurfaceTier` |
+| Active content max width | layout | Optional width cap for active band drawing while preserving the full-width backdrop | `activeContentMaxWidth` |
+
+---
+
 ## RefreshCommandAction
 
 - **View name:** `RefreshCommandAction`
