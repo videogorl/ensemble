@@ -687,7 +687,7 @@ public struct SidebarView: View {
     @State private var selection: SidebarSelection? = .library(.home)
     @State private var pinnedDetailPath: [NavigationCoordinator.Destination] = []
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
-    @State private var compactColumnPreference: CompactColumnPreference = .detail
+    @State private var compactColumnPreference: CompactColumnPreference = .sidebar
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var playlistForEditSheet: Playlist?
     @State private var playlistPendingRename: Playlist?
