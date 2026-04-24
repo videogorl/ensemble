@@ -113,6 +113,10 @@ public struct AuroraVisualizationView: View {
         isMounted && !isPaused
     }
 
+    private var shouldIngestFrequencyBands: Bool {
+        shouldRegisterConsumer && isVisible && playbackState == .playing
+    }
+
     public var body: some View {
         GeometryReader { geometry in
             // Fully paused when not actively playing (see isTimelinePaused).
@@ -134,10 +138,9 @@ public struct AuroraVisualizationView: View {
         }
         .allowsHitTesting(false)
         .onReceive(playbackService.frequencyBandsPublisher) { bands in
-            if playbackState == .playing {
-                cancelSettleToZero()
-                ingestBands(bands)
-            }
+            guard shouldIngestFrequencyBands else { return }
+            cancelSettleToZero()
+            ingestBands(bands)
         }
         .onReceive(playbackService.playbackStatePublisher) { state in
             // Deduplicate: skip repeated state values to avoid redundant visibility checks
@@ -414,6 +417,13 @@ public struct AuroraVisualizationView: View {
         let bandWidth = activeWidth / CGFloat(bandCount)
         let baseOpacity = (colorScheme == .dark ? 0.7 : 0.5) * opacity
 
+        // Blur once for the whole glow layer. Applying a Gaussian filter per band
+        // creates dozens of offscreen RenderBox surfaces per frame, which can
+        // starve CoreAudio under sustained playback.
+        var layerContext = context
+        layerContext.blendMode = .plusLighter
+        layerContext.addFilter(.blur(radius: blur))
+
         for i in 0..<bandCount {
             let intensity = bands[i]
             
@@ -458,11 +468,7 @@ public struct AuroraVisualizationView: View {
                 height: height + poolHeight
             )
 
-            var bandContext = context
-            bandContext.blendMode = .plusLighter
-            bandContext.addFilter(.blur(radius: blur))
-
-            bandContext.fill(
+            layerContext.fill(
                 Path(ellipseIn: glowRect),
                 with: .linearGradient(
                     bandGradient,

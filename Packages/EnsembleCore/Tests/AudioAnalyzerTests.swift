@@ -14,7 +14,7 @@ final class AudioAnalyzerTests: XCTestCase {
         sut.setVisualizationConsumer(.phoneOverlay, isVisible: true)
 
         XCTAssertTrue(sut.isDisplayTimerRunningForTesting)
-        XCTAssertEqual(sut.activeDisplayFPSForTesting, 30)
+        XCTAssertEqual(sut.activeDisplayFPSForTesting, 15)
     }
 
     func testDisplayTimerStopsWhenLastConsumerHides() {
@@ -31,13 +31,13 @@ final class AudioAnalyzerTests: XCTestCase {
         XCTAssertTrue(sut.visibleVisualizationConsumersForTesting.isEmpty)
     }
 
-    func testAdditionalConsumersKeepFullRate() {
+    func testImmersiveConsumerRestartsDisplayTimerAtFullRate() {
         let sut = FrequencyAnalysisService()
 
         sut.setVisualizationConsumer(.phoneOverlay, isVisible: true)
         sut.activateTimeline(for: "track-1")
         sut.resumeUpdates()
-        XCTAssertEqual(sut.activeDisplayFPSForTesting, 30)
+        XCTAssertEqual(sut.activeDisplayFPSForTesting, 15)
 
         sut.setVisualizationConsumer(.nowPlayingSheet, isVisible: true)
 
