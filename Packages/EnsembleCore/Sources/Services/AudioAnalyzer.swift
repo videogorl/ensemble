@@ -40,6 +40,9 @@ public protocol AudioAnalyzerProtocol: AnyObject {
     /// Starts the 30Hz display timer.
     @MainActor func activateTimeline(for trackId: String)
 
+    /// Activate a timeline at a known playback position.
+    @MainActor func activateTimeline(for trackId: String, at time: TimeInterval)
+
     /// Remove a track's cached timeline from memory.
     @MainActor func evictTimeline(for trackId: String)
 
@@ -393,9 +396,13 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     // MARK: - Timeline Activation
 
     public func activateTimeline(for trackId: String) {
+        activateTimeline(for: trackId, at: 0)
+    }
+
+    public func activateTimeline(for trackId: String, at time: TimeInterval) {
         activeTrackId = trackId
         isPaused = true  // Start paused — timer won't interpolate until resumeUpdates() on confirmed playback
-        currentPlaybackTime = 0
+        currentPlaybackTime = max(0, time)
         positionUpdateWallTime = CACurrentMediaTime()
 
         // Clear bands immediately so stale data from the previous track doesn't persist

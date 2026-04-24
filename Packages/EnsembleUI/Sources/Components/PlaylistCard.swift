@@ -65,7 +65,10 @@ public struct PlaylistRow: View {
     }
 
     public var body: some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
+        if let onTap {
+            playlistRowContent
+                .onTapGesture(perform: onTap)
+        } else if #available(iOS 16.0, macOS 13.0, *) {
             if isDisabled {
                 playlistRowContent
             } else {

@@ -18,6 +18,8 @@ public struct AuroraVisualizationView: View {
     @State private var playbackState: PlaybackState = .stopped
     @State private var isVisible: Bool = false
     @State private var isMounted = false
+    @State private var isSettlingToZero = false
+    @State private var settleToZeroTask: Task<Void, Never>?
     @StateObject private var renderModel = AuroraRenderModel()
 
     @Environment(\.colorScheme) private var colorScheme
@@ -27,11 +29,11 @@ public struct AuroraVisualizationView: View {
     /// Number of frequency bands (matches AudioAnalyzer)
     private let bandCount = 24
 
-    /// Maximum height of the aurora (mini player ~60pt + 5pt margin)
-    private let maxHeight: CGFloat = 220
+    /// Maximum height of the active aurora bands.
+    private let maxHeight: CGFloat = 185
 
     /// Minimum height of bands (always visible base)
-    private let minHeight: CGFloat = 25
+    private let minHeight: CGFloat = 18
 
     /// Height of the solid "pool" at the bottom
     private let poolHeight: CGFloat = 48
@@ -59,6 +61,7 @@ public struct AuroraVisualizationView: View {
     /// Whether the aurora is allowed to intentionally bleed beyond its host bounds.
     /// Root shells want the wider glow treatment; split detail panes need a clipped surface.
     private let expandsBeyondBounds: Bool
+    private let activeContentMaxWidth: CGFloat?
 
     /// True on A9 (dual-core) and other ≤2-core devices.
     /// Stored once at init time — processorCount never changes at runtime,
@@ -71,7 +74,8 @@ public struct AuroraVisualizationView: View {
         accentColor: Color,
         isPaused: Bool = false,
         isLowPowerMode: Bool = false,
-        expandsBeyondBounds: Bool = true
+        expandsBeyondBounds: Bool = true,
+        activeContentMaxWidth: CGFloat? = nil
     ) {
         self.playbackService = playbackService
         self.consumer = consumer
@@ -79,6 +83,7 @@ public struct AuroraVisualizationView: View {
         self.isPaused = isPaused
         self.isLowPowerMode = isLowPowerMode
         self.expandsBeyondBounds = expandsBeyondBounds
+        self.activeContentMaxWidth = activeContentMaxWidth
         self.isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
     }
 
@@ -88,6 +93,7 @@ public struct AuroraVisualizationView: View {
     /// Paused when: occluded by NP sheet, not visible, or not actively playing.
     /// When paused, the last rendered frame stays on screen at zero GPU cost.
     private var isTimelinePaused: Bool {
+        if isSettlingToZero { return false }
         if isPaused || !isVisible { return true }
         // Only animate when actively playing — the blur passes are expensive
         // even at low frame rates. When paused, the aurora freezes in place.
@@ -107,20 +113,14 @@ public struct AuroraVisualizationView: View {
         isMounted && !isPaused
     }
 
+    private var shouldIngestFrequencyBands: Bool {
+        shouldRegisterConsumer && isVisible && playbackState == .playing
+    }
+
     public var body: some View {
         GeometryReader { geometry in
-            // Fully paused when not actively playing (see isTimelinePaused).
-            // The Canvas + 3 blur passes on 24 bands is too expensive to run
-            // just for the subtle breathing animation.
-            TimelineView(.animation(minimumInterval: frameInterval, paused: isTimelinePaused)) { _ in
-                Canvas { context, size in
-                    drawAurora(context: context, size: size)
-                }
-                .frame(width: expandsBeyondBounds ? geometry.size.width + 80 : geometry.size.width)
-                .frame(height: maxHeight + 40) // Slightly taller to allow for bottom overflow
-                .offset(x: expandsBeyondBounds ? -40 : 0, y: 15) // Offset down to hide the very bottom of the pool
-            }
-            .frame(maxHeight: .infinity, alignment: .bottom)
+            auroraSurface(for: geometry)
+                .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .opacity(isVisible ? 0.7 : 0) // Reduced overall opacity for transparency
         .if(expandsBeyondBounds) { view in
@@ -128,14 +128,19 @@ public struct AuroraVisualizationView: View {
         }
         .allowsHitTesting(false)
         .onReceive(playbackService.frequencyBandsPublisher) { bands in
-            if playbackState == .playing {
-                ingestBands(bands)
-            }
+            guard shouldIngestFrequencyBands else { return }
+            cancelSettleToZero()
+            ingestBands(bands)
         }
         .onReceive(playbackService.playbackStatePublisher) { state in
             // Deduplicate: skip repeated state values to avoid redundant visibility checks
             guard state != playbackState else { return }
             playbackState = state
+            if state == .paused {
+                startSettleToZero()
+            } else if state == .playing || state == .buffering || state == .loading {
+                cancelSettleToZero()
+            }
             // Animate visibility only when the playback state actively changes.
             // This produces the desired fade-in when the user first presses play.
             updateVisibility(for: state, animated: true)
@@ -155,10 +160,113 @@ public struct AuroraVisualizationView: View {
         }
         .onDisappear {
             isMounted = false
+            settleToZeroTask?.cancel()
+            settleToZeroTask = nil
             updateConsumerRegistration()
         }
         .onChange(of: isPaused) { _ in
             updateConsumerRegistration()
+        }
+    }
+
+    @ViewBuilder
+    private func auroraSurface(for geometry: GeometryProxy) -> some View {
+        let surfaceWidth = expandsBeyondBounds ? geometry.size.width + 80 : geometry.size.width
+        let surfaceHeight = maxHeight + 40
+        let xOffset = expandsBeyondBounds ? -40.0 : 0.0
+
+        if isMetalAuroraAvailable {
+            ZStack {
+                MetalAuroraSurface(
+                    renderModel: renderModel,
+                    accentColor: accentColor,
+                    colorScheme: colorScheme,
+                    preferredFrameInterval: frameInterval,
+                    isPaused: isTimelinePaused,
+                    surfaceTier: auroraSurfaceTier,
+                    activeContentMaxWidth: activeContentMaxWidth,
+                    bandCount: bandCount,
+                    maxHeight: maxHeight,
+                    minHeight: minHeight,
+                    poolHeight: poolHeight
+                )
+                horizonGlowOverlay
+                foregroundFadeOverlay
+            }
+            .frame(width: surfaceWidth, height: surfaceHeight)
+            .offset(x: xOffset, y: 15)
+        } else {
+            canvasAuroraSurface(width: surfaceWidth, height: surfaceHeight, xOffset: xOffset)
+        }
+    }
+
+    private var isMetalAuroraAvailable: Bool {
+        #if canImport(MetalKit) && !os(watchOS)
+        return MetalAuroraSurface.isAvailable
+        #else
+        return false
+        #endif
+    }
+
+    private var auroraSurfaceTier: AuroraMetalSurfaceTier {
+        if isLowPowerMode {
+            return .lowPower
+        }
+        if usesLowCostSurfaceTier || isLowCoreDevice {
+            return .ambient
+        }
+        return .immersive
+    }
+
+    private var foregroundFadeOverlay: some View {
+        #if canImport(UIKit)
+        let baseColor: Color = colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
+        #else
+        let baseColor: Color = colorScheme == .dark ? .black : Color(nsColor: .windowBackgroundColor)
+        #endif
+
+        return LinearGradient(
+            gradient: Gradient(stops: [
+                .init(color: .clear, location: 0.0),
+                .init(color: .clear, location: 0.28),
+                .init(color: baseColor.opacity(0.10), location: 0.54),
+                .init(color: baseColor.opacity(0.34), location: 0.75),
+                .init(color: baseColor.opacity(0.56), location: 0.91),
+                .init(color: baseColor.opacity(0.68), location: 1.0)
+            ]),
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private var horizonGlowOverlay: some View {
+        let bottomOpacity = colorScheme == .dark ? 0.64 : 0.96
+
+        return LinearGradient(
+            gradient: Gradient(stops: [
+                .init(color: .clear, location: 0.0),
+                .init(color: .clear, location: 0.46),
+                .init(color: accentColor.opacity(bottomOpacity * 0.10), location: 0.62),
+                .init(color: accentColor.opacity(bottomOpacity * 0.36), location: 0.76),
+                .init(color: accentColor.opacity(bottomOpacity * 0.78), location: 0.90),
+                .init(color: accentColor.opacity(bottomOpacity), location: 1.0)
+            ]),
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .blur(radius: 24)
+    }
+
+    private func canvasAuroraSurface(width: CGFloat, height: CGFloat, xOffset: CGFloat) -> some View {
+        // Fully paused when not actively playing (see isTimelinePaused).
+        // The Canvas fallback mirrors the Metal surface for unsupported devices.
+        TimelineView(.animation(minimumInterval: frameInterval, paused: isTimelinePaused)) { _ in
+            Canvas { context, size in
+                drawAurora(context: context, size: size)
+            }
+            .frame(width: width)
+            .frame(height: height)
+            .offset(x: xOffset, y: 15)
         }
     }
 
@@ -210,12 +318,47 @@ public struct AuroraVisualizationView: View {
         )
     }
 
+    private func startSettleToZero() {
+        settleToZeroTask?.cancel()
+        isSettlingToZero = true
+
+        settleToZeroTask = Task { @MainActor in
+            let zeroBands = [Double](repeating: 0, count: bandCount)
+            for _ in 0..<36 {
+                guard !Task.isCancelled else { return }
+                renderModel.advance(
+                    targetBands: zeroBands,
+                    attackFactor: attackFactor,
+                    decayFactor: 0.88,
+                    peakHoldTime: 0,
+                    peakDecayRate: peakDecayRate * 1.6,
+                    deltaTime: frameInterval
+                )
+                if renderModel.isNearZero { break }
+                try? await Task.sleep(nanoseconds: UInt64(frameInterval * 1_000_000_000))
+            }
+
+            guard !Task.isCancelled else { return }
+            isSettlingToZero = false
+            settleToZeroTask = nil
+        }
+    }
+
+    private func cancelSettleToZero() {
+        settleToZeroTask?.cancel()
+        settleToZeroTask = nil
+        if isSettlingToZero {
+            isSettlingToZero = false
+        }
+    }
+
     // MARK: - Drawing
 
     /// Main drawing function for the aurora frequency visualization
     private func drawAurora(context: GraphicsContext, size: CGSize) {
         // Non-playing states freeze the last rendered frame because TimelineView pauses.
         let bandsToRender = renderModel.renderedBands
+        let energy = auroraEnergy(from: bandsToRender)
 
         if isLowPowerMode {
             drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 10, opacity: 0.50)
@@ -228,8 +371,18 @@ public struct AuroraVisualizationView: View {
             drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 8,  opacity: 0.35)
         }
 
-        drawBottomPool(context: context, size: size)
-        drawDarkeningGradient(context: context, size: size)
+        drawBandPoolBridge(context: context, size: size, energy: energy)
+        drawBottomPool(context: context, size: size, energy: energy)
+        drawHorizonGlow(context: context, size: size)
+        drawForegroundFade(context: context, size: size)
+    }
+
+    private func auroraEnergy(from bands: [Double]) -> Double {
+        guard !bands.isEmpty else { return 0 }
+        let averageEnergy = bands.reduce(0, +) / Double(bands.count)
+        let bassCount = min(6, bands.count)
+        let bassEnergy = bands.prefix(bassCount).reduce(0, +) / Double(bassCount)
+        return min(1, max(0, averageEnergy * 0.70 + bassEnergy * 0.30))
     }
 
     /// Maps analyzer output into the aurora's rendered band response curve.
@@ -239,8 +392,10 @@ public struct AuroraVisualizationView: View {
         if !inputBands.isEmpty {
             for i in 0..<min(bandCount, inputBands.count) {
                 let normalizedPosition = Double(i) / Double(bandCount - 1)
-                let bassBoost = 1.0 + (1.0 - normalizedPosition) * 0.4
-                let rawValue = min(1.0, inputBands[i] * bassBoost)
+                let rawValue = compensatedBandValue(
+                    inputBands[i],
+                    normalizedPosition: normalizedPosition
+                )
                 let exponent = bandResponseExponent(normalizedPosition: normalizedPosition)
                 let shaped = pow(max(0.001, rawValue), exponent)
                 let floor = 0.02 + normalizedPosition * 0.04
@@ -252,7 +407,68 @@ public struct AuroraVisualizationView: View {
             }
         }
 
-        return lateralBlend(bands: bands, sigma: 2.2, mix: 0.4)
+        let responsiveBands = enhanceBandResponsiveness(bands)
+        let blendedBands = lateralBlend(bands: responsiveBands, sigma: 2.2, mix: 0.32)
+        return flowingBandEnvelope(bands: blendedBands, sigma: 1.5, influence: 0.34)
+    }
+
+    /// Applies a gentle spectral tilt: lows get headroom, highs get logarithmic lift.
+    private func compensatedBandValue(_ value: Double, normalizedPosition: Double) -> Double {
+        let clamped = min(1, max(0, value))
+        let highPresence = pow(normalizedPosition, 0.72)
+        let spectralTilt = 0.72 + highPresence * 0.68
+        let weighted = min(0.98, clamped * spectralTilt)
+
+        let bassCompression = (1 - normalizedPosition) * 2.2
+        let bassHeadroom = weighted / (1 + max(0, weighted - 0.58) * bassCompression)
+
+        let logGain = 5.0 + normalizedPosition * 7.0
+        let logarithmic = log1p(bassHeadroom * logGain) / log1p(logGain)
+        let logMix = smoothStep(edge0: 0.28, edge1: 1.0, value: normalizedPosition) * 0.56
+        return bassHeadroom * (1 - logMix) + logarithmic * logMix
+    }
+
+    /// Preserves contrast when the whole spectrum is loud so strong songs still feel animated.
+    /// The bell-curve silhouette is applied later during drawing; this only reshapes per-band energy.
+    private func enhanceBandResponsiveness(_ bands: [Double]) -> [Double] {
+        guard !bands.isEmpty else { return bands }
+
+        let mean = bands.reduce(0, +) / Double(bands.count)
+        let peak = bands.max() ?? 0
+        guard peak > 0 else { return bands }
+
+        let density = mean / peak
+        let loudFactor = smoothStep(edge0: 0.34, edge1: 0.78, value: mean)
+        let fullSpectrumFactor = smoothStep(edge0: 0.58, edge1: 0.92, value: density)
+        let globalContrastBoost = 0.16 + loudFactor * 0.30 + fullSpectrumFactor * 0.18
+        let localContrastBoost = 0.22 + fullSpectrumFactor * 0.38
+        let highBandCompression = 0.04 + fullSpectrumFactor * 0.08
+
+        return bands.enumerated().map { index, value in
+            let localAverage = localAverage(in: bands, around: index, radius: 2)
+            let globalContrast = value - mean
+            let localContrast = value - localAverage
+            let contrasted = value
+                + globalContrast * globalContrastBoost
+                + localContrast * localContrastBoost
+
+            // Keep a little headroom in dense/loud sections so every band does not pin at max.
+            let compressed = contrasted / (1 + max(0, contrasted - 0.68) * highBandCompression)
+            return min(0.98, max(0.015, compressed))
+        }
+    }
+
+    private func localAverage(in bands: [Double], around index: Int, radius: Int) -> Double {
+        let lowerBound = max(0, index - radius)
+        let upperBound = min(bands.count - 1, index + radius)
+        let values = bands[lowerBound...upperBound]
+        return values.reduce(0, +) / Double(values.count)
+    }
+
+    private func smoothStep(edge0: Double, edge1: Double, value: Double) -> Double {
+        guard edge0 != edge1 else { return value >= edge1 ? 1 : 0 }
+        let x = min(1, max(0, (value - edge0) / (edge1 - edge0)))
+        return x * x * (3 - 2 * x)
     }
 
     /// Gaussian-weighted lateral blend across frequency bands.
@@ -283,19 +499,45 @@ public struct AuroraVisualizationView: View {
         return result
     }
 
+    /// Lets neighboring frequency peaks softly lift valleys so the aurora flows as one sheet.
+    private func flowingBandEnvelope(bands: [Double], sigma: Double, influence: Double) -> [Double] {
+        guard !bands.isEmpty else { return bands }
+
+        let count = bands.count
+        let kernelRadius = Int(ceil(sigma * 2.5))
+        var result = [Double](repeating: 0.0, count: count)
+
+        for i in 0..<count {
+            var envelope = bands[i]
+            let lo = max(0, i - kernelRadius)
+            let hi = min(count - 1, i + kernelRadius)
+
+            for j in lo...hi {
+                let dist = Double(abs(i - j))
+                let weight = exp(-dist * dist / (2 * sigma * sigma))
+                envelope = max(envelope, bands[j] * weight)
+            }
+
+            let neighborLift = max(bands[i], envelope * 0.78)
+            result[i] = min(0.98, bands[i] * (1 - influence) + neighborLift * influence)
+        }
+
+        return result
+    }
+
     /// Returns the gamma exponent used to shape each band's response curve.
     /// Interpolates smoothly across the spectrum:
-    ///   Bass  (0.0) → 1.3  high contrast, quiet bass stays low
+    ///   Bass  (0.0) → 1.45 high contrast, quiet bass stays low
     ///   Mids  (0.5) → 0.7  gentle lift, keeps presence
-    ///   Highs (1.0) → 0.45 sensitive, brief transients register visibly
+    ///   Highs (1.0) → 0.58 sensitive, brief transients register visibly
     private func bandResponseExponent(normalizedPosition: Double) -> Double {
         // Smooth cubic Hermite interpolation through three control points
         if normalizedPosition <= 0.5 {
             let t = normalizedPosition * 2.0
-            return 1.3 + (0.7 - 1.3) * (t * t * (3 - 2 * t))
+            return 1.45 + (0.7 - 1.45) * (t * t * (3 - 2 * t))
         } else {
             let t = (normalizedPosition - 0.5) * 2.0
-            return 0.7 + (0.45 - 0.7) * (t * t * (3 - 2 * t))
+            return 0.7 + (0.58 - 0.7) * (t * t * (3 - 2 * t))
         }
     }
 
@@ -307,8 +549,17 @@ public struct AuroraVisualizationView: View {
         blur: CGFloat,
         opacity: Double
     ) {
-        let bandWidth = size.width / CGFloat(bandCount)
+        let activeWidth = activeContentMaxWidth.map { min(size.width, $0) } ?? size.width
+        let xOffset = (size.width - activeWidth) / 2
+        let bandWidth = activeWidth / CGFloat(bandCount)
         let baseOpacity = (colorScheme == .dark ? 0.7 : 0.5) * opacity
+
+        // Blur once for the whole glow layer. Applying a Gaussian filter per band
+        // creates dozens of offscreen RenderBox surfaces per frame, which can
+        // starve CoreAudio under sustained playback.
+        var layerContext = context
+        layerContext.blendMode = .plusLighter
+        layerContext.addFilter(.blur(radius: blur))
 
         for i in 0..<bandCount {
             let intensity = bands[i]
@@ -316,9 +567,8 @@ public struct AuroraVisualizationView: View {
             // Normalized position (0.0 to 1.0) for bell curve calculation
             let normalizedPos = Double(i) / Double(bandCount - 1)
             
-            // Bell curve factor (Gaussian-like) to make middle bands taller
-            // peak at 0.5, sigma of ~0.35 for a nice spread
-            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.35, 2)))
+            // Bell curve factor keeps the aurora tallest and brightest in the middle.
+            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.34, 2)))
             
             // Bands are already shaped by bandResponseExponent in calculateBandValues,
             // so use intensity directly here.
@@ -327,7 +577,7 @@ public struct AuroraVisualizationView: View {
             let height = minHeight + (maxHeight - minHeight) * CGFloat(heightFactor)
 
             // Center the band and make it very wide for ethereal overlap
-            let centerX = (CGFloat(i) + 0.5) * bandWidth
+            let centerX = xOffset + (CGFloat(i) + 0.5) * bandWidth
             let glowWidth = bandWidth * 4.5 // Wider overlap for more ethereal blending
             let x = centerX - glowWidth / 2
             let y = size.height - height - poolHeight
@@ -335,7 +585,8 @@ public struct AuroraVisualizationView: View {
             // Gradient fades transparent at the very bottom so bands "emerge" from the pool
             // rather than anchoring bright cones to the floor (which causes the "uplight" banding look).
             // Peak brightness sits slightly above the base, then fades upward to transparent.
-            let intensityAlpha = max(0.3, intensity)
+            let bellAlpha = 0.32 + bellFactor * 0.68
+            let intensityAlpha = (0.18 + intensity * 0.82) * bellAlpha
             let bandGradient = Gradient(stops: [
                 .init(color: accentColor.opacity(0), location: 0.0),
                 .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.7), location: 0.08),
@@ -354,11 +605,7 @@ public struct AuroraVisualizationView: View {
                 height: height + poolHeight
             )
 
-            var bandContext = context
-            bandContext.blendMode = .plusLighter
-            bandContext.addFilter(.blur(radius: blur))
-
-            bandContext.fill(
+            layerContext.fill(
                 Path(ellipseIn: glowRect),
                 with: .linearGradient(
                     bandGradient,
@@ -380,7 +627,7 @@ public struct AuroraVisualizationView: View {
             
             // Apply same bell curve to peaks for consistency
             let normalizedPos = Double(i) / Double(bandCount - 1)
-            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.35, 2)))
+            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.34, 2)))
             
             let peakHeight = minHeight + (maxHeight - minHeight) * CGFloat(pow(peakIntensity, 0.6) * bellFactor)
             let centerX = (CGFloat(i) + 0.5) * bandWidth
@@ -429,37 +676,43 @@ public struct AuroraVisualizationView: View {
         )
     }
 
-    /// Draws a darkening gradient: scheme background color at the bottom fading to clear at the top.
-    /// Grounds the aurora visually so it feels like it's rising from the surface.
-    private func drawDarkeningGradient(context: GraphicsContext, size: CGSize) {
-        #if canImport(UIKit)
-        let baseColor: Color = colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
-        #else
-        let baseColor: Color = colorScheme == .dark ? .black : Color(nsColor: .windowBackgroundColor)
-        #endif
+    /// Adds a soft accent haze where active bands dissolve into the bottom pool.
+    private func drawBandPoolBridge(context: GraphicsContext, size: CGSize, energy: Double) {
+        let activeWidth = activeContentMaxWidth.map { min(size.width, $0) } ?? size.width
+        let xOffset = (size.width - activeWidth) / 2
+        let bridgeOpacity = (colorScheme == .dark ? 0.34 : 0.24) * (0.45 + energy * 0.7)
+        let bridgeHeight = poolHeight + 76
+        let bridgeRect = CGRect(
+            x: xOffset - activeWidth * 0.08,
+            y: size.height - bridgeHeight - 18,
+            width: activeWidth * 1.16,
+            height: bridgeHeight
+        )
+        let bridgeGradient = Gradient(stops: [
+            .init(color: .clear, location: 0.0),
+            .init(color: accentColor.opacity(bridgeOpacity * 0.22), location: 0.28),
+            .init(color: accentColor.opacity(bridgeOpacity * 0.6), location: 0.58),
+            .init(color: accentColor.opacity(bridgeOpacity), location: 1.0)
+        ])
 
-        var darkContext = context
-        darkContext.blendMode = .multiply
-
-        let rect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
-        darkContext.fill(
-            Path(rect),
+        var bridgeContext = context
+        bridgeContext.blendMode = .plusLighter
+        bridgeContext.addFilter(.blur(radius: 24))
+        bridgeContext.fill(
+            Path(ellipseIn: bridgeRect),
             with: .linearGradient(
-                Gradient(stops: [
-                    .init(color: .clear, location: 0.0),
-                    .init(color: baseColor.opacity(0.15), location: 0.4),
-                    .init(color: baseColor.opacity(0.75), location: 1.0)
-                ]),
-                startPoint: CGPoint(x: rect.midX, y: rect.minY),
-                endPoint: CGPoint(x: rect.midX, y: rect.maxY)
+                bridgeGradient,
+                startPoint: CGPoint(x: bridgeRect.midX, y: bridgeRect.minY),
+                endPoint: CGPoint(x: bridgeRect.midX, y: bridgeRect.maxY)
             )
         )
     }
 
     /// Draws the solid color pool at the very bottom.
     /// Drawn in two passes: a wide blurred halo for soft spread, then a sharper core for brightness.
-    private func drawBottomPool(context: GraphicsContext, size: CGSize) {
-        let poolOpacity = colorScheme == .dark ? 0.65 : 0.45
+    private func drawBottomPool(context: GraphicsContext, size: CGSize, energy: Double) {
+        let baselineOpacity = colorScheme == .dark ? 0.58 : 0.38
+        let poolOpacity = baselineOpacity * (0.84 + energy * 0.34)
 
         // Wide halo pass — blurred so the pool bleeds softly upward into the bands
         let haloHeight = poolHeight + 50
@@ -506,11 +759,67 @@ public struct AuroraVisualizationView: View {
             )
         )
     }
+
+    /// Draws the final foreground fade inside the same Canvas as the bands and pool.
+    /// This uses normal compositing so light-mode surfaces actually cover the glow
+    /// instead of multiplying white over it, which is visually almost a no-op.
+    private func drawForegroundFade(context: GraphicsContext, size: CGSize) {
+        #if canImport(UIKit)
+        let baseColor: Color = colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
+        #else
+        let baseColor: Color = colorScheme == .dark ? .black : Color(nsColor: .windowBackgroundColor)
+        #endif
+
+        let rect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
+        let fadeGradient = Gradient(stops: [
+            .init(color: .clear, location: 0.0),
+            .init(color: .clear, location: 0.28),
+            .init(color: baseColor.opacity(0.10), location: 0.54),
+            .init(color: baseColor.opacity(0.34), location: 0.75),
+            .init(color: baseColor.opacity(0.56), location: 0.91),
+            .init(color: baseColor.opacity(0.68), location: 1.0)
+        ])
+
+        context.fill(
+            Path(rect),
+            with: .linearGradient(
+                fadeGradient,
+                startPoint: CGPoint(x: rect.midX, y: rect.minY),
+                endPoint: CGPoint(x: rect.midX, y: rect.maxY)
+            )
+        )
+    }
+
+    /// Adds a soft color wash below the foreground fade so the aurora reads as
+    /// emerging from a tinted horizon instead of a separate bottom layer.
+    private func drawHorizonGlow(context: GraphicsContext, size: CGSize) {
+        let bottomOpacity = colorScheme == .dark ? 0.64 : 0.96
+        let rect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
+        let glowGradient = Gradient(stops: [
+            .init(color: .clear, location: 0.0),
+            .init(color: .clear, location: 0.46),
+            .init(color: accentColor.opacity(bottomOpacity * 0.10), location: 0.62),
+            .init(color: accentColor.opacity(bottomOpacity * 0.36), location: 0.76),
+            .init(color: accentColor.opacity(bottomOpacity * 0.78), location: 0.90),
+            .init(color: accentColor.opacity(bottomOpacity), location: 1.0)
+        ])
+
+        var glowContext = context
+        glowContext.addFilter(.blur(radius: 24))
+        glowContext.fill(
+            Path(rect),
+            with: .linearGradient(
+                glowGradient,
+                startPoint: CGPoint(x: rect.midX, y: rect.minY),
+                endPoint: CGPoint(x: rect.midX, y: rect.maxY)
+            )
+        )
+    }
 }
 
 /// Keeps live aurora band state off the SwiftUI observation path so analyzer ticks
 /// do not invalidate root-level view trees on every update.
-private final class AuroraRenderModel: ObservableObject {
+final class AuroraRenderModel: ObservableObject {
     private let bandCount = 24
     private var smoothedBands = Array(repeating: 0.0, count: 24)
     private var peakHolds = Array(repeating: 0.0, count: 24)
@@ -518,6 +827,10 @@ private final class AuroraRenderModel: ObservableObject {
 
     var renderedBands: [Double] {
         smoothedBands
+    }
+
+    var isNearZero: Bool {
+        smoothedBands.allSatisfy { $0 < 0.01 }
     }
 
     func reset() {

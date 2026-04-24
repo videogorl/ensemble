@@ -63,7 +63,7 @@ public struct PlaylistsView: View {
             } else if isStageFlowActive {
                 landscapeStageFlowView
             } else {
-                playlistListView
+                adaptivePlaylistView
             }
         }
         // Lightweight GeometryReader overlay — only updates @State isStageFlowActive
@@ -296,6 +296,9 @@ public struct PlaylistsView: View {
             .refreshable {
                 await viewModel.refreshFromServer()
             }
+            .refreshCommand("Refresh Playlists") {
+                await viewModel.refreshFromServer()
+            }
             .profileToolbar()
                         .toolbar {
             #if os(iOS)
@@ -477,6 +480,59 @@ public struct PlaylistsView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    private var adaptivePlaylistView: some View {
+        LargeScreenBrowseSplitView(
+            selection: $selectedPlaylist,
+            compact: {
+                playlistListView
+            },
+            sidebar: {
+                playlistSelectionList
+            },
+            detail: { displayPlaylist in
+                if displayPlaylist.isMerged {
+                    MergedPlaylistDetailLoader(
+                        title: displayPlaylist.title,
+                        isSmart: displayPlaylist.isSmart,
+                        nowPlayingVM: nowPlayingVM
+                    )
+                    .id(displayPlaylist.id)
+                } else {
+                    PlaylistDetailView(
+                        playlist: displayPlaylist.primaryPlaylist,
+                        nowPlayingVM: nowPlayingVM
+                    )
+                    .id(displayPlaylist.id)
+                }
+            },
+            placeholder: {
+                LargeScreenPlaceholderView(systemImage: "music.note.list", title: "Select a Playlist")
+            }
+        )
+    }
+
+    private var playlistSelectionList: some View {
+        List {
+            ForEach(effectivePlaylists) { dp in
+                let isPendingCreation = viewModel.isDisplayPlaylistPendingCreation(dp)
+                PlaylistRow(
+                    displayPlaylist: dp,
+                    nowPlayingVM: nowPlayingVM,
+                    chipStyle: chipStyle(for: dp),
+                    onTap: isPendingCreation ? nil : { selectedPlaylist = dp },
+                    isDisabled: isPendingCreation,
+                    statusText: isPendingCreation ? "Creating..." : nil
+                )
+                .listRowBackground(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(selectedPlaylist?.id == dp.id ? Color.accentColor.opacity(0.12) : Color.clear)
+                )
+            }
+        }
+        .listStyle(.plain)
+        .miniPlayerBottomSpacing()
     }
 
     private var playlistListView: some View {

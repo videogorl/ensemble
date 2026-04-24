@@ -8,6 +8,11 @@ import AppKit
 /// This owns the viewport layout and hosts the narrow macOS toolbar suppression bridge
 /// needed to keep split-view chrome out of the presentation.
 struct NowPlayingViewportRoot: View {
+    private enum LayoutMode {
+        case singlePanel
+        case dualPanel
+    }
+
     @ObservedObject var viewModel: NowPlayingViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
@@ -33,30 +38,30 @@ struct NowPlayingViewportRoot: View {
                     .frame(width: 0, height: 0)
                 #endif
 
+                let mode = layoutMode(for: geometry)
                 VStack(spacing: 20) {
-                    header(for: geometry)
+                    header(for: geometry, mode: mode)
 
-                    HStack(alignment: .top, spacing: 20) {
-                        ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
-                            .frame(width: panelWidth(for: geometry))
-                            .frame(maxHeight: .infinity, alignment: .topLeading)
+                    if mode == .dualPanel {
+                        HStack(alignment: .top, spacing: 20) {
+                            ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+                                .frame(width: panelWidth(for: geometry))
+                                .frame(maxHeight: .infinity, alignment: .topLeading)
 
-                        detailPanel
-                            .frame(width: panelWidth(for: geometry))
+                            detailPanel
+                                .frame(width: panelWidth(for: geometry))
+                                .frame(maxHeight: .infinity, alignment: .topLeading)
+                        }
+                    } else {
+                        singlePanel
+                            .frame(width: singlePanelWidth(for: geometry))
                             .frame(maxHeight: .infinity, alignment: .topLeading)
                     }
                 }
+                .frame(maxWidth: contentMaxWidth, maxHeight: contentMaxHeight)
                 .padding(.horizontal, 24)
                 .padding(.top, topInset(for: geometry))
                 .padding(.bottom, 24)
-            }
-        }
-        .onAppear {
-            // Viewport layout always shows ControlsCard on the left.
-            // Carousel page 1 (Controls) has no panel equivalent in this layout —
-            // normalize to Queue (0) so QueueCard's isVisible check passes.
-            if viewModel.currentPage == 1 {
-                viewModel.currentPage = 0
             }
         }
     }
@@ -98,7 +103,8 @@ struct NowPlayingViewportRoot: View {
                     playbackService: DependencyContainer.shared.playbackService,
                     consumer: .nowPlayingViewport,
                     accentColor: settingsManager.accentColor.color,
-                    isLowPowerMode: powerStateMonitor.isLowPowerMode
+                    isLowPowerMode: powerStateMonitor.isLowPowerMode,
+                    activeContentMaxWidth: 670
                 )
                 .allowsHitTesting(false)
                 .opacity(0.7)
@@ -107,31 +113,20 @@ struct NowPlayingViewportRoot: View {
         .ignoresSafeArea()
     }
 
-    private func header(for geometry: GeometryProxy) -> some View {
+    private func header(for geometry: GeometryProxy, mode: LayoutMode) -> some View {
         HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(viewModel.currentTrack?.title ?? "Now Playing")
-                    .font(.title3)
-                    .fontWeight(.semibold)
-                    .lineLimit(1)
-
-                if let artist = viewModel.currentTrack?.artistName, !artist.isEmpty {
-                    Text(artist)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-            }
-
             Spacer()
 
-            Picker("Panel", selection: panelSelection) {
+            Picker("Panel", selection: panelSelection(for: mode)) {
                 Text("Queue").tag(0)
+                if mode == .singlePanel {
+                    Text("Controls").tag(1)
+                }
                 Text("Lyrics").tag(2)
                 Text("Info").tag(3)
             }
             .pickerStyle(.segmented)
-            .frame(width: 300)
+            .frame(width: mode == .singlePanel ? 390 : 300)
 
             Button {
                 dismissAction()
@@ -148,9 +143,10 @@ struct NowPlayingViewportRoot: View {
         .padding(.trailing, 8)
     }
 
-    private var panelSelection: Binding<Int> {
+    private func panelSelection(for mode: LayoutMode) -> Binding<Int> {
         Binding(
             get: {
+                if mode == .singlePanel && viewModel.currentPage == 1 { return 1 }
                 if viewModel.currentPage == 3 { return 3 }
                 if viewModel.currentPage == 2 { return 2 }
                 return 0
@@ -169,7 +165,26 @@ struct NowPlayingViewportRoot: View {
             LyricsCard(
                 viewModel: viewModel,
                 currentPage: $viewModel.currentPage,
-                isLowPowerMode: powerStateMonitor.isLowPowerMode
+                isLowPowerMode: powerStateMonitor.isLowPowerMode,
+                showsTransportControls: false
+            )
+        } else {
+            QueueCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+        }
+    }
+
+    @ViewBuilder
+    private var singlePanel: some View {
+        if viewModel.currentPage == 1 {
+            ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+        } else if viewModel.currentPage == 3 {
+            InfoCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+        } else if viewModel.currentPage == 2 {
+            LyricsCard(
+                viewModel: viewModel,
+                currentPage: $viewModel.currentPage,
+                isLowPowerMode: powerStateMonitor.isLowPowerMode,
+                showsTransportControls: true
             )
         } else {
             QueueCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
@@ -180,9 +195,23 @@ struct NowPlayingViewportRoot: View {
     /// Computed from geometry so both sides are always exactly the same width.
     private func panelWidth(for geometry: GeometryProxy) -> CGFloat {
         // 48pt = horizontal padding (24 * 2), 20pt = HStack spacing
-        let available = min(geometry.size.width - 48, 1120)
+        let available = min(geometry.size.width - 48, contentMaxWidth)
         return max((available - 20) / 2, 0)
     }
+
+    private func singlePanelWidth(for geometry: GeometryProxy) -> CGFloat {
+        min(max(geometry.size.width - 48, 0), 560)
+    }
+
+    private func layoutMode(for geometry: GeometryProxy) -> LayoutMode {
+        let widthAllowsDual = geometry.size.width >= 920
+        let heightAllowsDual = geometry.size.height >= 620
+        return widthAllowsDual && heightAllowsDual ? .dualPanel : .singlePanel
+    }
+
+    private var contentMaxWidth: CGFloat { 1024 }
+
+    private var contentMaxHeight: CGFloat { 768 }
 
     private func topInset(for geometry: GeometryProxy) -> CGFloat {
         #if os(macOS)

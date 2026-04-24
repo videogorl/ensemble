@@ -384,6 +384,33 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertFalse(shouldIgnore)
     }
 
+    func testAutomaticAdvanceGateRejectsOldTrackTimeSample() {
+        let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeAfterAutomaticAdvance(
+            observedTime: 248.0,
+            elapsedSinceAdvance: 0.12
+        )
+
+        XCTAssertTrue(shouldIgnore)
+    }
+
+    func testAutomaticAdvanceGateAcceptsNewTrackTimeSample() {
+        let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeAfterAutomaticAdvance(
+            observedTime: 0.18,
+            elapsedSinceAdvance: 0.12
+        )
+
+        XCTAssertFalse(shouldIgnore)
+    }
+
+    func testAutomaticAdvanceGateExpiresQuickly() {
+        let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeAfterAutomaticAdvance(
+            observedTime: 248.0,
+            elapsedSinceAdvance: 0.9
+        )
+
+        XCTAssertFalse(shouldIgnore)
+    }
+
     func testPlaybackSnapshotPersistsAfterInterval() {
         XCTAssertTrue(
             PlaybackService.shouldPersistPlaybackSnapshot(

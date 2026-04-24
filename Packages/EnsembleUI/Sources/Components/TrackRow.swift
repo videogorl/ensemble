@@ -19,6 +19,7 @@ public struct TrackRow: View {
     let onShareFile: (() -> Void)?
     let isFavorited: Bool?
     let recentPlaylistTitle: String?
+    let supplementalMetadataWidth: CGFloat?
     @Environment(\.dependencies) private var deps
     @State private var isEditingMetadata = false
     @State private var isConfirmingDelete = false
@@ -43,6 +44,7 @@ public struct TrackRow: View {
         onShareFile: (() -> Void)? = nil,
         isFavorited: Bool? = nil,
         recentPlaylistTitle: String? = nil,
+        supplementalMetadataWidth: CGFloat? = nil,
         onTap: @escaping () -> Void
     ) {
         self.track = track
@@ -61,6 +63,7 @@ public struct TrackRow: View {
         self.onShareFile = onShareFile
         self.isFavorited = isFavorited
         self.recentPlaylistTitle = recentPlaylistTitle
+        self.supplementalMetadataWidth = supplementalMetadataWidth
         self.onTap = onTap
     }
 
@@ -213,12 +216,30 @@ public struct TrackRow: View {
                     }
                 }
 
-                if let artist = track.artistName {
+                if !showsArtistMetadataColumn, let artist = track.artistName {
                     Text(artist)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 }
+            }
+            .layoutPriority(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if showsArtistMetadataColumn {
+                Text(track.artistName ?? "Unknown Artist")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .frame(width: artistMetadataColumnWidth, alignment: .leading)
+            }
+
+            if showsAlbumMetadataColumn {
+                Text(track.albumName ?? "Unknown Album")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .frame(width: albumMetadataColumnWidth, alignment: .leading)
             }
 
             Spacer()
@@ -391,6 +412,26 @@ public struct TrackRow: View {
 
     private var effectiveIsFavorited: Bool {
         isFavorited ?? (track.rating >= 8)
+    }
+
+    private var showsArtistMetadataColumn: Bool {
+        guard let supplementalMetadataWidth else { return false }
+        return supplementalMetadataWidth >= 700
+    }
+
+    private var showsAlbumMetadataColumn: Bool {
+        guard let supplementalMetadataWidth else { return false }
+        return supplementalMetadataWidth >= 940
+    }
+
+    private var artistMetadataColumnWidth: CGFloat {
+        guard let supplementalMetadataWidth else { return 0 }
+        return min(max(supplementalMetadataWidth * 0.22, 150), 260)
+    }
+
+    private var albumMetadataColumnWidth: CGFloat {
+        guard let supplementalMetadataWidth else { return 0 }
+        return min(max(supplementalMetadataWidth * 0.28, 180), 360)
     }
 
     @ViewBuilder

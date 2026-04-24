@@ -49,6 +49,18 @@ struct MyNewView: View {
 }
 ```
 
+## Adding Large-Screen Browse Polish
+
+For browse roots that need a regular-width selection/detail layout:
+
+1. Keep the existing compact list/push navigation as the `compactContent` fallback.
+2. Use `LargeScreenBrowseSplitView` for macOS and regular-width iPad only.
+3. Store the selected item in local `@State`; pass a dense left list and a right detail view.
+4. Use `LargeScreenPlaceholderView` for the unselected state.
+5. Add `.refreshCommand { await viewModel.refresh() }` whenever the screen already supports `.refreshable`.
+
+Do not route iPhone through the split shell, and do not remove existing compact navigation links.
+
 ## Adding a New Now Playing Panel/Card
 
 When adding a new card/panel to the Now Playing view, it must be added in **three** places:

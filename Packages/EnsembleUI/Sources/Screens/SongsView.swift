@@ -55,6 +55,14 @@ public struct SongsView: View {
         #endif
     }
 
+    private var canShowLargeScreenSongBrowser: Bool {
+        #if os(iOS)
+        return UIDevice.current.userInterfaceIdiom != .phone
+        #else
+        return true
+        #endif
+    }
+
     public init(libraryVM: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
@@ -123,6 +131,9 @@ public struct SongsView: View {
             view.searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
         }
         .refreshable {
+            await libraryVM.refreshFromServer()
+        }
+        .refreshCommand("Refresh Songs") {
             await libraryVM.refreshFromServer()
         }
         .profileToolbar()
@@ -374,6 +385,16 @@ public struct SongsView: View {
     }
 
     private var trackListView: some View {
+        GeometryReader { geometry in
+            if usesLargeScreenSongBrowser(for: geometry.size) {
+                largeScreenSongBrowserView(width: geometry.size.width)
+            } else {
+                compactTrackListView
+            }
+        }
+    }
+
+    private var compactTrackListView: some View {
         Group {
             if libraryVM.trackSortOption == .title {
                 #if os(iOS)
@@ -513,6 +534,132 @@ public struct SongsView: View {
         }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
+        }
+    }
+
+    private func usesLargeScreenSongBrowser(for size: CGSize) -> Bool {
+        guard canShowLargeScreenSongBrowser else { return false }
+        return size.width >= 840
+    }
+
+    @ViewBuilder
+    private func largeScreenSongBrowserView(width: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            GenreChipBar(
+                availableGenres: libraryVM.availableTrackGenres,
+                selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
+                excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
+            )
+            .padding(.vertical, 8)
+
+            if libraryVM.trackSortOption == .title {
+                largeScreenIndexedSongList(width: width)
+            } else {
+                largeScreenFlatSongList(width: width)
+            }
+        }
+        .sheet(item: $playlistPickerPayload) { payload in
+            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
+        }
+    }
+
+    @ViewBuilder
+    private func largeScreenIndexedSongList(width: CGFloat) -> some View {
+        SongsTrackListHost(
+            sections: largeScreenTrackSections,
+            currentTrackId: nowPlayingVM.currentTrack?.id,
+            availabilityGeneration: availabilityGeneration,
+            activeDownloadRatingKeys: activeDownloadRatingKeys,
+            bottomContentInset: largeScreenSongListBottomInset,
+            supplementalMetadataWidth: width,
+            showsSectionIndex: true,
+            interactionModel: largeScreenTrackInteractionModel
+        ) { track, _ in
+            playTrack(track)
+        }
+    }
+
+    @ViewBuilder
+    private func largeScreenFlatSongList(width: CGFloat) -> some View {
+        SongsTrackListHost(
+            tracks: libraryVM.filteredTracks,
+            currentTrackId: nowPlayingVM.currentTrack?.id,
+            availabilityGeneration: availabilityGeneration,
+            activeDownloadRatingKeys: activeDownloadRatingKeys,
+            bottomContentInset: largeScreenSongListBottomInset,
+            supplementalMetadataWidth: width,
+            interactionModel: largeScreenTrackInteractionModel,
+        ) { track, _ in
+            playTrack(track)
+        }
+    }
+
+    private var largeScreenSongListBottomInset: CGFloat {
+        #if os(macOS)
+        return TrackListLayoutMetrics.compactMiniPlayerBottomSpacing
+        #else
+        return TrackListLayoutMetrics.miniPlayerBottomSpacing
+        #endif
+    }
+
+    private var largeScreenTrackSections: [SongsTrackListSection] {
+        libraryVM.trackSections.map { section in
+            SongsTrackListSection(
+                id: section.letter,
+                title: section.letter,
+                tracks: section.tracks
+            )
+        }
+    }
+
+    private var largeScreenTrackInteractionModel: TrackRowInteractionModel {
+        TrackRowInteractionModel(
+            onPlayNext: { track in
+                nowPlayingVM.playNext(track)
+            },
+            onPlayLast: { track in
+                nowPlayingVM.playLast(track)
+            },
+            onAddToPlaylist: { track in
+                presentPlaylistPicker(with: [track])
+            },
+            onAddToRecentPlaylist: { track in
+                addToRecentPlaylist(track)
+            },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
+            onGoToAlbum: { track in
+                if let albumId = track.albumRatingKey {
+                    navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
+                }
+            },
+            onGoToArtist: { track in
+                if let artistId = track.artistRatingKey {
+                    navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
+                }
+            },
+            onShareLink: { track in
+                ShareActions.shareTrackLink(track, deps: deps)
+            },
+            onShareFile: { track in
+                ShareActions.shareTrackFile(track, deps: deps)
+            },
+            isTrackFavorited: { track in
+                nowPlayingVM.isTrackFavorited(track)
+            },
+            canAddToRecentPlaylist: { track in
+                recentPlaylistTitle(for: track) != nil
+            },
+            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+        )
+    }
+
+    private func playTrack(_ track: Track) {
+        if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+            nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
         }
     }
     

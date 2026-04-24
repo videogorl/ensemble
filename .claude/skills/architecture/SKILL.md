@@ -150,7 +150,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `OfflineBackgroundExecutionCoordinator` (@MainActor) -- Optional iOS 26+ `BGContinuedProcessingTask` adapter; no-op on unsupported platforms/OS versions
 - `FrequencyAnalysisService` -- Pre-computed audio frequency analysis using Accelerate FFT; produces `FrequencyTimeline` data for visualizer display decoupled from the audio pipeline
   - Owns a `VisualizationConsumer` visibility registry (`phoneOverlay`, `nowPlayingSheet`, `nowPlayingViewport`, `stageFlow`, `externalDisplay`, `rootBackdrop`) so the display timer only runs while at least one visible surface needs frames
-  - Downgrades to 15fps when only low-cost consumers are visible and escalates back to 30fps when a dedicated Now Playing surface is active
+  - Keeps the display timer demand-driven; visual surfaces select their own render-cost tier without throttling audio playback state updates
 - `PowerStateMonitor` (@MainActor ObservableObject) -- Observes iOS Low Power Mode via `NSProcessInfoPowerStateDidChange` and publishes `isLowPowerMode: Bool`. Consumers (Aurora visualizer, LyricsCard, download service) read this to reduce GPU passes, frame rates, and network work when the device is in LPM
 - `SongLinkService` (actor) -- Resolves universal song.link URLs for tracks and albums via MusicKit catalog search + song.link API; in-memory cache with positive/negative entries
 - `ShareService` (@MainActor) -- Coordinates share payloads: link (song.link/Apple Music URL), text (fallback), or file (local download or temp download via Plex stream URL)
@@ -300,12 +300,12 @@ Dynamic background effect that reacts to music intensity:
 
 1. **Root Integration** -- Mounted in `RootView` using a `ZStack` at the bottom layer.
 2. **Reactivity** -- Observes `PlaybackService` for playback state, current time, and frequency band data from the pre-computed `FrequencyTimeline`.
-3. **Sampling** -- `AuroraVisualizationView` advances a lightweight render model from `PlaybackService.frequencyBandsPublisher`; the `Canvas` draw path is render-only and does not mutate SwiftUI state per frame.
-4. **Drawing** -- Uses `Canvas` and `TimelineView` to draw overlapping fan-shaped sectors with radial gradients. Phone-root consumers (`phoneOverlay`, `rootBackdrop`) run in the low-cost tier at 15fps with fewer glow passes; dedicated Now Playing surfaces escalate to the richer 30fps tier.
-5. **Blending** -- Overlapping sectors naturally create "denser" areas of light as they intersect. Full-quality surfaces still use 3 glow passes (blur=18, 12, 8); low-cost surfaces cap the effect at 2 passes.
+3. **Sampling** -- `AuroraVisualizationView` advances a lightweight render model from `PlaybackService.frequencyBandsPublisher`; render surfaces read the model without mutating SwiftUI state per frame.
+4. **Drawing** -- Uses `MetalAuroraSurface` (`MTKView`) where Metal is available, with the previous `Canvas`/`TimelineView` implementation retained as the fallback. Phone-root consumers (`phoneOverlay`, `rootBackdrop`) run in a low-cost tier with fewer glow passes; dedicated Now Playing surfaces escalate to the richer tier.
+5. **Blending** -- Overlapping sectors naturally create "denser" areas of light as they intersect. Full-quality surfaces still use 3 glow passes (blur=18, 12, 8 in the Canvas fallback); low-cost surfaces cap the effect at 2 passes.
 6. **Transparency Seam** -- Root views of tabs and navigation destinations use `.auroraBackgroundSupport()` to hide system backgrounds and let the aurora show through.
 7. **Policy** -- Visibility is registered explicitly through `PlaybackService.setVisualizationConsumer(_:isVisible:)`. Feed/root surfaces keep the visualizer on the low-cost tier, while sheet/viewport/stage surfaces request full quality. Hidden surfaces deregister immediately so they do not keep the analysis timer alive.
-8. **Low Power Mode** -- When `PowerStateMonitor.isLowPowerMode` is true, aurora drops to 1 glow pass at 15fps (from 3 passes at 30fps). `LyricsCard` also disables progressive blur in LPM. Downloads are auto-paused/resumed on LPM toggle via `DependencyContainer` wiring.
+8. **Low Power Mode** -- When `PowerStateMonitor.isLowPowerMode` is true, aurora drops to 1 glow pass and a reduced frame interval. `LyricsCard` also disables progressive blur in LPM. Downloads are auto-paused/resumed on LPM toggle via `DependencyContainer` wiring.
 
 ## Subsystem: Hub-Based Home Screen
 

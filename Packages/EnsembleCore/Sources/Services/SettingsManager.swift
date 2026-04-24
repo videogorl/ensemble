@@ -54,6 +54,47 @@ public enum TrackSwipeEdge: String, Codable, Sendable {
     case trailing
 }
 
+public enum SongsTableColumn: String, CaseIterable, Codable, Sendable, Identifiable {
+    case title
+    case time
+    case artist
+    case album
+    case genre
+    case favorite
+    case plays
+    case dateAdded
+    case downloaded
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .title:
+            return "Title"
+        case .time:
+            return "Time"
+        case .artist:
+            return "Artist"
+        case .album:
+            return "Album"
+        case .genre:
+            return "Genre"
+        case .favorite:
+            return "Favorite"
+        case .plays:
+            return "Plays"
+        case .dateAdded:
+            return "Date Added"
+        case .downloaded:
+            return "Downloaded"
+        }
+    }
+
+    public static var defaultVisibleColumns: [SongsTableColumn] {
+        [.title, .time, .artist, .album, .genre, .favorite, .plays, .dateAdded, .downloaded]
+    }
+}
+
 public struct TrackSwipeLayout: Codable, Equatable, Sendable {
     public static let slotCountPerEdge = 2
 
@@ -179,6 +220,7 @@ public final class SettingsManager: ObservableObject {
     @AppStorage("accentColor") public var accentColorName: String = "blue"
     @AppStorage("enabledTabs") private var enabledTabsData: Data = Data()
     @AppStorage("trackSwipeLayout") private var trackSwipeLayoutData: Data = Data()
+    @AppStorage("songsTableColumns") private var songsTableColumnsData: Data = Data()
     @AppStorage("allowInsecureConnectionsPolicy") private var allowInsecureConnectionsPolicyRawValue: String = AllowInsecureConnectionsPolicy.defaultForEnsemble.rawValue
     @AppStorage("auroraVisualizationEnabled") public var auroraVisualizationEnabled: Bool = true
     @AppStorage("scrobblingEnabled") public var scrobblingEnabled: Bool = true
@@ -252,6 +294,30 @@ public final class SettingsManager: ObservableObject {
         }
     }
 
+    public var songsTableColumns: [SongsTableColumn] {
+        get {
+            guard !songsTableColumnsData.isEmpty,
+                  let decoded = try? JSONDecoder().decode([SongsTableColumn].self, from: songsTableColumnsData) else {
+                return SongsTableColumn.defaultVisibleColumns
+            }
+
+            let validColumns = decoded.filter { SongsTableColumn.allCases.contains($0) }
+            return validColumns.isEmpty ? SongsTableColumn.defaultVisibleColumns : validColumns
+        }
+        set {
+            let deduplicated = newValue.reduce(into: [SongsTableColumn]()) { result, column in
+                if !result.contains(column) {
+                    result.append(column)
+                }
+            }
+            let columns = deduplicated.isEmpty ? SongsTableColumn.defaultVisibleColumns : deduplicated
+            if let encoded = try? JSONEncoder().encode(columns) {
+                songsTableColumnsData = encoded
+                objectWillChange.send()
+            }
+        }
+    }
+
     public func setAccentColor(_ color: AppAccentColor) {
         accentColorName = color.rawValue
         objectWillChange.send()
@@ -263,6 +329,30 @@ public final class SettingsManager: ObservableObject {
 
     public func resetTrackSwipeLayoutToDefaults() {
         trackSwipeLayout = .default
+    }
+
+    public func setSongsTableColumn(_ column: SongsTableColumn, isVisible: Bool) {
+        var columns = songsTableColumns
+        if isVisible {
+            guard !columns.contains(column) else { return }
+            let allColumns = SongsTableColumn.allCases
+            if let insertionIndex = allColumns.firstIndex(of: column) {
+                let targetOffset = columns.firstIndex { existing in
+                    guard let existingIndex = allColumns.firstIndex(of: existing) else { return false }
+                    return existingIndex > insertionIndex
+                } ?? columns.endIndex
+                columns.insert(column, at: targetOffset)
+            } else {
+                columns.append(column)
+            }
+        } else {
+            columns.removeAll { $0 == column }
+        }
+        songsTableColumns = columns
+    }
+
+    public func resetSongsTableColumnsToDefaults() {
+        songsTableColumns = SongsTableColumn.defaultVisibleColumns
     }
 
     @discardableResult

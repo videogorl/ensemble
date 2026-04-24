@@ -1271,6 +1271,7 @@ public final class AudioPlaybackEngine {
             EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
 
             onTrackAdvance?(next.trackId)
+            currentTimeSubject.send(0)
         } else {
             // Queue exhausted
             wasPlaying = false
@@ -1316,6 +1317,7 @@ public final class AudioPlaybackEngine {
             EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
 
             onTrackAdvance?(next.trackId)
+            currentTimeSubject.send(0)
         } else {
             // No more files
             wasPlaying = false

@@ -23,9 +23,9 @@ public struct HomeView: View {
     public var body: some View {
         ZStack(alignment: .top) {
             if profileBackgroundImage != nil {
-                ArtworkDetailBackground(image: profileBackgroundImage, height: 340)
+                ArtworkDetailBackground(image: profileBackgroundImage, height: profileBackgroundHeight)
                     .allowsHitTesting(false)
-                    .ignoresSafeArea(edges: .top)
+                    .ignoresSafeArea()
             }
 
             Group {
@@ -82,6 +82,9 @@ public struct HomeView: View {
         .refreshable {
             await viewModel.refresh()
         }
+        .refreshCommand {
+            await viewModel.refresh()
+        }
     }
 
     private var feedTitle: String {
@@ -106,6 +109,14 @@ public struct HomeView: View {
         let imagePath = profileStore.profile.profileImagePath ?? "none"
         let modified = profileStore.profile.lastModified.timeIntervalSinceReferenceDate
         return "\(imagePath)-\(modified)"
+    }
+
+    private var profileBackgroundHeight: CGFloat {
+        #if os(macOS)
+        return 500
+        #else
+        return 340
+        #endif
     }
     
     private var loadingView: some View {

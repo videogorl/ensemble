@@ -88,7 +88,8 @@ public struct NowPlayingSheetView: View {
                     playbackService: DependencyContainer.shared.playbackService,
                     consumer: .nowPlayingSheet,
                     accentColor: settingsManager.accentColor.color,
-                    isLowPowerMode: powerStateMonitor.isLowPowerMode
+                    isLowPowerMode: powerStateMonitor.isLowPowerMode,
+                    activeContentMaxWidth: 670
                 )
                 .allowsHitTesting(false)
                 .opacity(0.7)

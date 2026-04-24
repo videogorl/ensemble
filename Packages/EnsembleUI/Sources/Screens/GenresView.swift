@@ -3,11 +3,14 @@ import SwiftUI
 
 public struct GenresView: View {
     @ObservedObject var libraryVM: LibraryViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @State private var searchText = ""
+    @State private var selectedGenre: Genre?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
-    public init(libraryVM: LibraryViewModel) {
+    public init(libraryVM: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
         self.libraryVM = libraryVM
+        self.nowPlayingVM = nowPlayingVM
     }
     
     private var filteredGenres: [Genre] {
@@ -25,7 +28,7 @@ public struct GenresView: View {
             } else if libraryVM.genres.isEmpty {
                 emptyView
             } else {
-                genreListView
+                adaptiveGenreView
             }
         }
         .navigationTitle("Genres")
@@ -35,6 +38,9 @@ public struct GenresView: View {
         .searchable(text: $searchText)
         #endif
         .refreshable {
+            await libraryVM.refreshFromServer()
+        }
+        .refreshCommand("Refresh Genres") {
             await libraryVM.refreshFromServer()
         }
         .profileToolbar()
@@ -140,5 +146,98 @@ public struct GenresView: View {
         }
         .listStyle(.plain)
         .miniPlayerBottomSpacing()
+    }
+
+    private var adaptiveGenreView: some View {
+        LargeScreenBrowseSplitView(
+            selection: $selectedGenre,
+            compact: {
+                genreListView
+            },
+            sidebar: {
+                genreSelectionList
+            },
+            detail: { genre in
+                genreDetailView(for: genre)
+                    .id(genre.id)
+            },
+            placeholder: {
+                LargeScreenPlaceholderView(systemImage: "guitars", title: "Select a Genre")
+            }
+        )
+    }
+
+    private var genreSelectionList: some View {
+        List {
+            ForEach(filteredGenres) { genre in
+                genreRow(genre)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedGenre = genre
+                    }
+                    .listRowBackground(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(selectedGenre?.id == genre.id ? Color.accentColor.opacity(0.12) : Color.clear)
+                    )
+            }
+        }
+        .listStyle(.plain)
+        .miniPlayerBottomSpacing()
+    }
+
+    private func genreDetailView(for genre: Genre) -> some View {
+        let tracks = tracks(for: genre)
+        return VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(genre.title)
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Text("\(tracks.count) song\(tracks.count == 1 ? "" : "s")")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .padding()
+
+            Divider()
+
+            if tracks.isEmpty {
+                LargeScreenPlaceholderView(systemImage: "music.note", title: "No Songs")
+            } else {
+                List {
+                    ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+                        TrackRow(
+                            track: track,
+                            showArtwork: true,
+                            isPlaying: track.id == nowPlayingVM.currentTrack?.id
+                        ) {
+                            nowPlayingVM.play(tracks: tracks, startingAt: index)
+                        }
+                        .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+    }
+
+    private func genreRow(_ genre: Genre) -> some View {
+        HStack {
+            Image(systemName: "guitars.fill")
+                .font(.title2)
+                .foregroundColor(.accentColor)
+                .frame(width: 44)
+
+            Text(genre.title)
+                .font(.body)
+                .lineLimit(1)
+
+            Spacer()
+        }
+    }
+
+    private func tracks(for genre: Genre) -> [Track] {
+        libraryVM.filteredTracks.filter { track in
+            track.genres.contains { $0.caseInsensitiveCompare(genre.title) == .orderedSame }
+        }
     }
 }

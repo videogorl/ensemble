@@ -864,6 +864,101 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 ---
 
+## LargeScreenBrowseSplitView
+
+- **View name:** `LargeScreenBrowseSplitView`
+- **Canonical name:** LargeScreenBrowseSplitView
+- **Area:** Shared (Components)
+- **Platform:** iPadOS regular width, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Selection pane | list | Left-side browse list for choosing an artist, playlist, or genre | `listContent` |
+| Detail pane | region | Right-side surface showing the selected item's detail or tracks | `detailContent` |
+| Placeholder pane | region | Empty detail state prompting the user to select an item | `LargeScreenPlaceholderView` |
+| Compact fallback | state | Existing iPhone push-navigation layout used when split view is not active | `compactContent` |
+
+---
+
+## Large-Screen Songs Browser
+
+- **View name:** `SongsView` large-screen browser
+- **Canonical name:** Large-screen Songs browser
+- **Area:** Songs
+- **Platform:** iPadOS regular width, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Songs track list host | component | Large-screen native Songs list that routes to UIKit on iPadOS and AppKit on macOS while keeping one caller-facing API | `SongsTrackListHost` |
+| Adaptive track row | control | Shared playable track row with artwork, favorite heart, duration, context menu, and optional wide metadata | `TrackRow(supplementalMetadataWidth:)`, `MediaTrackList(supplementalMetadataWidth:)`, `SongsTrackListHost` |
+| Native swipe row | interaction | Large-screen row hosted by UIKit `MediaTrackList` on iPad and AppKit `NSTableView` on macOS so Apple handles swipe reveal and trackpad gestures without custom drag physics | `UISwipeActionsConfiguration`, `NSTableViewRowAction` |
+| Artist metadata column | text | Artist name shown beside the title when the browser is wide enough | `showsArtistMetadataColumn` |
+| Album metadata column | text | Album name shown beside artist when the browser has additional width | `showsAlbumMetadataColumn` |
+| Section index | control | Alphabetical scroll index retained for title-sorted Songs | `ScrollIndex` |
+
+---
+
+## AuroraVisualizationView
+
+- **View name:** `AuroraVisualizationView`
+- **Canonical name:** Aurora visualization
+- **Area:** Shared (Components)
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Aurora surface | background | Reactive colored bands and bottom glow driven by playback frequency data | `AuroraVisualizationView` |
+| Metal renderer | renderer | Preferred `MTKView` renderer for Aurora bands, bridge, pool, and fade | `MetalAuroraSurface` |
+| Canvas fallback | renderer | Compatibility renderer used when Metal cannot create the Aurora pipeline | `canvasAuroraSurface` |
+| Surface tier | state | Cost/quality choice for low-power, ambient, and immersive Aurora instances | `AuroraMetalSurfaceTier`, `auroraSurfaceTier` |
+| Active content max width | layout | Optional width cap for active band drawing while preserving the full-width backdrop | `activeContentMaxWidth` |
+
+---
+
+## RefreshCommandAction
+
+- **View name:** `RefreshCommandAction`
+- **Canonical name:** Refresh command action
+- **Area:** Shared (Components)
+- **Platform:** macOS, iPadOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Focused refresh action | action | Async refresh closure registered by the currently focused refreshable screen | `.refreshCommand` |
+| Refresh command | action | App command invoking the focused refresh action | `View > Refresh`, `Command-R` |
+
+---
+
+## MacAuxiliaryWindowScaffold
+
+- **View name:** `MacAuxiliaryWindowScaffold`
+- **Canonical name:** Mac auxiliary window scaffold
+- **Area:** Shared (Components)
+- **Platform:** macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Window content | region | Embedded Profile, Downloads, or similar auxiliary content centered in a single-column macOS window | `content` |
+| Maximum width | state | Width cap that keeps Profile/Downloads aligned with their iOS single-column layouts | `maxWidth` |
+| Minimum height | state | Window height floor applied by the scaffold | `minHeight` |
+
+---
+
 ## StageFlowView
 
 - **View name:** `StageFlowView`
