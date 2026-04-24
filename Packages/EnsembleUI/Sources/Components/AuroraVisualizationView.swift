@@ -115,25 +115,18 @@ public struct AuroraVisualizationView: View {
 
     public var body: some View {
         GeometryReader { geometry in
-            ZStack(alignment: .bottom) {
-                // Fully paused when not actively playing (see isTimelinePaused).
-                // The Canvas + 3 blur passes on 24 bands is too expensive to run
-                // just for the subtle breathing animation.
-                TimelineView(.animation(minimumInterval: frameInterval, paused: isTimelinePaused)) { _ in
-                    Canvas { context, size in
-                        drawAurora(context: context, size: size)
-                    }
-                    .frame(width: expandsBeyondBounds ? geometry.size.width + 80 : geometry.size.width)
-                    .frame(height: maxHeight + 40) // Slightly taller to allow for bottom overflow
-                    .offset(x: expandsBeyondBounds ? -40 : 0, y: 15) // Offset down to hide the very bottom of the pool
+            // Fully paused when not actively playing (see isTimelinePaused).
+            // The Canvas + 3 blur passes on 24 bands is too expensive to run
+            // just for the subtle breathing animation.
+            TimelineView(.animation(minimumInterval: frameInterval, paused: isTimelinePaused)) { _ in
+                Canvas { context, size in
+                    drawAurora(context: context, size: size)
                 }
-                .frame(maxHeight: .infinity, alignment: .bottom)
-
-                bottomFadeOverlay
-                    .frame(height: maxHeight + 40)
-                    .offset(y: 15)
-                    .blendMode(.multiply)
+                .frame(width: expandsBeyondBounds ? geometry.size.width + 80 : geometry.size.width)
+                .frame(height: maxHeight + 40) // Slightly taller to allow for bottom overflow
+                .offset(x: expandsBeyondBounds ? -40 : 0, y: 15) // Offset down to hide the very bottom of the pool
             }
+            .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .opacity(isVisible ? 0.7 : 0) // Reduced overall opacity for transparency
         .if(expandsBeyondBounds) { view in
@@ -181,26 +174,6 @@ public struct AuroraVisualizationView: View {
         .onChange(of: isPaused) { _ in
             updateConsumerRegistration()
         }
-    }
-
-    private var bottomFadeBaseColor: Color {
-        #if canImport(UIKit)
-        return colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
-        #else
-        return colorScheme == .dark ? .black : Color(nsColor: .windowBackgroundColor)
-        #endif
-    }
-
-    private var bottomFadeOverlay: some View {
-        LinearGradient(
-            stops: [
-                .init(color: .clear, location: 0.0),
-                .init(color: bottomFadeBaseColor.opacity(0.15), location: 0.4),
-                .init(color: bottomFadeBaseColor.opacity(0.75), location: 1.0)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
     }
 
     // MARK: - Visibility
@@ -291,6 +264,7 @@ public struct AuroraVisualizationView: View {
     private func drawAurora(context: GraphicsContext, size: CGSize) {
         // Non-playing states freeze the last rendered frame because TimelineView pauses.
         let bandsToRender = renderModel.renderedBands
+        let energy = auroraEnergy(from: bandsToRender)
 
         if isLowPowerMode {
             drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 10, opacity: 0.50)
@@ -303,7 +277,17 @@ public struct AuroraVisualizationView: View {
             drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 8,  opacity: 0.35)
         }
 
-        drawBottomPool(context: context, size: size)
+        drawBandPoolBridge(context: context, size: size, energy: energy)
+        drawBottomPool(context: context, size: size, energy: energy)
+        drawForegroundFade(context: context, size: size)
+    }
+
+    private func auroraEnergy(from bands: [Double]) -> Double {
+        guard !bands.isEmpty else { return 0 }
+        let averageEnergy = bands.reduce(0, +) / Double(bands.count)
+        let bassCount = min(6, bands.count)
+        let bassEnergy = bands.prefix(bassCount).reduce(0, +) / Double(bassCount)
+        return min(1, max(0, averageEnergy * 0.55 + bassEnergy * 0.45))
     }
 
     /// Maps analyzer output into the aurora's rendered band response curve.
@@ -505,10 +489,43 @@ public struct AuroraVisualizationView: View {
         )
     }
 
+    /// Adds a soft accent haze where active bands dissolve into the bottom pool.
+    private func drawBandPoolBridge(context: GraphicsContext, size: CGSize, energy: Double) {
+        let activeWidth = activeContentMaxWidth.map { min(size.width, $0) } ?? size.width
+        let xOffset = (size.width - activeWidth) / 2
+        let bridgeOpacity = (colorScheme == .dark ? 0.34 : 0.24) * (0.45 + energy * 0.7)
+        let bridgeHeight = poolHeight + 76
+        let bridgeRect = CGRect(
+            x: xOffset - activeWidth * 0.08,
+            y: size.height - bridgeHeight - 18,
+            width: activeWidth * 1.16,
+            height: bridgeHeight
+        )
+        let bridgeGradient = Gradient(stops: [
+            .init(color: .clear, location: 0.0),
+            .init(color: accentColor.opacity(bridgeOpacity * 0.22), location: 0.28),
+            .init(color: accentColor.opacity(bridgeOpacity * 0.6), location: 0.58),
+            .init(color: accentColor.opacity(bridgeOpacity), location: 1.0)
+        ])
+
+        var bridgeContext = context
+        bridgeContext.blendMode = .plusLighter
+        bridgeContext.addFilter(.blur(radius: 24))
+        bridgeContext.fill(
+            Path(ellipseIn: bridgeRect),
+            with: .linearGradient(
+                bridgeGradient,
+                startPoint: CGPoint(x: bridgeRect.midX, y: bridgeRect.minY),
+                endPoint: CGPoint(x: bridgeRect.midX, y: bridgeRect.maxY)
+            )
+        )
+    }
+
     /// Draws the solid color pool at the very bottom.
     /// Drawn in two passes: a wide blurred halo for soft spread, then a sharper core for brightness.
-    private func drawBottomPool(context: GraphicsContext, size: CGSize) {
-        let poolOpacity = colorScheme == .dark ? 0.65 : 0.45
+    private func drawBottomPool(context: GraphicsContext, size: CGSize, energy: Double) {
+        let baselineOpacity = colorScheme == .dark ? 0.58 : 0.38
+        let poolOpacity = baselineOpacity * (0.84 + energy * 0.34)
 
         // Wide halo pass — blurred so the pool bleeds softly upward into the bands
         let haloHeight = poolHeight + 50
@@ -552,6 +569,37 @@ public struct AuroraVisualizationView: View {
                 poolGradient,
                 startPoint: CGPoint(x: poolRect.midX, y: poolRect.minY),
                 endPoint: CGPoint(x: poolRect.midX, y: poolRect.maxY)
+            )
+        )
+    }
+
+    /// Draws the final foreground fade inside the same Canvas as the bands and pool.
+    /// Keeping this in the Canvas avoids the separate-layer look while still grounding
+    /// the aurora in front of the active glow.
+    private func drawForegroundFade(context: GraphicsContext, size: CGSize) {
+        #if canImport(UIKit)
+        let baseColor: Color = colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
+        #else
+        let baseColor: Color = colorScheme == .dark ? .black : Color(nsColor: .windowBackgroundColor)
+        #endif
+
+        let rect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
+        let fadeGradient = Gradient(stops: [
+            .init(color: .clear, location: 0.0),
+            .init(color: .clear, location: 0.42),
+            .init(color: baseColor.opacity(0.16), location: 0.68),
+            .init(color: baseColor.opacity(0.46), location: 0.9),
+            .init(color: baseColor.opacity(0.68), location: 1.0)
+        ])
+
+        var fadeContext = context
+        fadeContext.blendMode = .multiply
+        fadeContext.fill(
+            Path(rect),
+            with: .linearGradient(
+                fadeGradient,
+                startPoint: CGPoint(x: rect.midX, y: rect.minY),
+                endPoint: CGPoint(x: rect.midX, y: rect.maxY)
             )
         )
     }
