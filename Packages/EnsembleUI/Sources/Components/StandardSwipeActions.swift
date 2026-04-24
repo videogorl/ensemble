@@ -46,12 +46,16 @@ extension View {
     ///   - onPlayNext: Callback when "Play Next" is triggered.
     ///   - onPlayLast: Callback when "Play Last" is triggered.
     ///   - onAddToPlaylist: Callback when "Add to Playlist" is triggered.
+    ///   - allowsLeadingFullSwipe: Whether leading-edge drag can continue past the revealed buttons and commit the first action.
+    ///   - allowsTrailingFullSwipe: Whether trailing-edge drag can continue past the revealed buttons and commit the first action.
     func trackSwipeActions(
         track: Track,
         nowPlayingVM: NowPlayingViewModel,
         onPlayNext: (() -> Void)? = nil,
         onPlayLast: (() -> Void)? = nil,
-        onAddToPlaylist: (() -> Void)? = nil
+        onAddToPlaylist: (() -> Void)? = nil,
+        allowsLeadingFullSwipe: Bool = true,
+        allowsTrailingFullSwipe: Bool = true
     ) -> some View {
         let layout = DependencyContainer.shared.settingsManager.trackSwipeLayout
         let toastCenter = DependencyContainer.shared.toastCenter
@@ -67,7 +71,7 @@ extension View {
         }
 
         return self
-            .swipeActions(edge: .leading, allowsFullSwipe: !leadingActions.isEmpty) {
+            .swipeActions(edge: .leading, allowsFullSwipe: allowsLeadingFullSwipe && !leadingActions.isEmpty) {
                 ForEach(leadingActions, id: \.self) { action in
                     swipeActionButton(
                         for: action,
@@ -80,7 +84,7 @@ extension View {
                     )
                 }
             }
-            .swipeActions(edge: .trailing, allowsFullSwipe: !trailingActions.isEmpty) {
+            .swipeActions(edge: .trailing, allowsFullSwipe: allowsTrailingFullSwipe && !trailingActions.isEmpty) {
                 ForEach(trailingActions, id: \.self) { action in
                     swipeActionButton(
                         for: action,

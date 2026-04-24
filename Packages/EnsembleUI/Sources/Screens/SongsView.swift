@@ -632,10 +632,19 @@ public struct SongsView: View {
             nowPlayingVM: nowPlayingVM,
             onPlayNext: resolvedActions.onPlayNext,
             onPlayLast: resolvedActions.onPlayLast,
-            onAddToPlaylist: resolvedActions.onAddToPlaylist
+            onAddToPlaylist: resolvedActions.onAddToPlaylist,
+            allowsLeadingFullSwipe: allowsLargeScreenLeadingFullSwipe
         )
         .listRowBackground(Color.clear)
         .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
+    }
+
+    private var allowsLargeScreenLeadingFullSwipe: Bool {
+        #if os(iOS)
+        return UIDevice.current.userInterfaceIdiom != .pad
+        #else
+        return true
+        #endif
     }
 
     private var largeScreenTrackInteractionModel: TrackRowInteractionModel {
