@@ -115,18 +115,24 @@ public struct AuroraVisualizationView: View {
 
     public var body: some View {
         GeometryReader { geometry in
-            // Fully paused when not actively playing (see isTimelinePaused).
-            // The Canvas + 3 blur passes on 24 bands is too expensive to run
-            // just for the subtle breathing animation.
-            TimelineView(.animation(minimumInterval: frameInterval, paused: isTimelinePaused)) { _ in
-                Canvas { context, size in
-                    drawAurora(context: context, size: size)
+            ZStack(alignment: .bottom) {
+                // Fully paused when not actively playing (see isTimelinePaused).
+                // The Canvas + 3 blur passes on 24 bands is too expensive to run
+                // just for the subtle breathing animation.
+                TimelineView(.animation(minimumInterval: frameInterval, paused: isTimelinePaused)) { _ in
+                    Canvas { context, size in
+                        drawAurora(context: context, size: size)
+                    }
+                    .frame(width: expandsBeyondBounds ? geometry.size.width + 80 : geometry.size.width)
+                    .frame(height: maxHeight + 40) // Slightly taller to allow for bottom overflow
+                    .offset(x: expandsBeyondBounds ? -40 : 0, y: 15) // Offset down to hide the very bottom of the pool
                 }
-                .frame(width: expandsBeyondBounds ? geometry.size.width + 80 : geometry.size.width)
-                .frame(height: maxHeight + 40) // Slightly taller to allow for bottom overflow
-                .offset(x: expandsBeyondBounds ? -40 : 0, y: 15) // Offset down to hide the very bottom of the pool
+                .frame(maxHeight: .infinity, alignment: .bottom)
+
+                bottomFadeOverlay
+                    .frame(height: maxHeight + 40)
+                    .offset(y: 15)
             }
-            .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .opacity(isVisible ? 0.7 : 0) // Reduced overall opacity for transparency
         .if(expandsBeyondBounds) { view in
@@ -174,6 +180,26 @@ public struct AuroraVisualizationView: View {
         .onChange(of: isPaused) { _ in
             updateConsumerRegistration()
         }
+    }
+
+    private var bottomFadeBaseColor: Color {
+        #if canImport(UIKit)
+        return colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
+        #else
+        return colorScheme == .dark ? .black : Color(nsColor: .windowBackgroundColor)
+        #endif
+    }
+
+    private var bottomFadeOverlay: some View {
+        LinearGradient(
+            stops: [
+                .init(color: .clear, location: 0.0),
+                .init(color: bottomFadeBaseColor.opacity(0.15), location: 0.4),
+                .init(color: bottomFadeBaseColor.opacity(0.75), location: 1.0)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     // MARK: - Visibility
@@ -277,7 +303,6 @@ public struct AuroraVisualizationView: View {
         }
 
         drawBottomPool(context: context, size: size)
-        drawDarkeningGradient(context: context, size: size)
     }
 
     /// Maps analyzer output into the aurora's rendered band response curve.
@@ -472,33 +497,6 @@ public struct AuroraVisualizationView: View {
                     .init(color: .clear, location: 0.0),
                     .init(color: .gray.opacity(0.15), location: 0.35),
                     .init(color: .gray.opacity(0.5), location: 1.0)
-                ]),
-                startPoint: CGPoint(x: rect.midX, y: rect.minY),
-                endPoint: CGPoint(x: rect.midX, y: rect.maxY)
-            )
-        )
-    }
-
-    /// Draws a darkening gradient: scheme background color at the bottom fading to clear at the top.
-    /// Grounds the aurora visually so it feels like it's rising from the surface.
-    private func drawDarkeningGradient(context: GraphicsContext, size: CGSize) {
-        #if canImport(UIKit)
-        let baseColor: Color = colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
-        #else
-        let baseColor: Color = colorScheme == .dark ? .black : Color(nsColor: .windowBackgroundColor)
-        #endif
-
-        var darkContext = context
-        darkContext.blendMode = .multiply
-
-        let rect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
-        darkContext.fill(
-            Path(rect),
-            with: .linearGradient(
-                Gradient(stops: [
-                    .init(color: .clear, location: 0.0),
-                    .init(color: baseColor.opacity(0.15), location: 0.4),
-                    .init(color: baseColor.opacity(0.75), location: 1.0)
                 ]),
                 startPoint: CGPoint(x: rect.midX, y: rect.minY),
                 endPoint: CGPoint(x: rect.midX, y: rect.maxY)
