@@ -406,7 +406,7 @@ public struct AuroraVisualizationView: View {
         }
 
         let responsiveBands = enhanceBandResponsiveness(bands)
-        return lateralBlend(bands: responsiveBands, sigma: 2.2, mix: 0.34)
+        return lateralBlend(bands: responsiveBands, sigma: 1.9, mix: 0.24)
     }
 
     /// Preserves contrast when the whole spectrum is loud so strong songs still feel animated.
@@ -421,9 +421,9 @@ public struct AuroraVisualizationView: View {
         let density = mean / peak
         let loudFactor = smoothStep(edge0: 0.34, edge1: 0.78, value: mean)
         let fullSpectrumFactor = smoothStep(edge0: 0.58, edge1: 0.92, value: density)
-        let globalContrastBoost = 0.18 + loudFactor * 0.34 + fullSpectrumFactor * 0.24
-        let localContrastBoost = 0.16 + fullSpectrumFactor * 0.28
-        let highBandCompression = 0.08 + fullSpectrumFactor * 0.12
+        let globalContrastBoost = 0.16 + loudFactor * 0.30 + fullSpectrumFactor * 0.18
+        let localContrastBoost = 0.22 + fullSpectrumFactor * 0.38
+        let highBandCompression = 0.04 + fullSpectrumFactor * 0.08
 
         return bands.enumerated().map { index, value in
             let localAverage = localAverage(in: bands, around: index, radius: 2)
@@ -541,7 +541,7 @@ public struct AuroraVisualizationView: View {
             // Gradient fades transparent at the very bottom so bands "emerge" from the pool
             // rather than anchoring bright cones to the floor (which causes the "uplight" banding look).
             // Peak brightness sits slightly above the base, then fades upward to transparent.
-            let intensityAlpha = max(0.3, intensity)
+            let intensityAlpha = 0.18 + intensity * 0.82
             let bandGradient = Gradient(stops: [
                 .init(color: accentColor.opacity(0), location: 0.0),
                 .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.7), location: 0.08),

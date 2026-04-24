@@ -224,11 +224,15 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         minHeight: CGFloat,
         poolHeight: CGFloat
     ) {
+        let backingScale = backingScaleFactor(for: view)
+
         uniforms.accentColor = resolvedRGBA(from: accentColor)
-        uniforms.maxHeight = Float(maxHeight)
-        uniforms.minHeight = Float(minHeight)
-        uniforms.poolHeight = Float(poolHeight)
-        uniforms.activeWidth = Float(activeContentMaxWidth ?? 0)
+        // The shader runs in drawable pixels, while SwiftUI layout supplies points.
+        // Convert every layout dimension so Retina displays do not halve the aurora.
+        uniforms.maxHeight = Float(maxHeight * backingScale)
+        uniforms.minHeight = Float(minHeight * backingScale)
+        uniforms.poolHeight = Float(poolHeight * backingScale)
+        uniforms.activeWidth = Float((activeContentMaxWidth ?? 0) * backingScale)
         uniforms.bandCount = UInt32(max(1, min(24, bandCount)))
         uniforms.layerCount = UInt32(layerCount(for: surfaceTier))
         uniforms.colorScheme = colorScheme == .dark ? 1 : 0
@@ -310,6 +314,18 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         #endif
     }
 
+    private func backingScaleFactor(for view: MTKView) -> CGFloat {
+        #if canImport(UIKit)
+        return max(1, view.window?.screen.scale ?? view.contentScaleFactor)
+        #elseif canImport(AppKit)
+        let converted = view.convertToBacking(CGSize(width: 1, height: 1))
+        if converted.width > 0 {
+            return max(1, converted.width)
+        }
+        return max(1, view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1)
+        #endif
+    }
+
     private func configureTransparentBacking(for view: MTKView) {
         view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
 
@@ -388,19 +404,19 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
             float verticalBlur;
             if (u.layerCount == 1) {
                 layerOpacity = 0.50;
-                spread = 2.4;
+                spread = 1.8;
                 heightScale = 1.10;
                 verticalSoftness = 0.62;
                 verticalBlur = 1.75;
             } else if (u.layerCount == 2) {
-                layerOpacity = layer == 0 ? 0.20 : 0.38;
-                spread = layer == 0 ? 3.8 : 1.85;
+                layerOpacity = layer == 0 ? 0.20 : 0.42;
+                spread = layer == 0 ? 2.3 : 1.25;
                 heightScale = layer == 0 ? 1.26 : 1.06;
                 verticalSoftness = layer == 0 ? 0.48 : 0.70;
                 verticalBlur = layer == 0 ? 1.12 : 1.95;
             } else {
-                layerOpacity = layer == 0 ? 0.16 : (layer == 1 ? 0.26 : 0.34);
-                spread = layer == 0 ? 4.2 : (layer == 1 ? 2.55 : 1.55);
+                layerOpacity = layer == 0 ? 0.16 : (layer == 1 ? 0.28 : 0.38);
+                spread = layer == 0 ? 2.7 : (layer == 1 ? 1.75 : 1.15);
                 heightScale = layer == 0 ? 1.34 : (layer == 1 ? 1.16 : 1.0);
                 verticalSoftness = layer == 0 ? 0.42 : (layer == 1 ? 0.58 : 0.76);
                 verticalBlur = layer == 0 ? 0.92 : (layer == 1 ? 1.42 : 2.4);
@@ -425,7 +441,8 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
                 float t = clamp((p.y - rectMinY) / max(rectHeight, 1.0), 0.0, 1.0);
                 float fromBottom = 1.0 - t;
                 float vertical = smoothBand(0.0, 0.08, fromBottom) * (1.0 - smoothBand(verticalSoftness, 1.0, fromBottom));
-                float contribution = ellipse * vertical * max(0.30, intensity) * baseOpacity;
+                float intensityAlpha = 0.18 + intensity * 0.82;
+                float contribution = ellipse * vertical * intensityAlpha * baseOpacity;
 
                 color += u.accentColor.rgb * contribution;
                 alpha += contribution * 0.72;
