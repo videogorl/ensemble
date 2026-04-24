@@ -310,7 +310,51 @@ public struct AuroraVisualizationView: View {
             }
         }
 
-        return lateralBlend(bands: bands, sigma: 2.2, mix: 0.4)
+        let responsiveBands = enhanceBandResponsiveness(bands)
+        return lateralBlend(bands: responsiveBands, sigma: 2.2, mix: 0.34)
+    }
+
+    /// Preserves contrast when the whole spectrum is loud so strong songs still feel animated.
+    /// The bell-curve silhouette is applied later during drawing; this only reshapes per-band energy.
+    private func enhanceBandResponsiveness(_ bands: [Double]) -> [Double] {
+        guard !bands.isEmpty else { return bands }
+
+        let mean = bands.reduce(0, +) / Double(bands.count)
+        let peak = bands.max() ?? 0
+        guard peak > 0 else { return bands }
+
+        let density = mean / peak
+        let loudFactor = smoothStep(edge0: 0.34, edge1: 0.78, value: mean)
+        let fullSpectrumFactor = smoothStep(edge0: 0.58, edge1: 0.92, value: density)
+        let globalContrastBoost = 0.18 + loudFactor * 0.34 + fullSpectrumFactor * 0.24
+        let localContrastBoost = 0.16 + fullSpectrumFactor * 0.28
+        let highBandCompression = 0.08 + fullSpectrumFactor * 0.12
+
+        return bands.enumerated().map { index, value in
+            let localAverage = localAverage(in: bands, around: index, radius: 2)
+            let globalContrast = value - mean
+            let localContrast = value - localAverage
+            let contrasted = value
+                + globalContrast * globalContrastBoost
+                + localContrast * localContrastBoost
+
+            // Keep a little headroom in dense/loud sections so every band does not pin at max.
+            let compressed = contrasted / (1 + max(0, contrasted - 0.68) * highBandCompression)
+            return min(0.98, max(0.015, compressed))
+        }
+    }
+
+    private func localAverage(in bands: [Double], around index: Int, radius: Int) -> Double {
+        let lowerBound = max(0, index - radius)
+        let upperBound = min(bands.count - 1, index + radius)
+        let values = bands[lowerBound...upperBound]
+        return values.reduce(0, +) / Double(values.count)
+    }
+
+    private func smoothStep(edge0: Double, edge1: Double, value: Double) -> Double {
+        guard edge0 != edge1 else { return value >= edge1 ? 1 : 0 }
+        let x = min(1, max(0, (value - edge0) / (edge1 - edge0)))
+        return x * x * (3 - 2 * x)
     }
 
     /// Gaussian-weighted lateral blend across frequency bands.
