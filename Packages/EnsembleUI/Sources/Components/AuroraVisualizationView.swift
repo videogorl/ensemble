@@ -132,6 +132,7 @@ public struct AuroraVisualizationView: View {
                 bottomFadeOverlay
                     .frame(height: maxHeight + 40)
                     .offset(y: 15)
+                    .blendMode(.multiply)
             }
         }
         .opacity(isVisible ? 0.7 : 0) // Reduced overall opacity for transparency
