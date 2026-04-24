@@ -111,7 +111,7 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - Keep root/sidebar backdrops in the low-cost surface tier and Now Playing/viewport surfaces in the richer tier. Do not throttle playback frequency publishers to reduce visual cost; change renderer tier, pass count, or frame interval at the visual surface instead.
 - Preserve the full-width backdrop/fade composition while constraining active aurora bands through `activeContentMaxWidth` when the caller provides it.
 - The Metal renderer should output only premultiplied colored aurora content over a transparent MTKView backing layer. Keep the foreground/bottom fade as a SwiftUI overlay above Metal so the fade stays in front without making the Metal drawable an opaque background band.
-- Preserve the "horizon" read by adding the final accent wash above the foreground fade, not by baking opaque color into the Metal layer.
+- Preserve the "horizon" read by drawing a stronger accent wash under the foreground fade, not by baking opaque color into the Metal layer. The fade should unify the aurora and horizon band as one composition.
 - Keep the Metal aurora's outer layer broad and low-opacity so the top dissolves like the older Canvas blur passes instead of reading as a hard oval blob.
 
 ### Button Labels

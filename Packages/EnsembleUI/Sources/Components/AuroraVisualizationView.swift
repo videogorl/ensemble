@@ -190,8 +190,8 @@ public struct AuroraVisualizationView: View {
                     minHeight: minHeight,
                     poolHeight: poolHeight
                 )
-                foregroundFadeOverlay
                 horizonGlowOverlay
+                foregroundFadeOverlay
             }
             .frame(width: surfaceWidth, height: surfaceHeight)
             .offset(x: xOffset, y: 15)
@@ -229,10 +229,10 @@ public struct AuroraVisualizationView: View {
             gradient: Gradient(stops: [
                 .init(color: .clear, location: 0.0),
                 .init(color: .clear, location: 0.28),
-                .init(color: baseColor.opacity(0.14), location: 0.54),
-                .init(color: baseColor.opacity(0.42), location: 0.75),
-                .init(color: baseColor.opacity(0.76), location: 0.92),
-                .init(color: baseColor.opacity(0.86), location: 1.0)
+                .init(color: baseColor.opacity(0.10), location: 0.54),
+                .init(color: baseColor.opacity(0.34), location: 0.75),
+                .init(color: baseColor.opacity(0.56), location: 0.91),
+                .init(color: baseColor.opacity(0.68), location: 1.0)
             ]),
             startPoint: .top,
             endPoint: .bottom
@@ -240,21 +240,21 @@ public struct AuroraVisualizationView: View {
     }
 
     private var horizonGlowOverlay: some View {
-        let bottomOpacity = colorScheme == .dark ? 0.22 : 0.30
+        let bottomOpacity = colorScheme == .dark ? 0.64 : 0.96
 
         return LinearGradient(
             gradient: Gradient(stops: [
                 .init(color: .clear, location: 0.0),
-                .init(color: .clear, location: 0.48),
-                .init(color: accentColor.opacity(bottomOpacity * 0.08), location: 0.62),
-                .init(color: accentColor.opacity(bottomOpacity * 0.34), location: 0.78),
-                .init(color: accentColor.opacity(bottomOpacity * 0.68), location: 0.92),
+                .init(color: .clear, location: 0.16),
+                .init(color: accentColor.opacity(bottomOpacity * 0.10), location: 0.34),
+                .init(color: accentColor.opacity(bottomOpacity * 0.36), location: 0.58),
+                .init(color: accentColor.opacity(bottomOpacity * 0.78), location: 0.82),
                 .init(color: accentColor.opacity(bottomOpacity), location: 1.0)
             ]),
             startPoint: .top,
             endPoint: .bottom
         )
-        .blur(radius: 22)
+        .blur(radius: 32)
     }
 
     private func canvasAuroraSurface(width: CGFloat, height: CGFloat, xOffset: CGFloat) -> some View {
@@ -373,8 +373,8 @@ public struct AuroraVisualizationView: View {
 
         drawBandPoolBridge(context: context, size: size, energy: energy)
         drawBottomPool(context: context, size: size, energy: energy)
-        drawForegroundFade(context: context, size: size)
         drawHorizonGlow(context: context, size: size)
+        drawForegroundFade(context: context, size: size)
     }
 
     private func auroraEnergy(from bands: [Double]) -> Double {
@@ -729,10 +729,10 @@ public struct AuroraVisualizationView: View {
         let fadeGradient = Gradient(stops: [
             .init(color: .clear, location: 0.0),
             .init(color: .clear, location: 0.28),
-            .init(color: baseColor.opacity(0.14), location: 0.54),
-            .init(color: baseColor.opacity(0.42), location: 0.75),
-            .init(color: baseColor.opacity(0.76), location: 0.92),
-            .init(color: baseColor.opacity(0.86), location: 1.0)
+            .init(color: baseColor.opacity(0.10), location: 0.54),
+            .init(color: baseColor.opacity(0.34), location: 0.75),
+            .init(color: baseColor.opacity(0.56), location: 0.91),
+            .init(color: baseColor.opacity(0.68), location: 1.0)
         ])
 
         context.fill(
@@ -745,22 +745,22 @@ public struct AuroraVisualizationView: View {
         )
     }
 
-    /// Adds a final soft color wash at the bottom edge so the aurora reads as
-    /// emerging from a horizon after the foreground fade has softened the content.
+    /// Adds a soft color wash below the foreground fade so the aurora reads as
+    /// emerging from a tinted horizon instead of a separate bottom layer.
     private func drawHorizonGlow(context: GraphicsContext, size: CGSize) {
-        let bottomOpacity = colorScheme == .dark ? 0.22 : 0.30
+        let bottomOpacity = colorScheme == .dark ? 0.64 : 0.96
         let rect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
         let glowGradient = Gradient(stops: [
             .init(color: .clear, location: 0.0),
-            .init(color: .clear, location: 0.48),
-            .init(color: accentColor.opacity(bottomOpacity * 0.08), location: 0.62),
-            .init(color: accentColor.opacity(bottomOpacity * 0.34), location: 0.78),
-            .init(color: accentColor.opacity(bottomOpacity * 0.68), location: 0.92),
+            .init(color: .clear, location: 0.16),
+            .init(color: accentColor.opacity(bottomOpacity * 0.10), location: 0.34),
+            .init(color: accentColor.opacity(bottomOpacity * 0.36), location: 0.58),
+            .init(color: accentColor.opacity(bottomOpacity * 0.78), location: 0.82),
             .init(color: accentColor.opacity(bottomOpacity), location: 1.0)
         ])
 
         var glowContext = context
-        glowContext.addFilter(.blur(radius: 22))
+        glowContext.addFilter(.blur(radius: 32))
         glowContext.fill(
             Path(rect),
             with: .linearGradient(
