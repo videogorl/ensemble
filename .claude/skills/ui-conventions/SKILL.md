@@ -102,7 +102,7 @@ if #available(iOS 16.0, macOS 13.0, *) {
 ### Large-Screen Browse Surfaces
 - Artists, Playlists, and Genres use `LargeScreenBrowseSplitView` only on macOS and regular-width iPad layouts. Compact iPhone keeps the existing push-navigation list.
 - The split shell owns the left selection list and right detail pane. Keep selection rows visually dense and use `LargeScreenPlaceholderView` for empty right-pane states such as "Select an Artist".
-- Songs uses shared track-row visuals on large screens, with adaptive artist/album metadata columns when width allows. macOS hosts rows in a native SwiftUI `List` with `.trackSwipeActions(...)`; large-screen iPad hosts rows in `MediaTrackList` so UIKit owns `UISwipeActionsConfiguration` and avoids sidebar-width leading-swipe gaps. Do not use `TrackSwipeContainer` or reintroduce a column-customization table for Songs unless explicitly requested.
+- Songs uses `SongsTrackListHost` on large screens, with adaptive artist/album metadata columns when width allows. iPad hosts rows in `MediaTrackList`/`UITableView`; macOS hosts rows in the AppKit `NSTableView` backend. Keep row actions resolved through `TrackRowInteractionModel` so UIKit/AppKit behavior stays aligned. Do not use `TrackSwipeContainer` or reintroduce a column-customization table for Songs unless explicitly requested.
 - Do not replace compact `TrackRow` lists with table rows on iPhone. Compact Songs must keep genre chips, row swipe actions, and existing mini-player spacing.
 - Refreshable root screens should also attach `.refreshCommand { ... }` so macOS View > Refresh invokes the focused screen's same async refresh action.
 

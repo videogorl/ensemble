@@ -566,155 +566,43 @@ public struct SongsView: View {
 
     @ViewBuilder
     private func largeScreenIndexedSongList(width: CGFloat) -> some View {
-        #if os(iOS)
-        largeScreenIndexedMediaTrackList(width: width)
-        #else
-        ScrollViewReader { proxy in
-            ZStack(alignment: .trailing) {
-                List {
-                    ForEach(libraryVM.trackSections) { section in
-                        Section(header: sectionHeader(section.letter)) {
-                            ForEach(section.tracks) { track in
-                                largeScreenSongRow(track: track, width: width)
-                            }
-                        }
-                        .id(section.letter)
-                    }
-                }
-                .listStyle(.plain)
-                .modifier(ClearScrollContentBackgroundModifier())
-
-                if !libraryVM.filteredTracks.isEmpty {
-                    ScrollIndex(
-                        letters: libraryVM.trackSections.map { $0.letter },
-                        currentLetter: .constant(nil),
-                        onLetterTap: { letter in
-                            proxy.scrollTo(letter, anchor: .top)
-                        }
-                    )
-                    .libraryScrollIndexPositioning()
-                }
-            }
+        SongsTrackListHost(
+            sections: largeScreenTrackSections,
+            currentTrackId: nowPlayingVM.currentTrack?.id,
+            availabilityGeneration: availabilityGeneration,
+            activeDownloadRatingKeys: activeDownloadRatingKeys,
+            bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+            supplementalMetadataWidth: width,
+            showsSectionIndex: true,
+            interactionModel: largeScreenTrackInteractionModel
+        ) { track, _ in
+            playTrack(track)
         }
-        #endif
     }
 
     @ViewBuilder
     private func largeScreenFlatSongList(width: CGFloat) -> some View {
-        #if os(iOS)
-        MediaTrackList(
+        SongsTrackListHost(
             tracks: libraryVM.filteredTracks,
-            showArtwork: true,
-            showTrackNumbers: false,
-            groupByDisc: false,
             currentTrackId: nowPlayingVM.currentTrack?.id,
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,
-            managesOwnScrolling: true,
             bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+            supplementalMetadataWidth: width,
             interactionModel: largeScreenTrackInteractionModel,
-            supplementalMetadataWidth: width
         ) { track, _ in
             playTrack(track)
         }
-        #else
-        List {
-            ForEach(libraryVM.filteredTracks) { track in
-                largeScreenSongRow(track: track, width: width)
-            }
-        }
-        .listStyle(.plain)
-        .modifier(ClearScrollContentBackgroundModifier())
-        #endif
     }
 
-    #if os(iOS)
-    private func largeScreenIndexedMediaTrackList(width: CGFloat) -> some View {
-        ScrollViewReader { proxy in
-            ZStack(alignment: .trailing) {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(libraryVM.trackSections) { section in
-                            largeScreenIndexedMediaTrackSection(section: section, width: width)
-                        }
-                    }
-                    .padding(.vertical)
-                }
-
-                if !libraryVM.filteredTracks.isEmpty {
-                    ScrollIndex(
-                        letters: libraryVM.trackSections.map { $0.letter },
-                        currentLetter: .constant(nil),
-                        onLetterTap: { letter in
-                            proxy.scrollTo(letter, anchor: .top)
-                        }
-                    )
-                    .libraryScrollIndexPositioning()
-                }
-            }
+    private var largeScreenTrackSections: [SongsTrackListSection] {
+        libraryVM.trackSections.map { section in
+            SongsTrackListSection(
+                id: section.letter,
+                title: section.letter,
+                tracks: section.tracks
+            )
         }
-    }
-
-    private func largeScreenIndexedMediaTrackSection(
-        section: LibraryViewModel.TrackSection,
-        width: CGFloat
-    ) -> some View {
-        let trackCount = section.tracks.count
-        let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
-
-        return VStack(alignment: .leading, spacing: 0) {
-            sectionHeader(section.letter)
-
-            MediaTrackList(
-                tracks: section.tracks,
-                showArtwork: true,
-                showTrackNumbers: false,
-                groupByDisc: false,
-                currentTrackId: nowPlayingVM.currentTrack?.id,
-                availabilityGeneration: availabilityGeneration,
-                activeDownloadRatingKeys: activeDownloadRatingKeys,
-                interactionModel: largeScreenTrackInteractionModel,
-                supplementalMetadataWidth: width
-            ) { track, _ in
-                playTrack(track)
-            }
-            .frame(height: height)
-        }
-        .id(section.letter)
-    }
-    #endif
-
-    private func largeScreenSongRow(track: Track, width: CGFloat) -> some View {
-        let resolvedActions = largeScreenTrackInteractionModel.resolve(for: track)
-
-        return TrackRow(
-            track: track,
-            showArtwork: true,
-            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
-            onPlayNext: resolvedActions.onPlayNext,
-            onPlayLast: resolvedActions.onPlayLast,
-            onAddToPlaylist: resolvedActions.onAddToPlaylist,
-            onAddToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
-            onToggleFavorite: resolvedActions.onToggleFavorite,
-            onGoToAlbum: resolvedActions.onGoToAlbum,
-            onGoToArtist: resolvedActions.onGoToArtist,
-            onShareLink: resolvedActions.onShareLink,
-            onShareFile: resolvedActions.onShareFile,
-            isFavorited: resolvedActions.isFavorited,
-            recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
-            supplementalMetadataWidth: width
-        ) {
-            playTrack(track)
-        }
-        .trackSwipeActions(
-            track: track,
-            nowPlayingVM: nowPlayingVM,
-            onPlayNext: resolvedActions.onPlayNext,
-            onPlayLast: resolvedActions.onPlayLast,
-            onAddToPlaylist: resolvedActions.onAddToPlaylist
-        )
-        .listRowBackground(Color.clear)
-        .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
     }
 
     private var largeScreenTrackInteractionModel: TrackRowInteractionModel {

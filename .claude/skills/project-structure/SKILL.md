@@ -316,6 +316,7 @@ Sources/
 |   +-- LargeScreenBrowseSplitView.swift # Adaptive regular-width browse shell with selection list + detail pane
 |   +-- MacAuxiliaryWindowScaffold.swift # Native macOS auxiliary window scaffold for Profile/Downloads-style windows
 |   +-- OfflineIndicatorOverlay.swift  # Device-aware offline connectivity indicator (DI/notch/classic)
+|   +-- SongsTrackListHost.swift      # Cross-platform native Songs table host (UITableView on iOS/iPadOS, NSTableView on macOS)
 |   +-- SongsStageFlowAlbum.swift     # Builds StageFlow album cards from filtered song results
 |   +-- StageFlowView.swift           # Center-stage carousel with snapping and transport overlay
 |   +-- StageFlowItemView.swift       # Individual card used in StageFlow
