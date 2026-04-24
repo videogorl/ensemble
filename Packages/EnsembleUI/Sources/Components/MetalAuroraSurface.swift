@@ -463,7 +463,9 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         color += u.accentColor.rgb * pool * poolOpacity;
         alpha += pool * poolOpacity * 0.75;
 
-        alpha = clamp(alpha, 0.0, 0.95);
+        float topFeather = smoothBand(0.0, 96.0, p.y);
+        color *= topFeather;
+        alpha = clamp(alpha * topFeather, 0.0, 0.95);
 
         // The blend state expects unpremultiplied source color. The glow math
         // accumulates weighted light, so divide by alpha before presenting or
