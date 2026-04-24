@@ -1,7 +1,14 @@
 import EnsembleCore
 import SwiftUI
 import Nuke
-import NukeUI
+
+#if canImport(UIKit)
+import UIKit
+private typealias PlatformImage = UIImage
+#elseif canImport(AppKit)
+import AppKit
+private typealias PlatformImage = NSImage
+#endif
 
 public struct ArtworkView: View {
     let path: String?
@@ -15,9 +22,11 @@ public struct ArtworkView: View {
 
     @Environment(\.dependencies) private var dependencies
     @State private var artworkURL: URL?
+    /// Snapshot of the currently resolved image.
+    @State private var resolvedImage: PlatformImage?
     /// Snapshot of the last successfully loaded image, shown during URL transitions
-    /// to prevent placeholder flash when switching albums
-    @State private var previousImage: Image?
+    /// to prevent placeholder flash when switching albums.
+    @State private var previousImage: PlatformImage?
     /// Tracks the current artwork path so we can clear previousImage when switching
     /// to a different artwork source (prevents stale art from a previous album)
     @State private var currentArtworkPath: String?
@@ -96,7 +105,7 @@ public struct ArtworkView: View {
                         : min(max(cornerRadius, 0), side / 2)
                     let artworkShape = RoundedRectangle(cornerRadius: responsiveRadius, style: .continuous)
 
-                    artworkImage(iconSize: iconSize, frameSize: frameSize)
+                    artworkContent(iconSize: iconSize)
                         .frame(width: side, height: side)
                         .clipShape(artworkShape)
                         .contentShape(artworkShape)
@@ -104,14 +113,14 @@ public struct ArtworkView: View {
                 .aspectRatio(1, contentMode: .fit)
             } else {
                 let artworkShape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                artworkImage(iconSize: iconSize, frameSize: frameSize)
+                artworkContent(iconSize: iconSize)
                     .frame(width: frameSize.width, height: frameSize.height)
                     .clipShape(artworkShape)
                     .contentShape(artworkShape)
             }
         }
         .task(id: "\(loadID)|\(invalidationToken)") {
-            await loadArtworkURL()
+            await loadArtwork()
         }
         .onReceive(
             NotificationCenter.default.publisher(for: ArtworkLoader.artworkDidInvalidate)
@@ -120,66 +129,69 @@ public struct ArtworkView: View {
             guard let invalidatedKey = notification.userInfo?["ratingKey"] as? String else { return }
             if invalidatedKey == effectiveRatingKey {
                 artworkURL = nil
+                resolvedImage = nil
                 invalidationToken += 1
             }
         }
         .onReceive(
             NotificationCenter.default.publisher(for: ArtworkLoader.serversBecameAvailable)
         ) { _ in
-            // With local-first artwork, file URLs are the norm.
-            // Only retry when we have NO artwork at all (nil URL means no local cache existed).
-            if artworkURL == nil {
+            // Startup Feed cards can begin loading against a stale pre-health-check
+            // remote endpoint. When servers become available after failover, retry any
+            // unresolved remote URL as well as nil URLs so cards re-resolve against the
+            // healthy server without disturbing local file-backed artwork.
+            if artworkURL == nil || artworkURL?.isFileURL == false {
                 invalidationToken += 1
             }
         }
     }
 
     @ViewBuilder
-    private func artworkImage(iconSize: CGFloat, frameSize: CGSize) -> some View {
-        LazyImage(url: artworkURL) { state in
-            ZStack {
-                Color.gray.opacity(0.2)
+    private func artworkContent(iconSize: CGFloat) -> some View {
+        ZStack {
+            Color.gray.opacity(0.2)
 
-                if let image = state.image {
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .onAppear {
-                            // Capture successful loads so we can show them during transitions
-                            previousImage = state.image
-                        }
-                } else if let previous = previousImage {
-                    // Show the last loaded image during URL transitions to avoid
-                    // placeholder flash when switching between albums
-                    previous
-                        .resizable()
-                        .scaledToFill()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if state.error != nil {
-                    Image(systemName: "music.note")
-                        .font(.system(size: iconSize))
-                        .foregroundColor(.gray.opacity(0.5))
-                } else {
-                    Image(systemName: "music.note")
-                        .font(.system(size: iconSize))
-                        .foregroundColor(.gray.opacity(0.5))
-                }
+            if let image = resolvedImage {
+                platformImageView(image)
+            } else if let previousImage {
+                // Show the last loaded image during URL transitions to avoid
+                // placeholder flash when switching between albums.
+                platformImageView(previousImage)
+            } else {
+                Image(systemName: "music.note")
+                    .font(.system(size: iconSize))
+                    .foregroundColor(.gray.opacity(0.5))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
         }
-        .processors([.resize(size: frameSize, contentMode: .aspectFill, upscale: true)])
-        .priority(imagePriority)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
     }
-    
-    private func loadArtworkURL() async {
+
+    @ViewBuilder
+    private func platformImageView(_ image: PlatformImage) -> some View {
+        #if canImport(UIKit)
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFill()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        #elseif canImport(AppKit)
+        Image(nsImage: image)
+            .resizable()
+            .scaledToFill()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        #endif
+    }
+
+    @MainActor
+    private func loadArtwork() async {
         let resolvedPath = effectivePath
+        let requestedInvalidationToken = invalidationToken
 
         // Clear stale artwork only when switching to a different artwork source
         // (preserves smooth same-album transitions, prevents showing Album A's
-        // art when playing Album B's track that has no artwork)
+        // art when playing Album B's track that has no artwork).
         if resolvedPath != currentArtworkPath {
+            resolvedImage = nil
             previousImage = nil
             currentArtworkPath = resolvedPath
         }
@@ -189,6 +201,7 @@ public struct ArtworkView: View {
             EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: No path available - primary:\(path ?? "nil") fallback:\(fallbackPath ?? "nil")")
             #endif
             artworkURL = nil
+            resolvedImage = nil
             return
         }
 
@@ -203,6 +216,35 @@ public struct ArtworkView: View {
 
         if url != artworkURL {
             artworkURL = url
+        }
+
+        guard let url else {
+            resolvedImage = nil
+            return
+        }
+
+        // Plex already serves a size-specific transcode for each artwork request, so
+        // adding an extra Nuke resize processor here is redundant. Matching the plain
+        // request path used by the detail views also avoids a macOS-only Feed failure
+        // where uncached remote artwork never resolves into a rendered image.
+        let request = ImageRequest(url: url, priority: imagePriority)
+
+        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+            guard requestedInvalidationToken == invalidationToken, currentArtworkPath == resolvedPath else { return }
+            previousImage = resolvedImage ?? previousImage
+            resolvedImage = cachedImage.image
+            return
+        }
+
+        do {
+            let image = try await ImagePipeline.shared.image(for: request)
+            guard requestedInvalidationToken == invalidationToken, currentArtworkPath == resolvedPath else { return }
+            previousImage = resolvedImage ?? previousImage
+            resolvedImage = image
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)] failed url=\(url.absoluteString) error=\(error.localizedDescription)")
+            #endif
         }
     }
 }
