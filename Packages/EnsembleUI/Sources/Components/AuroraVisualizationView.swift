@@ -574,8 +574,8 @@ public struct AuroraVisualizationView: View {
     }
 
     /// Draws the final foreground fade inside the same Canvas as the bands and pool.
-    /// Keeping this in the Canvas avoids the separate-layer look while still grounding
-    /// the aurora in front of the active glow.
+    /// This uses normal compositing so light-mode surfaces actually cover the glow
+    /// instead of multiplying white over it, which is visually almost a no-op.
     private func drawForegroundFade(context: GraphicsContext, size: CGSize) {
         #if canImport(UIKit)
         let baseColor: Color = colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
@@ -586,15 +586,14 @@ public struct AuroraVisualizationView: View {
         let rect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
         let fadeGradient = Gradient(stops: [
             .init(color: .clear, location: 0.0),
-            .init(color: .clear, location: 0.42),
-            .init(color: baseColor.opacity(0.16), location: 0.68),
-            .init(color: baseColor.opacity(0.46), location: 0.9),
-            .init(color: baseColor.opacity(0.68), location: 1.0)
+            .init(color: .clear, location: 0.28),
+            .init(color: baseColor.opacity(0.14), location: 0.54),
+            .init(color: baseColor.opacity(0.42), location: 0.75),
+            .init(color: baseColor.opacity(0.76), location: 0.92),
+            .init(color: baseColor.opacity(0.94), location: 1.0)
         ])
 
-        var fadeContext = context
-        fadeContext.blendMode = .multiply
-        fadeContext.fill(
+        context.fill(
             Path(rect),
             with: .linearGradient(
                 fadeGradient,
