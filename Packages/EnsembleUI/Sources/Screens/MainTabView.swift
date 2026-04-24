@@ -1844,10 +1844,14 @@ extension View {
     /// Remove the sidebar toggle button. Requires iOS 17+/macOS 14+; no-op on earlier.
     @ViewBuilder
     func if_available_removeSidebarToggle() -> some View {
+        #if os(macOS)
         if #available(iOS 17.0, macOS 14.0, *) {
             self.toolbar(removing: .sidebarToggle)
         } else {
             self
         }
+        #else
+        self
+        #endif
     }
 }
