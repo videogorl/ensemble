@@ -36,6 +36,8 @@ public class TrackTableViewCell: UITableViewCell {
     private let artworkImageView = UIImageView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
+    private let artistMetadataLabel = UILabel()
+    private let albumMetadataLabel = UILabel()
     private let downloadIcon = UIImageView()
     private let downloadSpinner = UIActivityIndicatorView(style: .medium)
     private let durationLabel = UILabel()
@@ -48,7 +50,16 @@ public class TrackTableViewCell: UITableViewCell {
     private var artworkHeightConstraint: NSLayoutConstraint?
     private var titleLeadingConstraint: NSLayoutConstraint?
     private var subtitleLeadingConstraint: NSLayoutConstraint?
+    private var titleTrailingToDownloadConstraint: NSLayoutConstraint?
+    private var subtitleTrailingToDownloadConstraint: NSLayoutConstraint?
+    private var titleTrailingToArtistConstraint: NSLayoutConstraint?
+    private var artistTrailingToAlbumConstraint: NSLayoutConstraint?
+    private var artistTrailingToDownloadConstraint: NSLayoutConstraint?
+    private var albumTrailingToDownloadConstraint: NSLayoutConstraint?
+    private var artistWidthConstraint: NSLayoutConstraint?
+    private var albumWidthConstraint: NSLayoutConstraint?
     private var titleTopConstraint: NSLayoutConstraint?
+    private var titleCenterYConstraint: NSLayoutConstraint?
     private var subtitleTopConstraint: NSLayoutConstraint?
     private var downloadIconWidthConstraint: NSLayoutConstraint?
     private var downloadIconTrailingConstraint: NSLayoutConstraint?
@@ -91,6 +102,22 @@ public class TrackTableViewCell: UITableViewCell {
         subtitleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         subtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         contentView.addSubview(subtitleLabel)
+
+        artistMetadataLabel.font = .systemFont(ofSize: 16, weight: .regular)
+        artistMetadataLabel.textColor = .secondaryLabel
+        artistMetadataLabel.lineBreakMode = .byTruncatingTail
+        artistMetadataLabel.translatesAutoresizingMaskIntoConstraints = false
+        artistMetadataLabel.setContentHuggingPriority(.required, for: .horizontal)
+        artistMetadataLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        contentView.addSubview(artistMetadataLabel)
+
+        albumMetadataLabel.font = .systemFont(ofSize: 16, weight: .regular)
+        albumMetadataLabel.textColor = .secondaryLabel
+        albumMetadataLabel.lineBreakMode = .byTruncatingTail
+        albumMetadataLabel.translatesAutoresizingMaskIntoConstraints = false
+        albumMetadataLabel.setContentHuggingPriority(.required, for: .horizontal)
+        albumMetadataLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        contentView.addSubview(albumMetadataLabel)
         
         downloadIcon.image = UIImage(systemName: "arrow.down.circle.fill")
         downloadIcon.tintColor = .secondaryLabel
@@ -153,9 +180,9 @@ public class TrackTableViewCell: UITableViewCell {
             trackNumberLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: TrackListLayoutMetrics.rowHorizontalPadding),
             trackNumberLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             trackNumberLabel.widthAnchor.constraint(equalToConstant: 30),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -6),
 
-            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -6),
+            artistMetadataLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            albumMetadataLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
             // Download icon / spinner sit just left of the duration label
             downloadIcon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
@@ -182,12 +209,26 @@ public class TrackTableViewCell: UITableViewCell {
         artworkWidthConstraint = artworkImageView.widthAnchor.constraint(equalToConstant: 44)
         artworkHeightConstraint = artworkImageView.heightAnchor.constraint(equalToConstant: 44)
         titleTopConstraint = titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14)
+        titleCenterYConstraint = titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
         subtitleTopConstraint = subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2)
         artworkWidthConstraint?.isActive = true
         artworkHeightConstraint?.isActive = true
         updateArtworkCornerRadius(for: 44)
         titleTopConstraint?.isActive = true
         subtitleTopConstraint?.isActive = true
+
+        titleTrailingToDownloadConstraint = titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -6)
+        subtitleTrailingToDownloadConstraint = subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -6)
+        titleTrailingToArtistConstraint = titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: artistMetadataLabel.leadingAnchor, constant: -16)
+        artistTrailingToAlbumConstraint = artistMetadataLabel.trailingAnchor.constraint(lessThanOrEqualTo: albumMetadataLabel.leadingAnchor, constant: -16)
+        artistTrailingToDownloadConstraint = artistMetadataLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -16)
+        albumTrailingToDownloadConstraint = albumMetadataLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -16)
+        artistWidthConstraint = artistMetadataLabel.widthAnchor.constraint(equalToConstant: 0)
+        albumWidthConstraint = albumMetadataLabel.widthAnchor.constraint(equalToConstant: 0)
+        artistWidthConstraint?.isActive = true
+        albumWidthConstraint?.isActive = true
+        titleTrailingToDownloadConstraint?.isActive = true
+        subtitleTrailingToDownloadConstraint?.isActive = true
 
         // Stored constraints toggled based on download state
         downloadIconWidthConstraint = downloadIcon.widthAnchor.constraint(equalToConstant: 0)
@@ -205,6 +246,7 @@ public class TrackTableViewCell: UITableViewCell {
         isUnavailableOffline: Bool,
         isActivelyDownloading: Bool = false,
         isFavorited: Bool = false,
+        supplementalMetadataWidth: CGFloat? = nil,
         menu: UIMenu?,
         rowHeight: CGFloat = 68,
         artworkLoader: ArtworkLoaderProtocol
@@ -233,6 +275,14 @@ public class TrackTableViewCell: UITableViewCell {
         titleLeadingConstraint?.isActive = true
         subtitleLeadingConstraint?.isActive = true
 
+        let showsArtistMetadataColumn = Self.showsArtistMetadataColumn(for: supplementalMetadataWidth)
+        let showsAlbumMetadataColumn = Self.showsAlbumMetadataColumn(for: supplementalMetadataWidth)
+        applySupplementalMetadataLayout(
+            width: supplementalMetadataWidth,
+            showsArtistColumn: showsArtistMetadataColumn,
+            showsAlbumColumn: showsAlbumMetadataColumn
+        )
+
         var subtitleParts: [String] = []
         if let artist = track.artistName {
             subtitleParts.append(artist)
@@ -240,7 +290,10 @@ public class TrackTableViewCell: UITableViewCell {
         if showAlbumName, let album = track.albumName {
             subtitleParts.append(album)
         }
-        subtitleLabel.text = subtitleParts.joined(separator: " · ")
+        subtitleLabel.text = showsArtistMetadataColumn ? nil : subtitleParts.joined(separator: " · ")
+        subtitleLabel.isHidden = showsArtistMetadataColumn
+        artistMetadataLabel.text = track.artistName ?? "Unknown Artist"
+        albumMetadataLabel.text = track.albumName ?? "Unknown Album"
         
         durationLabel.text = track.formattedDuration
         durationLabel.isHidden = isPlaying
@@ -353,6 +406,45 @@ public class TrackTableViewCell: UITableViewCell {
     private func updateArtworkCornerRadius(for dimension: CGFloat) {
         artworkImageView.layer.cornerRadius = ArtworkCornerRadius.square(for: dimension)
     }
+
+    private func applySupplementalMetadataLayout(
+        width: CGFloat?,
+        showsArtistColumn: Bool,
+        showsAlbumColumn: Bool
+    ) {
+        artistMetadataLabel.isHidden = !showsArtistColumn
+        albumMetadataLabel.isHidden = !showsAlbumColumn
+        artistWidthConstraint?.constant = showsArtistColumn ? Self.artistMetadataColumnWidth(for: width) : 0
+        albumWidthConstraint?.constant = showsAlbumColumn ? Self.albumMetadataColumnWidth(for: width) : 0
+
+        titleTopConstraint?.isActive = !showsArtistColumn
+        titleCenterYConstraint?.isActive = showsArtistColumn
+        titleTrailingToDownloadConstraint?.isActive = !showsArtistColumn
+        titleTrailingToArtistConstraint?.isActive = showsArtistColumn
+        artistTrailingToAlbumConstraint?.isActive = showsArtistColumn && showsAlbumColumn
+        artistTrailingToDownloadConstraint?.isActive = showsArtistColumn && !showsAlbumColumn
+        albumTrailingToDownloadConstraint?.isActive = showsAlbumColumn
+    }
+
+    private static func showsArtistMetadataColumn(for width: CGFloat?) -> Bool {
+        guard let width else { return false }
+        return width >= 700
+    }
+
+    private static func showsAlbumMetadataColumn(for width: CGFloat?) -> Bool {
+        guard let width else { return false }
+        return width >= 940
+    }
+
+    private static func artistMetadataColumnWidth(for width: CGFloat?) -> CGFloat {
+        guard let width else { return 0 }
+        return min(max(width * 0.22, 150), 260)
+    }
+
+    private static func albumMetadataColumnWidth(for width: CGFloat?) -> CGFloat {
+        guard let width else { return 0 }
+        return min(max(width * 0.28, 180), 360)
+    }
     
     public override func prepareForReuse() {
         super.prepareForReuse()
@@ -389,6 +481,8 @@ public struct MediaTrackList: UIViewRepresentable {
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
     let interactionModel: TrackRowInteractionModel
+    /// Optional available width used to reveal wide artist/album metadata columns.
+    let supplementalMetadataWidth: CGFloat?
 
     /// Change token from TrackAvailabilityResolver — parent observes the singleton
     /// and passes the generation here so MediaTrackList doesn't subscribe itself.
@@ -437,6 +531,7 @@ public struct MediaTrackList: UIViewRepresentable {
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
         interactionModel: TrackRowInteractionModel? = nil,
+        supplementalMetadataWidth: CGFloat? = nil,
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
@@ -465,6 +560,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.tableHeaderContent = tableHeaderContent
         self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
+        self.supplementalMetadataWidth = supplementalMetadataWidth
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
@@ -623,6 +719,7 @@ public struct MediaTrackList: UIViewRepresentable {
         let offlineStateChanged = context.coordinator.isOffline != isOffline
         let activeDownloadsChanged = context.coordinator.activeDownloadRatingKeys != activeDownloadRatingKeys
         let availabilityChanged = context.coordinator.lastAvailabilityGeneration != availabilityGeneration
+        let supplementalMetadataWidthChanged = context.coordinator.supplementalMetadataWidth != supplementalMetadataWidth
 
         // Update coordinator state
         context.coordinator.tracks = tracks
@@ -645,6 +742,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
         context.coordinator.interactionModel = interactionModel
+        context.coordinator.supplementalMetadataWidth = supplementalMetadataWidth
         context.coordinator.artworkLoader = dependencies.artworkLoader
         context.coordinator.toastCenter = dependencies.toastCenter
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
@@ -721,8 +819,8 @@ public struct MediaTrackList: UIViewRepresentable {
         // will trigger reloadData() on didMoveToWindow to avoid early layout passes.
         guard tableView.window != nil else { return }
 
-        if !dataChanged && (currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged) {
-            // Reconfigure visible cells when the playing track, connectivity, or download state changes.
+        if !dataChanged && (currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged || supplementalMetadataWidthChanged) {
+            // Reconfigure visible cells when track state or adaptive metadata width changes.
             // Bounds-check indexPaths since visible cells may reference stale geometry.
             tableView.visibleCells.forEach { cell in
                 if let trackCell = cell as? TrackTableViewCell,
@@ -740,6 +838,7 @@ public struct MediaTrackList: UIViewRepresentable {
                         isUnavailableOffline: context.coordinator.trackAvailabilityResolver.availability(for: track).shouldDim,
                         isActivelyDownloading: context.coordinator.activeDownloadRatingKeys.contains(track.id),
                         isFavorited: context.coordinator.isTrackFavorited?(track) ?? (track.rating >= 8),
+                        supplementalMetadataWidth: context.coordinator.supplementalMetadataWidth,
                         menu: context.coordinator.makeContextMenu(for: track, resolvedActions: context.coordinator.interactionModel.resolve(for: track)),
                         rowHeight: context.coordinator.rowHeight,
                         artworkLoader: dependencies.artworkLoader
@@ -771,6 +870,7 @@ public struct MediaTrackList: UIViewRepresentable {
             canAddToRecentPlaylist: canAddToRecentPlaylist,
             recentPlaylistTitle: recentPlaylistTitle,
             interactionModel: interactionModel,
+            supplementalMetadataWidth: supplementalMetadataWidth,
             artworkLoader: dependencies.artworkLoader,
             toastCenter: dependencies.toastCenter,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
@@ -814,6 +914,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var canAddToRecentPlaylist: ((Track) -> Bool)?
         var recentPlaylistTitle: String?
         var interactionModel: TrackRowInteractionModel
+        var supplementalMetadataWidth: CGFloat?
         var artworkLoader: ArtworkLoaderProtocol
         var toastCenter: ToastCenter
         var trackAvailabilityResolver: TrackAvailabilityResolver
@@ -856,6 +957,7 @@ public struct MediaTrackList: UIViewRepresentable {
             canAddToRecentPlaylist: ((Track) -> Bool)?,
             recentPlaylistTitle: String?,
             interactionModel: TrackRowInteractionModel,
+            supplementalMetadataWidth: CGFloat?,
             artworkLoader: ArtworkLoaderProtocol,
             toastCenter: ToastCenter,
             trackAvailabilityResolver: TrackAvailabilityResolver,
@@ -883,6 +985,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.canAddToRecentPlaylist = canAddToRecentPlaylist
             self.recentPlaylistTitle = recentPlaylistTitle
             self.interactionModel = interactionModel
+            self.supplementalMetadataWidth = supplementalMetadataWidth
             self.artworkLoader = artworkLoader
             self.toastCenter = toastCenter
             self.trackAvailabilityResolver = trackAvailabilityResolver
@@ -927,6 +1030,7 @@ public struct MediaTrackList: UIViewRepresentable {
                 isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
                 isActivelyDownloading: activeDownloadRatingKeys.contains(track.id),
                 isFavorited: isTrackFavorited?(track) ?? (track.rating >= 8),
+                supplementalMetadataWidth: supplementalMetadataWidth,
                 menu: makeContextMenu(for: track, resolvedActions: interactionModel.resolve(for: track)),
                 rowHeight: rowHeight,
                 artworkLoader: artworkLoader

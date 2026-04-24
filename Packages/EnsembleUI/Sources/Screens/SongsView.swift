@@ -566,6 +566,9 @@ public struct SongsView: View {
 
     @ViewBuilder
     private func largeScreenIndexedSongList(width: CGFloat) -> some View {
+        #if os(iOS)
+        largeScreenIndexedMediaTrackList(width: width)
+        #else
         ScrollViewReader { proxy in
             ZStack(alignment: .trailing) {
                 List {
@@ -593,9 +596,28 @@ public struct SongsView: View {
                 }
             }
         }
+        #endif
     }
 
+    @ViewBuilder
     private func largeScreenFlatSongList(width: CGFloat) -> some View {
+        #if os(iOS)
+        MediaTrackList(
+            tracks: libraryVM.filteredTracks,
+            showArtwork: true,
+            showTrackNumbers: false,
+            groupByDisc: false,
+            currentTrackId: nowPlayingVM.currentTrack?.id,
+            availabilityGeneration: availabilityGeneration,
+            activeDownloadRatingKeys: activeDownloadRatingKeys,
+            managesOwnScrolling: true,
+            bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+            interactionModel: largeScreenTrackInteractionModel,
+            supplementalMetadataWidth: width
+        ) { track, _ in
+            playTrack(track)
+        }
+        #else
         List {
             ForEach(libraryVM.filteredTracks) { track in
                 largeScreenSongRow(track: track, width: width)
@@ -603,7 +625,64 @@ public struct SongsView: View {
         }
         .listStyle(.plain)
         .modifier(ClearScrollContentBackgroundModifier())
+        #endif
     }
+
+    #if os(iOS)
+    private func largeScreenIndexedMediaTrackList(width: CGFloat) -> some View {
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(libraryVM.trackSections) { section in
+                            largeScreenIndexedMediaTrackSection(section: section, width: width)
+                        }
+                    }
+                    .padding(.vertical)
+                }
+
+                if !libraryVM.filteredTracks.isEmpty {
+                    ScrollIndex(
+                        letters: libraryVM.trackSections.map { $0.letter },
+                        currentLetter: .constant(nil),
+                        onLetterTap: { letter in
+                            proxy.scrollTo(letter, anchor: .top)
+                        }
+                    )
+                    .libraryScrollIndexPositioning()
+                }
+            }
+        }
+    }
+
+    private func largeScreenIndexedMediaTrackSection(
+        section: LibraryViewModel.TrackSection,
+        width: CGFloat
+    ) -> some View {
+        let trackCount = section.tracks.count
+        let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
+
+        return VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(section.letter)
+
+            MediaTrackList(
+                tracks: section.tracks,
+                showArtwork: true,
+                showTrackNumbers: false,
+                groupByDisc: false,
+                currentTrackId: nowPlayingVM.currentTrack?.id,
+                availabilityGeneration: availabilityGeneration,
+                activeDownloadRatingKeys: activeDownloadRatingKeys,
+                interactionModel: largeScreenTrackInteractionModel,
+                supplementalMetadataWidth: width
+            ) { track, _ in
+                playTrack(track)
+            }
+            .frame(height: height)
+        }
+        .id(section.letter)
+    }
+    #endif
 
     private func largeScreenSongRow(track: Track, width: CGFloat) -> some View {
         let resolvedActions = largeScreenTrackInteractionModel.resolve(for: track)
@@ -632,19 +711,10 @@ public struct SongsView: View {
             nowPlayingVM: nowPlayingVM,
             onPlayNext: resolvedActions.onPlayNext,
             onPlayLast: resolvedActions.onPlayLast,
-            onAddToPlaylist: resolvedActions.onAddToPlaylist,
-            allowsLeadingFullSwipe: allowsLargeScreenLeadingFullSwipe
+            onAddToPlaylist: resolvedActions.onAddToPlaylist
         )
         .listRowBackground(Color.clear)
         .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
-    }
-
-    private var allowsLargeScreenLeadingFullSwipe: Bool {
-        #if os(iOS)
-        return UIDevice.current.userInterfaceIdiom != .pad
-        #else
-        return true
-        #endif
     }
 
     private var largeScreenTrackInteractionModel: TrackRowInteractionModel {
