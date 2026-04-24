@@ -408,14 +408,15 @@ public struct AuroraVisualizationView: View {
         }
 
         let responsiveBands = enhanceBandResponsiveness(bands)
-        return lateralBlend(bands: responsiveBands, sigma: 1.9, mix: 0.24)
+        let blendedBands = lateralBlend(bands: responsiveBands, sigma: 2.2, mix: 0.32)
+        return flowingBandEnvelope(bands: blendedBands, sigma: 1.5, influence: 0.34)
     }
 
     /// Applies a gentle spectral tilt: lows get headroom, highs get logarithmic lift.
     private func compensatedBandValue(_ value: Double, normalizedPosition: Double) -> Double {
         let clamped = min(1, max(0, value))
         let highPresence = pow(normalizedPosition, 0.72)
-        let spectralTilt = 0.72 + highPresence * 0.62
+        let spectralTilt = 0.72 + highPresence * 0.68
         let weighted = min(0.98, clamped * spectralTilt)
 
         let bassCompression = (1 - normalizedPosition) * 2.2
@@ -423,7 +424,7 @@ public struct AuroraVisualizationView: View {
 
         let logGain = 5.0 + normalizedPosition * 7.0
         let logarithmic = log1p(bassHeadroom * logGain) / log1p(logGain)
-        let logMix = smoothStep(edge0: 0.28, edge1: 1.0, value: normalizedPosition) * 0.50
+        let logMix = smoothStep(edge0: 0.28, edge1: 1.0, value: normalizedPosition) * 0.56
         return bassHeadroom * (1 - logMix) + logarithmic * logMix
     }
 
@@ -498,6 +499,32 @@ public struct AuroraVisualizationView: View {
         return result
     }
 
+    /// Lets neighboring frequency peaks softly lift valleys so the aurora flows as one sheet.
+    private func flowingBandEnvelope(bands: [Double], sigma: Double, influence: Double) -> [Double] {
+        guard !bands.isEmpty else { return bands }
+
+        let count = bands.count
+        let kernelRadius = Int(ceil(sigma * 2.5))
+        var result = [Double](repeating: 0.0, count: count)
+
+        for i in 0..<count {
+            var envelope = bands[i]
+            let lo = max(0, i - kernelRadius)
+            let hi = min(count - 1, i + kernelRadius)
+
+            for j in lo...hi {
+                let dist = Double(abs(i - j))
+                let weight = exp(-dist * dist / (2 * sigma * sigma))
+                envelope = max(envelope, bands[j] * weight)
+            }
+
+            let neighborLift = max(bands[i], envelope * 0.78)
+            result[i] = min(0.98, bands[i] * (1 - influence) + neighborLift * influence)
+        }
+
+        return result
+    }
+
     /// Returns the gamma exponent used to shape each band's response curve.
     /// Interpolates smoothly across the spectrum:
     ///   Bass  (0.0) → 1.45 high contrast, quiet bass stays low
@@ -541,7 +568,7 @@ public struct AuroraVisualizationView: View {
             let normalizedPos = Double(i) / Double(bandCount - 1)
             
             // Bell curve factor keeps the aurora tallest and brightest in the middle.
-            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.31, 2)))
+            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.34, 2)))
             
             // Bands are already shaped by bandResponseExponent in calculateBandValues,
             // so use intensity directly here.
@@ -600,7 +627,7 @@ public struct AuroraVisualizationView: View {
             
             // Apply same bell curve to peaks for consistency
             let normalizedPos = Double(i) / Double(bandCount - 1)
-            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.31, 2)))
+            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.34, 2)))
             
             let peakHeight = minHeight + (maxHeight - minHeight) * CGFloat(pow(peakIntensity, 0.6) * bellFactor)
             let centerX = (CGFloat(i) + 0.5) * bandWidth

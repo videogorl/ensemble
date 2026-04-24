@@ -427,7 +427,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
             for (uint i = 0; i < bandCount; i++) {
                 float intensity = clamp(bands[i], 0.0, 1.0);
                 float normalized = bandCount > 1 ? float(i) / float(bandCount - 1) : 0.5;
-                float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(0.31, 2.0)));
+                float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(0.34, 2.0)));
                 float height = (u.minHeight + (u.maxHeight - u.minHeight) * intensity * bell) * heightScale;
                 float centerX = xOffset + (float(i) + 0.5) * bandWidth;
                 float glowWidth = bandWidth * 4.5 * spread;
