@@ -19,6 +19,13 @@ struct NowPlayingViewportRoot: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private let dismissAction: () -> Void
+    private var auroraActiveContentMaxWidth: CGFloat? {
+        #if os(iOS)
+        return nil
+        #else
+        return 670
+        #endif
+    }
 
     init(
         viewModel: NowPlayingViewModel,
@@ -104,7 +111,7 @@ struct NowPlayingViewportRoot: View {
                     consumer: .nowPlayingViewport,
                     accentColor: settingsManager.accentColor.color,
                     isLowPowerMode: powerStateMonitor.isLowPowerMode,
-                    activeContentMaxWidth: 670
+                    activeContentMaxWidth: auroraActiveContentMaxWidth
                 )
                 .allowsHitTesting(false)
                 .opacity(0.7)

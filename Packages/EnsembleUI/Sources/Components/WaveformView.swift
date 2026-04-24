@@ -40,9 +40,9 @@ public struct WaveformView: View {
         }
 
         if isBuffered {
-            return color.opacity(0.5)
+            return color.opacity(0.35)
         }
 
-        return color.opacity(0.2)
+        return color.opacity(0.12)
     }
 }

@@ -40,6 +40,7 @@ public struct ControlsCard: View {
     // Decoupled from @Published via CurrentValueSubject — avoids firing
     // objectWillChange at ~10Hz which would re-evaluate all 4 NP cards.
     @State private var waveformHeights: [Double] = []
+    @State private var playbackProgress: Double = 0
     
     private let namespace: Namespace.ID?
     private let animationID: String?
@@ -74,6 +75,9 @@ public struct ControlsCard: View {
         .task {
             await refreshLastPlaylistQuickTarget()
         }
+        .onAppear {
+            playbackProgress = viewModel.progress
+        }
         .onChange(of: viewModel.currentTrack?.id) { _ in
             Task { @MainActor in await refreshLastPlaylistQuickTarget() }
         }
@@ -82,6 +86,10 @@ public struct ControlsCard: View {
         }
         .onReceive(viewModel.waveformHeightsPublisher) { heights in
             waveformHeights = heights
+        }
+        .onReceive(viewModel.progressPublisher) { progress in
+            guard !isDraggingSlider else { return }
+            playbackProgress = progress
         }
     }
     
@@ -322,7 +330,7 @@ public struct ControlsCard: View {
     @ViewBuilder
     private func waveformContent(track: Track, width: CGFloat) -> some View {
         let waveform = WaveformView(
-            progress: isDraggingSlider ? localProgress : viewModel.progress,
+            progress: isDraggingSlider ? localProgress : playbackProgress,
             bufferedProgress: viewModel.bufferedProgress,
             color: .primary,
             heights: waveformHeights

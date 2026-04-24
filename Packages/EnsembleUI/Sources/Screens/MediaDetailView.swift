@@ -681,6 +681,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                                 .multilineTextAlignment(alignment)
                                 .lineLimit(2)
                         }
+                        .buttonStyle(.plain)
                     } else {
                         NavigationLink {
                             ArtistDetailLoader(artistId: artistId, nowPlayingVM: nowPlayingVM)
@@ -690,6 +691,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                                 .multilineTextAlignment(alignment)
                                 .lineLimit(2)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             } else {

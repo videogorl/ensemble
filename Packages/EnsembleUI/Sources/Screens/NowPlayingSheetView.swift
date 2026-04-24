@@ -15,6 +15,13 @@ public struct NowPlayingSheetView: View {
     private let animationID: String?
     private let dismissAction: (() -> Void)?
     private let dismissThreshold: CGFloat = 120
+    private var auroraActiveContentMaxWidth: CGFloat? {
+        #if os(iOS)
+        return nil
+        #else
+        return 670
+        #endif
+    }
 
     public init(
         viewModel: NowPlayingViewModel,
@@ -89,7 +96,7 @@ public struct NowPlayingSheetView: View {
                     consumer: .nowPlayingSheet,
                     accentColor: settingsManager.accentColor.color,
                     isLowPowerMode: powerStateMonitor.isLowPowerMode,
-                    activeContentMaxWidth: 670
+                    activeContentMaxWidth: auroraActiveContentMaxWidth
                 )
                 .allowsHitTesting(false)
                 .opacity(0.7)

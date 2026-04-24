@@ -384,17 +384,24 @@ private struct MiniPlayerWaveform: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     let waveformColor: Color
     @State private var waveformHeights: [Double] = []
+    @State private var playbackProgress: Double = 0
 
     var body: some View {
         WaveformView(
-            progress: viewModel.progress,
+            progress: playbackProgress,
             bufferedProgress: viewModel.bufferedProgress,
             color: waveformColor,
             heights: waveformHeights
         )
         .opacity(0.9)
+        .onAppear {
+            playbackProgress = viewModel.progress
+        }
         .onReceive(viewModel.waveformHeightsPublisher) { heights in
             waveformHeights = heights
+        }
+        .onReceive(viewModel.progressPublisher) { progress in
+            playbackProgress = progress
         }
     }
 }
