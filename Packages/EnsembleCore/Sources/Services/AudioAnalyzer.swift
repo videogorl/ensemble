@@ -505,21 +505,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     private var desiredDisplayFPS: Double? {
         guard !visibleVisualizationConsumers.isEmpty else { return nil }
-        return visibleVisualizationConsumers.contains(where: Self.requiresHighRefreshDisplay)
-            ? highTargetFPS
-            : lowTargetFPS
-    }
-
-    /// Full-screen/immersive visualizers need the smooth 30Hz feed. Ambient chrome
-    /// surfaces are deliberately lower rate so background effects do not compete
-    /// with real-time audio rendering.
-    private static func requiresHighRefreshDisplay(_ consumer: VisualizationConsumer) -> Bool {
-        switch consumer {
-        case .nowPlayingSheet, .nowPlayingViewport, .stageFlow, .externalDisplay:
-            return true
-        case .phoneOverlay, .rootBackdrop:
-            return false
-        }
+        return highTargetFPS
     }
 
     private func updateDisplayTimerState(trigger: String) {
