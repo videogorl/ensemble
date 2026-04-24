@@ -166,13 +166,17 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
             persistDefaultOrder: true
         )
 
-        let cacheSnapshot = orderedHubs
-        Task.detached(priority: .background) { [hubRepository] in
-            do {
-                try await hubRepository.saveHubs(cacheSnapshot)
-                EnsembleLogger.debug("🏠 Hub loader cache save count=\(cacheSnapshot.count)")
-            } catch {
-                EnsembleLogger.debug("🏠 Hub loader cache save failed: \(error.localizedDescription)")
+        if orderedHubs.isEmpty {
+            EnsembleLogger.debug("🏠 Hub loader skipped empty cache save to preserve last usable Feed cache")
+        } else {
+            let cacheSnapshot = orderedHubs
+            Task.detached(priority: .background) { [hubRepository] in
+                do {
+                    try await hubRepository.saveHubs(cacheSnapshot)
+                    EnsembleLogger.debug("🏠 Hub loader cache save count=\(cacheSnapshot.count)")
+                } catch {
+                    EnsembleLogger.debug("🏠 Hub loader cache save failed: \(error.localizedDescription)")
+                }
             }
         }
 
