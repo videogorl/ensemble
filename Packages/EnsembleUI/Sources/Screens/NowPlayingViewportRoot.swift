@@ -176,7 +176,11 @@ struct NowPlayingViewportRoot: View {
                 showsTransportControls: false
             )
         } else {
-            QueueCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+            QueueCard(
+                viewModel: viewModel,
+                currentPage: $viewModel.currentPage,
+                isAlwaysVisible: true
+            )
         }
     }
 

@@ -12,6 +12,7 @@ public struct QueueCard: View {
     
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
+    private let isAlwaysVisible: Bool
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
@@ -20,16 +21,21 @@ public struct QueueCard: View {
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var lastPlaylistQuickTarget: Playlist?
     
-    public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
+    public init(
+        viewModel: NowPlayingViewModel,
+        currentPage: Binding<Int>,
+        isAlwaysVisible: Bool = false
+    ) {
         self.viewModel = viewModel
         self._currentPage = currentPage
+        self.isAlwaysVisible = isAlwaysVisible
     }
     
     /// Whether this card is the active page in the carousel.
     /// TabView's .page style renders ALL children simultaneously — gate the heavy
     /// QueueTableView (UIKit UITableView) behind this to avoid layout/rendering off-screen.
     private var isVisible: Bool {
-        currentPage == 0
+        isAlwaysVisible || currentPage == 0
     }
 
     public var body: some View {
