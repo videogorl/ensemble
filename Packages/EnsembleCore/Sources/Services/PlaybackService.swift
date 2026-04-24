@@ -409,6 +409,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
     }
 
+    /// During a gapless handoff, reject old-track time samples that arrive after the
+    /// UI has already switched to the next track. Engine time samples are not track
+    /// tagged, so this short gate protects the visualizer from being anchored to the
+    /// previous track's near-end position.
+    static func shouldIgnoreObservedTimeAfterAutomaticAdvance(
+        observedTime: TimeInterval,
+        elapsedSinceAdvance: TimeInterval,
+        maxGateDuration: TimeInterval = 0.75,
+        tolerance: TimeInterval = 0.35
+    ) -> Bool {
+        guard elapsedSinceAdvance >= 0, elapsedSinceAdvance < maxGateDuration else { return false }
+        return observedTime > elapsedSinceAdvance + tolerance
+    }
+
     static func shouldContinueSeekProgressGate(
         observedTime: TimeInterval,
         pendingSeekTargetTime: TimeInterval,
@@ -1007,6 +1021,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var isSkipTransitionInProgress = false  // Suppresses stale callbacks during next/previous
     private var lastRemoteSkipTime: CFTimeInterval = 0  // Debounce for remote command center skip events
     private var trackStartWallTime: CFTimeInterval = 0  // Wall-clock time when the current track started playing (for stale seek rejection)
+    private var automaticAdvanceTimeGateExpiresAt: CFTimeInterval = 0  // Suppresses stale old-track samples after gapless advance
     private var playbackGenerationCounter: UInt64 = 0  // Incremented on each new playback request to cancel stale completions
     /// Timestamps of recent handleQueueExhausted calls for rapid-advance rate limiting
     private var queueExhaustedTimestamps: [Date] = []
@@ -1264,10 +1279,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             .sink { [weak self] time in
                 guard let self else { return }
                 guard self.playbackState == .playing else { return }
+                let now = CACurrentMediaTime()
+                if self.shouldIgnoreObservedTimeAfterAutomaticAdvance(time, now: now) {
+                    return
+                }
                 self.updatePlaybackTimes(rawTime: time)
                 self.reconcileEngineTrackStateIfNeeded()
                 self.persistPlaybackSnapshotIfNeeded(forObservedTime: time)
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     self.audioAnalyzer.updatePlaybackPosition(self.presentationTime)
                 }
 
@@ -1396,6 +1415,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         currentTrack = newTrack
         consecutivePlaybackFailures = 0  // Successful gapless advance = healthy playback
         trackStartWallTime = CACurrentMediaTime()
+        automaticAdvanceTimeGateExpiresAt = trackStartWallTime + 0.75
         updatePlaybackTimes(rawTime: 0)
         bufferedProgress = 1.0
         waveformHeights = []
@@ -1407,10 +1427,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         unexpectedPauseCount = 0
         lastUnexpectedPauseAt = nil
 
-        // Activate the pre-computed frequency timeline for the new track
-        Task { @MainActor [weak self] in
-            self?.audioAnalyzer.activateTimeline(for: newTrack.id)
-            self?.audioAnalyzer.resumeUpdates()
+        // Activate the pre-computed frequency timeline for the new track.
+        MainActor.assumeIsolated {
+            audioAnalyzer.activateTimeline(for: newTrack.id, at: 0)
+            audioAnalyzer.resumeUpdates()
         }
 
         generateWaveform(for: newTrack.id)
@@ -1782,6 +1802,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let clampedRawTime = max(0, rawTime)
         currentTime = clampedRawTime
         presentationTime = presentationTime(for: clampedRawTime)
+    }
+
+    private func shouldIgnoreObservedTimeAfterAutomaticAdvance(_ observedTime: TimeInterval, now: CFTimeInterval) -> Bool {
+        guard now < automaticAdvanceTimeGateExpiresAt else { return false }
+        let elapsedSinceAdvance = now - trackStartWallTime
+        let shouldIgnore = Self.shouldIgnoreObservedTimeAfterAutomaticAdvance(
+            observedTime: observedTime,
+            elapsedSinceAdvance: elapsedSinceAdvance
+        )
+
+        if shouldIgnore {
+            EnsembleLogger.debug(
+                "[Visualizer] Ignoring stale gapless time sample "
+                    + "\(String(format: "%.3f", observedTime))s "
+                    + "elapsed=\(String(format: "%.3f", elapsedSinceAdvance))s"
+            )
+        }
+
+        return shouldIgnore
     }
 
     static func shouldPersistPlaybackSnapshot(
@@ -4483,6 +4522,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try engine.play()
             refreshPresentationLatencyEstimate()
             trackStartWallTime = CACurrentMediaTime()
+            automaticAdvanceTimeGateExpiresAt = 0
             playbackState = .playing
             updateNowPlayingInfo()
             audioAnalyzer.resumeUpdates()
