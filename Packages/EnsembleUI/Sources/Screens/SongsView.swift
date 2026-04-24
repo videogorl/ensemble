@@ -558,7 +558,6 @@ public struct SongsView: View {
                 largeScreenFlatSongList(width: width)
             }
         }
-        .miniPlayerBottomSpacing()
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
@@ -571,7 +570,7 @@ public struct SongsView: View {
             currentTrackId: nowPlayingVM.currentTrack?.id,
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,
-            bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+            bottomContentInset: largeScreenSongListBottomInset,
             supplementalMetadataWidth: width,
             showsSectionIndex: true,
             interactionModel: largeScreenTrackInteractionModel
@@ -587,12 +586,20 @@ public struct SongsView: View {
             currentTrackId: nowPlayingVM.currentTrack?.id,
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,
-            bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+            bottomContentInset: largeScreenSongListBottomInset,
             supplementalMetadataWidth: width,
             interactionModel: largeScreenTrackInteractionModel,
         ) { track, _ in
             playTrack(track)
         }
+    }
+
+    private var largeScreenSongListBottomInset: CGFloat {
+        #if os(macOS)
+        return TrackListLayoutMetrics.compactMiniPlayerBottomSpacing
+        #else
+        return TrackListLayoutMetrics.miniPlayerBottomSpacing
+        #endif
     }
 
     private var largeScreenTrackSections: [SongsTrackListSection] {

@@ -259,7 +259,6 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
-        scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: bottomContentInset, right: 0)
         scrollView.documentView = tableView
         context.coordinator.tableView = tableView
         return scrollView
@@ -271,13 +270,13 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
         context.coordinator.currentTrackId = currentTrackId
         context.coordinator.availabilityGeneration = availabilityGeneration
         context.coordinator.activeDownloadRatingKeys = activeDownloadRatingKeys
+        context.coordinator.bottomContentInset = bottomContentInset
         context.coordinator.supplementalMetadataWidth = supplementalMetadataWidth
         context.coordinator.interactionModel = interactionModel
         context.coordinator.artworkLoader = dependencies.artworkLoader
         context.coordinator.toastCenter = dependencies.toastCenter
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
         context.coordinator.rebuildRows()
-        scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: bottomContentInset, right: 0)
 
         if tableView.numberOfRows != context.coordinator.rows.count {
             tableView.reloadData()
@@ -304,6 +303,7 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
             currentTrackId: currentTrackId,
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,
+            bottomContentInset: bottomContentInset,
             supplementalMetadataWidth: supplementalMetadataWidth,
             interactionModel: interactionModel,
             artworkLoader: dependencies.artworkLoader,
@@ -318,12 +318,14 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
         enum Row {
             case section(SongsTrackListSection)
             case track(Track, globalIndex: Int)
+            case bottomSpacer(CGFloat)
         }
 
         var sections: [SongsTrackListSection]
         var currentTrackId: String?
         var availabilityGeneration: UInt64
         var activeDownloadRatingKeys: Set<String>
+        var bottomContentInset: CGFloat
         var supplementalMetadataWidth: CGFloat?
         var interactionModel: TrackRowInteractionModel
         var artworkLoader: ArtworkLoaderProtocol
@@ -338,6 +340,7 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
             currentTrackId: String?,
             availabilityGeneration: UInt64,
             activeDownloadRatingKeys: Set<String>,
+            bottomContentInset: CGFloat,
             supplementalMetadataWidth: CGFloat?,
             interactionModel: TrackRowInteractionModel,
             artworkLoader: ArtworkLoaderProtocol,
@@ -349,6 +352,7 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
             self.currentTrackId = currentTrackId
             self.availabilityGeneration = availabilityGeneration
             self.activeDownloadRatingKeys = activeDownloadRatingKeys
+            self.bottomContentInset = bottomContentInset
             self.supplementalMetadataWidth = supplementalMetadataWidth
             self.interactionModel = interactionModel
             self.artworkLoader = artworkLoader
@@ -370,6 +374,9 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
                     nextRows.append(.track(track, globalIndex: globalIndex))
                     globalIndex += 1
                 }
+            }
+            if bottomContentInset > 0 {
+                nextRows.append(.bottomSpacer(bottomContentInset))
             }
             rows = nextRows
         }
@@ -396,6 +403,7 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard row < rows.count else { return TrackListLayoutMetrics.defaultRowHeight }
             if case .section = rows[row] { return 40 }
+            if case let .bottomSpacer(height) = rows[row] { return height }
             return TrackListLayoutMetrics.defaultRowHeight
         }
 
@@ -418,6 +426,11 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
                     ?? MacSongsTrackCell()
                 view.identifier = .trackRow
                 configure(view: view, row: row)
+                return view
+            case .bottomSpacer:
+                let view = tableView.makeView(withIdentifier: .bottomSpacer, owner: self)
+                    ?? NSView()
+                view.identifier = .bottomSpacer
                 return view
             }
         }
@@ -477,6 +490,10 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
                 self?.executeSwipeAction(action, track: track)
             }
             rowAction.backgroundColor = swipeColor(for: action, resolvedActions: resolvedActions)
+            rowAction.image = NSImage(
+                systemSymbolName: swipeIcon(for: action, resolvedActions: resolvedActions),
+                accessibilityDescription: swipeTitle(for: action, resolvedActions: resolvedActions)
+            )
             return rowAction
         }
 
@@ -638,6 +655,18 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
                 return resolvedActions.isFavorited ? "Unfavorite" : "Favorite"
             default:
                 return action.title
+            }
+        }
+
+        private func swipeIcon(
+            for action: TrackSwipeAction,
+            resolvedActions: TrackRowInteractionModel.ResolvedActions
+        ) -> String {
+            switch action {
+            case .favoriteToggle:
+                return resolvedActions.isFavorited ? "heart.slash.fill" : "heart.fill"
+            default:
+                return action.systemImage
             }
         }
 
@@ -979,5 +1008,6 @@ private extension NSUserInterfaceItemIdentifier {
     static let track = NSUserInterfaceItemIdentifier("SongsTrackListHost.TrackColumn")
     static let trackRow = NSUserInterfaceItemIdentifier("SongsTrackListHost.TrackRow")
     static let sectionHeader = NSUserInterfaceItemIdentifier("SongsTrackListHost.SectionHeader")
+    static let bottomSpacer = NSUserInterfaceItemIdentifier("SongsTrackListHost.BottomSpacer")
 }
 #endif
