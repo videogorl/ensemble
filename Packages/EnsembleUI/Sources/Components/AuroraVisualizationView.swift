@@ -29,11 +29,11 @@ public struct AuroraVisualizationView: View {
     /// Number of frequency bands (matches AudioAnalyzer)
     private let bandCount = 24
 
-    /// Maximum height of the aurora (mini player ~60pt + 5pt margin)
-    private let maxHeight: CGFloat = 220
+    /// Maximum height of the active aurora bands.
+    private let maxHeight: CGFloat = 185
 
     /// Minimum height of bands (always visible base)
-    private let minHeight: CGFloat = 25
+    private let minHeight: CGFloat = 18
 
     /// Height of the solid "pool" at the bottom
     private let poolHeight: CGFloat = 48
@@ -382,7 +382,7 @@ public struct AuroraVisualizationView: View {
         let averageEnergy = bands.reduce(0, +) / Double(bands.count)
         let bassCount = min(6, bands.count)
         let bassEnergy = bands.prefix(bassCount).reduce(0, +) / Double(bassCount)
-        return min(1, max(0, averageEnergy * 0.55 + bassEnergy * 0.45))
+        return min(1, max(0, averageEnergy * 0.70 + bassEnergy * 0.30))
     }
 
     /// Maps analyzer output into the aurora's rendered band response curve.
@@ -392,8 +392,10 @@ public struct AuroraVisualizationView: View {
         if !inputBands.isEmpty {
             for i in 0..<min(bandCount, inputBands.count) {
                 let normalizedPosition = Double(i) / Double(bandCount - 1)
-                let bassBoost = 1.0 + (1.0 - normalizedPosition) * 0.4
-                let rawValue = min(1.0, inputBands[i] * bassBoost)
+                let rawValue = compensatedBandValue(
+                    inputBands[i],
+                    normalizedPosition: normalizedPosition
+                )
                 let exponent = bandResponseExponent(normalizedPosition: normalizedPosition)
                 let shaped = pow(max(0.001, rawValue), exponent)
                 let floor = 0.02 + normalizedPosition * 0.04
@@ -407,6 +409,22 @@ public struct AuroraVisualizationView: View {
 
         let responsiveBands = enhanceBandResponsiveness(bands)
         return lateralBlend(bands: responsiveBands, sigma: 1.9, mix: 0.24)
+    }
+
+    /// Applies a gentle spectral tilt: lows get headroom, highs get logarithmic lift.
+    private func compensatedBandValue(_ value: Double, normalizedPosition: Double) -> Double {
+        let clamped = min(1, max(0, value))
+        let highPresence = pow(normalizedPosition, 0.72)
+        let spectralTilt = 0.72 + highPresence * 0.62
+        let weighted = min(0.98, clamped * spectralTilt)
+
+        let bassCompression = (1 - normalizedPosition) * 2.2
+        let bassHeadroom = weighted / (1 + max(0, weighted - 0.58) * bassCompression)
+
+        let logGain = 5.0 + normalizedPosition * 7.0
+        let logarithmic = log1p(bassHeadroom * logGain) / log1p(logGain)
+        let logMix = smoothStep(edge0: 0.28, edge1: 1.0, value: normalizedPosition) * 0.50
+        return bassHeadroom * (1 - logMix) + logarithmic * logMix
     }
 
     /// Preserves contrast when the whole spectrum is loud so strong songs still feel animated.
@@ -482,17 +500,17 @@ public struct AuroraVisualizationView: View {
 
     /// Returns the gamma exponent used to shape each band's response curve.
     /// Interpolates smoothly across the spectrum:
-    ///   Bass  (0.0) → 1.3  high contrast, quiet bass stays low
+    ///   Bass  (0.0) → 1.45 high contrast, quiet bass stays low
     ///   Mids  (0.5) → 0.7  gentle lift, keeps presence
-    ///   Highs (1.0) → 0.45 sensitive, brief transients register visibly
+    ///   Highs (1.0) → 0.58 sensitive, brief transients register visibly
     private func bandResponseExponent(normalizedPosition: Double) -> Double {
         // Smooth cubic Hermite interpolation through three control points
         if normalizedPosition <= 0.5 {
             let t = normalizedPosition * 2.0
-            return 1.3 + (0.7 - 1.3) * (t * t * (3 - 2 * t))
+            return 1.45 + (0.7 - 1.45) * (t * t * (3 - 2 * t))
         } else {
             let t = (normalizedPosition - 0.5) * 2.0
-            return 0.7 + (0.45 - 0.7) * (t * t * (3 - 2 * t))
+            return 0.7 + (0.58 - 0.7) * (t * t * (3 - 2 * t))
         }
     }
 
@@ -522,9 +540,8 @@ public struct AuroraVisualizationView: View {
             // Normalized position (0.0 to 1.0) for bell curve calculation
             let normalizedPos = Double(i) / Double(bandCount - 1)
             
-            // Bell curve factor (Gaussian-like) to make middle bands taller
-            // peak at 0.5, sigma of ~0.35 for a nice spread
-            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.35, 2)))
+            // Bell curve factor keeps the aurora tallest and brightest in the middle.
+            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.31, 2)))
             
             // Bands are already shaped by bandResponseExponent in calculateBandValues,
             // so use intensity directly here.
@@ -541,7 +558,8 @@ public struct AuroraVisualizationView: View {
             // Gradient fades transparent at the very bottom so bands "emerge" from the pool
             // rather than anchoring bright cones to the floor (which causes the "uplight" banding look).
             // Peak brightness sits slightly above the base, then fades upward to transparent.
-            let intensityAlpha = 0.18 + intensity * 0.82
+            let bellAlpha = 0.32 + bellFactor * 0.68
+            let intensityAlpha = (0.18 + intensity * 0.82) * bellAlpha
             let bandGradient = Gradient(stops: [
                 .init(color: accentColor.opacity(0), location: 0.0),
                 .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.7), location: 0.08),
@@ -582,7 +600,7 @@ public struct AuroraVisualizationView: View {
             
             // Apply same bell curve to peaks for consistency
             let normalizedPos = Double(i) / Double(bandCount - 1)
-            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.35, 2)))
+            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.31, 2)))
             
             let peakHeight = minHeight + (maxHeight - minHeight) * CGFloat(pow(peakIntensity, 0.6) * bellFactor)
             let centerX = (CGFloat(i) + 0.5) * bandWidth

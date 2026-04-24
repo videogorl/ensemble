@@ -405,19 +405,19 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
             if (u.layerCount == 1) {
                 layerOpacity = 0.50;
                 spread = 1.8;
-                heightScale = 1.10;
+                heightScale = 0.94;
                 verticalSoftness = 0.62;
                 verticalBlur = 1.75;
             } else if (u.layerCount == 2) {
                 layerOpacity = layer == 0 ? 0.20 : 0.42;
                 spread = layer == 0 ? 2.3 : 1.25;
-                heightScale = layer == 0 ? 1.26 : 1.06;
+                heightScale = layer == 0 ? 1.05 : 0.94;
                 verticalSoftness = layer == 0 ? 0.48 : 0.70;
                 verticalBlur = layer == 0 ? 1.12 : 1.95;
             } else {
                 layerOpacity = layer == 0 ? 0.16 : (layer == 1 ? 0.28 : 0.38);
                 spread = layer == 0 ? 2.7 : (layer == 1 ? 1.75 : 1.15);
-                heightScale = layer == 0 ? 1.34 : (layer == 1 ? 1.16 : 1.0);
+                heightScale = layer == 0 ? 1.12 : (layer == 1 ? 1.02 : 0.94);
                 verticalSoftness = layer == 0 ? 0.42 : (layer == 1 ? 0.58 : 0.76);
                 verticalBlur = layer == 0 ? 0.92 : (layer == 1 ? 1.42 : 2.4);
             }
@@ -427,7 +427,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
             for (uint i = 0; i < bandCount; i++) {
                 float intensity = clamp(bands[i], 0.0, 1.0);
                 float normalized = bandCount > 1 ? float(i) / float(bandCount - 1) : 0.5;
-                float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(0.35, 2.0)));
+                float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(0.31, 2.0)));
                 float height = (u.minHeight + (u.maxHeight - u.minHeight) * intensity * bell) * heightScale;
                 float centerX = xOffset + (float(i) + 0.5) * bandWidth;
                 float glowWidth = bandWidth * 4.5 * spread;
@@ -441,7 +441,8 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
                 float t = clamp((p.y - rectMinY) / max(rectHeight, 1.0), 0.0, 1.0);
                 float fromBottom = 1.0 - t;
                 float vertical = smoothBand(0.0, 0.08, fromBottom) * (1.0 - smoothBand(verticalSoftness, 1.0, fromBottom));
-                float intensityAlpha = 0.18 + intensity * 0.82;
+                float bellAlpha = 0.32 + bell * 0.68;
+                float intensityAlpha = (0.18 + intensity * 0.82) * bellAlpha;
                 float contribution = ellipse * vertical * intensityAlpha * baseOpacity;
 
                 color += u.accentColor.rgb * contribution;
@@ -460,7 +461,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         }
         energy = bandCount > 0 ? energy / float(bandCount) : 0.0;
         bassEnergy = bassCount > 0 ? bassEnergy / float(bassCount) : 0.0;
-        energy = clamp(energy * 0.55 + bassEnergy * 0.45, 0.0, 1.0);
+        energy = clamp(energy * 0.70 + bassEnergy * 0.30, 0.0, 1.0);
 
         float bridgeHeight = u.poolHeight + 76.0;
         float bridgeWidth = activeWidth * 1.16;
