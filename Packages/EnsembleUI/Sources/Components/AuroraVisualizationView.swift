@@ -176,19 +176,22 @@ public struct AuroraVisualizationView: View {
         let xOffset = expandsBeyondBounds ? -40.0 : 0.0
 
         if isMetalAuroraAvailable {
-            MetalAuroraSurface(
-                renderModel: renderModel,
-                accentColor: accentColor,
-                colorScheme: colorScheme,
-                preferredFrameInterval: frameInterval,
-                isPaused: isTimelinePaused,
-                surfaceTier: auroraSurfaceTier,
-                activeContentMaxWidth: activeContentMaxWidth,
-                bandCount: bandCount,
-                maxHeight: maxHeight,
-                minHeight: minHeight,
-                poolHeight: poolHeight
-            )
+            ZStack {
+                MetalAuroraSurface(
+                    renderModel: renderModel,
+                    accentColor: accentColor,
+                    colorScheme: colorScheme,
+                    preferredFrameInterval: frameInterval,
+                    isPaused: isTimelinePaused,
+                    surfaceTier: auroraSurfaceTier,
+                    activeContentMaxWidth: activeContentMaxWidth,
+                    bandCount: bandCount,
+                    maxHeight: maxHeight,
+                    minHeight: minHeight,
+                    poolHeight: poolHeight
+                )
+                foregroundFadeOverlay
+            }
             .frame(width: surfaceWidth, height: surfaceHeight)
             .offset(x: xOffset, y: 15)
         } else {
@@ -212,6 +215,27 @@ public struct AuroraVisualizationView: View {
             return .ambient
         }
         return .immersive
+    }
+
+    private var foregroundFadeOverlay: some View {
+        #if canImport(UIKit)
+        let baseColor: Color = colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
+        #else
+        let baseColor: Color = colorScheme == .dark ? .black : Color(nsColor: .windowBackgroundColor)
+        #endif
+
+        return LinearGradient(
+            gradient: Gradient(stops: [
+                .init(color: .clear, location: 0.0),
+                .init(color: .clear, location: 0.28),
+                .init(color: baseColor.opacity(0.14), location: 0.54),
+                .init(color: baseColor.opacity(0.42), location: 0.75),
+                .init(color: baseColor.opacity(0.76), location: 0.92),
+                .init(color: baseColor.opacity(0.94), location: 1.0)
+            ]),
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     private func canvasAuroraSurface(width: CGFloat, height: CGFloat, xOffset: CGFloat) -> some View {

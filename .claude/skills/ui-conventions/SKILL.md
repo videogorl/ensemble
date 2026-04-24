@@ -110,6 +110,7 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - `AuroraVisualizationView` should use the shared `MetalAuroraSurface` renderer when Metal is available, with the Canvas path kept as the compatibility fallback.
 - Keep root/sidebar backdrops in the low-cost surface tier and Now Playing/viewport surfaces in the richer tier. Do not throttle playback frequency publishers to reduce visual cost; change renderer tier, pass count, or frame interval at the visual surface instead.
 - Preserve the full-width backdrop/fade composition while constraining active aurora bands through `activeContentMaxWidth` when the caller provides it.
+- The Metal renderer should output only premultiplied colored aurora content over a transparent MTKView backing layer. Keep the foreground/bottom fade as a SwiftUI overlay above Metal so the fade stays in front without making the Metal drawable an opaque background band.
 
 ### Button Labels
 

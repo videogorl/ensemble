@@ -146,7 +146,6 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
     private struct Uniforms {
         var size: SIMD2<Float> = .zero
         var accentColor: SIMD4<Float> = .zero
-        var fadeColor: SIMD4<Float> = .zero
         var maxHeight: Float = 220
         var minHeight: Float = 25
         var poolHeight: Float = 48
@@ -181,7 +180,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
             descriptor.fragmentFunction = fragment
             descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
             descriptor.colorAttachments[0].isBlendingEnabled = true
-            descriptor.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
+            descriptor.colorAttachments[0].sourceRGBBlendFactor = .one
             descriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
             descriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
             descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
@@ -207,13 +206,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         view.enableSetNeedsDisplay = false
         view.isPaused = true
         view.preferredFramesPerSecond = 30
-
-        #if canImport(UIKit)
-        view.isOpaque = false
-        view.backgroundColor = .clear
-        #elseif canImport(AppKit)
-        view.layer?.isOpaque = false
-        #endif
+        configureTransparentBacking(for: view)
 
         return view
     }
@@ -232,7 +225,6 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         poolHeight: CGFloat
     ) {
         uniforms.accentColor = resolvedRGBA(from: accentColor)
-        uniforms.fadeColor = resolvedFadeColor(for: colorScheme)
         uniforms.maxHeight = Float(maxHeight)
         uniforms.minHeight = Float(minHeight)
         uniforms.poolHeight = Float(poolHeight)
@@ -243,6 +235,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
 
         view.preferredFramesPerSecond = framesPerSecond(for: preferredFrameInterval)
         view.isPaused = isPaused || pipelineState == nil
+        configureTransparentBacking(for: view)
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -297,18 +290,6 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         return max(15, min(60, Int((1.0 / interval).rounded())))
     }
 
-    private func resolvedFadeColor(for colorScheme: ColorScheme) -> SIMD4<Float> {
-        if colorScheme == .dark {
-            return SIMD4(0, 0, 0, 1)
-        }
-
-        #if canImport(UIKit)
-        return resolvedRGBA(from: Color(uiColor: .systemBackground))
-        #else
-        return resolvedRGBA(from: Color(nsColor: .windowBackgroundColor))
-        #endif
-    }
-
     private func resolvedRGBA(from color: Color) -> SIMD4<Float> {
         #if canImport(UIKit)
         let platformColor = UIColor(color)
@@ -329,6 +310,21 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         #endif
     }
 
+    private func configureTransparentBacking(for view: MTKView) {
+        view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+
+        #if canImport(UIKit)
+        view.isOpaque = false
+        view.backgroundColor = .clear
+        view.layer.isOpaque = false
+        view.layer.backgroundColor = UIColor.clear.cgColor
+        #elseif canImport(AppKit)
+        view.wantsLayer = true
+        view.layer?.isOpaque = false
+        view.layer?.backgroundColor = NSColor.clear.cgColor
+        #endif
+    }
+
     private static let shaderSource = """
     #include <metal_stdlib>
     using namespace metal;
@@ -340,7 +336,6 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
     struct Uniforms {
         float2 size;
         float4 accentColor;
-        float4 fadeColor;
         float maxHeight;
         float minHeight;
         float poolHeight;
@@ -366,16 +361,6 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
     static float smoothBand(float edge0, float edge1, float value) {
         float x = clamp((value - edge0) / max(edge1 - edge0, 0.0001), 0.0, 1.0);
         return x * x * (3.0 - 2.0 * x);
-    }
-
-    static float fadeAt(float y, float height) {
-        float t = y / max(height, 1.0);
-        float fade = 0.0;
-        fade += smoothBand(0.28, 0.54, t) * 0.14;
-        fade += smoothBand(0.54, 0.75, t) * 0.28;
-        fade += smoothBand(0.75, 0.92, t) * 0.34;
-        fade += smoothBand(0.92, 1.0, t) * 0.18;
-        return clamp(fade, 0.0, 0.94);
     }
 
     fragment float4 auroraFragment(
@@ -467,17 +452,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         color *= topFeather;
         alpha = clamp(alpha * topFeather, 0.0, 0.95);
 
-        // The blend state expects unpremultiplied source color. The glow math
-        // accumulates weighted light, so divide by alpha before presenting or
-        // the accent gets attenuated once here and once again by source-alpha.
-        if (alpha > 0.001) {
-            color = color / alpha;
-        }
-        color = min(color, float3(1.0));
-
-        float fade = fadeAt(p.y, u.size.y);
-        color = mix(color, u.fadeColor.rgb, fade);
-        alpha = max(alpha, fade * u.fadeColor.a);
+        color = min(color, float3(alpha));
 
         return float4(color, alpha);
     }
