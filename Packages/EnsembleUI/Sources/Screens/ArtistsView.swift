@@ -13,7 +13,6 @@ public struct ArtistsView: View {
     // Monotonic token to drop stale async section computations.
     @State private var artistSectionComputationToken: Int = 0
     @State private var selectedArtist: Artist?
-    @State private var largeScreenSelectionPaneWidth: CGFloat?
 
     public init(
         libraryVM: LibraryViewModel,
@@ -90,9 +89,13 @@ public struct ArtistsView: View {
                 }
             }
             #else
-            ToolbarItem {
+            ToolbarItem { Spacer() }
+            ToolbarItem(placement: .primaryActionIfAvailable) {
                 if !libraryVM.artists.isEmpty {
-                    macArtistToolbarControls
+                    HStack(spacing: 16) {
+                        artistFilterButton
+                        artistSortMenu
+                    }
                 }
             }
             #endif
@@ -123,7 +126,6 @@ public struct ArtistsView: View {
     private var adaptiveArtistView: some View {
         LargeScreenBrowseSplitView(
             selection: $selectedArtist,
-            onSidebarWidthChange: updateLargeScreenSelectionPaneWidth,
             compact: {
                 artistListView
             },
@@ -138,31 +140,6 @@ public struct ArtistsView: View {
                 LargeScreenPlaceholderView(systemImage: "person.crop.circle", title: "Select an Artist")
             }
         )
-    }
-
-    #if os(macOS)
-    private var macArtistToolbarControls: some View {
-        HStack(spacing: 16) {
-            Spacer(minLength: 0)
-            artistFilterButton
-            artistSortMenu
-        }
-        .frame(width: macArtistToolbarWidth)
-    }
-
-    private var macArtistToolbarWidth: CGFloat {
-        let width = largeScreenSelectionPaneWidth ?? 340
-        return max(160, width - 24)
-    }
-    #endif
-
-    private func updateLargeScreenSelectionPaneWidth(_ width: CGFloat?) {
-        #if os(macOS)
-        guard largeScreenSelectionPaneWidth != width else { return }
-        largeScreenSelectionPaneWidth = width
-        #else
-        _ = width
-        #endif
     }
 
     private var artistFilterButton: some View {

@@ -20,9 +20,9 @@ public struct LargeScreenBrowseSplitView<
     private let sidebar: Sidebar
     private let detail: (Selection) -> Detail
     private let placeholder: Placeholder
-    private let onSidebarWidthChange: ((CGFloat?) -> Void)?
     @State private var adjustedSidebarWidth: CGFloat?
     @State private var dragStartSidebarWidth: CGFloat?
+    @State private var dragStartLocationX: CGFloat?
     @State private var isResizeHandleHovered = false
 
     public init(
@@ -32,7 +32,6 @@ public struct LargeScreenBrowseSplitView<
         minimumSidebarWidth: CGFloat = 260,
         maximumSidebarWidth: CGFloat = 460,
         minimumDetailWidth: CGFloat = 420,
-        onSidebarWidthChange: ((CGFloat?) -> Void)? = nil,
         @ViewBuilder compact: () -> Compact,
         @ViewBuilder sidebar: () -> Sidebar,
         @ViewBuilder detail: @escaping (Selection) -> Detail,
@@ -48,7 +47,6 @@ public struct LargeScreenBrowseSplitView<
         self.sidebar = sidebar()
         self.detail = detail
         self.placeholder = placeholder()
-        self.onSidebarWidthChange = onSidebarWidthChange
     }
 
     public var body: some View {
@@ -77,17 +75,9 @@ public struct LargeScreenBrowseSplitView<
                         transaction.disablesAnimations = true
                     }
                 }
-                .onAppear {
-                    onSidebarWidthChange?(currentSidebarWidth)
-                }
-                .onChange(of: currentSidebarWidth) { newValue in
-                    onSidebarWidthChange?(newValue)
-                }
+                .coordinateSpace(name: "LargeScreenBrowseSplitView")
             } else {
                 compact
-                    .onAppear {
-                        onSidebarWidthChange?(nil)
-                    }
             }
         }
     }
@@ -104,11 +94,12 @@ public struct LargeScreenBrowseSplitView<
         .frame(width: resizeHandleWidth)
         .contentShape(Rectangle())
         .gesture(
-            DragGesture(minimumDistance: 1)
+            DragGesture(minimumDistance: 1, coordinateSpace: .named("LargeScreenBrowseSplitView"))
                 .onChanged { value in
                     let startWidth = dragStartSidebarWidth ?? currentSidebarWidth
+                    let startLocationX = dragStartLocationX ?? value.location.x
                     let nextWidth = clampedSidebarWidth(
-                        startWidth + value.translation.width,
+                        startWidth + value.location.x - startLocationX,
                         containerWidth: containerWidth
                     )
                     let previousWidth = adjustedSidebarWidth ?? currentSidebarWidth
@@ -122,6 +113,7 @@ public struct LargeScreenBrowseSplitView<
                     withTransaction(transaction) {
                         if dragStartSidebarWidth == nil {
                             dragStartSidebarWidth = startWidth
+                            dragStartLocationX = startLocationX
                         }
                         adjustedSidebarWidth = nextWidth
                     }
@@ -132,6 +124,7 @@ public struct LargeScreenBrowseSplitView<
                     transaction.disablesAnimations = true
                     withTransaction(transaction) {
                         dragStartSidebarWidth = nil
+                        dragStartLocationX = nil
                     }
                 }
         )
