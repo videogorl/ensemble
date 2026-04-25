@@ -367,7 +367,9 @@ Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterize
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
 | Background gradient | region | Blurred artwork background fading to content | `backgroundGradient`, `BlurredArtworkBackground` |
+| Adaptive artist header | region | Header that uses compact hero layout on narrow screens and a wide two-column layout when space allows | `artistHeader`, `wideArtistHeader`, `compactArtistHeader` |
 | Hero banner | region | Full-width artist photo with overlay info | `heroBanner` |
+| Wide artist artwork | image | Circular artist artwork in the wide two-column header | `ArtworkView(artist:)`, `Circle` |
 | Artist name | text | Large artist name heading | `viewModel.artist.name` |
 | Statistics line | text | Album and song counts | `"X albums - Y songs"` |
 | Play button | action | Play all artist tracks in order | `Play`, `play.fill` |

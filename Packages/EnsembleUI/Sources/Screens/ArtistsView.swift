@@ -427,6 +427,7 @@ public struct ArtistDetailView: View {
     @State private var artworkImage: UIImage?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var showToolbarTitle = false
+    @State private var artistHeaderWidth: CGFloat = 0
     @Environment(\.openURL) private var openURL
 
     public init(
@@ -440,13 +441,7 @@ public struct ArtistDetailView: View {
     public var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                // Hero Banner
-                heroBanner
-
-                // Action Buttons
-                actionButtons
-                    .padding(.horizontal)
-                    .padding(.top, 24)
+                artistHeader
 
                 // Albums Section
                 if viewModel.isLoading && viewModel.albums.isEmpty {
@@ -640,6 +635,115 @@ public struct ArtistDetailView: View {
     }
 
     // MARK: - Hero Banner
+
+    private var artistHeader: some View {
+        Group {
+            if usesWideArtistHeader {
+                wideArtistHeader
+            } else {
+                compactArtistHeader
+            }
+        }
+        .background(
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        updateArtistHeaderWidth(geometry.size.width)
+                    }
+                    .onChange(of: geometry.size.width) { newWidth in
+                        updateArtistHeaderWidth(newWidth)
+                    }
+            }
+        )
+    }
+
+    private var usesWideArtistHeader: Bool {
+        artistHeaderWidth >= 700
+    }
+
+    private var compactArtistHeader: some View {
+        VStack(spacing: 0) {
+            heroBanner
+
+            actionButtons
+                .padding(.horizontal)
+                .padding(.top, 24)
+        }
+    }
+
+    private var wideArtistHeader: some View {
+        HStack(alignment: .center, spacing: 32) {
+            ArtworkView(
+                artist: viewModel.artist,
+                size: .medium,
+                cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.medium.cgSize.width),
+                isResponsive: true
+            )
+            .frame(width: 240, height: 240)
+            .clipShape(Circle())
+            .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 8)
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(viewModel.artist.name)
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                    .background(TitleOffsetTracker(coordinateSpace: "artistDetailScroll"))
+
+                artistStatsLine
+
+                artistHeaderFacts
+
+                actionButtons
+                    .frame(maxWidth: 520)
+                    .padding(.top, 8)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
+        .padding(.top, 72)
+        .padding(.bottom, 24)
+    }
+
+    private var artistStatsLine: some View {
+        HStack(spacing: 8) {
+            if !viewModel.filteredAlbums.isEmpty {
+                Text("\(viewModel.filteredAlbums.count) album\(viewModel.filteredAlbums.count == 1 ? "" : "s")")
+            }
+            if !viewModel.filteredAlbums.isEmpty && !viewModel.filteredTracks.isEmpty {
+                Text("•")
+            }
+            if !viewModel.filteredTracks.isEmpty {
+                Text("\(viewModel.trackCount) song\(viewModel.trackCount == 1 ? "" : "s")")
+            }
+        }
+        .font(.title3)
+        .foregroundColor(.secondary)
+    }
+
+    @ViewBuilder
+    private var artistHeaderFacts: some View {
+        if let detail = viewModel.artistDetail, hasQuickFacts(detail) {
+            VStack(alignment: .leading, spacing: 6) {
+                if let country = detail.country {
+                    Text(country)
+                }
+                if !detail.genres.isEmpty {
+                    Text(detail.genres.prefix(3).joined(separator: ", "))
+                } else if !detail.styles.isEmpty {
+                    Text(detail.styles.prefix(3).joined(separator: ", "))
+                }
+            }
+            .font(.subheadline)
+            .foregroundColor(.secondary)
+            .lineLimit(1)
+        }
+    }
+
+    private func updateArtistHeaderWidth(_ newWidth: CGFloat) {
+        if abs(artistHeaderWidth - newWidth) > 1 {
+            artistHeaderWidth = newWidth
+        }
+    }
 
     private var heroBanner: some View {
         GeometryReader { geometry in
