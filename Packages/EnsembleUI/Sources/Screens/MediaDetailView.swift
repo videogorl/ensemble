@@ -91,6 +91,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var showToolbarActions = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var lastPlaylistQuickTarget: Playlist?
+    @State private var trackListSupplementalMetadataWidth: CGFloat = 0
     // Targeted NVM observation: only re-evaluate on track/playlist target changes
     @State private var currentTrackId: String?
     @State private var nvmLastPlaylistTargetId: String?
@@ -624,6 +625,17 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             .modifier(ClearScrollContentBackgroundModifier())
             #endif
         }
+        .background(
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        updateTrackListSupplementalMetadataWidth(geometry.size.width)
+                    }
+                    .onChange(of: geometry.size.width) { newWidth in
+                        updateTrackListSupplementalMetadataWidth(newWidth)
+                    }
+            }
+        )
         .navigationTitle("")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -673,27 +685,20 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private func subtitleView(alignment: TextAlignment) -> some View {
         if let subtitle = headerData.subtitle {
             if let artistId = headerData.artistRatingKey {
-                Group {
-                    if #available(iOS 16.0, macOS 13.0, *) {
-                        NavigationLink(value: NavigationCoordinator.Destination.artist(id: artistId)) {
-                            Text(subtitle)
-                                .font(.title3)
-                                .multilineTextAlignment(alignment)
-                                .lineLimit(2)
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        NavigationLink {
-                            ArtistDetailLoader(artistId: artistId, nowPlayingVM: nowPlayingVM)
-                        } label: {
-                            Text(subtitle)
-                                .font(.title3)
-                                .multilineTextAlignment(alignment)
-                                .lineLimit(2)
-                        }
-                        .buttonStyle(.plain)
-                    }
+                Button {
+                    navigationCoordinator.push(
+                        .artist(id: artistId),
+                        in: navigationCoordinator.selectedTab
+                    )
+                } label: {
+                    Text(subtitle)
+                        .font(.title3)
+                        .multilineTextAlignment(alignment)
+                        .lineLimit(2)
                 }
+                .buttonStyle(.plain)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isLink)
             } else {
                 Text(subtitle)
                     .font(.title3)
@@ -991,7 +996,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 if let additionalFooterContent { additionalFooterContent }
             }),
             searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
-            interactionModel: trackInteractionModel
+            interactionModel: trackInteractionModel,
+            supplementalMetadataWidth: trackListSupplementalMetadataWidth
         ) { track, index in
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
@@ -1013,7 +1019,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 onShareLink: resolvedActions.onShareLink,
                 onShareFile: resolvedActions.onShareFile,
                 isFavorited: resolvedActions.isFavorited,
-                recentPlaylistTitle: resolvedActions.recentPlaylistTitle
+                recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
+                supplementalMetadataWidth: trackListSupplementalMetadataWidth
             ) {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
             }
@@ -1023,10 +1030,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 onPlayNext: resolvedActions.onPlayNext,
                 onPlayLast: resolvedActions.onPlayLast,
                 onAddToPlaylist: resolvedActions.onAddToPlaylist
-                )
-                .listRowBackground(Color.clear)
-                .hideListRowSeparator()
-                .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: showArtwork, showTrackNumbers: showTrackNumbers))
+            )
+            .listRowBackground(Color.clear)
+            .hideListRowSeparator()
+            .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: showArtwork, showTrackNumbers: showTrackNumbers))
         }
         #endif
     }
@@ -1056,5 +1063,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 wideActionButtons(availableWidth: availableWidth)
             }
         )
+    }
+
+    private func updateTrackListSupplementalMetadataWidth(_ newWidth: CGFloat) {
+        if abs(trackListSupplementalMetadataWidth - newWidth) > 1 {
+            trackListSupplementalMetadataWidth = newWidth
+        }
     }
 }

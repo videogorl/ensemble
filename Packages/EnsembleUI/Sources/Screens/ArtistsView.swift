@@ -428,6 +428,7 @@ public struct ArtistDetailView: View {
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var showToolbarTitle = false
     @State private var artistHeaderWidth: CGFloat = 0
+    @State private var favoritedTrackListWidth: CGFloat = 0
     @Environment(\.openURL) private var openURL
 
     public init(
@@ -1162,6 +1163,7 @@ public struct ArtistDetailView: View {
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadRatingKeys: activeDownloadRatingKeys,
                 interactionModel: interactionModel,
+                supplementalMetadataWidth: favoritedTrackListWidth,
                 onGoToArtist: nil // Already in artist view
             ) { track, index in
                 nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
@@ -1186,7 +1188,8 @@ public struct ArtistDetailView: View {
                         onShareLink: resolvedActions.onShareLink,
                         onShareFile: resolvedActions.onShareFile,
                         isFavorited: resolvedActions.isFavorited,
-                        recentPlaylistTitle: resolvedActions.recentPlaylistTitle
+                        recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
+                        supplementalMetadataWidth: favoritedTrackListWidth
                     ) {
                         nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
                     }
@@ -1200,6 +1203,23 @@ public struct ArtistDetailView: View {
                 }
             }
             #endif
+        }
+        .background(
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        updateFavoritedTrackListWidth(geometry.size.width)
+                    }
+                    .onChange(of: geometry.size.width) { newWidth in
+                        updateFavoritedTrackListWidth(newWidth)
+                    }
+            }
+        )
+    }
+
+    private func updateFavoritedTrackListWidth(_ newWidth: CGFloat) {
+        if abs(favoritedTrackListWidth - newWidth) > 1 {
+            favoritedTrackListWidth = newWidth
         }
     }
 

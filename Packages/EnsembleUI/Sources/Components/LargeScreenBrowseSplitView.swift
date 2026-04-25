@@ -79,9 +79,9 @@ public struct LargeScreenBrowseSplitView<
             Divider()
 
             RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                .fill(Color.secondary.opacity(isResizeHandleHovered ? 0.45 : 0.18))
+                .fill(Color.secondary.opacity(isResizeHandleHovered ? 0.7 : 0.35))
                 .frame(width: 3, height: 48)
-                .opacity(isResizeHandleHovered ? 1 : 0)
+                .opacity(isResizeHandleHovered ? 1 : 0.65)
         }
         .frame(width: resizeHandleWidth)
         .contentShape(Rectangle())

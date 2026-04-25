@@ -31,6 +31,7 @@ public struct FavoritesView: View {
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
+    @State private var trackListSupplementalMetadataWidth: CGFloat = 0
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
@@ -347,7 +348,8 @@ public struct FavoritesView: View {
                     currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
                     activeDownloadRatingKeys: activeDownloadRatingKeys,
-                    interactionModel: interactionModel
+                    interactionModel: interactionModel,
+                    supplementalMetadataWidth: trackListSupplementalMetadataWidth
                 ) { _, index in
                     nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
                 }
@@ -355,6 +357,7 @@ public struct FavoritesView: View {
             }
         }
         .miniPlayerBottomSpacing()
+        .background(trackListSupplementalMetadataWidthReader)
         #else
         // macOS: List with header section + track rows with native swipe actions
         List {
@@ -384,7 +387,8 @@ public struct FavoritesView: View {
                     onShareLink: resolvedActions.onShareLink,
                     onShareFile: resolvedActions.onShareFile,
                     isFavorited: resolvedActions.isFavorited,
-                    recentPlaylistTitle: resolvedActions.recentPlaylistTitle
+                    recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
+                    supplementalMetadataWidth: trackListSupplementalMetadataWidth
                 ) {
                     nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
                 }
@@ -403,7 +407,26 @@ public struct FavoritesView: View {
         .listStyle(.plain)
         .modifier(ClearScrollContentBackgroundModifier())
         .miniPlayerBottomSpacing()
+        .background(trackListSupplementalMetadataWidthReader)
         #endif
+    }
+
+    private var trackListSupplementalMetadataWidthReader: some View {
+        GeometryReader { geometry in
+            Color.clear
+                .onAppear {
+                    updateTrackListSupplementalMetadataWidth(geometry.size.width)
+                }
+                .onChange(of: geometry.size.width) { newWidth in
+                    updateTrackListSupplementalMetadataWidth(newWidth)
+                }
+        }
+    }
+
+    private func updateTrackListSupplementalMetadataWidth(_ newWidth: CGFloat) {
+        if abs(trackListSupplementalMetadataWidth - newWidth) > 1 {
+            trackListSupplementalMetadataWidth = newWidth
+        }
     }
 
     /// Favorites header with heart icon and track stats

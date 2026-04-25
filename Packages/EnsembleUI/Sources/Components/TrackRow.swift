@@ -471,6 +471,7 @@ public struct TrackListView: View {
     let recentPlaylistTitle: String?
     let nowPlayingVM: NowPlayingViewModel?
     private let interactionModel: TrackRowInteractionModel
+    @State private var supplementalMetadataWidth: CGFloat = 0
 
     public init(
         tracks: [Track],
@@ -546,7 +547,8 @@ public struct TrackListView: View {
                     onShareLink: resolvedActions.onShareLink,
                     onShareFile: resolvedActions.onShareFile,
                     isFavorited: resolvedActions.isFavorited,
-                    recentPlaylistTitle: resolvedActions.recentPlaylistTitle
+                    recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
+                    supplementalMetadataWidth: supplementalMetadataWidth
                 ) {
                     onTrackTap(track, index)
                 }
@@ -580,6 +582,23 @@ public struct TrackListView: View {
                         )
                 }
             }
+        }
+        .background(
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        updateSupplementalMetadataWidth(geometry.size.width)
+                    }
+                    .onChange(of: geometry.size.width) { newWidth in
+                        updateSupplementalMetadataWidth(newWidth)
+                    }
+            }
+        )
+    }
+
+    private func updateSupplementalMetadataWidth(_ newWidth: CGFloat) {
+        if abs(supplementalMetadataWidth - newWidth) > 1 {
+            supplementalMetadataWidth = newWidth
         }
     }
 }

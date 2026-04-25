@@ -6,6 +6,7 @@ public struct GenresView: View {
     let nowPlayingVM: NowPlayingViewModel
     @State private var searchText = ""
     @State private var selectedGenre: Genre?
+    @State private var trackListSupplementalMetadataWidth: CGFloat = 0
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     public init(libraryVM: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
@@ -208,7 +209,8 @@ public struct GenresView: View {
                         TrackRow(
                             track: track,
                             showArtwork: true,
-                            isPlaying: track.id == nowPlayingVM.currentTrack?.id
+                            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                            supplementalMetadataWidth: trackListSupplementalMetadataWidth
                         ) {
                             nowPlayingVM.play(tracks: tracks, startingAt: index)
                         }
@@ -216,7 +218,26 @@ public struct GenresView: View {
                     }
                 }
                 .listStyle(.plain)
+                .background(trackListSupplementalMetadataWidthReader)
             }
+        }
+    }
+
+    private var trackListSupplementalMetadataWidthReader: some View {
+        GeometryReader { geometry in
+            Color.clear
+                .onAppear {
+                    updateTrackListSupplementalMetadataWidth(geometry.size.width)
+                }
+                .onChange(of: geometry.size.width) { newWidth in
+                    updateTrackListSupplementalMetadataWidth(newWidth)
+                }
+        }
+    }
+
+    private func updateTrackListSupplementalMetadataWidth(_ newWidth: CGFloat) {
+        if abs(trackListSupplementalMetadataWidth - newWidth) > 1 {
+            trackListSupplementalMetadataWidth = newWidth
         }
     }
 

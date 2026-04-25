@@ -651,6 +651,7 @@ private struct MacScrollWheelDetector: NSViewRepresentable {
 
     func updateNSView(_ nsView: ScrollDetectorProbeView, context: Context) {
         nsView.coordinator = context.coordinator
+        context.coordinator.scheduleAttach(from: nsView)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -667,9 +668,12 @@ private struct MacScrollWheelDetector: NSViewRepresentable {
                 return
             }
 
-            DispatchQueue.main.async { [weak self] in
-                self?.coordinator?.attachIfNeeded(from: self)
-            }
+            coordinator?.scheduleAttach(from: self)
+        }
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            coordinator?.scheduleAttach(from: self)
         }
     }
 
@@ -686,7 +690,17 @@ private struct MacScrollWheelDetector: NSViewRepresentable {
             detach()
         }
 
-        func attachIfNeeded(from view: NSView?) {
+        func scheduleAttach(from view: NSView?) {
+            attachIfNeeded(from: view)
+            DispatchQueue.main.async { [weak self, weak view] in
+                self?.attachIfNeeded(from: view)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak view] in
+                self?.attachIfNeeded(from: view)
+            }
+        }
+
+        private func attachIfNeeded(from view: NSView?) {
             guard monitor == nil, let view else { return }
 
             var current: NSView? = view
