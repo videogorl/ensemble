@@ -13,7 +13,6 @@ public struct ArtistsView: View {
     // Monotonic token to drop stale async section computations.
     @State private var artistSectionComputationToken: Int = 0
     @State private var selectedArtist: Artist?
-    @State private var isLargeScreenArtistLayout = false
 
     public init(
         libraryVM: LibraryViewModel,
@@ -34,9 +33,7 @@ public struct ArtistsView: View {
             }
         }
         .navigationTitle("Artists")
-        .if(usesGlobalArtistSearch) { view in
-            view.searchable(text: $libraryVM.artistsFilterOptions.searchText, prompt: "Filter artists")
-        }
+        .searchable(text: $libraryVM.artistsFilterOptions.searchText, prompt: "Filter artists")
         .refreshable {
             await libraryVM.refreshFromServer()
         }
@@ -92,16 +89,47 @@ public struct ArtistsView: View {
                 }
             }
             #else
-            ToolbarItem {
-                if usesGlobalArtistToolbarControls {
-                    Spacer()
-                }
-            }
+            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
-                if !libraryVM.artists.isEmpty && usesGlobalArtistToolbarControls {
+                if !libraryVM.artists.isEmpty {
                     HStack(spacing: 16) {
-                        artistFilterButton
-                        artistSortMenu
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease")
+                                if libraryVM.artistsFilterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
+                        }
+
+                        Menu {
+                            ForEach(ArtistSortOption.allCases, id: \.self) { option in
+                                Button {
+                                    if libraryVM.artistSortOption == option {
+                                        libraryVM.artistsFilterOptions.sortDirection =
+                                            libraryVM.artistsFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                                    } else {
+                                        libraryVM.artistSortOption = option
+                                        libraryVM.artistsFilterOptions.sortDirection = option.defaultDirection
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(option.rawValue)
+                                        if libraryVM.artistSortOption == option {
+                                            Image(systemName: libraryVM.artistsFilterOptions.sortDirection == .ascending
+                                                  ? "chevron.up" : "chevron.down")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("Sort By", systemImage: "arrow.up.arrow.down")
+                        }
                     }
                 }
             }
@@ -133,7 +161,6 @@ public struct ArtistsView: View {
     private var adaptiveArtistView: some View {
         LargeScreenBrowseSplitView(
             selection: $selectedArtist,
-            onSplitLayoutChange: updateLargeScreenArtistLayout,
             compact: {
                 artistListView
             },
@@ -151,15 +178,6 @@ public struct ArtistsView: View {
     }
 
     private var artistSelectionList: some View {
-        VStack(spacing: 0) {
-            #if os(macOS)
-            artistSelectionToolbar
-            #endif
-            artistSelectionScrollList
-        }
-    }
-
-    private var artistSelectionScrollList: some View {
         ScrollViewReader { proxy in
             ZStack(alignment: .trailing) {
                 ScrollView {
@@ -204,98 +222,6 @@ public struct ArtistsView: View {
                 }
             }
         }
-    }
-
-    #if os(macOS)
-    private var artistSelectionToolbar: some View {
-        HStack(spacing: 8) {
-            TextField("Filter artists", text: $libraryVM.artistsFilterOptions.searchText)
-                .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 0, maxWidth: .infinity)
-
-            artistFilterButton
-                .help("Filter Artists")
-
-            artistSortMenu
-                .labelStyle(.iconOnly)
-                .help("Sort Artists")
-        }
-        .controlSize(.large)
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
-    }
-    #endif
-
-    private var usesGlobalArtistSearch: Bool {
-        #if os(macOS)
-        !isLargeScreenArtistLayout
-        #else
-        true
-        #endif
-    }
-
-    private var usesGlobalArtistToolbarControls: Bool {
-        #if os(macOS)
-        !isLargeScreenArtistLayout
-        #else
-        true
-        #endif
-    }
-
-    private func updateLargeScreenArtistLayout(_ isActive: Bool) {
-        #if os(macOS)
-        guard isLargeScreenArtistLayout != isActive else { return }
-        isLargeScreenArtistLayout = isActive
-        #else
-        _ = isActive
-        #endif
-    }
-
-    private var artistFilterButton: some View {
-        Button {
-            showFilterSheet = true
-        } label: {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: "line.3.horizontal.decrease")
-
-                // Badge indicator when filters are active
-                if libraryVM.artistsFilterOptions.hasActiveFilters {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 8, height: 8)
-                        .offset(x: 2, y: -2)
-                }
-            }
-        }
-        .accessibilityLabel("Filter Artists")
-    }
-
-    private var artistSortMenu: some View {
-        Menu {
-            ForEach(ArtistSortOption.allCases, id: \.self) { option in
-                Button {
-                    if libraryVM.artistSortOption == option {
-                        libraryVM.artistsFilterOptions.sortDirection =
-                            libraryVM.artistsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                    } else {
-                        libraryVM.artistSortOption = option
-                        libraryVM.artistsFilterOptions.sortDirection = option.defaultDirection
-                    }
-                } label: {
-                    HStack {
-                        Text(option.rawValue)
-                        if libraryVM.artistSortOption == option {
-                            Image(systemName: libraryVM.artistsFilterOptions.sortDirection == .ascending
-                                  ? "chevron.up" : "chevron.down")
-                        }
-                    }
-                }
-            }
-        } label: {
-            Label("Sort By", systemImage: "arrow.up.arrow.down")
-        }
-        .accessibilityLabel("Sort Artists")
     }
 
     private func artistSelectionRow(_ artist: Artist) -> some View {

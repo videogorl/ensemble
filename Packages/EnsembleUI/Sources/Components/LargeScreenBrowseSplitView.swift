@@ -20,7 +20,6 @@ public struct LargeScreenBrowseSplitView<
     private let sidebar: Sidebar
     private let detail: (Selection) -> Detail
     private let placeholder: Placeholder
-    private let onSplitLayoutChange: ((Bool) -> Void)?
     @State private var adjustedSidebarWidth: CGFloat?
     @State private var dragStartSidebarWidth: CGFloat?
     @State private var isResizeHandleHovered = false
@@ -32,7 +31,6 @@ public struct LargeScreenBrowseSplitView<
         minimumSidebarWidth: CGFloat = 260,
         maximumSidebarWidth: CGFloat = 460,
         minimumDetailWidth: CGFloat = 420,
-        onSplitLayoutChange: ((Bool) -> Void)? = nil,
         @ViewBuilder compact: () -> Compact,
         @ViewBuilder sidebar: () -> Sidebar,
         @ViewBuilder detail: @escaping (Selection) -> Detail,
@@ -48,46 +46,30 @@ public struct LargeScreenBrowseSplitView<
         self.sidebar = sidebar()
         self.detail = detail
         self.placeholder = placeholder()
-        self.onSplitLayoutChange = onSplitLayoutChange
     }
 
     public var body: some View {
         GeometryReader { geometry in
-            let isSplitLayout = usesSplitLayout(for: geometry.size)
-            Group {
-                if isSplitLayout {
-                    let currentSidebarWidth = resolvedSidebarWidth(for: geometry.size)
-                    HStack(spacing: 0) {
-                        sidebar
-                            .frame(width: currentSidebarWidth)
-                            .frame(maxHeight: .infinity)
+            if usesSplitLayout(for: geometry.size) {
+                let currentSidebarWidth = resolvedSidebarWidth(for: geometry.size)
+                HStack(spacing: 0) {
+                    sidebar
+                        .frame(width: currentSidebarWidth)
+                        .frame(maxHeight: .infinity)
 
-                        resizeHandle(currentSidebarWidth: currentSidebarWidth, containerWidth: geometry.size.width)
+                    resizeHandle(currentSidebarWidth: currentSidebarWidth, containerWidth: geometry.size.width)
 
-                        Group {
-                            if let selection {
-                                detail(selection)
-                            } else {
-                                placeholder
-                            }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                    .transaction { transaction in
-                        if dragStartSidebarWidth != nil {
-                            transaction.animation = nil
-                            transaction.disablesAnimations = true
+                    Group {
+                        if let selection {
+                            detail(selection)
+                        } else {
+                            placeholder
                         }
                     }
-                } else {
-                    compact
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            }
-            .onAppear {
-                onSplitLayoutChange?(isSplitLayout)
-            }
-            .onChange(of: isSplitLayout) { newValue in
-                onSplitLayoutChange?(newValue)
+            } else {
+                compact
             }
         }
     }
@@ -107,32 +89,16 @@ public struct LargeScreenBrowseSplitView<
             DragGesture(minimumDistance: 1)
                 .onChanged { value in
                     let startWidth = dragStartSidebarWidth ?? currentSidebarWidth
-                    let nextWidth = clampedSidebarWidth(
+                    if dragStartSidebarWidth == nil {
+                        dragStartSidebarWidth = startWidth
+                    }
+                    adjustedSidebarWidth = clampedSidebarWidth(
                         startWidth + value.translation.width,
                         containerWidth: containerWidth
                     )
-                    let previousWidth = adjustedSidebarWidth ?? currentSidebarWidth
-                    guard dragStartSidebarWidth == nil || abs(nextWidth - previousWidth) >= 0.5 else {
-                        return
-                    }
-
-                    var transaction = Transaction()
-                    transaction.animation = nil
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) {
-                        if dragStartSidebarWidth == nil {
-                            dragStartSidebarWidth = startWidth
-                        }
-                        adjustedSidebarWidth = nextWidth
-                    }
                 }
                 .onEnded { _ in
-                    var transaction = Transaction()
-                    transaction.animation = nil
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) {
-                        dragStartSidebarWidth = nil
-                    }
+                    dragStartSidebarWidth = nil
                 }
         )
         .onHover { hovering in
