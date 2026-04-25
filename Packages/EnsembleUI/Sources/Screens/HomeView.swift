@@ -407,7 +407,8 @@ struct HubItemCard: View {
                 size: .card,
                 cornerRadius: isArtist
                     ? ArtworkCornerRadius.circle(for: artworkDimension)
-                    : ArtworkCornerRadius.square(for: artworkDimension)
+                    : ArtworkCornerRadius.square(for: artworkDimension),
+                isResponsive: true
             )
             .frame(width: artworkDimension, height: artworkDimension)
             .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
