@@ -877,6 +877,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
 | Selection pane | list | Left-side browse list for choosing an artist, playlist, or genre | `listContent` |
+| Resize handle | control | Draggable divider that resizes the selection pane while preserving usable detail width | `resizeHandle` |
 | Detail pane | region | Right-side surface showing the selected item's detail or tracks | `detailContent` |
 | Placeholder pane | region | Empty detail state prompting the user to select an item | `LargeScreenPlaceholderView` |
 | Compact fallback | state | Existing iPhone push-navigation layout used when split view is not active | `compactContent` |
