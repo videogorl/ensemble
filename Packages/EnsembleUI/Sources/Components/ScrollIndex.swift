@@ -69,11 +69,27 @@ public struct ScrollIndex: View {
     }
 }
 
+public enum ScrollIndexPlacement {
+    case bottomChrome
+    case centered
+}
+
 public extension View {
     /// Anchors the alphabetical scroll index in the viewport so it stays fixed
     /// between top chrome and mini-player/tab chrome while content scrolls.
     @ViewBuilder
-    func libraryScrollIndexPositioning() -> some View {
+    func libraryScrollIndexPositioning(_ placement: ScrollIndexPlacement = .bottomChrome) -> some View {
+        switch placement {
+        case .bottomChrome:
+            bottomChromeScrollIndexPositioning()
+        case .centered:
+            centeredScrollIndexPositioning()
+        }
+    }
+
+    /// Keeps compact browse indexes above the mini-player/tab chrome.
+    @ViewBuilder
+    private func bottomChromeScrollIndexPositioning() -> some View {
         #if os(iOS)
         let bottomChromeInset = TrackListLayoutMetrics.miniPlayerContainerInset
         let bottomLift: CGFloat = 6
@@ -87,6 +103,20 @@ public extension View {
         self
             .frame(maxHeight: .infinity, alignment: .bottom)
             .padding(.bottom, 16)
+            .padding(.trailing, 2)
+        #endif
+    }
+
+    /// Centers large-screen indexes beside the actual list/table content.
+    @ViewBuilder
+    private func centeredScrollIndexPositioning() -> some View {
+        #if os(iOS)
+        self
+            .frame(maxHeight: .infinity, alignment: .center)
+            .padding(.trailing, -2)
+        #else
+        self
+            .frame(maxHeight: .infinity, alignment: .center)
             .padding(.trailing, 2)
         #endif
     }

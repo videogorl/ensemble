@@ -218,7 +218,7 @@ public struct ArtistsView: View {
                             proxy.scrollTo(letter, anchor: .top)
                         }
                     )
-                    .libraryScrollIndexPositioning()
+                    .libraryScrollIndexPositioning(.centered)
                 }
             }
         }

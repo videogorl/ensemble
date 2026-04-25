@@ -197,7 +197,7 @@ public struct SongsTrackListHost: View {
                 currentLetter: .constant(nil),
                 onLetterTap: onTap
             )
-            .libraryScrollIndexPositioning()
+            .libraryScrollIndexPositioning(.centered)
         }
     }
 
