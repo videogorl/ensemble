@@ -533,6 +533,15 @@ public final class HomeViewModel: ObservableObject {
         _ hubs: [Hub],
         itemExists: @escaping @Sendable (HubItem) async throws -> Bool
     ) async rethrows -> [Hub] {
+        try await filterHubsForLocalAvailability(hubs) { item in
+            try await itemExists(item) ? item : nil
+        }
+    }
+
+    internal static func filterHubsForLocalAvailability(
+        _ hubs: [Hub],
+        resolvedItem: @escaping @Sendable (HubItem) async throws -> HubItem?
+    ) async rethrows -> [Hub] {
         var filteredHubs: [Hub] = []
         filteredHubs.reserveCapacity(hubs.count)
 
@@ -541,8 +550,8 @@ public final class HomeViewModel: ObservableObject {
             availableItems.reserveCapacity(hub.items.count)
 
             for item in hub.items {
-                if try await itemExists(item) {
-                    availableItems.append(item)
+                if let resolved = try await resolvedItem(item) {
+                    availableItems.append(resolved)
                 }
             }
 
@@ -564,7 +573,7 @@ public final class HomeViewModel: ObservableObject {
     private func filterHubsForLocalAvailability(_ hubs: [Hub]) async -> [Hub] {
         do {
             let filteredHubs = try await Self.filterHubsForLocalAvailability(hubs) { [libraryRepository, playlistRepository] item in
-                try await Self.hubItemExistsInLocalLibrary(
+                try await Self.resolveHubItemFromLocalLibrary(
                     item,
                     libraryRepository: libraryRepository,
                     playlistRepository: playlistRepository
@@ -591,29 +600,97 @@ public final class HomeViewModel: ObservableObject {
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol
     ) async throws -> Bool {
+        try await resolveHubItemFromLocalLibrary(
+            item,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository
+        ) != nil
+    }
+
+    private static func resolveHubItemFromLocalLibrary(
+        _ item: HubItem,
+        libraryRepository: LibraryRepositoryProtocol,
+        playlistRepository: PlaylistRepositoryProtocol
+    ) async throws -> HubItem? {
         switch item.type {
         case "album":
-            return try await libraryRepository.fetchAlbum(
+            guard let cdAlbum = try await libraryRepository.fetchAlbum(
                 ratingKey: item.id,
                 sourceCompositeKey: item.sourceCompositeKey
-            ) != nil
+            ) else { return nil }
+            let album = Album(from: cdAlbum)
+            return HubItem(
+                id: item.id,
+                type: item.type,
+                title: album.title,
+                subtitle: album.artistName ?? item.subtitle,
+                thumbPath: album.thumbPath ?? item.thumbPath,
+                year: album.year ?? item.year,
+                sourceCompositeKey: item.sourceCompositeKey,
+                album: album,
+                track: item.track,
+                artist: item.artist,
+                playlist: item.playlist
+            )
         case "artist":
-            return try await libraryRepository.fetchArtist(
+            guard let cdArtist = try await libraryRepository.fetchArtist(
                 ratingKey: item.id,
                 sourceCompositeKey: item.sourceCompositeKey
-            ) != nil
+            ) else { return nil }
+            let artist = Artist(from: cdArtist)
+            return HubItem(
+                id: item.id,
+                type: item.type,
+                title: artist.name,
+                subtitle: item.subtitle,
+                thumbPath: artist.thumbPath ?? artist.fallbackThumbPath ?? item.thumbPath,
+                year: item.year,
+                sourceCompositeKey: item.sourceCompositeKey,
+                album: item.album,
+                track: item.track,
+                artist: artist,
+                playlist: item.playlist
+            )
         case "playlist":
-            return try await playlistRepository.fetchPlaylist(
+            guard let cdPlaylist = try await playlistRepository.fetchPlaylist(
                 ratingKey: item.id,
                 sourceCompositeKey: item.sourceCompositeKey
-            ) != nil
+            ) else { return nil }
+            let playlist = Playlist(from: cdPlaylist)
+            return HubItem(
+                id: item.id,
+                type: item.type,
+                title: playlist.title,
+                subtitle: item.subtitle,
+                thumbPath: playlist.compositePath ?? item.thumbPath,
+                year: item.year,
+                sourceCompositeKey: item.sourceCompositeKey,
+                album: item.album,
+                track: item.track,
+                artist: item.artist,
+                playlist: playlist
+            )
         case "track":
-            return try await libraryRepository.fetchTrack(
+            guard let cdTrack = try await libraryRepository.fetchTrack(
                 ratingKey: item.id,
                 sourceCompositeKey: item.sourceCompositeKey
-            ) != nil
+            ) else { return nil }
+            let track = Track(from: cdTrack)
+            return HubItem(
+                id: item.id,
+                type: item.type,
+                title: track.title,
+                subtitle: track.artistName ?? item.subtitle,
+                thumbPath: track.thumbPath ?? track.fallbackThumbPath ?? item.thumbPath,
+                year: item.year,
+                sourceCompositeKey: item.sourceCompositeKey,
+                album: item.album,
+                track: track,
+                artist: item.artist,
+                playlist: item.playlist
+            )
         default:
-            return false
+            return nil
         }
     }
 

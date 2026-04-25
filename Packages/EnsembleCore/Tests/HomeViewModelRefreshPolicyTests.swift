@@ -538,7 +538,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             )
         ]
 
-        let filtered = try await HomeViewModel.filterHubsForLocalAvailability(hubs) { item in
+        let filtered = await HomeViewModel.filterHubsForLocalAvailability(hubs) { item in
             available.contains("\(item.id)|\(item.sourceCompositeKey)")
         }
 
@@ -546,6 +546,57 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(filtered[0].items.map(\.id), ["album-1"])
         XCTAssertEqual(filtered[0].context, "hub.music.artist")
         XCTAssertEqual(filtered[1].items.map(\.id), ["track-1"])
+    }
+
+    func testLocalAvailabilityFilterUsesResolvedLocalItemMetadata() async throws {
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        let hubs = [
+            Hub(
+                id: "hub-1",
+                title: "Recently Added",
+                type: "mixed",
+                items: [
+                    HubItem(
+                        id: "album-1",
+                        type: "album",
+                        title: "Stale Album Title",
+                        subtitle: nil,
+                        thumbPath: nil,
+                        year: nil,
+                        sourceCompositeKey: sourceKey
+                    )
+                ]
+            )
+        ]
+
+        let filtered = await HomeViewModel.filterHubsForLocalAvailability(hubs) { item in
+            guard item.id == "album-1" else { return nil }
+            let album = Album(
+                id: item.id,
+                key: item.id,
+                title: "Album One",
+                artistName: "Artist One",
+                year: 2026,
+                thumbPath: "/library/metadata/album-1/thumb/123",
+                sourceCompositeKey: sourceKey
+            )
+            return HubItem(
+                id: item.id,
+                type: item.type,
+                title: album.title,
+                subtitle: album.artistName,
+                thumbPath: album.thumbPath,
+                year: album.year,
+                sourceCompositeKey: item.sourceCompositeKey,
+                album: album
+            )
+        }
+
+        XCTAssertEqual(filtered.count, 1)
+        XCTAssertEqual(filtered[0].items[0].title, "Album One")
+        XCTAssertEqual(filtered[0].items[0].subtitle, "Artist One")
+        XCTAssertEqual(filtered[0].items[0].thumbPath, "/library/metadata/album-1/thumb/123")
+        XCTAssertEqual(filtered[0].items[0].album?.thumbPath, "/library/metadata/album-1/thumb/123")
     }
 
     func testInitialLoadWaitsForStartupHealthChecksBeforeFetchingNetworkHubs() async {
