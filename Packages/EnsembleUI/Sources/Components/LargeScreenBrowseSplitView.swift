@@ -20,6 +20,7 @@ public struct LargeScreenBrowseSplitView<
     private let sidebar: Sidebar
     private let detail: (Selection) -> Detail
     private let placeholder: Placeholder
+    private let onSidebarWidthChange: ((CGFloat?) -> Void)?
     @State private var adjustedSidebarWidth: CGFloat?
     @State private var dragStartSidebarWidth: CGFloat?
     @State private var isResizeHandleHovered = false
@@ -31,6 +32,7 @@ public struct LargeScreenBrowseSplitView<
         minimumSidebarWidth: CGFloat = 260,
         maximumSidebarWidth: CGFloat = 460,
         minimumDetailWidth: CGFloat = 420,
+        onSidebarWidthChange: ((CGFloat?) -> Void)? = nil,
         @ViewBuilder compact: () -> Compact,
         @ViewBuilder sidebar: () -> Sidebar,
         @ViewBuilder detail: @escaping (Selection) -> Detail,
@@ -46,6 +48,7 @@ public struct LargeScreenBrowseSplitView<
         self.sidebar = sidebar()
         self.detail = detail
         self.placeholder = placeholder()
+        self.onSidebarWidthChange = onSidebarWidthChange
     }
 
     public var body: some View {
@@ -68,8 +71,23 @@ public struct LargeScreenBrowseSplitView<
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .transaction { transaction in
+                    if dragStartSidebarWidth != nil {
+                        transaction.animation = nil
+                        transaction.disablesAnimations = true
+                    }
+                }
+                .onAppear {
+                    onSidebarWidthChange?(currentSidebarWidth)
+                }
+                .onChange(of: currentSidebarWidth) { newValue in
+                    onSidebarWidthChange?(newValue)
+                }
             } else {
                 compact
+                    .onAppear {
+                        onSidebarWidthChange?(nil)
+                    }
             }
         }
     }
@@ -89,16 +107,32 @@ public struct LargeScreenBrowseSplitView<
             DragGesture(minimumDistance: 1)
                 .onChanged { value in
                     let startWidth = dragStartSidebarWidth ?? currentSidebarWidth
-                    if dragStartSidebarWidth == nil {
-                        dragStartSidebarWidth = startWidth
-                    }
-                    adjustedSidebarWidth = clampedSidebarWidth(
+                    let nextWidth = clampedSidebarWidth(
                         startWidth + value.translation.width,
                         containerWidth: containerWidth
                     )
+                    let previousWidth = adjustedSidebarWidth ?? currentSidebarWidth
+                    guard dragStartSidebarWidth == nil || abs(nextWidth - previousWidth) >= 0.5 else {
+                        return
+                    }
+
+                    var transaction = Transaction()
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        if dragStartSidebarWidth == nil {
+                            dragStartSidebarWidth = startWidth
+                        }
+                        adjustedSidebarWidth = nextWidth
+                    }
                 }
                 .onEnded { _ in
-                    dragStartSidebarWidth = nil
+                    var transaction = Transaction()
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        dragStartSidebarWidth = nil
+                    }
                 }
         )
         .onHover { hovering in

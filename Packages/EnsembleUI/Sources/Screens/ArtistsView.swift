@@ -13,6 +13,7 @@ public struct ArtistsView: View {
     // Monotonic token to drop stale async section computations.
     @State private var artistSectionComputationToken: Int = 0
     @State private var selectedArtist: Artist?
+    @State private var largeScreenSelectionPaneWidth: CGFloat?
 
     public init(
         libraryVM: LibraryViewModel,
@@ -89,48 +90,9 @@ public struct ArtistsView: View {
                 }
             }
             #else
-            ToolbarItem { Spacer() }
-            ToolbarItem(placement: .primaryActionIfAvailable) {
+            ToolbarItem {
                 if !libraryVM.artists.isEmpty {
-                    HStack(spacing: 16) {
-                        Button {
-                            showFilterSheet = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease")
-                                if libraryVM.artistsFilterOptions.hasActiveFilters {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
-                                }
-                            }
-                        }
-
-                        Menu {
-                            ForEach(ArtistSortOption.allCases, id: \.self) { option in
-                                Button {
-                                    if libraryVM.artistSortOption == option {
-                                        libraryVM.artistsFilterOptions.sortDirection =
-                                            libraryVM.artistsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                                    } else {
-                                        libraryVM.artistSortOption = option
-                                        libraryVM.artistsFilterOptions.sortDirection = option.defaultDirection
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(option.rawValue)
-                                        if libraryVM.artistSortOption == option {
-                                            Image(systemName: libraryVM.artistsFilterOptions.sortDirection == .ascending
-                                                  ? "chevron.up" : "chevron.down")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            Label("Sort By", systemImage: "arrow.up.arrow.down")
-                        }
-                    }
+                    macArtistToolbarControls
                 }
             }
             #endif
@@ -161,6 +123,7 @@ public struct ArtistsView: View {
     private var adaptiveArtistView: some View {
         LargeScreenBrowseSplitView(
             selection: $selectedArtist,
+            onSidebarWidthChange: updateLargeScreenSelectionPaneWidth,
             compact: {
                 artistListView
             },
@@ -175,6 +138,77 @@ public struct ArtistsView: View {
                 LargeScreenPlaceholderView(systemImage: "person.crop.circle", title: "Select an Artist")
             }
         )
+    }
+
+    #if os(macOS)
+    private var macArtistToolbarControls: some View {
+        HStack(spacing: 16) {
+            Spacer(minLength: 0)
+            artistFilterButton
+            artistSortMenu
+        }
+        .frame(width: macArtistToolbarWidth)
+    }
+
+    private var macArtistToolbarWidth: CGFloat {
+        let width = largeScreenSelectionPaneWidth ?? 340
+        return max(160, width - 24)
+    }
+    #endif
+
+    private func updateLargeScreenSelectionPaneWidth(_ width: CGFloat?) {
+        #if os(macOS)
+        guard largeScreenSelectionPaneWidth != width else { return }
+        largeScreenSelectionPaneWidth = width
+        #else
+        _ = width
+        #endif
+    }
+
+    private var artistFilterButton: some View {
+        Button {
+            showFilterSheet = true
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "line.3.horizontal.decrease")
+
+                // Badge indicator when filters are active
+                if libraryVM.artistsFilterOptions.hasActiveFilters {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 8, height: 8)
+                        .offset(x: 2, y: -2)
+                }
+            }
+        }
+        .accessibilityLabel("Filter Artists")
+    }
+
+    private var artistSortMenu: some View {
+        Menu {
+            ForEach(ArtistSortOption.allCases, id: \.self) { option in
+                Button {
+                    if libraryVM.artistSortOption == option {
+                        libraryVM.artistsFilterOptions.sortDirection =
+                            libraryVM.artistsFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                    } else {
+                        libraryVM.artistSortOption = option
+                        libraryVM.artistsFilterOptions.sortDirection = option.defaultDirection
+                    }
+                } label: {
+                    HStack {
+                        Text(option.rawValue)
+                        if libraryVM.artistSortOption == option {
+                            Image(systemName: libraryVM.artistsFilterOptions.sortDirection == .ascending
+                                  ? "chevron.up" : "chevron.down")
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label("Sort By", systemImage: "arrow.up.arrow.down")
+        }
+        .accessibilityLabel("Sort Artists")
     }
 
     private var artistSelectionList: some View {
