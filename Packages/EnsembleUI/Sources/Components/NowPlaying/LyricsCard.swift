@@ -3,6 +3,8 @@ import SwiftUI
 
 #if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
 #endif
 
 /// Left card displaying lyrics with time-synced highlighting (karaoke style)
@@ -264,6 +266,12 @@ public struct LyricsCard: View {
             #if canImport(UIKit)
             .background(
                 VerticalDragDetector {
+                    viewModel.userDidScrollLyrics()
+                }
+            )
+            #elseif canImport(AppKit)
+            .background(
+                MacScrollWheelDetector {
                     viewModel.userDidScrollLyrics()
                 }
             )
@@ -622,6 +630,95 @@ private struct VerticalDragDetector: UIViewRepresentable {
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
             return true
+        }
+    }
+}
+#endif
+
+#if canImport(AppKit)
+// MARK: - macOS Scroll Wheel Detector
+
+/// Detects user scroll-wheel and trackpad scrolling over the lyrics scroll view
+/// without intercepting the native NSScrollView event handling.
+private struct MacScrollWheelDetector: NSViewRepresentable {
+    let onUserScroll: () -> Void
+
+    func makeNSView(context: Context) -> ScrollDetectorProbeView {
+        let view = ScrollDetectorProbeView()
+        view.coordinator = context.coordinator
+        return view
+    }
+
+    func updateNSView(_ nsView: ScrollDetectorProbeView, context: Context) {
+        nsView.coordinator = context.coordinator
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onUserScroll: onUserScroll)
+    }
+
+    final class ScrollDetectorProbeView: NSView {
+        weak var coordinator: Coordinator?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil else {
+                coordinator?.detach()
+                return
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                self?.coordinator?.attachIfNeeded(from: self)
+            }
+        }
+    }
+
+    final class Coordinator {
+        private let onUserScroll: () -> Void
+        private weak var scrollView: NSScrollView?
+        private var monitor: Any?
+
+        init(onUserScroll: @escaping () -> Void) {
+            self.onUserScroll = onUserScroll
+        }
+
+        deinit {
+            detach()
+        }
+
+        func attachIfNeeded(from view: NSView?) {
+            guard monitor == nil, let view else { return }
+
+            var current: NSView? = view
+            while let candidate = current {
+                if let scrollView = candidate as? NSScrollView {
+                    self.scrollView = scrollView
+                    break
+                }
+                current = candidate.superview
+            }
+
+            guard let scrollView else { return }
+
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self, weak scrollView] event in
+                guard let self, let scrollView else { return event }
+                guard event.window === scrollView.window else { return event }
+
+                let location = scrollView.convert(event.locationInWindow, from: nil)
+                if scrollView.bounds.contains(location) {
+                    self.onUserScroll()
+                }
+
+                return event
+            }
+        }
+
+        func detach() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+            scrollView = nil
         }
     }
 }
