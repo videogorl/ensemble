@@ -260,7 +260,11 @@ public struct TrackRow: View {
                 .foregroundColor(.secondary)
                 .monospacedDigit()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: TrackListLayoutMetrics.rowContentMinHeight,
+            alignment: .leading
+        )
         // Favorite heart centered between screen edge and first content element
         .overlay(alignment: .leading) {
             if effectiveIsFavorited {

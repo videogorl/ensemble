@@ -9,6 +9,7 @@ public enum TrackListLayoutMetrics {
     public static let utilitySectionOuterPadding: CGFloat = detailHorizontalPadding - rowHorizontalPadding
 
     public static let defaultRowHeight: CGFloat = 68
+    public static let rowContentMinHeight: CGFloat = defaultRowHeight - (rowVerticalPadding * 2)
     public static let compactRowHeightThreshold: CGFloat = 60
 
     public static let artworkLeadingInset: CGFloat = 68
