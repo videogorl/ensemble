@@ -152,7 +152,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
             #else
-            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 if shouldShowStandaloneFilterButton {
                     EnsembleBrowseFilterButton(
@@ -205,7 +204,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
             #else
-            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 if let mediaType = mediaType,
                    let ratingKey = headerData.ratingKey {
