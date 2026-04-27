@@ -1716,11 +1716,7 @@ public struct SidebarView: View {
         case .artists:
             LargeScreenBrowseSplitView(
                 selection: selectedBrowseArtistBinding,
-                minimumSplitWidth: 720,
-                sidebarWidth: 340,
-                minimumSidebarWidth: 280,
-                maximumSidebarWidth: 420,
-                minimumDetailWidth: 360,
+                configuration: .rootBrowse,
                 compact: {
                     rootBrowseCompactHost(for: browseKind)
                 },
@@ -1737,11 +1733,7 @@ public struct SidebarView: View {
         case .playlists:
             LargeScreenBrowseSplitView(
                 selection: selectedBrowsePlaylistBinding,
-                minimumSplitWidth: 720,
-                sidebarWidth: 340,
-                minimumSidebarWidth: 280,
-                maximumSidebarWidth: 420,
-                minimumDetailWidth: 360,
+                configuration: .rootBrowse,
                 compact: {
                     rootBrowseCompactHost(for: browseKind)
                 },
@@ -1758,11 +1750,7 @@ public struct SidebarView: View {
         case .genres:
             LargeScreenBrowseSplitView(
                 selection: selectedBrowseGenreBinding,
-                minimumSplitWidth: 720,
-                sidebarWidth: 340,
-                minimumSidebarWidth: 280,
-                maximumSidebarWidth: 420,
-                minimumDetailWidth: 360,
+                configuration: .rootBrowse,
                 compact: {
                     rootBrowseCompactHost(for: browseKind)
                 },

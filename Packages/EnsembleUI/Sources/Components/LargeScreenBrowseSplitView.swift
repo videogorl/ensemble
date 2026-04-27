@@ -10,12 +10,7 @@ public struct LargeScreenBrowseSplitView<
     Compact: View
 >: View {
     @Binding private var selection: Selection?
-    private let minimumSplitWidth: CGFloat
-    private let sidebarWidth: CGFloat
-    private let minimumSidebarWidth: CGFloat
-    private let maximumSidebarWidth: CGFloat
-    private let minimumDetailWidth: CGFloat
-    private let resizeHandleWidth: CGFloat = 12
+    private let configuration: EnsembleScaffold.BrowseSplit.Configuration
     private let compact: Compact
     private let sidebar: Sidebar
     private let detail: (Selection) -> Detail
@@ -36,12 +31,32 @@ public struct LargeScreenBrowseSplitView<
         @ViewBuilder detail: @escaping (Selection) -> Detail,
         @ViewBuilder placeholder: () -> Placeholder
     ) {
+        self.init(
+            selection: selection,
+            configuration: EnsembleScaffold.BrowseSplit.Configuration(
+                minimumSplitWidth: minimumSplitWidth,
+                sidebarWidth: sidebarWidth,
+                minimumSidebarWidth: minimumSidebarWidth,
+                maximumSidebarWidth: maximumSidebarWidth,
+                minimumDetailWidth: minimumDetailWidth
+            ),
+            compact: compact,
+            sidebar: sidebar,
+            detail: detail,
+            placeholder: placeholder
+        )
+    }
+
+    public init(
+        selection: Binding<Selection?>,
+        configuration: EnsembleScaffold.BrowseSplit.Configuration,
+        @ViewBuilder compact: () -> Compact,
+        @ViewBuilder sidebar: () -> Sidebar,
+        @ViewBuilder detail: @escaping (Selection) -> Detail,
+        @ViewBuilder placeholder: () -> Placeholder
+    ) {
         self._selection = selection
-        self.minimumSplitWidth = minimumSplitWidth
-        self.sidebarWidth = sidebarWidth
-        self.minimumSidebarWidth = minimumSidebarWidth
-        self.maximumSidebarWidth = maximumSidebarWidth
-        self.minimumDetailWidth = minimumDetailWidth
+        self.configuration = configuration
         self.compact = compact()
         self.sidebar = sidebar()
         self.detail = detail
@@ -84,7 +99,7 @@ public struct LargeScreenBrowseSplitView<
                 transaction.disablesAnimations = true
             }
         }
-        .coordinateSpace(name: "LargeScreenBrowseSplitView")
+        .coordinateSpace(name: EnsembleScaffold.BrowseSplit.coordinateSpaceName)
     }
 
     @ViewBuilder
@@ -113,10 +128,10 @@ public struct LargeScreenBrowseSplitView<
                 .frame(width: 3, height: 48)
                 .opacity(isResizeHandleHovered ? 1 : 0.65)
         }
-        .frame(width: resizeHandleWidth)
+        .frame(width: configuration.resizeHandleWidth)
         .contentShape(Rectangle())
         .gesture(
-            DragGesture(minimumDistance: 1, coordinateSpace: .named("LargeScreenBrowseSplitView"))
+            DragGesture(minimumDistance: 1, coordinateSpace: .named(EnsembleScaffold.BrowseSplit.coordinateSpaceName))
                 .onChanged { value in
                     let startWidth = dragStartSidebarWidth ?? currentSidebarWidth
                     let nextWidth = clampedSidebarWidth(
@@ -162,19 +177,22 @@ public struct LargeScreenBrowseSplitView<
         #if os(iOS)
         guard UIDevice.current.userInterfaceIdiom != .phone else { return false }
         #endif
-        return size.width >= minimumSplitWidth
+        return size.width >= configuration.minimumSplitWidth
     }
 
     private func resolvedSidebarWidth(for size: CGSize) -> CGFloat {
-        clampedSidebarWidth(adjustedSidebarWidth ?? sidebarWidth, containerWidth: size.width)
+        clampedSidebarWidth(adjustedSidebarWidth ?? configuration.sidebarWidth, containerWidth: size.width)
     }
 
     private func clampedSidebarWidth(_ proposedWidth: CGFloat, containerWidth: CGFloat) -> CGFloat {
         let availableMaximum = min(
-            maximumSidebarWidth,
-            max(minimumSidebarWidth, containerWidth - minimumDetailWidth - resizeHandleWidth)
+            configuration.maximumSidebarWidth,
+            max(
+                configuration.minimumSidebarWidth,
+                containerWidth - configuration.minimumDetailWidth - configuration.resizeHandleWidth
+            )
         )
-        return min(max(proposedWidth, minimumSidebarWidth), availableMaximum)
+        return min(max(proposedWidth, configuration.minimumSidebarWidth), availableMaximum)
     }
 }
 

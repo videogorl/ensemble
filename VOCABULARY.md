@@ -904,6 +904,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Detail pane | region | Right-side surface showing the selected item's detail or tracks | `detailContent` |
 | Placeholder pane | region | Empty detail state prompting the user to select an item | `LargeScreenPlaceholderView` |
 | Compact fallback | state | Existing iPhone push-navigation layout used when split view is not active | `compactContent` |
+| Browse split configuration | policy | Semantic pane width, breakpoint, and resize-handle preset for a browse split | `EnsembleScaffold.BrowseSplit.Configuration`, `.rootBrowse` |
 
 ---
 

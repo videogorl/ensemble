@@ -30,6 +30,43 @@ public enum EnsembleScaffold {
         }
         #endif
     }
+
+    public enum BrowseSplit {
+        public struct Configuration: Equatable {
+            public let minimumSplitWidth: CGFloat
+            public let sidebarWidth: CGFloat
+            public let minimumSidebarWidth: CGFloat
+            public let maximumSidebarWidth: CGFloat
+            public let minimumDetailWidth: CGFloat
+            public let resizeHandleWidth: CGFloat
+
+            public init(
+                minimumSplitWidth: CGFloat = EnsembleDesign.Breakpoint.browseSplitMinimumWidth,
+                sidebarWidth: CGFloat = 340,
+                minimumSidebarWidth: CGFloat = 260,
+                maximumSidebarWidth: CGFloat = 460,
+                minimumDetailWidth: CGFloat = 420,
+                resizeHandleWidth: CGFloat = 12
+            ) {
+                self.minimumSplitWidth = minimumSplitWidth
+                self.sidebarWidth = sidebarWidth
+                self.minimumSidebarWidth = minimumSidebarWidth
+                self.maximumSidebarWidth = maximumSidebarWidth
+                self.minimumDetailWidth = minimumDetailWidth
+                self.resizeHandleWidth = resizeHandleWidth
+            }
+
+            public static let rootBrowse = Configuration(
+                minimumSplitWidth: 720,
+                sidebarWidth: 340,
+                minimumSidebarWidth: 280,
+                maximumSidebarWidth: 420,
+                minimumDetailWidth: 360
+            )
+        }
+
+        public static let coordinateSpaceName = "LargeScreenBrowseSplitView"
+    }
 }
 
 /// Platform-aligned browse toolbar host that keeps the macOS search spacer pattern in one place.
