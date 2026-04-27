@@ -28,6 +28,11 @@ public enum EnsembleDesign {
         public static let chipHorizontal: CGFloat = md
         public static let chipVertical: CGFloat = 6
         public static let sheetRowVertical: CGFloat = 10
+        public static let sheetOuterHorizontal: CGFloat = xxxl
+        public static let sheetOuterVertical: CGFloat = 28
+        public static let sheetFooterHorizontal: CGFloat = xl
+        public static let sheetFooterVertical: CGFloat = md
+        public static let sheetSectionPadding: CGFloat = 18
         public static let popoverActionHorizontal: CGFloat = 14
         public static let popoverActionVertical: CGFloat = 9
     }
@@ -35,6 +40,7 @@ public enum EnsembleDesign {
     public enum Radius {
         public static let control: CGFloat = 10
         public static let card: CGFloat = 12
+        public static let sectionCard: CGFloat = 14
         public static let largeCard: CGFloat = 20
         public static let sheet: CGFloat = 20
         public static let chip: CGFloat = 20
@@ -105,6 +111,7 @@ public enum EnsembleDesign {
         public static let artist = "person.circle"
         public static let back = "chevron.left"
         public static let checkmark = "checkmark.circle.fill"
+        public static let selectionCheckmark = "checkmark"
         public static let closeCircle = "xmark.circle.fill"
         public static let delete = "trash"
         public static let download = "arrow.down.circle"

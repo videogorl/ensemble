@@ -57,7 +57,7 @@ public struct FilterSheet: View {
     private var macOSBody: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xl) {
                     Text("Filters")
                         .font(.title2)
                         .fontWeight(.semibold)
@@ -86,7 +86,7 @@ public struct FilterSheet: View {
                             if let yearRange = filterOptions.yearRange {
                                 HStack {
                                     Text("Current Range")
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                                     Spacer()
                                     Text("\(yearRange.lowerBound) - \(yearRange.upperBound)")
                                 }
@@ -96,13 +96,13 @@ public struct FilterSheet: View {
                                     minYear = ""
                                     maxYear = ""
                                 }
-                                .foregroundColor(.red)
+                                .foregroundColor(EnsembleDesign.Color.destructive)
                             } else {
                                 HStack(alignment: .top, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                                     VStack(alignment: .leading, spacing: 6) {
                                         Text("Min Year")
                                             .font(.caption)
-                                            .foregroundColor(.secondary)
+                                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                                         TextField("Min Year", text: $minYear)
                                             .textFieldStyle(.roundedBorder)
                                     }
@@ -110,7 +110,7 @@ public struct FilterSheet: View {
                                     VStack(alignment: .leading, spacing: 6) {
                                         Text("Max Year")
                                             .font(.caption)
-                                            .foregroundColor(.secondary)
+                                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                                         TextField("Max Year", text: $maxYear)
                                             .textFieldStyle(.roundedBorder)
                                     }
@@ -131,11 +131,11 @@ public struct FilterSheet: View {
                         ) {
                             if filterOptions.selectedArtists.isEmpty {
                                 Text("No artist filters applied")
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                             } else {
                                 HStack {
                                     Text("Selected")
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                                     Spacer()
                                     Text("\(filterOptions.selectedArtists.count)")
                                 }
@@ -150,7 +150,7 @@ public struct FilterSheet: View {
                                     Button("Clear") {
                                         filterOptions.selectedArtists.removeAll()
                                     }
-                                    .foregroundColor(.red)
+                                    .foregroundColor(EnsembleDesign.Color.destructive)
                                 }
                             }
                         }
@@ -163,11 +163,11 @@ public struct FilterSheet: View {
                         ) {
                             if filterOptions.selectedGenres.isEmpty {
                                 Text("No genre filters applied")
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                             } else {
                                 HStack {
                                     Text("Selected")
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                                     Spacer()
                                     Text("\(filterOptions.selectedGenres.count)")
                                 }
@@ -182,7 +182,7 @@ public struct FilterSheet: View {
                                     Button("Clear") {
                                         filterOptions.selectedGenres.removeAll()
                                     }
-                                    .foregroundColor(.red)
+                                    .foregroundColor(EnsembleDesign.Color.destructive)
                                 }
                             }
                         }
@@ -194,12 +194,12 @@ public struct FilterSheet: View {
                             minYear = ""
                             maxYear = ""
                         }
-                        .foregroundColor(.red)
+                        .foregroundColor(EnsembleDesign.Color.destructive)
                     }
                 }
                 .frame(maxWidth: 640, alignment: .leading)
-                .padding(.horizontal, 32)
-                .padding(.vertical, 28)
+                .padding(.horizontal, EnsembleDesign.Spacing.sheetOuterHorizontal)
+                .padding(.vertical, EnsembleDesign.Spacing.sheetOuterVertical)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
 
@@ -212,8 +212,8 @@ public struct FilterSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .padding(.horizontal, EnsembleDesign.Spacing.sheetFooterHorizontal)
+            .padding(.vertical, EnsembleDesign.Spacing.sheetFooterVertical)
         }
         .frame(minWidth: 720, minHeight: 560)
         .onAppear(perform: initializeYearRange)
@@ -311,7 +311,7 @@ public struct FilterSheet: View {
                             Text("Year Range")
                             Spacer()
                             Text("\(yearRange.lowerBound) - \(yearRange.upperBound)")
-                                .foregroundColor(.secondary)
+                                .foregroundColor(EnsembleDesign.Color.secondaryText)
                         }
                         
                         Button("Clear Year Range") {
@@ -319,7 +319,7 @@ public struct FilterSheet: View {
                             minYear = ""
                             maxYear = ""
                         }
-                        .foregroundColor(.red)
+                        .foregroundColor(EnsembleDesign.Color.destructive)
                     } else {
                         HStack {
                             TextField("Min Year", text: $minYear)
@@ -330,7 +330,7 @@ public struct FilterSheet: View {
                                 .frame(maxWidth: .infinity)
                             
                             Text("to")
-                                .foregroundColor(.secondary)
+                                .foregroundColor(EnsembleDesign.Color.secondaryText)
                             
                             TextField("Max Year", text: $maxYear)
                                 .focused($focusedYearField, equals: .max)
@@ -367,7 +367,7 @@ public struct FilterSheet: View {
                             Text("Selected Artists")
                             Spacer()
                             Text("\(filterOptions.selectedArtists.count)")
-                                .foregroundColor(.secondary)
+                                .foregroundColor(EnsembleDesign.Color.secondaryText)
                         }
                         
                         NavigationLink {
@@ -382,7 +382,7 @@ public struct FilterSheet: View {
                         Button("Clear Artists") {
                             filterOptions.selectedArtists.removeAll()
                         }
-                        .foregroundColor(.red)
+                        .foregroundColor(EnsembleDesign.Color.destructive)
                     }
                 } header: {
                     Text("Artists")
@@ -406,7 +406,7 @@ public struct FilterSheet: View {
                             Text("Selected Genres")
                             Spacer()
                             Text("\(filterOptions.selectedGenres.count)")
-                                .foregroundColor(.secondary)
+                                .foregroundColor(EnsembleDesign.Color.secondaryText)
                         }
                         
                         NavigationLink {
@@ -421,7 +421,7 @@ public struct FilterSheet: View {
                         Button("Clear Genres") {
                             filterOptions.selectedGenres.removeAll()
                         }
-                        .foregroundColor(.red)
+                        .foregroundColor(EnsembleDesign.Color.destructive)
                     }
                 } header: {
                     Text("Genres")
@@ -436,7 +436,7 @@ public struct FilterSheet: View {
                         minYear = ""
                         maxYear = ""
                     }
-                    .foregroundColor(.red)
+                    .foregroundColor(EnsembleDesign.Color.destructive)
                 }
             }
         }
@@ -486,13 +486,13 @@ public struct FilterSheet: View {
             if let footer {
                 Text(footer)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
-        .padding(18)
+        .padding(EnsembleDesign.Spacing.sheetSectionPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: EnsembleDesign.Radius.sectionCard, style: .continuous)
                 .fill(Color.primary.opacity(0.04))
         )
     }
@@ -509,8 +509,8 @@ public struct FilterSheet: View {
                     .fontWeight(.semibold)
                 Spacer()
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
+            .padding(.horizontal, EnsembleDesign.Spacing.sheetFooterHorizontal)
+            .padding(.vertical, EnsembleDesign.Spacing.lg)
 
             Divider()
 
@@ -529,8 +529,8 @@ public struct FilterSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .padding(.horizontal, EnsembleDesign.Spacing.sheetFooterHorizontal)
+            .padding(.vertical, EnsembleDesign.Spacing.sheetFooterVertical)
         }
         .frame(minWidth: 420, minHeight: 520)
     }
@@ -554,11 +554,11 @@ struct ArtistSelectionView: View {
             } label: {
                 HStack {
                     Text(artist)
-                        .foregroundColor(.primary)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
                     Spacer()
                     if selectedArtists.contains(artist) {
-                        Image(systemName: "checkmark")
-                            .foregroundColor(.accentColor)
+                        Image(systemName: EnsembleDesign.Icon.selectionCheckmark)
+                            .foregroundColor(EnsembleDesign.Color.accent)
                     }
                 }
             }
@@ -587,11 +587,11 @@ struct GenreSelectionView: View {
             } label: {
                 HStack {
                     Text(genre)
-                        .foregroundColor(.primary)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
                     Spacer()
                     if selectedGenres.contains(genre) {
-                        Image(systemName: "checkmark")
-                            .foregroundColor(.accentColor)
+                        Image(systemName: EnsembleDesign.Icon.selectionCheckmark)
+                            .foregroundColor(EnsembleDesign.Color.accent)
                     }
                 }
             }
