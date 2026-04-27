@@ -61,57 +61,11 @@ public struct FavoritesView: View {
         .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter favorites")
         .profileToolbar()
                 .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !viewModel.tracks.isEmpty {
-                    HStack(spacing: 16) {
-                        sortMenu
-
-                        Button {
-                            showFilterSheet = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease")
-
-                                if viewModel.filterOptions.hasActiveFilters {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
-                                }
-                            }
-                        }
-
-                        moreMenu
-                    }
-                }
+            EnsembleBrowseToolbar(isVisible: !viewModel.tracks.isEmpty) {
+                sortMenu
+                favoritesFilterButton
+                moreMenu
             }
-            #else
-            ToolbarItem { Spacer() }
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                if !viewModel.tracks.isEmpty {
-                    HStack(spacing: 16) {
-                        sortMenu
-
-                        Button {
-                            showFilterSheet = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease")
-                                if viewModel.filterOptions.hasActiveFilters {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
-                                }
-                            }
-                        }
-
-                        moreMenu
-                    }
-                }
-            }
-            #endif
         }
         .onReceive(nowPlayingVM.$currentTrack) { track in
             let id = track?.id
@@ -164,7 +118,16 @@ public struct FavoritesView: View {
                 }
             }
         } label: {
-            Label("More", systemImage: "ellipsis.circle")
+            Label("More", systemImage: EnsembleDesign.Icon.moreCircle)
+        }
+    }
+
+    private var favoritesFilterButton: some View {
+        EnsembleBrowseFilterButton(
+            title: "Filter Favorites",
+            hasActiveFilters: viewModel.filterOptions.hasActiveFilters
+        ) {
+            showFilterSheet = true
         }
     }
 
@@ -186,13 +149,13 @@ public struct FavoritesView: View {
                         Text(option.rawValue)
                         if viewModel.favoritesSortOption == option {
                             Image(systemName: viewModel.filterOptions.sortDirection == .ascending
-                                  ? "chevron.up" : "chevron.down")
+                                  ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
                         }
                     }
                 }
             }
         } label: {
-            Label("Sort By", systemImage: "arrow.up.arrow.down")
+            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
         }
     }
 

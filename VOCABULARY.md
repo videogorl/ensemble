@@ -194,6 +194,25 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 
 ---
 
+## Browse Toolbar
+
+- **View name:** `EnsembleBrowseToolbar`
+- **Canonical name:** Browse Toolbar
+- **Area:** Shared
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Browse toolbar group | region | Shared sort/filter/overflow toolbar action host for browse screens | `EnsembleBrowseToolbar` |
+| Filter button | control | Standard browse filter button with active-filter badge | `EnsembleBrowseFilterButton` |
+| Active filter badge | indicator | Small red dot shown when a browse filter has active constraints | `hasActiveFilters` |
+| Sort menu | menu | Per-screen sort menu hosted inside the shared toolbar group | `Sort By` |
+
+---
+
 ## SearchView
 
 - **View name:** `SearchView`

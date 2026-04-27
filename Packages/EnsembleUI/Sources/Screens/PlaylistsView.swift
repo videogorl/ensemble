@@ -54,6 +54,44 @@ public struct PlaylistsView: View {
         isStageFlowActive
     }
 
+    private var playlistMergeButton: some View {
+        Button {
+            viewModel.toggleMerge()
+        } label: {
+            Image(systemName: viewModel.isMergeEnabled
+                  ? EnsembleDesign.Icon.merge
+                  : EnsembleDesign.Icon.mergeBranch)
+        }
+        .accessibilityLabel(viewModel.isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
+    }
+
+    private var playlistSortMenu: some View {
+        Menu {
+            ForEach(PlaylistSortOption.allCases, id: \.self) { option in
+                Button {
+                    if viewModel.playlistSortOption == option {
+                        viewModel.filterOptions.sortDirection =
+                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
+                    } else {
+                        viewModel.playlistSortOption = option
+                        viewModel.filterOptions.sortDirection = option.defaultDirection
+                    }
+                } label: {
+                    HStack {
+                        Text(option.rawValue)
+                        if viewModel.playlistSortOption == option {
+                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
+                                  ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+        }
+        .accessibilityLabel("Sort Playlists")
+    }
+
     public init(
         nowPlayingVM: NowPlayingViewModel,
         viewModel: PlaylistViewModel? = nil,
@@ -315,96 +353,13 @@ public struct PlaylistsView: View {
             }
             .profileToolbar()
                         .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !isStageFlowActive {
-                    HStack(spacing: 16) {
-                        // Merge toggle — controls cross-server playlist grouping
-                        Button {
-                            viewModel.toggleMerge()
-                        } label: {
-                            Image(systemName: viewModel.isMergeEnabled
-                                  ? "arrow.triangle.merge"
-                                  : "arrow.triangle.branch")
-                        }
-                        .accessibilityLabel(viewModel.isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
-
-                        // Extracted to scope syncCoordinator observation to just the button
-                        PlaylistsNewButton {
-                            showCreatePlaylistPush = true
-                        }
-
-                        Menu {
-                            ForEach(PlaylistSortOption.allCases, id: \.self) { option in
-                                Button {
-                                    if viewModel.playlistSortOption == option {
-                                        viewModel.filterOptions.sortDirection =
-                                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
-                                    } else {
-                                        viewModel.playlistSortOption = option
-                                        viewModel.filterOptions.sortDirection = option.defaultDirection
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(option.rawValue)
-                                        if viewModel.playlistSortOption == option {
-                                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
-                                                  ? "chevron.up" : "chevron.down")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            Label("Sort By", systemImage: "arrow.up.arrow.down")
-                        }
-                    }
+            EnsembleBrowseToolbar(isVisible: !isStageFlowActive) {
+                playlistMergeButton
+                PlaylistsNewButton {
+                    showCreatePlaylistPush = true
                 }
+                playlistSortMenu
             }
-            #else
-            ToolbarItem { Spacer() }
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                if !isStageFlowActive {
-                    HStack(spacing: 16) {
-                        Button {
-                            viewModel.toggleMerge()
-                        } label: {
-                            Image(systemName: viewModel.isMergeEnabled
-                                  ? "arrow.triangle.merge"
-                                  : "arrow.triangle.branch")
-                        }
-                        .accessibilityLabel(viewModel.isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
-
-                        PlaylistsNewButton {
-                            showCreatePlaylistPush = true
-                        }
-
-                        Menu {
-                            ForEach(PlaylistSortOption.allCases, id: \.self) { option in
-                                Button {
-                                    if viewModel.playlistSortOption == option {
-                                        viewModel.filterOptions.sortDirection =
-                                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
-                                    } else {
-                                        viewModel.playlistSortOption = option
-                                        viewModel.filterOptions.sortDirection = option.defaultDirection
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(option.rawValue)
-                                        if viewModel.playlistSortOption == option {
-                                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
-                                                  ? "chevron.up" : "chevron.down")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            Label("Sort By", systemImage: "arrow.up.arrow.down")
-                        }
-                    }
-                }
-            }
-            #endif
             }
     }
 

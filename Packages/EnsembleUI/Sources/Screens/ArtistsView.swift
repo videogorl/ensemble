@@ -56,63 +56,10 @@ public struct ArtistsView: View {
         }
         .profileToolbar()
         .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !libraryVM.artists.isEmpty {
-                    HStack(spacing: 16) {
-                        Button {
-                            showFilterSheet = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease")
-
-                                // Badge indicator when filters are active
-                                if libraryVM.artistsFilterOptions.hasActiveFilters {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
-                                }
-                            }
-                        }
-
-                        Menu {
-                            ForEach(ArtistSortOption.allCases, id: \.self) { option in
-                                Button {
-                                    if libraryVM.artistSortOption == option {
-                                        libraryVM.artistsFilterOptions.sortDirection =
-                                            libraryVM.artistsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                                    } else {
-                                        libraryVM.artistSortOption = option
-                                        libraryVM.artistsFilterOptions.sortDirection = option.defaultDirection
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(option.rawValue)
-                                        if libraryVM.artistSortOption == option {
-                                            Image(systemName: libraryVM.artistsFilterOptions.sortDirection == .ascending
-                                                  ? "chevron.up" : "chevron.down")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            Label("Sort By", systemImage: "arrow.up.arrow.down")
-                        }
-                    }
-                }
+            EnsembleBrowseToolbar(isVisible: !libraryVM.artists.isEmpty) {
+                artistFilterButton
+                artistSortMenu
             }
-            #else
-            ToolbarItem { Spacer() }
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                if !libraryVM.artists.isEmpty {
-                    HStack(spacing: 16) {
-                        artistFilterButton
-                        artistSortMenu
-                    }
-                }
-            }
-            #endif
         }
         .onReceive(libraryVM.$filteredArtists) { artists in
             // Compute sections off main thread to avoid blocking UI during search
@@ -160,22 +107,12 @@ public struct ArtistsView: View {
     }
 
     private var artistFilterButton: some View {
-        Button {
+        EnsembleBrowseFilterButton(
+            title: "Filter Artists",
+            hasActiveFilters: libraryVM.artistsFilterOptions.hasActiveFilters
+        ) {
             showFilterSheet = true
-        } label: {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: "line.3.horizontal.decrease")
-
-                // Badge indicator when filters are active
-                if libraryVM.artistsFilterOptions.hasActiveFilters {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 8, height: 8)
-                        .offset(x: 2, y: -2)
-                }
-            }
         }
-        .accessibilityLabel("Filter Artists")
     }
 
     private var artistSortMenu: some View {
@@ -194,13 +131,13 @@ public struct ArtistsView: View {
                         Text(option.rawValue)
                         if libraryVM.artistSortOption == option {
                             Image(systemName: libraryVM.artistsFilterOptions.sortDirection == .ascending
-                                  ? "chevron.up" : "chevron.down")
+                                  ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
                         }
                     }
                 }
             }
         } label: {
-            Label("Sort By", systemImage: "arrow.up.arrow.down")
+            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
         }
         .accessibilityLabel("Sort Artists")
     }
@@ -601,7 +538,7 @@ public struct ArtistDetailView: View {
                 )
             }
         } label: {
-            Image(systemName: "ellipsis.circle")
+            Image(systemName: EnsembleDesign.Icon.moreCircle)
         }
     }
     

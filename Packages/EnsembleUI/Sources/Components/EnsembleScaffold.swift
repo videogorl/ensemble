@@ -2,6 +2,12 @@ import SwiftUI
 
 /// Shared adaptive UI patterns that sit above raw design tokens.
 public enum EnsembleScaffold {
+    public enum BrowseToolbar {
+        public static let itemSpacing = EnsembleDesign.Spacing.lg
+        public static let activeBadgeSize = EnsembleDesign.Spacing.sm
+        public static let activeBadgeOffset = EnsembleDesign.Spacing.xxs
+    }
+
     public enum FilterPresentation {
         public enum Style: Equatable {
             case toolbarPopover
@@ -23,6 +29,82 @@ public enum EnsembleScaffold {
             .toolbarPopover
         }
         #endif
+    }
+}
+
+/// Platform-aligned browse toolbar host that keeps the macOS search spacer pattern in one place.
+public struct EnsembleBrowseToolbar<Content: View>: ToolbarContent {
+    let isVisible: Bool
+    @ViewBuilder let content: () -> Content
+
+    public init(
+        isVisible: Bool = true,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.isVisible = isVisible
+        self.content = content
+    }
+
+    public var body: some ToolbarContent {
+        #if os(iOS)
+        ToolbarItem(placement: .navigationBarTrailing) {
+            if isVisible {
+                HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
+                    content()
+                }
+            }
+        }
+        #else
+        ToolbarItem {
+            Spacer()
+        }
+        ToolbarItem(placement: .primaryActionIfAvailable) {
+            if isVisible {
+                HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
+                    content()
+                }
+            }
+        }
+        #endif
+    }
+}
+
+/// Standard filter button for browse screens, including the active-filter badge treatment.
+public struct EnsembleBrowseFilterButton: View {
+    let title: String
+    let hasActiveFilters: Bool
+    let action: () -> Void
+
+    public init(
+        title: String = "Filter",
+        hasActiveFilters: Bool,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.hasActiveFilters = hasActiveFilters
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: EnsembleDesign.Icon.filter)
+
+                if hasActiveFilters {
+                    Circle()
+                        .fill(EnsembleDesign.Color.destructive)
+                        .frame(
+                            width: EnsembleScaffold.BrowseToolbar.activeBadgeSize,
+                            height: EnsembleScaffold.BrowseToolbar.activeBadgeSize
+                        )
+                        .offset(
+                            x: EnsembleScaffold.BrowseToolbar.activeBadgeOffset,
+                            y: -EnsembleScaffold.BrowseToolbar.activeBadgeOffset
+                        )
+                }
+            }
+        }
+        .accessibilityLabel(title)
     }
 }
 

@@ -41,6 +41,42 @@ public struct AlbumsView: View {
         isStageFlowActive
     }
 
+    private var albumFilterButton: some View {
+        EnsembleBrowseFilterButton(
+            title: "Filter Albums",
+            hasActiveFilters: libraryVM.albumsFilterOptions.hasActiveFilters
+        ) {
+            showFilterSheet = true
+        }
+    }
+
+    private var albumSortMenu: some View {
+        Menu {
+            ForEach(AlbumSortOption.allCases, id: \.self) { option in
+                Button {
+                    if libraryVM.albumSortOption == option {
+                        libraryVM.albumsFilterOptions.sortDirection =
+                            libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                    } else {
+                        libraryVM.albumSortOption = option
+                        libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
+                    }
+                } label: {
+                    HStack {
+                        Text(option.rawValue)
+                        if libraryVM.albumSortOption == option {
+                            Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
+                                  ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+        }
+        .accessibilityLabel("Sort Albums")
+    }
+
     public var body: some View {
         Group {
             if libraryVM.isLoading && libraryVM.albums.isEmpty {
@@ -113,98 +149,10 @@ public struct AlbumsView: View {
             }
         .profileToolbar()
                 .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !libraryVM.albums.isEmpty && !isPresenterChromeHidden {
-                    HStack(spacing: 16) {
-                        Button {
-                            showFilterSheet = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease")
-
-                                // Badge indicator when filters are active
-                                if libraryVM.albumsFilterOptions.hasActiveFilters {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
-                                }
-                            }
-                        }
-
-                        Menu {
-                            ForEach(AlbumSortOption.allCases, id: \.self) { option in
-                                Button {
-                                    if libraryVM.albumSortOption == option {
-                                        libraryVM.albumsFilterOptions.sortDirection =
-                                            libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                                    } else {
-                                        libraryVM.albumSortOption = option
-                                        libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(option.rawValue)
-                                        if libraryVM.albumSortOption == option {
-                                            Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
-                                                  ? "chevron.up" : "chevron.down")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            Label("Sort By", systemImage: "arrow.up.arrow.down")
-                        }
-                    }
-                }
+            EnsembleBrowseToolbar(isVisible: !libraryVM.albums.isEmpty && !isPresenterChromeHidden) {
+                albumFilterButton
+                albumSortMenu
             }
-            #else
-            ToolbarItem { Spacer() }
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                if !libraryVM.albums.isEmpty && !isPresenterChromeHidden {
-                    HStack(spacing: 16) {
-                        Button {
-                            showFilterSheet = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease")
-                                if libraryVM.albumsFilterOptions.hasActiveFilters {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
-                                }
-                            }
-                        }
-
-                        Menu {
-                            ForEach(AlbumSortOption.allCases, id: \.self) { option in
-                                Button {
-                                    if libraryVM.albumSortOption == option {
-                                        libraryVM.albumsFilterOptions.sortDirection =
-                                            libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                                    } else {
-                                        libraryVM.albumSortOption = option
-                                        libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(option.rawValue)
-                                        if libraryVM.albumSortOption == option {
-                                            Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
-                                                  ? "chevron.up" : "chevron.down")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            Label("Sort By", systemImage: "arrow.up.arrow.down")
-                        }
-                    }
-                }
-            }
-            #endif
         }
             .onReceive(libraryVM.$filteredAlbums) { albums in
                 // Compute sections off main thread to avoid blocking UI during search

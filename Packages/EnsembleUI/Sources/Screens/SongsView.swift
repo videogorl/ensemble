@@ -63,6 +63,60 @@ public struct SongsView: View {
         #endif
     }
 
+    private var songsFilterButton: some View {
+        EnsembleBrowseFilterButton(
+            title: "Filter Songs",
+            hasActiveFilters: libraryVM.tracksFilterOptions.hasActiveFilters
+        ) {
+            showFilterSheet = true
+        }
+    }
+
+    private var songsMoreMenu: some View {
+        Menu {
+            Menu {
+                ForEach(TrackSortOption.allCases, id: \.self) { option in
+                    Button {
+                        if libraryVM.trackSortOption == option {
+                            libraryVM.tracksFilterOptions.sortDirection =
+                                libraryVM.tracksFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                        } else {
+                            libraryVM.trackSortOption = option
+                            libraryVM.tracksFilterOptions.sortDirection = option.defaultDirection
+                        }
+                    } label: {
+                        HStack {
+                            Text(option.rawValue)
+                            if libraryVM.trackSortOption == option {
+                                Image(systemName: libraryVM.tracksFilterOptions.sortDirection == .ascending
+                                      ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+            }
+
+            Divider()
+
+            Button {
+                nowPlayingVM.shufflePlay(tracks: libraryVM.filteredTracks)
+            } label: {
+                Label("Shuffle All", systemImage: EnsembleDesign.Icon.shuffle)
+            }
+
+            Button {
+                nowPlayingVM.play(tracks: libraryVM.filteredTracks)
+            } label: {
+                Label("Play All", systemImage: EnsembleDesign.Icon.play)
+            }
+        } label: {
+            Image(systemName: EnsembleDesign.Icon.moreCircle)
+        }
+        .accessibilityLabel("More Song Actions")
+    }
+
     public init(libraryVM: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
@@ -138,134 +192,10 @@ public struct SongsView: View {
         }
         .profileToolbar()
                 .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !libraryVM.tracks.isEmpty && !isPresenterChromeHidden {
-                    HStack(spacing: 16) {
-                        Button {
-                            showFilterSheet = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease")
-
-                                // Badge indicator when filters are active
-                                if libraryVM.tracksFilterOptions.hasActiveFilters {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
-                                }
-                            }
-                        }
-
-                        Menu {
-                            Menu {
-                                ForEach(TrackSortOption.allCases, id: \.self) { option in
-                                    Button {
-                                        if libraryVM.trackSortOption == option {
-                                            libraryVM.tracksFilterOptions.sortDirection =
-                                                libraryVM.tracksFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                                        } else {
-                                            libraryVM.trackSortOption = option
-                                            libraryVM.tracksFilterOptions.sortDirection = option.defaultDirection
-                                        }
-                                    } label: {
-                                        HStack {
-                                            Text(option.rawValue)
-                                            if libraryVM.trackSortOption == option {
-                                                Image(systemName: libraryVM.tracksFilterOptions.sortDirection == .ascending
-                                                      ? "chevron.up" : "chevron.down")
-                                            }
-                                        }
-                                    }
-                                }
-                            } label: {
-                                Label("Sort By", systemImage: "arrow.up.arrow.down")
-                            }
-
-                            Divider()
-
-                            Button {
-                                nowPlayingVM.shufflePlay(tracks: libraryVM.filteredTracks)
-                            } label: {
-                                Label("Shuffle All", systemImage: "shuffle")
-                            }
-
-                            Button {
-                                nowPlayingVM.play(tracks: libraryVM.filteredTracks)
-                            } label: {
-                                Label("Play All", systemImage: "play.fill")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                        }
-                    }
-                }
+            EnsembleBrowseToolbar(isVisible: !libraryVM.tracks.isEmpty && !isPresenterChromeHidden) {
+                songsFilterButton
+                songsMoreMenu
             }
-            #else
-            ToolbarItem { Spacer() }
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                if !libraryVM.tracks.isEmpty && !isPresenterChromeHidden {
-                    HStack(spacing: 16) {
-                        Button {
-                            showFilterSheet = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease")
-                                if libraryVM.tracksFilterOptions.hasActiveFilters {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
-                                }
-                            }
-                        }
-
-                        Menu {
-                            Menu {
-                                ForEach(TrackSortOption.allCases, id: \.self) { option in
-                                    Button {
-                                        if libraryVM.trackSortOption == option {
-                                            libraryVM.tracksFilterOptions.sortDirection =
-                                                libraryVM.tracksFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                                        } else {
-                                            libraryVM.trackSortOption = option
-                                            libraryVM.tracksFilterOptions.sortDirection = option.defaultDirection
-                                        }
-                                    } label: {
-                                        HStack {
-                                            Text(option.rawValue)
-                                            if libraryVM.trackSortOption == option {
-                                                Image(systemName: libraryVM.tracksFilterOptions.sortDirection == .ascending
-                                                      ? "chevron.up" : "chevron.down")
-                                            }
-                                        }
-                                    }
-                                }
-                            } label: {
-                                Label("Sort By", systemImage: "arrow.up.arrow.down")
-                            }
-
-                            Divider()
-
-                            Button {
-                                nowPlayingVM.shufflePlay(tracks: libraryVM.filteredTracks)
-                            } label: {
-                                Label("Shuffle All", systemImage: "shuffle")
-                            }
-
-                            Button {
-                                nowPlayingVM.play(tracks: libraryVM.filteredTracks)
-                            } label: {
-                                Label("Play All", systemImage: "play.fill")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                        }
-                    }
-                }
-            }
-            #endif
         }
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
