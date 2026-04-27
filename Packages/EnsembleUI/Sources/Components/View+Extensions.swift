@@ -516,7 +516,7 @@ public extension ToolbarItemPlacement {
     /// Keeps action toolbar items in the platform's normal trailing action cluster.
     static var primaryActionIfAvailable: ToolbarItemPlacement {
         #if os(macOS)
-        return .automatic
+        return .primaryAction
         #else
         return .navigationBarTrailing
         #endif

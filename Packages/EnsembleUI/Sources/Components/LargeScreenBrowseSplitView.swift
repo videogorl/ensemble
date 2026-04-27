@@ -101,6 +101,10 @@ public struct LargeScreenBrowseSplitView<
         ZStack {
             Divider()
 
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(resizeHandleBackingColor)
+                .frame(width: 10, height: 64)
+
             RoundedRectangle(cornerRadius: 1.5, style: .continuous)
                 .fill(Color.secondary.opacity(isResizeHandleHovered ? 0.7 : 0.35))
                 .frame(width: 3, height: 48)
@@ -148,6 +152,16 @@ public struct LargeScreenBrowseSplitView<
         }
         .accessibilityLabel("Resize browse panes")
         .accessibilityHint("Drag horizontally to change the selection pane width.")
+    }
+
+    private var resizeHandleBackingColor: Color {
+        #if os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #elseif os(iOS)
+        Color(uiColor: .systemBackground)
+        #else
+        Color.clear
+        #endif
     }
 
     private func usesSplitLayout(for size: CGSize) -> Bool {

@@ -1290,6 +1290,9 @@ public struct SidebarView: View {
         }
         .navigationSplitViewColumnWidth(min: 260, ideal: 260, max: 260)
         .toolbar {
+            #if os(macOS)
+            ToolbarItem { Spacer() }
+            #endif
             ToolbarItemGroup(placement: .primaryActionIfAvailable) {
                 Button { navigationCoordinator.openDownloads() } label: {
                     Image(systemName: "arrow.down.circle")

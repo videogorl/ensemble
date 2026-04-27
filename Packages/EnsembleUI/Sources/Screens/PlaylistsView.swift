@@ -361,6 +361,7 @@ public struct PlaylistsView: View {
                 }
             }
             #else
+            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 if !isStageFlowActive {
                     HStack(spacing: 16) {

@@ -100,6 +100,7 @@ public struct ArtistsView: View {
                 }
             }
             #else
+            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 if !libraryVM.artists.isEmpty {
                     HStack(spacing: 16) {
