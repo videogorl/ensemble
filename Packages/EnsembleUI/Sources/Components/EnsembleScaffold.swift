@@ -74,13 +74,12 @@ public struct EnsembleStateScaffold<Action: View>: View {
 
             VStack(spacing: EnsembleDesign.Spacing.sm) {
                 Text(title)
-                    .font(.title2)
-                    .fontWeight(.semibold)
+                    .font(EnsembleDesign.Typography.stateTitle)
                     .multilineTextAlignment(.center)
 
                 if let message {
                     Text(message)
-                        .font(.subheadline)
+                        .font(EnsembleDesign.Typography.stateMessage)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .multilineTextAlignment(.center)
                 }

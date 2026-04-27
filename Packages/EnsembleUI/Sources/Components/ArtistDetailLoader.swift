@@ -24,27 +24,15 @@ struct ArtistDetailLoader: View {
             if let artist = artist {
                 ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
             } else if isLoading {
-                VStack {
-                    ProgressView()
-                    Text("Loading artist...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.top)
-                }
+                EnsembleStateScaffold(kind: .loading, title: "Loading artist…")
             } else if let error = error {
-                VStack {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
-                        .foregroundColor(.red)
-                    Text("Failed to load artist")
-                        .font(.headline)
-                    Text(error.localizedDescription)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                EnsembleStateScaffold(
+                    kind: .error,
+                    title: "Failed to load artist",
+                    message: error.localizedDescription
+                )
             } else {
-                Text("Artist not found")
-                    .foregroundColor(.secondary)
+                EnsembleStateScaffold(kind: .empty, title: "Artist not found")
             }
         }
         .onAppear {

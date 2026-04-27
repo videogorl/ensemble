@@ -65,6 +65,8 @@ public enum EnsembleDesign {
         public static let cardMetadata: Font = .caption2
         public static let rowPrimary: Font = .body
         public static let rowSecondary: Font = .caption
+        public static let stateTitle: Font = .title2.weight(.semibold)
+        public static let stateMessage: Font = .subheadline
         public static let actionLabel: Font = .headline
         public static let popoverAction: Font = .body
         public static let emptyStateIcon: Font = .system(size: 60)

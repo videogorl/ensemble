@@ -24,27 +24,15 @@ struct PlaylistDetailLoader: View {
             if let playlist = playlist {
                 PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
             } else if isLoading {
-                VStack {
-                    ProgressView()
-                    Text("Loading playlist...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.top)
-                }
+                EnsembleStateScaffold(kind: .loading, title: "Loading playlist…")
             } else if let error = error {
-                VStack {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
-                        .foregroundColor(.red)
-                    Text("Failed to load playlist")
-                        .font(.headline)
-                    Text(error.localizedDescription)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                EnsembleStateScaffold(
+                    kind: .error,
+                    title: "Failed to load playlist",
+                    message: error.localizedDescription
+                )
             } else {
-                Text("Playlist not found")
-                    .foregroundColor(.secondary)
+                EnsembleStateScaffold(kind: .empty, title: "Playlist not found")
             }
         }
         .onAppear {

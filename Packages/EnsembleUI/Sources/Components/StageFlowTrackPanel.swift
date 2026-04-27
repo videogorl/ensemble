@@ -86,8 +86,7 @@ struct StageFlowTrackPanel: View {
     var body: some View {
         Group {
             if isLoading {
-                ProgressView("Loading tracks…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                EnsembleStateScaffold(kind: .loading, title: "Loading tracks…")
             } else if let error {
                 errorState(error)
             } else if tracks.isEmpty {
@@ -213,33 +212,20 @@ struct StageFlowTrackPanel: View {
     }
 
     private func errorState(_ error: Error) -> some View {
-        VStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 28))
-                .foregroundColor(.secondary)
-            Text("Couldn’t load tracks")
-                .font(.headline)
-            Text(error.localizedDescription)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        EnsembleStateScaffold(
+            kind: .error,
+            title: "Couldn’t load tracks",
+            message: error.localizedDescription
+        )
     }
 
     private var emptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "music.note.list")
-                .font(.system(size: 28))
-                .foregroundColor(.secondary)
-            Text("No tracks available")
-                .font(.headline)
-            Text("This item doesn’t have any cached tracks yet.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        EnsembleStateScaffold(
+            kind: .empty,
+            title: "No tracks available",
+            message: "This item doesn’t have any cached tracks yet.",
+            iconSystemName: EnsembleDesign.Icon.playlist
+        )
     }
 
     private func loadTracks() async {

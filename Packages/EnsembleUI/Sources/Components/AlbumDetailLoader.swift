@@ -24,27 +24,15 @@ struct AlbumDetailLoader: View {
             if let album = album {
                 AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
             } else if isLoading {
-                VStack {
-                    ProgressView()
-                    Text("Loading album...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.top)
-                }
+                EnsembleStateScaffold(kind: .loading, title: "Loading album…")
             } else if let error = error {
-                VStack {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
-                        .foregroundColor(.red)
-                    Text("Failed to load album")
-                        .font(.headline)
-                    Text(error.localizedDescription)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                EnsembleStateScaffold(
+                    kind: .error,
+                    title: "Failed to load album",
+                    message: error.localizedDescription
+                )
             } else {
-                Text("Album not found")
-                    .foregroundColor(.secondary)
+                EnsembleStateScaffold(kind: .empty, title: "Album not found")
             }
         }
         .onAppear {

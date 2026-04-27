@@ -45,25 +45,19 @@ public struct LogDetailView: View {
     public var body: some View {
         Group {
             if isLoading {
-                VStack {
-                    ProgressView("Loading log...")
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                EnsembleStateScaffold(kind: .loading, title: "Loading log…")
             } else if let error = loadError {
-                VStack {
-                    Text(error)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                EnsembleStateScaffold(
+                    kind: .error,
+                    title: "Couldn’t load log",
+                    message: error
+                )
             } else if allLines.isEmpty {
-                VStack {
-                    Text("Log file is empty.")
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                EnsembleStateScaffold(
+                    kind: .empty,
+                    title: "Log file is empty",
+                    iconSystemName: EnsembleDesign.Icon.settings
+                )
             } else {
                 logContentView
             }
