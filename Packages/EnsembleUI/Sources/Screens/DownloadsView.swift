@@ -384,15 +384,14 @@ public struct DownloadsView: View {
     }
 
     private var loadingOverlay: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: EnsembleDesign.Spacing.md) {
             ProgressView()
             Text("Loading offline items...")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
-        .padding(20)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(EnsembleDesign.Spacing.xl)
+        .ensembleMaterial(.floatingControl, cornerRadius: EnsembleDesign.Radius.card)
     }
 
     private func formatBytes(_ bytes: Int64) -> String {

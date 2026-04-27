@@ -214,12 +214,7 @@ public struct ToastBannerView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(
-            Capsule()
-                .stroke(borderColor, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+        .ensembleCapsuleMaterial(.popover, strokeColor: borderColor)
         .contentShape(Capsule())
         .onTapGesture {
             if toast.tapHandler != nil {

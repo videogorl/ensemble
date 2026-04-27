@@ -110,7 +110,7 @@ public struct PlaylistPickerSheet: View {
                         .ignoresSafeArea()
                     ProgressView("Updating playlist...")
                         .padding(TrackListLayoutMetrics.rowInterItemSpacing)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                        .ensembleMaterial(.sheet, cornerRadius: EnsembleDesign.Radius.control)
                 }
             }
         }

@@ -171,7 +171,9 @@ public enum EnsembleDesign {
                 switch self {
                 case .miniPlayer, .toolbarPill, .floatingControl:
                     return .ultraThinMaterial
-                case .sheet, .detailSurface, .sidebar, .popover, .selection:
+                case .sheet:
+                    return .regularMaterial
+                case .detailSurface, .sidebar, .popover, .selection:
                     return .thinMaterial
                 }
             }
@@ -217,10 +219,21 @@ public enum EnsembleDesign {
                 switch self {
                 case .miniPlayer:
                     return EnsembleDesign.Effect.elevatedShadowY
-                case .toolbarPill, .floatingControl, .popover:
+                case .toolbarPill, .floatingControl:
                     return 3
+                case .popover:
+                    return 4
                 case .sheet, .detailSurface, .sidebar, .selection:
                     return 0
+                }
+            }
+
+            var shadowColor: SwiftUI.Color {
+                switch self {
+                case .popover:
+                    return SwiftUI.Color.black.opacity(0.18)
+                default:
+                    return EnsembleDesign.Effect.elevatedShadowColor
                 }
             }
 
@@ -247,6 +260,13 @@ public extension View {
         strokeColor: Color = .primary
     ) -> some View {
         modifier(EnsembleMaterialModifier(role: role, cornerRadius: cornerRadius, strokeColor: strokeColor))
+    }
+
+    func ensembleCapsuleMaterial(
+        _ role: EnsembleDesign.Material.Role,
+        strokeColor: Color = .primary
+    ) -> some View {
+        modifier(EnsembleCapsuleMaterialModifier(role: role, strokeColor: strokeColor))
     }
 }
 
@@ -276,7 +296,40 @@ private struct EnsembleMaterialModifier: ViewModifier {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .shadow(
-                    color: EnsembleDesign.Effect.elevatedShadowColor,
+                    color: role.shadowColor,
+                    radius: role.shadowRadius,
+                    y: role.shadowY
+                )
+        }
+    }
+}
+
+private struct EnsembleCapsuleMaterialModifier: ViewModifier {
+    let role: EnsembleDesign.Material.Role
+    let strokeColor: Color
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26, macOS 26, *), role.prefersLiquidGlass {
+            content
+                .clipShape(Capsule())
+                .glassEffect(in: .capsule)
+        } else {
+            content
+                .background(
+                    Capsule()
+                        .fill(role.fallbackMaterial)
+                        .overlay(
+                            Capsule()
+                                .fill(EnsembleDesign.Color.accent.opacity(role.tintOpacity))
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(strokeColor.opacity(role.strokeOpacity), lineWidth: 1)
+                        )
+                )
+                .clipShape(Capsule())
+                .shadow(
+                    color: role.shadowColor,
                     radius: role.shadowRadius,
                     y: role.shadowY
                 )
