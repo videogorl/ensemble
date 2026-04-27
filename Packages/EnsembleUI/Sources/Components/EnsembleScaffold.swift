@@ -108,6 +108,65 @@ public struct EnsembleBrowseFilterButton: View {
     }
 }
 
+/// Presents filter UI using the shared platform policy: compact screens keep sheets, while
+/// regular-width modern iPadOS and macOS use toolbar popovers.
+public struct EnsembleFilterPresentationModifier<PresentedContent: View>: ViewModifier {
+    @Binding var isPresented: Bool
+    @ViewBuilder let presentedContent: () -> PresentedContent
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
+
+    public init(
+        isPresented: Binding<Bool>,
+        @ViewBuilder presentedContent: @escaping () -> PresentedContent
+    ) {
+        self._isPresented = isPresented
+        self.presentedContent = presentedContent
+    }
+
+    @ViewBuilder
+    public func body(content: Content) -> some View {
+        #if os(iOS)
+        switch EnsembleScaffold.FilterPresentation.preferredStyle(horizontalSizeClass: horizontalSizeClass) {
+        case .toolbarPopover:
+            content.popover(isPresented: $isPresented, arrowEdge: .top) {
+                presentedContent()
+            }
+        case .sheet, .inline:
+            content.sheet(isPresented: $isPresented) {
+                presentedContent()
+            }
+        }
+        #else
+        switch EnsembleScaffold.FilterPresentation.preferredStyle() {
+        case .toolbarPopover:
+            content.popover(isPresented: $isPresented, arrowEdge: .top) {
+                presentedContent()
+            }
+        case .sheet, .inline:
+            content.sheet(isPresented: $isPresented) {
+                presentedContent()
+            }
+        }
+        #endif
+    }
+}
+
+public extension View {
+    func ensembleFilterPresentation<PresentedContent: View>(
+        isPresented: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> PresentedContent
+    ) -> some View {
+        modifier(
+            EnsembleFilterPresentationModifier(
+                isPresented: isPresented,
+                presentedContent: content
+            )
+        )
+    }
+}
+
 /// Consistent empty/loading/error state used by browse and utility screens.
 public struct EnsembleStateScaffold<Action: View>: View {
     public enum Kind {

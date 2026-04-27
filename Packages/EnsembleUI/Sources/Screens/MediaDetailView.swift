@@ -143,19 +143,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if shouldShowStandaloneFilterButton {
-                    Button {
+                    EnsembleBrowseFilterButton(
+                        title: "Filter Tracks",
+                        hasActiveFilters: viewModel.filterOptions.hasActiveFilters
+                    ) {
                         showFilterSheet = true
-                    } label: {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: "line.3.horizontal.decrease")
-
-                            if viewModel.filterOptions.hasActiveFilters {
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 8, height: 8)
-                                    .offset(x: 2, y: -2)
-                            }
-                        }
                     }
                 }
             }
@@ -163,19 +155,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 if shouldShowStandaloneFilterButton {
-                    Button {
+                    EnsembleBrowseFilterButton(
+                        title: "Filter Tracks",
+                        hasActiveFilters: viewModel.filterOptions.hasActiveFilters
+                    ) {
                         showFilterSheet = true
-                    } label: {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: "line.3.horizontal.decrease")
-
-                            if viewModel.filterOptions.hasActiveFilters {
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 8, height: 8)
-                                    .offset(x: 2, y: -2)
-                            }
-                        }
                     }
                 }
             }
@@ -276,7 +260,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var contentWithOptionalFilter: some View {
         if showFilter {
             baseContent
-                .keyboardSafeEditorPresentation(isPresented: $showFilterSheet) {
+                .ensembleFilterPresentation(isPresented: $showFilterSheet) {
                     FilterSheet(filterOptions: $viewModel.filterOptions)
                 }
         } else {

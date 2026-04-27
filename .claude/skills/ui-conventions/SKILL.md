@@ -179,6 +179,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Token groups cover spacing, radius, typography, color, icons, breakpoints, effects, and semantic material roles.
 - Keep specialized existing helpers where they encode behavior, such as `TrackListLayoutMetrics` for track rows and `ArtworkCornerRadius` for media artwork. These bridge into `EnsembleDesign` instead of being replaced by unrelated literals.
 - Use `EnsembleScaffold` for larger adaptive patterns, such as OS-aware filter presentation and shared empty/loading/error states.
+- Filter presenters should use `.ensembleFilterPresentation(...)` instead of raw `.sheet` when presenting `FilterSheet`, so compact iPhone stays sheet-based while regular-width modern iPadOS and macOS can use toolbar popovers.
 - Shared browse toolbar groups live in `EnsembleBrowseToolbar`; keep screen-owned actions as small button/menu helpers and let the scaffold own platform placement and spacing.
 - Liquid Glass and fallback material stacks should go through `EnsembleDesign.Material.Role` or a documented local composition when the surface is too specialized, such as artwork-reactive mini-player backgrounds.
 - During broad literal sweeps, ask before normalizing ambiguous values that could change visual rhythm, iPad/macOS breakpoints, prominent material opacity, or established icon intent.

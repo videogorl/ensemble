@@ -215,7 +215,7 @@ public struct SongsView: View {
                 cachedStageFlowAlbums = rebuiltAlbums
             }
         }
-        .sheet(isPresented: $showFilterSheet) {
+        .ensembleFilterPresentation(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.tracksFilterOptions,
                 availableGenres: libraryVM.availableTrackGenres,

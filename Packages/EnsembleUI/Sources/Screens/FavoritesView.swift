@@ -93,7 +93,7 @@ public struct FavoritesView: View {
         .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
             if gen != availabilityGeneration { availabilityGeneration = gen }
         }
-        .sheet(isPresented: $showFilterSheet) {
+        .ensembleFilterPresentation(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $viewModel.filterOptions
             )
