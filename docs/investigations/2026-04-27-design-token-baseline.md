@@ -20,8 +20,8 @@ them as drift indicators rather than exact debt counts.
 | Font weight calls | 62 |
 | Foreground/tint calls | 506 |
 | Accent color references | 133 |
-| Numeric spacing arguments | 310 |
-| Numeric padding arguments | 221 |
+| Numeric spacing arguments | 308 |
+| Numeric padding arguments | 218 |
 | Explicit corner radii | 64 |
 | SF Symbol references | 472 |
 | Geometry/breakpoint references | 137 |

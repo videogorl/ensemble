@@ -115,6 +115,7 @@ public enum EnsembleDesign {
         public static let closeCircle = "xmark.circle.fill"
         public static let delete = "trash"
         public static let download = "arrow.down.circle"
+        public static let dragHandle = "circle.grid.2x3.fill"
         public static let error = "exclamationmark.triangle.fill"
         public static let favorite = "heart"
         public static let favoriteRemove = "heart.slash"

@@ -84,15 +84,15 @@ public struct HubOrderingSheet: View {
     }
 
     private var headerBanner: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: EnsembleDesign.Spacing.xs) {
             Text("Drag to reorder sections")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
 
             if !viewModel.currentSourceName.isEmpty {
                 Text(viewModel.currentSourceName)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
         .frame(maxWidth: .infinity)
@@ -118,11 +118,11 @@ public struct HubOrderingSheet: View {
 
                 HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                     // Drag handle (6-dot grid like Plexamp)
-                    Image(systemName: "circle.grid.2x3.fill")
-                        .foregroundColor(.secondary)
+                    Image(systemName: EnsembleDesign.Icon.dragHandle)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .font(.system(size: 14))
 
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxs) {
                         // Category name (generic for dynamic hubs)
                         Text(displayInfo.title)
                             .lineLimit(1)
@@ -131,7 +131,7 @@ public struct HubOrderingSheet: View {
                         if let subtitle = displayInfo.subtitle {
                             Text(subtitle)
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(EnsembleDesign.Color.secondaryText)
                                 .lineLimit(1)
                         }
                     }
@@ -142,16 +142,16 @@ public struct HubOrderingSheet: View {
                     if let badge = displayInfo.badge {
                         Text(badge)
                             .font(.caption2)
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                            .padding(.horizontal, EnsembleDesign.Spacing.chipVertical)
+                            .padding(.vertical, EnsembleDesign.Spacing.xxs)
                             .background(
                                 Capsule()
-                                    .fill(Color.secondary.opacity(0.12))
+                                    .fill(EnsembleDesign.Color.neutralBadge.opacity(0.8))
                             )
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, EnsembleDesign.Spacing.xs)
             }
             .onMove(perform: moveHub)
         }
@@ -168,7 +168,7 @@ public struct HubOrderingSheet: View {
             Button("Reset") {
                 handleReset()
             }
-            .foregroundColor(.red)
+            .foregroundColor(EnsembleDesign.Color.destructive)
         }
 
         ToolbarItem(placement: .navigationBarTrailing) {
