@@ -22,7 +22,6 @@ public struct LargeScreenBrowseSplitView<
     private let placeholder: Placeholder
     @State private var adjustedSidebarWidth: CGFloat?
     @State private var dragStartSidebarWidth: CGFloat?
-    @State private var dragStartLocationX: CGFloat?
     @State private var isResizeHandleHovered = false
 
     public init(
@@ -101,6 +100,7 @@ public struct LargeScreenBrowseSplitView<
         ZStack {
             Divider()
 
+            // Masks list separators that can otherwise draw through the translucent thumb.
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(resizeHandleBackingColor)
                 .frame(width: 10, height: 64)
@@ -116,9 +116,8 @@ public struct LargeScreenBrowseSplitView<
             DragGesture(minimumDistance: 1, coordinateSpace: .named("LargeScreenBrowseSplitView"))
                 .onChanged { value in
                     let startWidth = dragStartSidebarWidth ?? currentSidebarWidth
-                    let startLocationX = dragStartLocationX ?? value.location.x
                     let nextWidth = clampedSidebarWidth(
-                        startWidth + value.location.x - startLocationX,
+                        startWidth + value.translation.width,
                         containerWidth: containerWidth
                     )
                     let previousWidth = adjustedSidebarWidth ?? currentSidebarWidth
@@ -132,7 +131,6 @@ public struct LargeScreenBrowseSplitView<
                     withTransaction(transaction) {
                         if dragStartSidebarWidth == nil {
                             dragStartSidebarWidth = startWidth
-                            dragStartLocationX = startLocationX
                         }
                         adjustedSidebarWidth = nextWidth
                     }
@@ -143,7 +141,6 @@ public struct LargeScreenBrowseSplitView<
                     transaction.disablesAnimations = true
                     withTransaction(transaction) {
                         dragStartSidebarWidth = nil
-                        dragStartLocationX = nil
                     }
                 }
         )
