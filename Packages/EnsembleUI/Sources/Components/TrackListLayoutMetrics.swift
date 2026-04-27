@@ -2,10 +2,10 @@ import CoreGraphics
 import SwiftUI
 
 public enum TrackListLayoutMetrics {
-    public static let rowHorizontalPadding: CGFloat = 16
-    public static let rowInterItemSpacing: CGFloat = 12
-    public static let rowVerticalPadding: CGFloat = 8
-    public static let detailHorizontalPadding: CGFloat = 40
+    public static let rowHorizontalPadding: CGFloat = EnsembleDesign.Spacing.rowHorizontal
+    public static let rowInterItemSpacing: CGFloat = EnsembleDesign.Spacing.rowItemGap
+    public static let rowVerticalPadding: CGFloat = EnsembleDesign.Spacing.rowVertical
+    public static let detailHorizontalPadding: CGFloat = EnsembleDesign.Spacing.detailGutter
     public static let utilitySectionOuterPadding: CGFloat = detailHorizontalPadding - rowHorizontalPadding
 
     public static let defaultRowHeight: CGFloat = 68
@@ -14,7 +14,7 @@ public enum TrackListLayoutMetrics {
 
     public static let artworkLeadingInset: CGFloat = 68
     public static let trackNumberLeadingInset: CGFloat = 54
-    public static let plainLeadingInset: CGFloat = 16
+    public static let plainLeadingInset: CGFloat = EnsembleDesign.Spacing.rowHorizontal
 
     public static let miniPlayerBottomSpacing: CGFloat = 140
     public static let compactMiniPlayerBottomSpacing: CGFloat = 110

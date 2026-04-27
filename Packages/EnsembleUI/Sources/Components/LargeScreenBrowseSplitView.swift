@@ -26,7 +26,7 @@ public struct LargeScreenBrowseSplitView<
 
     public init(
         selection: Binding<Selection?>,
-        minimumSplitWidth: CGFloat = 820,
+        minimumSplitWidth: CGFloat = EnsembleDesign.Breakpoint.browseSplitMinimumWidth,
         sidebarWidth: CGFloat = 340,
         minimumSidebarWidth: CGFloat = 260,
         maximumSidebarWidth: CGFloat = 460,
@@ -104,12 +104,12 @@ public struct LargeScreenBrowseSplitView<
             Divider()
 
             // Masks list separators that can otherwise draw through the translucent thumb.
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
+            RoundedRectangle(cornerRadius: EnsembleDesign.Spacing.xs + 1, style: .continuous)
                 .fill(resizeHandleBackingColor)
                 .frame(width: 10, height: 64)
 
             RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                .fill(Color.secondary.opacity(isResizeHandleHovered ? 0.7 : 0.35))
+                .fill(EnsembleDesign.Color.secondaryText.opacity(isResizeHandleHovered ? 0.7 : 0.35))
                 .frame(width: 3, height: 48)
                 .opacity(isResizeHandleHovered ? 1 : 0.65)
         }
@@ -155,13 +155,7 @@ public struct LargeScreenBrowseSplitView<
     }
 
     private var resizeHandleBackingColor: Color {
-        #if os(macOS)
-        Color(nsColor: .windowBackgroundColor)
-        #elseif os(iOS)
-        Color(uiColor: .systemBackground)
-        #else
-        Color.clear
-        #endif
+        EnsembleDesign.Color.windowSurface
     }
 
     private func usesSplitLayout(for size: CGSize) -> Bool {
@@ -194,15 +188,14 @@ public struct LargeScreenPlaceholderView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: EnsembleDesign.Spacing.popoverActionHorizontal) {
             Image(systemName: systemImage)
                 .font(.system(size: 42, weight: .regular))
-                .foregroundColor(.secondary.opacity(0.75))
+                .foregroundColor(EnsembleDesign.Color.secondaryText.opacity(0.75))
 
             Text(title)
-                .font(.title2)
-                .fontWeight(.semibold)
-                .foregroundColor(.primary)
+                .font(EnsembleDesign.Typography.sectionTitle)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

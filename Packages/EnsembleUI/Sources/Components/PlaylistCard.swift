@@ -11,19 +11,18 @@ public struct PlaylistCard: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.sm) {
             ArtworkView(playlist: playlist, size: .thumbnail)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                 Text(playlist.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                    .font(EnsembleDesign.Typography.cardTitle)
                     .lineLimit(2)
-                    .foregroundColor(.primary)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
 
                 Text("\(playlist.trackCount) songs")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.cardSubtitle)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
         .frame(width: ArtworkSize.thumbnail.cgSize.width)
@@ -128,22 +127,22 @@ public struct PlaylistRow: View {
                 cornerRadius: ArtworkCornerRadius.square(for: .tiny)
             )
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
                 Text(displayPlaylist.title)
-                    .font(.body)
+                    .font(EnsembleDesign.Typography.rowPrimary)
                     .lineLimit(1)
-                    .foregroundColor(.primary)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
 
-                HStack(spacing: 4) {
+                HStack(spacing: EnsembleDesign.Spacing.xs) {
                     // Smart playlist icon always shows when applicable
                     if displayPlaylist.isSmart {
                         Image(systemName: "gearshape.fill")
-                            .font(.caption2)
+                            .font(EnsembleDesign.Typography.cardMetadata)
                     }
                     Text(statusText ?? "\(displayPlaylist.trackCount) songs")
-                        .font(.caption)
+                        .font(EnsembleDesign.Typography.rowSecondary)
                 }
-                .foregroundColor(.secondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
 
             Spacer()
@@ -186,23 +185,23 @@ public struct PlaylistRowChip: View {
             switch style {
             case .serverName(let name):
                 Text(name)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 8)
+                    .font(EnsembleDesign.Typography.cardMetadata)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    .padding(.horizontal, EnsembleDesign.Spacing.sm)
                     .padding(.vertical, 3)
                     .background(
                         Capsule()
-                            .fill(Color.secondary.opacity(0.15))
+                            .fill(EnsembleDesign.Color.neutralBadge)
                     )
             case .merged:
-                Image(systemName: "arrow.triangle.merge")
-                    .font(.caption2)
-                    .foregroundColor(.accentColor)
-                    .padding(.horizontal, 6)
+                Image(systemName: EnsembleDesign.Icon.merge)
+                    .font(EnsembleDesign.Typography.cardMetadata)
+                    .foregroundColor(EnsembleDesign.Color.accent)
+                    .padding(.horizontal, EnsembleDesign.Spacing.chipVertical)
                     .padding(.vertical, 3)
                     .background(
                         Capsule()
-                            .fill(Color.accentColor.opacity(0.15))
+                            .fill(EnsembleDesign.Color.accentBadge)
                     )
             }
         }

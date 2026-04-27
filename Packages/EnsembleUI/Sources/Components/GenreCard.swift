@@ -25,23 +25,27 @@ public struct GenreCard: View {
                     endPoint: .bottomTrailing
                 )
                 
-                Image(systemName: "music.note.list")
-                    .font(.system(size: 40))
+                Image(systemName: EnsembleDesign.Icon.genre)
+                    .font(EnsembleDesign.Typography.mediaPlaceholderIcon)
                     .foregroundColor(.white.opacity(0.9))
             }
             .frame(width: ArtworkSize.thumbnail.cgSize.width, height: ArtworkSize.thumbnail.cgSize.width)
-            .cornerRadius(8)
-            .shadow(color: Color.black.opacity(0.15), radius: 6, x: 0, y: 2)
+            .cornerRadius(ArtworkCornerRadius.square(for: ArtworkSize.thumbnail))
+            .shadow(
+                color: EnsembleDesign.Effect.cardShadowColor,
+                radius: EnsembleDesign.Effect.cardShadowRadius,
+                x: 0,
+                y: EnsembleDesign.Effect.cardShadowY
+            )
             
             // Genre name
             Text(genre.title)
-                .font(.subheadline)
-                .fontWeight(.medium)
+                .font(EnsembleDesign.Typography.cardTitle)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .foregroundColor(.primary)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
                 .frame(width: ArtworkSize.thumbnail.cgSize.width)
-                .padding(.top, 8)
+                .padding(.top, EnsembleDesign.Spacing.sm)
         }
         .frame(maxWidth: ArtworkSize.thumbnail.cgSize.width, maxHeight: .infinity, alignment: .top)
         .contentShape(Rectangle())
@@ -72,7 +76,7 @@ public struct GenreGrid: View {
     let onGenreTap: ((Genre) -> Void)?
 
     private let columns = [
-        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16, alignment: .top)
+        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: EnsembleDesign.Spacing.cardGridGap, alignment: .top)
     ]
 
     public init(genres: [Genre], onGenreTap: ((Genre) -> Void)? = nil) {
@@ -81,7 +85,7 @@ public struct GenreGrid: View {
     }
 
     public var body: some View {
-        LazyVGrid(columns: columns, spacing: 20) {
+        LazyVGrid(columns: columns, spacing: EnsembleDesign.Spacing.cardRowGap) {
             ForEach(genres) { genre in
                 GenreCard(genre: genre) {
                     onGenreTap?(genre)

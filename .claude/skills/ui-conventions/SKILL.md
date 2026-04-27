@@ -173,6 +173,14 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 ## Visual Design
 
+### Design Tokens And Adaptive Patterns
+- Use `EnsembleDesign` for semantic UI values instead of introducing new raw literals for repeatable roles.
+- Token groups cover spacing, radius, typography, color, icons, breakpoints, effects, and semantic material roles.
+- Keep specialized existing helpers where they encode behavior, such as `TrackListLayoutMetrics` for track rows and `ArtworkCornerRadius` for media artwork. These bridge into `EnsembleDesign` instead of being replaced by unrelated literals.
+- Use `EnsembleScaffold` for larger adaptive patterns, such as OS-aware filter presentation and shared empty/loading/error states.
+- Liquid Glass and fallback material stacks should go through `EnsembleDesign.Material.Role` or a documented local composition when the surface is too specialized, such as artwork-reactive mini-player backgrounds.
+- During broad literal sweeps, ask before normalizing ambiguous values that could change visual rhythm, iPad/macOS breakpoints, prominent material opacity, or established icon intent.
+
 ### Artwork Display
 - **Hub items:** 140x140pt artwork
 - **Corner radius:** Albums/playlists use 8pt; artists use 70pt (circular)

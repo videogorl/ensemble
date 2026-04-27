@@ -11,15 +11,14 @@ public struct ArtistCard: View {
     }
 
     public var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: EnsembleDesign.Spacing.sm) {
             ArtworkView(artist: artist, size: .thumbnail, cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2)
 
             Text(artist.name)
-                .font(.subheadline)
-                .fontWeight(.medium)
+                .font(EnsembleDesign.Typography.cardTitle)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .foregroundColor(.primary)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
         }
         .frame(width: ArtworkSize.thumbnail.cgSize.width)
         .contentShape(Rectangle())
@@ -44,18 +43,18 @@ public struct ArtistRow: View {
 
     public var body: some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-            ArtworkView(artist: artist, size: .tiny, cornerRadius: 22)
+            ArtworkView(artist: artist, size: .tiny, cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.tiny.cgSize.width))
 
             Text(artist.name)
                 .font(.body)
                 .lineLimit(1)
-                .foregroundColor(.primary)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
 
             Spacer()
 
             Image(systemName: "chevron.right")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
         .contentShape(Rectangle())
         .if(onTap != nil) { view in
@@ -76,7 +75,7 @@ public struct ArtistGrid: View {
     @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
 
     private let columns = [
-        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16, alignment: .top)
+        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: EnsembleDesign.Spacing.cardGridGap, alignment: .top)
     ]
 
     public init(
@@ -90,7 +89,7 @@ public struct ArtistGrid: View {
     }
 
     public var body: some View {
-        LazyVGrid(columns: columns, spacing: 20) {
+        LazyVGrid(columns: columns, spacing: EnsembleDesign.Spacing.cardRowGap) {
             ForEach(artists) { artist in
                 if #available(iOS 16.0, macOS 13.0, *) {
                     NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
@@ -206,15 +205,14 @@ public struct ArtistGrid: View {
     }
 
     private func artistCardContent(_ artist: Artist) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: EnsembleDesign.Spacing.sm) {
             ArtworkView(artist: artist, size: .thumbnail, cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2)
 
             Text(artist.name)
-                .font(.subheadline)
-                .fontWeight(.medium)
+                .font(EnsembleDesign.Typography.cardTitle)
                 .lineLimit(1)
                 .multilineTextAlignment(.center)
-                .foregroundColor(.primary)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
         }
         .frame(width: ArtworkSize.thumbnail.cgSize.width)
     }

@@ -44,7 +44,7 @@ extension MediaDetailSurface {
         private let wideActions: (CGFloat) -> WideActions
 
         init(
-            wideLayoutThreshold: CGFloat = 620,
+            wideLayoutThreshold: CGFloat = EnsembleDesign.Breakpoint.detailWideHeader,
             @ViewBuilder topContent: @escaping () -> TopContent,
             @ViewBuilder artwork: @escaping () -> Artwork,
             metadata: @escaping (HorizontalAlignment) -> Metadata,
@@ -89,7 +89,7 @@ extension MediaDetailSurface {
 
         private var compactHeader: some View {
             VStack(spacing: 0) {
-                VStack(spacing: 16) {
+                VStack(spacing: EnsembleDesign.Spacing.lg) {
                     artwork()
                     metadata(.center)
                 }
@@ -100,13 +100,13 @@ extension MediaDetailSurface {
         }
 
         private var wideHeader: some View {
-            HStack(alignment: .center, spacing: 24) {
+            HStack(alignment: .center, spacing: EnsembleDesign.Spacing.xxl) {
                 artwork()
 
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.sm) {
                     metadata(.leading)
                     wideActions(actionColumnWidth > 0 ? actionColumnWidth : containerWidth)
-                        .padding(.top, 4)
+                        .padding(.top, EnsembleDesign.Spacing.xs)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
@@ -147,16 +147,12 @@ extension MediaDetailSurface {
         var body: some View {
             content()
                 .background(cardBackground)
-                .cornerRadius(12)
+                .cornerRadius(EnsembleDesign.Radius.card)
                 .padding(.horizontal)
         }
 
         private var cardBackground: Color {
-            #if os(iOS)
-            Color(UIColor.secondarySystemGroupedBackground)
-            #else
-            Color(NSColor.controlBackgroundColor)
-            #endif
+            EnsembleDesign.Color.groupedSurface
         }
     }
 }

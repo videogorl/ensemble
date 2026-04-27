@@ -314,6 +314,8 @@ Sources/
 |   +-- ChromeVisibilityPreferenceKey.swift # SwiftUI preference key for hiding tab bar in immersive views
 |   +-- CompactSearchRows.swift       # Compact row layouts for search results
 |   +-- DesktopSheetScaffold.swift    # Shared macOS sheet scaffold with title bar and footer actions
+|   +-- EnsembleDesign.swift          # Semantic UI tokens for spacing, radius, typography, color, icons, breakpoints, effects, and materials
+|   +-- EnsembleScaffold.swift        # Shared adaptive patterns including filter presentation policy and empty/loading/error states
 |   +-- LargeScreenBrowseSplitView.swift # Section-owned browse list/detail split used inside the stable root detail host
 |   +-- MacAuxiliaryWindowScaffold.swift # Native macOS auxiliary window scaffold for Profile/Downloads-style windows
 |   +-- OfflineIndicatorOverlay.swift  # Device-aware offline connectivity indicator (DI/notch/classic)

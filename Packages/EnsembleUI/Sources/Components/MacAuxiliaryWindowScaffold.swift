@@ -10,7 +10,7 @@ public struct MacAuxiliaryWindowScaffold<Content: View>: View {
     private let content: Content
 
     public init(
-        maxWidth: CGFloat = 420,
+        maxWidth: CGFloat = EnsembleDesign.Breakpoint.auxiliaryWindowMaxWidth,
         minHeight: CGFloat = 560,
         @ViewBuilder content: () -> Content
     ) {
@@ -31,12 +31,6 @@ public struct MacAuxiliaryWindowScaffold<Content: View>: View {
     }
 
     private var windowBackground: Color {
-        #if os(macOS)
-        return Color(nsColor: .windowBackgroundColor)
-        #elseif os(iOS)
-        return Color(uiColor: .systemGroupedBackground)
-        #else
-        return Color.clear
-        #endif
+        EnsembleDesign.Color.windowSurface
     }
 }

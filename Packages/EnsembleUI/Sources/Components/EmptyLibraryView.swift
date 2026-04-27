@@ -9,33 +9,22 @@ public struct EmptyLibraryView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "music.note.house.fill")
-                .font(.system(size: 80))
-                .foregroundColor(.secondary)
-
-            VStack(spacing: 8) {
-                Text("No Music Sources")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-
-                Text("Add a Plex server to start listening to your music")
-                    .font(.body)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-            }
-
+        EnsembleStateScaffold(
+            kind: .empty,
+            title: "No Music Sources",
+            message: "Add a Plex server to start listening to your music",
+            iconSystemName: EnsembleDesign.Icon.library
+        ) {
             Button(action: onAddSource) {
                 Label("Add Music Source", systemImage: "plus.circle.fill")
-                    .font(.headline)
+                    .font(EnsembleDesign.Typography.actionLabel)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
+                    .background(EnsembleDesign.Color.accent)
+                    .foregroundColor(EnsembleDesign.Color.onAccent)
+                    .cornerRadius(EnsembleDesign.Radius.card)
             }
-            .padding(.horizontal, 32)
+            .padding(.horizontal, EnsembleDesign.Spacing.xxxl)
         }
     }
 }

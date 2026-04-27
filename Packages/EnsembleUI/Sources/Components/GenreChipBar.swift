@@ -31,7 +31,7 @@ public struct GenreChipBar: View {
     public var body: some View {
         if !availableGenres.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: EnsembleDesign.Spacing.sm) {
                     // Clear button — animates width to/from zero so it doesn't
                     // cause a jarring shift when chips are toggled mid-scroll
                     Button {
@@ -42,7 +42,7 @@ public struct GenreChipBar: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                     .buttonStyle(.plain)
                     .frame(width: hasActiveChips ? nil : 0)
@@ -111,8 +111,8 @@ private struct GenreChip: View {
                 .font(.subheadline)
                 .strikethrough(state == .excluded)
                 .lineLimit(1)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.horizontal, EnsembleDesign.Spacing.chipHorizontal)
+                .padding(.vertical, EnsembleDesign.Spacing.chipVertical)
                 .foregroundColor(foregroundColor)
                 .background(
                     Capsule()
@@ -128,25 +128,25 @@ private struct GenreChip: View {
 
     private var foregroundColor: Color {
         switch state {
-        case .neutral: return .accentColor
-        case .included: return .white
-        case .excluded: return .red
+        case .neutral: return EnsembleDesign.Color.accent
+        case .included: return EnsembleDesign.Color.onAccent
+        case .excluded: return EnsembleDesign.Color.destructive
         }
     }
 
     private var backgroundColor: Color {
         switch state {
         case .neutral: return .clear
-        case .included: return .accentColor
+        case .included: return EnsembleDesign.Color.accent
         case .excluded: return .clear
         }
     }
 
     private var borderColor: Color {
         switch state {
-        case .neutral: return .accentColor
+        case .neutral: return EnsembleDesign.Color.accent
         case .included: return .clear
-        case .excluded: return .red
+        case .excluded: return EnsembleDesign.Color.destructive
         }
     }
 }

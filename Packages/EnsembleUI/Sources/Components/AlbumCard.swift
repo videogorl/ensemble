@@ -19,8 +19,8 @@ public enum AlbumCardLayoutMetrics {
         }
     }
 
-    public var gridSpacing: CGFloat { 16 }
-    public var rowSpacing: CGFloat { 20 }
+    public var gridSpacing: CGFloat { EnsembleDesign.Spacing.cardGridGap }
+    public var rowSpacing: CGFloat { EnsembleDesign.Spacing.cardRowGap }
 
     public var columnMinimum: CGFloat {
         switch self {
@@ -67,36 +67,35 @@ public struct AlbumCard: View {
         let artistLine = album.artistName ?? " "
         let yearLine = album.year.map(String.init) ?? " "
 
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.sm) {
             ArtworkView(album: album, size: layout.artworkSize, cornerRadius: artworkCornerRadius, isResponsive: true)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                 Text(album.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                    .font(EnsembleDesign.Typography.cardTitle)
                     .lineLimit(2)
                     .foregroundColor(.primary)
 
                 if let artist = album.artistName {
                     Text(artist)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.cardSubtitle)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
                 } else {
                     Text(artistLine)
-                        .font(.caption)
+                        .font(EnsembleDesign.Typography.cardSubtitle)
                         .foregroundColor(.clear)
                         .lineLimit(1)
                 }
 
                 if let year = album.year {
                     Text(String(year))
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.cardMetadata)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
                 } else {
                     Text(yearLine)
-                        .font(.caption2)
+                        .font(EnsembleDesign.Typography.cardMetadata)
                         .foregroundColor(.clear)
                         .lineLimit(1)
                 }

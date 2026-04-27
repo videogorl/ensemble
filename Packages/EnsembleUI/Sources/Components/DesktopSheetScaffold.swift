@@ -29,19 +29,18 @@ public struct DesktopSheetScaffold<Content: View, Footer: View>: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.chipVertical) {
                 Text(title)
-                    .font(.title2)
-                    .fontWeight(.semibold)
+                    .font(EnsembleDesign.Typography.sectionTitle)
 
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
+            .padding(.horizontal, EnsembleDesign.Spacing.xxl)
             .padding(.vertical, 18)
 
             Divider()
@@ -51,12 +50,12 @@ public struct DesktopSheetScaffold<Content: View, Footer: View>: View {
 
             Divider()
 
-            HStack(spacing: 12) {
+            HStack(spacing: EnsembleDesign.Spacing.md) {
                 Spacer()
                 footer
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .padding(.horizontal, EnsembleDesign.Spacing.xl)
+            .padding(.vertical, EnsembleDesign.Spacing.md)
         }
         .frame(minWidth: minWidth, minHeight: minHeight)
     }

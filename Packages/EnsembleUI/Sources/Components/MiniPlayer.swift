@@ -25,7 +25,7 @@ public struct MiniPlayer: View {
     private let showsWaveform: Bool
     private let waveformColor: Color
     private let horizontalPadding: CGFloat
-    private let pillCornerRadius: CGFloat = 28
+    private let pillCornerRadius: CGFloat = EnsembleDesign.Radius.miniPlayer
 
     private let namespace: Namespace.ID?
     private let animationID: String?
@@ -63,7 +63,11 @@ public struct MiniPlayer: View {
                 pillContent
                     .background(MiniPlayerBackground(viewModel: viewModel, pillCornerRadius: pillCornerRadius))
                     .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius))
-                    .shadow(color: .black.opacity(0.15), radius: 20, y: 5)
+                    .shadow(
+                        color: EnsembleDesign.Effect.elevatedShadowColor,
+                        radius: EnsembleDesign.Effect.elevatedShadowRadius,
+                        y: EnsembleDesign.Effect.elevatedShadowY
+                    )
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: pillCornerRadius))
@@ -98,7 +102,7 @@ public struct MiniPlayer: View {
                     } label: {
                         Label(
                             viewModel.isTrackFavorited(track) ? "Unfavorite" : "Favorite",
-                            systemImage: viewModel.isTrackFavorited(track) ? "heart.slash" : "heart"
+                            systemImage: viewModel.isTrackFavorited(track) ? EnsembleDesign.Icon.favoriteRemove : EnsembleDesign.Icon.favorite
                         )
                     }
 
@@ -117,7 +121,7 @@ public struct MiniPlayer: View {
                     Button {
                         showingPlaylistPicker = true
                     } label: {
-                        Label("Add to Playlist…", systemImage: "text.badge.plus")
+                        Label("Add to Playlist…", systemImage: EnsembleDesign.Icon.addToPlaylist)
                     }
                 }
 
@@ -126,7 +130,7 @@ public struct MiniPlayer: View {
                         Button {
                             navigationCoordinator.navigate(to: .album(id: albumId))
                         } label: {
-                            Label("Go to Album", systemImage: "square.stack")
+                            Label("Go to Album", systemImage: EnsembleDesign.Icon.album)
                         }
                     }
 
@@ -134,7 +138,7 @@ public struct MiniPlayer: View {
                         Button {
                             navigationCoordinator.navigate(to: .artist(id: artistId))
                         } label: {
-                            Label("Go to Artist", systemImage: "person.circle")
+                            Label("Go to Artist", systemImage: EnsembleDesign.Icon.artist)
                         }
                     }
                 }
@@ -143,7 +147,7 @@ public struct MiniPlayer: View {
                     Button {
                         onTap()
                     } label: {
-                        Label("Show Now Playing", systemImage: "music.note.list")
+                        Label("Show Now Playing", systemImage: EnsembleDesign.Icon.playlist)
                     }
                 }
             }
@@ -187,7 +191,7 @@ private struct MiniPlayerTrackInfo: View {
     @State private var opacity: Double = 1.0
 
     private let artworkDimension: CGFloat = 32
-    private let expandedControlMinimumWidth: CGFloat = 430
+    private let expandedControlMinimumWidth: CGFloat = EnsembleDesign.Breakpoint.compactControlMinimumWidth
     private let compactControlLaneWidth: CGFloat = 78
     private let expandedControlLaneWidth: CGFloat = 148
 
@@ -199,8 +203,8 @@ private struct MiniPlayerTrackInfo: View {
         VStack(spacing: 0) {
             // Error banner (if playback failed)
             if case .failed(let errorMessage) = viewModel.playbackState {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
+                HStack(spacing: EnsembleDesign.Spacing.sm) {
+                    Image(systemName: EnsembleDesign.Icon.error)
                         .font(.caption)
 
                     Text(errorMessage)
@@ -218,9 +222,9 @@ private struct MiniPlayerTrackInfo: View {
                     .foregroundColor(.white)
                 }
                 .foregroundColor(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color.orange)
+                .padding(.horizontal, EnsembleDesign.Spacing.md)
+                .padding(.vertical, EnsembleDesign.Spacing.chipVertical)
+                .background(EnsembleDesign.Color.warning)
             }
 
             if let track = viewModel.currentTrack {
@@ -240,12 +244,12 @@ private struct MiniPlayerTrackInfo: View {
                         .fill(Color.primary.opacity(0.1))
                         .frame(width: artworkDimension, height: artworkDimension)
                         .overlay(
-                            Image(systemName: "music.note")
+                            Image(systemName: EnsembleDesign.Icon.musicNote)
                                 .foregroundColor(.primary.opacity(0.6))
                         )
 
                     Text("Nothing Playing")
-                        .font(.subheadline)
+                        .font(EnsembleDesign.Typography.cardTitle)
                         .foregroundColor(.primary.opacity(0.8))
 
                     Spacer()
@@ -328,17 +332,16 @@ private struct MiniPlayerTrackInfo: View {
             .frame(width: artworkDimension, height: artworkDimension)
 
             // Track info (swipable)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                 Text(track.title)
-                    .font(.subheadline)
-                    .fontWeight(.bold)
-                    .foregroundColor(.primary)
+                    .font(EnsembleDesign.Typography.miniPlayerTitle)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
                     .lineLimit(1)
 
                 if let artist = track.artistName {
                     Text(artist)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.miniPlayerSubtitle)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
                 }
             }
@@ -435,7 +438,7 @@ private struct MiniPlayerControls: View {
         HStack(spacing: 18) {
             if showsPreviousButton {
                 Button(action: viewModel.previous) {
-                    Image(systemName: "backward.fill")
+                    Image(systemName: EnsembleDesign.Icon.previous)
                         .font(.title3)
                 }
             }
@@ -448,7 +451,7 @@ private struct MiniPlayerControls: View {
                             .progressViewStyle(CircularProgressViewStyle(tint: .primary))
                             .scaleEffect(0.8)
                     } else {
-                        Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
+                        Image(systemName: viewModel.isPlaying ? "pause.fill" : EnsembleDesign.Icon.play)
                             .font(.title2)
                     }
                 }
@@ -458,7 +461,7 @@ private struct MiniPlayerControls: View {
             .opacity(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable ? 0.4 : 1.0)
 
             Button(action: viewModel.next) {
-                Image(systemName: "forward.fill")
+                Image(systemName: EnsembleDesign.Icon.next)
                     .font(.title3)
             }
 
@@ -493,7 +496,7 @@ private struct MiniPlayerActionsMenuButton: View {
         Button {
             showingActionsPopover = viewModel.currentTrack != nil
         } label: {
-            Image(systemName: "ellipsis")
+            Image(systemName: EnsembleDesign.Icon.more)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.secondary)
                 .frame(width: 25, height: 25)
@@ -556,8 +559,8 @@ private struct MiniPlayerActionsMenuButton: View {
     }
 
     private var favoriteSystemImage: String {
-        guard let track = viewModel.currentTrack else { return "heart" }
-        return viewModel.isTrackFavorited(track) ? "heart.slash" : "heart"
+        guard let track = viewModel.currentTrack else { return EnsembleDesign.Icon.favorite }
+        return viewModel.isTrackFavorited(track) ? EnsembleDesign.Icon.favoriteRemove : EnsembleDesign.Icon.favorite
     }
 
     private func toggleFavorite() {
@@ -609,7 +612,7 @@ private struct MiniPlayerActionsPopoverContent: View {
                 )
             }
 
-            actionButton(title: "Add to Playlist…", systemImage: "text.badge.plus", action: onAddToPlaylist)
+            actionButton(title: "Add to Playlist…", systemImage: EnsembleDesign.Icon.addToPlaylist, action: onAddToPlaylist)
 
             if showsAlbumNavigation || showsArtistNavigation {
                 Divider()
@@ -617,24 +620,24 @@ private struct MiniPlayerActionsPopoverContent: View {
             }
 
             if showsAlbumNavigation {
-                actionButton(title: "Go to Album", systemImage: "square.stack", action: onGoToAlbum)
+                actionButton(title: "Go to Album", systemImage: EnsembleDesign.Icon.album, action: onGoToAlbum)
             }
 
             if showsArtistNavigation {
-                actionButton(title: "Go to Artist", systemImage: "person.circle", action: onGoToArtist)
+                actionButton(title: "Go to Artist", systemImage: EnsembleDesign.Icon.artist, action: onGoToArtist)
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, EnsembleDesign.Spacing.sm)
         .frame(width: 240, alignment: .leading)
     }
 
     private func actionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
-                .font(.body)
+                .font(EnsembleDesign.Typography.popoverAction)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
+                .padding(.horizontal, EnsembleDesign.Spacing.popoverActionHorizontal)
+                .padding(.vertical, EnsembleDesign.Spacing.popoverActionVertical)
         }
         .buttonStyle(.plain)
         .foregroundColor(.primary)
@@ -697,18 +700,18 @@ private struct NativeMiniPlayerActionsMenuButton: NSViewRepresentable {
                 menu.addItem(menuItem(title: "Add to \(recentPlaylistTitle)", systemImage: "clock.arrow.circlepath", action: #selector(addToRecentPlaylist(_:))))
             }
 
-            menu.addItem(menuItem(title: "Add to Playlist…", systemImage: "text.badge.plus", action: #selector(addToPlaylist(_:))))
+            menu.addItem(menuItem(title: "Add to Playlist…", systemImage: EnsembleDesign.Icon.addToPlaylist, action: #selector(addToPlaylist(_:))))
 
             if parent.showsAlbumNavigation || parent.showsArtistNavigation {
                 menu.addItem(.separator())
             }
 
             if parent.showsAlbumNavigation {
-                menu.addItem(menuItem(title: "Go to Album", systemImage: "square.stack", action: #selector(goToAlbum(_:))))
+                menu.addItem(menuItem(title: "Go to Album", systemImage: EnsembleDesign.Icon.album, action: #selector(goToAlbum(_:))))
             }
 
             if parent.showsArtistNavigation {
-                menu.addItem(menuItem(title: "Go to Artist", systemImage: "person.circle", action: #selector(goToArtist(_:))))
+                menu.addItem(menuItem(title: "Go to Artist", systemImage: EnsembleDesign.Icon.artist, action: #selector(goToArtist(_:))))
             }
 
             return menu
