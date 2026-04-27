@@ -20,6 +20,7 @@ ensemble/
 |   +-- verify_package_baseline.sh # Rebuilds the SwiftPM CoreData bundle, then runs package tests with pass/fail summary
 |   +-- capture_runtime_baseline.sh # Captures or summarizes repeatable simulator/runtime baselines (OS log + persistent log + optional trace)
 |   +-- check_core_warning_budget.sh # Builds EnsembleCore and fails when Core-package compiler warnings exceed the current budget
+|   +-- design_token_audit.sh     # Non-blocking design-token literal inventory and hotspot report
 |   +-- plex_hls_spike.sh        # Bounded PMS music-HLS viability probe used before transport changes
 |   +-- update_build_number.sh    # Sets deterministic CFBundleVersion for app + Siri extension builds
 |

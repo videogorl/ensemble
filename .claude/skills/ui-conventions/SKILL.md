@@ -180,6 +180,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Use `EnsembleScaffold` for larger adaptive patterns, such as OS-aware filter presentation and shared empty/loading/error states.
 - Liquid Glass and fallback material stacks should go through `EnsembleDesign.Material.Role` or a documented local composition when the surface is too specialized, such as artwork-reactive mini-player backgrounds.
 - During broad literal sweeps, ask before normalizing ambiguous values that could change visual rhythm, iPad/macOS breakpoints, prominent material opacity, or established icon intent.
+- Use `scripts/design_token_audit.sh` as a non-blocking inventory before and after broad sweeps; it reports literal counts and the largest screen/component hotspots.
 
 ### Artwork Display
 - **Hub items:** 140x140pt artwork

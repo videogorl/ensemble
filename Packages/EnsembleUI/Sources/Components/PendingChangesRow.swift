@@ -13,25 +13,24 @@ public struct PendingChangesRow: View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Image(systemName: "clock.arrow.circlepath")
                 .frame(width: 24)
-                .foregroundColor(.orange)
+                .foregroundColor(EnsembleDesign.Color.warning)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                 Text("Pending Changes")
-                    .font(.body)
+                    .font(EnsembleDesign.Typography.rowPrimary)
                 Text("Offline edits waiting to sync")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
 
             Spacer()
 
             Text("\(count)")
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .foregroundColor(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 2)
-                .background(Color.orange)
+                .font(EnsembleDesign.Typography.cardTitle)
+                .foregroundColor(EnsembleDesign.Color.onAccent)
+                .padding(.horizontal, EnsembleDesign.Spacing.sm)
+                .padding(.vertical, EnsembleDesign.Spacing.xxs)
+                .background(EnsembleDesign.Color.warning)
                 .clipShape(Capsule())
         }
         .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)

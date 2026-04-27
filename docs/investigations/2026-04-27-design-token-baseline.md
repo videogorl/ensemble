@@ -17,11 +17,11 @@ them as drift indicators rather than exact debt counts.
 | Category | Count |
 |---|---:|
 | Font calls | 487 |
-| Font weight calls | 63 |
+| Font weight calls | 62 |
 | Foreground/tint calls | 506 |
-| Accent color references | 137 |
-| Numeric spacing arguments | 315 |
-| Numeric padding arguments | 233 |
+| Accent color references | 135 |
+| Numeric spacing arguments | 311 |
+| Numeric padding arguments | 230 |
 | Explicit corner radii | 65 |
 | SF Symbol references | 472 |
 | Geometry/breakpoint references | 137 |

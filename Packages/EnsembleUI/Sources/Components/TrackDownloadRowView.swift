@@ -17,7 +17,7 @@ struct TrackDownloadRowView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.chipVertical) {
             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 // Artwork thumbnail
                 ArtworkView(
@@ -32,14 +32,14 @@ struct TrackDownloadRowView: View {
                 .frame(width: 44, height: 44)
 
                 // Track title + artist
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                     Text(row.title)
-                        .font(.subheadline)
+                        .font(EnsembleDesign.Typography.cardTitle)
                         .lineLimit(1)
                     if let artist = row.artistName {
                         Text(artist)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                             .lineLimit(1)
                     }
                 }
@@ -50,7 +50,7 @@ struct TrackDownloadRowView: View {
                 if isQualityMismatched {
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.caption)
-                        .foregroundColor(.orange)
+                        .foregroundColor(EnsembleDesign.Color.warning)
                 }
 
                 // Status chip or retry button
@@ -58,7 +58,7 @@ struct TrackDownloadRowView: View {
                     Button(action: onRetry) {
                         Label("Retry", systemImage: "arrow.clockwise")
                             .font(.caption)
-                            .foregroundColor(.accentColor)
+                            .foregroundColor(EnsembleDesign.Color.accent)
                     }
                     .buttonStyle(.plain)
                 } else {
@@ -69,8 +69,8 @@ struct TrackDownloadRowView: View {
             // Error message for failed tracks
             if row.status == .failed, let error = row.errorMessage, !error.isEmpty {
                 Text(error)
-                    .font(.caption2)
-                    .foregroundColor(.red)
+                    .font(EnsembleDesign.Typography.cardMetadata)
+                    .foregroundColor(EnsembleDesign.Color.destructive)
                     .lineLimit(2)
                     .padding(.leading, 56)
             }
@@ -81,16 +81,16 @@ struct TrackDownloadRowView: View {
 
     @ViewBuilder
     private var statusChip: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: EnsembleDesign.Spacing.xs) {
             if row.status == .downloading {
                 ProgressView()
                     .controlSize(.mini)
             }
             Text(chipLabel)
         }
-        .font(.caption)
+        .font(EnsembleDesign.Typography.rowSecondary)
         .foregroundColor(chipColor)
-        .padding(.horizontal, 8)
+        .padding(.horizontal, EnsembleDesign.Spacing.sm)
         .padding(.vertical, 3)
         .background(chipColor.opacity(0.12))
         .clipShape(Capsule())
@@ -135,10 +135,10 @@ struct TrackDownloadRowView: View {
 
     private var chipColor: Color {
         switch row.status {
-        case .failed: return .red
-        case .downloading: return .accentColor
-        case .paused: return .orange
-        case .pending: return .secondary
+        case .failed: return EnsembleDesign.Color.destructive
+        case .downloading: return EnsembleDesign.Color.accent
+        case .paused: return EnsembleDesign.Color.warning
+        case .pending: return EnsembleDesign.Color.secondaryText
         case .completed: return .green
         }
     }
