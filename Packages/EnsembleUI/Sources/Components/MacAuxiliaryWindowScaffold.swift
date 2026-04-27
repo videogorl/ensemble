@@ -5,17 +5,14 @@ import AppKit
 
 /// Native macOS auxiliary window shell for Profile, Downloads, and similar tools.
 public struct MacAuxiliaryWindowScaffold<Content: View>: View {
-    private let maxWidth: CGFloat
-    private let minHeight: CGFloat
+    private let configuration: EnsembleScaffold.AuxiliaryWindow.Configuration
     private let content: Content
 
     public init(
-        maxWidth: CGFloat = EnsembleDesign.Breakpoint.auxiliaryWindowMaxWidth,
-        minHeight: CGFloat = 560,
+        configuration: EnsembleScaffold.AuxiliaryWindow.Configuration = .profile,
         @ViewBuilder content: () -> Content
     ) {
-        self.maxWidth = maxWidth
-        self.minHeight = minHeight
+        self.configuration = configuration
         self.content = content()
     }
 
@@ -24,10 +21,10 @@ public struct MacAuxiliaryWindowScaffold<Content: View>: View {
             windowBackground
                 .ignoresSafeArea()
             content
-                .frame(maxWidth: maxWidth, maxHeight: .infinity, alignment: .top)
+                .frame(maxWidth: configuration.maxWidth, maxHeight: .infinity, alignment: .top)
         }
-        .frame(width: maxWidth)
-        .frame(minHeight: minHeight)
+        .frame(width: configuration.idealWidth)
+        .frame(minHeight: configuration.minHeight)
     }
 
     private var windowBackground: Color {

@@ -982,6 +982,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Window content | region | Embedded Profile, Downloads, or similar auxiliary content centered in a single-column macOS window | `content` |
 | Maximum width | state | Width cap that keeps Profile/Downloads aligned with their iOS single-column layouts | `maxWidth` |
 | Minimum height | state | Window height floor applied by the scaffold | `minHeight` |
+| Window configuration | policy | Shared min/ideal/max scene sizing and content-width presets for Profile, Downloads, and similar utility windows | `EnsembleScaffold.AuxiliaryWindow.Configuration` |
 
 ---
 

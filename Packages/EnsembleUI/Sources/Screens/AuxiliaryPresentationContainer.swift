@@ -29,8 +29,7 @@ public struct ProfilePresentationContainer: View {
     public var body: some View {
         #if os(macOS)
         MacAuxiliaryWindowScaffold(
-            maxWidth: 420,
-            minHeight: 560
+            configuration: .profile
         ) {
             navigationContainer {
                 ProfileView()
@@ -58,8 +57,7 @@ public struct DownloadsPresentationContainer: View {
     public var body: some View {
         #if os(macOS)
         MacAuxiliaryWindowScaffold(
-            maxWidth: 420,
-            minHeight: 640
+            configuration: .downloads
         ) {
             navigationContainer {
                 DownloadsView(nowPlayingVM: nowPlayingVM)

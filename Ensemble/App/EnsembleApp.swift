@@ -145,14 +145,25 @@ struct EnsembleApp: App {
                 ProfilePresentationContainer()
                     .environment(\.dependencies, DependencyContainer.shared)
                     .environmentObject(DependencyContainer.shared.navigationCoordinator)
-                    .frame(minWidth: 380, idealWidth: 420, maxWidth: 420, minHeight: 560, idealHeight: 640)
+                    .ensembleAuxiliaryWindowFrame(.profile)
             }
+            .defaultSize(
+                width: EnsembleScaffold.AuxiliaryWindow.Configuration.profile.idealWidth,
+                height: EnsembleScaffold.AuxiliaryWindow.Configuration.profile.idealHeight
+            )
+            .windowResizability(.contentSize)
+
             Window("Downloads", id: NavigationCoordinator.AuxiliaryPresentation.downloads.windowID) {
                 DownloadsPresentationContainer()
                     .environment(\.dependencies, DependencyContainer.shared)
                     .environmentObject(DependencyContainer.shared.navigationCoordinator)
-                    .frame(minWidth: 380, idealWidth: 420, maxWidth: 420, minHeight: 640, idealHeight: 720)
+                    .ensembleAuxiliaryWindowFrame(.downloads)
             }
+            .defaultSize(
+                width: EnsembleScaffold.AuxiliaryWindow.Configuration.downloads.idealWidth,
+                height: EnsembleScaffold.AuxiliaryWindow.Configuration.downloads.idealHeight
+            )
+            .windowResizability(.contentSize)
         }
         #endif
     }
@@ -470,6 +481,22 @@ struct EnsembleApp: App {
         }
     }
 }
+
+#if os(macOS)
+private extension View {
+    func ensembleAuxiliaryWindowFrame(
+        _ configuration: EnsembleScaffold.AuxiliaryWindow.Configuration
+    ) -> some View {
+        frame(
+            minWidth: configuration.minWidth,
+            idealWidth: configuration.idealWidth,
+            maxWidth: configuration.maxWidth,
+            minHeight: configuration.minHeight,
+            idealHeight: configuration.idealHeight
+        )
+    }
+}
+#endif
 
 // MARK: - macOS App Delegate (Sidebar Collapse Prevention)
 

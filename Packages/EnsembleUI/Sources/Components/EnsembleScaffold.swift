@@ -91,6 +91,40 @@ public enum EnsembleScaffold {
             EnsembleDesign.Color.groupedSurface
         }
     }
+
+    public enum AuxiliaryWindow {
+        public struct Configuration: Equatable {
+            public let minWidth: CGFloat
+            public let idealWidth: CGFloat
+            public let maxWidth: CGFloat
+            public let minHeight: CGFloat
+            public let idealHeight: CGFloat
+
+            public init(
+                minWidth: CGFloat = 380,
+                idealWidth: CGFloat = EnsembleDesign.Breakpoint.auxiliaryWindowMaxWidth,
+                maxWidth: CGFloat = EnsembleDesign.Breakpoint.auxiliaryWindowMaxWidth,
+                minHeight: CGFloat,
+                idealHeight: CGFloat
+            ) {
+                self.minWidth = minWidth
+                self.idealWidth = idealWidth
+                self.maxWidth = maxWidth
+                self.minHeight = minHeight
+                self.idealHeight = idealHeight
+            }
+
+            public static let profile = Configuration(
+                minHeight: 560,
+                idealHeight: 640
+            )
+
+            public static let downloads = Configuration(
+                minHeight: 640,
+                idealHeight: 720
+            )
+        }
+    }
 }
 
 /// Platform-aligned browse toolbar host that keeps the macOS search spacer pattern in one place.
