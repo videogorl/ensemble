@@ -136,7 +136,7 @@ public struct PlaylistRow: View {
                 HStack(spacing: EnsembleDesign.Spacing.xs) {
                     // Smart playlist icon always shows when applicable
                     if displayPlaylist.isSmart {
-                        Image(systemName: "gearshape.fill")
+                        Image(systemName: EnsembleDesign.Icon.smartPlaylist)
                             .font(EnsembleDesign.Typography.cardMetadata)
                     }
                     Text(statusText ?? "\(displayPlaylist.trackCount) songs")

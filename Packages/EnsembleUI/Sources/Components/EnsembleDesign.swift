@@ -110,6 +110,7 @@ public enum EnsembleDesign {
         public static let album = "square.stack"
         public static let artist = "person.circle"
         public static let back = "chevron.left"
+        public static let chevronRight = "chevron.right"
         public static let checkmark = "checkmark.circle.fill"
         public static let selectionCheckmark = "checkmark"
         public static let closeCircle = "xmark.circle.fill"

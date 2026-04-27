@@ -12,7 +12,11 @@ public struct ArtistCard: View {
 
     public var body: some View {
         VStack(spacing: EnsembleDesign.Spacing.sm) {
-            ArtworkView(artist: artist, size: .thumbnail, cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2)
+            ArtworkView(
+                artist: artist,
+                size: .thumbnail,
+                cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.thumbnail.cgSize.width)
+            )
 
             Text(artist.name)
                 .font(EnsembleDesign.Typography.cardTitle)
@@ -46,14 +50,14 @@ public struct ArtistRow: View {
             ArtworkView(artist: artist, size: .tiny, cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.tiny.cgSize.width))
 
             Text(artist.name)
-                .font(.body)
+                .font(EnsembleDesign.Typography.rowPrimary)
                 .lineLimit(1)
                 .foregroundColor(EnsembleDesign.Color.primaryText)
 
             Spacer()
 
-            Image(systemName: "chevron.right")
-                .font(.caption)
+            Image(systemName: EnsembleDesign.Icon.chevronRight)
+                .font(EnsembleDesign.Typography.rowSecondary)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
         .contentShape(Rectangle())
@@ -206,7 +210,11 @@ public struct ArtistGrid: View {
 
     private func artistCardContent(_ artist: Artist) -> some View {
         VStack(spacing: EnsembleDesign.Spacing.sm) {
-            ArtworkView(artist: artist, size: .thumbnail, cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2)
+            ArtworkView(
+                artist: artist,
+                size: .thumbnail,
+                cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.thumbnail.cgSize.width)
+            )
 
             Text(artist.name)
                 .font(EnsembleDesign.Typography.cardTitle)

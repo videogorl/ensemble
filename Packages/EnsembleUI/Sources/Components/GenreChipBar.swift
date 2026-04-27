@@ -40,7 +40,7 @@ public struct GenreChipBar: View {
                             excludedGenres.removeAll()
                         }
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
+                        Image(systemName: EnsembleDesign.Icon.closeCircle)
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }

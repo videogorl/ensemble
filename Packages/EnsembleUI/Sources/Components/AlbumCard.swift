@@ -74,7 +74,7 @@ public struct AlbumCard: View {
                 Text(album.title)
                     .font(EnsembleDesign.Typography.cardTitle)
                     .lineLimit(2)
-                    .foregroundColor(.primary)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
 
                 if let artist = album.artistName {
                     Text(artist)
