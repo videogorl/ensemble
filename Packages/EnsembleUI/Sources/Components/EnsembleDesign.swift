@@ -106,6 +106,7 @@ public enum EnsembleDesign {
     }
 
     public enum Icon {
+        public static let addCircle = "plus.circle.fill"
         public static let addToPlaylist = "text.badge.plus"
         public static let album = "square.stack"
         public static let artist = "person.circle"
@@ -247,6 +248,23 @@ public enum EnsembleDesign {
                 }
             }
         }
+    }
+}
+
+/// Primary filled button style for scaffold-level actions such as empty states.
+public struct EnsemblePrimaryActionButtonStyle: ButtonStyle {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(EnsembleDesign.Typography.actionLabel)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, EnsembleDesign.Spacing.xl)
+            .padding(.vertical, EnsembleDesign.Spacing.md)
+            .background(EnsembleDesign.Color.accent)
+            .foregroundColor(EnsembleDesign.Color.onAccent)
+            .clipShape(RoundedRectangle(cornerRadius: EnsembleDesign.Radius.card, style: .continuous))
+            .opacity(configuration.isPressed ? 0.82 : 1)
     }
 }
 

@@ -16,14 +16,9 @@ public struct EmptyLibraryView: View {
             iconSystemName: EnsembleDesign.Icon.library
         ) {
             Button(action: onAddSource) {
-                Label("Add Music Source", systemImage: "plus.circle.fill")
-                    .font(EnsembleDesign.Typography.actionLabel)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(EnsembleDesign.Color.accent)
-                    .foregroundColor(EnsembleDesign.Color.onAccent)
-                    .cornerRadius(EnsembleDesign.Radius.card)
+                Label("Add Music Source", systemImage: EnsembleDesign.Icon.addCircle)
             }
+            .buttonStyle(EnsemblePrimaryActionButtonStyle())
             .padding(.horizontal, EnsembleDesign.Spacing.xxxl)
         }
     }
