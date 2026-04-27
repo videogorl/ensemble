@@ -1,6 +1,9 @@
 import EnsembleCore
 import SwiftUI
 import Nuke
+#if os(macOS)
+import AppKit
+#endif
 
 // MARK: - MiniPlayer
 
@@ -184,6 +187,10 @@ private struct MiniPlayerTrackInfo: View {
     @State private var opacity: Double = 1.0
 
     private let artworkDimension: CGFloat = 32
+    private let expandedControlMinimumWidth: CGFloat = 430
+    private let compactControlLaneWidth: CGFloat = 78
+    private let expandedControlLaneWidth: CGFloat = 148
+
     private var artworkCornerRadius: CGFloat {
         ArtworkCornerRadius.square(for: artworkDimension)
     }
@@ -268,20 +275,28 @@ private struct MiniPlayerTrackInfo: View {
     private func largeScreenTrackRow(for track: Track) -> some View {
         GeometryReader { geometry in
             let laneSpacing = TrackListLayoutMetrics.rowInterItemSpacing
-            let laneWidth = max((geometry.size.width - (laneSpacing * 2)) / 3, 0)
+            let showsExpandedControls = geometry.size.width >= expandedControlMinimumWidth
+            let controlLaneWidth = showsExpandedControls ? expandedControlLaneWidth : compactControlLaneWidth
+            let availableWidth = max(geometry.size.width - controlLaneWidth - (laneSpacing * 2), 0)
+            let trackLaneWidth = min(max(availableWidth * 0.42, 120), 220)
+            let waveformLaneWidth = max(availableWidth - trackLaneWidth, 70)
 
             HStack(spacing: laneSpacing) {
                 trackInfoLane(for: track)
-                    .frame(width: laneWidth, alignment: .leading)
+                    .frame(width: trackLaneWidth, alignment: .leading)
 
                 MiniPlayerWaveform(
                     viewModel: viewModel,
                     waveformColor: waveformColor
                 )
-                .frame(width: laneWidth, height: 18)
+                .frame(width: waveformLaneWidth, height: 18)
 
-                MiniPlayerControls(viewModel: viewModel)
-                    .frame(width: laneWidth, alignment: .trailing)
+                MiniPlayerControls(
+                    viewModel: viewModel,
+                    showsPreviousButton: showsExpandedControls,
+                    showsActionsMenu: showsExpandedControls
+                )
+                    .frame(width: controlLaneWidth, alignment: .trailing)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
@@ -413,9 +428,18 @@ private struct MiniPlayerWaveform: View {
 /// re-render on state changes, not the entire MiniPlayer body.
 private struct MiniPlayerControls: View {
     @ObservedObject var viewModel: NowPlayingViewModel
+    var showsPreviousButton = false
+    var showsActionsMenu = false
 
     var body: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 18) {
+            if showsPreviousButton {
+                Button(action: viewModel.previous) {
+                    Image(systemName: "backward.fill")
+                        .font(.title3)
+                }
+            }
+
             Button(action: viewModel.togglePlayPause) {
                 ZStack {
                     // Show spinner when loading or buffering
@@ -437,11 +461,288 @@ private struct MiniPlayerControls: View {
                 Image(systemName: "forward.fill")
                     .font(.title3)
             }
+
+            if showsActionsMenu {
+                MiniPlayerActionsMenuButton(viewModel: viewModel)
+            }
         }
         .foregroundColor(.primary)
         .chromelessMediaControlButton()
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
+
+private struct MiniPlayerActionsMenuButton: View {
+    @ObservedObject var viewModel: NowPlayingViewModel
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @State private var showingActionsPopover = false
+    @State private var showingPlaylistPicker = false
+
+    var body: some View {
+        actionsButton
+            .sheet(isPresented: $showingPlaylistPicker) {
+                if let track = viewModel.currentTrack {
+                    PlaylistPickerSheet(nowPlayingVM: viewModel, tracks: [track])
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var actionsButton: some View {
+        #if os(iOS)
+        Button {
+            showingActionsPopover = viewModel.currentTrack != nil
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .frame(width: 25, height: 25)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.currentTrack == nil)
+        .accessibilityLabel("Track Actions")
+        .popover(isPresented: $showingActionsPopover, arrowEdge: .bottom) {
+            MiniPlayerActionsPopoverContent(
+                favoriteTitle: favoriteTitle,
+                favoriteSystemImage: favoriteSystemImage,
+                recentPlaylistTitle: viewModel.lastPlaylistTarget?.title,
+                showsAlbumNavigation: viewModel.currentTrack?.albumRatingKey != nil,
+                showsArtistNavigation: viewModel.currentTrack?.artistRatingKey != nil,
+                onFavorite: {
+                    showingActionsPopover = false
+                    toggleFavorite()
+                },
+                onAddToRecentPlaylist: {
+                    showingActionsPopover = false
+                    addToRecentPlaylist()
+                },
+                onAddToPlaylist: {
+                    showingActionsPopover = false
+                    showingPlaylistPicker = true
+                },
+                onGoToAlbum: {
+                    showingActionsPopover = false
+                    goToAlbum()
+                },
+                onGoToArtist: {
+                    showingActionsPopover = false
+                    goToArtist()
+                }
+            )
+        }
+        #elseif os(macOS)
+        NativeMiniPlayerActionsMenuButton(
+            isEnabled: viewModel.currentTrack != nil,
+            favoriteTitle: favoriteTitle,
+            favoriteSystemImage: favoriteSystemImage,
+            recentPlaylistTitle: viewModel.lastPlaylistTarget?.title,
+            showsAlbumNavigation: viewModel.currentTrack?.albumRatingKey != nil,
+            showsArtistNavigation: viewModel.currentTrack?.artistRatingKey != nil,
+            onFavorite: toggleFavorite,
+            onAddToRecentPlaylist: addToRecentPlaylist,
+            onAddToPlaylist: { showingPlaylistPicker = true },
+            onGoToAlbum: goToAlbum,
+            onGoToArtist: goToArtist
+        )
+        .frame(width: 25, height: 25)
+        .accessibilityLabel("Track Actions")
+        #endif
+    }
+
+    private var favoriteTitle: String {
+        guard let track = viewModel.currentTrack else { return "Favorite" }
+        return viewModel.isTrackFavorited(track) ? "Unfavorite" : "Favorite"
+    }
+
+    private var favoriteSystemImage: String {
+        guard let track = viewModel.currentTrack else { return "heart" }
+        return viewModel.isTrackFavorited(track) ? "heart.slash" : "heart"
+    }
+
+    private func toggleFavorite() {
+        guard let track = viewModel.currentTrack else { return }
+        Task { await viewModel.toggleTrackFavorite(track) }
+    }
+
+    private func addToRecentPlaylist() {
+        Task {
+            if let playlist = await viewModel.resolveLastPlaylistTarget() {
+                _ = try? await viewModel.addCurrentTrack(to: playlist)
+            }
+        }
+    }
+
+    private func goToAlbum() {
+        guard let albumId = viewModel.currentTrack?.albumRatingKey else { return }
+        navigationCoordinator.navigate(to: .album(id: albumId))
+    }
+
+    private func goToArtist() {
+        guard let artistId = viewModel.currentTrack?.artistRatingKey else { return }
+        navigationCoordinator.navigate(to: .artist(id: artistId))
+    }
+}
+
+#if os(iOS)
+private struct MiniPlayerActionsPopoverContent: View {
+    let favoriteTitle: String
+    let favoriteSystemImage: String
+    let recentPlaylistTitle: String?
+    let showsAlbumNavigation: Bool
+    let showsArtistNavigation: Bool
+    let onFavorite: () -> Void
+    let onAddToRecentPlaylist: () -> Void
+    let onAddToPlaylist: () -> Void
+    let onGoToAlbum: () -> Void
+    let onGoToArtist: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            actionButton(title: favoriteTitle, systemImage: favoriteSystemImage, action: onFavorite)
+
+            if let recentPlaylistTitle {
+                actionButton(
+                    title: "Add to \(recentPlaylistTitle)",
+                    systemImage: "clock.arrow.circlepath",
+                    action: onAddToRecentPlaylist
+                )
+            }
+
+            actionButton(title: "Add to Playlist…", systemImage: "text.badge.plus", action: onAddToPlaylist)
+
+            if showsAlbumNavigation || showsArtistNavigation {
+                Divider()
+                    .padding(.vertical, 6)
+            }
+
+            if showsAlbumNavigation {
+                actionButton(title: "Go to Album", systemImage: "square.stack", action: onGoToAlbum)
+            }
+
+            if showsArtistNavigation {
+                actionButton(title: "Go to Artist", systemImage: "person.circle", action: onGoToArtist)
+            }
+        }
+        .padding(.vertical, 8)
+        .frame(width: 240, alignment: .leading)
+    }
+
+    private func actionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.body)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.primary)
+    }
+}
+#elseif os(macOS)
+private struct NativeMiniPlayerActionsMenuButton: NSViewRepresentable {
+    let isEnabled: Bool
+    let favoriteTitle: String
+    let favoriteSystemImage: String
+    let recentPlaylistTitle: String?
+    let showsAlbumNavigation: Bool
+    let showsArtistNavigation: Bool
+    let onFavorite: () -> Void
+    let onAddToRecentPlaylist: () -> Void
+    let onAddToPlaylist: () -> Void
+    let onGoToAlbum: () -> Void
+    let onGoToArtist: () -> Void
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton()
+        button.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: "Track Actions")
+        button.imagePosition = .imageOnly
+        button.isBordered = false
+        button.bezelStyle = .regularSquare
+        button.setButtonType(.momentaryChange)
+        button.contentTintColor = .secondaryLabelColor
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.showMenu(_:))
+        button.setAccessibilityLabel("Track Actions")
+        return button
+    }
+
+    func updateNSView(_ nsView: NSButton, context: Context) {
+        context.coordinator.parent = self
+        nsView.isEnabled = isEnabled
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    final class Coordinator: NSObject {
+        var parent: NativeMiniPlayerActionsMenuButton
+
+        init(parent: NativeMiniPlayerActionsMenuButton) {
+            self.parent = parent
+        }
+
+        @objc func showMenu(_ sender: NSButton) {
+            let menu = makeMenu()
+            menu.popUp(positioning: nil, at: NSPoint(x: sender.bounds.minX, y: sender.bounds.maxY + 4), in: sender)
+        }
+
+        private func makeMenu() -> NSMenu {
+            let menu = NSMenu()
+            menu.addItem(menuItem(title: parent.favoriteTitle, systemImage: parent.favoriteSystemImage, action: #selector(toggleFavorite(_:))))
+
+            if let recentPlaylistTitle = parent.recentPlaylistTitle {
+                menu.addItem(menuItem(title: "Add to \(recentPlaylistTitle)", systemImage: "clock.arrow.circlepath", action: #selector(addToRecentPlaylist(_:))))
+            }
+
+            menu.addItem(menuItem(title: "Add to Playlist…", systemImage: "text.badge.plus", action: #selector(addToPlaylist(_:))))
+
+            if parent.showsAlbumNavigation || parent.showsArtistNavigation {
+                menu.addItem(.separator())
+            }
+
+            if parent.showsAlbumNavigation {
+                menu.addItem(menuItem(title: "Go to Album", systemImage: "square.stack", action: #selector(goToAlbum(_:))))
+            }
+
+            if parent.showsArtistNavigation {
+                menu.addItem(menuItem(title: "Go to Artist", systemImage: "person.circle", action: #selector(goToArtist(_:))))
+            }
+
+            return menu
+        }
+
+        private func menuItem(title: String, systemImage: String, action: Selector) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            item.image = NSImage(systemSymbolName: systemImage, accessibilityDescription: nil)
+            return item
+        }
+
+        @objc private func toggleFavorite(_ sender: NSMenuItem) {
+            parent.onFavorite()
+        }
+
+        @objc private func addToRecentPlaylist(_ sender: NSMenuItem) {
+            parent.onAddToRecentPlaylist()
+        }
+
+        @objc private func addToPlaylist(_ sender: NSMenuItem) {
+            parent.onAddToPlaylist()
+        }
+
+        @objc private func goToAlbum(_ sender: NSMenuItem) {
+            parent.onGoToAlbum()
+        }
+
+        @objc private func goToArtist(_ sender: NSMenuItem) {
+            parent.onGoToArtist()
+        }
+    }
+}
+#endif
 
 // MARK: - Background Sub-View
 

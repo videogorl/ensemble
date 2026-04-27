@@ -98,6 +98,7 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - iPadOS and macOS always use their standard list/grid layouts for Songs, Albums, and Playlists.
 - iOS orientation is portrait-locked by default and only unlocks landscape while a CoverFlow-capable root view is active.
 - StageFlow rotation support is registered with a per-view token and the app delays the final unregister briefly, so SwiftUI view recreation during rotation does not snap the app back to portrait.
+- Large mini-player layouts with waveform should expose Previous, Play/Pause, Next, and a row-style ellipsis menu. Compact mini-player layouts keep the simpler Play/Pause + Next controls. On iPadOS, use a plain popover anchored to the ellipsis so the mini-player remains visible behind the menu. On macOS, host the menu with an AppKit `NSButton`/`NSMenu` so the control does not show a pull-down chevron.
 
 ### Large-Screen Browse Surfaces
 - Artists, Playlists, and Genres keep the app's root `NavigationSplitView` as a stable two-column sidebar/detail shell on iPadOS/macOS. Their browse list + selected detail split lives inside the detail host so switching sections does not recreate the app sidebar or reset its scroll state.
