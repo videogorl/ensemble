@@ -63,8 +63,8 @@ extension MediaDetailSurface {
             systemImage: String,
             role: ActionRole,
             font: Font = EnsembleDesign.Typography.actionLabel,
-            verticalPadding: CGFloat = EnsembleDesign.Spacing.md,
-            cornerRadius: CGFloat = EnsembleDesign.Radius.control
+            verticalPadding: CGFloat = EnsembleScaffold.DetailSurface.actionVerticalPadding,
+            cornerRadius: CGFloat = EnsembleScaffold.DetailSurface.actionCornerRadius
         ) {
             self.title = title
             self.systemImage = systemImage
@@ -106,7 +106,7 @@ extension MediaDetailSurface {
         private let wideActions: (CGFloat) -> WideActions
 
         init(
-            wideLayoutThreshold: CGFloat = EnsembleDesign.Breakpoint.detailWideHeader,
+            wideLayoutThreshold: CGFloat = EnsembleScaffold.DetailSurface.wideHeaderThreshold,
             @ViewBuilder topContent: @escaping () -> TopContent,
             @ViewBuilder artwork: @escaping () -> Artwork,
             metadata: @escaping (HorizontalAlignment) -> Metadata,
@@ -151,24 +151,24 @@ extension MediaDetailSurface {
 
         private var compactHeader: some View {
             VStack(spacing: 0) {
-                VStack(spacing: EnsembleDesign.Spacing.lg) {
+                VStack(spacing: EnsembleScaffold.DetailSurface.compactHeaderSpacing) {
                     artwork()
                     metadata(.center)
                 }
-                .padding()
+                .padding(EnsembleScaffold.DetailSurface.headerPadding)
 
                 compactActions()
             }
         }
 
         private var wideHeader: some View {
-            HStack(alignment: .center, spacing: EnsembleDesign.Spacing.xxl) {
+            HStack(alignment: .center, spacing: EnsembleScaffold.DetailSurface.wideHeaderSpacing) {
                 artwork()
 
-                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.sm) {
+                VStack(alignment: .leading, spacing: EnsembleScaffold.DetailSurface.metadataSpacing) {
                     metadata(.leading)
                     wideActions(actionColumnWidth > 0 ? actionColumnWidth : containerWidth)
-                        .padding(.top, EnsembleDesign.Spacing.xs)
+                        .padding(.top, EnsembleScaffold.DetailSurface.actionTopPadding)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
@@ -183,7 +183,7 @@ extension MediaDetailSurface {
                     }
                 )
             }
-            .padding()
+            .padding(EnsembleScaffold.DetailSurface.headerPadding)
         }
 
         private func updateContainerWidth(_ newWidth: CGFloat) {
@@ -209,12 +209,23 @@ extension MediaDetailSurface {
         var body: some View {
             content()
                 .background(cardBackground)
-                .cornerRadius(EnsembleDesign.Radius.card)
-                .padding(.horizontal)
+                .cornerRadius(EnsembleScaffold.DetailSurface.listCardCornerRadius)
+                .padding(.horizontal, EnsembleScaffold.DetailSurface.listCardHorizontalPadding)
         }
 
         private var cardBackground: Color {
-            EnsembleDesign.Color.groupedSurface
+            EnsembleScaffold.DetailSurface.listCardBackground
         }
+    }
+}
+
+extension View {
+    func mediaDetailArtworkShadow() -> some View {
+        shadow(
+            color: EnsembleScaffold.DetailSurface.ArtworkShadow.color,
+            radius: EnsembleScaffold.DetailSurface.ArtworkShadow.radius,
+            x: EnsembleScaffold.DetailSurface.ArtworkShadow.x,
+            y: EnsembleScaffold.DetailSurface.ArtworkShadow.y
+        )
     }
 }

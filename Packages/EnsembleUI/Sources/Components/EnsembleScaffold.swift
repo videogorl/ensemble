@@ -67,6 +67,30 @@ public enum EnsembleScaffold {
 
         public static let coordinateSpaceName = "LargeScreenBrowseSplitView"
     }
+
+    public enum DetailSurface {
+        public static let wideHeaderThreshold = EnsembleDesign.Breakpoint.detailWideHeader
+        public static let compactHeaderSpacing = EnsembleDesign.Spacing.lg
+        public static let wideHeaderSpacing = EnsembleDesign.Spacing.xxl
+        public static let metadataSpacing = EnsembleDesign.Spacing.sm
+        public static let actionTopPadding = EnsembleDesign.Spacing.xs
+        public static let headerPadding = EnsembleDesign.Spacing.lg
+        public static let actionVerticalPadding = EnsembleDesign.Spacing.md
+        public static let actionCornerRadius = EnsembleDesign.Radius.control
+        public static let listCardCornerRadius = EnsembleDesign.Radius.card
+        public static let listCardHorizontalPadding = EnsembleDesign.Spacing.lg
+
+        public enum ArtworkShadow {
+            public static let color = Color.black.opacity(0.2)
+            public static let radius: CGFloat = 20
+            public static let x: CGFloat = 0
+            public static let y: CGFloat = 10
+        }
+
+        public static var listCardBackground: Color {
+            EnsembleDesign.Color.groupedSurface
+        }
+    }
 }
 
 /// Platform-aligned browse toolbar host that keeps the macOS search spacer pattern in one place.

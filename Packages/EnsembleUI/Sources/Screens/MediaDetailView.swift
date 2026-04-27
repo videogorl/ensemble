@@ -1033,7 +1033,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             },
             artwork: {
                 headerArtwork
-                    .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
+                    .mediaDetailArtworkShadow()
             },
             metadata: { alignment in
                 headerMetadata(alignment: alignment)

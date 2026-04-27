@@ -82,7 +82,7 @@ public struct DownloadTargetDetailView: View {
                     size: .medium,
                     cornerRadius: ArtworkCornerRadius.square(for: ArtworkSize.medium)
                 )
-                .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
+                .mediaDetailArtworkShadow()
             },
             metadata: { alignment in
                 headerMetadata(alignment: alignment)
