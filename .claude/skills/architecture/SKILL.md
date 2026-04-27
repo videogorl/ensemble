@@ -183,7 +183,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - **Purpose:** All SwiftUI views and reusable components
 
 **Key Views:**
-- `RootView` -- Adapts by platform: tab navigation on iPhone, sidebar on iPad/macOS; also owns the root aurora layer, the single shared mini player overlay, and the scene-local navigation/Now Playing coordinators. On large-screen iPadOS/macOS, `SidebarView` owns the root browse content/detail columns for Artists, Playlists, and Genres so those sections do not create nested sidebars.
+- `RootView` -- Adapts by platform: tab navigation on iPhone, sidebar on iPad/macOS; also owns the root aurora layer, the single shared mini player overlay, and the scene-local navigation/Now Playing coordinators. On iPadOS/macOS, `SidebarView` keeps one stable app sidebar/detail shell and hosts Artists, Playlists, and Genres browse-list/detail splits inside the detail host.
 - `MiniPlayer` -- Persistent compact player overlay across all screens
 - `MediaDetailView` -- Unified detail view using `MediaDetailViewModelProtocol` (supports Artist, Album, Playlist, Favorites)
 - `ArtworkView` -- Local-first artwork loading with automatic fallback to network

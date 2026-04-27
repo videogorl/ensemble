@@ -100,9 +100,9 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - StageFlow rotation support is registered with a per-view token and the app delays the final unregister briefly, so SwiftUI view recreation during rotation does not snap the app back to portrait.
 
 ### Large-Screen Browse Surfaces
-- Artists, Playlists, and Genres use root-owned `NavigationSplitView` content/detail columns on iPadOS 16+/macOS 13+. The app sidebar remains the only sidebar; browse lists are content columns, not nested sidebars.
+- Artists, Playlists, and Genres keep the app's root `NavigationSplitView` as a stable two-column sidebar/detail shell on iPadOS/macOS. Their browse list + selected detail split lives inside the detail host so switching sections does not recreate the app sidebar or reset its scroll state.
 - Compact iPhone and unsupported OS fallbacks keep the existing push/list root behavior by rendering each browse screen in compact mode.
-- Store selected artist/playlist/genre state in `SidebarView`, outside the split subtree, so selection survives root layout swaps, compact collapse/expand, and detail pushes.
+- Store selected artist/playlist/genre state in `SidebarView`, outside the section-owned split subtree, so selection survives detail host rebuilds, compact collapse/expand, and detail pushes.
 - Keep selection rows visually dense and use `LargeScreenPlaceholderView` for empty right-pane states such as "Select an Artist".
 - Notes/Mail-style toolbar sections require a real window-toolbar owner with `NSTrackingSeparatorToolbarItem`. Do not proxy SwiftUI's private toolbar delegate from a screen-level view; that can collapse or drop existing SwiftUI toolbar items. If toolbar tracking is needed, introduce a dedicated macOS toolbar coordinator at the window/root split level.
 - Artist detail keeps the full-width hero on compact layouts, then switches at wide widths to a media-detail-style header with circular artist artwork on the left and metadata/actions on the right.

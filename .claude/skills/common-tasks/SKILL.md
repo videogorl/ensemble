@@ -54,12 +54,12 @@ struct MyNewView: View {
 For browse roots that need a regular-width selection/detail layout:
 
 1. Keep the existing compact list/push navigation as the compact root fallback.
-2. On iPadOS 16+/macOS 13+, promote the browse list into `SidebarView`'s root `NavigationSplitView` content column instead of adding a nested split inside the screen.
+2. Keep `SidebarView`'s root `NavigationSplitView` as the stable app sidebar + detail host. Put the browse list/detail split inside the selected section's detail host so the app sidebar is not recreated when switching between single-pane and browse sections.
 3. Store the selected item in `SidebarView` state; pass it into the browse screen's selection-column mode with a `Binding`.
 4. Use `LargeScreenPlaceholderView` for the unselected state.
 5. Add `.refreshCommand { await viewModel.refresh() }` whenever the screen already supports `.refreshable`.
 
-Do not route iPhone through the root browse columns, and do not remove existing compact navigation links.
+Do not route iPhone through the large-screen browse host, and do not remove existing compact navigation links.
 
 ## Adding a New Now Playing Panel/Card
 

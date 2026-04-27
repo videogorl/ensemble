@@ -681,7 +681,6 @@ public struct SidebarView: View {
 
     private enum CompactColumnPreference: Int {
         case sidebar
-        case content
         case detail
     }
 
@@ -786,17 +785,6 @@ public struct SidebarView: View {
             return .genres
         default:
             return nil
-        }
-    }
-
-    private func hasSelection(for browseKind: RootBrowseKind) -> Bool {
-        switch browseKind {
-        case .artists:
-            return selectedBrowseArtist != nil || !navigationCoordinator.artistsPath.isEmpty
-        case .playlists:
-            return selectedBrowsePlaylist != nil || !navigationCoordinator.playlistsPath.isEmpty
-        case .genres:
-            return selectedBrowseGenre != nil || !navigationCoordinator.genresPath.isEmpty
         }
     }
 
@@ -1229,11 +1217,7 @@ public struct SidebarView: View {
             }
             #if os(iOS)
             if #available(iOS 17.0, *), newSelection != nil {
-                if activeRootBrowseKind != nil {
-                    compactColumnPreference = .content
-                } else {
-                    compactColumnPreference = .detail
-                }
+                compactColumnPreference = .detail
             }
             #endif
             pinnedDetailPath.removeAll()
@@ -1306,7 +1290,6 @@ public struct SidebarView: View {
         }
         .navigationSplitViewColumnWidth(min: 260, ideal: 260, max: 260)
         .toolbar {
-            ToolbarItem { Spacer() }
             ToolbarItemGroup(placement: .primaryActionIfAvailable) {
                 Button { navigationCoordinator.openDownloads() } label: {
                     Image(systemName: "arrow.down.circle")
@@ -1441,10 +1424,10 @@ public struct SidebarView: View {
         )
     }
 
-    private func setCompactBrowseColumnAfterSelection(_ hasSelection: Bool) {
+    private func setCompactBrowseColumnAfterSelection(_: Bool) {
         #if os(iOS)
         if #available(iOS 17.0, *) {
-            compactColumnPreference = hasSelection ? .detail : .content
+            compactColumnPreference = .detail
         }
         #endif
     }
@@ -1474,18 +1457,22 @@ public struct SidebarView: View {
     @ViewBuilder
     private var detailView: some View {
         Group {
-            switch selection {
-            case .library(let tab):
-                sidebarNavigationStack(for: tab)
-            case .playlist(let id, let sourceKey):
-                playlistDetailNavigationStack(playlistID: id, sourceKey: sourceKey)
-            case .mergedPlaylist(let title, let isSmart):
-                mergedPlaylistDetailNavigationStack(title: title, isSmart: isSmart)
-            case .pin(let id, let type):
-                pinnedDetailNavigationStack(id: id, type: type)
-            case .none:
-                // Fallback when nothing is selected — show Home
-                sidebarNavigationStack(for: .home)
+            if let browseKind = activeRootBrowseKind {
+                rootBrowseSectionNavigationStack(for: browseKind)
+            } else {
+                switch selection {
+                case .library(let tab):
+                    sidebarNavigationStack(for: tab)
+                case .playlist(let id, let sourceKey):
+                    playlistDetailNavigationStack(playlistID: id, sourceKey: sourceKey)
+                case .mergedPlaylist(let title, let isSmart):
+                    mergedPlaylistDetailNavigationStack(title: title, isSmart: isSmart)
+                case .pin(let id, let type):
+                    pinnedDetailNavigationStack(id: id, type: type)
+                case .none:
+                    // Fallback when nothing is selected — show Home
+                    sidebarNavigationStack(for: .home)
+                }
             }
         }
         .auroraBackgroundSupport()
@@ -1703,11 +1690,11 @@ public struct SidebarView: View {
     }
 
     @ViewBuilder
-    private func rootBrowseDetailNavigationStack(for browseKind: RootBrowseKind) -> some View {
+    private func rootBrowseSectionNavigationStack(for browseKind: RootBrowseKind) -> some View {
         detailColumnNavigationHost {
             NavigationStack(path: sidebarPathBinding(for: browseKind.tab)) {
                 detailChromeRegistrationHost {
-                    rootBrowseDetailRoot(for: browseKind)
+                    rootBrowseSectionHost(for: browseKind)
                 }
                 .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                     detailChromeRegistrationHost(
@@ -1721,95 +1708,123 @@ public struct SidebarView: View {
     }
 
     @ViewBuilder
-    private var splitNavigationView: some View {
-        if let browseKind = activeRootBrowseKind {
-            rootBrowseSplitNavigationView(for: browseKind)
-        } else {
-            if #available(iOS 17.0, macOS 14.0, *) {
-                splitNavigationViewWithCompactColumn
-            } else {
-                NavigationSplitView(columnVisibility: $columnVisibility) {
-                    sidebarColumn
-                } detail: {
-                    detailContainerView
-                        .macEditorToolbarRoleIfAvailable()
+    private func rootBrowseSectionHost(for browseKind: RootBrowseKind) -> some View {
+        switch browseKind {
+        case .artists:
+            LargeScreenBrowseSplitView(
+                selection: selectedBrowseArtistBinding,
+                minimumSplitWidth: 720,
+                sidebarWidth: 340,
+                minimumSidebarWidth: 280,
+                maximumSidebarWidth: 420,
+                minimumDetailWidth: 360,
+                compact: {
+                    rootBrowseCompactHost(for: browseKind)
+                },
+                sidebar: {
+                    rootBrowseContentColumn(for: browseKind)
+                },
+                detail: { _ in
+                    rootBrowseDetailRoot(for: browseKind)
+                },
+                placeholder: {
+                    rootBrowsePlaceholder(for: browseKind)
                 }
-                .navigationSplitViewStyle(.balanced)
+            )
+        case .playlists:
+            LargeScreenBrowseSplitView(
+                selection: selectedBrowsePlaylistBinding,
+                minimumSplitWidth: 720,
+                sidebarWidth: 340,
+                minimumSidebarWidth: 280,
+                maximumSidebarWidth: 420,
+                minimumDetailWidth: 360,
+                compact: {
+                    rootBrowseCompactHost(for: browseKind)
+                },
+                sidebar: {
+                    rootBrowseContentColumn(for: browseKind)
+                },
+                detail: { _ in
+                    rootBrowseDetailRoot(for: browseKind)
+                },
+                placeholder: {
+                    rootBrowsePlaceholder(for: browseKind)
+                }
+            )
+        case .genres:
+            LargeScreenBrowseSplitView(
+                selection: selectedBrowseGenreBinding,
+                minimumSplitWidth: 720,
+                sidebarWidth: 340,
+                minimumSidebarWidth: 280,
+                maximumSidebarWidth: 420,
+                minimumDetailWidth: 360,
+                compact: {
+                    rootBrowseCompactHost(for: browseKind)
+                },
+                sidebar: {
+                    rootBrowseContentColumn(for: browseKind)
+                },
+                detail: { _ in
+                    rootBrowseDetailRoot(for: browseKind)
+                },
+                placeholder: {
+                    rootBrowsePlaceholder(for: browseKind)
+                }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func rootBrowseCompactHost(for browseKind: RootBrowseKind) -> some View {
+        switch browseKind {
+        case .artists:
+            if selectedBrowseArtist == nil {
+                rootBrowseContentColumn(for: browseKind)
+            } else {
+                rootBrowseDetailRoot(for: browseKind)
+            }
+        case .playlists:
+            if selectedBrowsePlaylist == nil {
+                rootBrowseContentColumn(for: browseKind)
+            } else {
+                rootBrowseDetailRoot(for: browseKind)
+            }
+        case .genres:
+            if selectedBrowseGenre == nil {
+                rootBrowseContentColumn(for: browseKind)
+            } else {
+                rootBrowseDetailRoot(for: browseKind)
             }
         }
     }
 
     @ViewBuilder
-    private func rootBrowseSplitNavigationView(for browseKind: RootBrowseKind) -> some View {
+    private func rootBrowsePlaceholder(for browseKind: RootBrowseKind) -> some View {
+        switch browseKind {
+        case .artists:
+            LargeScreenPlaceholderView(systemImage: "person.crop.circle", title: "Select an Artist")
+        case .playlists:
+            LargeScreenPlaceholderView(systemImage: "music.note.list", title: "Select a Playlist")
+        case .genres:
+            LargeScreenPlaceholderView(systemImage: "guitars", title: "Select a Genre")
+        }
+    }
+
+    @ViewBuilder
+    private var splitNavigationView: some View {
         if #available(iOS 17.0, macOS 14.0, *) {
-            rootBrowseSplitNavigationViewWithCompactColumn(for: browseKind)
+            splitNavigationViewWithCompactColumn
         } else {
             NavigationSplitView(columnVisibility: $columnVisibility) {
                 sidebarColumn
-            } content: {
-                rootBrowseContentColumn(for: browseKind)
-                    .navigationSplitViewColumnWidth(min: 280, ideal: 340, max: 420)
             } detail: {
-                rootBrowseDetailNavigationStack(for: browseKind)
+                detailContainerView
                     .macEditorToolbarRoleIfAvailable()
             }
             .navigationSplitViewStyle(.balanced)
         }
-    }
-
-    @available(iOS 17.0, macOS 14.0, *)
-    @ViewBuilder
-    private func rootBrowseSplitNavigationViewWithCompactColumn(for browseKind: RootBrowseKind) -> some View {
-        #if os(iOS)
-        let preferredCompactColumn = Binding<NavigationSplitViewColumn>(
-            get: {
-                switch compactColumnPreference {
-                case .sidebar:
-                    return .sidebar
-                case .content:
-                    return hasSelection(for: browseKind) ? .detail : .content
-                case .detail:
-                    return hasSelection(for: browseKind) ? .detail : .content
-                }
-            },
-            set: { newValue in
-                switch newValue {
-                case .sidebar:
-                    compactColumnPreference = .sidebar
-                case .content:
-                    compactColumnPreference = .content
-                case .detail:
-                    compactColumnPreference = .detail
-                default:
-                    compactColumnPreference = .content
-                }
-            }
-        )
-        NavigationSplitView(
-            columnVisibility: $columnVisibility,
-            preferredCompactColumn: preferredCompactColumn
-        ) {
-            sidebarColumn
-        } content: {
-            rootBrowseContentColumn(for: browseKind)
-                .navigationSplitViewColumnWidth(min: 280, ideal: 340, max: 420)
-        } detail: {
-            rootBrowseDetailNavigationStack(for: browseKind)
-                .macEditorToolbarRoleIfAvailable()
-        }
-        .navigationSplitViewStyle(.balanced)
-        #else
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebarColumn
-        } content: {
-            rootBrowseContentColumn(for: browseKind)
-                .navigationSplitViewColumnWidth(min: 280, ideal: 340, max: 420)
-        } detail: {
-            rootBrowseDetailNavigationStack(for: browseKind)
-                .macEditorToolbarRoleIfAvailable()
-        }
-        .navigationSplitViewStyle(.balanced)
-        #endif
     }
 
     @available(iOS 17.0, macOS 14.0, *)

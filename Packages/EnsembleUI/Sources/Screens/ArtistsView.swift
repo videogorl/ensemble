@@ -52,7 +52,7 @@ public struct ArtistsView: View {
             await libraryVM.refreshFromServer()
         }
         .profileToolbar()
-                .toolbar {
+        .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !libraryVM.artists.isEmpty {
@@ -100,7 +100,6 @@ public struct ArtistsView: View {
                 }
             }
             #else
-            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 if !libraryVM.artists.isEmpty {
                     HStack(spacing: 16) {
@@ -528,7 +527,6 @@ public struct ArtistDetailView: View {
                 artistPinMenuButton
             }
             #else
-            ToolbarItem { Spacer() }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 artistPinMenuButton
             }

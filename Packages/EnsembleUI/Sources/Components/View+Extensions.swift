@@ -513,10 +513,10 @@ private struct WiggleModifier: ViewModifier {
 }
 
 public extension ToolbarItemPlacement {
-    /// Returns primaryAction on macOS and navigationBarTrailing on other platforms
+    /// Keeps action toolbar items in the platform's normal trailing action cluster.
     static var primaryActionIfAvailable: ToolbarItemPlacement {
         #if os(macOS)
-        return .primaryAction
+        return .automatic
         #else
         return .navigationBarTrailing
         #endif
