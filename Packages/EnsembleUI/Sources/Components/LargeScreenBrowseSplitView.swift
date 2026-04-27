@@ -70,10 +70,14 @@ public struct LargeScreenBrowseSplitView<
                 .frame(width: currentSidebarWidth)
                 .frame(maxHeight: .infinity)
                 .clipped()
+                .zIndex(0)
 
             resizeHandle(currentSidebarWidth: currentSidebarWidth, containerWidth: size.width)
+                .zIndex(1)
 
             detailContent
+                .clipped()
+                .zIndex(0)
         }
         .transaction { transaction in
             if dragStartSidebarWidth != nil {
