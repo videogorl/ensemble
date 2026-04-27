@@ -116,27 +116,8 @@ struct NowPlayingViewportRoot: View {
                 .allowsHitTesting(false)
                 .opacity(0.7)
             }
-
-            viewportReadabilityWash(baseColor: lightOverlayColor)
         }
         .ignoresSafeArea()
-    }
-
-    private func viewportReadabilityWash(baseColor: Color) -> some View {
-        LinearGradient(
-            stops: [
-                .init(color: readabilityOverlayColor(baseColor: baseColor).opacity(colorScheme == .dark ? 0.24 : 0.22), location: 0.0),
-                .init(color: readabilityOverlayColor(baseColor: baseColor).opacity(colorScheme == .dark ? 0.18 : 0.16), location: 0.42),
-                .init(color: readabilityOverlayColor(baseColor: baseColor).opacity(colorScheme == .dark ? 0.12 : 0.10), location: 1.0)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .allowsHitTesting(false)
-    }
-
-    private func readabilityOverlayColor(baseColor: Color) -> Color {
-        colorScheme == .dark ? .black : baseColor
     }
 
     private func header(for geometry: GeometryProxy, mode: LayoutMode) -> some View {
