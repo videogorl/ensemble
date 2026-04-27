@@ -1,6 +1,9 @@
 import EnsembleCore
 import SwiftUI
 import Nuke
+#if os(iOS)
+import UIKit
+#endif
 
 public struct ArtistsView: View {
     public enum PresentationMode {
@@ -533,6 +536,7 @@ public struct ArtistDetailView: View {
             }
             #endif
         }
+        .modifier(ArtistDetailToolbarBleedModifier())
         .miniPlayerBottomSpacing()
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
@@ -1277,5 +1281,34 @@ public struct ArtistDetailView: View {
             sourceCompositeKey: target.sourceCompositeKey
         )
         return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
+    }
+}
+
+/// Keeps the large-screen artist wash visible behind platform toolbar chrome.
+private struct ArtistDetailToolbarBleedModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            if #available(iOS 16.0, *) {
+                content
+                    .toolbarBackground(.hidden, for: .navigationBar)
+            } else {
+                content
+                    .background(NavigationBarAppearanceConfigurator(isTransparent: true))
+            }
+        } else {
+            content
+        }
+        #elseif os(macOS)
+        if #available(macOS 13.0, *) {
+            content
+                .toolbarBackground(.hidden, for: .windowToolbar)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
     }
 }

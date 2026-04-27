@@ -76,7 +76,6 @@ public struct LargeScreenBrowseSplitView<
                 .zIndex(1)
 
             detailContent
-                .clipped()
                 .zIndex(0)
         }
         .transaction { transaction in
