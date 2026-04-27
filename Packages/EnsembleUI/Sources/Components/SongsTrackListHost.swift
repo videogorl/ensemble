@@ -635,7 +635,7 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
                 toastCenter.show(
                     ToastPayload(
                         style: .info,
-                        iconSystemName: willFavorite ? "heart.fill" : "heart.slash.fill",
+                        iconSystemName: willFavorite ? EnsembleDesign.Icon.favoriteFilled : EnsembleDesign.Icon.favoriteRemoveFilled,
                         title: willFavorite ? "Adding to Favorites..." : "Removing from Favorites...",
                         message: track.title,
                         duration: 1.0,
@@ -664,7 +664,7 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
         ) -> String {
             switch action {
             case .favoriteToggle:
-                return resolvedActions.isFavorited ? "heart.slash.fill" : "heart.fill"
+                return resolvedActions.isFavorited ? EnsembleDesign.Icon.favoriteRemoveFilled : EnsembleDesign.Icon.favoriteFilled
             default:
                 return action.systemImage
             }
@@ -812,7 +812,7 @@ private final class MacSongsTrackCell: NSTableCellView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
 
-        favoriteImageView.image = NSImage(systemSymbolName: "heart.fill", accessibilityDescription: "Favorite")
+        favoriteImageView.image = NSImage(systemSymbolName: EnsembleDesign.Icon.favoriteFilled, accessibilityDescription: "Favorite")
         favoriteImageView.contentTintColor = .systemPink
         favoriteImageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(favoriteImageView)
@@ -832,27 +832,27 @@ private final class MacSongsTrackCell: NSTableCellView {
         configureTextField(durationField, fontSize: 13, color: .secondaryLabelColor)
         durationField.alignment = .right
 
-        downloadImageView.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: "Downloaded")
+        downloadImageView.image = NSImage(systemSymbolName: EnsembleDesign.Icon.downloaded, accessibilityDescription: "Downloaded")
         downloadImageView.contentTintColor = .secondaryLabelColor
         downloadImageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(downloadImageView)
 
-        overflowButton.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: "Track Actions")
+        overflowButton.image = NSImage(systemSymbolName: EnsembleDesign.Icon.more, accessibilityDescription: "Track Actions")
         overflowButton.isBordered = false
         overflowButton.target = self
         overflowButton.action = #selector(showMenu(_:))
         overflowButton.translatesAutoresizingMaskIntoConstraints = false
         addSubview(overflowButton)
 
-        playingImageView.image = NSImage(systemSymbolName: "speaker.wave.3.fill", accessibilityDescription: "Playing")
+        playingImageView.image = NSImage(systemSymbolName: EnsembleDesign.Icon.speakerPlaying, accessibilityDescription: "Playing")
         playingImageView.contentTintColor = .systemBlue
         playingImageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(playingImageView)
 
-        titleTopConstraint = titleField.topAnchor.constraint(equalTo: topAnchor, constant: 14)
+        titleTopConstraint = titleField.topAnchor.constraint(equalTo: topAnchor, constant: TrackListLayoutMetrics.defaultTitleTopPadding)
         titleCenterYConstraint = titleField.centerYAnchor.constraint(equalTo: centerYAnchor)
-        subtitleTopConstraint = subtitleField.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: 2)
-        titleTrailingToDurationConstraint = titleField.trailingAnchor.constraint(lessThanOrEqualTo: durationField.leadingAnchor, constant: -8)
+        subtitleTopConstraint = subtitleField.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: TrackListLayoutMetrics.primarySecondaryTextSpacing)
+        titleTrailingToDurationConstraint = titleField.trailingAnchor.constraint(lessThanOrEqualTo: durationField.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap)
         titleTrailingToArtistConstraint = titleField.trailingAnchor.constraint(lessThanOrEqualTo: artistField.leadingAnchor, constant: -16)
         artistTrailingToAlbumConstraint = artistField.trailingAnchor.constraint(lessThanOrEqualTo: albumField.leadingAnchor, constant: -16)
         artistTrailingToDurationConstraint = artistField.trailingAnchor.constraint(lessThanOrEqualTo: durationField.leadingAnchor, constant: -16)
@@ -861,15 +861,15 @@ private final class MacSongsTrackCell: NSTableCellView {
         albumWidthConstraint = albumField.widthAnchor.constraint(equalToConstant: 0)
 
         NSLayoutConstraint.activate([
-            favoriteImageView.centerXAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            favoriteImageView.centerXAnchor.constraint(equalTo: leadingAnchor, constant: TrackListLayoutMetrics.favoriteIndicatorCenterX),
             favoriteImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            favoriteImageView.widthAnchor.constraint(equalToConstant: 14),
-            favoriteImageView.heightAnchor.constraint(equalToConstant: 14),
+            favoriteImageView.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.favoriteIndicatorDimension),
+            favoriteImageView.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.favoriteIndicatorDimension),
 
             artworkImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: TrackListLayoutMetrics.rowHorizontalPadding),
             artworkImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            artworkImageView.widthAnchor.constraint(equalToConstant: 44),
-            artworkImageView.heightAnchor.constraint(equalToConstant: 44),
+            artworkImageView.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.standardArtworkDimension),
+            artworkImageView.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.standardArtworkDimension),
 
             titleField.leadingAnchor.constraint(equalTo: artworkImageView.trailingAnchor, constant: TrackListLayoutMetrics.rowInterItemSpacing),
             subtitleField.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
@@ -882,22 +882,22 @@ private final class MacSongsTrackCell: NSTableCellView {
 
             overflowButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -TrackListLayoutMetrics.rowHorizontalPadding),
             overflowButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            overflowButton.widthAnchor.constraint(equalToConstant: 25),
-            overflowButton.heightAnchor.constraint(equalToConstant: 25),
+            overflowButton.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.overflowControlDimension),
+            overflowButton.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.overflowControlDimension),
 
-            durationField.trailingAnchor.constraint(equalTo: overflowButton.leadingAnchor, constant: -8),
+            durationField.trailingAnchor.constraint(equalTo: overflowButton.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap),
             durationField.centerYAnchor.constraint(equalTo: centerYAnchor),
-            durationField.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
+            durationField.widthAnchor.constraint(greaterThanOrEqualToConstant: TrackListLayoutMetrics.durationMinimumWidth),
 
-            downloadImageView.trailingAnchor.constraint(equalTo: durationField.leadingAnchor, constant: -6),
+            downloadImageView.trailingAnchor.constraint(equalTo: durationField.leadingAnchor, constant: -TrackListLayoutMetrics.rowTightAccessoryGap),
             downloadImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            downloadImageView.widthAnchor.constraint(equalToConstant: 14),
-            downloadImageView.heightAnchor.constraint(equalToConstant: 14),
+            downloadImageView.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.downloadIndicatorDimension),
+            downloadImageView.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.downloadIndicatorDimension),
 
-            playingImageView.trailingAnchor.constraint(equalTo: overflowButton.leadingAnchor, constant: -8),
+            playingImageView.trailingAnchor.constraint(equalTo: overflowButton.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap),
             playingImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            playingImageView.widthAnchor.constraint(equalToConstant: 18),
-            playingImageView.heightAnchor.constraint(equalToConstant: 18)
+            playingImageView.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.playingIndicatorDimension),
+            playingImageView.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.playingIndicatorDimension)
         ])
         titleTopConstraint?.isActive = true
         titleTrailingToDurationConstraint?.isActive = true
@@ -963,23 +963,19 @@ private final class MacSongsTrackCell: NSTableCellView {
     }
 
     private static func showsArtistMetadataColumn(for width: CGFloat?) -> Bool {
-        guard let width else { return false }
-        return width >= 700
+        TrackListLayoutMetrics.showsArtistMetadataColumn(for: width)
     }
 
     private static func showsAlbumMetadataColumn(for width: CGFloat?) -> Bool {
-        guard let width else { return false }
-        return width >= 940
+        TrackListLayoutMetrics.showsAlbumMetadataColumn(for: width)
     }
 
     private static func artistMetadataColumnWidth(for width: CGFloat?) -> CGFloat {
-        guard let width else { return 0 }
-        return min(max(width * 0.22, 150), 260)
+        TrackListLayoutMetrics.artistMetadataColumnWidth(for: width)
     }
 
     private static func albumMetadataColumnWidth(for width: CGFloat?) -> CGFloat {
-        guard let width else { return 0 }
-        return min(max(width * 0.28, 180), 360)
+        TrackListLayoutMetrics.albumMetadataColumnWidth(for: width)
     }
 }
 

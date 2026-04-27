@@ -119,7 +119,7 @@ public class TrackTableViewCell: UITableViewCell {
         albumMetadataLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         contentView.addSubview(albumMetadataLabel)
         
-        downloadIcon.image = UIImage(systemName: "arrow.down.circle.fill")
+        downloadIcon.image = UIImage(systemName: EnsembleDesign.Icon.downloaded)
         downloadIcon.tintColor = .secondaryLabel
         downloadIcon.contentMode = .scaleAspectFit
         downloadIcon.translatesAutoresizingMaskIntoConstraints = false
@@ -152,7 +152,7 @@ public class TrackTableViewCell: UITableViewCell {
         overflowButton.accessibilityLabel = "Track Actions"
         contentView.addSubview(overflowButton)
         
-        playingIndicator.image = UIImage(systemName: "speaker.wave.3.fill")
+        playingIndicator.image = UIImage(systemName: EnsembleDesign.Icon.speakerPlaying)
         playingIndicator.tintColor = .systemBlue
         playingIndicator.contentMode = .scaleAspectFit
         playingIndicator.translatesAutoresizingMaskIntoConstraints = false
@@ -160,7 +160,7 @@ public class TrackTableViewCell: UITableViewCell {
         contentView.addSubview(playingIndicator)
 
         // Favorite heart indicator (positioned in existing leading margin)
-        favoriteHeartView.image = UIImage(systemName: "heart.fill")
+        favoriteHeartView.image = UIImage(systemName: EnsembleDesign.Icon.favoriteFilled)
         favoriteHeartView.tintColor = .systemPink
         favoriteHeartView.contentMode = .scaleAspectFit
         favoriteHeartView.translatesAutoresizingMaskIntoConstraints = false
@@ -169,56 +169,56 @@ public class TrackTableViewCell: UITableViewCell {
 
         NSLayoutConstraint.activate([
             // Heart centered in the 16pt leading margin, same size as download icon (14pt)
-            favoriteHeartView.centerXAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            favoriteHeartView.centerXAnchor.constraint(equalTo: contentView.leadingAnchor, constant: TrackListLayoutMetrics.favoriteIndicatorCenterX),
             favoriteHeartView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            favoriteHeartView.widthAnchor.constraint(equalToConstant: 14),
-            favoriteHeartView.heightAnchor.constraint(equalToConstant: 14),
+            favoriteHeartView.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.favoriteIndicatorDimension),
+            favoriteHeartView.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.favoriteIndicatorDimension),
 
             artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: TrackListLayoutMetrics.rowHorizontalPadding),
             artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
             trackNumberLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: TrackListLayoutMetrics.rowHorizontalPadding),
             trackNumberLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            trackNumberLabel.widthAnchor.constraint(equalToConstant: 30),
+            trackNumberLabel.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.trackNumberWidth),
 
             artistMetadataLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             albumMetadataLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
             // Download icon / spinner sit just left of the duration label
             downloadIcon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            downloadIcon.heightAnchor.constraint(equalToConstant: 14),
+            downloadIcon.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.downloadIndicatorDimension),
 
             downloadSpinner.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             downloadSpinner.centerXAnchor.constraint(equalTo: downloadIcon.centerXAnchor),
 
-            durationLabel.trailingAnchor.constraint(equalTo: overflowButton.leadingAnchor, constant: -8),
+            durationLabel.trailingAnchor.constraint(equalTo: overflowButton.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap),
             durationLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
+            durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: TrackListLayoutMetrics.durationMinimumWidth),
 
             overflowButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.rowHorizontalPadding),
             overflowButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            overflowButton.widthAnchor.constraint(equalToConstant: 25),
-            overflowButton.heightAnchor.constraint(equalToConstant: 25),
+            overflowButton.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.overflowControlDimension),
+            overflowButton.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.overflowControlDimension),
             
-            playingIndicator.trailingAnchor.constraint(equalTo: overflowButton.leadingAnchor, constant: -8),
+            playingIndicator.trailingAnchor.constraint(equalTo: overflowButton.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap),
             playingIndicator.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            playingIndicator.widthAnchor.constraint(equalToConstant: 20),
-            playingIndicator.heightAnchor.constraint(equalToConstant: 20)
+            playingIndicator.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.playingIndicatorDimension),
+            playingIndicator.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.playingIndicatorDimension)
         ])
 
-        artworkWidthConstraint = artworkImageView.widthAnchor.constraint(equalToConstant: 44)
-        artworkHeightConstraint = artworkImageView.heightAnchor.constraint(equalToConstant: 44)
-        titleTopConstraint = titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14)
+        artworkWidthConstraint = artworkImageView.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.standardArtworkDimension)
+        artworkHeightConstraint = artworkImageView.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.standardArtworkDimension)
+        titleTopConstraint = titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: TrackListLayoutMetrics.defaultTitleTopPadding)
         titleCenterYConstraint = titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
-        subtitleTopConstraint = subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2)
+        subtitleTopConstraint = subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: TrackListLayoutMetrics.primarySecondaryTextSpacing)
         artworkWidthConstraint?.isActive = true
         artworkHeightConstraint?.isActive = true
-        updateArtworkCornerRadius(for: 44)
+        updateArtworkCornerRadius(for: TrackListLayoutMetrics.standardArtworkDimension)
         titleTopConstraint?.isActive = true
         subtitleTopConstraint?.isActive = true
 
-        titleTrailingToDownloadConstraint = titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -6)
-        subtitleTrailingToDownloadConstraint = subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -6)
+        titleTrailingToDownloadConstraint = titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -TrackListLayoutMetrics.rowTightAccessoryGap)
+        subtitleTrailingToDownloadConstraint = subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -TrackListLayoutMetrics.rowTightAccessoryGap)
         titleTrailingToArtistConstraint = titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: artistMetadataLabel.leadingAnchor, constant: -16)
         artistTrailingToAlbumConstraint = artistMetadataLabel.trailingAnchor.constraint(lessThanOrEqualTo: albumMetadataLabel.leadingAnchor, constant: -16)
         artistTrailingToDownloadConstraint = artistMetadataLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -16)
@@ -303,12 +303,12 @@ public class TrackTableViewCell: UITableViewCell {
         if isActivelyDownloading {
             downloadIcon.isHidden = true
             downloadSpinner.startAnimating()
-            downloadIconWidthConstraint?.constant = 14
+            downloadIconWidthConstraint?.constant = TrackListLayoutMetrics.downloadIndicatorDimension
             downloadIconTrailingConstraint?.constant = -4
         } else if track.isDownloaded {
             downloadIcon.isHidden = false
             downloadSpinner.stopAnimating()
-            downloadIconWidthConstraint?.constant = 14
+            downloadIconWidthConstraint?.constant = TrackListLayoutMetrics.downloadIndicatorDimension
             downloadIconTrailingConstraint?.constant = -4
         } else {
             downloadIcon.isHidden = true
@@ -391,11 +391,18 @@ public class TrackTableViewCell: UITableViewCell {
     private func applyLayoutMetrics(for rowHeight: CGFloat) {
         let isCompact = rowHeight <= TrackListLayoutMetrics.compactRowHeightThreshold
 
-        artworkWidthConstraint?.constant = isCompact ? 40 : 44
-        artworkHeightConstraint?.constant = isCompact ? 40 : 44
-        updateArtworkCornerRadius(for: isCompact ? 40 : 44)
-        titleTopConstraint?.constant = isCompact ? 10 : 14
-        subtitleTopConstraint?.constant = isCompact ? 1 : 2
+        let artworkDimension = isCompact
+            ? TrackListLayoutMetrics.compactArtworkDimension
+            : TrackListLayoutMetrics.standardArtworkDimension
+        artworkWidthConstraint?.constant = artworkDimension
+        artworkHeightConstraint?.constant = artworkDimension
+        updateArtworkCornerRadius(for: artworkDimension)
+        titleTopConstraint?.constant = isCompact
+            ? TrackListLayoutMetrics.compactTitleTopPadding
+            : TrackListLayoutMetrics.defaultTitleTopPadding
+        subtitleTopConstraint?.constant = isCompact
+            ? TrackListLayoutMetrics.primarySecondaryTextSpacing / 2
+            : TrackListLayoutMetrics.primarySecondaryTextSpacing
 
         trackNumberLabel.font = .systemFont(ofSize: isCompact ? 13 : 14, weight: .regular)
         titleLabel.font = .systemFont(ofSize: isCompact ? 15 : 16, weight: .regular)
@@ -428,22 +435,20 @@ public class TrackTableViewCell: UITableViewCell {
 
     private static func showsArtistMetadataColumn(for width: CGFloat?) -> Bool {
         guard let width else { return false }
-        return width >= 700
+        return TrackListLayoutMetrics.showsArtistMetadataColumn(for: width)
     }
 
     private static func showsAlbumMetadataColumn(for width: CGFloat?) -> Bool {
         guard let width else { return false }
-        return width >= 940
+        return TrackListLayoutMetrics.showsAlbumMetadataColumn(for: width)
     }
 
     private static func artistMetadataColumnWidth(for width: CGFloat?) -> CGFloat {
-        guard let width else { return 0 }
-        return min(max(width * 0.22, 150), 260)
+        TrackListLayoutMetrics.artistMetadataColumnWidth(for: width)
     }
 
     private static func albumMetadataColumnWidth(for width: CGFloat?) -> CGFloat {
-        guard let width else { return 0 }
-        return min(max(width * 0.28, 180), 360)
+        TrackListLayoutMetrics.albumMetadataColumnWidth(for: width)
     }
     
     public override func prepareForReuse() {
@@ -1331,7 +1336,7 @@ public struct MediaTrackList: UIViewRepresentable {
         private func showFavoriteLoadingToast(for track: Track, willFavorite: Bool) {
             let toast = ToastPayload(
                 style: .info,
-                iconSystemName: willFavorite ? "heart.fill" : "heart.slash.fill",
+                        iconSystemName: willFavorite ? EnsembleDesign.Icon.favoriteFilled : EnsembleDesign.Icon.favoriteRemoveFilled,
                 title: willFavorite ? "Adding to Favorites..." : "Removing from Favorites...",
                 message: track.title,
                 duration: 1.0,
@@ -1357,7 +1362,7 @@ public struct MediaTrackList: UIViewRepresentable {
             switch action {
             case .favoriteToggle:
                 let resolvedActions = interactionModel.resolve(for: track)
-                return resolvedActions.isFavorited ? "heart.slash.fill" : "heart.fill"
+                return resolvedActions.isFavorited ? EnsembleDesign.Icon.favoriteRemoveFilled : EnsembleDesign.Icon.favoriteFilled
             default:
                 return action.systemImage
             }

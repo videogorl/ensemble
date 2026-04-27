@@ -117,10 +117,13 @@ public enum EnsembleDesign {
         public static let closeCircle = "xmark.circle.fill"
         public static let delete = "trash"
         public static let download = "arrow.down.circle"
+        public static let downloaded = "arrow.down.circle.fill"
         public static let dragHandle = "circle.grid.2x3.fill"
         public static let error = "exclamationmark.triangle.fill"
         public static let favorite = "heart"
+        public static let favoriteFilled = "heart.fill"
         public static let favoriteRemove = "heart.slash"
+        public static let favoriteRemoveFilled = "heart.slash.fill"
         public static let filter = "line.3.horizontal.decrease"
         public static let forward = "forward.fill"
         public static let genre = "music.note.list"
@@ -139,6 +142,7 @@ public enum EnsembleDesign {
         public static let shuffle = "shuffle"
         public static let smartPlaylist = "gearshape.fill"
         public static let sort = "arrow.up.arrow.down"
+        public static let speakerPlaying = "speaker.wave.3.fill"
     }
 
     public enum Breakpoint {
