@@ -2,18 +2,31 @@ import EnsembleCore
 import SwiftUI
 
 public struct GenresView: View {
+    public enum PresentationMode {
+        case compactRoot
+        case selectionColumn
+    }
+
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
+    private let presentationMode: PresentationMode
+    private let externalSelectedGenre: Binding<Genre?>?
     @State private var searchText = ""
-    @State private var selectedGenre: Genre?
-    @State private var trackListSupplementalMetadataWidth: CGFloat = 0
+    @State private var localSelectedGenre: Genre?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
-    public init(libraryVM: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
+    public init(
+        libraryVM: LibraryViewModel,
+        nowPlayingVM: NowPlayingViewModel,
+        presentationMode: PresentationMode = .compactRoot,
+        selectedGenre: Binding<Genre?>? = nil
+    ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        self.presentationMode = presentationMode
+        self.externalSelectedGenre = selectedGenre
     }
-    
+
     private var filteredGenres: [Genre] {
         let sorted = libraryVM.sortedGenres
         guard !searchText.isEmpty else { return sorted }
@@ -29,7 +42,7 @@ public struct GenresView: View {
             } else if libraryVM.genres.isEmpty {
                 emptyView
             } else {
-                adaptiveGenreView
+                rootContent
             }
         }
         .navigationTitle("Genres")
@@ -45,6 +58,28 @@ public struct GenresView: View {
             await libraryVM.refreshFromServer()
         }
         .profileToolbar()
+    }
+
+    @ViewBuilder
+    private var rootContent: some View {
+        switch presentationMode {
+        case .compactRoot:
+            genreListView
+        case .selectionColumn:
+            genreSelectionList
+        }
+    }
+
+    private var selectedGenre: Genre? {
+        externalSelectedGenre?.wrappedValue ?? localSelectedGenre
+    }
+
+    private func setSelectedGenre(_ genre: Genre?) {
+        if let externalSelectedGenre {
+            externalSelectedGenre.wrappedValue = genre
+        } else {
+            localSelectedGenre = genre
+        }
     }
 
     private var loadingView: some View {
@@ -149,32 +184,13 @@ public struct GenresView: View {
         .miniPlayerBottomSpacing()
     }
 
-    private var adaptiveGenreView: some View {
-        LargeScreenBrowseSplitView(
-            selection: $selectedGenre,
-            compact: {
-                genreListView
-            },
-            sidebar: {
-                genreSelectionList
-            },
-            detail: { genre in
-                genreDetailView(for: genre)
-                    .id(genre.id)
-            },
-            placeholder: {
-                LargeScreenPlaceholderView(systemImage: "guitars", title: "Select a Genre")
-            }
-        )
-    }
-
     private var genreSelectionList: some View {
         List {
             ForEach(filteredGenres) { genre in
                 genreRow(genre)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        selectedGenre = genre
+                        setSelectedGenre(genre)
                     }
                     .listRowBackground(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -186,9 +202,31 @@ public struct GenresView: View {
         .miniPlayerBottomSpacing()
     }
 
-    private func genreDetailView(for genre: Genre) -> some View {
+    private func genreRow(_ genre: Genre) -> some View {
+        HStack {
+            Image(systemName: "guitars.fill")
+                .font(.title2)
+                .foregroundColor(.accentColor)
+                .frame(width: 44)
+
+            Text(genre.title)
+                .font(.body)
+                .lineLimit(1)
+
+            Spacer()
+        }
+    }
+}
+
+struct GenreDetailContentView: View {
+    @ObservedObject var libraryVM: LibraryViewModel
+    let genre: Genre
+    let nowPlayingVM: NowPlayingViewModel
+    @State private var trackListSupplementalMetadataWidth: CGFloat = 0
+
+    var body: some View {
         let tracks = tracks(for: genre)
-        return VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(genre.title)
                     .font(.title2)
@@ -238,21 +276,6 @@ public struct GenresView: View {
     private func updateTrackListSupplementalMetadataWidth(_ newWidth: CGFloat) {
         if abs(trackListSupplementalMetadataWidth - newWidth) > 1 {
             trackListSupplementalMetadataWidth = newWidth
-        }
-    }
-
-    private func genreRow(_ genre: Genre) -> some View {
-        HStack {
-            Image(systemName: "guitars.fill")
-                .font(.title2)
-                .foregroundColor(.accentColor)
-                .frame(width: 44)
-
-            Text(genre.title)
-                .font(.body)
-                .lineLimit(1)
-
-            Spacer()
         }
     }
 

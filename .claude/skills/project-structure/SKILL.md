@@ -314,7 +314,7 @@ Sources/
 |   +-- ChromeVisibilityPreferenceKey.swift # SwiftUI preference key for hiding tab bar in immersive views
 |   +-- CompactSearchRows.swift       # Compact row layouts for search results
 |   +-- DesktopSheetScaffold.swift    # Shared macOS sheet scaffold with title bar and footer actions
-|   +-- LargeScreenBrowseSplitView.swift # Adaptive regular-width browse shell with selection list + detail pane
+|   +-- LargeScreenBrowseSplitView.swift # Legacy adaptive browse shell; root-owned browse columns are preferred for top-level sections
 |   +-- MacAuxiliaryWindowScaffold.swift # Native macOS auxiliary window scaffold for Profile/Downloads-style windows
 |   +-- OfflineIndicatorOverlay.swift  # Device-aware offline connectivity indicator (DI/notch/classic)
 |   +-- SongsTrackListHost.swift      # Cross-platform native Songs table host (UITableView on iOS/iPadOS, NSTableView on macOS)

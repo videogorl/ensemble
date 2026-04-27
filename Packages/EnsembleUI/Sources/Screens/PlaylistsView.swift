@@ -11,9 +11,16 @@ private extension Notification.Name {
 }
 
 public struct PlaylistsView: View {
+    public enum PresentationMode: Equatable {
+        case compactRoot
+        case selectionColumn
+    }
+
     @StateObject private var viewModel: PlaylistViewModel
     let nowPlayingVM: NowPlayingViewModel
-    @State private var selectedPlaylist: DisplayPlaylist?
+    private let presentationMode: PresentationMode
+    private let externalSelectedPlaylist: Binding<DisplayPlaylist?>?
+    @State private var localSelectedPlaylist: DisplayPlaylist?
     @State private var pendingDeletionPlaylistIDs: Set<String> = []
     @State private var playlistPendingSwipeDelete: Playlist?
     @State private var deletingToastIDsByPlaylistID: [String: UUID] = [:]
@@ -47,11 +54,18 @@ public struct PlaylistsView: View {
         isStageFlowActive
     }
 
-    public init(nowPlayingVM: NowPlayingViewModel, viewModel: PlaylistViewModel? = nil) {
+    public init(
+        nowPlayingVM: NowPlayingViewModel,
+        viewModel: PlaylistViewModel? = nil,
+        presentationMode: PresentationMode = .compactRoot,
+        selectedPlaylist: Binding<DisplayPlaylist?>? = nil
+    ) {
         self._viewModel = StateObject(
             wrappedValue: viewModel ?? DependencyContainer.shared.makePlaylistViewModel()
         )
         self.nowPlayingVM = nowPlayingVM
+        self.presentationMode = presentationMode
+        self.externalSelectedPlaylist = selectedPlaylist
     }
 
     public var body: some View {
@@ -60,10 +74,10 @@ public struct PlaylistsView: View {
                 loadingView
             } else if effectivePlaylists.isEmpty {
                 emptyView
-            } else if isStageFlowActive {
+            } else if presentationMode == .compactRoot && isStageFlowActive {
                 landscapeStageFlowView
             } else {
-                adaptivePlaylistView
+                rootContent
             }
         }
         // Lightweight GeometryReader overlay — only updates @State isStageFlowActive
@@ -482,35 +496,33 @@ public struct PlaylistsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
-    private var adaptivePlaylistView: some View {
-        LargeScreenBrowseSplitView(
-            selection: $selectedPlaylist,
-            compact: {
-                playlistListView
-            },
-            sidebar: {
-                playlistSelectionList
-            },
-            detail: { displayPlaylist in
-                if displayPlaylist.isMerged {
-                    MergedPlaylistDetailLoader(
-                        title: displayPlaylist.title,
-                        isSmart: displayPlaylist.isSmart,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                    .id(displayPlaylist.id)
-                } else {
-                    PlaylistDetailView(
-                        playlist: displayPlaylist.primaryPlaylist,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                    .id(displayPlaylist.id)
-                }
-            },
-            placeholder: {
-                LargeScreenPlaceholderView(systemImage: "music.note.list", title: "Select a Playlist")
-            }
+    @ViewBuilder
+    private var rootContent: some View {
+        switch presentationMode {
+        case .compactRoot:
+            playlistListView
+        case .selectionColumn:
+            playlistSelectionList
+        }
+    }
+
+    private var selectedPlaylist: DisplayPlaylist? {
+        externalSelectedPlaylist?.wrappedValue ?? localSelectedPlaylist
+    }
+
+    private var selectedPlaylistBinding: Binding<DisplayPlaylist?> {
+        Binding(
+            get: { selectedPlaylist },
+            set: { setSelectedPlaylist($0) }
         )
+    }
+
+    private func setSelectedPlaylist(_ displayPlaylist: DisplayPlaylist?) {
+        if let externalSelectedPlaylist {
+            externalSelectedPlaylist.wrappedValue = displayPlaylist
+        } else {
+            localSelectedPlaylist = displayPlaylist
+        }
     }
 
     private var playlistSelectionList: some View {
@@ -521,7 +533,7 @@ public struct PlaylistsView: View {
                     displayPlaylist: dp,
                     nowPlayingVM: nowPlayingVM,
                     chipStyle: chipStyle(for: dp),
-                    onTap: isPendingCreation ? nil : { selectedPlaylist = dp },
+                    onTap: isPendingCreation ? nil : { setSelectedPlaylist(dp) },
                     isDisabled: isPendingCreation,
                     statusText: isPendingCreation ? "Creating..." : nil
                 )
@@ -635,7 +647,7 @@ public struct PlaylistsView: View {
                 }
                 return []
             },
-            selectedItem: $selectedPlaylist
+            selectedItem: selectedPlaylistBinding
         )
     }
 

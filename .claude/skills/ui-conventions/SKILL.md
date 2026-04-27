@@ -100,10 +100,10 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - StageFlow rotation support is registered with a per-view token and the app delays the final unregister briefly, so SwiftUI view recreation during rotation does not snap the app back to portrait.
 
 ### Large-Screen Browse Surfaces
-- Artists, Playlists, and Genres use `LargeScreenBrowseSplitView` only on macOS and regular-width iPad layouts. Compact iPhone keeps the existing push-navigation list.
-- The split shell owns the left selection list and right detail pane. Keep selection rows visually dense and use `LargeScreenPlaceholderView` for empty right-pane states such as "Select an Artist".
-- The split shell's divider is user-resizable on large screens. Preserve bounded selection/detail widths so the detail pane stays usable during window resize and iPad layout changes.
-- On macOS, `LargeScreenBrowseSplitView` hosts the large-screen panes in an AppKit `NSSplitViewController` so resizing uses native split-view mechanics. Do not nest another SwiftUI `NavigationSplitView` inside the root app sidebar; that creates a second sidebar instead of a Notes/Mail-style content column.
+- Artists, Playlists, and Genres use root-owned `NavigationSplitView` content/detail columns on iPadOS 16+/macOS 13+. The app sidebar remains the only sidebar; browse lists are content columns, not nested sidebars.
+- Compact iPhone and unsupported OS fallbacks keep the existing push/list root behavior by rendering each browse screen in compact mode.
+- Store selected artist/playlist/genre state in `SidebarView`, outside the split subtree, so selection survives root layout swaps, compact collapse/expand, and detail pushes.
+- Keep selection rows visually dense and use `LargeScreenPlaceholderView` for empty right-pane states such as "Select an Artist".
 - Notes/Mail-style toolbar sections require a real window-toolbar owner with `NSTrackingSeparatorToolbarItem`. Do not proxy SwiftUI's private toolbar delegate from a screen-level view; that can collapse or drop existing SwiftUI toolbar items. If toolbar tracking is needed, introduce a dedicated macOS toolbar coordinator at the window/root split level.
 - Artist detail keeps the full-width hero on compact layouts, then switches at wide widths to a media-detail-style header with circular artist artwork on the left and metadata/actions on the right.
 - Songs uses `SongsTrackListHost` on large screens, with adaptive artist/album metadata columns when width allows. iPad hosts rows in `MediaTrackList`/`UITableView`; macOS hosts rows in the AppKit `NSTableView` backend. Keep row actions resolved through `TrackRowInteractionModel` so UIKit/AppKit behavior stays aligned. Do not use `TrackSwipeContainer` or reintroduce a column-customization table for Songs unless explicitly requested.

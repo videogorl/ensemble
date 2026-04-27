@@ -3,8 +3,15 @@ import SwiftUI
 import Nuke
 
 public struct ArtistsView: View {
+    public enum PresentationMode {
+        case compactRoot
+        case selectionColumn
+    }
+
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
+    private let presentationMode: PresentationMode
+    private let externalSelectedArtist: Binding<Artist?>?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
@@ -12,14 +19,18 @@ public struct ArtistsView: View {
     @State private var cachedArtistSections: [ArtistSection] = []
     // Monotonic token to drop stale async section computations.
     @State private var artistSectionComputationToken: Int = 0
-    @State private var selectedArtist: Artist?
+    @State private var localSelectedArtist: Artist?
 
     public init(
         libraryVM: LibraryViewModel,
-        nowPlayingVM: NowPlayingViewModel
+        nowPlayingVM: NowPlayingViewModel,
+        presentationMode: PresentationMode = .compactRoot,
+        selectedArtist: Binding<Artist?>? = nil
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        self.presentationMode = presentationMode
+        self.externalSelectedArtist = selectedArtist
     }
 
     public var body: some View {
@@ -29,7 +40,7 @@ public struct ArtistsView: View {
             } else if libraryVM.artists.isEmpty {
                 emptyView
             } else {
-                adaptiveArtistView
+                rootContent
             }
         }
         .navigationTitle("Artists")
@@ -123,23 +134,26 @@ public struct ArtistsView: View {
         }
     }
 
-    private var adaptiveArtistView: some View {
-        LargeScreenBrowseSplitView(
-            selection: $selectedArtist,
-            compact: {
-                artistListView
-            },
-            sidebar: {
-                artistSelectionList
-            },
-            detail: { artist in
-                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
-                    .id(artist.id)
-            },
-            placeholder: {
-                LargeScreenPlaceholderView(systemImage: "person.crop.circle", title: "Select an Artist")
-            }
-        )
+    @ViewBuilder
+    private var rootContent: some View {
+        switch presentationMode {
+        case .compactRoot:
+            artistListView
+        case .selectionColumn:
+            artistSelectionList
+        }
+    }
+
+    private var selectedArtist: Artist? {
+        externalSelectedArtist?.wrappedValue ?? localSelectedArtist
+    }
+
+    private func setSelectedArtist(_ artist: Artist?) {
+        if let externalSelectedArtist {
+            externalSelectedArtist.wrappedValue = artist
+        } else {
+            localSelectedArtist = artist
+        }
     }
 
     private var artistFilterButton: some View {
@@ -237,7 +251,7 @@ public struct ArtistsView: View {
 
     private func artistSelectionRow(_ artist: Artist) -> some View {
         ArtistRow(artist: artist) {
-            selectedArtist = artist
+            setSelectedArtist(artist)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
