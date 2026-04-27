@@ -26,6 +26,68 @@ struct MediaDetailSurface<Content: View>: View {
 }
 
 extension MediaDetailSurface {
+    enum ActionRole {
+        case primary
+        case secondary
+
+        var backgroundColor: Color {
+            switch self {
+            case .primary:
+                return EnsembleDesign.Color.accent
+            case .secondary:
+                return EnsembleDesign.Color.secondaryControlFill
+            }
+        }
+
+        var foregroundColor: Color {
+            switch self {
+            case .primary:
+                return EnsembleDesign.Color.onAccent
+            case .secondary:
+                return EnsembleDesign.Color.primaryText
+            }
+        }
+    }
+
+    /// Shared Play/Shuffle-style label used by media detail action rows.
+    struct ActionLabel: View {
+        let title: String
+        let systemImage: String
+        let role: ActionRole
+        let font: Font
+        let verticalPadding: CGFloat
+        let cornerRadius: CGFloat
+
+        init(
+            _ title: String,
+            systemImage: String,
+            role: ActionRole,
+            font: Font = EnsembleDesign.Typography.actionLabel,
+            verticalPadding: CGFloat = EnsembleDesign.Spacing.md,
+            cornerRadius: CGFloat = EnsembleDesign.Radius.control
+        ) {
+            self.title = title
+            self.systemImage = systemImage
+            self.role = role
+            self.font = font
+            self.verticalPadding = verticalPadding
+            self.cornerRadius = cornerRadius
+        }
+
+        var body: some View {
+            HStack {
+                Image(systemName: systemImage)
+                Text(title)
+            }
+            .font(font)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, verticalPadding)
+            .background(role.backgroundColor)
+            .foregroundColor(role.foregroundColor)
+            .cornerRadius(cornerRadius)
+        }
+    }
+
     struct Header<
         TopContent: View,
         Artwork: View,

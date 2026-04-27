@@ -150,31 +150,21 @@ public struct DownloadTargetDetailView: View {
             Button {
                 nowPlayingVM.play(tracks: viewModel.playableTracks)
             } label: {
-                HStack {
-                    Image(systemName: "play.fill")
-                    Text("Play")
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.accentColor)
-                .foregroundColor(.white)
-                .cornerRadius(10)
+                MediaDetailSurface<EmptyView>.ActionLabel(
+                    "Play",
+                    systemImage: EnsembleDesign.Icon.play,
+                    role: .primary
+                )
             }
 
             Button {
                 nowPlayingVM.shufflePlay(tracks: viewModel.playableTracks)
             } label: {
-                HStack {
-                    Image(systemName: "shuffle")
-                    Text("Shuffle")
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.gray.opacity(0.2))
-                .foregroundColor(.primary)
-                .cornerRadius(10)
+                MediaDetailSurface<EmptyView>.ActionLabel(
+                    "Shuffle",
+                    systemImage: EnsembleDesign.Icon.shuffle,
+                    role: .secondary
+                )
             }
         }
         .padding(.horizontal, horizontalPadding ? TrackListLayoutMetrics.rowHorizontalPadding : 0)

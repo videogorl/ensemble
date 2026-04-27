@@ -35,10 +35,12 @@ public enum EnsembleDesign {
         public static let sheetSectionPadding: CGFloat = 18
         public static let popoverActionHorizontal: CGFloat = 14
         public static let popoverActionVertical: CGFloat = 9
+        public static let compactControlVertical: CGFloat = 10
     }
 
     public enum Radius {
         public static let control: CGFloat = 10
+        public static let compactControl: CGFloat = 8
         public static let card: CGFloat = 12
         public static let sectionCard: CGFloat = 14
         public static let largeCard: CGFloat = 20
@@ -84,6 +86,7 @@ public enum EnsembleDesign {
         public static let accentSelection = SwiftUI.Color.accentColor.opacity(0.12)
         public static let accentBadge = SwiftUI.Color.accentColor.opacity(0.15)
         public static let neutralBadge = SwiftUI.Color.secondary.opacity(0.15)
+        public static let secondaryControlFill = SwiftUI.Color.gray.opacity(0.2)
         public static let destructive = SwiftUI.Color.red
         public static let warning = SwiftUI.Color.orange
         public static let onAccent = SwiftUI.Color.white

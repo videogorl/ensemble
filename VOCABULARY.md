@@ -344,6 +344,7 @@ Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterize
 | Collapsing toolbar title | control | Title appears in toolbar when header scrolls out of view | `CollapsingToolbarTitleModifier`, `showToolbarTitle` |
 | Sticky action buttons | region | Play/Shuffle/Radio buttons that pin when scrolled past | `stickyActionButtons`, `LazyVStack(pinnedViews:)` |
 | Action buttons | region | Play, Shuffle, and optional Radio buttons | `actionButtons` |
+| Detail action label | component | Shared filled/secondary Play and Shuffle button label treatment | `MediaDetailSurface.ActionLabel` |
 | Track list | list | Ordered track list (UIKit-backed on iOS for swipe actions) | `tracksSection`, `MediaTrackList` |
 | Background gradient | region | Blurred artwork background fading to content | `backgroundGradient`, `BlurredArtworkBackground` |
 | Pin menu | menu | Toolbar overflow with pin/unpin, download, playlist actions | `pinMenuButton` |

@@ -191,6 +191,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - **Blurred backgrounds:** NowPlayingView and detail views use `BlurredArtworkBackground`
 - **Shared detail artwork wash:** `MediaDetailView` and `DownloadTargetDetailView` must use `ArtworkDetailBackground` for the blurred header image so dark/light overlay behavior stays identical across detail screens
 - **Shared detail shell:** Media-style detail screens should build their hero artwork, metadata block, action row, and list-card styling on `MediaDetailSurface` so `MediaDetailView` and `DownloadTargetDetailView` do not drift on spacing, wide-layout behavior, or light/dark presentation
+- **Shared detail actions:** Detail Play/Shuffle-style button labels should use `MediaDetailSurface.ActionLabel` so filled/accent and secondary action treatments stay aligned across media detail variants.
 
 ### Typography & Spacing
 - **System fonts:** SF Pro with semantic styles (.headline, .subheadline, etc.)

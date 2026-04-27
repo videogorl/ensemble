@@ -798,31 +798,21 @@ public struct ArtistDetailView: View {
             Button {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
             } label: {
-                HStack {
-                    Image(systemName: "play.fill")
-                    Text("Play")
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.accentColor)
-                .foregroundColor(.white)
-                .cornerRadius(10)
+                MediaDetailSurface<EmptyView>.ActionLabel(
+                    "Play",
+                    systemImage: EnsembleDesign.Icon.play,
+                    role: .primary
+                )
             }
 
             Button {
                 nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
             } label: {
-                HStack {
-                    Image(systemName: "shuffle")
-                    Text("Shuffle")
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.gray.opacity(0.2))
-                .foregroundColor(.primary)
-                .cornerRadius(10)
+                MediaDetailSurface<EmptyView>.ActionLabel(
+                    "Shuffle",
+                    systemImage: EnsembleDesign.Icon.shuffle,
+                    role: .secondary
+                )
             }
             
             // Radio button - queue all shuffled, enable sonically similar
@@ -832,7 +822,7 @@ public struct ArtistDetailView: View {
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .font(.title3)
                     .frame(width: 44, height: 44)
-                    .background(Color.gray.opacity(0.2))
+                    .background(EnsembleDesign.Color.secondaryControlFill)
                     .foregroundColor(.primary)
                     .cornerRadius(10)
             }
@@ -1046,31 +1036,27 @@ public struct ArtistDetailView: View {
                 Button {
                     nowPlayingVM.play(tracks: viewModel.favoritedTracks)
                 } label: {
-                    HStack {
-                        Image(systemName: "play.fill")
-                        Text("Play")
-                    }
-                    .font(.subheadline.bold())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
+                    MediaDetailSurface<EmptyView>.ActionLabel(
+                        "Play",
+                        systemImage: EnsembleDesign.Icon.play,
+                        role: .primary,
+                        font: .subheadline.bold(),
+                        verticalPadding: EnsembleDesign.Spacing.compactControlVertical,
+                        cornerRadius: EnsembleDesign.Radius.compactControl
+                    )
                 }
 
                 Button {
                     nowPlayingVM.shufflePlay(tracks: viewModel.favoritedTracks)
                 } label: {
-                    HStack {
-                        Image(systemName: "shuffle")
-                        Text("Shuffle")
-                    }
-                    .font(.subheadline.bold())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.gray.opacity(0.2))
-                    .foregroundColor(.primary)
-                    .cornerRadius(8)
+                    MediaDetailSurface<EmptyView>.ActionLabel(
+                        "Shuffle",
+                        systemImage: EnsembleDesign.Icon.shuffle,
+                        role: .secondary,
+                        font: .subheadline.bold(),
+                        verticalPadding: EnsembleDesign.Spacing.compactControlVertical,
+                        cornerRadius: EnsembleDesign.Radius.compactControl
+                    )
                 }
             }
             .padding(.horizontal)
