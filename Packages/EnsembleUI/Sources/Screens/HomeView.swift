@@ -42,7 +42,7 @@ public struct HomeView: View {
         .profileToolbar()
         .toolbar {
             #if os(macOS)
-            ToolbarItem { Spacer() }
+            EnsembleToolbarLeadingSpacer()
             #endif
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 Button("Edit") {

@@ -38,7 +38,7 @@ public struct DownloadsView: View {
                 queueControlButton
             }
             #else
-            ToolbarItem { Spacer() }
+            EnsembleToolbarLeadingSpacer()
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 NavigationLink {
                     DownloadManagerSettingsView()

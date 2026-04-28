@@ -1291,7 +1291,7 @@ public struct SidebarView: View {
         .navigationSplitViewColumnWidth(min: 260, ideal: 260, max: 260)
         .toolbar {
             #if os(macOS)
-            ToolbarItem { Spacer() }
+            EnsembleToolbarLeadingSpacer()
             #endif
             ToolbarItemGroup(placement: .primaryActionIfAvailable) {
                 Button { navigationCoordinator.openDownloads() } label: {

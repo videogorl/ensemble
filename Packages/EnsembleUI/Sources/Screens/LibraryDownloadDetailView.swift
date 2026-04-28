@@ -47,7 +47,7 @@ struct LibraryDownloadDetailView: View {
                 retryAllButton
             }
             #else
-            ToolbarItem { Spacer() }
+            EnsembleDetailToolbarLeadingSpacer()
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 retryAllButton
             }

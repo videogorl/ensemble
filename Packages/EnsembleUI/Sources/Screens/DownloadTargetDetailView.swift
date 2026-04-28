@@ -43,7 +43,7 @@ public struct DownloadTargetDetailView: View {
                 retryAllButton
             }
             #else
-            ToolbarItem { Spacer() }
+            EnsembleDetailToolbarLeadingSpacer()
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 refreshTargetButton
             }

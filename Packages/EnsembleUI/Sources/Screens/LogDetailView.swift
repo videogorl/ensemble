@@ -72,7 +72,7 @@ public struct LogDetailView: View {
                 toolbarButtons
             }
             #else
-            ToolbarItem { Spacer() }
+            EnsembleDetailToolbarLeadingSpacer()
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 toolbarButtons
             }

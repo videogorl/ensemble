@@ -273,9 +273,7 @@ public struct EnsembleBrowseToolbar<Content: View>: ToolbarContent {
             }
         }
         #else
-        ToolbarItem {
-            Spacer()
-        }
+        EnsembleToolbarLeadingSpacer()
         ToolbarItem(placement: .primaryActionIfAvailable) {
             if isVisible {
                 HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
@@ -287,19 +285,21 @@ public struct EnsembleBrowseToolbar<Content: View>: ToolbarContent {
     }
 }
 
-/// Standalone detail views on macOS need a leading flexible toolbar item so
-/// actions align with the trailing edge instead of clustering near the title.
-/// Detail panes inside LargeScreenBrowseSplitView already participate in the
-/// split's shared toolbar geometry and should not add that spacer.
-public struct EnsembleDetailToolbarLeadingSpacer: ToolbarContent {
+/// Platform-aligned leading toolbar spacer for macOS action groups.
+/// SwiftUI's macOS toolbar layout can cluster primary actions near the title or
+/// search field unless a flexible toolbar item precedes the action group.
+public struct EnsembleToolbarLeadingSpacer: ToolbarContent {
     @Environment(\.isInLargeScreenBrowseDetailPane) private var isInLargeScreenBrowseDetailPane
+    private let suppressesInLargeScreenBrowseDetailPane: Bool
 
-    public init() {}
+    public init(suppressesInLargeScreenBrowseDetailPane: Bool = false) {
+        self.suppressesInLargeScreenBrowseDetailPane = suppressesInLargeScreenBrowseDetailPane
+    }
 
     public var body: some ToolbarContent {
         #if os(macOS)
         ToolbarItem {
-            if !isInLargeScreenBrowseDetailPane {
+            if !suppressesInLargeScreenBrowseDetailPane || !isInLargeScreenBrowseDetailPane {
                 Spacer()
             }
         }
@@ -308,6 +308,18 @@ public struct EnsembleDetailToolbarLeadingSpacer: ToolbarContent {
             EmptyView()
         }
         #endif
+    }
+}
+
+/// Standalone detail views on macOS need a leading flexible toolbar item so
+/// actions align with the trailing edge instead of clustering near the title.
+/// Detail panes inside LargeScreenBrowseSplitView already participate in the
+/// split's shared toolbar geometry and should not add that spacer.
+public struct EnsembleDetailToolbarLeadingSpacer: ToolbarContent {
+    public init() {}
+
+    public var body: some ToolbarContent {
+        EnsembleToolbarLeadingSpacer(suppressesInLargeScreenBrowseDetailPane: true)
     }
 }
 
