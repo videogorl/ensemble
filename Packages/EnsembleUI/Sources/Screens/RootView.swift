@@ -319,7 +319,7 @@ public struct RootView: View {
             // iOS 16+ handles this correctly — no extra work needed
         } else {
             let bgAlpha: CGFloat = settingsManager.auroraVisualizationEnabled ? 0.3 : 0.85
-            let blurStyle: UIBlurEffect.Style = .systemChromeMaterial
+            let blurStyle = EnsembleDesign.Material.Role.sidebar.chromeBlurStyle
 
             // Nav bar
             navAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)

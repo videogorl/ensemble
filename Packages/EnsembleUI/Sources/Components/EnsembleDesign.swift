@@ -262,6 +262,30 @@ public enum EnsembleDesign {
                 }
             }
 
+            var fallbackBackgroundColor: SwiftUI.Color {
+                switch self {
+                case .sheet:
+                    return EnsembleDesign.Color.windowSurface
+                case .detailSurface, .sidebar:
+                    return EnsembleDesign.Color.groupedSurface
+                case .selection:
+                    return EnsembleDesign.Color.accentSelection
+                case .miniPlayer, .toolbarPill, .floatingControl, .popover:
+                    return SwiftUI.Color.clear
+                }
+            }
+
+            #if canImport(UIKit) && !os(watchOS)
+            var chromeBlurStyle: UIBlurEffect.Style {
+                switch self {
+                case .miniPlayer, .toolbarPill, .floatingControl, .popover:
+                    return .systemUltraThinMaterial
+                case .sheet, .detailSurface, .sidebar, .selection:
+                    return .systemChromeMaterial
+                }
+            }
+            #endif
+
             var prefersLiquidGlass: Bool {
                 switch self {
                 case .miniPlayer, .toolbarPill, .floatingControl:

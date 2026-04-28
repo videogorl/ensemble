@@ -29,6 +29,7 @@ public struct MiniPlayer: View {
 
     private let namespace: Namespace.ID?
     private let animationID: String?
+    private let materialRole: EnsembleDesign.Material.Role = .miniPlayer
 
     public init(
         viewModel: NowPlayingViewModel,
@@ -56,17 +57,17 @@ public struct MiniPlayer: View {
             if #available(iOS 26, macOS 26, *) {
                 // Native Liquid Glass — the real material, handles blur/lighting/elevation itself.
                 pillContent
-                    .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius))
+                    .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
                     .glassEffect(in: .rect(cornerRadius: pillCornerRadius))
             } else {
                 // iOS 15–25 fallback: handcrafted material stack approximating glass.
                 pillContent
                     .background(MiniPlayerBackground(viewModel: viewModel, pillCornerRadius: pillCornerRadius))
-                    .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius))
+                    .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
                     .shadow(
-                        color: EnsembleDesign.Effect.elevatedShadowColor,
-                        radius: EnsembleDesign.Effect.elevatedShadowRadius,
-                        y: EnsembleDesign.Effect.elevatedShadowY
+                        color: materialRole.shadowColor,
+                        radius: materialRole.shadowRadius,
+                        y: materialRole.shadowY
                     )
             }
         }
@@ -789,7 +790,7 @@ private struct MiniPlayerBackground: View {
             }
 
             RoundedRectangle(cornerRadius: pillCornerRadius)
-                .fill(.ultraThinMaterial)
+                .fill(EnsembleDesign.Material.Role.miniPlayer.fallbackMaterial)
                 .overlay(
                     // Subtle surface sheen
                     RoundedRectangle(cornerRadius: pillCornerRadius)
