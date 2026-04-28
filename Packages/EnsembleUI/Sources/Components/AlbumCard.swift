@@ -67,7 +67,7 @@ public struct AlbumCard: View {
         let artistLine = album.artistName ?? " "
         let yearLine = album.year.map(String.init) ?? " "
 
-        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.sm) {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.contentSpacing) {
             ArtworkView(album: album, size: layout.artworkSize, cornerRadius: artworkCornerRadius, isResponsive: true)
 
             VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {

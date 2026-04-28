@@ -49,15 +49,15 @@ struct TrackDownloadRowView: View {
                 // Quality mismatch indicator
                 if isQualityMismatched {
                     Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.caption)
+                        .font(EnsembleDesign.Typography.cardSubtitle)
                         .foregroundColor(EnsembleDesign.Color.warning)
                 }
 
                 // Status chip or retry button
                 if row.status == .failed {
                     Button(action: onRetry) {
-                        Label("Retry", systemImage: "arrow.clockwise")
-                            .font(.caption)
+                        Label("Retry", systemImage: EnsembleDesign.Icon.retry)
+                            .font(EnsembleDesign.Typography.cardSubtitle)
                             .foregroundColor(EnsembleDesign.Color.accent)
                     }
                     .buttonStyle(.plain)
@@ -90,8 +90,8 @@ struct TrackDownloadRowView: View {
         }
         .font(EnsembleDesign.Typography.rowSecondary)
         .foregroundColor(chipColor)
-        .padding(.horizontal, EnsembleDesign.Spacing.sm)
-        .padding(.vertical, 3)
+        .padding(.horizontal, EnsembleScaffold.Chip.badgeHorizontalPadding)
+        .padding(.vertical, EnsembleScaffold.Chip.badgeVerticalPadding)
         .background(chipColor.opacity(0.12))
         .clipShape(Capsule())
     }

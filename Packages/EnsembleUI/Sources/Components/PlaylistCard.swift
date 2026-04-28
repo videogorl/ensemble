@@ -187,7 +187,7 @@ public struct PlaylistRowChip: View {
                 Text(name)
                     .font(EnsembleDesign.Typography.cardMetadata)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    .padding(.horizontal, EnsembleDesign.Spacing.sm)
+                    .padding(.horizontal, EnsembleScaffold.Chip.badgeHorizontalPadding)
                     .padding(.vertical, EnsembleScaffold.Chip.badgeVerticalPadding)
                     .background(
                         Capsule()
@@ -197,7 +197,7 @@ public struct PlaylistRowChip: View {
                 Image(systemName: EnsembleDesign.Icon.merge)
                     .font(EnsembleDesign.Typography.cardMetadata)
                     .foregroundColor(EnsembleDesign.Color.accent)
-                    .padding(.horizontal, EnsembleScaffold.Chip.verticalPadding)
+                    .padding(.horizontal, EnsembleScaffold.Chip.iconBadgeHorizontalPadding)
                     .padding(.vertical, EnsembleScaffold.Chip.badgeVerticalPadding)
                     .background(
                         Capsule()

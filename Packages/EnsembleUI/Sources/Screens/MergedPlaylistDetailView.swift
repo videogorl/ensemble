@@ -204,20 +204,20 @@ public struct MergedPlaylistDetailView: View {
     /// Horizontal row of capsule chips showing each server this merge pulls from
     private var sourceServerChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: EnsembleScaffold.Chip.rowSpacing) {
                 ForEach(viewModel.sourceServerNames, id: \.sourceKey) { source in
                     Text(source.name)
-                        .font(.caption)
-                        .foregroundColor(.accentColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
+                        .font(EnsembleDesign.Typography.cardSubtitle)
+                        .foregroundColor(EnsembleDesign.Color.accent)
+                        .padding(.horizontal, EnsembleScaffold.Chip.horizontalPadding)
+                        .padding(.vertical, EnsembleScaffold.Chip.badgeVerticalPadding)
                         .background(
                             Capsule()
-                                .fill(Color.accentColor.opacity(0.15))
+                                .fill(EnsembleDesign.Color.accentBadge)
                         )
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         }
     }
 

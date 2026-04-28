@@ -188,7 +188,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Shared browse toolbar groups live in `EnsembleBrowseToolbar`; keep screen-owned actions as small button/menu helpers and let the scaffold own platform placement and spacing.
 - Indexed browse section headers should use `EnsembleBrowseSectionHeader`, and large-screen browse selection rows should use `EnsembleScaffold.BrowseSelection` / `browseSelectionBackground(isSelected:)`.
 - Shared media menu and swipe labels should use `MediaActionLabel` so icons, ellipses, and verb choices stay consistent across rows, cards, shelves, and detail surfaces.
-- Shared card/chip geometry should use `EnsembleScaffold.MediaCard` and `EnsembleScaffold.Chip`; keep local values only when the component has a documented one-off layout reason.
+- Shared card/chip geometry should use `EnsembleScaffold.MediaCard` and `EnsembleScaffold.Chip`; hub cards, playlist chips, merged-source chips, and download status chips should avoid local padding/font/radius literals unless the component has a documented one-off layout reason.
 - Liquid Glass and fallback material stacks should go through `EnsembleDesign.Material.Role` or a documented local composition when the surface is too specialized, such as artwork-reactive mini-player backgrounds.
 - UIKit/AppKit chrome fallbacks, auxiliary window backgrounds, and specialized compositions should still pull blur style, fallback material, background color, stroke, and shadow values from `EnsembleDesign.Material.Role` so the semantic material policy stays centralized.
 - During broad literal sweeps, ask before normalizing ambiguous values that could change visual rhythm, iPad/macOS breakpoints, prominent material opacity, or established icon intent.

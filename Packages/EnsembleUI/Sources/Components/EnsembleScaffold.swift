@@ -9,6 +9,8 @@ public enum EnsembleScaffold {
         public static let barHeight: CGFloat = 36
         public static let clearButtonIconSize: CGFloat = 14
         public static let badgeVerticalPadding: CGFloat = 3
+        public static let badgeHorizontalPadding = EnsembleDesign.Spacing.sm
+        public static let iconBadgeHorizontalPadding = EnsembleDesign.Spacing.chipVertical
         public static let borderWidth: CGFloat = 1
     }
 
@@ -17,6 +19,8 @@ public enum EnsembleScaffold {
         public static let contentSpacing = EnsembleDesign.Spacing.sm
         public static let gridSpacing = EnsembleDesign.Spacing.cardGridGap
         public static let rowSpacing = EnsembleDesign.Spacing.cardRowGap
+        public static let hubArtworkDimension: CGFloat = 140
+        public static let hubShadowY: CGFloat = 3
         public static let metadataTextHeight: CGFloat = 66
         public static let compactColumnMinimum: CGFloat = 100
         public static let compactColumnMaximum: CGFloat = 140

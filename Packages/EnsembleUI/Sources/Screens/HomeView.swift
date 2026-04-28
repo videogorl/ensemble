@@ -366,7 +366,7 @@ struct HubItemCard: View {
     private let pinManager = DependencyContainer.shared.pinManager
     @Binding var playlistPickerTracks: [Track]?
 
-    private let artworkDimension: CGFloat = 140
+    private let artworkDimension = EnsembleScaffold.MediaCard.hubArtworkDimension
 
     private var isArtist: Bool {
         item.type == "artist"
@@ -398,7 +398,7 @@ struct HubItemCard: View {
     }
     
     private var cardContent: some View {
-        VStack(alignment: isArtist ? .center : .leading, spacing: 8) {
+        VStack(alignment: isArtist ? .center : .leading, spacing: EnsembleScaffold.MediaCard.contentSpacing) {
             // Artwork with circular corners for artists, rounded for others
             ArtworkView(
                 path: item.thumbPath,
@@ -411,29 +411,33 @@ struct HubItemCard: View {
                 isResponsive: true
             )
             .frame(width: artworkDimension, height: artworkDimension)
-            .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
+            .shadow(
+                color: EnsembleDesign.Effect.cardShadowColor,
+                radius: EnsembleDesign.Effect.cardShadowRadius,
+                x: 0,
+                y: EnsembleScaffold.MediaCard.hubShadowY
+            )
             
             // Text content
-            VStack(alignment: isArtist ? .center : .leading, spacing: 2) {
+            VStack(alignment: isArtist ? .center : .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {
                 Text(item.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                    .font(EnsembleDesign.Typography.cardTitle)
                     .lineLimit(2)
-                    .foregroundColor(.primary)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
                     .multilineTextAlignment(isArtist ? .center : .leading)
                 
                 if let subtitle = item.subtitle {
                     Text(subtitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.cardSubtitle)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
                         .multilineTextAlignment(isArtist ? .center : .leading)
                 }
                 
                 if item.type == "album", let year = item.year {
                     Text(String(year))
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.cardMetadata)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }
             .frame(width: artworkDimension, alignment: isArtist ? .center : .leading)
