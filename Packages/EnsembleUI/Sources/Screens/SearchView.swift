@@ -246,9 +246,7 @@ public struct SearchView: View {
                 if !viewModel.recentSearches.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
-                            Text("Recent Searches")
-                                .font(.title2)
-                                .fontWeight(.bold)
+                            EnsembleContentSectionHeader("Recent Searches")
                             
                             Spacer()
                             
@@ -260,7 +258,7 @@ public struct SearchView: View {
                                     .foregroundColor(.accentColor)
                             }
                         }
-                        .padding(.horizontal)
+                        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
                         
                         // List for swipeActions support, with scrolling disabled
                         recentSearchesList
@@ -308,10 +306,8 @@ public struct SearchView: View {
                 // Recommended
                 if !recommendedDisplayItems.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Recommended for You")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                            .padding(.horizontal)
+                        EnsembleContentSectionHeader("Recommended for You")
+                            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
                         
                         LazyVGrid(columns: gridColumns, spacing: 16) {
                             ForEach(recommendedDisplayItems) { item in
@@ -335,10 +331,8 @@ public struct SearchView: View {
                     .padding(.vertical, 20)
                 } else if !viewModel.allMoods.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Moods")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                            .padding(.horizontal)
+                        EnsembleContentSectionHeader("Moods")
+                            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
                         
                         LazyVGrid(columns: gridColumns, spacing: 16) {
                             ForEach(viewModel.allMoods) { mood in
@@ -451,10 +445,8 @@ public struct SearchView: View {
         @ViewBuilder content: @escaping (T) -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.title2)
-                .fontWeight(.bold)
-                .padding(.horizontal)
+            EnsembleContentSectionHeader(title)
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
             
             LazyVGrid(columns: gridColumns, spacing: 16) {
                 ForEach(items) { item in
