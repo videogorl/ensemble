@@ -195,6 +195,13 @@ public enum EnsembleScaffold {
         public static let actionCornerRadius = EnsembleDesign.Radius.control
         public static let listCardCornerRadius = EnsembleDesign.Radius.card
         public static let listCardHorizontalPadding = EnsembleDesign.Spacing.lg
+        public static let loadingTopPadding = TrackListLayoutMetrics.detailHorizontalPadding
+        public static let collapsedToolbarActionSpacing = EnsembleDesign.Spacing.lg
+        public static let compactWideActionThreshold: CGFloat = 300
+        public static let stackedWideActionThreshold: CGFloat = 420
+        public static let compactWideActionHorizontalPadding: CGFloat = 18
+        public static let wideActionHorizontalPadding = EnsembleDesign.Spacing.xxl
+        public static let iconActionDimension = EnsembleScaffold.UtilityRow.iconLaneWidth
 
         public enum ArtworkShadow {
             public static let color = Color.black.opacity(0.2)

@@ -167,18 +167,18 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if showToolbarActions {
-                    HStack(spacing: 16) {
+                    HStack(spacing: EnsembleScaffold.DetailSurface.collapsedToolbarActionSpacing) {
                         Button {
                             nowPlayingVM.play(tracks: viewModel.filteredTracks)
                         } label: {
-                            Image(systemName: "play.fill")
+                            Image(systemName: EnsembleDesign.Icon.play)
                         }
                         .disabled(viewModel.filteredTracks.isEmpty)
 
                         Button {
                             nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
                         } label: {
-                            Image(systemName: "shuffle")
+                            Image(systemName: EnsembleDesign.Icon.shuffle)
                         }
                         .disabled(viewModel.filteredTracks.isEmpty)
 
@@ -186,7 +186,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                             Button {
                                 nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
                             } label: {
-                                Image(systemName: "dot.radiowaves.left.and.right")
+                                Image(systemName: EnsembleDesign.Icon.radio)
                             }
                             .disabled(viewModel.filteredTracks.isEmpty)
                         }
@@ -514,7 +514,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .disabled(!playlistMenuActions.canDelete)
             }
         } label: {
-            Image(systemName: "ellipsis.circle")
+            Image(systemName: EnsembleDesign.Icon.moreCircle)
         }
     }
 
@@ -565,7 +565,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
                     Section {
                         ProgressView()
-                            .padding(.top, 40)
+                            .padding(.top, EnsembleScaffold.DetailSurface.loadingTopPadding)
                             .frame(maxWidth: .infinity)
                     }
                     .hideListRowSeparator()
@@ -574,7 +574,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     Section {
                         Text("No tracks")
                             .foregroundColor(.secondary)
-                            .padding(.top, 40)
+                            .padding(.top, EnsembleScaffold.DetailSurface.loadingTopPadding)
                             .frame(maxWidth: .infinity)
                     }
                     .hideListRowSeparator()
@@ -693,7 +693,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private func headerMetadata(alignment: HorizontalAlignment) -> some View {
         let textAlignment: TextAlignment = alignment == .center ? .center : .leading
 
-        return VStack(alignment: alignment, spacing: 8) {
+        return VStack(alignment: alignment, spacing: EnsembleScaffold.DetailSurface.metadataSpacing) {
             Text(headerData.title)
                 .font(.title2)
                 .fontWeight(.bold)
@@ -715,32 +715,22 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             Button {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
             } label: {
-                HStack {
-                    Image(systemName: "play.fill")
-                    Text("Play")
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.accentColor)
-                .foregroundColor(.white)
-                .cornerRadius(10)
+                MediaDetailSurface<EmptyView>.ActionLabel(
+                    "Play",
+                    systemImage: EnsembleDesign.Icon.play,
+                    role: .primary
+                )
             }
 
             // Shuffle button
             Button {
                 nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
             } label: {
-                HStack {
-                    Image(systemName: "shuffle")
-                    Text("Shuffle")
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.gray.opacity(0.2))
-                .foregroundColor(.primary)
-                .cornerRadius(10)
+                MediaDetailSurface<EmptyView>.ActionLabel(
+                    "Shuffle",
+                    systemImage: EnsembleDesign.Icon.shuffle,
+                    role: .secondary
+                )
             }
 
             // Radio button (for Artist or Album views)
@@ -755,10 +745,16 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// Compact action buttons for the wide header layout — don't stretch to fill width.
     private func wideActionButtons(availableWidth: CGFloat) -> some View {
         Group {
-            if availableWidth < 300 {
+            if availableWidth < EnsembleScaffold.DetailSurface.compactWideActionThreshold {
                 VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                    widePlayButton(horizontalPadding: 18, expands: true)
-                    wideShuffleButton(horizontalPadding: 18, expands: true)
+                    widePlayButton(
+                        horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding,
+                        expands: true
+                    )
+                    wideShuffleButton(
+                        horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding,
+                        expands: true
+                    )
 
                     if hasRadioButton {
                         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
@@ -767,11 +763,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         }
                     }
                 }
-            } else if availableWidth < 420 {
+            } else if availableWidth < EnsembleScaffold.DetailSurface.stackedWideActionThreshold {
                 VStack(alignment: .leading, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                     HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                        widePlayButton(horizontalPadding: 18)
-                        wideShuffleButton(horizontalPadding: 18)
+                        widePlayButton(horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding)
+                        wideShuffleButton(horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding)
                     }
 
                     if hasRadioButton {
@@ -793,41 +789,47 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .disabled(viewModel.filteredTracks.isEmpty)
     }
 
-    private func widePlayButton(horizontalPadding: CGFloat = 24, expands: Bool = false) -> some View {
+    private func widePlayButton(
+        horizontalPadding: CGFloat = EnsembleScaffold.DetailSurface.wideActionHorizontalPadding,
+        expands: Bool = false
+    ) -> some View {
         Button {
             nowPlayingVM.play(tracks: viewModel.filteredTracks)
         } label: {
             HStack {
-                Image(systemName: "play.fill")
+                Image(systemName: EnsembleDesign.Icon.play)
                 Text("Play")
                     .lineLimit(1)
             }
             .font(.headline)
             .frame(maxWidth: expands ? .infinity : nil)
             .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, 12)
-            .background(Color.accentColor)
-            .foregroundColor(.white)
-            .cornerRadius(10)
+            .padding(.vertical, EnsembleScaffold.DetailSurface.actionVerticalPadding)
+            .background(EnsembleDesign.Color.accent)
+            .foregroundColor(EnsembleDesign.Color.onAccent)
+            .cornerRadius(EnsembleScaffold.DetailSurface.actionCornerRadius)
         }
     }
 
-    private func wideShuffleButton(horizontalPadding: CGFloat = 24, expands: Bool = false) -> some View {
+    private func wideShuffleButton(
+        horizontalPadding: CGFloat = EnsembleScaffold.DetailSurface.wideActionHorizontalPadding,
+        expands: Bool = false
+    ) -> some View {
         Button {
             nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
         } label: {
             HStack {
-                Image(systemName: "shuffle")
+                Image(systemName: EnsembleDesign.Icon.shuffle)
                 Text("Shuffle")
                     .lineLimit(1)
             }
             .font(.headline)
             .frame(maxWidth: expands ? .infinity : nil)
             .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, 12)
-            .background(Color.gray.opacity(0.2))
+            .padding(.vertical, EnsembleScaffold.DetailSurface.actionVerticalPadding)
+            .background(EnsembleDesign.Color.secondaryControlFill)
             .foregroundColor(.primary)
-            .cornerRadius(10)
+            .cornerRadius(EnsembleScaffold.DetailSurface.actionCornerRadius)
         }
     }
 
@@ -838,12 +840,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             Button {
                 nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
             } label: {
-                Image(systemName: "dot.radiowaves.left.and.right")
-                    .font(.title3)
-                    .frame(width: 44, height: 44)
-                    .background(Color.gray.opacity(0.2))
-                    .foregroundColor(.primary)
-                    .cornerRadius(10)
+                radioButtonLabel
             }
             #if os(macOS)
             .help("Artist Radio - Queue all shuffled, enable sonically similar")
@@ -854,17 +851,24 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             Button {
                 nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
             } label: {
-                Image(systemName: "dot.radiowaves.left.and.right")
-                    .font(.title3)
-                    .frame(width: 44, height: 44)
-                    .background(Color.gray.opacity(0.2))
-                    .foregroundColor(.primary)
-                    .cornerRadius(10)
+                radioButtonLabel
             }
             #if os(macOS)
             .help("Album Radio - Queue all shuffled, enable sonically similar")
             #endif
         }
+    }
+
+    private var radioButtonLabel: some View {
+        Image(systemName: EnsembleDesign.Icon.radio)
+            .font(.title3)
+            .frame(
+                width: EnsembleScaffold.DetailSurface.iconActionDimension,
+                height: EnsembleScaffold.DetailSurface.iconActionDimension
+            )
+            .background(EnsembleDesign.Color.secondaryControlFill)
+            .foregroundColor(EnsembleDesign.Color.primaryText)
+            .cornerRadius(EnsembleScaffold.DetailSurface.actionCornerRadius)
     }
 
     /// Footer content shown when the track list is loading or empty.
