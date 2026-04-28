@@ -120,125 +120,66 @@ public struct HomeView: View {
     }
     
     private var loadingView: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-            Text("Loading...")
-                .foregroundColor(.secondary)
-        }
+        EnsembleStateScaffold(kind: .loading, title: "Loading…")
     }
     
+    @ViewBuilder
     private var emptyView: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                Spacer()
-                    .frame(height: 60)
-                
-                Image(systemName: "house")
-                    .font(.system(size: 60))
-                    .foregroundColor(.secondary)
-                
-                Text("Welcome Home")
-                    .font(.title2)
-                
-                VStack(spacing: 8) {
-                    if let errorMessage = viewModel.error {
-                        Text("Unable to load content")
-                            .font(.subheadline)
-                            .foregroundColor(.red)
-                        Text(errorMessage)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                    } else if viewModel.isRestoringCloudSources {
-                        VStack(spacing: 8) {
-                            ProgressView()
-                            Text("Restoring libraries from iCloud…")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-
-                            Text("This can take a moment on first launch.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                        }
-                    } else if !viewModel.hasConfiguredAccounts {
-                        Text("No music sources connected")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-
-                        Button {
-                            navigationCoordinator.showingAddAccount = true
-                        } label: {
-                            Label("Add Source", systemImage: "plus.circle.fill")
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 10)
-                                .background(Color.accentColor)
-                                .foregroundColor(.white)
-                                .cornerRadius(20)
-                        }
-                        .buttonStyle(.plain)
-                    } else if isSyncing {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Sync in progress…")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                    } else if !viewModel.hasEnabledLibraries {
-                        Text("No libraries enabled")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-
-                        Button {
-                            navigationCoordinator.openSettings()
-                        } label: {
-                            Label("Manage Sources", systemImage: "slider.horizontal.3")
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 10)
-                                .background(Color.accentColor)
-                                .foregroundColor(.white)
-                                .cornerRadius(20)
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        Text("No content available yet")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                        
-                        Text("Your Plex server may not have hub data available, or content may still be loading. Pull down to refresh.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
+        if let errorMessage = viewModel.error {
+            EnsembleStateScaffold(
+                kind: .error,
+                title: "Unable to load content",
+                message: errorMessage,
+                iconSystemName: EnsembleDesign.Icon.error
+            )
+        } else if viewModel.isRestoringCloudSources {
+            EnsembleLibraryEmptyStateScaffold(
+                title: "Welcome Home",
+                iconSystemName: EnsembleDesign.Icon.library,
+                recovery: .restoringCloudSources,
+                addSource: { navigationCoordinator.showingAddAccount = true },
+                manageSources: { navigationCoordinator.openSettings() }
+            )
+        } else if !viewModel.hasConfiguredAccounts {
+            EnsembleLibraryEmptyStateScaffold(
+                title: "Welcome Home",
+                iconSystemName: EnsembleDesign.Icon.library,
+                recovery: .noSources,
+                addSource: { navigationCoordinator.showingAddAccount = true },
+                manageSources: { navigationCoordinator.openSettings() }
+            )
+        } else if isSyncing {
+            EnsembleLibraryEmptyStateScaffold(
+                title: "Welcome Home",
+                iconSystemName: EnsembleDesign.Icon.library,
+                recovery: .syncing,
+                addSource: { navigationCoordinator.showingAddAccount = true },
+                manageSources: { navigationCoordinator.openSettings() }
+            )
+        } else if !viewModel.hasEnabledLibraries {
+            EnsembleLibraryEmptyStateScaffold(
+                title: "Welcome Home",
+                iconSystemName: EnsembleDesign.Icon.library,
+                recovery: .noEnabledLibraries,
+                addSource: { navigationCoordinator.showingAddAccount = true },
+                manageSources: { navigationCoordinator.openSettings() }
+            )
+        } else {
+            EnsembleStateScaffold(
+                kind: .empty,
+                title: "No content available yet",
+                message: "Your Plex server may not have hub data available, or content may still be loading. Pull down to refresh.",
+                iconSystemName: EnsembleDesign.Icon.library
+            ) {
+                Button {
+                    Task {
+                        await viewModel.refresh()
                     }
+                } label: {
+                    EnsembleStateActionLabel("Refresh", systemImage: EnsembleDesign.Icon.retry)
                 }
-
-                if viewModel.hasEnabledLibraries {
-                    Button {
-                        Task {
-                            await viewModel.refresh()
-                        }
-                    } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 10)
-                            .background(Color.accentColor)
-                            .foregroundColor(.white)
-                            .cornerRadius(20)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 8)
-                }
-                
-                Spacer()
+                .buttonStyle(.plain)
             }
-            .frame(maxWidth: .infinity)
-            .padding()
         }
     }
     

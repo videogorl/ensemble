@@ -155,84 +155,40 @@ public struct FavoritesView: View {
         }
     }
 
+    @ViewBuilder
     private var emptyView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "heart")
-                .font(.system(size: 60))
-                .foregroundColor(.secondary)
-            
-            Text("No Favorites Yet")
-                .font(.title2)
-            
-            if isRestoringCloudSources {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Restoring libraries from iCloud…")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-
-                Text("This can take a moment on first launch.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            } else if !hasAnySources {
-                Text("No music sources connected")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-
-                Button {
-                    navigationCoordinator.showingAddAccount = true
-                } label: {
-                    Label("Add Source", systemImage: "plus.circle.fill")
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(20)
-                }
-                .buttonStyle(.plain)
-            } else if isSyncing {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Sync in progress…")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-            } else if !hasEnabledLibrariesState {
-                Text("No libraries enabled")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-
-                Button {
-                    navigationCoordinator.openSettings()
-                } label: {
-                    Label("Manage Sources", systemImage: "slider.horizontal.3")
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(20)
-                }
-                .buttonStyle(.plain)
-            } else {
-                VStack(spacing: 8) {
-                    Text("Rate tracks 4 or 5 stars to add them here")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                    
-                    Text("\(viewModel.tracks.count) total tracks • Showing favorites from all libraries")
-                        .font(.caption)
-                        .foregroundColor(.secondary.opacity(0.8))
-                        .multilineTextAlignment(.center)
-                }
-            }
+        if isRestoringCloudSources || !hasAnySources || isSyncing || !hasEnabledLibrariesState {
+            EnsembleLibraryEmptyStateScaffold(
+                title: "No Favorites Yet",
+                iconSystemName: EnsembleDesign.Icon.favorite,
+                recovery: favoritesEmptyRecovery,
+                addSource: { navigationCoordinator.showingAddAccount = true },
+                manageSources: { navigationCoordinator.openSettings() }
+            )
+        } else {
+            EnsembleStateScaffold(
+                kind: .empty,
+                title: "No Favorites Yet",
+                message: "Rate tracks 4 or 5 stars to add them here\n\(viewModel.tracks.count) total tracks • Showing favorites from all libraries",
+                iconSystemName: EnsembleDesign.Icon.favorite
+            )
         }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    private var favoritesEmptyRecovery: EnsembleLibraryEmptyStateScaffold.Recovery {
+        if isRestoringCloudSources {
+            return .restoringCloudSources
+        }
+        if !hasAnySources {
+            return .noSources
+        }
+        if isSyncing {
+            return .syncing
+        }
+        if !hasEnabledLibrariesState {
+            return .noEnabledLibraries
+        }
+        return .empty(message: "Rate tracks 4 or 5 stars to add them here")
     }
 
     private static func computeHasEnabledLibraries() -> Bool {
@@ -390,16 +346,15 @@ public struct FavoritesView: View {
 
     /// Favorites header with heart icon and track stats
     private var favoritesHeader: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "heart.fill")
-                .font(.system(size: 80))
+        VStack(spacing: EnsembleDesign.Spacing.lg) {
+            Image(systemName: EnsembleDesign.Icon.favoriteFilled)
+                .font(.system(size: EnsembleScaffold.Favorites.heroIconSize))
                 .foregroundColor(.red)
-                .padding(.top, 20)
+                .padding(.top, EnsembleScaffold.Favorites.heroTopPadding)
 
-            VStack(spacing: 4) {
+            VStack(spacing: EnsembleScaffold.Favorites.metadataSpacing) {
                 Text("Favorites")
-                    .font(.title2)
-                    .fontWeight(.bold)
+                    .font(EnsembleDesign.Typography.sectionTitle)
 
                 Text("\(viewModel.filteredTracks.count) tracks \u{2022} \(viewModel.totalDuration)")
                     .font(.subheadline)
@@ -411,7 +366,7 @@ public struct FavoritesView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.bottom, 20)
+        .padding(.bottom, EnsembleScaffold.Favorites.headerBottomPadding)
     }
 
     /// Play and Shuffle action buttons

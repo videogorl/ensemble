@@ -190,55 +190,21 @@ public struct SearchView: View {
     @ViewBuilder
     private var exploreView: some View {
         if isRestoringCloudSources {
-            VStack(spacing: 16) {
-                Spacer()
-
-                Image(systemName: "music.note.list")
-                    .font(.system(size: 60))
-                    .foregroundColor(.secondary)
-
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Restoring libraries from iCloud…")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
-                }
-
-                Text("This can take a moment on first launch.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-
-                Spacer()
-            }
-            .padding(.top, 40)
+            EnsembleLibraryEmptyStateScaffold(
+                title: "Start exploring your music",
+                iconSystemName: EnsembleDesign.Icon.playlist,
+                recovery: .restoringCloudSources,
+                addSource: { navigationCoordinator.showingAddAccount = true },
+                manageSources: { navigationCoordinator.openSettings() }
+            )
         } else if !hasAnySources {
-            VStack(spacing: 16) {
-                Spacer()
-
-                Image(systemName: "music.note.list")
-                    .font(.system(size: 60))
-                    .foregroundColor(.secondary)
-
-                Text("No music sources connected")
-                    .font(.title3)
-                    .foregroundColor(.secondary)
-
-                Button {
-                    navigationCoordinator.showingAddAccount = true
-                } label: {
-                    Label("Add Source", systemImage: "plus.circle.fill")
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(20)
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-            }
-            .padding(.top, 40)
+            EnsembleLibraryEmptyStateScaffold(
+                title: "Start exploring your music",
+                iconSystemName: EnsembleDesign.Icon.playlist,
+                recovery: .noSources,
+                addSource: { navigationCoordinator.showingAddAccount = true },
+                manageSources: { navigationCoordinator.openSettings() }
+            )
         } else {
             ScrollView {
             VStack(alignment: .leading, spacing: 32) {
@@ -796,58 +762,26 @@ public struct SearchView: View {
     }
 
     private var emptyExploreView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            
-            Image(systemName: "music.note.list")
-                .font(.system(size: 60))
-                .foregroundColor(.secondary)
-            
-            if isRestoringCloudSources {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Restoring libraries from iCloud…")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
-                }
+        EnsembleLibraryEmptyStateScaffold(
+            title: "Start exploring your music",
+            iconSystemName: EnsembleDesign.Icon.playlist,
+            recovery: exploreEmptyRecovery,
+            addSource: { navigationCoordinator.showingAddAccount = true },
+            manageSources: { navigationCoordinator.openSettings() }
+        )
+    }
 
-                Text("This can take a moment on first launch.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            } else if isSyncing {
-                Text("Sync in progress…")
-                    .font(.title3)
-                    .foregroundColor(.secondary)
-            } else if !hasEnabledLibrariesState {
-                Text("No libraries enabled")
-                    .font(.title3)
-                    .foregroundColor(.secondary)
-
-                Button {
-                    navigationCoordinator.openSettings()
-                } label: {
-                    Label("Manage Sources", systemImage: "slider.horizontal.3")
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(20)
-                }
-                .buttonStyle(.plain)
-            } else {
-                Text("Start exploring your music")
-                    .font(.title3)
-                    .foregroundColor(.secondary)
-                
-                Text("Start typing to search your library")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-            
-            Spacer()
+    private var exploreEmptyRecovery: EnsembleLibraryEmptyStateScaffold.Recovery {
+        if isRestoringCloudSources {
+            return .restoringCloudSources
         }
-        .padding(.top, 40)
+        if isSyncing {
+            return .syncing
+        }
+        if !hasEnabledLibrariesState {
+            return .noEnabledLibraries
+        }
+        return .empty(message: "Start typing to search your library")
     }
 
     // MARK: - Search Results View
@@ -1208,85 +1142,43 @@ public struct SearchView: View {
     // MARK: - Loading & Empty States
 
     private var loadingView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            ProgressView()
-            Text("Searching...")
-                .foregroundColor(.secondary)
-            Spacer()
+        EnsembleStateScaffold(kind: .loading, title: "Searching…")
+    }
+
+    @ViewBuilder
+    private var noResultsView: some View {
+        if isRestoringCloudSources || !hasAnySources || isSyncing || !hasEnabledLibrariesState {
+            EnsembleLibraryEmptyStateScaffold(
+                title: "No Results",
+                iconSystemName: EnsembleDesign.Icon.musicNote,
+                recovery: noResultsRecovery,
+                addSource: { navigationCoordinator.showingAddAccount = true },
+                manageSources: { navigationCoordinator.openSettings() }
+            )
+        } else {
+            EnsembleStateScaffold(
+                kind: .empty,
+                title: "No Results",
+                message: "Try a different search term",
+                iconSystemName: EnsembleDesign.Icon.musicNote
+            )
         }
     }
 
-    private var noResultsView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-
-            Image(systemName: "music.note")
-                .font(.system(size: 60))
-                .foregroundColor(.secondary)
-
-            Text("No Results")
-                .font(.title2)
-
-            if isRestoringCloudSources {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Restoring libraries from iCloud…")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-
-                Text("This can take a moment on first launch.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            } else if !hasAnySources {
-                Text("No music sources connected")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-
-                Button {
-                    navigationCoordinator.showingAddAccount = true
-                } label: {
-                    Label("Add Source", systemImage: "plus.circle.fill")
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(20)
-                }
-                .buttonStyle(.plain)
-            } else if isSyncing {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Sync in progress…")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-            } else if !hasEnabledLibrariesState {
-                Text("No libraries enabled")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-
-                Button {
-                    navigationCoordinator.openSettings()
-                } label: {
-                    Label("Manage Sources", systemImage: "slider.horizontal.3")
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(20)
-                }
-                .buttonStyle(.plain)
-            } else {
-                Text("Try a different search term")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
+    private var noResultsRecovery: EnsembleLibraryEmptyStateScaffold.Recovery {
+        if isRestoringCloudSources {
+            return .restoringCloudSources
         }
+        if !hasAnySources {
+            return .noSources
+        }
+        if isSyncing {
+            return .syncing
+        }
+        if !hasEnabledLibrariesState {
+            return .noEnabledLibraries
+        }
+        return .empty(message: "Try a different search term")
     }
     
     // MARK: - Grid Configuration

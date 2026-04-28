@@ -45,10 +45,13 @@ public struct AddPlexAccountView: View {
                 }
                 .keyboardShortcut(.cancelAction)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .padding(.horizontal, EnsembleScaffold.AccountSetup.horizontalPadding)
+            .padding(.vertical, EnsembleScaffold.AccountSetup.footerVerticalPadding)
         }
-        .frame(minWidth: 720, minHeight: 560)
+        .frame(
+            minWidth: EnsembleScaffold.AccountSetup.macMinimumWidth,
+            minHeight: EnsembleScaffold.AccountSetup.macMinimumHeight
+        )
         .onChange(of: viewModel.state) { newState in
             if newState == .complete {
                 dismiss()
@@ -124,12 +127,12 @@ public struct AddPlexAccountView: View {
     }
 
     private var contentStack: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: EnsembleScaffold.AccountSetup.contentSpacing) {
             // App icon
-            VStack(spacing: 16) {
-                Image(systemName: "music.note.house.fill")
-                    .font(.system(size: 60))
-                    .foregroundColor(.accentColor)
+            VStack(spacing: EnsembleScaffold.AccountSetup.sectionSpacing) {
+                Image(systemName: EnsembleDesign.Icon.library)
+                    .font(.system(size: EnsembleScaffold.AccountSetup.iconSize))
+                    .foregroundColor(EnsembleDesign.Color.accent)
 
                 Text("Add Plex Account")
                     .font(.title2)
@@ -148,10 +151,10 @@ public struct AddPlexAccountView: View {
                     .padding(.horizontal)
             }
         }
-        .frame(maxWidth: 620)
+        .frame(maxWidth: EnsembleScaffold.AccountSetup.contentMaxWidth)
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 24)
+        .padding(.horizontal, EnsembleScaffold.AccountSetup.horizontalPadding)
+        .padding(.vertical, EnsembleScaffold.AccountSetup.contentSpacing)
     }
 
     @ViewBuilder
@@ -175,7 +178,7 @@ public struct AddPlexAccountView: View {
     }
 
     private var signInButton: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: EnsembleScaffold.AccountSetup.sectionSpacing) {
             Button {
                 Task {
                     await viewModel.startAuth()
@@ -185,24 +188,19 @@ public struct AddPlexAccountView: View {
                     Image(systemName: "person.circle.fill")
                     Text("Sign in with Plex")
                 }
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color.accentColor)
-                .foregroundColor(.white)
-                .cornerRadius(12)
             }
+            .buttonStyle(EnsemblePrimaryActionButtonStyle())
             .disabled(viewModel.isLoading)
 
             if viewModel.isLoading {
                 ProgressView()
             }
         }
-        .padding(.horizontal, 32)
+        .padding(.horizontal, EnsembleScaffold.AccountSetup.prominentHorizontalPadding)
     }
 
     private func pinView(code: String, linkURL: URL) -> some View {
-        VStack(spacing: 24) {
+        VStack(spacing: EnsembleScaffold.AccountSetup.contentSpacing) {
             Text("Enter this code at plex.tv/link")
                 .font(.headline)
 
@@ -218,14 +216,18 @@ public struct AddPlexAccountView: View {
                     )
                 )
             } label: {
-                VStack(spacing: 8) {
+                VStack(spacing: EnsembleScaffold.AccountSetup.cardSpacing) {
                     Text(code)
-                        .font(.system(size: 48, weight: .bold, design: .monospaced))
-                        .tracking(8)
+                        .font(.system(
+                            size: EnsembleScaffold.AccountSetup.pinCodeFontSize,
+                            weight: .bold,
+                            design: .monospaced
+                        ))
+                        .tracking(EnsembleScaffold.AccountSetup.pinCodeTracking)
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
 
-                    HStack(spacing: 6) {
+                    HStack(spacing: EnsembleScaffold.AccountSetup.inlineIconSpacing) {
                         Image(systemName: "doc.on.doc")
                         Text("Tap to copy")
                     }
@@ -233,9 +235,9 @@ public struct AddPlexAccountView: View {
                     .foregroundColor(.secondary)
                 }
                 .padding()
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(12)
-                .frame(maxWidth: 320)
+                .background(EnsembleScaffold.AccountSetup.cardBackground)
+                .cornerRadius(EnsembleScaffold.AccountSetup.cardCornerRadius)
+                .frame(maxWidth: EnsembleScaffold.AccountSetup.pinCodeMaxWidth)
             }
             .buttonStyle(.plain)
 
@@ -267,7 +269,7 @@ public struct AddPlexAccountView: View {
     }
 
     private var serverLibrarySelectionView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: EnsembleScaffold.AccountSetup.sectionSpacing) {
             Text("Select Servers and Libraries")
                 .font(.headline)
 
@@ -283,10 +285,10 @@ public struct AddPlexAccountView: View {
                     }
                 }
             } else {
-                LazyVStack(spacing: 16) {
+                LazyVStack(spacing: EnsembleScaffold.AccountSetup.sectionSpacing) {
                     ForEach(viewModel.servers) { server in
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: EnsembleScaffold.AccountSetup.cardSpacing) {
+                            HStack(spacing: EnsembleScaffold.AccountSetup.cardSpacing) {
                                 Image(systemName: "server.rack")
                                     .font(.subheadline)
                                     .foregroundColor(.accentColor)
@@ -325,9 +327,9 @@ public struct AddPlexAccountView: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(12)
+                        .padding(EnsembleScaffold.AccountSetup.cardPadding)
+                        .background(EnsembleScaffold.AccountSetup.cardBackground)
+                        .cornerRadius(EnsembleScaffold.AccountSetup.cardCornerRadius)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -337,14 +339,9 @@ public struct AddPlexAccountView: View {
                     viewModel.confirmLibraries()
                 } label: {
                     Text("Add Account")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
                 }
-                .padding(.horizontal, 32)
+                .buttonStyle(EnsemblePrimaryActionButtonStyle())
+                .padding(.horizontal, EnsembleScaffold.AccountSetup.prominentHorizontalPadding)
                 .disabled(viewModel.selectedLibraryCompositeKeys.isEmpty)
             }
         }
@@ -369,11 +366,11 @@ struct LibrarySelectionRow: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 12) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                Image(systemName: isSelected ? EnsembleDesign.Icon.checkmark : "circle")
                     .font(.title2)
-                    .foregroundColor(isSelected ? .accentColor : .gray)
-                    .frame(width: 44)
+                    .foregroundColor(isSelected ? EnsembleDesign.Color.accent : .gray)
+                    .frame(width: EnsembleScaffold.AccountSetup.rowIconWidth)
 
                 Text(library.title)
                     .font(.headline)
@@ -381,9 +378,9 @@ struct LibrarySelectionRow: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(12)
+            .padding(EnsembleScaffold.AccountSetup.cardPadding)
+            .background(EnsembleScaffold.AccountSetup.cardBackground)
+            .cornerRadius(EnsembleScaffold.AccountSetup.cardCornerRadius)
         }
         .buttonStyle(.plain)
     }
@@ -397,13 +394,13 @@ struct ServerRow: View {
     
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 12) {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 Image(systemName: "server.rack")
                     .font(.title2)
-                    .foregroundColor(.accentColor)
-                    .frame(width: 44)
+                    .foregroundColor(EnsembleDesign.Color.accent)
+                    .frame(width: EnsembleScaffold.AccountSetup.rowIconWidth)
                 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
                     Text(server.name)
                         .font(.headline)
                     
@@ -416,12 +413,12 @@ struct ServerRow: View {
                 
                 Spacer()
                 
-                Image(systemName: "chevron.right")
-                    .foregroundColor(.secondary)
+                Image(systemName: EnsembleDesign.Icon.chevronRight)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
-            .padding()
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(12)
+            .padding(EnsembleScaffold.AccountSetup.cardPadding)
+            .background(EnsembleScaffold.AccountSetup.cardBackground)
+            .cornerRadius(EnsembleScaffold.AccountSetup.cardCornerRadius)
         }
         .buttonStyle(.plain)
     }
@@ -433,7 +430,7 @@ private struct ServerLibrariesSelection: View {
     let onToggle: (Library) -> Void
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: EnsembleScaffold.AccountSetup.cardSpacing) {
             ForEach(libraries) { library in
                 LibrarySelectionRow(
                     library: library,

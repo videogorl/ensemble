@@ -57,6 +57,34 @@ public enum EnsembleScaffold {
         public static let fillColor = EnsembleDesign.Material.Role.selection.fallbackBackgroundColor
     }
 
+    public enum Favorites {
+        public static let heroIconSize: CGFloat = 80
+        public static let heroTopPadding = EnsembleDesign.Spacing.xl
+        public static let headerBottomPadding = EnsembleDesign.Spacing.xl
+        public static let metadataSpacing = EnsembleDesign.Spacing.xs
+    }
+
+    public enum AccountSetup {
+        public static let macMinimumWidth: CGFloat = 720
+        public static let macMinimumHeight: CGFloat = 560
+        public static let contentMaxWidth: CGFloat = 620
+        public static let pinCodeMaxWidth: CGFloat = 320
+        public static let rowIconWidth: CGFloat = 44
+        public static let iconSize: CGFloat = 60
+        public static let pinCodeFontSize: CGFloat = 48
+        public static let pinCodeTracking: CGFloat = 8
+        public static let contentSpacing = EnsembleDesign.Spacing.xxl
+        public static let sectionSpacing = EnsembleDesign.Spacing.lg
+        public static let cardSpacing = EnsembleDesign.Spacing.sm
+        public static let inlineIconSpacing = EnsembleDesign.Spacing.chipVertical
+        public static let cardPadding = EnsembleDesign.Spacing.lg
+        public static let horizontalPadding = EnsembleDesign.Spacing.xl
+        public static let prominentHorizontalPadding = EnsembleDesign.Spacing.xxxl
+        public static let footerVerticalPadding = EnsembleDesign.Spacing.md
+        public static let cardCornerRadius = EnsembleDesign.Radius.card
+        public static let cardBackground = Color.gray.opacity(0.1)
+    }
+
     public enum FilterPresentation {
         public enum Style: Equatable {
             case toolbarPopover
@@ -519,6 +547,26 @@ public extension EnsembleStateScaffold where Action == EmptyView {
     }
 }
 
+/// Shared filled capsule action used inside empty/loading/error states.
+public struct EnsembleStateActionLabel: View {
+    private let title: String
+    private let systemImage: String
+
+    public init(_ title: String, systemImage: String) {
+        self.title = title
+        self.systemImage = systemImage
+    }
+
+    public var body: some View {
+        Label(title, systemImage: systemImage)
+            .padding(.horizontal, EnsembleDesign.Spacing.xl)
+            .padding(.vertical, EnsembleDesign.Spacing.compactControlVertical)
+            .background(EnsembleDesign.Color.accent)
+            .foregroundColor(EnsembleDesign.Color.onAccent)
+            .clipShape(Capsule())
+    }
+}
+
 /// Shared empty-state decision tree for library browse screens that depend on
 /// configured music sources, enabled libraries, and sync/cloud-restore state.
 public struct EnsembleLibraryEmptyStateScaffold: View {
@@ -610,11 +658,6 @@ public struct EnsembleLibraryEmptyStateScaffold: View {
     }
 
     private func actionLabel(_ title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .padding(.horizontal, EnsembleDesign.Spacing.xl)
-            .padding(.vertical, EnsembleDesign.Spacing.compactControlVertical)
-            .background(EnsembleDesign.Color.accent)
-            .foregroundColor(EnsembleDesign.Color.onAccent)
-            .clipShape(Capsule())
+        EnsembleStateActionLabel(title, systemImage: systemImage)
     }
 }
