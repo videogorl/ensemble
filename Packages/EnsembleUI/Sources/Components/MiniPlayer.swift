@@ -759,6 +759,7 @@ private struct MiniPlayerBackground: View {
     let pillCornerRadius: CGFloat
 
     @Environment(\.colorScheme) private var colorScheme
+    private let materialRole = EnsembleDesign.Material.Role.miniPlayer
 
     var body: some View {
         ZStack {
@@ -790,7 +791,7 @@ private struct MiniPlayerBackground: View {
             }
 
             RoundedRectangle(cornerRadius: pillCornerRadius)
-                .fill(EnsembleDesign.Material.Role.miniPlayer.fallbackMaterial)
+                .fill(materialRole.fallbackMaterial)
                 .overlay(
                     // Subtle surface sheen
                     RoundedRectangle(cornerRadius: pillCornerRadius)

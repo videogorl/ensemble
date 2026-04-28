@@ -284,6 +284,15 @@ public enum EnsembleDesign {
                     return .systemChromeMaterial
                 }
             }
+
+            func chromeBackgroundAlpha(auroraEnabled: Bool) -> CGFloat {
+                switch self {
+                case .sidebar:
+                    return auroraEnabled ? 0.3 : 0.85
+                case .miniPlayer, .toolbarPill, .floatingControl, .sheet, .detailSurface, .popover, .selection:
+                    return 0.85
+                }
+            }
             #endif
 
             var prefersLiquidGlass: Bool {

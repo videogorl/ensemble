@@ -28,6 +28,6 @@ public struct MacAuxiliaryWindowScaffold<Content: View>: View {
     }
 
     private var windowBackground: Color {
-        EnsembleDesign.Material.Role.sheet.fallbackBackgroundColor
+        EnsembleScaffold.AuxiliaryWindow.backgroundColor
     }
 }

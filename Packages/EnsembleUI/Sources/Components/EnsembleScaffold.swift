@@ -215,8 +215,8 @@ public enum EnsembleScaffold {
         }
     }
 
-    public enum AuxiliaryWindow {
-        public struct Configuration: Equatable {
+        public enum AuxiliaryWindow {
+            public struct Configuration: Equatable {
             public let minWidth: CGFloat
             public let idealWidth: CGFloat
             public let maxWidth: CGFloat
@@ -247,6 +247,8 @@ public enum EnsembleScaffold {
                 idealHeight: 720
             )
         }
+
+        public static let backgroundColor = EnsembleDesign.Material.Role.sheet.fallbackBackgroundColor
     }
 }
 
