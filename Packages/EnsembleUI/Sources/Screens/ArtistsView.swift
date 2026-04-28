@@ -795,9 +795,7 @@ public struct ArtistDetailView: View {
 
     private var aboutSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("About \(viewModel.artist.name)")
-                .font(.title2)
-                .fontWeight(.bold)
+            EnsembleContentSectionHeader("About \(viewModel.artist.name)")
 
             // Quick facts
             if let detail = viewModel.artistDetail, hasQuickFacts(detail) {
@@ -908,10 +906,8 @@ public struct ArtistDetailView: View {
     /// Shows only related artists that exist in the user's library (across all sources)
     private func relatedArtistsSection(artists: [Artist]) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Related Artists")
-                .font(.title2)
-                .fontWeight(.bold)
-                .padding(.horizontal)
+            EnsembleContentSectionHeader("Related Artists")
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 16) {
@@ -958,10 +954,8 @@ public struct ArtistDetailView: View {
 
     private var albumsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Albums")
-                .font(.title2)
-                .fontWeight(.bold)
-                .padding(.horizontal)
+            EnsembleContentSectionHeader("Albums")
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
             AlbumGrid(albums: viewModel.filteredAlbums, nowPlayingVM: nowPlayingVM)
         }
@@ -971,10 +965,8 @@ public struct ArtistDetailView: View {
 
     private var favoritedTracksSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Favorited Tracks")
-                .font(.title2)
-                .fontWeight(.bold)
-                .padding(.horizontal)
+            EnsembleContentSectionHeader("Favorited Tracks")
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
             // Play / Shuffle buttons
             HStack(spacing: 12) {

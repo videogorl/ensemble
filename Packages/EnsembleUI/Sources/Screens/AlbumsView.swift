@@ -571,9 +571,7 @@ public struct AlbumDetailView: View {
 
     private func albumFactsSection(_ detail: AlbumDetail) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("About \(album.title)")
-                .font(.title2)
-                .fontWeight(.bold)
+            EnsembleContentSectionHeader("About \(album.title)")
 
             VStack(alignment: .leading, spacing: 10) {
                 if !detail.genres.isEmpty {
@@ -688,9 +686,7 @@ public struct AlbumDetailView: View {
 
     private var moreByArtistSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("More by \(album.artistName ?? "Artist")")
-                .font(.title2)
-                .fontWeight(.bold)
+            EnsembleContentSectionHeader("More by \(album.artistName ?? "Artist")")
 
             albumCardScroll(albums: viewModel.relatedAlbums)
         }
@@ -698,9 +694,7 @@ public struct AlbumDetailView: View {
 
     private var similarAlbumsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Related Albums")
-                .font(.title2)
-                .fontWeight(.bold)
+            EnsembleContentSectionHeader("Related Albums")
 
             albumCardScroll(albums: viewModel.similarAlbums)
         }
