@@ -11,10 +11,10 @@ public struct PlaylistCard: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.sm) {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.contentSpacing) {
             ArtworkView(playlist: playlist, size: .thumbnail)
 
-            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
+            VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {
                 Text(playlist.title)
                     .font(EnsembleDesign.Typography.cardTitle)
                     .lineLimit(2)
@@ -188,7 +188,7 @@ public struct PlaylistRowChip: View {
                     .font(EnsembleDesign.Typography.cardMetadata)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
                     .padding(.horizontal, EnsembleDesign.Spacing.sm)
-                    .padding(.vertical, 3)
+                    .padding(.vertical, EnsembleScaffold.Chip.badgeVerticalPadding)
                     .background(
                         Capsule()
                             .fill(EnsembleDesign.Color.neutralBadge)
@@ -197,8 +197,8 @@ public struct PlaylistRowChip: View {
                 Image(systemName: EnsembleDesign.Icon.merge)
                     .font(EnsembleDesign.Typography.cardMetadata)
                     .foregroundColor(EnsembleDesign.Color.accent)
-                    .padding(.horizontal, EnsembleDesign.Spacing.chipVertical)
-                    .padding(.vertical, 3)
+                    .padding(.horizontal, EnsembleScaffold.Chip.verticalPadding)
+                    .padding(.vertical, EnsembleScaffold.Chip.badgeVerticalPadding)
                     .background(
                         Capsule()
                             .fill(EnsembleDesign.Color.accentBadge)

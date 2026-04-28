@@ -126,7 +126,7 @@ extension View {
                     )
                 )
             } label: {
-                Label("Play Next", systemImage: "text.insert")
+                MediaActionLabel(kind: .playNext)
             }
             .tint(.blue)
 
@@ -143,7 +143,7 @@ extension View {
                     )
                 )
             } label: {
-                Label("Play Last", systemImage: "text.append")
+                MediaActionLabel(kind: .playLast)
             }
             .tint(.indigo)
 
@@ -151,7 +151,7 @@ extension View {
             Button {
                 onAddToPlaylist?()
             } label: {
-                Label("Add to Playlist…", systemImage: EnsembleDesign.Icon.addToPlaylist)
+                MediaActionLabel(kind: .addToPlaylist)
             }
             .tint(.orange)
 
@@ -174,10 +174,7 @@ extension View {
                     await nowPlayingVM.toggleTrackFavorite(track)
                 }
             } label: {
-                Label(
-                    isFavorited ? "Unfavorite" : "Favorite",
-                    systemImage: isFavorited ? "heart.slash.fill" : "heart.fill"
-                )
+                MediaActionLabel(kind: .favorite(isFavorited: isFavorited, usesFilledIcon: true))
             }
             .tint(isFavorited ? .gray : .pink)
         }

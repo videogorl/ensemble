@@ -494,7 +494,7 @@ public struct ControlsCard: View {
                             Button {
                                 handleAlbumTap(track: currentTrack)
                             } label: {
-                                Label("Go to Album", systemImage: "square.stack")
+                                MediaActionLabel(kind: .goToAlbum)
                             }
                         }
                         
@@ -502,7 +502,7 @@ public struct ControlsCard: View {
                             Button {
                                 handleArtistTap(track: currentTrack)
                             } label: {
-                                Label("Go to Artist", systemImage: "person.circle")
+                                MediaActionLabel(kind: .goToArtist)
                             }
                         }
                     }
@@ -514,13 +514,13 @@ public struct ControlsCard: View {
                         Button {
                             ShareActions.shareTrackLink(currentTrack, deps: deps)
                         } label: {
-                            Label("Share Link…", systemImage: "link")
+                            MediaActionLabel(kind: .shareLink)
                         }
 
                         Button {
                             ShareActions.shareTrackFile(currentTrack, deps: deps)
                         } label: {
-                            Label("Share Audio File…", systemImage: "square.and.arrow.up")
+                            MediaActionLabel(kind: .shareAudioFile)
                         }
                     }
                 }

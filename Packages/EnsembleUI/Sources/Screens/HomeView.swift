@@ -512,31 +512,31 @@ struct HubItemCard: View {
         Button {
             withAlbumTracks { tracks in nowPlayingVM.play(tracks: tracks) }
         } label: {
-            Label("Play", systemImage: "play.fill")
+            MediaActionLabel(kind: .play)
         }
 
         Button {
             withAlbumTracks { tracks in nowPlayingVM.shufflePlay(tracks: tracks) }
         } label: {
-            Label("Shuffle", systemImage: "shuffle")
+            MediaActionLabel(kind: .shuffle)
         }
 
         Button {
             withAlbumTracks { tracks in nowPlayingVM.playNext(tracks) }
         } label: {
-            Label("Play Next", systemImage: "text.insert")
+            MediaActionLabel(kind: .playNext)
         }
 
         Button {
             withAlbumTracks { tracks in nowPlayingVM.playLast(tracks) }
         } label: {
-            Label("Play Last", systemImage: "text.append")
+            MediaActionLabel(kind: .playLast)
         }
 
         Button {
             withAlbumTracks { tracks in nowPlayingVM.enableRadio(tracks: tracks) }
         } label: {
-            Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+            MediaActionLabel(kind: .radio)
         }
 
         Button {
@@ -544,7 +544,7 @@ struct HubItemCard: View {
                 playlistPickerTracks = tracks
             }
         } label: {
-            Label("Add to Playlist...", systemImage: "text.badge.plus")
+            MediaActionLabel(kind: .addToPlaylist)
         }
 
         if let album = item.album {
@@ -554,10 +554,7 @@ struct HubItemCard: View {
                     await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
                 }
             } label: {
-                Label(
-                    isDownloaded ? "Remove Download" : "Download",
-                    systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-                )
+                MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
             }
 
             if let artistId = album.artistRatingKey {
@@ -567,7 +564,7 @@ struct HubItemCard: View {
                         in: self.navigationCoordinator.selectedTab
                     )
                 } label: {
-                    Label("Go to Artist", systemImage: "person.circle")
+                    MediaActionLabel(kind: .goToArtist)
                 }
             }
         }
@@ -576,7 +573,7 @@ struct HubItemCard: View {
             Button {
                 addToRecentPlaylist(expectedTitle: recentTarget.title)
             } label: {
-                Label("Add to \(recentTarget.title)", systemImage: "clock.arrow.circlepath")
+                MediaActionLabel(kind: .addToRecentPlaylist(recentTarget.title))
             }
         }
 
@@ -590,19 +587,19 @@ struct HubItemCard: View {
         Button {
             withArtistTracks { tracks in nowPlayingVM.play(tracks: tracks) }
         } label: {
-            Label("Play", systemImage: "play.fill")
+            MediaActionLabel(kind: .play)
         }
 
         Button {
             withArtistTracks { tracks in nowPlayingVM.shufflePlay(tracks: tracks) }
         } label: {
-            Label("Shuffle", systemImage: "shuffle")
+            MediaActionLabel(kind: .shuffle)
         }
 
         Button {
             withArtistTracks { tracks in nowPlayingVM.enableRadio(tracks: tracks) }
         } label: {
-            Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+            MediaActionLabel(kind: .radio)
         }
 
         if let artist = item.artist {
@@ -612,10 +609,7 @@ struct HubItemCard: View {
                     await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
                 }
             } label: {
-                Label(
-                    isDownloaded ? "Remove Download" : "Download",
-                    systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-                )
+                MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
             }
         }
 
@@ -629,25 +623,25 @@ struct HubItemCard: View {
         Button {
             withPlaylistTracks { tracks in nowPlayingVM.play(tracks: tracks) }
         } label: {
-            Label("Play", systemImage: "play.fill")
+            MediaActionLabel(kind: .play)
         }
 
         Button {
             withPlaylistTracks { tracks in nowPlayingVM.shufflePlay(tracks: tracks) }
         } label: {
-            Label("Shuffle", systemImage: "shuffle")
+            MediaActionLabel(kind: .shuffle)
         }
 
         Button {
             withPlaylistTracks { tracks in nowPlayingVM.playNext(tracks) }
         } label: {
-            Label("Play Next", systemImage: "text.insert")
+            MediaActionLabel(kind: .playNext)
         }
 
         Button {
             withPlaylistTracks { tracks in nowPlayingVM.playLast(tracks) }
         } label: {
-            Label("Play Last", systemImage: "text.append")
+            MediaActionLabel(kind: .playLast)
         }
 
         if let playlist = item.playlist {
@@ -657,10 +651,7 @@ struct HubItemCard: View {
                     await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
                 }
             } label: {
-                Label(
-                    isDownloaded ? "Remove Download" : "Download",
-                    systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-                )
+                MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
             }
         }
 
@@ -676,25 +667,25 @@ struct HubItemCard: View {
         Button {
             nowPlayingVM.playNext([track])
         } label: {
-            Label("Play Next", systemImage: "text.insert")
+            MediaActionLabel(kind: .playNext)
         }
 
         Button {
             nowPlayingVM.playLast([track])
         } label: {
-            Label("Play Last", systemImage: "text.append")
+            MediaActionLabel(kind: .playLast)
         }
 
         Button {
             nowPlayingVM.enableRadio(tracks: [track])
         } label: {
-            Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+            MediaActionLabel(kind: .radio)
         }
 
         Button {
             playlistPickerTracks = [track]
         } label: {
-            Label("Add to Playlist...", systemImage: "text.badge.plus")
+            MediaActionLabel(kind: .addToPlaylist)
         }
 
         if let albumId = track.albumRatingKey {
@@ -704,7 +695,7 @@ struct HubItemCard: View {
                     in: self.navigationCoordinator.selectedTab
                 )
             } label: {
-                Label("Go to Album", systemImage: "square.stack")
+                MediaActionLabel(kind: .goToAlbum)
             }
         }
 
@@ -715,7 +706,7 @@ struct HubItemCard: View {
                     in: self.navigationCoordinator.selectedTab
                 )
             } label: {
-                Label("Go to Artist", systemImage: "person.circle")
+                MediaActionLabel(kind: .goToArtist)
             }
         }
 
@@ -726,7 +717,7 @@ struct HubItemCard: View {
                     _ = try? await nowPlayingVM.addTracks([track], to: playlist)
                 }
             } label: {
-                Label("Add to \(recentTarget.title)", systemImage: "clock.arrow.circlepath")
+                MediaActionLabel(kind: .addToRecentPlaylist(recentTarget.title))
             }
         }
 
@@ -734,11 +725,7 @@ struct HubItemCard: View {
         Button {
             Task { await nowPlayingVM.setTrackFavorite(!isFavorited, for: track) }
         } label: {
-            if isFavorited {
-                Label("Unfavorite", systemImage: "heart.slash")
-            } else {
-                Label("Favorite", systemImage: "heart")
-            }
+            MediaActionLabel(kind: .favorite(isFavorited: isFavorited, usesFilledIcon: false))
         }
     }
 
@@ -767,11 +754,7 @@ struct HubItemCard: View {
                 )
             }
         } label: {
-            if isPinned {
-                Label("Unpin", systemImage: "pin.slash")
-            } else {
-                Label("Pin", systemImage: "pin.fill")
-            }
+            MediaActionLabel(kind: .pin(isPinned: isPinned))
         }
     }
 

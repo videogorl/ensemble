@@ -311,12 +311,12 @@ public struct TrackRow: View {
         Section {
             if let onPlayNext = onPlayNext {
                 Button(action: onPlayNext) {
-                    Label("Play Next", systemImage: "text.insert")
+                    MediaActionLabel(kind: .playNext)
                 }
             }
             if let onPlayLast = onPlayLast {
                 Button(action: onPlayLast) {
-                    Label("Play Last", systemImage: "text.append")
+                    MediaActionLabel(kind: .playLast)
                 }
             }
         }
@@ -331,17 +331,17 @@ public struct TrackRow: View {
                     }
                 }
             } label: {
-                Label("Edit Metadata…", systemImage: "pencil")
+                MediaActionLabel(kind: .editMetadata)
             }
 
             if let onGoToAlbum = onGoToAlbum, track.albumRatingKey != nil {
                 Button(action: onGoToAlbum) {
-                    Label("Go to Album", systemImage: "square.stack")
+                    MediaActionLabel(kind: .goToAlbum)
                 }
             }
             if let onGoToArtist = onGoToArtist, track.artistRatingKey != nil {
                 Button(action: onGoToArtist) {
-                    Label("Go to Artist", systemImage: "person.circle")
+                    MediaActionLabel(kind: .goToArtist)
                 }
             }
         }
@@ -350,21 +350,17 @@ public struct TrackRow: View {
             if let onAddToRecentPlaylist = onAddToRecentPlaylist,
                let recentPlaylistTitle {
                 Button(action: onAddToRecentPlaylist) {
-                    Label("Add to \(recentPlaylistTitle)", systemImage: "clock.arrow.circlepath")
+                    MediaActionLabel(kind: .addToRecentPlaylist(recentPlaylistTitle))
                 }
             }
             if let onAddToPlaylist = onAddToPlaylist {
                 Button(action: onAddToPlaylist) {
-                    Label("Add to Playlist…", systemImage: "text.badge.plus")
+                    MediaActionLabel(kind: .addToPlaylist)
                 }
             }
             if let onToggleFavorite = onToggleFavorite {
                 Button(action: onToggleFavorite) {
-                    if effectiveIsFavorited {
-                        Label("Unfavorite", systemImage: "heart.slash")
-                    } else {
-                        Label("Favorite", systemImage: "heart")
-                    }
+                    MediaActionLabel(kind: .favorite(isFavorited: effectiveIsFavorited, usesFilledIcon: false))
                 }
             }
         }
@@ -374,12 +370,12 @@ public struct TrackRow: View {
             Section {
                 if let onShareLink = onShareLink {
                     Button(action: onShareLink) {
-                        Label("Share Link…", systemImage: "link")
+                        MediaActionLabel(kind: .shareLink)
                     }
                 }
                 if let onShareFile = onShareFile {
                     Button(action: onShareFile) {
-                        Label("Share Audio File…", systemImage: "square.and.arrow.up")
+                        MediaActionLabel(kind: .shareAudioFile)
                     }
                 }
             }
@@ -389,7 +385,7 @@ public struct TrackRow: View {
             Button(role: .destructive) {
                 isConfirmingDelete = true
             } label: {
-                Label("Delete Track", systemImage: "trash")
+                MediaActionLabel(kind: .deleteTrack)
             }
         }
     }

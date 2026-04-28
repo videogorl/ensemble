@@ -333,6 +333,7 @@ Sources/
 |   +-- HubOrderingSheet.swift        # Sheet for reordering hub sections with drag & drop
 |   +-- KeyboardObserver.swift        # iOS-specific keyboard height tracking with view modifier
 |   +-- MarqueeText.swift             # Auto-scrolling text component for long titles
+|   +-- MediaActionLabel.swift        # Semantic media action labels/icons for menus and swipe actions
 |   +-- MediaContextMenus.swift       # Shared album/artist/playlist/merged-playlist context menu actions for grids, search, and sidebar pins
 |   +-- MediaTrackList.swift          # Reusable track list with context menu
 |   +-- MiniPlayer.swift              # Compact persistent player overlay

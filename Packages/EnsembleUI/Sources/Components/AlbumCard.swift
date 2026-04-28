@@ -19,13 +19,13 @@ public enum AlbumCardLayoutMetrics {
         }
     }
 
-    public var gridSpacing: CGFloat { EnsembleDesign.Spacing.cardGridGap }
-    public var rowSpacing: CGFloat { EnsembleDesign.Spacing.cardRowGap }
+    public var gridSpacing: CGFloat { EnsembleScaffold.MediaCard.gridSpacing }
+    public var rowSpacing: CGFloat { EnsembleScaffold.MediaCard.rowSpacing }
 
     public var columnMinimum: CGFloat {
         switch self {
         case .compact:
-            return 100
+            return EnsembleScaffold.MediaCard.compactColumnMinimum
         case .shelf:
             return 140
         case .prominent:
@@ -36,7 +36,7 @@ public enum AlbumCardLayoutMetrics {
     public var columnMaximum: CGFloat {
         switch self {
         case .compact:
-            return 140
+            return EnsembleScaffold.MediaCard.compactColumnMaximum
         case .shelf:
             return 180
         case .prominent:
@@ -70,7 +70,7 @@ public struct AlbumCard: View {
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.sm) {
             ArtworkView(album: album, size: layout.artworkSize, cornerRadius: artworkCornerRadius, isResponsive: true)
 
-            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
+            VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {
                 Text(album.title)
                     .font(EnsembleDesign.Typography.cardTitle)
                     .lineLimit(2)
@@ -100,7 +100,7 @@ public struct AlbumCard: View {
                         .lineLimit(1)
                 }
             }
-            .frame(height: 66, alignment: .topLeading)
+            .frame(height: EnsembleScaffold.MediaCard.metadataTextHeight, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .multilineTextAlignment(.leading)

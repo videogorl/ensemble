@@ -11,7 +11,7 @@ public struct ArtistCard: View {
     }
 
     public var body: some View {
-        VStack(spacing: EnsembleDesign.Spacing.sm) {
+        VStack(spacing: EnsembleScaffold.MediaCard.contentSpacing) {
             ArtworkView(
                 artist: artist,
                 size: .thumbnail,
@@ -78,9 +78,7 @@ public struct ArtistGrid: View {
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: EnsembleDesign.Spacing.cardGridGap, alignment: .top)
-    ]
+    private let columns = EnsembleScaffold.MediaCard.personGridColumns
 
     public init(
         artists: [Artist],
@@ -93,7 +91,7 @@ public struct ArtistGrid: View {
     }
 
     public var body: some View {
-        LazyVGrid(columns: columns, spacing: EnsembleDesign.Spacing.cardRowGap) {
+        LazyVGrid(columns: columns, spacing: EnsembleScaffold.MediaCard.rowSpacing) {
             ForEach(artists) { artist in
                 if #available(iOS 16.0, macOS 13.0, *) {
                     NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
@@ -209,7 +207,7 @@ public struct ArtistGrid: View {
     }
 
     private func artistCardContent(_ artist: Artist) -> some View {
-        VStack(spacing: EnsembleDesign.Spacing.sm) {
+        VStack(spacing: EnsembleScaffold.MediaCard.contentSpacing) {
             ArtworkView(
                 artist: artist,
                 size: .thumbnail,

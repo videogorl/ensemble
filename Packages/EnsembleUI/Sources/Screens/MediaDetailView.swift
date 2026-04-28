@@ -306,13 +306,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     Button {
                         albumMenuActions.onPlayNext()
                     } label: {
-                        Label("Play Next", systemImage: "text.insert")
+                        MediaActionLabel(kind: .playNext)
                     }
 
                     Button {
                         albumMenuActions.onPlayLast()
                     } label: {
-                        Label("Play Last", systemImage: "text.append")
+                        MediaActionLabel(kind: .playLast)
                     }
 
                     if let lastPlaylistQuickTarget {
@@ -322,7 +322,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                                     _ = try? await nowPlayingVM.addTracks(viewModel.filteredTracks, to: lastPlaylistQuickTarget)
                                 }
                             } label: {
-                                Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: "clock.arrow.circlepath")
+                                MediaActionLabel(kind: .addToRecentPlaylist(lastPlaylistQuickTarget.title))
                             }
                         }
                     }
@@ -330,7 +330,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     Button {
                         presentPlaylistPicker(with: viewModel.filteredTracks)
                     } label: {
-                        Label("Add to Playlist…", systemImage: "text.badge.plus")
+                        MediaActionLabel(kind: .addToPlaylist)
                     }
                     .disabled(viewModel.filteredTracks.isEmpty)
 
@@ -346,7 +346,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     Button {
                         ShareActions.shareAlbumLink(album, deps: deps)
                     } label: {
-                        Label("Share Link…", systemImage: "link")
+                        MediaActionLabel(kind: .shareLink)
                     }
 
                     Button {
@@ -363,11 +363,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                             )
                         }
                     } label: {
-                        if isPinned {
-                            Label("Unpin", systemImage: "pin.slash")
-                        } else {
-                            Label("Pin", systemImage: "pin.fill")
-                        }
+                        MediaActionLabel(kind: .pin(isPinned: isPinned))
                     }
 
                     if let sourceKey {
@@ -384,17 +380,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                                 await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
                             }
                         } label: {
-                            Label(
-                                isDownloaded ? "Remove Download" : "Download",
-                                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-                            )
+                            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
                         }
                     }
 
                     Button {
                         albumMenuActions.onEditMetadata()
                     } label: {
-                        Label("Edit Metadata…", systemImage: "pencil")
+                        MediaActionLabel(kind: .editMetadata)
                     }
 
                     Divider()
@@ -402,7 +395,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     Button(role: .destructive) {
                         albumMenuActions.onDelete()
                     } label: {
-                        Label("Delete Album", systemImage: "trash")
+                        MediaActionLabel(kind: .deleteAlbum)
                     }
                 }
             } else {
@@ -420,11 +413,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         )
                     }
                 } label: {
-                    if isPinned {
-                        Label("Unpin", systemImage: "pin.slash")
-                    } else {
-                        Label("Pin", systemImage: "pin.fill")
-                    }
+                    MediaActionLabel(kind: .pin(isPinned: isPinned))
                 }
 
                 if let sourceKey {
@@ -443,10 +432,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                                 await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
                             }
                         } label: {
-                            Label(
-                                isDownloaded ? "Remove Download" : "Download",
-                                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-                            )
+                            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
                         }
 
                     case .artist:
@@ -465,10 +451,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                                 await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
                             }
                         } label: {
-                            Label(
-                                isDownloaded ? "Remove Download" : "Download",
-                                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-                            )
+                            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
                         }
 
                     case .playlist:
@@ -488,10 +471,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                                 await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
                             }
                         } label: {
-                            Label(
-                                isDownloaded ? "Remove Download" : "Download",
-                                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-                            )
+                            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
                         }
                     }
                 }
@@ -501,13 +481,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 Button {
                     playlistMenuActions.onPlayNext()
                 } label: {
-                    Label("Play Next", systemImage: "text.insert")
+                    MediaActionLabel(kind: .playNext)
                 }
 
                 Button {
                     playlistMenuActions.onPlayLast()
                 } label: {
-                    Label("Play Last", systemImage: "text.append")
+                    MediaActionLabel(kind: .playLast)
                 }
 
                 Divider()
@@ -515,21 +495,21 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 Button {
                     playlistMenuActions.onRename()
                 } label: {
-                    Label("Rename", systemImage: "pencil")
+                    MediaActionLabel(kind: .rename)
                 }
                 .disabled(!playlistMenuActions.canRename)
 
                 Button {
                     playlistMenuActions.onEdit()
                 } label: {
-                    Label("Edit Playlist", systemImage: "slider.horizontal.3")
+                    MediaActionLabel(kind: .editPlaylist)
                 }
                 .disabled(!playlistMenuActions.canEdit)
 
                 Button(role: .destructive) {
                     playlistMenuActions.onDelete()
                 } label: {
-                    Label("Delete Playlist", systemImage: "trash")
+                    MediaActionLabel(kind: .deletePlaylist)
                 }
                 .disabled(!playlistMenuActions.canDelete)
             }

@@ -111,11 +111,7 @@ public struct FavoritesView: View {
                     await deps.offlineDownloadService.setFavoritesDownloadEnabled(isEnabled: !isEnabled)
                 }
             } label: {
-                if deps.offlineDownloadService.isFavoritesDownloadEnabled() {
-                    Label("Remove Download", systemImage: "xmark.circle")
-                } else {
-                    Label("Download", systemImage: "arrow.down.circle")
-                }
+                MediaActionLabel(kind: .download(isDownloaded: deps.offlineDownloadService.isFavoritesDownloadEnabled()))
             }
         } label: {
             Label("More", systemImage: EnsembleDesign.Icon.moreCircle)

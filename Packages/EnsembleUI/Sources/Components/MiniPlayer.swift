@@ -100,9 +100,11 @@ public struct MiniPlayer: View {
                     Button {
                         Task { await viewModel.toggleTrackFavorite(track) }
                     } label: {
-                        Label(
-                            viewModel.isTrackFavorited(track) ? "Unfavorite" : "Favorite",
-                            systemImage: viewModel.isTrackFavorited(track) ? EnsembleDesign.Icon.favoriteRemove : EnsembleDesign.Icon.favorite
+                        MediaActionLabel(
+                            kind: .favorite(
+                                isFavorited: viewModel.isTrackFavorited(track),
+                                usesFilledIcon: false
+                            )
                         )
                     }
 
@@ -112,16 +114,16 @@ public struct MiniPlayer: View {
                                 if let playlist = await viewModel.resolveLastPlaylistTarget() {
                                     _ = try? await viewModel.addCurrentTrack(to: playlist)
                                 }
-                            }
-                        } label: {
-                            Label("Add to \(lastTarget.title)", systemImage: "clock.arrow.circlepath")
                         }
+                    } label: {
+                        MediaActionLabel(kind: .addToRecentPlaylist(lastTarget.title))
+                    }
                     }
 
                     Button {
                         showingPlaylistPicker = true
                     } label: {
-                        Label("Add to Playlist…", systemImage: EnsembleDesign.Icon.addToPlaylist)
+                        MediaActionLabel(kind: .addToPlaylist)
                     }
                 }
 
@@ -130,7 +132,7 @@ public struct MiniPlayer: View {
                         Button {
                             navigationCoordinator.navigate(to: .album(id: albumId))
                         } label: {
-                            Label("Go to Album", systemImage: EnsembleDesign.Icon.album)
+                            MediaActionLabel(kind: .goToAlbum)
                         }
                     }
 
@@ -138,7 +140,7 @@ public struct MiniPlayer: View {
                         Button {
                             navigationCoordinator.navigate(to: .artist(id: artistId))
                         } label: {
-                            Label("Go to Artist", systemImage: EnsembleDesign.Icon.artist)
+                            MediaActionLabel(kind: .goToArtist)
                         }
                     }
                 }

@@ -1018,20 +1018,20 @@ public struct SearchView: View {
                         Button {
                             nowPlayingVM.playNext(track)
                         } label: {
-                            Label("Play Next", systemImage: "text.insert")
+                            MediaActionLabel(kind: .playNext)
                         }
                         
                         Button {
                             nowPlayingVM.playLast(track)
                         } label: {
-                            Label("Play Last", systemImage: "text.append")
+                            MediaActionLabel(kind: .playLast)
                         }
 
                         if let albumId = track.albumRatingKey {
                             Button {
                                 navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
                             } label: {
-                                Label("Go to Album", systemImage: "square.stack")
+                                MediaActionLabel(kind: .goToAlbum)
                             }
                         }
 
@@ -1039,7 +1039,7 @@ public struct SearchView: View {
                             Button {
                                 navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
                             } label: {
-                                Label("Go to Artist", systemImage: "person.circle")
+                                MediaActionLabel(kind: .goToArtist)
                             }
                         }
 
@@ -1047,14 +1047,14 @@ public struct SearchView: View {
                             Button {
                                 addToRecentPlaylist(track)
                             } label: {
-                                Label("Add to \(recentTitle)", systemImage: "clock.arrow.circlepath")
+                                MediaActionLabel(kind: .addToRecentPlaylist(recentTitle))
                             }
                         }
 
                         Button {
                             presentPlaylistPicker(with: [track])
                         } label: {
-                            Label("Add to Playlist…", systemImage: "text.badge.plus")
+                            MediaActionLabel(kind: .addToPlaylist)
                         }
 
                         Button {
@@ -1062,11 +1062,12 @@ public struct SearchView: View {
                                 await nowPlayingVM.toggleTrackFavorite(track)
                             }
                         } label: {
-                            if nowPlayingVM.isTrackFavorited(track) {
-                                Label("Unfavorite", systemImage: "heart.slash")
-                            } else {
-                                Label("Favorite", systemImage: "heart")
-                            }
+                            MediaActionLabel(
+                                kind: .favorite(
+                                    isFavorited: nowPlayingVM.isTrackFavorited(track),
+                                    usesFilledIcon: false
+                                )
+                            )
                         }
                     }
                 }

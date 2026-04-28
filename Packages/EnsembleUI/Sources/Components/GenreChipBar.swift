@@ -31,7 +31,7 @@ public struct GenreChipBar: View {
     public var body: some View {
         if !availableGenres.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: EnsembleDesign.Spacing.sm) {
+                HStack(spacing: EnsembleScaffold.Chip.rowSpacing) {
                     // Clear button — animates width to/from zero so it doesn't
                     // cause a jarring shift when chips are toggled mid-scroll
                     Button {
@@ -41,7 +41,7 @@ public struct GenreChipBar: View {
                         }
                     } label: {
                         Image(systemName: EnsembleDesign.Icon.closeCircle)
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: EnsembleScaffold.Chip.clearButtonIconSize, weight: .medium))
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                     .buttonStyle(.plain)
@@ -61,7 +61,7 @@ public struct GenreChipBar: View {
                 }
                 .padding(.horizontal)
             }
-            .frame(height: 36)
+            .frame(height: EnsembleScaffold.Chip.barHeight)
         }
     }
 
@@ -111,8 +111,8 @@ private struct GenreChip: View {
                 .font(.subheadline)
                 .strikethrough(state == .excluded)
                 .lineLimit(1)
-                .padding(.horizontal, EnsembleDesign.Spacing.chipHorizontal)
-                .padding(.vertical, EnsembleDesign.Spacing.chipVertical)
+                .padding(.horizontal, EnsembleScaffold.Chip.horizontalPadding)
+                .padding(.vertical, EnsembleScaffold.Chip.verticalPadding)
                 .foregroundColor(foregroundColor)
                 .background(
                     Capsule()
@@ -120,7 +120,7 @@ private struct GenreChip: View {
                 )
                 .overlay(
                     Capsule()
-                        .strokeBorder(borderColor, lineWidth: state == .included ? 0 : 1)
+                        .strokeBorder(borderColor, lineWidth: state == .included ? 0 : EnsembleScaffold.Chip.borderWidth)
                 )
         }
         .buttonStyle(.plain)

@@ -2,6 +2,37 @@ import SwiftUI
 
 /// Shared adaptive UI patterns that sit above raw design tokens.
 public enum EnsembleScaffold {
+    public enum Chip {
+        public static let horizontalPadding = EnsembleDesign.Spacing.chipHorizontal
+        public static let verticalPadding = EnsembleDesign.Spacing.chipVertical
+        public static let rowSpacing = EnsembleDesign.Spacing.sm
+        public static let barHeight: CGFloat = 36
+        public static let clearButtonIconSize: CGFloat = 14
+        public static let badgeVerticalPadding: CGFloat = 3
+        public static let borderWidth: CGFloat = 1
+    }
+
+    public enum MediaCard {
+        public static let textSpacing = EnsembleDesign.Spacing.cardTextGap
+        public static let contentSpacing = EnsembleDesign.Spacing.sm
+        public static let gridSpacing = EnsembleDesign.Spacing.cardGridGap
+        public static let rowSpacing = EnsembleDesign.Spacing.cardRowGap
+        public static let metadataTextHeight: CGFloat = 66
+        public static let compactColumnMinimum: CGFloat = 100
+        public static let compactColumnMaximum: CGFloat = 140
+        public static let personColumnMaximum: CGFloat = 120
+
+        public static var personGridColumns: [GridItem] {
+            [
+                GridItem(
+                    .adaptive(minimum: compactColumnMinimum, maximum: personColumnMaximum),
+                    spacing: gridSpacing,
+                    alignment: .top
+                )
+            ]
+        }
+    }
+
     public enum BrowseToolbar {
         public static let itemSpacing = EnsembleDesign.Spacing.lg
         public static let activeBadgeSize = EnsembleDesign.Spacing.sm

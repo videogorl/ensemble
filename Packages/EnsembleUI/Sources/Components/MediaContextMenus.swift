@@ -25,7 +25,7 @@ struct AlbumActionsContextMenu: View {
                 nowPlayingVM.play(tracks: tracks)
             }
         } label: {
-            Label("Play", systemImage: "play.fill")
+            MediaActionLabel(kind: .play)
         }
 
         Button {
@@ -33,7 +33,7 @@ struct AlbumActionsContextMenu: View {
                 nowPlayingVM.shufflePlay(tracks: tracks)
             }
         } label: {
-            Label("Shuffle", systemImage: "shuffle")
+            MediaActionLabel(kind: .shuffle)
         }
 
         Button {
@@ -41,7 +41,7 @@ struct AlbumActionsContextMenu: View {
                 nowPlayingVM.enableRadio(tracks: tracks)
             }
         } label: {
-            Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+            MediaActionLabel(kind: .radio)
         }
 
         Divider()
@@ -51,7 +51,7 @@ struct AlbumActionsContextMenu: View {
                 nowPlayingVM.playNext(tracks)
             }
         } label: {
-            Label("Play Next", systemImage: "text.insert")
+            MediaActionLabel(kind: .playNext)
         }
 
         Button {
@@ -59,14 +59,14 @@ struct AlbumActionsContextMenu: View {
                 nowPlayingVM.playLast(tracks)
             }
         } label: {
-            Label("Play Last", systemImage: "text.append")
+            MediaActionLabel(kind: .playLast)
         }
 
         if let recentTarget = nowPlayingVM.lastPlaylistTarget {
             Button {
                 addAlbumToRecentPlaylist(album, expectedTitle: recentTarget.title)
             } label: {
-                Label("Add to \(recentTarget.title)", systemImage: "clock.arrow.circlepath")
+                MediaActionLabel(kind: .addToRecentPlaylist(recentTarget.title))
             }
         }
 
@@ -75,7 +75,7 @@ struct AlbumActionsContextMenu: View {
                 presentPlaylistPicker(tracks, "Add Album to Playlist")
             }
         } label: {
-            Label("Add to Playlist…", systemImage: "text.badge.plus")
+            MediaActionLabel(kind: .addToPlaylist)
         }
 
         Divider()
@@ -84,14 +84,14 @@ struct AlbumActionsContextMenu: View {
             Button {
                 openArtist(artistId)
             } label: {
-                Label("Go to Artist", systemImage: "person.circle")
+                MediaActionLabel(kind: .goToArtist)
             }
         }
 
         Button {
             ShareActions.shareAlbumLink(album, deps: deps)
         } label: {
-            Label("Share Link…", systemImage: "link")
+            MediaActionLabel(kind: .shareLink)
         }
 
         Divider()
@@ -101,10 +101,7 @@ struct AlbumActionsContextMenu: View {
                 await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
             }
         } label: {
-            Label(
-                isDownloaded ? "Remove Download" : "Download",
-                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-            )
+            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
         }
 
         Button {
@@ -121,14 +118,14 @@ struct AlbumActionsContextMenu: View {
                 )
             }
         } label: {
-            Label(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin.fill")
+            MediaActionLabel(kind: .pin(isPinned: isPinned))
         }
 
         if let onEditMetadata {
             Button {
                 onEditMetadata()
             } label: {
-                Label("Edit Metadata…", systemImage: "pencil")
+                MediaActionLabel(kind: .editMetadata)
             }
         }
 
@@ -138,7 +135,7 @@ struct AlbumActionsContextMenu: View {
             Button(role: .destructive) {
                 onDelete()
             } label: {
-                Label("Delete Album", systemImage: "trash")
+                MediaActionLabel(kind: .deleteAlbum)
             }
         }
     }
@@ -227,7 +224,7 @@ struct ArtistActionsContextMenu: View {
                 nowPlayingVM.play(tracks: tracks)
             }
         } label: {
-            Label("Play", systemImage: "play.fill")
+            MediaActionLabel(kind: .play)
         }
 
         Button {
@@ -235,7 +232,7 @@ struct ArtistActionsContextMenu: View {
                 nowPlayingVM.shufflePlay(tracks: tracks)
             }
         } label: {
-            Label("Shuffle", systemImage: "shuffle")
+            MediaActionLabel(kind: .shuffle)
         }
 
         Button {
@@ -243,7 +240,7 @@ struct ArtistActionsContextMenu: View {
                 nowPlayingVM.enableRadio(tracks: tracks)
             }
         } label: {
-            Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+            MediaActionLabel(kind: .radio)
         }
 
         Button {
@@ -251,10 +248,7 @@ struct ArtistActionsContextMenu: View {
                 await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
             }
         } label: {
-            Label(
-                isDownloaded ? "Remove Download" : "Download",
-                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-            )
+            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
         }
 
         let isPinned = pinManager.isPinned(id: artist.id)
@@ -272,14 +266,14 @@ struct ArtistActionsContextMenu: View {
                 )
             }
         } label: {
-            Label(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin.fill")
+            MediaActionLabel(kind: .pin(isPinned: isPinned))
         }
 
         if let onEditMetadata {
             Button {
                 onEditMetadata()
             } label: {
-                Label("Edit Metadata…", systemImage: "pencil")
+                MediaActionLabel(kind: .editMetadata)
             }
         }
     }
@@ -338,7 +332,7 @@ struct PlaylistActionsContextMenu: View {
                 nowPlayingVM.play(tracks: tracks)
             }
         } label: {
-            Label("Play", systemImage: "play.fill")
+            MediaActionLabel(kind: .play)
         }
 
         Button {
@@ -346,7 +340,7 @@ struct PlaylistActionsContextMenu: View {
                 nowPlayingVM.shufflePlay(tracks: tracks)
             }
         } label: {
-            Label("Shuffle", systemImage: "shuffle")
+            MediaActionLabel(kind: .shuffle)
         }
 
         Button {
@@ -354,7 +348,7 @@ struct PlaylistActionsContextMenu: View {
                 nowPlayingVM.playNext(tracks)
             }
         } label: {
-            Label("Play Next", systemImage: "text.insert")
+            MediaActionLabel(kind: .playNext)
         }
 
         Button {
@@ -362,7 +356,7 @@ struct PlaylistActionsContextMenu: View {
                 nowPlayingVM.playLast(tracks)
             }
         } label: {
-            Label("Play Last", systemImage: "text.append")
+            MediaActionLabel(kind: .playLast)
         }
 
         Button {
@@ -370,10 +364,7 @@ struct PlaylistActionsContextMenu: View {
                 await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
             }
         } label: {
-            Label(
-                isDownloaded ? "Remove Download" : "Download",
-                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-            )
+            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
         }
 
         let isPinned = pinManager.isPinned(id: playlist.id)
@@ -391,7 +382,7 @@ struct PlaylistActionsContextMenu: View {
                 )
             }
         } label: {
-            Label(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin.fill")
+            MediaActionLabel(kind: .pin(isPinned: isPinned))
         }
 
         if !playlist.isSmart {
@@ -399,7 +390,7 @@ struct PlaylistActionsContextMenu: View {
                 Button {
                     onRename()
                 } label: {
-                    Label("Rename…", systemImage: "pencil")
+                    MediaActionLabel(kind: .rename)
                 }
             }
 
@@ -407,7 +398,7 @@ struct PlaylistActionsContextMenu: View {
                 Button {
                     onEdit()
                 } label: {
-                    Label("Edit Playlist", systemImage: "slider.horizontal.3")
+                    MediaActionLabel(kind: .editPlaylist)
                 }
             }
 
@@ -415,7 +406,7 @@ struct PlaylistActionsContextMenu: View {
                 Button(role: .destructive) {
                     onDelete()
                 } label: {
-                    Label("Delete Playlist", systemImage: "trash")
+                    MediaActionLabel(kind: .deletePlaylist)
                 }
             }
         }
@@ -471,7 +462,7 @@ struct MergedPlaylistActionsContextMenu: View {
                 nowPlayingVM.play(tracks: tracks)
             }
         } label: {
-            Label("Play", systemImage: "play.fill")
+            MediaActionLabel(kind: .play)
         }
 
         Button {
@@ -479,7 +470,7 @@ struct MergedPlaylistActionsContextMenu: View {
                 nowPlayingVM.shufflePlay(tracks: tracks)
             }
         } label: {
-            Label("Shuffle", systemImage: "shuffle")
+            MediaActionLabel(kind: .shuffle)
         }
 
         Button {
@@ -487,7 +478,7 @@ struct MergedPlaylistActionsContextMenu: View {
                 nowPlayingVM.playNext(tracks)
             }
         } label: {
-            Label("Play Next", systemImage: "text.insert")
+            MediaActionLabel(kind: .playNext)
         }
 
         Button {
@@ -495,7 +486,7 @@ struct MergedPlaylistActionsContextMenu: View {
                 nowPlayingVM.playLast(tracks)
             }
         } label: {
-            Label("Play Last", systemImage: "text.append")
+            MediaActionLabel(kind: .playLast)
         }
 
         if isAnyConstituentDownloaded {
@@ -506,7 +497,7 @@ struct MergedPlaylistActionsContextMenu: View {
                     }
                 }
             } label: {
-                Label("Remove Downloads", systemImage: "xmark.circle")
+                MediaActionLabel(kind: .removeDownloads)
             }
         } else {
             Button {
@@ -516,7 +507,7 @@ struct MergedPlaylistActionsContextMenu: View {
                     }
                 }
             } label: {
-                Label("Download All", systemImage: "arrow.down.circle")
+                MediaActionLabel(kind: .downloadAll)
             }
         }
 
@@ -525,7 +516,7 @@ struct MergedPlaylistActionsContextMenu: View {
                 Button {
                     onRename()
                 } label: {
-                    Label("Rename All...", systemImage: "pencil")
+                    MediaActionLabel(kind: .renameAll)
                 }
             }
 
@@ -533,7 +524,7 @@ struct MergedPlaylistActionsContextMenu: View {
                 Button(role: .destructive) {
                     onDelete()
                 } label: {
-                    Label("Delete All", systemImage: "trash")
+                    MediaActionLabel(kind: .deleteAll)
                 }
             }
         }

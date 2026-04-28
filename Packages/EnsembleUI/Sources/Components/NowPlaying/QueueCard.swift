@@ -354,14 +354,14 @@ public struct QueueCard: View {
     @ViewBuilder
     private func queueContextMenu(for item: QueueItem, at absoluteIndex: Int) -> some View {
         Button { viewModel.playNext(item.track) } label: {
-            Label("Play Next", systemImage: "text.insert")
+            MediaActionLabel(kind: .playNext)
         }
         Button { viewModel.playLast(item.track) } label: {
-            Label("Play Last", systemImage: "text.append")
+            MediaActionLabel(kind: .playLast)
         }
         Divider()
         Button { presentPlaylistPicker(with: [item.track], title: "Add to Playlist") } label: {
-            Label("Add to Playlist...", systemImage: "music.note.list")
+            MediaActionLabel(kind: .addToPlaylist)
         }
         if let lastPlaylistQuickTarget,
            viewModel.compatibleTrackCount([item.track], for: lastPlaylistQuickTarget) > 0 {
@@ -378,7 +378,7 @@ public struct QueueCard: View {
             Button {
                 navigateFromNowPlaying(to: .album(id: albumId))
             } label: {
-                Label("Go to Album", systemImage: "square.stack")
+                MediaActionLabel(kind: .goToAlbum)
             }
         }
         if let artistId = item.track.artistRatingKey {
@@ -398,21 +398,21 @@ public struct QueueCard: View {
     @ViewBuilder
     private func historyContextMenu(for item: QueueItem) -> some View {
         Button { viewModel.playNext(item.track) } label: {
-            Label("Play Next", systemImage: "text.insert")
+            MediaActionLabel(kind: .playNext)
         }
         Button { viewModel.playLast(item.track) } label: {
-            Label("Play Last", systemImage: "text.append")
+            MediaActionLabel(kind: .playLast)
         }
         Divider()
         Button { presentPlaylistPicker(with: [item.track], title: "Add to Playlist") } label: {
-            Label("Add to Playlist...", systemImage: "music.note.list")
+            MediaActionLabel(kind: .addToPlaylist)
         }
         Divider()
         if let albumId = item.track.albumRatingKey {
             Button {
                 navigateFromNowPlaying(to: .album(id: albumId))
             } label: {
-                Label("Go to Album", systemImage: "square.stack")
+                MediaActionLabel(kind: .goToAlbum)
             }
         }
         if let artistId = item.track.artistRatingKey {

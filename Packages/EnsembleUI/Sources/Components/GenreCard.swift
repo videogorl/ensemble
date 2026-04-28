@@ -45,7 +45,7 @@ public struct GenreCard: View {
                 .multilineTextAlignment(.center)
                 .foregroundColor(EnsembleDesign.Color.primaryText)
                 .frame(width: ArtworkSize.thumbnail.cgSize.width)
-                .padding(.top, EnsembleDesign.Spacing.sm)
+                .padding(.top, EnsembleScaffold.MediaCard.contentSpacing)
         }
         .frame(maxWidth: ArtworkSize.thumbnail.cgSize.width, maxHeight: .infinity, alignment: .top)
         .contentShape(Rectangle())
@@ -75,9 +75,7 @@ public struct GenreGrid: View {
     let genres: [Genre]
     let onGenreTap: ((Genre) -> Void)?
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: EnsembleDesign.Spacing.cardGridGap, alignment: .top)
-    ]
+    private let columns = EnsembleScaffold.MediaCard.personGridColumns
 
     public init(genres: [Genre], onGenreTap: ((Genre) -> Void)? = nil) {
         self.genres = genres
@@ -85,7 +83,7 @@ public struct GenreGrid: View {
     }
 
     public var body: some View {
-        LazyVGrid(columns: columns, spacing: EnsembleDesign.Spacing.cardRowGap) {
+        LazyVGrid(columns: columns, spacing: EnsembleScaffold.MediaCard.rowSpacing) {
             ForEach(genres) { genre in
                 GenreCard(genre: genre) {
                     onGenreTap?(genre)
