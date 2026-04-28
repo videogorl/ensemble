@@ -107,6 +107,7 @@ public struct LargeScreenBrowseSplitView<
         Group {
             if let selection {
                 detail(selection)
+                    .largeScreenBrowseDetailPane()
             } else {
                 placeholder
             }

@@ -16,6 +16,10 @@ private struct DismissViewportNowPlayingKey: EnvironmentKey {
     static let defaultValue: (() -> Void)? = nil
 }
 
+private struct LargeScreenBrowseDetailPaneKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 /// Tracks keyboard-heavy editor presentation from the presenting view so root
 /// chrome can settle before the editor enters the hierarchy, regardless of
 /// whether the editor is shown in a sheet or another presentation shell.
@@ -73,6 +77,11 @@ public extension EnvironmentValues {
     var dismissViewportNowPlaying: (() -> Void)? {
         get { self[DismissViewportNowPlayingKey.self] }
         set { self[DismissViewportNowPlayingKey.self] = newValue }
+    }
+
+    var isInLargeScreenBrowseDetailPane: Bool {
+        get { self[LargeScreenBrowseDetailPaneKey.self] }
+        set { self[LargeScreenBrowseDetailPaneKey.self] = newValue }
     }
 }
 
@@ -537,5 +546,11 @@ extension View {
         #else
         self
         #endif
+    }
+
+    /// Marks content hosted as the detail pane inside the app's large-screen
+    /// browse split so shared toolbar placement can avoid standalone-only spacers.
+    func largeScreenBrowseDetailPane(_ isActive: Bool = true) -> some View {
+        environment(\.isInLargeScreenBrowseDetailPane, isActive)
     }
 }

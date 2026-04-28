@@ -152,9 +152,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
             #else
-            ToolbarItem {
-                Spacer()
-            }
+            EnsembleDetailToolbarLeadingSpacer()
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 if shouldShowStandaloneFilterButton {
                     EnsembleBrowseFilterButton(

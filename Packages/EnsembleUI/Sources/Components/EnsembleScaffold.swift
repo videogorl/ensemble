@@ -287,6 +287,30 @@ public struct EnsembleBrowseToolbar<Content: View>: ToolbarContent {
     }
 }
 
+/// Standalone detail views on macOS need a leading flexible toolbar item so
+/// actions align with the trailing edge instead of clustering near the title.
+/// Detail panes inside LargeScreenBrowseSplitView already participate in the
+/// split's shared toolbar geometry and should not add that spacer.
+public struct EnsembleDetailToolbarLeadingSpacer: ToolbarContent {
+    @Environment(\.isInLargeScreenBrowseDetailPane) private var isInLargeScreenBrowseDetailPane
+
+    public init() {}
+
+    public var body: some ToolbarContent {
+        #if os(macOS)
+        ToolbarItem {
+            if !isInLargeScreenBrowseDetailPane {
+                Spacer()
+            }
+        }
+        #else
+        ToolbarItem(placement: .navigationBarTrailing) {
+            EmptyView()
+        }
+        #endif
+    }
+}
+
 /// Standard filter button for browse screens, including the active-filter badge treatment.
 public struct EnsembleBrowseFilterButton: View {
     let title: String

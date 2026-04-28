@@ -189,6 +189,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Filled actions inside empty/loading/error states should use `EnsembleStateActionLabel`; account setup/authentication surfaces should use `EnsembleScaffold.AccountSetup` for PIN, card, row, and sheet sizing.
 - Profile, downloads, account detail, and lightweight settings rows should use `EnsembleScaffold.UtilityRow` for icon lanes, thumbnail dimensions, nested status indentation, and compact text/status spacing.
 - Shared browse toolbar groups live in `EnsembleBrowseToolbar`; keep screen-owned actions as small button/menu helpers and let the scaffold own platform placement and spacing.
+- Standalone macOS detail toolbar actions that need trailing alignment should use `EnsembleDetailToolbarLeadingSpacer`; large-screen browse detail panes are marked by `LargeScreenBrowseSplitView` so the spacer is suppressed in dual-pane mode.
 - Indexed browse section headers should use `EnsembleBrowseSectionHeader`, and large-screen browse selection rows should use `EnsembleScaffold.BrowseSelection` / `browseSelectionBackground(isSelected:)`.
 - Content shelves and tappable section headers should use `EnsembleContentSectionHeader` so title weight, color, and disclosure icons stay aligned across Feed, Search, and library sections.
 - Shared media menu and swipe labels should use `MediaActionLabel` so icons, ellipses, and verb choices stay consistent across rows, cards, shelves, and detail surfaces.
