@@ -265,12 +265,12 @@ public struct SongsView: View {
             if usesLargeScreenSongBrowser(for: geometry.size) {
                 largeScreenSongBrowserView(width: geometry.size.width)
             } else {
-                compactTrackListView
+                compactTrackListView(width: geometry.size.width)
             }
         }
     }
 
-    private var compactTrackListView: some View {
+    private func compactTrackListView(width: CGFloat) -> some View {
         Group {
             if libraryVM.trackSortOption == .title {
                 #if os(iOS)
@@ -287,7 +287,7 @@ public struct SongsView: View {
                         }
                         .miniPlayerBottomSpacing()
 
-                        if !libraryVM.filteredTracks.isEmpty {
+                        if !libraryVM.filteredTracks.isEmpty && ScrollIndex.isVisible(forContainerWidth: width) {
                             ScrollIndex(
                                 letters: libraryVM.trackSections.map { $0.letter },
                                 currentLetter: .constant(nil),
@@ -369,7 +369,7 @@ public struct SongsView: View {
                         .modifier(ClearScrollContentBackgroundModifier())
                         .miniPlayerBottomSpacing()
 
-                        if !libraryVM.filteredTracks.isEmpty {
+                        if !libraryVM.filteredTracks.isEmpty && ScrollIndex.isVisible(forContainerWidth: width) {
                             ScrollIndex(
                                 letters: libraryVM.trackSections.map { $0.letter },
                                 currentLetter: .constant(nil),
@@ -415,7 +415,7 @@ public struct SongsView: View {
 
     private func usesLargeScreenSongBrowser(for size: CGSize) -> Bool {
         guard canShowLargeScreenSongBrowser else { return false }
-        return size.width >= 840
+        return size.width >= EnsembleDesign.Breakpoint.browseSplitMinimumWidth
     }
 
     @ViewBuilder
@@ -448,7 +448,7 @@ public struct SongsView: View {
             activeDownloadRatingKeys: activeDownloadRatingKeys,
             bottomContentInset: largeScreenSongListBottomInset,
             supplementalMetadataWidth: width,
-            showsSectionIndex: true,
+            showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
             interactionModel: largeScreenTrackInteractionModel
         ) { track, _ in
             playTrack(track)

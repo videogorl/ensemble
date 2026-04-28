@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 public struct ScrollIndex: View {
     let letters: [String]
@@ -15,6 +18,17 @@ public struct ScrollIndex: View {
         self.letters = letters
         self._currentLetter = currentLetter
         self.onLetterTap = onLetterTap
+    }
+
+    public static func isVisible(forContainerWidth width: CGFloat) -> Bool {
+        #if os(macOS)
+        return false
+        #elseif os(iOS)
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
+        return width < EnsembleDesign.Breakpoint.browseSplitMinimumWidth
+        #else
+        return width < EnsembleDesign.Breakpoint.browseSplitMinimumWidth
+        #endif
     }
     
     public var body: some View {
