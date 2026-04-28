@@ -23,9 +23,9 @@ struct MusicSourceAccountRow: View {
             Image(systemName: "music.note.list")
                 .font(.title2)
                 .foregroundColor(.accentColor)
-                .frame(width: 44)
+                .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.detailTextSpacing) {
                 Text(sourceName)
                     .font(.body)
 
@@ -94,7 +94,7 @@ struct ConnectionPolicySettingsView: View {
             Section {
                 Picker("Allow Insecure Connections", selection: policyBinding) {
                     ForEach(AllowInsecureConnectionsPolicy.allCases, id: \.rawValue) { policy in
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                             Text(policy.title)
                             Text(policy.subtitle)
                                 .font(.caption)

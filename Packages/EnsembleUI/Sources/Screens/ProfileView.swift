@@ -164,7 +164,7 @@ public struct ProfileView: View {
                 HStack {
                     Image(systemName: "plus.circle.fill")
                         .foregroundColor(settingsManager.accentColor.color)
-                        .frame(width: 44)
+                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Add Plex Account")
                 }
             }
@@ -183,8 +183,8 @@ public struct ProfileView: View {
 
     private var appearanceSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
+                HStack(spacing: EnsembleDesign.Spacing.lg) {
                     ForEach(AppAccentColor.allCases) { colorOption in
                         Circle()
                             .fill(colorOption.color)
@@ -200,15 +200,15 @@ public struct ProfileView: View {
                             }
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, EnsembleScaffold.UtilityRow.subtleVerticalPadding)
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, EnsembleScaffold.UtilityRow.subtleVerticalPadding)
 
             Toggle(isOn: $settingsManager.auroraVisualizationEnabled) {
                 HStack {
                     Image(systemName: "sparkles")
-                        .frame(width: 44)
-                    VStack(alignment: .leading, spacing: 2) {
+                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
+                    VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                         Text("Aurora Visualization")
                         Text("Animated background that reacts to music")
                             .font(.caption)
@@ -230,8 +230,8 @@ public struct ProfileView: View {
             Toggle(isOn: $isAutoplayEnabled) {
                 HStack {
                     Image(systemName: "infinity.circle.fill")
-                        .frame(width: 44)
-                    VStack(alignment: .leading, spacing: 2) {
+                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
+                    VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                         Text("Autoplay")
                         Text("Continue with similar tracks when queue ends")
                             .font(.caption)
@@ -246,8 +246,8 @@ public struct ProfileView: View {
             Toggle(isOn: $settingsManager.scrobblingEnabled) {
                 HStack {
                     Image(systemName: "checkmark.circle")
-                        .frame(width: 44)
-                    VStack(alignment: .leading, spacing: 2) {
+                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
+                    VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                         Text("Scrobbling")
                         Text("Report play counts to your Plex server")
                             .font(.caption)
@@ -261,7 +261,7 @@ public struct ProfileView: View {
             } label: {
                 HStack {
                     Image(systemName: "waveform")
-                        .frame(width: 44)
+                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Audio Quality")
                 }
             }
@@ -271,7 +271,7 @@ public struct ProfileView: View {
             } label: {
                 HStack {
                     Image(systemName: "lock.shield")
-                        .frame(width: 44)
+                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Connection Security")
                 }
             }
@@ -281,7 +281,7 @@ public struct ProfileView: View {
             } label: {
                 HStack {
                     Image(systemName: "slider.horizontal.3")
-                        .frame(width: 44)
+                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Track Swipe Actions")
                 }
             }
@@ -297,7 +297,7 @@ public struct ProfileView: View {
             } label: {
                 HStack {
                     Image(systemName: "trash")
-                        .frame(width: 44)
+                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Clear All Library Data")
                         .foregroundColor(.red)
                 }
@@ -316,7 +316,7 @@ public struct ProfileView: View {
             } label: {
                 HStack {
                     Image(systemName: "person.2.slash")
-                        .frame(width: 44)
+                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Remove All Accounts")
                         .foregroundColor(.red)
                 }
@@ -333,7 +333,7 @@ public struct ProfileView: View {
             } label: {
                 HStack {
                     Image(systemName: "doc.text.magnifyingglass")
-                        .frame(width: 44)
+                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Logs")
                 }
             }
@@ -342,8 +342,8 @@ public struct ProfileView: View {
             Toggle(isOn: $debugSimulateOffline) {
                 HStack {
                     Image(systemName: "wifi.slash")
-                        .frame(width: 44)
-                    VStack(alignment: .leading, spacing: 2) {
+                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
+                    VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                         Text("Simulate No Connection")
                         Text("Forces app into offline mode for testing")
                             .font(.caption)
@@ -367,7 +367,7 @@ public struct ProfileView: View {
             } label: {
                 HStack {
                     Image(systemName: "bell.badge")
-                        .frame(width: 44)
+                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Send Test Toast")
                 }
             }
@@ -381,7 +381,7 @@ public struct ProfileView: View {
         Section(header: Text("About").foregroundColor(.accentColor).textCase(nil)) {
             HStack {
                 Image(systemName: "info.circle")
-                    .frame(width: 44)
+                    .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                 Text("Version")
                 Spacer()
                 Text(Bundle.main.appVersion)
@@ -391,7 +391,7 @@ public struct ProfileView: View {
             Link(destination: Self.supportURL) {
                 HStack {
                     Image(systemName: "questionmark.circle")
-                        .frame(width: 44)
+                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Help & Support")
                     Spacer()
                     Image(systemName: "arrow.up.right.square")

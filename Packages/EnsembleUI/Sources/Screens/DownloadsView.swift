@@ -178,21 +178,24 @@ public struct DownloadsView: View {
     }
 
     private func libraryRowLabel(for library: LibraryDownloadSummary) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 // Library icon
                 Image(systemName: "building.columns")
                     .font(.title3)
                     .foregroundColor(.accentColor)
-                    .frame(width: 40, height: 40)
+                    .frame(
+                        width: EnsembleScaffold.UtilityRow.compactArtworkDimension,
+                        height: EnsembleScaffold.UtilityRow.compactArtworkDimension
+                    )
                     #if os(iOS)
                     .background(Color(UIColor.tertiarySystemGroupedBackground))
                     #else
                     .background(Color(NSColor.controlBackgroundColor))
                     #endif
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: EnsembleDesign.Radius.compactControl, style: .continuous))
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                     Text("\(library.serverName): \(library.libraryName)")
                         .font(.body)
                         .lineLimit(1)
@@ -213,7 +216,7 @@ public struct DownloadsView: View {
 
             // Toggle-in-progress spinner
             if viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey) {
-                HStack(spacing: 8) {
+                HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
                     ProgressView()
                         .controlSize(.mini)
                     Text("Updating...")
@@ -408,7 +411,7 @@ private struct DownloadedItemRow: View {
     let item: DownloadedItemSummary
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 // Album/artist art thumbnail (circle for artists)
                 ArtworkView(
@@ -417,13 +420,16 @@ private struct DownloadedItemRow: View {
                     ratingKey: item.ratingKey,
                     size: .thumbnail,
                     cornerRadius: item.kind == .artist
-                        ? ArtworkCornerRadius.circle(for: 48)
-                        : ArtworkCornerRadius.square(for: 48),
+                        ? ArtworkCornerRadius.circle(for: EnsembleScaffold.UtilityRow.artworkDimension)
+                        : ArtworkCornerRadius.square(for: EnsembleScaffold.UtilityRow.artworkDimension),
                     isResponsive: true
                 )
-                .frame(width: 48, height: 48)
+                .frame(
+                    width: EnsembleScaffold.UtilityRow.artworkDimension,
+                    height: EnsembleScaffold.UtilityRow.artworkDimension
+                )
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                     Text(item.title)
                         .font(.body)
                         .lineLimit(1)
@@ -513,12 +519,15 @@ private struct RemovalProgressRow: View {
     let progress: RemovalProgress
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 ProgressView()
-                    .frame(width: 48, height: 48)
+                    .frame(
+                        width: EnsembleScaffold.UtilityRow.artworkDimension,
+                        height: EnsembleScaffold.UtilityRow.artworkDimension
+                    )
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                     Text("Removing \(progress.targetTitle)...")
                         .font(.body)
                         .lineLimit(1)

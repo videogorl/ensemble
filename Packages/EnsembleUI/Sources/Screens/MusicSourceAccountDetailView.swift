@@ -44,9 +44,9 @@ public struct MusicSourceAccountDetailView: View {
                         Section {
                             // Show scan progress bar when server is scanning
                             if let scanProgress = viewModel.scanProgressByServer[server.id] {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "magnifyingglass")
+                                VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.detailTextSpacing) {
+                                    HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
+                                        Image(systemName: EnsembleDesign.Icon.search)
                                             .font(.caption)
                                             .foregroundColor(.accentColor)
                                         Text("Scanning library…")
@@ -56,7 +56,7 @@ public struct MusicSourceAccountDetailView: View {
                                     ProgressView(value: Double(scanProgress), total: 100)
                                         .tint(.accentColor)
                                 }
-                                .padding(.vertical, 2)
+                                .padding(.vertical, EnsembleScaffold.UtilityRow.tightVerticalPadding)
                             }
 
                             if let refreshError = viewModel.serverLibraryErrors[server.id] {
@@ -79,7 +79,7 @@ public struct MusicSourceAccountDetailView: View {
                                 }
                             }
                         } header: {
-                            HStack(spacing: 8) {
+                            HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
                                 Text(server.serverName)
                                 if let platform = server.serverPlatform {
                                     Text("(\(platform))")
@@ -129,7 +129,7 @@ public struct MusicSourceAccountDetailView: View {
                     .disabled(viewModel.isRefreshingInventory || viewModel.isReauthenticationRequired)
 
                     if viewModel.isRefreshingInventory {
-                        HStack(spacing: 8) {
+                        HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
                             ProgressView()
                             Text("Checking for library updates…")
                                 .font(.caption)
@@ -146,12 +146,12 @@ public struct MusicSourceAccountDetailView: View {
 
                 // Feature legend (plain text, no cell styling)
                 Section {
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
                         featureLegendRow(icon: "ticket.fill", text: "Plex Pass: Higher quality transcoding and lyrics")
                         featureLegendRow(icon: "quote.bubble.fill", text: "Lyrics: Time-synced lyrics via LyricFind")
                         featureLegendRow(icon: "infinity", text: "Radio: Sonically similar radio stations")
                     }
-                    .padding(.vertical, -4)
+                    .padding(.vertical, EnsembleScaffold.UtilityRow.negativeListPadding)
                     .listRowBackground(Color.clear)
                     #if os(iOS)
                     .listRowSeparator(.hidden)
@@ -201,11 +201,11 @@ public struct MusicSourceAccountDetailView: View {
     }
 
     private func featureLegendRow(icon: String, text: String) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
             Image(systemName: icon)
                 .font(.caption2)
                 .foregroundColor(.accentColor)
-                .frame(width: 14)
+                .frame(width: EnsembleScaffold.UtilityRow.inlineIconWidth)
             Text(text)
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -218,9 +218,9 @@ private struct LibrarySyncStatusRow: View {
     let onToggle: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
             Button(action: onToggle) {
-                HStack(spacing: 10) {
+                HStack(spacing: EnsembleScaffold.UtilityRow.controlSpacing) {
                     Image(systemName: row.isEnabled ? "checkmark.circle.fill" : "circle")
                         .font(.body)
                         .foregroundColor(row.isEnabled ? .accentColor : .secondary)
@@ -242,19 +242,19 @@ private struct LibrarySyncStatusRow: View {
 
             if row.isEnabled {
                 EnabledLibraryStatusView(status: row.status ?? MusicSourceStatus())
-                    .padding(.leading, 28)
+                    .padding(.leading, EnsembleScaffold.UtilityRow.nestedLeadingPadding)
             } else {
-                HStack(spacing: 6) {
+                HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
                     Image(systemName: "minus.circle")
                         .foregroundColor(.secondary)
                     Text("Not synced")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-                .padding(.leading, 28)
+                .padding(.leading, EnsembleScaffold.UtilityRow.nestedLeadingPadding)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, EnsembleScaffold.UtilityRow.tightVerticalPadding)
     }
 }
 
@@ -262,8 +262,8 @@ private struct EnabledLibraryStatusView: View {
     let status: MusicSourceStatus
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.detailTextSpacing) {
+            HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
                 Image(systemName: syncIcon)
                     .foregroundColor(syncColor)
                     .font(.caption)
@@ -274,7 +274,7 @@ private struct EnabledLibraryStatusView: View {
                     .lineLimit(2)
             }
 
-            HStack(spacing: 6) {
+            HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
                 Image(systemName: connectionIcon)
                     .foregroundColor(connectionColor)
                     .font(.caption)
@@ -386,7 +386,7 @@ private struct ServerFeatureBadges: View {
     let section: MusicSourceAccountDetailViewModel.ServerSection
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: EnsembleScaffold.UtilityRow.detailTextSpacing) {
             if section.hasPlexPass {
                 Image(systemName: "ticket.fill")
                     .font(.caption2)

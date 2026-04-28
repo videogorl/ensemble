@@ -85,6 +85,22 @@ public enum EnsembleScaffold {
         public static let cardBackground = Color.gray.opacity(0.1)
     }
 
+    public enum UtilityRow {
+        public static let iconLaneWidth = EnsembleScaffold.AccountSetup.rowIconWidth
+        public static let inlineIconWidth: CGFloat = 14
+        public static let compactArtworkDimension: CGFloat = 40
+        public static let artworkDimension: CGFloat = 48
+        public static let textSpacing = EnsembleDesign.Spacing.xxs
+        public static let detailTextSpacing = EnsembleDesign.Spacing.xs
+        public static let inlineSpacing = EnsembleDesign.Spacing.chipVertical
+        public static let rowSpacing = EnsembleDesign.Spacing.sm
+        public static let controlSpacing: CGFloat = 10
+        public static let nestedLeadingPadding: CGFloat = iconLaneWidth - EnsembleDesign.Spacing.lg
+        public static let tightVerticalPadding = EnsembleDesign.Spacing.xxs
+        public static let subtleVerticalPadding = EnsembleDesign.Spacing.xs
+        public static let negativeListPadding: CGFloat = -EnsembleDesign.Spacing.xs
+    }
+
     public enum FilterPresentation {
         public enum Style: Equatable {
             case toolbarPopover
