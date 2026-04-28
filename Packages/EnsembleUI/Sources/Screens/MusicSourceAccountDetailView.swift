@@ -30,13 +30,13 @@ public struct MusicSourceAccountDetailView: View {
             if viewModel.isAccountMissing {
                 Section {
                     Text("This account is no longer available.")
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             } else {
                 if viewModel.isReauthenticationRequired {
                     Section {
                         Text("Session expired. Re-authenticate this account to change libraries or sync.")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 } else {
                     // Server/library sections
@@ -47,27 +47,27 @@ public struct MusicSourceAccountDetailView: View {
                                 VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.detailTextSpacing) {
                                     HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
                                         Image(systemName: EnsembleDesign.Icon.search)
-                                            .font(.caption)
-                                            .foregroundColor(.accentColor)
+                                            .font(EnsembleDesign.Typography.rowSecondary)
+                                            .foregroundColor(EnsembleDesign.Color.accent)
                                         Text("Scanning library…")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
+                                            .font(EnsembleDesign.Typography.rowSecondary)
+                                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                                     }
                                     ProgressView(value: Double(scanProgress), total: 100)
-                                        .tint(.accentColor)
+                                        .tint(EnsembleDesign.Color.accent)
                                 }
                                 .padding(.vertical, EnsembleScaffold.UtilityRow.tightVerticalPadding)
                             }
 
                             if let refreshError = viewModel.serverLibraryErrors[server.id] {
                                 Text(refreshError)
-                                    .font(.caption)
-                                    .foregroundColor(.red)
+                                    .font(EnsembleDesign.Typography.rowSecondary)
+                                    .foregroundColor(EnsembleDesign.Color.destructive)
                             }
 
                             if server.libraries.isEmpty {
                                 Text("No music libraries found")
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                             } else {
                                 ForEach(server.libraries) { library in
                                     LibrarySyncStatusRow(row: library) {
@@ -83,7 +83,7 @@ public struct MusicSourceAccountDetailView: View {
                                 Text(server.serverName)
                                 if let platform = server.serverPlatform {
                                     Text("(\(platform))")
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                                 }
                                 Spacer()
                                 ServerFeatureBadges(section: server)
@@ -101,7 +101,7 @@ public struct MusicSourceAccountDetailView: View {
                     } label: {
                         HStack {
                             Image(systemName: "arrow.triangle.2.circlepath")
-                                .foregroundColor(.accentColor)
+                                .foregroundColor(EnsembleDesign.Color.accent)
                             Text("Sync Enabled Libraries")
                             Spacer()
                             if viewModel.isSyncingEnabledLibraries {
@@ -118,7 +118,7 @@ public struct MusicSourceAccountDetailView: View {
                     } label: {
                         HStack {
                             Image(systemName: "arrow.clockwise")
-                                .foregroundColor(.accentColor)
+                                .foregroundColor(EnsembleDesign.Color.accent)
                             Text("Refresh Available Libraries")
                             Spacer()
                             if viewModel.isRefreshingInventory {
@@ -132,15 +132,15 @@ public struct MusicSourceAccountDetailView: View {
                         HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
                             ProgressView()
                             Text("Checking for library updates…")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                                .font(EnsembleDesign.Typography.rowSecondary)
+                                .foregroundColor(EnsembleDesign.Color.secondaryText)
                         }
                     }
 
                     if let error = viewModel.error {
                         Text(error)
-                            .font(.caption)
-                            .foregroundColor(.red)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.destructive)
                     }
                 }
 
@@ -204,11 +204,11 @@ public struct MusicSourceAccountDetailView: View {
         HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
             Image(systemName: icon)
                 .font(.caption2)
-                .foregroundColor(.accentColor)
+                .foregroundColor(EnsembleDesign.Color.accent)
                 .frame(width: EnsembleScaffold.UtilityRow.inlineIconWidth)
             Text(text)
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
     }
 }
@@ -222,18 +222,18 @@ private struct LibrarySyncStatusRow: View {
             Button(action: onToggle) {
                 HStack(spacing: EnsembleScaffold.UtilityRow.controlSpacing) {
                     Image(systemName: row.isEnabled ? "checkmark.circle.fill" : "circle")
-                        .font(.body)
-                        .foregroundColor(row.isEnabled ? .accentColor : .secondary)
+                        .font(EnsembleDesign.Typography.rowPrimary)
+                        .foregroundColor(row.isEnabled ? EnsembleDesign.Color.accent : EnsembleDesign.Color.secondaryText)
 
                     Text(row.title)
-                        .foregroundColor(.primary)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
 
                     Spacer()
 
                     if row.allowSync == true {
                         Image(systemName: "arrow.down.circle.fill")
                             .font(.caption2)
-                            .foregroundColor(.accentColor)
+                            .foregroundColor(EnsembleDesign.Color.accent)
                     }
                 }
                 .contentShape(Rectangle())
@@ -246,10 +246,10 @@ private struct LibrarySyncStatusRow: View {
             } else {
                 HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
                     Image(systemName: "minus.circle")
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                     Text("Not synced")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
                 .padding(.leading, EnsembleScaffold.UtilityRow.nestedLeadingPadding)
             }
@@ -266,10 +266,10 @@ private struct EnabledLibraryStatusView: View {
             HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
                 Image(systemName: syncIcon)
                     .foregroundColor(syncColor)
-                    .font(.caption)
+                    .font(EnsembleDesign.Typography.rowSecondary)
 
                 Text(syncText)
-                    .font(.caption)
+                    .font(EnsembleDesign.Typography.rowSecondary)
                     .foregroundColor(syncColor)
                     .lineLimit(2)
             }
@@ -277,11 +277,11 @@ private struct EnabledLibraryStatusView: View {
             HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
                 Image(systemName: connectionIcon)
                     .foregroundColor(connectionColor)
-                    .font(.caption)
+                    .font(EnsembleDesign.Typography.rowSecondary)
 
                 Text(connectionText)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
     }
@@ -302,11 +302,11 @@ private struct EnabledLibraryStatusView: View {
     private var syncColor: Color {
         switch status.syncStatus {
         case .idle, .lastSynced:
-            return .secondary
+            return EnsembleDesign.Color.secondaryText
         case .syncing:
-            return .accentColor
+            return EnsembleDesign.Color.accent
         case .error:
-            return .red
+            return EnsembleDesign.Color.destructive
         }
     }
 
@@ -333,9 +333,9 @@ private struct EnabledLibraryStatusView: View {
             return .orange
         case .red:
             if case .unknown = status.connectionState {
-                return .secondary
+                return EnsembleDesign.Color.secondaryText
             }
-            return .red
+            return EnsembleDesign.Color.destructive
         case .gray:
             return .gray
         }
@@ -390,17 +390,17 @@ private struct ServerFeatureBadges: View {
             if section.hasPlexPass {
                 Image(systemName: "ticket.fill")
                     .font(.caption2)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(EnsembleDesign.Color.accent)
             }
             if section.capabilities?.hasLyrics == true {
                 Image(systemName: "quote.bubble.fill")
                     .font(.caption2)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(EnsembleDesign.Color.accent)
             }
             if section.capabilities?.hasRadio == true {
                 Image(systemName: "infinity")
                     .font(.caption2)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(EnsembleDesign.Color.accent)
             }
         }
     }

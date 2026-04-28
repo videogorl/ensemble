@@ -73,7 +73,7 @@ public struct DownloadsView: View {
                     }
                 } header: {
                     Text("Libraries")
-                        .foregroundColor(.accentColor)
+                        .foregroundColor(EnsembleDesign.Color.accent)
                         .textCase(nil)
                 } footer: {
                     Text("Toggle to enable entire libraries for offline playback. Tap a row to see downloaded tracks.")
@@ -94,7 +94,7 @@ public struct DownloadsView: View {
             Section {
                 if viewModel.items.isEmpty {
                     Text("No offline items selected")
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 } else {
                     ForEach(viewModel.items) { item in
                         if let progress = viewModel.removalInProgress[item.key] {
@@ -112,7 +112,7 @@ public struct DownloadsView: View {
                 }
             } header: {
                 Text("Items")
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(EnsembleDesign.Color.accent)
                     .textCase(nil)
             } footer: {
                 Text("Playlists, albums, and artists selected for offline are listed here.")
@@ -171,7 +171,7 @@ public struct DownloadsView: View {
                 // Manual chevron since the hidden NavigationLink won't render one
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
-                    .foregroundColor(.secondary.opacity(0.5))
+                    .foregroundColor(EnsembleDesign.Color.secondaryText.opacity(0.5))
                     .frame(width: 12, alignment: .trailing)
             }
         }
@@ -183,7 +183,7 @@ public struct DownloadsView: View {
                 // Library icon
                 Image(systemName: "building.columns")
                     .font(.title3)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(EnsembleDesign.Color.accent)
                     .frame(
                         width: EnsembleScaffold.UtilityRow.compactArtworkDimension,
                         height: EnsembleScaffold.UtilityRow.compactArtworkDimension
@@ -197,19 +197,19 @@ public struct DownloadsView: View {
 
                 VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                     Text("\(library.serverName): \(library.libraryName)")
-                        .font(.body)
+                        .font(EnsembleDesign.Typography.rowPrimary)
                         .lineLimit(1)
 
                     // Track count line
                     Text(libraryTrackCountText(for: library))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
 
                     // Size line
                     Text(librarySizeText(for: library))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
                 }
             }
@@ -220,8 +220,8 @@ public struct DownloadsView: View {
                     ProgressView()
                         .controlSize(.mini)
                     Text("Updating...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }
 
@@ -390,7 +390,7 @@ public struct DownloadsView: View {
         VStack(spacing: EnsembleDesign.Spacing.md) {
             ProgressView()
             Text("Loading offline items...")
-                .font(.caption)
+                .font(EnsembleDesign.Typography.rowSecondary)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
         .padding(EnsembleDesign.Spacing.xl)
@@ -431,11 +431,11 @@ private struct DownloadedItemRow: View {
 
                 VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                     Text(item.title)
-                        .font(.body)
+                        .font(EnsembleDesign.Typography.rowPrimary)
                         .lineLimit(1)
                     Text(metadataText)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
                 }
 
@@ -444,12 +444,12 @@ private struct DownloadedItemRow: View {
                 // Refresh indicator when target has quality-mismatched or failed tracks
                 if item.needsRefresh {
                     Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.caption)
-                        .foregroundColor(.orange)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.warning)
                 }
 
                 Text(statusText)
-                    .font(.caption)
+                    .font(EnsembleDesign.Typography.rowSecondary)
                     .foregroundColor(statusColor)
             }
 
@@ -494,13 +494,13 @@ private struct DownloadedItemRow: View {
     private var statusColor: Color {
         switch item.status {
         case .failed:
-            return .red
+            return EnsembleDesign.Color.destructive
         case .downloading:
-            return .accentColor
+            return EnsembleDesign.Color.accent
         case .paused:
-            return .orange
+            return EnsembleDesign.Color.warning
         case .pending, .completed:
-            return .secondary
+            return EnsembleDesign.Color.secondaryText
         }
     }
 
@@ -529,11 +529,11 @@ private struct RemovalProgressRow: View {
 
                 VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                     Text("Removing \(progress.targetTitle)...")
-                        .font(.body)
+                        .font(EnsembleDesign.Typography.rowPrimary)
                         .lineLimit(1)
                     Text("\(progress.completed) of \(progress.total) tracks")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
 
                 Spacer()

@@ -170,7 +170,7 @@ public struct ProfileView: View {
             }
         } header: {
             Text("Music Sources")
-                .foregroundColor(.accentColor)
+                .foregroundColor(EnsembleDesign.Color.accent)
                 .textCase(nil)
         } footer: {
             if accountManager.plexAccounts.isEmpty {
@@ -191,7 +191,7 @@ public struct ProfileView: View {
                             .frame(width: 30, height: 30)
                             .overlay(
                                 Circle()
-                                    .stroke(Color.primary, lineWidth: settingsManager.accentColor == colorOption ? 2 : 0)
+                                    .stroke(EnsembleDesign.Color.primaryText, lineWidth: settingsManager.accentColor == colorOption ? 2 : 0)
                                     .frame(width: 36, height: 36)
                             )
                             .contentShape(Rectangle())
@@ -211,14 +211,14 @@ public struct ProfileView: View {
                     VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                         Text("Aurora Visualization")
                         Text("Animated background that reacts to music")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 }
             }
         } header: {
             Text("Accent Color: \(settingsManager.accentColor.rawValue.capitalized)")
-                .foregroundColor(.accentColor)
+                .foregroundColor(EnsembleDesign.Color.accent)
                 .textCase(nil)
         }
     }
@@ -226,7 +226,7 @@ public struct ProfileView: View {
     // MARK: - Playback
 
     private var playbackSection: some View {
-        Section(header: Text("Playback").foregroundColor(.accentColor).textCase(nil)) {
+        Section(header: Text("Playback").foregroundColor(EnsembleDesign.Color.accent).textCase(nil)) {
             Toggle(isOn: $isAutoplayEnabled) {
                 HStack {
                     Image(systemName: "infinity.circle.fill")
@@ -234,8 +234,8 @@ public struct ProfileView: View {
                     VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                         Text("Autoplay")
                         Text("Continue with similar tracks when queue ends")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 }
             }
@@ -250,8 +250,8 @@ public struct ProfileView: View {
                     VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                         Text("Scrobbling")
                         Text("Report play counts to your Plex server")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 }
             }
@@ -291,7 +291,7 @@ public struct ProfileView: View {
     // MARK: - Storage
 
     private var storageSection: some View {
-        Section(header: Text("Storage").foregroundColor(.accentColor).textCase(nil)) {
+        Section(header: Text("Storage").foregroundColor(EnsembleDesign.Color.accent).textCase(nil)) {
             Button(role: .destructive) {
                 showingClearDataAlert = true
             } label: {
@@ -299,7 +299,7 @@ public struct ProfileView: View {
                     Image(systemName: "trash")
                         .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Clear All Library Data")
-                        .foregroundColor(.red)
+                        .foregroundColor(EnsembleDesign.Color.destructive)
                 }
             }
         }
@@ -308,7 +308,7 @@ public struct ProfileView: View {
     // MARK: - Reset
 
     private var resetSection: some View {
-        Section(header: Text("Reset").foregroundColor(.accentColor).textCase(nil)) {
+        Section(header: Text("Reset").foregroundColor(EnsembleDesign.Color.accent).textCase(nil)) {
             Button(role: .destructive) {
                 for account in accountManager.plexAccounts {
                     accountManager.removePlexAccount(id: account.id)
@@ -318,7 +318,7 @@ public struct ProfileView: View {
                     Image(systemName: "person.2.slash")
                         .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Remove All Accounts")
-                        .foregroundColor(.red)
+                        .foregroundColor(EnsembleDesign.Color.destructive)
                 }
             }
         }
@@ -327,7 +327,7 @@ public struct ProfileView: View {
     // MARK: - Developer
 
     private var developerSection: some View {
-        Section(header: Text("Developer").foregroundColor(.accentColor).textCase(nil)) {
+        Section(header: Text("Developer").foregroundColor(EnsembleDesign.Color.accent).textCase(nil)) {
             NavigationLink {
                 LogsSettingsView()
             } label: {
@@ -346,8 +346,8 @@ public struct ProfileView: View {
                     VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                         Text("Simulate No Connection")
                         Text("Forces app into offline mode for testing")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 }
             }
@@ -378,14 +378,14 @@ public struct ProfileView: View {
     // MARK: - About
 
     private var aboutSection: some View {
-        Section(header: Text("About").foregroundColor(.accentColor).textCase(nil)) {
+        Section(header: Text("About").foregroundColor(EnsembleDesign.Color.accent).textCase(nil)) {
             HStack {
                 Image(systemName: "info.circle")
                     .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                 Text("Version")
                 Spacer()
                 Text(Bundle.main.appVersion)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
 
             Link(destination: Self.supportURL) {
@@ -395,8 +395,8 @@ public struct ProfileView: View {
                     Text("Help & Support")
                     Spacer()
                     Image(systemName: "arrow.up.right.square")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }
         }

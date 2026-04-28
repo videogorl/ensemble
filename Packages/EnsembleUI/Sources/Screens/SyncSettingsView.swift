@@ -24,20 +24,20 @@ public struct SyncSettingsView: View {
                         await dependencies.runManualSync()
                     }
                 } label: {
-                    HStack(spacing: 12) {
+                    HStack(spacing: EnsembleDesign.Spacing.md) {
                         if syncSettings.isManualSyncInProgress {
                             ProgressView()
                         } else {
                             Image(systemName: "arrow.triangle.2.circlepath")
-                                .foregroundColor(.accentColor)
+                                .foregroundColor(EnsembleDesign.Color.accent)
                         }
 
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxs) {
                             Text(syncSettings.isManualSyncInProgress ? "Syncing…" : "Sync Now")
-                                .foregroundColor(.primary)
+                                .foregroundColor(EnsembleDesign.Color.primaryText)
                             Text("Refresh iCloud settings, sources, libraries, and profile status")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                                .font(EnsembleDesign.Typography.rowSecondary)
+                                .foregroundColor(EnsembleDesign.Color.secondaryText)
                         }
                     }
                 }
@@ -84,14 +84,14 @@ public struct SyncSettingsView: View {
     }
 
     private var masterToggleRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs + EnsembleDesign.Spacing.xxs) {
             Toggle(isOn: $syncSettings.isMasterSyncEnabled) {
                 Label {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxs) {
                         Text("Sync This Device")
                         Text("Sync app data across your devices via iCloud.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 } icon: {
                     Image(systemName: "icloud")
@@ -99,24 +99,24 @@ public struct SyncSettingsView: View {
             }
 
             if let lastManualSyncDate = syncSettings.lastManualSyncDate {
-                HStack(spacing: 8) {
+                HStack(spacing: EnsembleDesign.Spacing.sm) {
                     Image(systemName: "clock.arrow.circlepath")
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                     Text("Last manual sync \(formattedTimestamp(lastManualSyncDate))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, EnsembleDesign.Spacing.xxs)
     }
 
     private var profileStatusRow: some View {
         let presentation = profileStatusPresentation
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
+        return VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs + EnsembleDesign.Spacing.xxs) {
+            HStack(alignment: .firstTextBaseline, spacing: EnsembleDesign.Spacing.md) {
                 Label(presentation.title, systemImage: presentation.symbolName)
-                    .foregroundColor(.primary)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
                 Spacer()
                 Text(presentation.status)
                     .font(.caption.weight(.semibold))
@@ -124,63 +124,63 @@ public struct SyncSettingsView: View {
             }
 
             Text(presentation.detail)
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
 
             if let timestamp = presentation.timestamp {
                 Text("Updated \(formattedTimestamp(timestamp))")
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, EnsembleDesign.Spacing.xxs)
     }
 
     private func featureRow(for feature: SyncSettingsManager.SyncFeature) -> some View {
         let presentation = featureStatusPresentation(for: feature)
         let isToggleable = syncSettings.isFeatureToggleable(feature)
 
-        return VStack(alignment: .leading, spacing: 10) {
+        return VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.compactControlVertical) {
             Toggle(isOn: Binding(
                 get: { syncSettings.rawToggleValue(feature) },
                 set: { syncSettings.setFeatureEnabled(feature, enabled: $0) }
             )) {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxs) {
                     Text(feature.displayName)
                     Text(feature.subtitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }
             .disabled(!isToggleable)
 
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .top, spacing: EnsembleDesign.Spacing.sm) {
                 Image(systemName: presentation.symbolName)
                     .foregroundColor(presentation.tint)
                     .frame(width: 16)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
                     Text(presentation.status)
                         .font(.caption.weight(.semibold))
                         .foregroundColor(presentation.tint)
 
                     Text(presentation.detail)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
 
                     if !isToggleable, let dependencyMessage = dependencyMessage(for: feature) {
                         Text(dependencyMessage)
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     } else if let timestamp = presentation.timestamp {
                         Text("Updated \(formattedTimestamp(timestamp))")
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, EnsembleDesign.Spacing.xxs)
     }
 
     private func dependencyMessage(for feature: SyncSettingsManager.SyncFeature) -> String? {
@@ -202,7 +202,7 @@ public struct SyncSettingsView: View {
                 symbolName: "person.crop.circle",
                 status: "Not Checked",
                 detail: status.detail,
-                tint: .secondary,
+                tint: EnsembleDesign.Color.secondaryText,
                 timestamp: status.date
             )
 
@@ -213,7 +213,7 @@ public struct SyncSettingsView: View {
                 symbolName: "person.crop.circle",
                 status: "No Cloud Record",
                 detail: status.detail,
-                tint: .secondary,
+                tint: EnsembleDesign.Color.secondaryText,
                 timestamp: status.date
             )
 
@@ -243,7 +243,7 @@ public struct SyncSettingsView: View {
                 symbolName: symbolName(for: feature),
                 status: "Off",
                 detail: "Sync is off for this feature on this device.",
-                tint: .secondary,
+                tint: EnsembleDesign.Color.secondaryText,
                 timestamp: activity?.date
             )
         }
@@ -256,7 +256,7 @@ public struct SyncSettingsView: View {
                 symbolName: symbolName(for: feature),
                 status: activity.flatMap(statusText(for:)) ?? "Ready",
                 detail: activity?.detail ?? "Waiting for a local or iCloud change.",
-                tint: activity == nil ? .secondary : .green,
+                tint: activity == nil ? EnsembleDesign.Color.secondaryText : .green,
                 timestamp: activity?.date
             )
 
@@ -267,7 +267,7 @@ public struct SyncSettingsView: View {
                 symbolName: symbolName(for: feature),
                 status: "Checking iCloud",
                 detail: "Refreshing the latest value from iCloud.",
-                tint: .secondary,
+                tint: EnsembleDesign.Color.secondaryText,
                 timestamp: activity?.date
             )
 
@@ -300,7 +300,7 @@ public struct SyncSettingsView: View {
                 symbolName: symbolName(for: feature),
                 status: "Waiting for iCloud",
                 detail: "The iCloud key-value store has not delivered this feature yet.",
-                tint: .orange,
+                tint: EnsembleDesign.Color.warning,
                 timestamp: activity?.date
             )
 
@@ -311,7 +311,7 @@ public struct SyncSettingsView: View {
                 symbolName: symbolName(for: feature),
                 status: "iCloud Unavailable",
                 detail: "This device cannot reach iCloud key-value sync right now.",
-                tint: .orange,
+                tint: EnsembleDesign.Color.warning,
                 timestamp: activity?.date
             )
 
@@ -322,7 +322,7 @@ public struct SyncSettingsView: View {
                 symbolName: symbolName(for: feature),
                 status: "Error",
                 detail: activity?.detail ?? "Sync hit an error for this feature.",
-                tint: .red,
+                tint: EnsembleDesign.Color.destructive,
                 timestamp: activity?.date
             )
         }
@@ -373,11 +373,11 @@ public struct SyncSettingsView: View {
         case .available:
             return .green
         case .unknown:
-            return .secondary
+            return EnsembleDesign.Color.secondaryText
         case .notAuthenticated, .networkUnavailable, .rateLimited:
-            return .orange
+            return EnsembleDesign.Color.warning
         case .quotaExceeded, .error:
-            return .red
+            return EnsembleDesign.Color.destructive
         }
     }
 
