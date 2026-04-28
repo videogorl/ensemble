@@ -145,6 +145,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - **iPhone:** `ProfileToolbarButton` (28×28pt circular profile image) is owned by `MainTabView` and shown only on root tab destinations: the visible tab-bar tabs plus the root `More` view. Do not add it per-screen, or it will leak into pushed `More` destinations and can disappear on iOS 15 when trailing toolbar items compete.
 - **iPad/macOS:** `ProfileToolbarButton` placed in sidebar toolbar, replacing the previous gear icon
 - Tapping opens `ProfileView` via `AuxiliaryPresentation.profile` (formerly `.settings`)
+- App-level Settings commands route through `NavigationCoordinator.openProfileFromActiveScene(fallback:)`; `RootView` registers its window-scoped coordinator as the active auxiliary command coordinator on appear/scene activation so `⌘,` opens Profile in the active scene instead of the legacy shared coordinator.
 - The button displays the user's profile image if set, otherwise falls back to a person icon
 
 ### System Integration

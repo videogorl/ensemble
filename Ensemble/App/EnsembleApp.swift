@@ -96,8 +96,10 @@ struct EnsembleApp: App {
         .commands {
             // Settings shortcut (⌘,) — macOS app menu + iPadOS keyboard shortcut overlay
             CommandGroup(replacing: .appSettings) {
-                Button("Settings...") {
-                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                Button("Settings…") {
+                    NavigationCoordinator.openProfileFromActiveScene(
+                        fallback: DependencyContainer.shared.navigationCoordinator
+                    )
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }

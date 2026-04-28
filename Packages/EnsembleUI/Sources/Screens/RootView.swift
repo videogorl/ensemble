@@ -172,6 +172,7 @@ private struct RootMiniPlayerOverlayHost: View {
 /// Root view that renders the main content directly (no auth gate)
 @available(iOS 15.0, macOS 12.0, watchOS 8.0, *)
 public struct RootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @StateObject private var navigationCoordinator: NavigationCoordinator
@@ -272,8 +273,17 @@ public struct RootView: View {
             .environmentObject(navigationCoordinator)
             .accentColor(settingsManager.accentColor.color)
             .onAppear {
+                NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
                 updateAppearance()
                 DependencyContainer.shared.activeNowPlayingViewModel = nowPlayingVM
+            }
+            .onDisappear {
+                NavigationCoordinator.clearActiveAuxiliaryCommandCoordinator(navigationCoordinator)
+            }
+            .onChange(of: scenePhase) { phase in
+                if phase == .active {
+                    NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
+                }
             }
             .onChange(of: settingsManager.accentColor) { _ in
                 updateAppearance()
