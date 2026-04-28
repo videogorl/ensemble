@@ -385,7 +385,7 @@ public struct QueueCard: View {
             Button {
                 navigateFromNowPlaying(to: .artist(id: artistId))
             } label: {
-                Label("Go to Artist", systemImage: "music.mic")
+                MediaActionLabel(kind: .goToArtist)
             }
         }
         Divider()
@@ -419,7 +419,7 @@ public struct QueueCard: View {
             Button {
                 navigateFromNowPlaying(to: .artist(id: artistId))
             } label: {
-                Label("Go to Artist", systemImage: "music.mic")
+                MediaActionLabel(kind: .goToArtist)
             }
         }
     }
