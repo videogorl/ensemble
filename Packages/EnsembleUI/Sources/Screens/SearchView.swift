@@ -220,8 +220,8 @@ public struct SearchView: View {
                                 viewModel.clearRecentSearches()
                             } label: {
                                 Text("Clear")
-                                    .font(.subheadline)
-                                    .foregroundColor(.accentColor)
+                                    .font(EnsembleDesign.Typography.stateMessage)
+                                    .foregroundColor(EnsembleDesign.Color.accent)
                             }
                         }
                         .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
@@ -290,8 +290,8 @@ public struct SearchView: View {
                         ProgressView()
                             .frame(height: 200)
                         Text("Loading moods...")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                            .font(EnsembleDesign.Typography.stateMessage)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 20)
@@ -357,16 +357,16 @@ public struct SearchView: View {
                 } label: {
                     HStack {
                         Image(systemName: "magnifyingglass")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                         Text(search)
-                            .foregroundColor(.primary)
+                            .foregroundColor(EnsembleDesign.Color.primaryText)
                         Spacer()
                         Image(systemName: "arrow.up.left")
-                            .foregroundColor(.secondary)
-                            .font(.caption)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                            .font(EnsembleDesign.Typography.rowSecondary)
                     }
                 }
-                .listRowBackground(Color.secondary.opacity(0.1))
+                .listRowBackground(EnsembleDesign.Color.neutralBadge)
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) {
                         viewModel.removeRecentSearch(search)
@@ -399,8 +399,8 @@ public struct SearchView: View {
             }
         } header: {
             Text(title)
-                .font(.headline)
-                .foregroundColor(.primary)
+                .font(EnsembleDesign.Typography.actionLabel)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
                 .textCase(nil)
         }
     }
@@ -515,9 +515,8 @@ public struct SearchView: View {
             } label: {
                 HStack {
                     Text("Pinned")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.primary)
+                        .font(EnsembleDesign.Typography.sectionTitle)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
 
                     Spacer()
 
@@ -531,16 +530,16 @@ public struct SearchView: View {
                             }
                         } label: {
                             Text(isEditingPins ? "Done" : "Edit")
-                                .font(.subheadline)
-                                .foregroundColor(.accentColor)
+                                .font(EnsembleDesign.Typography.stateMessage)
+                                .foregroundColor(EnsembleDesign.Color.accent)
                         }
                         .padding(.trailing, 4)
                     }
 
                     if pinnedVM.resolvedPins.count > 6 && !isEditingPins {
                         Image(systemName: isPinnedExpanded ? "chevron.up" : "chevron.down")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                            .font(EnsembleDesign.Typography.stateMessage)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 }
             }
@@ -550,8 +549,8 @@ public struct SearchView: View {
             if pinnedVM.resolvedPins.isEmpty {
                 // Empty state message
                 Text("Pin your favorite playlists, artists, and albums for quick access.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.stateMessage)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                     .padding(.horizontal)
             } else {
                 // Grid of pinned items with drag reordering on iOS 16+
@@ -623,7 +622,7 @@ public struct SearchView: View {
                     } label: {
                         Image(systemName: "minus.circle.fill")
                             .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, .red)
+                            .foregroundStyle(EnsembleDesign.Color.onAccent, EnsembleDesign.Color.destructive)
                             .font(.title3)
                     }
                     .offset(x: 8, y: -8)
@@ -1007,11 +1006,10 @@ public struct SearchView: View {
         let tracks = Array(viewModel.trackResults.prefix(5))
         let height: CGFloat = tracks.isEmpty ? 0 : CGFloat(tracks.count) * TrackListLayoutMetrics.defaultRowHeight
 
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
             HStack {
                 Text("Songs (\(viewModel.trackResults.count))")
-                    .font(.title3)
-                    .fontWeight(.bold)
+                    .font(EnsembleDesign.Typography.detailSubtitle.weight(.bold))
             }
             .padding(.horizontal)
 
@@ -1117,11 +1115,10 @@ public struct SearchView: View {
         items: [T],
         @ViewBuilder content: @escaping (T) -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
             HStack {
                 Text("\(title) (\(count))")
-                    .font(.title3)
-                    .fontWeight(.bold)
+                    .font(EnsembleDesign.Typography.detailSubtitle.weight(.bold))
             }
             .padding(.horizontal)
             

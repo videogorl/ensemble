@@ -574,7 +574,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 } else if viewModel.filteredTracks.isEmpty {
                     Section {
                         Text("No tracks")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                             .padding(.top, EnsembleScaffold.DetailSurface.loadingTopPadding)
                             .frame(maxWidth: .infinity)
                     }
@@ -655,7 +655,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     )
                 } label: {
                     Text(subtitle)
-                        .font(.title3)
+                        .font(EnsembleDesign.Typography.detailSubtitle)
                         .multilineTextAlignment(alignment)
                         .lineLimit(2)
                 }
@@ -664,7 +664,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .accessibilityAddTraits(.isLink)
             } else {
                 Text(subtitle)
-                    .font(.title3)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
                     .multilineTextAlignment(alignment)
                     .lineLimit(2)
             }
@@ -704,8 +704,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             subtitleView(alignment: textAlignment)
 
             Text(headerData.metadataLine)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.stateMessage)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
                 .multilineTextAlignment(textAlignment)
         }
     }
@@ -802,7 +802,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 Text("Play")
                     .lineLimit(1)
             }
-            .font(.headline)
+            .font(EnsembleDesign.Typography.actionLabel)
             .frame(maxWidth: expands ? .infinity : nil)
             .padding(.horizontal, horizontalPadding)
             .padding(.vertical, EnsembleScaffold.DetailSurface.actionVerticalPadding)
@@ -824,12 +824,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 Text("Shuffle")
                     .lineLimit(1)
             }
-            .font(.headline)
+            .font(EnsembleDesign.Typography.actionLabel)
             .frame(maxWidth: expands ? .infinity : nil)
             .padding(.horizontal, horizontalPadding)
             .padding(.vertical, EnsembleScaffold.DetailSurface.actionVerticalPadding)
             .background(EnsembleDesign.Color.secondaryControlFill)
-            .foregroundColor(.primary)
+            .foregroundColor(EnsembleDesign.Color.primaryText)
             .cornerRadius(EnsembleScaffold.DetailSurface.actionCornerRadius)
         }
     }

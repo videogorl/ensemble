@@ -62,6 +62,7 @@ public enum EnsembleDesign {
     public enum Typography {
         public static let screenTitle: Font = .largeTitle.weight(.bold)
         public static let sectionTitle: Font = .title2.weight(.bold)
+        public static let detailSubtitle: Font = .title3
         public static let cardTitle: Font = .subheadline.weight(.medium)
         public static let cardSubtitle: Font = .caption
         public static let cardMetadata: Font = .caption2

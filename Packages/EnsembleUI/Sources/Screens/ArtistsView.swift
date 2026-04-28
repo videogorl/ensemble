@@ -640,8 +640,8 @@ public struct ArtistDetailView: View {
                 Text("\(viewModel.trackCount) song\(viewModel.trackCount == 1 ? "" : "s")")
             }
         }
-        .font(.title3)
-        .foregroundColor(.secondary)
+        .font(EnsembleDesign.Typography.detailSubtitle)
+        .foregroundColor(EnsembleDesign.Color.secondaryText)
     }
 
     @ViewBuilder
@@ -657,8 +657,8 @@ public struct ArtistDetailView: View {
                     Text(detail.styles.prefix(3).joined(separator: ", "))
                 }
             }
-            .font(.subheadline)
-            .foregroundColor(.secondary)
+            .font(EnsembleDesign.Typography.stateMessage)
+            .foregroundColor(EnsembleDesign.Color.secondaryText)
             .lineLimit(1)
         }
     }
@@ -733,8 +733,8 @@ public struct ArtistDetailView: View {
                                 Text("\(viewModel.trackCount) song\(viewModel.trackCount == 1 ? "" : "s")")
                             }
                         }
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.stateMessage)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -780,7 +780,7 @@ public struct ArtistDetailView: View {
                         height: EnsembleScaffold.ArtistDetail.actionIconDimension
                     )
                     .background(EnsembleDesign.Color.secondaryControlFill)
-                    .foregroundColor(.primary)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
                     .cornerRadius(EnsembleScaffold.DetailSurface.actionCornerRadius)
             }
             #if os(macOS)
@@ -838,8 +838,8 @@ public struct ArtistDetailView: View {
                         Image(systemName: "arrow.up.forward.app")
                         Text("Wikipedia")
                     }
-                    .font(.subheadline.weight(.medium))
-                    .foregroundColor(.accentColor)
+                    .font(EnsembleDesign.Typography.stateMessage.weight(.medium))
+                    .foregroundColor(EnsembleDesign.Color.accent)
                 }
             }
         }
@@ -855,8 +855,8 @@ public struct ArtistDetailView: View {
 
         return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.descriptionSpacing) {
             Text("Description")
-                .font(.headline)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.actionLabel)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
 
             // Tappable description text to toggle expanded/collapsed
             VStack(alignment: .leading, spacing: 0) {
@@ -864,16 +864,16 @@ public struct ArtistDetailView: View {
                     // Expanded: show all paragraphs with paragraph spacing
                     ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
                         Text(paragraph)
-                            .font(.body)
-                            .foregroundColor(.primary)
+                            .font(EnsembleDesign.Typography.rowPrimary)
+                            .foregroundColor(EnsembleDesign.Color.primaryText)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.top, index > 0 ? EnsembleDesign.Spacing.md : 0)
                     }
                 } else {
                     // Collapsed: show truncated text
                     Text(paragraphs.first ?? summary)
-                        .font(.body)
-                        .foregroundColor(.primary)
+                        .font(EnsembleDesign.Typography.rowPrimary)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
                         .lineLimit(4)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -893,9 +893,9 @@ public struct ArtistDetailView: View {
                     }
                 } label: {
                     Text(isBioExpanded ? "Show less" : "Read more")
-                        .font(.body)
+                        .font(EnsembleDesign.Typography.rowPrimary)
                         .fontWeight(.medium)
-                        .foregroundColor(.accentColor)
+                        .foregroundColor(EnsembleDesign.Color.accent)
                 }
             }
         }
@@ -904,12 +904,12 @@ public struct ArtistDetailView: View {
     private func factRow(label: String, value: String) -> some View {
         HStack(alignment: .top, spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
             Text(label)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.stateMessage)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
                 .frame(width: EnsembleScaffold.ArtistDetail.factLabelWidth, alignment: .leading)
             Text(value)
-                .font(.subheadline)
-                .foregroundColor(.primary)
+                .font(EnsembleDesign.Typography.stateMessage)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
         }
     }
 
@@ -954,7 +954,7 @@ public struct ArtistDetailView: View {
             )
 
             Text(artist.name)
-                .font(.caption)
+                .font(EnsembleDesign.Typography.cardSubtitle)
                 .fontWeight(.medium)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)

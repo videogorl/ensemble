@@ -522,7 +522,7 @@ public struct AlbumDetailView: View {
         let hasSimilar = !viewModel.similarAlbums.isEmpty
 
         if hasDetail || hasRelated || hasSimilar {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxl) {
                 // Album facts (genre, style, label, year)
                 if let detail = viewModel.albumDetail, hasAlbumFacts(detail) {
                     albumFactsSection(detail)
@@ -544,8 +544,8 @@ public struct AlbumDetailView: View {
                             Image(systemName: "arrow.up.forward.app")
                             Text("Wikipedia")
                         }
-                        .font(.subheadline.weight(.medium))
-                        .foregroundColor(.accentColor)
+                        .font(EnsembleDesign.Typography.stateMessage.weight(.medium))
+                        .foregroundColor(EnsembleDesign.Color.accent)
                     }
                 }
 
@@ -559,9 +559,9 @@ public struct AlbumDetailView: View {
                     similarAlbumsSection
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 24)
-            .padding(.bottom, 16)
+            .padding(.horizontal, EnsembleDesign.Spacing.lg)
+            .padding(.top, EnsembleDesign.Spacing.xxl)
+            .padding(.bottom, EnsembleDesign.Spacing.lg)
         }
     }
 
@@ -570,10 +570,10 @@ public struct AlbumDetailView: View {
     }
 
     private func albumFactsSection(_ detail: AlbumDetail) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.lg) {
             EnsembleContentSectionHeader("About \(album.title)")
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.compactControlVertical) {
                 if !detail.genres.isEmpty {
                     albumFactRow(label: "Genre", value: detail.genres.joined(separator: ", "))
                 }
@@ -591,14 +591,14 @@ public struct AlbumDetailView: View {
     }
 
     private func albumFactRow(label: String, value: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: EnsembleDesign.Spacing.sm) {
             Text(label)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.stateMessage)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
                 .frame(width: 50, alignment: .leading)
             Text(value)
-                .font(.subheadline)
-                .foregroundColor(.primary)
+                .font(EnsembleDesign.Typography.stateMessage)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
         }
     }
 
@@ -609,25 +609,25 @@ public struct AlbumDetailView: View {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
 
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.sm) {
             Text("Description")
-                .font(.headline)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.actionLabel)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
 
             // Tappable description text
             VStack(alignment: .leading, spacing: 0) {
                 if isBioExpanded {
                     ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
                         Text(paragraph)
-                            .font(.body)
-                            .foregroundColor(.primary)
+                            .font(EnsembleDesign.Typography.rowPrimary)
+                            .foregroundColor(EnsembleDesign.Color.primaryText)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, index > 0 ? 12 : 0)
+                            .padding(.top, index > 0 ? EnsembleDesign.Spacing.md : 0)
                     }
                 } else {
                     Text(paragraphs.first ?? summary)
-                        .font(.body)
-                        .foregroundColor(.primary)
+                        .font(EnsembleDesign.Typography.rowPrimary)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
                         .lineLimit(4)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -647,9 +647,9 @@ public struct AlbumDetailView: View {
                     }
                 } label: {
                     Text(isBioExpanded ? "Show less" : "Read more")
-                        .font(.body)
+                        .font(EnsembleDesign.Typography.rowPrimary)
                         .fontWeight(.medium)
-                        .foregroundColor(.accentColor)
+                        .foregroundColor(EnsembleDesign.Color.accent)
                 }
             }
         }
@@ -662,7 +662,7 @@ public struct AlbumDetailView: View {
     /// UIHostingController's systemLayoutSizeFitting (used for table footer sizing).
     private func albumCardScroll(albums: [Album]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 16) {
+            HStack(spacing: EnsembleDesign.Spacing.lg) {
                 ForEach(albums) { scrollAlbum in
                     if #available(iOS 16.0, macOS 13.0, *) {
                         NavigationLink(value: NavigationCoordinator.Destination.album(id: scrollAlbum.id)) {
@@ -685,7 +685,7 @@ public struct AlbumDetailView: View {
     }
 
     private var moreByArtistSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
             EnsembleContentSectionHeader("More by \(album.artistName ?? "Artist")")
 
             albumCardScroll(albums: viewModel.relatedAlbums)
@@ -693,7 +693,7 @@ public struct AlbumDetailView: View {
     }
 
     private var similarAlbumsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
             EnsembleContentSectionHeader("Related Albums")
 
             albumCardScroll(albums: viewModel.similarAlbums)
