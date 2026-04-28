@@ -417,6 +417,9 @@ public struct ArtistDetailView: View {
                 artistPinMenuButton
             }
             #else
+            ToolbarItem {
+                Spacer()
+            }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 artistPinMenuButton
             }

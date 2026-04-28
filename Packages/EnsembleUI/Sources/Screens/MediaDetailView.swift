@@ -139,7 +139,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     public var body: some View {
         contentWithOptionalFilter
-                .toolbar {
+        .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if shouldShowStandaloneFilterButton {
@@ -152,6 +152,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
             #else
+            ToolbarItem {
+                Spacer()
+            }
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 if shouldShowStandaloneFilterButton {
                     EnsembleBrowseFilterButton(
