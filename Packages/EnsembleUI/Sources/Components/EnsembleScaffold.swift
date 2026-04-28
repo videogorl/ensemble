@@ -264,6 +264,60 @@ public extension View {
 
 /// Consistent empty/loading/error state used by browse and utility screens.
 public struct EnsembleStateScaffold<Action: View>: View {
+    public enum Presentation {
+        case fullScreen
+        case compactFooter
+
+        var outerSpacing: CGFloat {
+            switch self {
+            case .fullScreen: return EnsembleDesign.Spacing.lg
+            case .compactFooter: return EnsembleDesign.Spacing.md
+            }
+        }
+
+        var textSpacing: CGFloat {
+            switch self {
+            case .fullScreen: return EnsembleDesign.Spacing.sm
+            case .compactFooter: return EnsembleDesign.Spacing.xs
+            }
+        }
+
+        var iconFont: Font {
+            switch self {
+            case .fullScreen: return EnsembleDesign.Typography.emptyStateIcon
+            case .compactFooter: return EnsembleDesign.Typography.mediaPlaceholderIcon
+            }
+        }
+
+        var titleFont: Font {
+            switch self {
+            case .fullScreen: return EnsembleDesign.Typography.stateTitle
+            case .compactFooter: return .headline
+            }
+        }
+
+        var messageFont: Font {
+            switch self {
+            case .fullScreen: return EnsembleDesign.Typography.stateMessage
+            case .compactFooter: return .caption
+            }
+        }
+
+        var topPadding: CGFloat {
+            switch self {
+            case .fullScreen: return EnsembleDesign.Spacing.xxxl
+            case .compactFooter: return 40
+            }
+        }
+
+        var bottomPadding: CGFloat {
+            switch self {
+            case .fullScreen: return EnsembleDesign.Spacing.xxxl
+            case .compactFooter: return EnsembleDesign.Spacing.none
+            }
+        }
+    }
+
     public enum Kind {
         case empty
         case loading
@@ -282,6 +336,7 @@ public struct EnsembleStateScaffold<Action: View>: View {
     let title: String
     let message: String?
     let iconSystemName: String?
+    let presentation: Presentation
     @ViewBuilder let action: () -> Action
 
     public init(
@@ -289,33 +344,35 @@ public struct EnsembleStateScaffold<Action: View>: View {
         title: String,
         message: String? = nil,
         iconSystemName: String? = nil,
+        presentation: Presentation = .fullScreen,
         @ViewBuilder action: @escaping () -> Action
     ) {
         self.kind = kind
         self.title = title
         self.message = message
         self.iconSystemName = iconSystemName
+        self.presentation = presentation
         self.action = action
     }
 
     public var body: some View {
-        VStack(spacing: EnsembleDesign.Spacing.lg) {
+        VStack(spacing: presentation.outerSpacing) {
             if kind == .loading {
                 ProgressView()
             } else {
                 Image(systemName: iconSystemName ?? kind.defaultIcon)
-                    .font(EnsembleDesign.Typography.emptyStateIcon)
+                    .font(presentation.iconFont)
                     .foregroundColor(EnsembleDesign.Color.placeholderText)
             }
 
-            VStack(spacing: EnsembleDesign.Spacing.sm) {
+            VStack(spacing: presentation.textSpacing) {
                 Text(title)
-                    .font(EnsembleDesign.Typography.stateTitle)
+                    .font(presentation.titleFont)
                     .multilineTextAlignment(.center)
 
                 if let message {
                     Text(message)
-                        .font(EnsembleDesign.Typography.stateMessage)
+                        .font(presentation.messageFont)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .multilineTextAlignment(.center)
                 }
@@ -324,8 +381,12 @@ public struct EnsembleStateScaffold<Action: View>: View {
             action()
         }
         .padding(.horizontal, EnsembleDesign.Spacing.xxl)
-        .padding(.vertical, EnsembleDesign.Spacing.xxxl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.top, presentation.topPadding)
+        .padding(.bottom, presentation.bottomPadding)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: presentation == .fullScreen ? .infinity : nil
+        )
     }
 }
 
@@ -334,9 +395,16 @@ public extension EnsembleStateScaffold where Action == EmptyView {
         kind: Kind,
         title: String,
         message: String? = nil,
-        iconSystemName: String? = nil
+        iconSystemName: String? = nil,
+        presentation: Presentation = .fullScreen
     ) {
-        self.init(kind: kind, title: title, message: message, iconSystemName: iconSystemName) {
+        self.init(
+            kind: kind,
+            title: title,
+            message: message,
+            iconSystemName: iconSystemName,
+            presentation: presentation
+        ) {
             EmptyView()
         }
     }

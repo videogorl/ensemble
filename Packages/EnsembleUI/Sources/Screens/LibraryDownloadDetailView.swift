@@ -197,13 +197,18 @@ struct LibraryDownloadDetailView: View {
     @ViewBuilder
     private var trackListSection: some View {
         if viewModel.isLoading && viewModel.tracks.isEmpty {
-            ProgressView()
-                .padding(.top, 40)
+            EnsembleStateScaffold(
+                kind: .loading,
+                title: "Loading tracks…",
+                presentation: .compactFooter
+            )
         } else if viewModel.tracks.isEmpty {
-            Text("No downloaded tracks in this library.")
-                .foregroundColor(.secondary)
-                .font(.subheadline)
-                .padding(.top, 40)
+            EnsembleStateScaffold(
+                kind: .empty,
+                title: "No downloaded tracks",
+                message: "in this library.",
+                presentation: .compactFooter
+            )
         } else {
             queueStatusBanner
 

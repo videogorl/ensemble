@@ -893,14 +893,17 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @ViewBuilder
     private var emptyStateFooter: some View {
         if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
-            ProgressView()
-                .padding(.top, 40)
-                .frame(maxWidth: .infinity)
+            EnsembleStateScaffold(
+                kind: .loading,
+                title: "Loading tracks…",
+                presentation: .compactFooter
+            )
         } else if viewModel.filteredTracks.isEmpty {
-            Text("No tracks")
-                .foregroundColor(.secondary)
-                .padding(.top, 40)
-                .frame(maxWidth: .infinity)
+            EnsembleStateScaffold(
+                kind: .empty,
+                title: "No tracks",
+                presentation: .compactFooter
+            )
         }
     }
 

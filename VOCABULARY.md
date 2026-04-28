@@ -909,6 +909,24 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 ---
 
+## EnsembleStateScaffold
+
+- **View name:** `EnsembleStateScaffold`
+- **Canonical name:** Shared state scaffold
+- **Area:** Shared (Components)
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| State kind | state | Semantic empty, loading, or error mode | `EnsembleStateScaffold.Kind` |
+| State presentation | policy | Full-screen state layout or compact track-list/footer layout | `EnsembleStateScaffold.Presentation`, `.fullScreen`, `.compactFooter` |
+| State action | control | Optional retry, add, or recovery action shown under the state message | `action` |
+
+---
+
 ## Large-Screen Songs Browser
 
 - **View name:** `SongsView` large-screen browser

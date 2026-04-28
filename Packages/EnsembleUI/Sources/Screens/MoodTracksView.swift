@@ -107,8 +107,11 @@ public struct MoodTracksView: View {
                 VStack(spacing: 0) {
                     moodHeader
                     if isLoading {
-                        ProgressView()
-                            .padding(.top, 40)
+                        EnsembleStateScaffold(
+                            kind: .loading,
+                            title: "Loading tracks…",
+                            presentation: .compactFooter
+                        )
                     } else if let error = error {
                         errorView(error)
                     } else if moodTracks.isEmpty {
@@ -166,16 +169,18 @@ public struct MoodTracksView: View {
     @ViewBuilder
     private var moodFooter: some View {
         if isLoading {
-            ProgressView()
-                .padding(.top, 40)
-                .frame(maxWidth: .infinity)
+            EnsembleStateScaffold(
+                kind: .loading,
+                title: "Loading tracks…",
+                presentation: .compactFooter
+            )
         } else if let error = error {
-            VStack(spacing: 12) {
-                Text("Failed to load tracks")
-                    .font(.headline)
-                Text(error)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            EnsembleStateScaffold(
+                kind: .error,
+                title: "Failed to load tracks",
+                message: error,
+                presentation: .compactFooter
+            ) {
                 Button("Retry") {
                     Task {
                         await loadTracks()
@@ -183,54 +188,38 @@ public struct MoodTracksView: View {
                 }
                 .buttonStyle(.bordered)
             }
-            .padding(.top, 40)
-            .frame(maxWidth: .infinity)
         } else if moodTracks.isEmpty {
-            VStack(spacing: 12) {
-                Image(systemName: "music.note")
-                    .font(.system(size: 40))
-                    .foregroundColor(.secondary)
-                Text("No tracks found")
-                    .font(.headline)
-                Text("for \"\(mood.title)\"")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .padding(.top, 40)
-            .frame(maxWidth: .infinity)
+            EnsembleStateScaffold(
+                kind: .empty,
+                title: "No tracks found",
+                message: "for \"\(mood.title)\"",
+                presentation: .compactFooter
+            )
         }
     }
 
     #if !os(iOS)
     private func errorView(_ message: String) -> some View {
-        VStack(spacing: 12) {
-            Text("Failed to load tracks")
-                .font(.headline)
-            Text(message)
-                .font(.caption)
-                .foregroundColor(.secondary)
+        EnsembleStateScaffold(
+            kind: .error,
+            title: "Failed to load tracks",
+            message: message,
+            presentation: .compactFooter
+        ) {
             Button("Retry") {
                 Task { await loadTracks() }
             }
             .buttonStyle(.bordered)
         }
-        .padding(.top, 40)
-        .frame(maxWidth: .infinity)
     }
 
     private var emptyView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "music.note")
-                .font(.system(size: 40))
-                .foregroundColor(.secondary)
-            Text("No tracks found")
-                .font(.headline)
-            Text("for \"\(mood.title)\"")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .padding(.top, 40)
-        .frame(maxWidth: .infinity)
+        EnsembleStateScaffold(
+            kind: .empty,
+            title: "No tracks found",
+            message: "for \"\(mood.title)\"",
+            presentation: .compactFooter
+        )
     }
     #endif
 
