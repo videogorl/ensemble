@@ -316,7 +316,7 @@ struct HubSection: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal)
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
             } else {
                 NavigationLink {
                     ArtistDetailLoader(artistId: artistId, nowPlayingVM: nowPlayingVM)
@@ -325,29 +325,16 @@ struct HubSection: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal)
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
             }
         } else {
-            Text(hub.title)
-                .font(.title2)
-                .fontWeight(.bold)
-                .padding(.horizontal)
+            EnsembleContentSectionHeader(hub.title)
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         }
     }
 
     private var sectionHeaderLabel: some View {
-        HStack {
-            Text(hub.title)
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(.primary)
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(.secondary)
-        }
+        EnsembleContentSectionHeader(hub.title, showsDisclosure: true)
     }
 }
 

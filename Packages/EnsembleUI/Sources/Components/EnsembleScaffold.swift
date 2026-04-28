@@ -273,6 +273,33 @@ public struct EnsembleBrowseSectionHeader: View {
     }
 }
 
+/// Standard title treatment for content shelves and sections.
+public struct EnsembleContentSectionHeader: View {
+    private let title: String
+    private let showsDisclosure: Bool
+
+    public init(_ title: String, showsDisclosure: Bool = false) {
+        self.title = title
+        self.showsDisclosure = showsDisclosure
+    }
+
+    public var body: some View {
+        HStack {
+            Text(title)
+                .font(EnsembleDesign.Typography.sectionTitle)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
+
+            if showsDisclosure {
+                Spacer()
+
+                Image(systemName: EnsembleDesign.Icon.chevronRight)
+                    .font(EnsembleDesign.Typography.rowSecondary.weight(.semibold))
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+            }
+        }
+    }
+}
+
 public extension View {
     func browseSelectionBackground(isSelected: Bool) -> some View {
         background(
