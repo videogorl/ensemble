@@ -39,6 +39,20 @@ public enum EnsembleScaffold {
         public static let activeBadgeOffset = EnsembleDesign.Spacing.xxs
     }
 
+    public enum BrowseSectionHeader {
+        public static let verticalPadding = EnsembleDesign.Spacing.sm
+        public static let horizontalPadding = EnsembleDesign.Spacing.lg
+        public static let backgroundOpacity = 0.9
+    }
+
+    public enum BrowseSelection {
+        public static let horizontalPadding = EnsembleDesign.Spacing.lg
+        public static let verticalPadding = EnsembleDesign.Spacing.sm
+        public static let outerHorizontalPadding = EnsembleDesign.Spacing.sm
+        public static let cornerRadius = EnsembleDesign.Radius.compactControl
+        public static let fillColor = EnsembleDesign.Material.Role.selection.fallbackBackgroundColor
+    }
+
     public enum FilterPresentation {
         public enum Style: Equatable {
             case toolbarPopover
@@ -231,6 +245,39 @@ public struct EnsembleBrowseFilterButton: View {
             }
         }
         .accessibilityLabel(title)
+    }
+}
+
+/// Standard section header treatment for indexed library browse lists.
+public struct EnsembleBrowseSectionHeader: View {
+    private let title: String
+    private let backgroundColor: Color?
+
+    public init(_ title: String, backgroundColor: Color? = nil) {
+        self.title = title
+        self.backgroundColor = backgroundColor
+    }
+
+    public var body: some View {
+        Text(title)
+            .font(.headline)
+            .foregroundColor(EnsembleDesign.Color.secondaryText)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, EnsembleScaffold.BrowseSectionHeader.horizontalPadding)
+            .padding(.vertical, EnsembleScaffold.BrowseSectionHeader.verticalPadding)
+            .background(backgroundColor?.opacity(EnsembleScaffold.BrowseSectionHeader.backgroundOpacity))
+    }
+}
+
+public extension View {
+    func browseSelectionBackground(isSelected: Bool) -> some View {
+        background(
+            RoundedRectangle(
+                cornerRadius: EnsembleScaffold.BrowseSelection.cornerRadius,
+                style: .continuous
+            )
+            .fill(isSelected ? EnsembleScaffold.BrowseSelection.fillColor : Color.clear)
+        )
     }
 }
 

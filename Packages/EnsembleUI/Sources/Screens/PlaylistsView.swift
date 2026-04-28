@@ -440,8 +440,11 @@ public struct PlaylistsView: View {
                     statusText: isPendingCreation ? "Creating..." : nil
                 )
                 .listRowBackground(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(selectedPlaylist?.id == dp.id ? Color.accentColor.opacity(0.12) : Color.clear)
+                    RoundedRectangle(
+                        cornerRadius: EnsembleScaffold.BrowseSelection.cornerRadius,
+                        style: .continuous
+                    )
+                    .fill(selectedPlaylist?.id == dp.id ? EnsembleScaffold.BrowseSelection.fillColor : Color.clear)
                 )
             }
         }

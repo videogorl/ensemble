@@ -320,12 +320,7 @@ public struct AlbumsView: View {
     }
 
     private func sectionHeader(_ letter: String) -> some View {
-        Text(letter)
-            .font(.headline)
-            .foregroundColor(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-            .padding(.vertical, 8)
+        EnsembleBrowseSectionHeader(letter)
     }
     
     private var stageFlowView: some View {

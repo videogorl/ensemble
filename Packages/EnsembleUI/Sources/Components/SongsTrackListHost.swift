@@ -202,13 +202,7 @@ public struct SongsTrackListHost: View {
     }
 
     private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.headline)
-            .foregroundColor(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            .background(platformBackground.opacity(0.9))
+        EnsembleBrowseSectionHeader(title, backgroundColor: platformBackground)
     }
 
     private var platformBackground: Color {

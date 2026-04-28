@@ -416,39 +416,29 @@ public struct FavoritesView: View {
 
     /// Play and Shuffle action buttons
     private var favoritesActionButtons: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Button {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
             } label: {
-                HStack {
-                    Image(systemName: "play.fill")
-                    Text("Play")
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.accentColor)
-                .foregroundColor(.white)
-                .cornerRadius(10)
+                MediaDetailSurface<EmptyView>.ActionLabel(
+                    "Play",
+                    systemImage: EnsembleDesign.Icon.play,
+                    role: .primary
+                )
             }
 
             Button {
                 nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
             } label: {
-                HStack {
-                    Image(systemName: "shuffle")
-                    Text("Shuffle")
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.gray.opacity(0.2))
-                .foregroundColor(.primary)
-                .cornerRadius(10)
+                MediaDetailSurface<EmptyView>.ActionLabel(
+                    "Shuffle",
+                    systemImage: EnsembleDesign.Icon.shuffle,
+                    role: .secondary
+                )
             }
         }
-        .padding(.horizontal)
-        .padding(.bottom)
+        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+        .padding(.bottom, EnsembleDesign.Spacing.lg)
         .chromelessMediaControlButton()
     }
 

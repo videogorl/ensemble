@@ -139,8 +139,11 @@ public struct GenresView: View {
                         setSelectedGenre(genre)
                     }
                     .listRowBackground(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(selectedGenre?.id == genre.id ? Color.accentColor.opacity(0.12) : Color.clear)
+                        RoundedRectangle(
+                            cornerRadius: EnsembleScaffold.BrowseSelection.cornerRadius,
+                            style: .continuous
+                        )
+                        .fill(selectedGenre?.id == genre.id ? EnsembleScaffold.BrowseSelection.fillColor : Color.clear)
                     )
             }
         }

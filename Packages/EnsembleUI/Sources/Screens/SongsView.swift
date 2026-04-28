@@ -426,7 +426,7 @@ public struct SongsView: View {
                 selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
                 excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
             )
-            .padding(.vertical, 8)
+            .padding(.vertical, EnsembleScaffold.Chip.rowSpacing)
 
             if libraryVM.trackSortOption == .title {
                 largeScreenIndexedSongList(width: width)
@@ -795,13 +795,7 @@ public struct SongsView: View {
     }
 
     private func sectionHeader(_ letter: String) -> some View {
-        Text(letter)
-            .font(.headline)
-            .foregroundColor(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            .background(backgroundColor.opacity(0.9))
+        EnsembleBrowseSectionHeader(letter, backgroundColor: backgroundColor)
     }
     
     private var albumStageFlowView: some View {

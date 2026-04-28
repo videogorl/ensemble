@@ -195,13 +195,10 @@ public struct ArtistsView: View {
         ArtistRow(artist: artist) {
             setSelectedArtist(artist)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(selectedArtist?.id == artist.id ? Color.accentColor.opacity(0.12) : Color.clear)
-        )
-        .padding(.horizontal, 8)
+        .padding(.horizontal, EnsembleScaffold.BrowseSelection.horizontalPadding)
+        .padding(.vertical, EnsembleScaffold.BrowseSelection.verticalPadding)
+        .browseSelectionBackground(isSelected: selectedArtist?.id == artist.id)
+        .padding(.horizontal, EnsembleScaffold.BrowseSelection.outerHorizontalPadding)
         .id(artist.id)
     }
 
@@ -315,12 +312,7 @@ public struct ArtistsView: View {
     }
 
     private func sectionHeader(_ letter: String) -> some View {
-        Text(letter)
-            .font(.headline)
-            .foregroundColor(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-            .padding(.vertical, 8)
+        EnsembleBrowseSectionHeader(letter)
     }
 }
 
