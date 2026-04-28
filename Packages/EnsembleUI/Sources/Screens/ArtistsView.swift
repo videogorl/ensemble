@@ -361,29 +361,29 @@ public struct ArtistDetailView: View {
                 // Albums Section
                 if viewModel.isLoading && viewModel.albums.isEmpty {
                     ProgressView()
-                        .padding(.top, 40)
+                        .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
                 } else if !viewModel.albums.isEmpty {
                     albumsSection
-                        .padding(.top, 32)
+                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
                 }
 
                 // Favorited Tracks (4+ stars)
                 if !viewModel.favoritedTracks.isEmpty {
                     favoritedTracksSection
-                        .padding(.top, 32)
+                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
                 }
 
                 // About section (quick facts + bio + Wikipedia)
                 if hasAboutContent {
                     aboutSection
                         .padding(.horizontal)
-                        .padding(.top, 32)
+                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
                 }
 
                 // Related Artists (only those in user's library)
                 if !viewModel.resolvedSimilarArtists.isEmpty {
                     relatedArtistsSection(artists: viewModel.resolvedSimilarArtists)
-                        .padding(.top, 32)
+                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
                 }
             }
         }
@@ -512,10 +512,10 @@ public struct ArtistDetailView: View {
 
             // Legibility overlay matching NowPlayingView treatment
             if colorScheme == .dark {
-                Color.black.opacity(0.45)
+                Color.black.opacity(EnsembleScaffold.ArtistDetail.darkLegibilityOverlayOpacity)
                     .allowsHitTesting(false)
             } else {
-                backgroundOverlayColor.opacity(0.7)
+                backgroundOverlayColor.opacity(EnsembleScaffold.ArtistDetail.lightLegibilityOverlayOpacity)
                     .allowsHitTesting(false)
             }
         }
@@ -526,7 +526,7 @@ public struct ArtistDetailView: View {
                 endPoint: .bottom
             )
         )
-        .frame(height: 600)
+        .frame(height: EnsembleScaffold.ArtistDetail.backgroundHeight)
     }
     
     private func loadArtworkImage() async {
@@ -573,7 +573,7 @@ public struct ArtistDetailView: View {
     }
 
     private var usesWideArtistHeader: Bool {
-        artistHeaderWidth >= 700
+        artistHeaderWidth >= EnsembleScaffold.ArtistDetail.wideHeaderThreshold
     }
 
     private var compactArtistHeader: some View {
@@ -582,23 +582,31 @@ public struct ArtistDetailView: View {
 
             actionButtons
                 .padding(.horizontal)
-                .padding(.top, 24)
+                .padding(.top, EnsembleScaffold.ArtistDetail.compactActionTopPadding)
         }
     }
 
     private var wideArtistHeader: some View {
-        HStack(alignment: .center, spacing: 32) {
+        HStack(alignment: .center, spacing: EnsembleScaffold.ArtistDetail.sectionTopPadding) {
             ArtworkView(
                 artist: viewModel.artist,
                 size: .medium,
                 cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.medium.cgSize.width),
                 isResponsive: true
             )
-            .frame(width: 240, height: 240)
+            .frame(
+                width: EnsembleScaffold.ArtistDetail.wideArtworkDimension,
+                height: EnsembleScaffold.ArtistDetail.wideArtworkDimension
+            )
             .clipShape(Circle())
-            .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 8)
+            .shadow(
+                color: EnsembleScaffold.ArtistDetail.wideArtworkShadowColor,
+                radius: EnsembleScaffold.ArtistDetail.wideArtworkShadowRadius,
+                x: 0,
+                y: EnsembleScaffold.ArtistDetail.wideArtworkShadowY
+            )
 
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
                 Text(viewModel.artist.name)
                     .font(.largeTitle)
                     .fontWeight(.bold)
@@ -609,18 +617,18 @@ public struct ArtistDetailView: View {
                 artistHeaderFacts
 
                 actionButtons
-                    .frame(maxWidth: 520)
-                    .padding(.top, 8)
+                    .frame(maxWidth: EnsembleScaffold.ArtistDetail.wideActionMaxWidth)
+                    .padding(.top, EnsembleScaffold.DetailSurface.actionTopPadding)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
-        .padding(.top, 72)
-        .padding(.bottom, 24)
+        .padding(.top, EnsembleScaffold.ArtistDetail.wideHeaderTopPadding)
+        .padding(.bottom, EnsembleScaffold.ArtistDetail.compactActionTopPadding)
     }
 
     private var artistStatsLine: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
             if !viewModel.filteredAlbums.isEmpty {
                 Text("\(viewModel.filteredAlbums.count) album\(viewModel.filteredAlbums.count == 1 ? "" : "s")")
             }
@@ -638,7 +646,7 @@ public struct ArtistDetailView: View {
     @ViewBuilder
     private var artistHeaderFacts: some View {
         if let detail = viewModel.artistDetail, hasQuickFacts(detail) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.factsSpacing) {
                 if let country = detail.country {
                     Text(country)
                 }
@@ -685,7 +693,7 @@ public struct ArtistDetailView: View {
                             .aspectRatio(contentMode: .fill)
                         #endif
                     } else {
-                        Color.gray.opacity(0.2)
+                        EnsembleScaffold.ArtistDetail.placeholderArtworkColor
                     }
                 }
                 .frame(width: geometry.size.width, height: artworkHeight)
@@ -706,14 +714,14 @@ public struct ArtistDetailView: View {
 
                 // Artist info overlay — offset counteracts overscroll so
                 // the text stays visually pinned instead of drifting down
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.metadataSpacing) {
                     Text(viewModel.artist.name)
                         .font(.largeTitle)
                         .fontWeight(.bold)
                         .background(TitleOffsetTracker(coordinateSpace: "artistDetailScroll"))
 
                     if !viewModel.filteredAlbums.isEmpty || !viewModel.filteredTracks.isEmpty {
-                        HStack(spacing: 8) {
+                        HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
                             if !viewModel.filteredAlbums.isEmpty {
                                 Text("\(viewModel.filteredAlbums.count) album\(viewModel.filteredAlbums.count == 1 ? "" : "s")")
                             }
@@ -764,12 +772,15 @@ public struct ArtistDetailView: View {
             Button {
                 nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
             } label: {
-                Image(systemName: "dot.radiowaves.left.and.right")
+                Image(systemName: EnsembleDesign.Icon.radio)
                     .font(.title3)
-                    .frame(width: 44, height: 44)
+                    .frame(
+                        width: EnsembleScaffold.ArtistDetail.actionIconDimension,
+                        height: EnsembleScaffold.ArtistDetail.actionIconDimension
+                    )
                     .background(EnsembleDesign.Color.secondaryControlFill)
                     .foregroundColor(.primary)
-                    .cornerRadius(10)
+                    .cornerRadius(EnsembleScaffold.DetailSurface.actionCornerRadius)
             }
             #if os(macOS)
             .help("Artist Radio - Queue all shuffled, enable sonically similar")
@@ -794,12 +805,12 @@ public struct ArtistDetailView: View {
     }
 
     private var aboutSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
             EnsembleContentSectionHeader("About \(viewModel.artist.name)")
 
             // Quick facts
             if let detail = viewModel.artistDetail, hasQuickFacts(detail) {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.controlSpacing) {
                     if let country = detail.country {
                         factRow(label: "From", value: country)
                     }
@@ -822,7 +833,7 @@ public struct ArtistDetailView: View {
                 Button {
                     openURL(url)
                 } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
                         Image(systemName: "arrow.up.forward.app")
                         Text("Wikipedia")
                     }
@@ -841,7 +852,7 @@ public struct ArtistDetailView: View {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
 
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.descriptionSpacing) {
             Text("Description")
                 .font(.headline)
                 .foregroundColor(.secondary)
@@ -855,7 +866,7 @@ public struct ArtistDetailView: View {
                             .font(.body)
                             .foregroundColor(.primary)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, index > 0 ? 12 : 0)
+                            .padding(.top, index > 0 ? EnsembleDesign.Spacing.md : 0)
                     }
                 } else {
                     // Collapsed: show truncated text
@@ -890,11 +901,11 @@ public struct ArtistDetailView: View {
     }
 
     private func factRow(label: String, value: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
             Text(label)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-                .frame(width: 50, alignment: .leading)
+                .frame(width: EnsembleScaffold.ArtistDetail.factLabelWidth, alignment: .leading)
             Text(value)
                 .font(.subheadline)
                 .foregroundColor(.primary)
@@ -905,12 +916,12 @@ public struct ArtistDetailView: View {
 
     /// Shows only related artists that exist in the user's library (across all sources)
     private func relatedArtistsSection(artists: [Artist]) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
             EnsembleContentSectionHeader("Related Artists")
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 16) {
+                LazyHStack(spacing: EnsembleDesign.Spacing.lg) {
                     ForEach(artists) { artist in
                         if #available(iOS 16.0, macOS 13.0, *) {
                             NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
@@ -934,11 +945,11 @@ public struct ArtistDetailView: View {
 
     /// Card for a related artist in the user's library
     private func similarArtistCard(artist: Artist) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
             ArtworkView(
                 artist: artist,
                 size: .thumbnail,
-                cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2
+                cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.thumbnail.cgSize.width)
             )
 
             Text(artist.name)
@@ -953,7 +964,7 @@ public struct ArtistDetailView: View {
     // MARK: - Albums Section
 
     private var albumsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
             EnsembleContentSectionHeader("Albums")
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
@@ -964,12 +975,12 @@ public struct ArtistDetailView: View {
     // MARK: - Favorited Tracks Section
 
     private var favoritedTracksSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
             EnsembleContentSectionHeader("Favorited Tracks")
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
             // Play / Shuffle buttons
-            HStack(spacing: 12) {
+            HStack(spacing: EnsembleDesign.Spacing.md) {
                 Button {
                     nowPlayingVM.play(tracks: viewModel.favoritedTracks)
                 } label: {

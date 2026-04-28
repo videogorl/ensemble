@@ -64,6 +64,29 @@ public enum EnsembleScaffold {
         public static let metadataSpacing = EnsembleDesign.Spacing.xs
     }
 
+    public enum ArtistDetail {
+        public static let wideHeaderThreshold: CGFloat = 700
+        public static let backgroundHeight: CGFloat = 600
+        public static let wideArtworkDimension: CGFloat = 240
+        public static let wideActionMaxWidth: CGFloat = 520
+        public static let wideHeaderTopPadding: CGFloat = 72
+        public static let sectionTopPadding: CGFloat = 32
+        public static let loadingTopPadding = TrackListLayoutMetrics.detailHorizontalPadding
+        public static let compactActionTopPadding = EnsembleDesign.Spacing.xxl
+        public static let metadataSpacing = EnsembleDesign.Spacing.sm
+        public static let factsSpacing = EnsembleDesign.Spacing.chipVertical
+        public static let descriptionSpacing = EnsembleDesign.Spacing.sm
+        public static let aboutSpacing = EnsembleDesign.Spacing.lg
+        public static let factLabelWidth: CGFloat = 50
+        public static let actionIconDimension = EnsembleScaffold.UtilityRow.iconLaneWidth
+        public static let wideArtworkShadowColor = Color.black.opacity(0.18)
+        public static let wideArtworkShadowRadius: CGFloat = 18
+        public static let wideArtworkShadowY = EnsembleScaffold.UtilityRow.rowSpacing
+        public static let placeholderArtworkColor = Color.gray.opacity(0.2)
+        public static let darkLegibilityOverlayOpacity = 0.45
+        public static let lightLegibilityOverlayOpacity = 0.7
+    }
+
     public enum AccountSetup {
         public static let macMinimumWidth: CGFloat = 720
         public static let macMinimumHeight: CGFloat = 560
