@@ -784,11 +784,7 @@ public struct ArtistDetailView: View {
                 .offset(y: -overscroll)
             }
         }
-        #if os(macOS)
-        .aspectRatio(2.5, contentMode: .fit)
-        #else
         .aspectRatio(1, contentMode: .fit)
-        #endif
     }
 
     // MARK: - Action Buttons
