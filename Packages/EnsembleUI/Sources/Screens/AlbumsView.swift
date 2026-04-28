@@ -204,85 +204,31 @@ public struct AlbumsView: View {
     }
 
     private var loadingView: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-            Text("Loading albums...")
-                .foregroundColor(.secondary)
-        }
+        EnsembleStateScaffold(kind: .loading, title: "Loading albums…")
     }
 
     private var emptyView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "square.stack")
-                .font(.system(size: 60))
-                .foregroundColor(.secondary)
+        EnsembleLibraryEmptyStateScaffold(
+            title: "No Albums",
+            iconSystemName: EnsembleDesign.Icon.album,
+            recovery: libraryEmptyRecovery(emptyMessage: "No albums found in enabled libraries"),
+            addSource: { navigationCoordinator.showingAddAccount = true },
+            manageSources: { navigationCoordinator.openSettings() }
+        )
+    }
 
-            Text("No Albums")
-                .font(.title2)
-
-            if libraryVM.isRestoringCloudSources {
-                VStack(spacing: 8) {
-                    ProgressView()
-                    Text("Restoring libraries from iCloud…")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-
-                    Text("This can take a moment on first launch.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-            } else if !libraryVM.hasAnySources {
-                Text("No music sources connected")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-
-                Button {
-                    navigationCoordinator.showingAddAccount = true
-                } label: {
-                    Label("Add Source", systemImage: "plus.circle.fill")
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(20)
-                }
-                .buttonStyle(.plain)
-            } else if libraryVM.isSyncing {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Sync in progress…")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-            } else if !libraryVM.hasEnabledLibraries {
-                Text("No libraries enabled")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-
-                Button {
-                    navigationCoordinator.openSettings()
-                } label: {
-                    Label("Manage Sources", systemImage: "slider.horizontal.3")
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(20)
-                }
-                .buttonStyle(.plain)
-            } else {
-                Text("No albums found in enabled libraries")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            }
+    private func libraryEmptyRecovery(emptyMessage: String) -> EnsembleLibraryEmptyStateScaffold.Recovery {
+        if libraryVM.isRestoringCloudSources {
+            return .restoringCloudSources
+        } else if !libraryVM.hasAnySources {
+            return .noSources
+        } else if libraryVM.isSyncing {
+            return .syncing
+        } else if !libraryVM.hasEnabledLibraries {
+            return .noEnabledLibraries
+        } else {
+            return .empty(message: emptyMessage)
         }
-        .padding(.horizontal)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     private struct AlbumSection: Identifiable {

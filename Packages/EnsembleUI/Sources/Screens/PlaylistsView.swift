@@ -371,84 +371,31 @@ public struct PlaylistsView: View {
     }
 
     private var loadingView: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-            Text("Loading playlists...")
-                .foregroundColor(.secondary)
-        }
+        EnsembleStateScaffold(kind: .loading, title: "Loading playlists…")
     }
 
     private var emptyView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "music.note.list")
-                .font(.system(size: 60))
-                .foregroundColor(.secondary)
+        EnsembleLibraryEmptyStateScaffold(
+            title: "No Playlists",
+            iconSystemName: EnsembleDesign.Icon.playlist,
+            recovery: playlistEmptyRecovery(emptyMessage: "Create playlists in Plex to see them here"),
+            addSource: { navigationCoordinator.showingAddAccount = true },
+            manageSources: { navigationCoordinator.openSettings() }
+        )
+    }
 
-            Text("No Playlists")
-                .font(.title2)
-
-            if isRestoringCloudSources {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Restoring libraries from iCloud…")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-
-                Text("This can take a moment on first launch.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            } else if !accountManager.hasAnySources {
-                Text("No music sources connected")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-
-                Button {
-                    navigationCoordinator.showingAddAccount = true
-                } label: {
-                    Label("Add Source", systemImage: "plus.circle.fill")
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(20)
-                }
-                .buttonStyle(.plain)
-            } else if syncCoordinator.isSyncing {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Sync in progress…")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-            } else if !hasEnabledLibraries {
-                Text("No libraries enabled")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-
-                Button {
-                    navigationCoordinator.openSettings()
-                } label: {
-                    Label("Manage Sources", systemImage: "slider.horizontal.3")
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(20)
-                }
-                .buttonStyle(.plain)
-            } else {
-                Text("Create playlists in Plex to see them here")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            }
+    private func playlistEmptyRecovery(emptyMessage: String) -> EnsembleLibraryEmptyStateScaffold.Recovery {
+        if isRestoringCloudSources {
+            return .restoringCloudSources
+        } else if !accountManager.hasAnySources {
+            return .noSources
+        } else if syncCoordinator.isSyncing {
+            return .syncing
+        } else if !hasEnabledLibraries {
+            return .noEnabledLibraries
+        } else {
+            return .empty(message: emptyMessage)
         }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     @ViewBuilder

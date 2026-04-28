@@ -440,3 +440,103 @@ public extension EnsembleStateScaffold where Action == EmptyView {
         }
     }
 }
+
+/// Shared empty-state decision tree for library browse screens that depend on
+/// configured music sources, enabled libraries, and sync/cloud-restore state.
+public struct EnsembleLibraryEmptyStateScaffold: View {
+    public enum Recovery {
+        case restoringCloudSources
+        case noSources
+        case syncing
+        case noEnabledLibraries
+        case empty(message: String)
+
+        var message: String? {
+            switch self {
+            case .restoringCloudSources:
+                return "Restoring libraries from iCloud…"
+            case .noSources:
+                return "No music sources connected"
+            case .syncing:
+                return nil
+            case .noEnabledLibraries:
+                return "No libraries enabled"
+            case .empty(let message):
+                return message
+            }
+        }
+    }
+
+    private let title: String
+    private let iconSystemName: String
+    private let recovery: Recovery
+    private let addSource: () -> Void
+    private let manageSources: () -> Void
+
+    public init(
+        title: String,
+        iconSystemName: String,
+        recovery: Recovery,
+        addSource: @escaping () -> Void,
+        manageSources: @escaping () -> Void
+    ) {
+        self.title = title
+        self.iconSystemName = iconSystemName
+        self.recovery = recovery
+        self.addSource = addSource
+        self.manageSources = manageSources
+    }
+
+    public var body: some View {
+        EnsembleStateScaffold(
+            kind: .empty,
+            title: title,
+            message: recovery.message,
+            iconSystemName: iconSystemName
+        ) {
+            recoveryAction
+        }
+    }
+
+    @ViewBuilder
+    private var recoveryAction: some View {
+        switch recovery {
+        case .restoringCloudSources:
+            VStack(spacing: EnsembleDesign.Spacing.sm) {
+                ProgressView()
+                Text("This can take a moment on first launch.")
+                    .font(EnsembleDesign.Typography.cardSubtitle)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    .multilineTextAlignment(.center)
+            }
+        case .noSources:
+            Button(action: addSource) {
+                actionLabel("Add Source", systemImage: EnsembleDesign.Icon.addCircle)
+            }
+            .buttonStyle(.plain)
+        case .syncing:
+            HStack(spacing: EnsembleDesign.Spacing.sm) {
+                ProgressView()
+                Text("Sync in progress…")
+                    .font(EnsembleDesign.Typography.stateMessage)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+            }
+        case .noEnabledLibraries:
+            Button(action: manageSources) {
+                actionLabel("Manage Sources", systemImage: EnsembleDesign.Icon.editPlaylist)
+            }
+            .buttonStyle(.plain)
+        case .empty:
+            EmptyView()
+        }
+    }
+
+    private func actionLabel(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .padding(.horizontal, EnsembleDesign.Spacing.xl)
+            .padding(.vertical, EnsembleDesign.Spacing.compactControlVertical)
+            .background(EnsembleDesign.Color.accent)
+            .foregroundColor(EnsembleDesign.Color.onAccent)
+            .clipShape(Capsule())
+    }
+}

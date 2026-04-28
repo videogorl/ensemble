@@ -213,13 +213,18 @@ public struct DownloadTargetDetailView: View {
     @ViewBuilder
     private var trackListSection: some View {
         if viewModel.isLoading && viewModel.tracks.isEmpty {
-            ProgressView()
-                .padding(.top, 40)
+            EnsembleStateScaffold(
+                kind: .loading,
+                title: "Loading tracks…",
+                presentation: .compactFooter
+            )
         } else if viewModel.tracks.isEmpty {
-            Text("No tracks found for this download.")
-                .foregroundColor(.secondary)
-                .font(.subheadline)
-                .padding(.top, 40)
+            EnsembleStateScaffold(
+                kind: .empty,
+                title: "No tracks found",
+                message: "No tracks were found for this download.",
+                presentation: .compactFooter
+            )
         } else {
             queueStatusBanner
 

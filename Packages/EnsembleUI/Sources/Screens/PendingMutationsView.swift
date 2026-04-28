@@ -55,19 +55,12 @@ public struct PendingMutationsView: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        HStack {
-            Spacer()
-            VStack(spacing: 8) {
-                Image(systemName: "checkmark.circle")
-                    .font(.largeTitle)
-                    .foregroundColor(.secondary)
-                Text("No pending changes")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-            .padding(.vertical, 40)
-            Spacer()
-        }
+        EnsembleStateScaffold(
+            kind: .empty,
+            title: "No pending changes",
+            iconSystemName: "checkmark.circle",
+            presentation: .compactFooter
+        )
         .listRowBackground(Color.clear)
     }
 
