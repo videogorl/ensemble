@@ -73,6 +73,7 @@ public enum EnsembleDesign {
         public static let actionLabel: Font = .headline
         public static let actionIcon: Font = .headline
         public static let popoverAction: Font = .body
+        public static let overflowIcon: Font = .system(size: 11, weight: .semibold)
         public static let emptyStateIcon: Font = .system(size: 60)
         public static let mediaPlaceholderIcon: Font = .system(size: 40)
         public static let miniPlayerTitle: Font = .subheadline.weight(.bold)
@@ -91,6 +92,8 @@ public enum EnsembleDesign {
         public static let secondaryControlFill = SwiftUI.Color.gray.opacity(0.2)
         public static let destructive = SwiftUI.Color.red
         public static let warning = SwiftUI.Color.orange
+        public static let favorite = SwiftUI.Color.pink
+        public static let generated = SwiftUI.Color.purple
         public static let onAccent = SwiftUI.Color.white
         public static let divider = SwiftUI.Color.secondary.opacity(0.18)
         public static let placeholderArtwork = SwiftUI.Color.primary.opacity(0.1)

@@ -22,15 +22,15 @@ public struct CompactArtistRow: View {
             )
 
             Text(artist.name)
-                .font(.body)
+                .font(EnsembleDesign.Typography.rowPrimary)
                 .lineLimit(1)
-                .foregroundColor(.primary)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
 
             Spacer()
 
             Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
@@ -52,14 +52,14 @@ public struct CompactAlbumRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(album.title)
-                    .font(.body)
+                    .font(EnsembleDesign.Typography.rowPrimary)
                     .lineLimit(1)
-                    .foregroundColor(.primary)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
 
                 if let artist = album.artistName {
                     Text(artist)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
                 }
             }
@@ -67,8 +67,8 @@ public struct CompactAlbumRow: View {
             Spacer()
 
             Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
@@ -90,26 +90,26 @@ public struct CompactPlaylistRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(playlist.title)
-                    .font(.body)
+                    .font(EnsembleDesign.Typography.rowPrimary)
                     .lineLimit(1)
-                    .foregroundColor(.primary)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
 
                 HStack(spacing: 4) {
                     if playlist.isSmart {
                         Image(systemName: "gearshape.fill")
-                            .font(.caption2)
+                            .font(EnsembleDesign.Typography.rowSecondary)
                     }
                     Text("\(playlist.trackCount) songs")
-                        .font(.caption)
+                        .font(EnsembleDesign.Typography.rowSecondary)
                 }
-                .foregroundColor(.secondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
 
             Spacer()
 
             Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
@@ -139,8 +139,8 @@ public struct CompactTrackRow: View {
                 
                 if isPlaying {
                     Image(systemName: "speaker.wave.2.fill")
-                        .font(.caption)
-                        .foregroundColor(.white)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.onAccent)
                         .padding(6)
                         .background(Color.black.opacity(0.6))
                         .clipShape(Circle())
@@ -150,9 +150,9 @@ public struct CompactTrackRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.title)
-                    .font(.body)
+                    .font(EnsembleDesign.Typography.rowPrimary)
                     .lineLimit(1)
-                    .foregroundColor(isPlaying ? .accentColor : .primary)
+                    .foregroundColor(isPlaying ? EnsembleDesign.Color.accent : EnsembleDesign.Color.primaryText)
 
                 HStack(spacing: 4) {
                     if let artist = track.artistName {
@@ -165,16 +165,16 @@ public struct CompactTrackRow: View {
                         Text(album)
                     }
                 }
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
                 .lineLimit(1)
             }
 
             Spacer()
 
             Text(formatDuration(track.duration))
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
         .opacity(cachedAvailability.shouldDim ? 0.45 : 1)
         .padding(.vertical, 4)

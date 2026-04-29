@@ -208,10 +208,10 @@ private struct MiniPlayerTrackInfo: View {
             if case .failed(let errorMessage) = viewModel.playbackState {
                 HStack(spacing: EnsembleDesign.Spacing.sm) {
                     Image(systemName: EnsembleDesign.Icon.error)
-                        .font(.caption)
+                        .font(EnsembleDesign.Typography.rowSecondary)
 
                     Text(errorMessage)
-                        .font(.caption)
+                        .font(EnsembleDesign.Typography.rowSecondary)
                         .lineLimit(1)
 
                     Spacer()
@@ -221,10 +221,10 @@ private struct MiniPlayerTrackInfo: View {
                             await viewModel.retryCurrentTrack()
                         }
                     }
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(.white)
+                    .font(EnsembleDesign.Typography.rowSecondary.weight(.semibold))
+                    .foregroundColor(EnsembleDesign.Color.onAccent)
                 }
-                .foregroundColor(.white)
+                .foregroundColor(EnsembleDesign.Color.onAccent)
                 .padding(.horizontal, EnsembleDesign.Spacing.md)
                 .padding(.vertical, EnsembleDesign.Spacing.chipVertical)
                 .background(EnsembleDesign.Color.warning)
@@ -244,16 +244,16 @@ private struct MiniPlayerTrackInfo: View {
                 // Nothing Playing state
                 HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                     RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous)
-                        .fill(Color.primary.opacity(0.1))
+                        .fill(EnsembleDesign.Color.placeholderArtwork)
                         .frame(width: artworkDimension, height: artworkDimension)
                         .overlay(
                             Image(systemName: EnsembleDesign.Icon.musicNote)
-                                .foregroundColor(.primary.opacity(0.6))
+                                .foregroundColor(EnsembleDesign.Color.mutedPrimaryText)
                         )
 
                     Text("Nothing Playing")
                         .font(EnsembleDesign.Typography.cardTitle)
-                        .foregroundColor(.primary.opacity(0.8))
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
 
                     Spacer()
                 }
@@ -472,7 +472,7 @@ private struct MiniPlayerControls: View {
                 MiniPlayerActionsMenuButton(viewModel: viewModel)
             }
         }
-        .foregroundColor(.primary)
+        .foregroundColor(EnsembleDesign.Color.primaryText)
         .chromelessMediaControlButton()
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -500,8 +500,8 @@ private struct MiniPlayerActionsMenuButton: View {
             showingActionsPopover = viewModel.currentTrack != nil
         } label: {
             Image(systemName: EnsembleDesign.Icon.more)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.overflowIcon)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
                 .frame(width: 25, height: 25)
                 .contentShape(Rectangle())
         }
@@ -643,7 +643,7 @@ private struct MiniPlayerActionsPopoverContent: View {
                 .padding(.vertical, EnsembleDesign.Spacing.popoverActionVertical)
         }
         .buttonStyle(.plain)
-        .foregroundColor(.primary)
+        .foregroundColor(EnsembleDesign.Color.primaryText)
     }
 }
 #elseif os(macOS)
