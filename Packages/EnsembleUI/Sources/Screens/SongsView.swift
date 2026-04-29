@@ -359,7 +359,7 @@ public struct SongsView: View {
                                         )
                                         .listRowBackground(Color.clear)
                                         .hideListRowSeparator()
-                                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                        .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
                                     }
                                 }
                                 .id(section.letter)

@@ -616,7 +616,7 @@ public struct PlaylistsView: View {
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .success,
-                        iconSystemName: "checkmark.circle.fill",
+                        iconSystemName: EnsembleDesign.Icon.checkmark,
                         title: "Deleted \(playlist.title)",
                         dedupeKey: "playlist-delete-success-\(playlist.id)"
                     )
@@ -688,7 +688,7 @@ public struct PlaylistsView: View {
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .warning,
-                        iconSystemName: "exclamationmark.triangle.fill",
+                        iconSystemName: EnsembleDesign.Icon.error,
                         title: "Created \(title) on \(successCount)/\(serverSourceKeys.count) servers",
                         message: lastError ?? "Some servers could not create this playlist.",
                         dedupeKey: "playlist-create-partial-\(title.lowercased())"
@@ -1017,7 +1017,7 @@ public struct PlaylistDetailView: View {
                         deps.toastCenter.show(
                             ToastPayload(
                                 style: .success,
-                                iconSystemName: "checkmark.circle.fill",
+                                iconSystemName: EnsembleDesign.Icon.checkmark,
                                 title: "Deleted \(playlistTitle)",
                                 dedupeKey: "playlist-delete-success-\(playlistID)"
                             )
@@ -1095,13 +1095,13 @@ public struct PlaylistDetailView: View {
     private var inlinePlaylistEditor: some View {
         List {
             ForEach(editedTracks, id: \.id) { track in
-                HStack(spacing: 12) {
+                HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                     ArtworkView(track: track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
                         Text(track.title)
                         Text(track.artistName ?? "")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 }
             }
@@ -1203,11 +1203,11 @@ private struct CreatePlaylistView: View {
                         } label: {
                             HStack {
                                 Text(option.name)
-                                    .foregroundColor(.primary)
+                                    .foregroundColor(EnsembleDesign.Color.primaryText)
                                 Spacer()
                                 if selectedServerIDs.contains(option.id) {
-                                    Image(systemName: "checkmark")
-                                        .foregroundColor(.accentColor)
+                                    Image(systemName: EnsembleDesign.Icon.selectionCheckmark)
+                                        .foregroundColor(EnsembleDesign.Color.accent)
                                 }
                             }
                         }

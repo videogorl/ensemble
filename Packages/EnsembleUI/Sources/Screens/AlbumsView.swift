@@ -406,7 +406,7 @@ public struct AlbumDetailView: View {
                                     deps.toastCenter.show(
                                         ToastPayload(
                                             style: .success,
-                                            iconSystemName: "checkmark.circle.fill",
+                                            iconSystemName: EnsembleDesign.Icon.checkmark,
                                             title: "Album updated",
                                             message: "\"\(newTitle)\" was saved to Plex.",
                                             dedupeKey: "album-detail-edit-\(album.id)"
@@ -418,7 +418,7 @@ public struct AlbumDetailView: View {
                                     deps.toastCenter.show(
                                         ToastPayload(
                                             style: .error,
-                                            iconSystemName: "exclamationmark.triangle.fill",
+                                            iconSystemName: EnsembleDesign.Icon.error,
                                             title: "Couldn't edit album",
                                             message: error.localizedDescription,
                                             dedupeKey: "album-detail-edit-failed-\(album.id)"
@@ -457,7 +457,7 @@ public struct AlbumDetailView: View {
                             deps.toastCenter.show(
                                 ToastPayload(
                                     style: .success,
-                                    iconSystemName: "trash.fill",
+                                    iconSystemName: EnsembleDesign.Icon.deleteFilled,
                                     title: "Album deleted",
                                     message: "\"\(album.title)\" was removed from Plex.",
                                     dedupeKey: "album-detail-delete-\(album.id)"
@@ -470,7 +470,7 @@ public struct AlbumDetailView: View {
                             deps.toastCenter.show(
                                 ToastPayload(
                                     style: .error,
-                                    iconSystemName: "exclamationmark.triangle.fill",
+                                    iconSystemName: EnsembleDesign.Icon.error,
                                     title: "Couldn't delete album",
                                     message: error.localizedDescription,
                                     dedupeKey: "album-detail-delete-failed-\(album.id)"
@@ -540,8 +540,8 @@ public struct AlbumDetailView: View {
                     Button {
                         openURL(url)
                     } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.up.forward.app")
+                        HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
+                            Image(systemName: EnsembleDesign.Icon.externalLink)
                             Text("Wikipedia")
                         }
                         .font(EnsembleDesign.Typography.stateMessage.weight(.medium))
@@ -595,7 +595,7 @@ public struct AlbumDetailView: View {
             Text(label)
                 .font(EnsembleDesign.Typography.stateMessage)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
-                .frame(width: 50, alignment: .leading)
+                .frame(width: EnsembleScaffold.ArtistDetail.factLabelWidth, alignment: .leading)
             Text(value)
                 .font(EnsembleDesign.Typography.stateMessage)
                 .foregroundColor(EnsembleDesign.Color.primaryText)

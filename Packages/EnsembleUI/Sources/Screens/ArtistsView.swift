@@ -209,7 +209,7 @@ public struct ArtistsView: View {
     private var emptyView: some View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Artists",
-            iconSystemName: "person.2",
+            iconSystemName: EnsembleDesign.Icon.artists,
             recovery: libraryEmptyRecovery(emptyMessage: "No artists found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openSettings() }
@@ -468,9 +468,9 @@ public struct ArtistDetailView: View {
                 }
             } label: {
                 if isPinned {
-                    Label("Unpin", systemImage: "pin.slash")
+                    Label("Unpin", systemImage: EnsembleDesign.Icon.unpin)
                 } else {
-                    Label("Pin to Pins", systemImage: "pin.fill")
+                    Label("Pin to Pins", systemImage: EnsembleDesign.Icon.pin)
                 }
             }
 
@@ -484,7 +484,7 @@ public struct ArtistDetailView: View {
             } label: {
                 Label(
                     isDownloaded ? "Remove Download" : "Download",
-                    systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
+                    systemImage: isDownloaded ? EnsembleDesign.Icon.removeDownload : EnsembleDesign.Icon.download
                 )
             }
         } label: {
@@ -835,7 +835,7 @@ public struct ArtistDetailView: View {
                     openURL(url)
                 } label: {
                     HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
-                        Image(systemName: "arrow.up.forward.app")
+                        Image(systemName: EnsembleDesign.Icon.externalLink)
                         Text("Wikipedia")
                     }
                     .font(EnsembleDesign.Typography.stateMessage.weight(.medium))

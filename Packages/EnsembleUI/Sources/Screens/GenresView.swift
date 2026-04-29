@@ -89,7 +89,7 @@ public struct GenresView: View {
     private var emptyView: some View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Genres",
-            iconSystemName: "guitars",
+            iconSystemName: EnsembleDesign.Icon.genreEmpty,
             recovery: libraryEmptyRecovery(emptyMessage: "No genres found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openSettings() }
@@ -114,13 +114,13 @@ public struct GenresView: View {
         List {
             ForEach(filteredGenres) { genre in
                 HStack {
-                    Image(systemName: "guitars.fill")
-                        .font(.title2)
-                        .foregroundColor(.accentColor)
-                        .frame(width: 44)
+                    Image(systemName: EnsembleDesign.Icon.genreFilled)
+                        .font(EnsembleDesign.Typography.sectionTitle)
+                        .foregroundColor(EnsembleDesign.Color.accent)
+                        .frame(width: EnsembleScaffold.Genres.iconLaneWidth)
 
                     Text(genre.title)
-                        .font(.body)
+                        .font(EnsembleDesign.Typography.rowPrimary)
 
                     Spacer()
                 }
@@ -153,13 +153,13 @@ public struct GenresView: View {
 
     private func genreRow(_ genre: Genre) -> some View {
         HStack {
-            Image(systemName: "guitars.fill")
-                .font(.title2)
-                .foregroundColor(.accentColor)
-                .frame(width: 44)
+            Image(systemName: EnsembleDesign.Icon.genreFilled)
+                .font(EnsembleDesign.Typography.sectionTitle)
+                .foregroundColor(EnsembleDesign.Color.accent)
+                .frame(width: EnsembleScaffold.Genres.iconLaneWidth)
 
             Text(genre.title)
-                .font(.body)
+                .font(EnsembleDesign.Typography.rowPrimary)
                 .lineLimit(1)
 
             Spacer()
@@ -176,20 +176,20 @@ struct GenreDetailContentView: View {
     var body: some View {
         let tracks = tracks(for: genre)
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: EnsembleScaffold.Genres.detailHeaderSpacing) {
                 Text(genre.title)
-                    .font(.title2)
+                    .font(EnsembleDesign.Typography.stateTitle)
                     .fontWeight(.semibold)
                 Text("\(tracks.count) song\(tracks.count == 1 ? "" : "s")")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.stateMessage)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
-            .padding()
+            .padding(EnsembleDesign.Spacing.lg)
 
             Divider()
 
             if tracks.isEmpty {
-                LargeScreenPlaceholderView(systemImage: "music.note", title: "No Songs")
+                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.musicNote, title: "No Songs")
             } else {
                 List {
                     ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in

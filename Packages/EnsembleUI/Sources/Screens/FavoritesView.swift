@@ -349,7 +349,7 @@ public struct FavoritesView: View {
         VStack(spacing: EnsembleDesign.Spacing.lg) {
             Image(systemName: EnsembleDesign.Icon.favoriteFilled)
                 .font(.system(size: EnsembleScaffold.Favorites.heroIconSize))
-                .foregroundColor(.red)
+                .foregroundColor(EnsembleDesign.Color.favorite)
                 .padding(.top, EnsembleScaffold.Favorites.heroTopPadding)
 
             VStack(spacing: EnsembleScaffold.Favorites.metadataSpacing) {
@@ -357,12 +357,12 @@ public struct FavoritesView: View {
                     .font(EnsembleDesign.Typography.sectionTitle)
 
                 Text("\(viewModel.filteredTracks.count) tracks \u{2022} \(viewModel.totalDuration)")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.stateMessage)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
 
                 Text("All libraries")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
         .frame(maxWidth: .infinity)

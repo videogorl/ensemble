@@ -97,6 +97,11 @@ public enum EnsembleScaffold {
         public static let metadataSpacing = EnsembleDesign.Spacing.xs
     }
 
+    public enum Genres {
+        public static let iconLaneWidth = EnsembleScaffold.UtilityRow.iconLaneWidth
+        public static let detailHeaderSpacing = EnsembleDesign.Spacing.xs
+    }
+
     public enum ArtistDetail {
         public static let wideHeaderThreshold: CGFloat = 700
         public static let backgroundHeight: CGFloat = 600
