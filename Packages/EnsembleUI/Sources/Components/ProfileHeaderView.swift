@@ -18,7 +18,7 @@ public struct ProfileHeaderView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: EnsembleScaffold.ProfileHeader.contentSpacing) {
             // Profile image — tappable to change
             profileImageView
                 .onTapGesture {
@@ -32,7 +32,7 @@ public struct ProfileHeaderView: View {
                     onEditName()
                 }
         }
-        .padding(.vertical, 24)
+        .padding(.vertical, EnsembleScaffold.ProfileHeader.verticalPadding)
         .frame(maxWidth: .infinity)
         #if os(iOS)
         .confirmationDialog("Change Profile Photo", isPresented: $showingImageSourcePicker) {
@@ -84,7 +84,10 @@ public struct ProfileHeaderView: View {
                 url: imageURL,
                 reloadToken: profileStore.profile.lastModified
             )
-                .frame(width: 120, height: 120)
+                .frame(
+                    width: EnsembleScaffold.ProfileHeader.imageDimension,
+                    height: EnsembleScaffold.ProfileHeader.imageDimension
+                )
                 .clipShape(Circle())
         } else {
             placeholderImage
@@ -95,19 +98,22 @@ public struct ProfileHeaderView: View {
         Image(systemName: "person.circle.fill")
             .resizable()
             .aspectRatio(contentMode: .fit)
-            .frame(width: 120, height: 120)
-            .foregroundColor(.secondary.opacity(0.5))
+            .frame(
+                width: EnsembleScaffold.ProfileHeader.imageDimension,
+                height: EnsembleScaffold.ProfileHeader.imageDimension
+            )
+            .foregroundColor(EnsembleDesign.Color.secondaryText.opacity(EnsembleScaffold.ProfileHeader.placeholderOpacity))
     }
 
     private var nameView: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: EnsembleScaffold.ProfileHeader.nameSpacing) {
             if let name = profileStore.profile.displayName {
                 Text(name)
-                    .font(.title2.bold())
+                    .font(EnsembleDesign.Typography.profileName)
             } else {
                 Text("Set Your Name")
-                    .font(.title2)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.profilePlaceholderName)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
     }
@@ -129,7 +135,7 @@ private struct LocalProfileImage: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
-                Color.secondary.opacity(0.2)
+                EnsembleDesign.Color.secondaryText.opacity(EnsembleScaffold.ProfileHeader.imageLoadingOpacity)
             }
         }
         .onAppear { loadImage() }

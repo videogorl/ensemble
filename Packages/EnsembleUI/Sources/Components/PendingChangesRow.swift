@@ -11,8 +11,8 @@ public struct PendingChangesRow: View {
 
     public var body: some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-            Image(systemName: "clock.arrow.circlepath")
-                .frame(width: 24)
+            Image(systemName: EnsembleDesign.Icon.recentPlaylist)
+                .frame(width: EnsembleScaffold.UtilityRow.statusIconWidth)
                 .foregroundColor(EnsembleDesign.Color.warning)
 
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {

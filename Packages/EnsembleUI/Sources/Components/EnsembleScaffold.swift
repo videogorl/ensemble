@@ -57,6 +57,19 @@ public enum EnsembleScaffold {
         public static let borderOpacity = 0.4
     }
 
+    public enum ProfileHeader {
+        public static let contentSpacing = EnsembleDesign.Spacing.md
+        public static let verticalPadding = EnsembleDesign.Spacing.xxl
+        public static let imageDimension: CGFloat = 120
+        public static let nameSpacing = EnsembleDesign.Spacing.xs
+        public static let placeholderOpacity = 0.5
+        public static let imageLoadingOpacity = 0.2
+    }
+
+    public enum ProfileToolbar {
+        public static let imageDimension: CGFloat = 28
+    }
+
     public enum BrowseToolbar {
         public static let itemSpacing = EnsembleDesign.Spacing.lg
         public static let activeBadgeSize = EnsembleDesign.Spacing.sm
@@ -131,7 +144,9 @@ public enum EnsembleScaffold {
     public enum UtilityRow {
         public static let iconLaneWidth = EnsembleScaffold.AccountSetup.rowIconWidth
         public static let inlineIconWidth: CGFloat = 14
+        public static let statusIconWidth: CGFloat = 24
         public static let compactArtworkDimension: CGFloat = 40
+        public static let downloadArtworkDimension: CGFloat = 44
         public static let artworkDimension: CGFloat = 48
         public static let textSpacing = EnsembleDesign.Spacing.xxs
         public static let detailTextSpacing = EnsembleDesign.Spacing.xs
@@ -142,6 +157,8 @@ public enum EnsembleScaffold {
         public static let tightVerticalPadding = EnsembleDesign.Spacing.xxs
         public static let subtleVerticalPadding = EnsembleDesign.Spacing.xs
         public static let negativeListPadding: CGFloat = -EnsembleDesign.Spacing.xs
+        public static let statusChipOpacity = 0.12
+        public static let downloadErrorLeadingPadding: CGFloat = downloadArtworkDimension + rowSpacing + EnsembleDesign.Spacing.xs
     }
 
     public enum FilterPresentation {

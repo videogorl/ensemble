@@ -72,6 +72,8 @@ public enum EnsembleDesign {
         public static let toastTitle: Font = .subheadline.weight(.semibold)
         public static let toastMessage: Font = .caption
         public static let toastAction: Font = .caption.weight(.semibold)
+        public static let profileName: Font = .title2.bold()
+        public static let profilePlaceholderName: Font = .title2
         public static let stateTitle: Font = .title2.weight(.semibold)
         public static let stateMessage: Font = .subheadline
         public static let actionLabel: Font = .headline
@@ -96,6 +98,7 @@ public enum EnsembleDesign {
         public static let secondaryControlFill = SwiftUI.Color.gray.opacity(0.2)
         public static let destructive = SwiftUI.Color.red
         public static let warning = SwiftUI.Color.orange
+        public static let success = SwiftUI.Color.green
         public static let favorite = SwiftUI.Color.pink
         public static let generated = SwiftUI.Color.purple
         public static let queueNext = SwiftUI.Color.blue
@@ -105,6 +108,7 @@ public enum EnsembleDesign {
         public static let onArtwork = SwiftUI.Color.white.opacity(0.9)
         public static let divider = SwiftUI.Color.secondary.opacity(0.18)
         public static let placeholderArtwork = SwiftUI.Color.primary.opacity(0.1)
+        public static let modalProgressScrim = SwiftUI.Color.black.opacity(0.12)
 
         public static var groupedSurface: SwiftUI.Color {
             #if os(iOS)

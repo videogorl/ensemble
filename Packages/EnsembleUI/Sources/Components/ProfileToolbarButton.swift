@@ -31,11 +31,14 @@ public struct ProfileToolbarButton: View {
                 url: imageURL,
                 reloadToken: profileStore.profile.lastModified
             )
-                .frame(width: 28, height: 28)
+                .frame(
+                    width: EnsembleScaffold.ProfileToolbar.imageDimension,
+                    height: EnsembleScaffold.ProfileToolbar.imageDimension
+                )
                 .clipShape(Circle())
         } else {
             Image(systemName: "person.circle")
-                .font(.title3)
+                .font(EnsembleDesign.Typography.detailSubtitle)
         }
     }
 }
@@ -105,7 +108,7 @@ private struct LocalToolbarProfileImage: View {
                     .aspectRatio(contentMode: .fill)
             } else {
                 Image(systemName: "person.circle")
-                    .font(.title3)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
             }
         }
         .onAppear { loadImage() }

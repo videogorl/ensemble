@@ -41,10 +41,10 @@ public struct PlaylistPickerSheet: View {
                     ProgressView("Loading playlists...")
                 } else if compatibleTrackCountForSelectedServer == 0 {
                     Text("No compatible tracks are available for playlist updates.")
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 } else if filteredPlaylists.isEmpty {
                     Text("No playlists found.")
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 } else {
                     ForEach(filteredPlaylists) { playlist in
                         Button {
@@ -60,8 +60,8 @@ public struct PlaylistPickerSheet: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(playlist.title)
                                     Text("\(playlist.trackCount) songs")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
+                                        .font(EnsembleDesign.Typography.rowSecondary)
+                                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                                 }
 
                                 Spacer()
@@ -106,7 +106,7 @@ public struct PlaylistPickerSheet: View {
         .overlay {
             if isSubmitting {
                 ZStack {
-                    Color.black.opacity(0.12)
+                    EnsembleDesign.Color.modalProgressScrim
                         .ignoresSafeArea()
                     ProgressView("Updating playlist...")
                         .padding(TrackListLayoutMetrics.rowInterItemSpacing)

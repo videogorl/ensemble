@@ -27,9 +27,12 @@ struct TrackDownloadRowView: View {
                     fallbackPath: row.fallbackThumbPath,
                     fallbackRatingKey: row.albumRatingKey,
                     size: .tiny,
-                    cornerRadius: ArtworkCornerRadius.square(for: 44)
+                    cornerRadius: ArtworkCornerRadius.square(for: EnsembleScaffold.UtilityRow.downloadArtworkDimension)
                 )
-                .frame(width: 44, height: 44)
+                .frame(
+                    width: EnsembleScaffold.UtilityRow.downloadArtworkDimension,
+                    height: EnsembleScaffold.UtilityRow.downloadArtworkDimension
+                )
 
                 // Track title + artist
                 VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
@@ -72,7 +75,7 @@ struct TrackDownloadRowView: View {
                     .font(EnsembleDesign.Typography.cardMetadata)
                     .foregroundColor(EnsembleDesign.Color.destructive)
                     .lineLimit(2)
-                    .padding(.leading, 56)
+                    .padding(.leading, EnsembleScaffold.UtilityRow.downloadErrorLeadingPadding)
             }
         }
         .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
@@ -92,7 +95,7 @@ struct TrackDownloadRowView: View {
         .foregroundColor(chipColor)
         .padding(.horizontal, EnsembleScaffold.Chip.badgeHorizontalPadding)
         .padding(.vertical, EnsembleScaffold.Chip.badgeVerticalPadding)
-        .background(chipColor.opacity(0.12))
+        .background(chipColor.opacity(EnsembleScaffold.UtilityRow.statusChipOpacity))
         .clipShape(Capsule())
     }
 
@@ -139,7 +142,7 @@ struct TrackDownloadRowView: View {
         case .downloading: return EnsembleDesign.Color.accent
         case .paused: return EnsembleDesign.Color.warning
         case .pending: return EnsembleDesign.Color.secondaryText
-        case .completed: return .green
+        case .completed: return EnsembleDesign.Color.success
         }
     }
 }
