@@ -774,7 +774,7 @@ public struct ArtistDetailView: View {
                 nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
             } label: {
                 Image(systemName: EnsembleDesign.Icon.radio)
-                    .font(.title3)
+                    .font(EnsembleDesign.Typography.actionIcon)
                     .frame(
                         width: EnsembleScaffold.ArtistDetail.actionIconDimension,
                         height: EnsembleScaffold.ArtistDetail.actionIconDimension

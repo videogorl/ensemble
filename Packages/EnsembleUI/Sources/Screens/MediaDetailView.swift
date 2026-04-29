@@ -862,7 +862,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     private var radioButtonLabel: some View {
         Image(systemName: EnsembleDesign.Icon.radio)
-            .font(.title3)
+            .font(EnsembleDesign.Typography.actionIcon)
             .frame(
                 width: EnsembleScaffold.DetailSurface.iconActionDimension,
                 height: EnsembleScaffold.DetailSurface.iconActionDimension

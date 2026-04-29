@@ -71,6 +71,7 @@ public enum EnsembleDesign {
         public static let stateTitle: Font = .title2.weight(.semibold)
         public static let stateMessage: Font = .subheadline
         public static let actionLabel: Font = .headline
+        public static let actionIcon: Font = .headline
         public static let popoverAction: Font = .body
         public static let emptyStateIcon: Font = .system(size: 60)
         public static let mediaPlaceholderIcon: Font = .system(size: 40)
