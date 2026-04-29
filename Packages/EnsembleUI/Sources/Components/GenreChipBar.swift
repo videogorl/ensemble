@@ -108,7 +108,7 @@ private struct GenreChip: View {
     var body: some View {
         Button(action: onTap) {
             Text(title)
-                .font(.subheadline)
+                .font(EnsembleDesign.Typography.chipLabel)
                 .strikethrough(state == .excluded)
                 .lineLimit(1)
                 .padding(.horizontal, EnsembleScaffold.Chip.horizontalPadding)

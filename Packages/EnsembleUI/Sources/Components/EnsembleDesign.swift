@@ -66,8 +66,12 @@ public enum EnsembleDesign {
         public static let cardTitle: Font = .subheadline.weight(.medium)
         public static let cardSubtitle: Font = .caption
         public static let cardMetadata: Font = .caption2
+        public static let chipLabel: Font = .subheadline
         public static let rowPrimary: Font = .body
         public static let rowSecondary: Font = .caption
+        public static let toastTitle: Font = .subheadline.weight(.semibold)
+        public static let toastMessage: Font = .caption
+        public static let toastAction: Font = .caption.weight(.semibold)
         public static let stateTitle: Font = .title2.weight(.semibold)
         public static let stateMessage: Font = .subheadline
         public static let actionLabel: Font = .headline
@@ -94,7 +98,11 @@ public enum EnsembleDesign {
         public static let warning = SwiftUI.Color.orange
         public static let favorite = SwiftUI.Color.pink
         public static let generated = SwiftUI.Color.purple
+        public static let queueNext = SwiftUI.Color.blue
+        public static let queueLast = SwiftUI.Color.indigo
+        public static let addToPlaylist = SwiftUI.Color.orange
         public static let onAccent = SwiftUI.Color.white
+        public static let onArtwork = SwiftUI.Color.white.opacity(0.9)
         public static let divider = SwiftUI.Color.secondary.opacity(0.18)
         public static let placeholderArtwork = SwiftUI.Color.primary.opacity(0.1)
 

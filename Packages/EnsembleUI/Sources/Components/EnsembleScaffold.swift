@@ -21,10 +21,21 @@ public enum EnsembleScaffold {
         public static let rowSpacing = EnsembleDesign.Spacing.cardRowGap
         public static let hubArtworkDimension: CGFloat = 140
         public static let hubShadowY: CGFloat = 3
+        public static let horizontalScrollMetadataHeight: CGFloat = 78
         public static let metadataTextHeight: CGFloat = 66
         public static let compactColumnMinimum: CGFloat = 100
         public static let compactColumnMaximum: CGFloat = 140
+        public static let shelfColumnMinimum: CGFloat = 140
+        public static let shelfColumnMaximum: CGFloat = 180
+        public static let prominentColumnMinimum: CGFloat = 136
+        public static let prominentColumnMaximum: CGFloat = 172
         public static let personColumnMaximum: CGFloat = 120
+        public static let genreGradientTopOpacity = 0.8
+        public static let genreGradientBottomOpacity = 0.4
+        public static let genreHashMultiplier = 31
+        public static let genrePalette: [Color] = [
+            .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .indigo
+        ]
 
         public static var personGridColumns: [GridItem] {
             [
@@ -35,6 +46,15 @@ public enum EnsembleScaffold {
                 )
             ]
         }
+    }
+
+    public enum Toast {
+        public static let iconTextSpacing: CGFloat = 10
+        public static let textSpacing = EnsembleDesign.Spacing.xxs
+        public static let trailingSpacerMinLength = EnsembleDesign.Spacing.sm
+        public static let horizontalPadding: CGFloat = 14
+        public static let verticalPadding = EnsembleDesign.Spacing.md
+        public static let borderOpacity = 0.4
     }
 
     public enum BrowseToolbar {

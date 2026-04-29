@@ -177,43 +177,43 @@ public struct ToastBannerView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
 
     public var body: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: EnsembleScaffold.Toast.iconTextSpacing) {
             if toast.showsActivityIndicator {
                 ProgressView()
                     .controlSize(.small)
                     .tint(iconColor)
             } else {
                 Image(systemName: toast.iconSystemName)
-                    .font(.subheadline.weight(.semibold))
+                    .font(EnsembleDesign.Typography.toastTitle)
                     .foregroundColor(iconColor)
             }
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: EnsembleScaffold.Toast.textSpacing) {
                 Text(toast.title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(EnsembleDesign.Typography.toastTitle)
                     .lineLimit(2)
-                    .foregroundColor(.primary)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
 
                 if let message = toast.message, !message.isEmpty {
                     Text(message)
-                        .font(.caption)
+                        .font(EnsembleDesign.Typography.toastMessage)
                         .lineLimit(2)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: EnsembleScaffold.Toast.trailingSpacerMinLength)
 
             if let action = toast.action {
                 Button(action.title) {
                     toastCenter.triggerAction(for: toast.id)
                 }
-                .font(.caption.weight(.semibold))
+                .font(EnsembleDesign.Typography.toastAction)
                 .foregroundColor(accentColor)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, EnsembleScaffold.Toast.horizontalPadding)
+        .padding(.vertical, EnsembleScaffold.Toast.verticalPadding)
         .ensembleCapsuleMaterial(.popover, strokeColor: borderColor)
         .contentShape(Capsule())
         .onTapGesture {
@@ -234,7 +234,7 @@ public struct ToastBannerView: View {
     }
 
     private var borderColor: Color {
-        accentColor.opacity(0.4)
+        accentColor.opacity(EnsembleScaffold.Toast.borderOpacity)
     }
 
     private var accentColor: Color {

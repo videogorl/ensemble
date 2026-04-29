@@ -18,8 +18,8 @@ public struct GenreCard: View {
                 // Generate a deterministic color based on genre name
                 LinearGradient(
                     colors: [
-                        genreColor(for: genre.title).opacity(0.8),
-                        genreColor(for: genre.title).opacity(0.4)
+                        genreColor(for: genre.title).opacity(EnsembleScaffold.MediaCard.genreGradientTopOpacity),
+                        genreColor(for: genre.title).opacity(EnsembleScaffold.MediaCard.genreGradientBottomOpacity)
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -27,7 +27,7 @@ public struct GenreCard: View {
                 
                 Image(systemName: EnsembleDesign.Icon.genre)
                     .font(EnsembleDesign.Typography.mediaPlaceholderIcon)
-                    .foregroundColor(.white.opacity(0.9))
+                    .foregroundColor(EnsembleDesign.Color.onArtwork)
             }
             .frame(width: ArtworkSize.thumbnail.cgSize.width, height: ArtworkSize.thumbnail.cgSize.width)
             .cornerRadius(ArtworkCornerRadius.square(for: ArtworkSize.thumbnail))
@@ -58,14 +58,10 @@ public struct GenreCard: View {
     
     /// Generate a deterministic color based on genre name
     private func genreColor(for name: String) -> Color {
-        let colors: [Color] = [
-            .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .indigo
-        ]
-
         // Hash the genre name using UTF-8 byte reduction for consistent colors across views
-        let hash = name.utf8.reduce(0) { ($0 &* 31) &+ Int($1) }
-        let index = abs(hash) % colors.count
-        return colors[index]
+        let hash = name.utf8.reduce(0) { ($0 &* EnsembleScaffold.MediaCard.genreHashMultiplier) &+ Int($1) }
+        let index = abs(hash) % EnsembleScaffold.MediaCard.genrePalette.count
+        return EnsembleScaffold.MediaCard.genrePalette[index]
     }
 }
 

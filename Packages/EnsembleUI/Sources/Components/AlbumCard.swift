@@ -27,9 +27,9 @@ public enum AlbumCardLayoutMetrics {
         case .compact:
             return EnsembleScaffold.MediaCard.compactColumnMinimum
         case .shelf:
-            return 140
+            return EnsembleScaffold.MediaCard.shelfColumnMinimum
         case .prominent:
-            return 136
+            return EnsembleScaffold.MediaCard.prominentColumnMinimum
         }
     }
 
@@ -38,14 +38,14 @@ public enum AlbumCardLayoutMetrics {
         case .compact:
             return EnsembleScaffold.MediaCard.compactColumnMaximum
         case .shelf:
-            return 180
+            return EnsembleScaffold.MediaCard.shelfColumnMaximum
         case .prominent:
-            return 172
+            return EnsembleScaffold.MediaCard.prominentColumnMaximum
         }
     }
 
     public var horizontalScrollHeight: CGFloat {
-        artworkSize.cgSize.height + 78
+        artworkSize.cgSize.height + EnsembleScaffold.MediaCard.horizontalScrollMetadataHeight
     }
 
     public var gridColumns: [GridItem] {

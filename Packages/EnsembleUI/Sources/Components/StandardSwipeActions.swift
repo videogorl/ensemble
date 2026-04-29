@@ -27,7 +27,7 @@ public extension View {
     ) -> some View {
         standardTrailingSwipeActions(allowsFullSwipe: allowsFullSwipe) {
             Button(role: .destructive, action: action) {
-                Label("Delete", systemImage: "trash")
+                Label("Delete", systemImage: EnsembleDesign.Icon.delete)
             }
         }
     }
@@ -119,7 +119,7 @@ extension View {
                 toastCenter.show(
                     ToastPayload(
                         style: .success,
-                        iconSystemName: "text.insert",
+                        iconSystemName: EnsembleDesign.Icon.playNext,
                         title: "Play Next",
                         message: "Added \(track.title).",
                         dedupeKey: "swipe-play-next-\(track.id)"
@@ -128,7 +128,7 @@ extension View {
             } label: {
                 MediaActionLabel(kind: .playNext)
             }
-            .tint(.blue)
+            .tint(EnsembleDesign.Color.queueNext)
 
         case .playLast:
             Button {
@@ -136,7 +136,7 @@ extension View {
                 toastCenter.show(
                     ToastPayload(
                         style: .success,
-                        iconSystemName: "text.append",
+                        iconSystemName: EnsembleDesign.Icon.playLast,
                         title: "Play Last",
                         message: "Queued \(track.title) for later.",
                         dedupeKey: "swipe-play-last-\(track.id)"
@@ -145,7 +145,7 @@ extension View {
             } label: {
                 MediaActionLabel(kind: .playLast)
             }
-            .tint(.indigo)
+            .tint(EnsembleDesign.Color.queueLast)
 
         case .addToPlaylist:
             Button {
@@ -153,7 +153,7 @@ extension View {
             } label: {
                 MediaActionLabel(kind: .addToPlaylist)
             }
-            .tint(.orange)
+            .tint(EnsembleDesign.Color.addToPlaylist)
 
         case .favoriteToggle:
             let isFavorited = nowPlayingVM.isTrackFavorited(track)
@@ -162,7 +162,7 @@ extension View {
                 toastCenter.show(
                     ToastPayload(
                         style: .info,
-                        iconSystemName: isFavorited ? "heart.slash.fill" : "heart.fill",
+                        iconSystemName: isFavorited ? EnsembleDesign.Icon.favoriteRemoveFilled : EnsembleDesign.Icon.favoriteFilled,
                         title: isFavorited ? "Removing from Favorites..." : "Adding to Favorites...",
                         message: track.title,
                         duration: 1.0,
@@ -176,7 +176,7 @@ extension View {
             } label: {
                 MediaActionLabel(kind: .favorite(isFavorited: isFavorited, usesFilledIcon: true))
             }
-            .tint(isFavorited ? .gray : .pink)
+            .tint(isFavorited ? EnsembleDesign.Color.secondaryText : EnsembleDesign.Color.favorite)
         }
     }
 
