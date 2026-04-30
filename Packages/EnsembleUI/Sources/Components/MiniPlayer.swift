@@ -654,6 +654,7 @@ private struct MiniPlayerActionsPopoverContent: View {
         }
         .padding(.vertical, EnsembleDesign.Spacing.sm)
         .frame(width: EnsembleScaffold.MiniPlayer.popoverWidth, alignment: .leading)
+        .ensembleMaterial(.popover, cornerRadius: EnsembleDesign.Radius.miniPlayer)
     }
 
     private func actionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
