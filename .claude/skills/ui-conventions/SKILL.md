@@ -36,7 +36,7 @@ These are core design decisions that must be maintained throughout the app.
 - **Detail gutter:** Treat the 40pt horizontal gutter used by Now Playing and queue surfaces as the app's premium detail inset. Reuse `TrackListLayoutMetrics.detailHorizontalPadding` and `utilityListRowInsets()` for downloads/settings/manual utility rows instead of hardcoding fresh edge values.
 - **MediaTrackList padding:** Do not wrap `MediaTrackList` in an extra outer horizontal padding layer for normal full-width track lists; the rows already own their horizontal inset through `TrackListLayoutMetrics`
 - **Detail action strips:** Reuse `TrackListLayoutMetrics.rowInterItemSpacing` and `rowHorizontalPadding` for repeated Play/Shuffle-style button rows and lightweight status banners in media/detail screens
-- **Shared row actions:** Use `TrackRowInteractionModel` to resolve per-track context-menu availability, recent-playlist gating, and favorite state for both `TrackRow` and `MediaTrackList` paths instead of duplicating that logic per framework
+- **Shared row actions:** Use `TrackRowInteractionModel` to resolve per-track context-menu availability, recent-playlist gating, and favorite state for both `TrackRow` and native table paths. UIKit table menus should be built through `NativeMediaTableActionBuilder`; keep swipe gestures owned by `TrackSwipeContainer`/`MediaTrackList` so card and shelf interfaces do not inherit row gestures.
 
 ### Keyboard-Heavy Editors (iPhone)
 - Default to a normal `.sheet` for short rename/create/filter flows on iPhone, including profile-name, playlist creation, album/favorites/artists/songs filters, and the validated playlist rename flows.
@@ -208,7 +208,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - **Blurred backgrounds:** NowPlayingView and detail views use `BlurredArtworkBackground`
 - **Shared detail artwork wash:** `MediaDetailView` and `DownloadTargetDetailView` must use `ArtworkDetailBackground` for the blurred header image so dark/light overlay behavior stays identical across detail screens
 - **Shared detail shell:** Media-style detail screens should build their hero artwork, metadata block, action row, and list-card styling on `MediaDetailSurface` so `MediaDetailView` and `DownloadTargetDetailView` do not drift on spacing, wide-layout behavior, or light/dark presentation
-- **Shared detail actions:** Detail Play/Shuffle-style button labels should use `MediaDetailSurface.ActionLabel` so filled/accent and secondary action treatments stay aligned across media detail variants.
+- **Shared detail actions:** Detail Play/Shuffle-style button labels should use `MediaDetailSurface.ActionLabel`, and repeated Play/Shuffle action strips should use `MediaDetailSurface.ActionRow`, so filled/accent, secondary action, spacing, disabled state, and chromeless button treatment stay aligned across media detail variants.
 
 ### Typography & Spacing
 - **System fonts:** SF Pro with semantic styles (.headline, .subheadline, etc.)
