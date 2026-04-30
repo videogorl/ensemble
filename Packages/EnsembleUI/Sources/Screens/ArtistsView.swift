@@ -719,7 +719,7 @@ public struct ArtistDetailView: View {
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
-        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+        MediaDetailSurface<EmptyView>.ActionRow(isDisabled: viewModel.filteredTracks.isEmpty) {
             Button {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
             } label: {
@@ -758,8 +758,6 @@ public struct ArtistDetailView: View {
             .help("Artist Radio - Queue all shuffled, enable sonically similar")
             #endif
         }
-        .chromelessMediaControlButton()
-        .disabled(viewModel.filteredTracks.isEmpty)
     }
 
     // MARK: - About Section (Quick Facts + Description + Wikipedia)

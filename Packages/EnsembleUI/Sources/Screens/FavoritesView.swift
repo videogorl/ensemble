@@ -371,7 +371,10 @@ public struct FavoritesView: View {
 
     /// Play and Shuffle action buttons
     private var favoritesActionButtons: some View {
-        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+        MediaDetailSurface<EmptyView>.ActionRow(
+            horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding,
+            bottomPadding: EnsembleDesign.Spacing.lg
+        ) {
             Button {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
             } label: {
@@ -392,9 +395,6 @@ public struct FavoritesView: View {
                 )
             }
         }
-        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-        .padding(.bottom, EnsembleDesign.Spacing.lg)
-        .chromelessMediaControlButton()
     }
 
     private func presentPlaylistPicker(with tracks: [Track]) {

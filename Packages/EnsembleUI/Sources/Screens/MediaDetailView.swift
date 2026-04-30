@@ -711,7 +711,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var actionButtons: some View {
-        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+        MediaDetailSurface<EmptyView>.ActionRow(
+            horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding,
+            bottomPadding: EnsembleDesign.Spacing.lg,
+            isDisabled: viewModel.filteredTracks.isEmpty
+        ) {
             // Play button
             Button {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
@@ -737,10 +741,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             // Radio button (for Artist or Album views)
             radioButton
         }
-        .padding(.horizontal)
-        .padding(.bottom)
-        .chromelessMediaControlButton()
-        .disabled(viewModel.filteredTracks.isEmpty)
     }
 
     /// Compact action buttons for the wide header layout — don't stretch to fill width.

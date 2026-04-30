@@ -88,6 +88,36 @@ extension MediaDetailSurface {
         }
     }
 
+    /// Shared horizontal container for Play/Shuffle-style detail actions.
+    struct ActionRow<RowContent: View>: View {
+        let horizontalPadding: CGFloat
+        let bottomPadding: CGFloat
+        let isDisabled: Bool
+        @ViewBuilder private let content: () -> RowContent
+
+        init(
+            horizontalPadding: CGFloat = 0,
+            bottomPadding: CGFloat = 0,
+            isDisabled: Bool = false,
+            @ViewBuilder content: @escaping () -> RowContent
+        ) {
+            self.horizontalPadding = horizontalPadding
+            self.bottomPadding = bottomPadding
+            self.isDisabled = isDisabled
+            self.content = content
+        }
+
+        var body: some View {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                content()
+            }
+            .padding(.horizontal, horizontalPadding)
+            .padding(.bottom, bottomPadding)
+            .chromelessMediaControlButton()
+            .disabled(isDisabled)
+        }
+    }
+
     struct Header<
         TopContent: View,
         Artwork: View,
