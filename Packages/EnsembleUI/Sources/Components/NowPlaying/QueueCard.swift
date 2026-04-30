@@ -319,8 +319,8 @@ public struct QueueCard: View {
             ArtworkView(track: item.track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
 
             // Track info
-            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxs) {
-                HStack(spacing: EnsembleDesign.Spacing.xs) {
+            VStack(alignment: .leading, spacing: TrackListLayoutMetrics.primarySecondaryTextSpacing) {
+                HStack(spacing: TrackListLayoutMetrics.rowTightAccessoryGap) {
                     if isAutoplay {
                         Image(systemName: EnsembleDesign.Icon.aurora)
                             .font(EnsembleDesign.Typography.overflowIcon)
@@ -352,6 +352,22 @@ public struct QueueCard: View {
     /// Context menu for queue items
     @ViewBuilder
     private func queueContextMenu(for item: QueueItem, at absoluteIndex: Int) -> some View {
+        sharedQueueContextMenuItems(for: item)
+        Divider()
+        Button(role: .destructive) { viewModel.removeFromQueue(at: absoluteIndex) } label: {
+            MediaActionLabel(kind: .removeFromQueue)
+        }
+    }
+
+    /// Context menu for history items
+    @ViewBuilder
+    private func historyContextMenu(for item: QueueItem) -> some View {
+        sharedQueueContextMenuItems(for: item)
+    }
+
+    /// Shared queue/history actions keep menu wording aligned with media rows.
+    @ViewBuilder
+    private func sharedQueueContextMenuItems(for item: QueueItem) -> some View {
         Button { viewModel.playNext(item.track) } label: {
             MediaActionLabel(kind: .playNext)
         }
@@ -369,42 +385,8 @@ public struct QueueCard: View {
                     _ = try? await viewModel.addTracks([item.track], to: lastPlaylistQuickTarget)
                 }
             } label: {
-                Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: EnsembleDesign.Icon.addCircleOutline)
+                MediaActionLabel(kind: .addToRecentPlaylist(lastPlaylistQuickTarget.title))
             }
-        }
-        Divider()
-        if let albumId = item.track.albumRatingKey {
-            Button {
-                navigateFromNowPlaying(to: .album(id: albumId))
-            } label: {
-                MediaActionLabel(kind: .goToAlbum)
-            }
-        }
-        if let artistId = item.track.artistRatingKey {
-            Button {
-                navigateFromNowPlaying(to: .artist(id: artistId))
-            } label: {
-                MediaActionLabel(kind: .goToArtist)
-            }
-        }
-        Divider()
-        Button(role: .destructive) { viewModel.removeFromQueue(at: absoluteIndex) } label: {
-            Label("Remove from Queue", systemImage: EnsembleDesign.Icon.removeCircle)
-        }
-    }
-
-    /// Context menu for history items
-    @ViewBuilder
-    private func historyContextMenu(for item: QueueItem) -> some View {
-        Button { viewModel.playNext(item.track) } label: {
-            MediaActionLabel(kind: .playNext)
-        }
-        Button { viewModel.playLast(item.track) } label: {
-            MediaActionLabel(kind: .playLast)
-        }
-        Divider()
-        Button { presentPlaylistPicker(with: [item.track], title: "Add to Playlist") } label: {
-            MediaActionLabel(kind: .addToPlaylist)
         }
         Divider()
         if let albumId = item.track.albumRatingKey {

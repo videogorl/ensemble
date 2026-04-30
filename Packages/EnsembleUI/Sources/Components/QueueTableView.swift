@@ -139,7 +139,7 @@ public class QueueItemCell: UITableViewCell {
         
         // Configure leading constraint
         let leadingAnchor = artworkImageView.trailingAnchor
-        let constant: CGFloat = 12
+        let constant = TrackListLayoutMetrics.rowInterItemSpacing
         
         titleLeadingConstraint = titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: constant)
         subtitleLeadingConstraint = subtitleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: constant)
