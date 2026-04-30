@@ -146,8 +146,8 @@ public enum EnsembleScaffold {
         public static let wideArtworkShadowRadius = EnsembleDesign.Effect.shadowRadius
         public static let wideArtworkShadowY = EnsembleDesign.Effect.shadowY
         public static let placeholderArtworkColor = Color.gray.opacity(0.2)
-        public static let darkLegibilityOverlayOpacity = 0.45
-        public static let lightLegibilityOverlayOpacity = 0.7
+        public static let darkLegibilityOverlayOpacity = EnsembleScaffold.DetailSurface.darkLegibilityOverlayOpacity
+        public static let lightLegibilityOverlayOpacity = EnsembleScaffold.DetailSurface.lightLegibilityOverlayOpacity
     }
 
     public enum AccountSetup {
@@ -323,6 +323,8 @@ public enum EnsembleScaffold {
         public static let compactWideActionHorizontalPadding: CGFloat = 18
         public static let wideActionHorizontalPadding = EnsembleDesign.Spacing.xxl
         public static let iconActionDimension = EnsembleScaffold.UtilityRow.iconLaneWidth
+        public static let darkLegibilityOverlayOpacity = 0.45
+        public static let lightLegibilityOverlayOpacity = 0.7
 
         public enum ArtworkShadow {
             public static let color = EnsembleDesign.Effect.shadowColor

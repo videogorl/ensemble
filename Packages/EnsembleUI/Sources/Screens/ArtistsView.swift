@@ -492,42 +492,13 @@ public struct ArtistDetailView: View {
         }
     }
     
-    @Environment(\.colorScheme) private var colorScheme
-
-    private var backgroundOverlayColor: Color {
-        #if os(iOS)
-        return colorScheme == .dark ? .black : EnsembleDesign.Color.windowSurface
-        #else
-        return colorScheme == .dark ? .black : EnsembleDesign.Color.windowSurface
-        #endif
-    }
-
     private var backgroundGradient: some View {
-        ZStack {
-            BlurredArtworkBackground(
-                image: artworkImage,
-                topDimming: colorScheme == .dark ? 0.1 : 0.05,
-                bottomDimming: colorScheme == .dark ? 0.4 : 0.3,
-                overlayColor: backgroundOverlayColor
-            )
-
-            // Legibility overlay matching NowPlayingView treatment
-            if colorScheme == .dark {
-                Color.black.opacity(EnsembleScaffold.ArtistDetail.darkLegibilityOverlayOpacity)
-                    .allowsHitTesting(false)
-            } else {
-                backgroundOverlayColor.opacity(EnsembleScaffold.ArtistDetail.lightLegibilityOverlayOpacity)
-                    .allowsHitTesting(false)
-            }
-        }
-        .mask(
-            LinearGradient(
-                colors: [.white, .clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+        ArtworkDetailBackground(
+            image: artworkImage,
+            height: EnsembleScaffold.ArtistDetail.backgroundHeight,
+            darkLegibilityOpacity: EnsembleScaffold.ArtistDetail.darkLegibilityOverlayOpacity,
+            lightLegibilityOpacity: EnsembleScaffold.ArtistDetail.lightLegibilityOverlayOpacity
         )
-        .frame(height: EnsembleScaffold.ArtistDetail.backgroundHeight)
     }
     
     private func loadArtworkImage() async {

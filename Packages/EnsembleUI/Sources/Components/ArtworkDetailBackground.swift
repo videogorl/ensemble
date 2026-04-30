@@ -6,12 +6,21 @@ import SwiftUI
 struct ArtworkDetailBackground: View {
     let image: UIImage?
     let height: CGFloat
+    let darkLegibilityOpacity: Double
+    let lightLegibilityOpacity: Double
 
     @Environment(\.colorScheme) private var colorScheme
 
-    init(image: UIImage?, height: CGFloat = 500) {
+    init(
+        image: UIImage?,
+        height: CGFloat = 500,
+        darkLegibilityOpacity: Double = EnsembleScaffold.DetailSurface.darkLegibilityOverlayOpacity,
+        lightLegibilityOpacity: Double = EnsembleScaffold.DetailSurface.lightLegibilityOverlayOpacity
+    ) {
         self.image = image
         self.height = height
+        self.darkLegibilityOpacity = darkLegibilityOpacity
+        self.lightLegibilityOpacity = lightLegibilityOpacity
     }
 
     var body: some View {
@@ -26,10 +35,10 @@ struct ArtworkDetailBackground: View {
             // Keep the same legibility wash used by MediaDetailView across all
             // detail-style screens so the artwork glow remains visible.
             if colorScheme == .dark {
-                Color.black.opacity(0.45)
+                Color.black.opacity(darkLegibilityOpacity)
                     .allowsHitTesting(false)
             } else {
-                backgroundOverlayColor.opacity(0.7)
+                backgroundOverlayColor.opacity(lightLegibilityOpacity)
                     .allowsHitTesting(false)
             }
         }
@@ -44,10 +53,6 @@ struct ArtworkDetailBackground: View {
     }
 
     private var backgroundOverlayColor: Color {
-        #if os(iOS)
-        return colorScheme == .dark ? .black : Color(UIColor.systemBackground)
-        #else
-        return colorScheme == .dark ? .black : Color(NSColor.windowBackgroundColor)
-        #endif
+        colorScheme == .dark ? .black : EnsembleDesign.Color.windowSurface
     }
 }
