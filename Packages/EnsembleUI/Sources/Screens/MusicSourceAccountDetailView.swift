@@ -100,8 +100,7 @@ public struct MusicSourceAccountDetailView: View {
                         }
                     } label: {
                         HStack {
-                            Image(systemName: EnsembleDesign.Icon.refreshCycle)
-                                .foregroundColor(EnsembleDesign.Color.accent)
+                            EnsembleUtilityIcon(EnsembleDesign.Icon.refreshCycle)
                             Text("Sync Enabled Libraries")
                             Spacer()
                             if viewModel.isSyncingEnabledLibraries {
@@ -117,8 +116,7 @@ public struct MusicSourceAccountDetailView: View {
                         }
                     } label: {
                         HStack {
-                            Image(systemName: EnsembleDesign.Icon.retry)
-                                .foregroundColor(EnsembleDesign.Color.accent)
+                            EnsembleUtilityIcon(EnsembleDesign.Icon.retry)
                             Text("Refresh Available Libraries")
                             Spacer()
                             if viewModel.isRefreshingInventory {
@@ -157,7 +155,7 @@ public struct MusicSourceAccountDetailView: View {
                     .listRowSeparator(.hidden)
                     #endif
                 } header: {
-                    Text("Legend")
+                    EnsembleUtilitySectionHeader("Legend")
                 }
 
                 // Remove source

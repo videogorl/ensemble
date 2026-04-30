@@ -43,13 +43,13 @@ public struct SyncSettingsView: View {
                 }
                 .disabled(syncSettings.isManualSyncInProgress)
             } header: {
-                Text("Actions")
+                EnsembleUtilitySectionHeader("Actions")
             }
 
             Section {
                 profileStatusRow
             } header: {
-                Text("Profile")
+                EnsembleUtilitySectionHeader("Profile")
             }
 
             if syncSettings.isMasterSyncEnabled {
@@ -58,7 +58,7 @@ public struct SyncSettingsView: View {
                         featureRow(for: feature)
                     }
                 } header: {
-                    Text("Features")
+                    EnsembleUtilitySectionHeader("Features")
                 } footer: {
                     Text("Rows show the last push or pull this device observed. Turning off a toggle only affects this device.")
                 }

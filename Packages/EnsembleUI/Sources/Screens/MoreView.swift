@@ -68,7 +68,7 @@ public struct MoreView: View {
 
     private var browseView: some View {
         List {
-            Section("Library") {
+            Section {
                 ForEach(moreTabs.filter { isLibraryTab($0) }) { tab in
                     if #available(iOS 16.0, macOS 13.0, *) {
                         NavigationLink(value: NavigationCoordinator.Destination.view(tab)) {
@@ -90,9 +90,11 @@ public struct MoreView: View {
                         .foregroundColor(EnsembleDesign.Color.primaryText)
                     }
                 }
+            } header: {
+                EnsembleUtilitySectionHeader("Library")
             }
 
-            Section("Other") {
+            Section {
                 ForEach(moreTabs.filter { !isLibraryTab($0) }) { tab in
                     if #available(iOS 16.0, macOS 13.0, *) {
                         NavigationLink(value: NavigationCoordinator.Destination.view(tab)) {
@@ -114,6 +116,8 @@ public struct MoreView: View {
                         .foregroundColor(EnsembleDesign.Color.primaryText)
                     }
                 }
+            } header: {
+                EnsembleUtilitySectionHeader("Other")
             }
         }
         #if os(iOS)

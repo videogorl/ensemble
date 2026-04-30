@@ -19,21 +19,12 @@ struct MusicSourceAccountRow: View {
     let accountIdentifier: String
 
     var body: some View {
-        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-            Image(systemName: EnsembleDesign.Icon.playlist)
-                .font(EnsembleDesign.Typography.utilityIcon)
-                .foregroundColor(EnsembleDesign.Color.accent)
-                .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
-
-            VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.detailTextSpacing) {
-                Text(sourceName)
-                    .font(EnsembleDesign.Typography.rowPrimary)
-
-                Text(accountIdentifier)
-                    .font(EnsembleDesign.Typography.rowSecondary)
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-            }
-        }
+        EnsembleUtilityRowLabel(
+            iconSystemName: EnsembleDesign.Icon.playlist,
+            title: sourceName,
+            subtitle: accountIdentifier,
+            iconFont: EnsembleDesign.Typography.utilityIcon
+        )
     }
 }
 
@@ -53,9 +44,7 @@ struct AudioQualitySettingsView: View {
                     Text("Low (128 kbps)").tag("low")
                 }
             } header: {
-                Text("Streaming")
-                    .foregroundColor(EnsembleDesign.Color.accent)
-                    .textCase(nil)
+                EnsembleUtilitySectionHeader("Streaming")
             } footer: {
                 Text("Lower quality uses less data when streaming over cellular.")
             }
@@ -68,9 +57,7 @@ struct AudioQualitySettingsView: View {
                     Text("Low (128 kbps)").tag("low")
                 }
             } header: {
-                Text("Downloads")
-                    .foregroundColor(EnsembleDesign.Color.accent)
-                    .textCase(nil)
+                EnsembleUtilitySectionHeader("Downloads")
             } footer: {
                 Text("Higher quality downloads use more storage space.")
             }

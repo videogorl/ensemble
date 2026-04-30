@@ -161,15 +161,14 @@ public struct ProfileView: View {
             NavigationLink {
                 AddPlexAccountView(embedded: true)
             } label: {
-                HStack {
-                    Image(systemName: EnsembleDesign.Icon.addCircle)
-                        .foregroundColor(settingsManager.accentColor.color)
-                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
-                    Text("Add Plex Account")
-                }
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.addCircle,
+                    title: "Add Plex Account",
+                    iconColor: settingsManager.accentColor.color
+                )
             }
         } header: {
-            profileSectionHeader("Music Sources")
+            EnsembleUtilitySectionHeader("Music Sources")
         } footer: {
             if accountManager.plexAccounts.isEmpty {
                 Text("Add a music source account to access your libraries.")
@@ -214,83 +213,71 @@ public struct ProfileView: View {
             .padding(.vertical, EnsembleScaffold.UtilityRow.subtleVerticalPadding)
 
             Toggle(isOn: $settingsManager.auroraVisualizationEnabled) {
-                HStack {
-                    Image(systemName: EnsembleDesign.Icon.aurora)
-                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
-                    VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
-                        Text("Aurora Visualization")
-                        Text("Animated background that reacts to music")
-                            .font(EnsembleDesign.Typography.rowSecondary)
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    }
-                }
-        }
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.aurora,
+                    title: "Aurora Visualization",
+                    subtitle: "Animated background that reacts to music",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
+            }
         } header: {
-            profileSectionHeader("Accent Color: \(settingsManager.accentColor.rawValue.capitalized)")
+            EnsembleUtilitySectionHeader("Accent Color: \(settingsManager.accentColor.rawValue.capitalized)")
         }
     }
 
     // MARK: - Playback
 
     private var playbackSection: some View {
-        Section(header: profileSectionHeader("Playback")) {
+        Section(header: EnsembleUtilitySectionHeader("Playback")) {
             Toggle(isOn: $isAutoplayEnabled) {
-                HStack {
-                    Image(systemName: EnsembleDesign.Icon.autoplay)
-                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
-                    VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
-                        Text("Autoplay")
-                        Text("Continue with similar tracks when queue ends")
-                            .font(EnsembleDesign.Typography.rowSecondary)
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    }
-                }
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.autoplay,
+                    title: "Autoplay",
+                    subtitle: "Continue with similar tracks when queue ends",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
             }
             .onChange(of: isAutoplayEnabled) { _ in
                 playbackService.toggleAutoplay()
             }
 
             Toggle(isOn: $settingsManager.scrobblingEnabled) {
-                HStack {
-                    Image(systemName: EnsembleDesign.Icon.scrobble)
-                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
-                    VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
-                        Text("Scrobbling")
-                        Text("Report play counts to your Plex server")
-                            .font(EnsembleDesign.Typography.rowSecondary)
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    }
-                }
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.scrobble,
+                    title: "Scrobbling",
+                    subtitle: "Report play counts to your Plex server",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
             }
 
             NavigationLink {
                 AudioQualitySettingsView()
             } label: {
-                HStack {
-                    Image(systemName: EnsembleDesign.Icon.waveform)
-                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
-                    Text("Audio Quality")
-                }
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.waveform,
+                    title: "Audio Quality",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
             }
 
             NavigationLink {
                 ConnectionPolicySettingsView()
             } label: {
-                HStack {
-                    Image(systemName: EnsembleDesign.Icon.secureConnection)
-                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
-                    Text("Connection Security")
-                }
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.secureConnection,
+                    title: "Connection Security",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
             }
 
             NavigationLink {
                 TrackSwipeActionsSettingsView()
             } label: {
-                HStack {
-                    Image(systemName: EnsembleDesign.Icon.editPlaylist)
-                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
-                    Text("Track Swipe Actions")
-                }
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.editPlaylist,
+                    title: "Track Swipe Actions",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
             }
         }
     }
@@ -298,16 +285,16 @@ public struct ProfileView: View {
     // MARK: - Storage
 
     private var storageSection: some View {
-        Section(header: profileSectionHeader("Storage")) {
+        Section(header: EnsembleUtilitySectionHeader("Storage")) {
             Button(role: .destructive) {
                 showingClearDataAlert = true
             } label: {
-                HStack {
-                    Image(systemName: EnsembleDesign.Icon.delete)
-                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
-                    Text("Clear All Library Data")
-                        .foregroundColor(EnsembleDesign.Color.destructive)
-                }
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.delete,
+                    title: "Clear All Library Data",
+                    iconColor: EnsembleDesign.Color.destructive
+                )
+                .foregroundColor(EnsembleDesign.Color.destructive)
             }
         }
     }
@@ -315,18 +302,18 @@ public struct ProfileView: View {
     // MARK: - Reset
 
     private var resetSection: some View {
-        Section(header: profileSectionHeader("Reset")) {
+        Section(header: EnsembleUtilitySectionHeader("Reset")) {
             Button(role: .destructive) {
                 for account in accountManager.plexAccounts {
                     accountManager.removePlexAccount(id: account.id)
                 }
             } label: {
-                HStack {
-                    Image(systemName: EnsembleDesign.Icon.removeAccounts)
-                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
-                    Text("Remove All Accounts")
-                        .foregroundColor(EnsembleDesign.Color.destructive)
-                }
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.removeAccounts,
+                    title: "Remove All Accounts",
+                    iconColor: EnsembleDesign.Color.destructive
+                )
+                .foregroundColor(EnsembleDesign.Color.destructive)
             }
         }
     }
@@ -334,29 +321,25 @@ public struct ProfileView: View {
     // MARK: - Developer
 
     private var developerSection: some View {
-        Section(header: profileSectionHeader("Developer")) {
+        Section(header: EnsembleUtilitySectionHeader("Developer")) {
             NavigationLink {
                 LogsSettingsView()
             } label: {
-                HStack {
-                    Image(systemName: EnsembleDesign.Icon.logs)
-                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
-                    Text("Logs")
-                }
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.logs,
+                    title: "Logs",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
             }
 
             #if DEBUG
             Toggle(isOn: $debugSimulateOffline) {
-                HStack {
-                    Image(systemName: EnsembleDesign.Icon.offline)
-                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
-                    VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
-                        Text("Simulate No Connection")
-                        Text("Forces app into offline mode for testing")
-                            .font(EnsembleDesign.Typography.rowSecondary)
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    }
-                }
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.offline,
+                    title: "Simulate No Connection",
+                    subtitle: "Forces app into offline mode for testing",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
             }
             .onChange(of: debugSimulateOffline) { simulating in
                 DependencyContainer.shared.networkMonitor.simulateOffline(simulating)
@@ -372,11 +355,11 @@ public struct ProfileView: View {
                     )
                 )
             } label: {
-                HStack {
-                    Image(systemName: EnsembleDesign.Icon.notificationBadge)
-                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
-                    Text("Send Test Toast")
-                }
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.notificationBadge,
+                    title: "Send Test Toast",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
             }
             #endif
         }
@@ -385,10 +368,9 @@ public struct ProfileView: View {
     // MARK: - About
 
     private var aboutSection: some View {
-        Section(header: profileSectionHeader("About")) {
+        Section(header: EnsembleUtilitySectionHeader("About")) {
             HStack {
-                Image(systemName: EnsembleDesign.Icon.info)
-                    .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
+                EnsembleUtilityIcon(EnsembleDesign.Icon.info, color: EnsembleDesign.Color.primaryText)
                 Text("Version")
                 Spacer()
                 Text(Bundle.main.appVersion)
@@ -397,8 +379,7 @@ public struct ProfileView: View {
 
             Link(destination: Self.supportURL) {
                 HStack {
-                    Image(systemName: EnsembleDesign.Icon.help)
-                        .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
+                    EnsembleUtilityIcon(EnsembleDesign.Icon.help, color: EnsembleDesign.Color.primaryText)
                     Text("Help & Support")
                     Spacer()
                     Image(systemName: EnsembleDesign.Icon.externalLinkSquare)
@@ -410,12 +391,6 @@ public struct ProfileView: View {
     }
 
     // MARK: - Helpers
-
-    private func profileSectionHeader(_ title: String) -> some View {
-        Text(title)
-            .foregroundColor(EnsembleDesign.Color.accent)
-            .textCase(nil)
-    }
 
     private func enabledSources(for account: PlexAccountConfig) -> [MusicSourceIdentifier] {
         account.servers.flatMap { server in

@@ -72,9 +72,7 @@ public struct DownloadsView: View {
                         libraryRow(for: library)
                     }
                 } header: {
-                    Text("Libraries")
-                        .foregroundColor(EnsembleDesign.Color.accent)
-                        .textCase(nil)
+                    EnsembleUtilitySectionHeader("Libraries")
                 } footer: {
                     Text("Toggle to enable entire libraries for offline playback. Tap a row to see downloaded tracks.")
                 }
@@ -111,9 +109,7 @@ public struct DownloadsView: View {
                     }
                 }
             } header: {
-                Text("Items")
-                    .foregroundColor(EnsembleDesign.Color.accent)
-                    .textCase(nil)
+                EnsembleUtilitySectionHeader("Items")
             } footer: {
                 Text("Playlists, albums, and artists selected for offline are listed here.")
             }

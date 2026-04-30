@@ -237,6 +237,10 @@ public enum EnsembleScaffold {
         }
     }
 
+    public enum UtilitySectionHeader {
+        public static let defaultColor = EnsembleDesign.Color.accent
+    }
+
     public enum LogViewer {
         public static let loadMoreButtonVerticalPadding = EnsembleDesign.Spacing.sm
         public static let lineVerticalPadding: CGFloat = 1
@@ -783,6 +787,104 @@ public struct EnsembleContentSectionHeader: View {
                     .font(EnsembleDesign.Typography.rowSecondary.weight(.semibold))
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
+        }
+    }
+}
+
+/// Standard section header treatment for profile, downloads, account, and settings lists.
+public struct EnsembleUtilitySectionHeader: View {
+    private let title: String
+    private let color: Color
+
+    public init(_ title: String, color: Color = EnsembleScaffold.UtilitySectionHeader.defaultColor) {
+        self.title = title
+        self.color = color
+    }
+
+    public var body: some View {
+        Text(title)
+            .foregroundColor(color)
+            .textCase(nil)
+    }
+}
+
+/// Fixed-width icon lane used by profile/settings/downloads utility rows.
+public struct EnsembleUtilityIcon: View {
+    private let systemName: String
+    private let color: Color
+    private let font: Font?
+    private let width: CGFloat
+
+    public init(
+        _ systemName: String,
+        color: Color = EnsembleDesign.Color.accent,
+        font: Font? = nil,
+        width: CGFloat = EnsembleScaffold.UtilityRow.iconLaneWidth
+    ) {
+        self.systemName = systemName
+        self.color = color
+        self.font = font
+        self.width = width
+    }
+
+    public var body: some View {
+        Image(systemName: systemName)
+            .font(font)
+            .foregroundColor(color)
+            .frame(width: width)
+    }
+}
+
+/// Shared title/subtitle stack for compact utility list rows.
+public struct EnsembleUtilityTextStack: View {
+    private let title: String
+    private let subtitle: String?
+
+    public init(_ title: String, subtitle: String? = nil) {
+        self.title = title
+        self.subtitle = subtitle
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
+            Text(title)
+                .font(EnsembleDesign.Typography.rowPrimary)
+
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+            }
+        }
+    }
+}
+
+/// Shared icon + title/subtitle row for lightweight settings and profile lists.
+public struct EnsembleUtilityRowLabel: View {
+    private let iconSystemName: String
+    private let title: String
+    private let subtitle: String?
+    private let iconColor: Color
+    private let iconFont: Font?
+
+    public init(
+        iconSystemName: String,
+        title: String,
+        subtitle: String? = nil,
+        iconColor: Color = EnsembleDesign.Color.accent,
+        iconFont: Font? = nil
+    ) {
+        self.iconSystemName = iconSystemName
+        self.title = title
+        self.subtitle = subtitle
+        self.iconColor = iconColor
+        self.iconFont = iconFont
+    }
+
+    public var body: some View {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+            EnsembleUtilityIcon(iconSystemName, color: iconColor, font: iconFont)
+            EnsembleUtilityTextStack(title, subtitle: subtitle)
         }
     }
 }
