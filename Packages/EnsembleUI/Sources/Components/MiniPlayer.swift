@@ -25,11 +25,11 @@ public struct MiniPlayer: View {
     private let showsWaveform: Bool
     private let waveformColor: Color
     private let horizontalPadding: CGFloat
-    private let pillCornerRadius: CGFloat = EnsembleDesign.Radius.miniPlayer
+    private let pillCornerRadius: CGFloat = EnsembleScaffold.MiniPlayer.cornerRadius
 
     private let namespace: Namespace.ID?
     private let animationID: String?
-    private let materialRole: EnsembleDesign.Material.Role = .miniPlayer
+    private let materialRole = EnsembleScaffold.MiniPlayer.materialRole
 
     public init(
         viewModel: NowPlayingViewModel,
@@ -654,7 +654,10 @@ private struct MiniPlayerActionsPopoverContent: View {
         }
         .padding(.vertical, EnsembleDesign.Spacing.sm)
         .frame(width: EnsembleScaffold.MiniPlayer.popoverWidth, alignment: .leading)
-        .ensembleMaterial(.popover, cornerRadius: EnsembleDesign.Radius.miniPlayer)
+        .ensembleMaterial(
+            EnsembleScaffold.MiniPlayer.popoverMaterialRole,
+            cornerRadius: EnsembleScaffold.MiniPlayer.popoverCornerRadius
+        )
     }
 
     private func actionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
@@ -786,7 +789,7 @@ private struct MiniPlayerBackground: View {
     let pillCornerRadius: CGFloat
 
     @Environment(\.colorScheme) private var colorScheme
-    private let materialRole = EnsembleDesign.Material.Role.miniPlayer
+    private let materialRole = EnsembleScaffold.MiniPlayer.materialRole
 
     var body: some View {
         ZStack {

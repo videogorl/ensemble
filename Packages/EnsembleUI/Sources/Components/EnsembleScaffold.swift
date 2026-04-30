@@ -557,6 +557,10 @@ public enum EnsembleScaffold {
     }
 
     public enum MiniPlayer {
+        public static let materialRole = EnsembleDesign.Material.Role.miniPlayer
+        public static let popoverMaterialRole = EnsembleDesign.Material.Role.popover
+        public static let cornerRadius = EnsembleDesign.Radius.miniPlayer
+        public static let popoverCornerRadius = EnsembleDesign.Radius.miniPlayer
         public static let floatingHorizontalPadding = EnsembleDesign.Spacing.xl
         public static let inlineHorizontalPadding = EnsembleDesign.Spacing.md
         public static let floatingBottomPadding = EnsembleDesign.Spacing.chipVertical
