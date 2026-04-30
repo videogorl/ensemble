@@ -19,9 +19,11 @@ public enum TrackListLayoutMetrics {
     public static let favoriteIndicatorDimension: CGFloat = 14
     public static let favoriteIndicatorCenterX: CGFloat = 8
     public static let downloadIndicatorDimension: CGFloat = 14
+    public static let downloadIndicatorScale: CGFloat = 0.7
     public static let playingIndicatorDimension: CGFloat = 18
     public static let rowAccessoryGap: CGFloat = 8
     public static let rowTightAccessoryGap: CGFloat = 6
+    public static let unavailableOpacity = 0.45
     public static let primarySecondaryTextSpacing: CGFloat = EnsembleDesign.Spacing.xxs
     public static let defaultTitleTopPadding: CGFloat = 14
     public static let compactTitleTopPadding: CGFloat = 10

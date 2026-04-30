@@ -394,6 +394,53 @@ public enum EnsembleScaffold {
         }
     }
 
+    public enum MiniPlayer {
+        public static let floatingHorizontalPadding = EnsembleDesign.Spacing.xl
+        public static let inlineHorizontalPadding = EnsembleDesign.Spacing.md
+        public static let floatingBottomPadding = EnsembleDesign.Spacing.chipVertical
+        public static let inlineBottomPadding = EnsembleDesign.Spacing.xs
+        public static let containerBottomPadding: CGFloat = 70
+        public static let verticalSwipeRubberBandFactor: CGFloat = 0.5
+        public static let verticalOpenThreshold: CGFloat = 50
+        public static let artworkDimension: CGFloat = 32
+        public static let compactControlLaneWidth: CGFloat = 78
+        public static let expandedControlLaneWidth: CGFloat = 148
+        public static let trackLaneMinimumWidth: CGFloat = 120
+        public static let trackLaneMaximumWidth: CGFloat = 220
+        public static let trackLaneWidthRatio: CGFloat = 0.42
+        public static let waveformLaneMinimumWidth: CGFloat = 70
+        public static let waveformHeight: CGFloat = 18
+        public static let waveformOpacity = 0.9
+        public static let largeRowMinimumHeight: CGFloat = 34
+        public static let horizontalSwipeFadeDistance: CGFloat = 200
+        public static let horizontalSwipeMaximumFade = 0.5
+        public static let horizontalSwipeThreshold: CGFloat = 80
+        public static let horizontalSwipeDismissOffset: CGFloat = 200
+        public static let horizontalSwipeResetDelay: TimeInterval = 0.1
+        public static let controlSpacing: CGFloat = 18
+        public static let controlLoadingScale: CGFloat = 0.8
+        public static let unavailableControlOpacity = EnsembleScaffold.NowPlaying.unavailableControlOpacity
+        public static let actionButtonDimension: CGFloat = 25
+        public static let popoverWidth: CGFloat = 240
+        public static let popoverDividerVerticalPadding = EnsembleDesign.Spacing.chipVertical
+        public static let macMenuYOffset = EnsembleDesign.Spacing.xs
+        public static let backgroundBlurRadius: CGFloat = 50
+        public static let backgroundContrast: CGFloat = 2.0
+        public static let backgroundSaturation: CGFloat = 1.9
+        public static let backgroundDarkBrightness: CGFloat = -0.1
+        public static let backgroundLightBrightness: CGFloat = 0.05
+        public static let backgroundOpacity = 0.3
+        public static let backgroundTopDimming = 0.2
+        public static let backgroundBottomDimming = 0.15
+        public static let backgroundAnimationDuration = 0.8
+        public static let sheenDarkTopOpacity = 0.03
+        public static let sheenDarkBottomOpacity = 0.02
+        public static let sheenLightOpacity = 0.01
+        public static let edgeGlowDarkOpacity = 0.15
+        public static let edgeGlowLightOpacity = 0.05
+        public static let edgeGlowInset: CGFloat = 1
+    }
+
     public enum AuxiliaryWindow {
         public struct Configuration: Equatable {
             public let minWidth: CGFloat

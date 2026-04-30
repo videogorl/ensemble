@@ -45,7 +45,11 @@ public struct MiniPlayer: View {
         self.isFloating = isFloating
         self.showsWaveform = showsWaveform
         self.waveformColor = waveformColor
-        self.horizontalPadding = horizontalPadding ?? (isFloating ? 20 : 12)
+        self.horizontalPadding = horizontalPadding ?? (
+            isFloating
+                ? EnsembleScaffold.MiniPlayer.floatingHorizontalPadding
+                : EnsembleScaffold.MiniPlayer.inlineHorizontalPadding
+        )
         self.namespace = namespace
         self.animationID = animationID
         self.onTap = onTap
@@ -78,11 +82,11 @@ public struct MiniPlayer: View {
                 .onChanged { value in
                     // Vertical only for the whole player
                     if value.translation.height < 0 {
-                        verticalOffset = value.translation.height * 0.5 // Rubber band effect
+                        verticalOffset = value.translation.height * EnsembleScaffold.MiniPlayer.verticalSwipeRubberBandFactor
                     }
                 }
                 .onEnded { value in
-                    if value.translation.height < -50 {
+                    if value.translation.height < -EnsembleScaffold.MiniPlayer.verticalOpenThreshold {
                         onTap()
                     }
                     withAnimation(.spring()) {
@@ -91,7 +95,7 @@ public struct MiniPlayer: View {
                 }
         )
         .padding(.horizontal, horizontalPadding)
-        .padding(.bottom, isFloating ? 6 : 4)
+        .padding(.bottom, isFloating ? EnsembleScaffold.MiniPlayer.floatingBottomPadding : EnsembleScaffold.MiniPlayer.inlineBottomPadding)
         .offset(y: verticalOffset)
         .contextMenu {
             // Context menu closures are evaluated lazily on long press,
@@ -193,10 +197,10 @@ private struct MiniPlayerTrackInfo: View {
     @State private var dragOffset: CGFloat = 0
     @State private var opacity: Double = 1.0
 
-    private let artworkDimension: CGFloat = 32
+    private let artworkDimension: CGFloat = EnsembleScaffold.MiniPlayer.artworkDimension
     private let expandedControlMinimumWidth: CGFloat = EnsembleDesign.Breakpoint.compactControlMinimumWidth
-    private let compactControlLaneWidth: CGFloat = 78
-    private let expandedControlLaneWidth: CGFloat = 148
+    private let compactControlLaneWidth: CGFloat = EnsembleScaffold.MiniPlayer.compactControlLaneWidth
+    private let expandedControlLaneWidth: CGFloat = EnsembleScaffold.MiniPlayer.expandedControlLaneWidth
 
     private var artworkCornerRadius: CGFloat {
         ArtworkCornerRadius.square(for: artworkDimension)
@@ -285,8 +289,17 @@ private struct MiniPlayerTrackInfo: View {
             let showsExpandedControls = geometry.size.width >= expandedControlMinimumWidth
             let controlLaneWidth = showsExpandedControls ? expandedControlLaneWidth : compactControlLaneWidth
             let availableWidth = max(geometry.size.width - controlLaneWidth - (laneSpacing * 2), 0)
-            let trackLaneWidth = min(max(availableWidth * 0.42, 120), 220)
-            let waveformLaneWidth = max(availableWidth - trackLaneWidth, 70)
+            let trackLaneWidth = min(
+                max(
+                    availableWidth * EnsembleScaffold.MiniPlayer.trackLaneWidthRatio,
+                    EnsembleScaffold.MiniPlayer.trackLaneMinimumWidth
+                ),
+                EnsembleScaffold.MiniPlayer.trackLaneMaximumWidth
+            )
+            let waveformLaneWidth = max(
+                availableWidth - trackLaneWidth,
+                EnsembleScaffold.MiniPlayer.waveformLaneMinimumWidth
+            )
 
             HStack(spacing: laneSpacing) {
                 trackInfoLane(for: track)
@@ -296,7 +309,7 @@ private struct MiniPlayerTrackInfo: View {
                     viewModel: viewModel,
                     waveformColor: waveformColor
                 )
-                .frame(width: waveformLaneWidth, height: 18)
+                .frame(width: waveformLaneWidth, height: EnsembleScaffold.MiniPlayer.waveformHeight)
 
                 MiniPlayerControls(
                     viewModel: viewModel,
@@ -307,7 +320,7 @@ private struct MiniPlayerTrackInfo: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .frame(height: max(artworkDimension, 34))
+        .frame(height: max(artworkDimension, EnsembleScaffold.MiniPlayer.largeRowMinimumHeight))
     }
 
     @ViewBuilder
@@ -361,17 +374,20 @@ private struct MiniPlayerTrackInfo: View {
                     // Horizontal only
                     if abs(value.translation.width) > abs(value.translation.height) {
                         dragOffset = value.translation.width
-                        opacity = 1.0 - min(abs(value.translation.width) / 200, 0.5)
+                        opacity = 1.0 - min(
+                            abs(value.translation.width) / EnsembleScaffold.MiniPlayer.horizontalSwipeFadeDistance,
+                            EnsembleScaffold.MiniPlayer.horizontalSwipeMaximumFade
+                        )
                     }
                 }
                 .onEnded { value in
-                    let threshold: CGFloat = 80
+                    let threshold = EnsembleScaffold.MiniPlayer.horizontalSwipeThreshold
                     if value.translation.width > threshold {
                         withAnimation(.spring(response: 0.3)) {
-                            dragOffset = 200
+                            dragOffset = EnsembleScaffold.MiniPlayer.horizontalSwipeDismissOffset
                             opacity = 0
                         }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + EnsembleScaffold.MiniPlayer.horizontalSwipeResetDelay) {
                             viewModel.previous()
                             withAnimation(.spring(response: 0.3)) {
                                 dragOffset = 0
@@ -380,10 +396,10 @@ private struct MiniPlayerTrackInfo: View {
                         }
                     } else if value.translation.width < -threshold {
                         withAnimation(.spring(response: 0.3)) {
-                            dragOffset = -200
+                            dragOffset = -EnsembleScaffold.MiniPlayer.horizontalSwipeDismissOffset
                             opacity = 0
                         }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + EnsembleScaffold.MiniPlayer.horizontalSwipeResetDelay) {
                             viewModel.next()
                             withAnimation(.spring(response: 0.3)) {
                                 dragOffset = 0
@@ -414,7 +430,7 @@ private struct MiniPlayerWaveform: View {
             color: waveformColor,
             heights: waveformHeights
         )
-        .opacity(0.9)
+        .opacity(EnsembleScaffold.MiniPlayer.waveformOpacity)
         .onAppear {
             playbackProgress = viewModel.progress
         }
@@ -438,7 +454,7 @@ private struct MiniPlayerControls: View {
     var showsActionsMenu = false
 
     var body: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: EnsembleScaffold.MiniPlayer.controlSpacing) {
             if showsPreviousButton {
                 Button(action: viewModel.previous) {
                     Image(systemName: EnsembleDesign.Icon.previous)
@@ -452,7 +468,7 @@ private struct MiniPlayerControls: View {
                     if viewModel.playbackState == .loading || viewModel.playbackState == .buffering {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .primary))
-                            .scaleEffect(0.8)
+                            .scaleEffect(EnsembleScaffold.MiniPlayer.controlLoadingScale)
                     } else {
                         Image(systemName: viewModel.isPlaying ? "pause.fill" : EnsembleDesign.Icon.play)
                             .font(.title2)
@@ -461,7 +477,7 @@ private struct MiniPlayerControls: View {
             }
             // Disable play when track not yet confirmed playable (e.g. pending health check)
             .disabled(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable)
-            .opacity(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable ? 0.4 : 1.0)
+            .opacity(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable ? EnsembleScaffold.MiniPlayer.unavailableControlOpacity : 1.0)
 
             Button(action: viewModel.next) {
                 Image(systemName: EnsembleDesign.Icon.next)
@@ -502,7 +518,10 @@ private struct MiniPlayerActionsMenuButton: View {
             Image(systemName: EnsembleDesign.Icon.more)
                 .font(EnsembleDesign.Typography.overflowIcon)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
-                .frame(width: 25, height: 25)
+                .frame(
+                    width: EnsembleScaffold.MiniPlayer.actionButtonDimension,
+                    height: EnsembleScaffold.MiniPlayer.actionButtonDimension
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -551,7 +570,10 @@ private struct MiniPlayerActionsMenuButton: View {
             onGoToAlbum: goToAlbum,
             onGoToArtist: goToArtist
         )
-        .frame(width: 25, height: 25)
+        .frame(
+            width: EnsembleScaffold.MiniPlayer.actionButtonDimension,
+            height: EnsembleScaffold.MiniPlayer.actionButtonDimension
+        )
         .accessibilityLabel("Track Actions")
         #endif
     }
@@ -619,7 +641,7 @@ private struct MiniPlayerActionsPopoverContent: View {
 
             if showsAlbumNavigation || showsArtistNavigation {
                 Divider()
-                    .padding(.vertical, 6)
+                    .padding(.vertical, EnsembleScaffold.MiniPlayer.popoverDividerVerticalPadding)
             }
 
             if showsAlbumNavigation {
@@ -631,7 +653,7 @@ private struct MiniPlayerActionsPopoverContent: View {
             }
         }
         .padding(.vertical, EnsembleDesign.Spacing.sm)
-        .frame(width: 240, alignment: .leading)
+        .frame(width: EnsembleScaffold.MiniPlayer.popoverWidth, alignment: .leading)
     }
 
     private func actionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
@@ -692,7 +714,11 @@ private struct NativeMiniPlayerActionsMenuButton: NSViewRepresentable {
 
         @objc func showMenu(_ sender: NSButton) {
             let menu = makeMenu()
-            menu.popUp(positioning: nil, at: NSPoint(x: sender.bounds.minX, y: sender.bounds.maxY + 4), in: sender)
+        menu.popUp(
+            positioning: nil,
+            at: NSPoint(x: sender.bounds.minX, y: sender.bounds.maxY + EnsembleScaffold.MiniPlayer.macMenuYOffset),
+            in: sender
+        )
         }
 
         private func makeMenu() -> NSMenu {
@@ -769,13 +795,13 @@ private struct MiniPlayerBackground: View {
                 BlurredArtworkBackground(
                     image: viewModel.artworkImage,
                     preBlurredImage: viewModel.blurredArtworkImage,
-                    blurRadius: 50,
-                    contrast: 2.0,
-                    saturation: 1.9,
-                    brightness: colorScheme == .dark ? -0.1 : 0.05,
-                    opacity: 0.3,
-                    topDimming: 0.2,
-                    bottomDimming: 0.15,
+                    blurRadius: EnsembleScaffold.MiniPlayer.backgroundBlurRadius,
+                    contrast: EnsembleScaffold.MiniPlayer.backgroundContrast,
+                    saturation: EnsembleScaffold.MiniPlayer.backgroundSaturation,
+                    brightness: colorScheme == .dark ? EnsembleScaffold.MiniPlayer.backgroundDarkBrightness : EnsembleScaffold.MiniPlayer.backgroundLightBrightness,
+                    opacity: EnsembleScaffold.MiniPlayer.backgroundOpacity,
+                    topDimming: EnsembleScaffold.MiniPlayer.backgroundTopDimming,
+                    bottomDimming: EnsembleScaffold.MiniPlayer.backgroundBottomDimming,
                     shouldIgnoreSafeArea: false,
                     overlayColor: colorScheme == .dark ? .black : {
                         #if canImport(UIKit)
@@ -785,7 +811,7 @@ private struct MiniPlayerBackground: View {
                         #endif
                     }()
                 )
-                .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
+                .animation(.easeInOut(duration: EnsembleScaffold.MiniPlayer.backgroundAnimationDuration), value: viewModel.artworkImage)
                 .clipped()
                 .allowsHitTesting(false)
             }
@@ -798,9 +824,9 @@ private struct MiniPlayerBackground: View {
                         .fill(
                             LinearGradient(
                                 colors: [
-                                    .primary.opacity(colorScheme == .dark ? 0.03 : 0.01),
+                                    .primary.opacity(colorScheme == .dark ? EnsembleScaffold.MiniPlayer.sheenDarkTopOpacity : EnsembleScaffold.MiniPlayer.sheenLightOpacity),
                                     .clear,
-                                    .primary.opacity(colorScheme == .dark ? 0.02 : 0.01)
+                                    .primary.opacity(colorScheme == .dark ? EnsembleScaffold.MiniPlayer.sheenDarkBottomOpacity : EnsembleScaffold.MiniPlayer.sheenLightOpacity)
                                 ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
@@ -813,12 +839,15 @@ private struct MiniPlayerBackground: View {
                     RoundedRectangle(cornerRadius: pillCornerRadius)
                         .fill(
                             LinearGradient(
-                                colors: [.primary.opacity(colorScheme == .dark ? 0.15 : 0.05), .clear],
+                                colors: [
+                                    .primary.opacity(colorScheme == .dark ? EnsembleScaffold.MiniPlayer.edgeGlowDarkOpacity : EnsembleScaffold.MiniPlayer.edgeGlowLightOpacity),
+                                    .clear
+                                ],
                                 startPoint: .top,
                                 endPoint: .center
                             )
                         )
-                        .padding(1)
+                        .padding(EnsembleScaffold.MiniPlayer.edgeGlowInset)
                         .mask(RoundedRectangle(cornerRadius: pillCornerRadius))
                         .allowsHitTesting(false)
                 )
@@ -846,7 +875,7 @@ public struct MiniPlayerContainer<Content: View>: View {
     public var body: some View {
         ZStack(alignment: .bottom) {
             content()
-                .padding(.bottom, 70)
+                .padding(.bottom, EnsembleScaffold.MiniPlayer.containerBottomPadding)
 
             let isFloating: Bool = {
                 if #available(iOS 18.0, *) {

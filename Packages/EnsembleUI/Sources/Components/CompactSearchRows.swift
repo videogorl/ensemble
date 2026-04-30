@@ -28,11 +28,11 @@ public struct CompactArtistRow: View {
 
             Spacer()
 
-            Image(systemName: "chevron.right")
+            Image(systemName: EnsembleDesign.Icon.chevronRight)
                 .font(EnsembleDesign.Typography.rowSecondary)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, EnsembleScaffold.UtilityRow.tightVerticalPadding)
         .contentShape(Rectangle())
     }
 }
@@ -50,7 +50,7 @@ public struct CompactAlbumRow: View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             ArtworkView(album: album, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                 Text(album.title)
                     .font(EnsembleDesign.Typography.rowPrimary)
                     .lineLimit(1)
@@ -66,11 +66,11 @@ public struct CompactAlbumRow: View {
 
             Spacer()
 
-            Image(systemName: "chevron.right")
+            Image(systemName: EnsembleDesign.Icon.chevronRight)
                 .font(EnsembleDesign.Typography.rowSecondary)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, EnsembleScaffold.UtilityRow.tightVerticalPadding)
         .contentShape(Rectangle())
     }
 }
@@ -88,15 +88,15 @@ public struct CompactPlaylistRow: View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             ArtworkView(playlist: playlist, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                 Text(playlist.title)
                     .font(EnsembleDesign.Typography.rowPrimary)
                     .lineLimit(1)
                     .foregroundColor(EnsembleDesign.Color.primaryText)
 
-                HStack(spacing: 4) {
+                HStack(spacing: EnsembleDesign.Spacing.xs) {
                     if playlist.isSmart {
-                        Image(systemName: "gearshape.fill")
+                        Image(systemName: EnsembleDesign.Icon.smartPlaylist)
                             .font(EnsembleDesign.Typography.rowSecondary)
                     }
                     Text("\(playlist.trackCount) songs")
@@ -107,11 +107,11 @@ public struct CompactPlaylistRow: View {
 
             Spacer()
 
-            Image(systemName: "chevron.right")
+            Image(systemName: EnsembleDesign.Icon.chevronRight)
                 .font(EnsembleDesign.Typography.rowSecondary)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, EnsembleScaffold.UtilityRow.tightVerticalPadding)
         .contentShape(Rectangle())
     }
 }
@@ -138,23 +138,23 @@ public struct CompactTrackRow: View {
                 ArtworkView(track: track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
                 
                 if isPlaying {
-                    Image(systemName: "speaker.wave.2.fill")
+                    Image(systemName: EnsembleDesign.Icon.speakerPlayingCompact)
                         .font(EnsembleDesign.Typography.rowSecondary)
                         .foregroundColor(EnsembleDesign.Color.onAccent)
-                        .padding(6)
-                        .background(Color.black.opacity(0.6))
+                        .padding(EnsembleDesign.Spacing.chipVertical)
+                        .background(Color.black.opacity(EnsembleScaffold.NowPlaying.lyricIndicatorFilledOpacity))
                         .clipShape(Circle())
                 }
             }
             .frame(width: ArtworkSize.tiny.cgSize.width, height: ArtworkSize.tiny.cgSize.height)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                 Text(track.title)
                     .font(EnsembleDesign.Typography.rowPrimary)
                     .lineLimit(1)
                     .foregroundColor(isPlaying ? EnsembleDesign.Color.accent : EnsembleDesign.Color.primaryText)
 
-                HStack(spacing: 4) {
+                HStack(spacing: EnsembleDesign.Spacing.xs) {
                     if let artist = track.artistName {
                         Text(artist)
                         if track.albumName != nil {
@@ -176,8 +176,8 @@ public struct CompactTrackRow: View {
                 .font(EnsembleDesign.Typography.rowSecondary)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
-        .opacity(cachedAvailability.shouldDim ? 0.45 : 1)
-        .padding(.vertical, 4)
+        .opacity(cachedAvailability.shouldDim ? TrackListLayoutMetrics.unavailableOpacity : 1)
+        .padding(.vertical, EnsembleScaffold.UtilityRow.tightVerticalPadding)
         .contentShape(Rectangle())
         .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { _ in
             let resolver = DependencyContainer.shared.trackAvailabilityResolver
@@ -195,7 +195,7 @@ public struct CompactTrackRow: View {
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .warning,
-                        iconSystemName: "wifi.slash",
+                        iconSystemName: EnsembleDesign.Icon.offline,
                         title: availability.userMessage ?? "Not available offline",
                         message: "Download this track before going offline.",
                         dedupeKey: "compact-offline-track-blocked-\(track.id)"
