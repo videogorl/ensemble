@@ -89,7 +89,7 @@ struct LibraryDownloadDetailView: View {
                 .shadow(
                     color: EnsembleScaffold.DownloadDetail.headerIconShadowColor,
                     radius: EnsembleScaffold.DownloadDetail.headerIconShadowRadius,
-                    x: EnsembleDesign.Spacing.none,
+                    x: EnsembleDesign.Effect.shadowX,
                     y: EnsembleScaffold.DownloadDetail.headerIconShadowY
                 )
 

@@ -574,7 +574,7 @@ public struct ArtistDetailView: View {
             .shadow(
                 color: EnsembleScaffold.ArtistDetail.wideArtworkShadowColor,
                 radius: EnsembleScaffold.ArtistDetail.wideArtworkShadowRadius,
-                x: 0,
+                x: EnsembleDesign.Effect.shadowX,
                 y: EnsembleScaffold.ArtistDetail.wideArtworkShadowY
             )
 

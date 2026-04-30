@@ -34,7 +34,7 @@ public struct GenreCard: View {
             .shadow(
                 color: EnsembleDesign.Effect.cardShadowColor,
                 radius: EnsembleDesign.Effect.cardShadowRadius,
-                x: 0,
+                x: EnsembleDesign.Effect.shadowX,
                 y: EnsembleDesign.Effect.cardShadowY
             )
             
