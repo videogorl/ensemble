@@ -170,7 +170,7 @@ public struct MainTabView: View {
                             tabRootView(for: tab)
                                 .tag(tab)
                                 .tabItem {
-                                    Label(tab.displayTitle, systemImage: tab.systemImage)
+                                    Label(tab.displayTitle, systemImage: tab.designSystemImage)
                                 }
                         }
 
@@ -1354,9 +1354,9 @@ public struct SidebarView: View {
     /// SF Symbol for each pinned item type
     private func iconForPinType(_ type: PinnedItemType) -> String {
         switch type {
-        case .album: return "square.stack"
-        case .artist: return "music.mic"
-        case .playlist: return "music.note.list"
+        case .album: return EnsembleDesign.Icon.album
+        case .artist: return EnsembleDesign.Icon.artist
+        case .playlist: return EnsembleDesign.Icon.playlist
         }
     }
 
@@ -1667,7 +1667,7 @@ public struct SidebarView: View {
                 ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
                     .id(artist.id)
             } else {
-                LargeScreenPlaceholderView(systemImage: "person.crop.circle", title: "Select an Artist")
+                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.artist, title: "Select an Artist")
             }
         case .playlists:
             if let displayPlaylist = selectedBrowsePlaylist {
@@ -1686,14 +1686,14 @@ public struct SidebarView: View {
                     .id(displayPlaylist.id)
                 }
             } else {
-                LargeScreenPlaceholderView(systemImage: "music.note.list", title: "Select a Playlist")
+                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.playlist, title: "Select a Playlist")
             }
         case .genres:
             if let genre = selectedBrowseGenre {
                 GenreDetailContentView(libraryVM: libraryVM, genre: genre, nowPlayingVM: nowPlayingVM)
                     .id(genre.id)
             } else {
-                LargeScreenPlaceholderView(systemImage: "guitars", title: "Select a Genre")
+                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.genreEmpty, title: "Select a Genre")
             }
         }
     }
@@ -1801,11 +1801,11 @@ public struct SidebarView: View {
     private func rootBrowsePlaceholder(for browseKind: RootBrowseKind) -> some View {
         switch browseKind {
         case .artists:
-            LargeScreenPlaceholderView(systemImage: "person.crop.circle", title: "Select an Artist")
+            LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.artist, title: "Select an Artist")
         case .playlists:
-            LargeScreenPlaceholderView(systemImage: "music.note.list", title: "Select a Playlist")
+            LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.playlist, title: "Select a Playlist")
         case .genres:
-            LargeScreenPlaceholderView(systemImage: "guitars", title: "Select a Genre")
+            LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.genreEmpty, title: "Select a Genre")
         }
     }
 

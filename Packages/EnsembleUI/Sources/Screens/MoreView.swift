@@ -72,7 +72,7 @@ public struct MoreView: View {
                 ForEach(moreTabs.filter { isLibraryTab($0) }) { tab in
                     if #available(iOS 16.0, macOS 13.0, *) {
                         NavigationLink(value: NavigationCoordinator.Destination.view(tab)) {
-                            Label(tab.displayTitle, systemImage: tab.systemImage)
+                            Label(tab.displayTitle, systemImage: tab.designSystemImage)
                         }
                     } else {
                         // iOS 15 Fallback: Use manual push to coordinator to sync with NavigationView
@@ -80,7 +80,7 @@ public struct MoreView: View {
                             navigationCoordinator.push(.view(tab), in: .settings)
                         } label: {
                             HStack {
-                                Label(tab.displayTitle, systemImage: tab.systemImage)
+                                Label(tab.displayTitle, systemImage: tab.designSystemImage)
                                 Spacer()
                                 Image(systemName: EnsembleDesign.Icon.chevronRight)
                                     .font(EnsembleDesign.Typography.rowSecondary)
@@ -96,7 +96,7 @@ public struct MoreView: View {
                 ForEach(moreTabs.filter { !isLibraryTab($0) }) { tab in
                     if #available(iOS 16.0, macOS 13.0, *) {
                         NavigationLink(value: NavigationCoordinator.Destination.view(tab)) {
-                            Label(tab.displayTitle, systemImage: tab.systemImage)
+                            Label(tab.displayTitle, systemImage: tab.designSystemImage)
                         }
                     } else {
                         // iOS 15 Fallback
@@ -104,7 +104,7 @@ public struct MoreView: View {
                             navigationCoordinator.push(.view(tab), in: .settings)
                         } label: {
                             HStack {
-                                Label(tab.displayTitle, systemImage: tab.systemImage)
+                                Label(tab.displayTitle, systemImage: tab.designSystemImage)
                                 Spacer()
                                 Image(systemName: EnsembleDesign.Icon.chevronRight)
                                     .font(EnsembleDesign.Typography.rowSecondary)
@@ -304,7 +304,7 @@ private struct EditTabsView: View {
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
                 .font(EnsembleDesign.Typography.rowPrimary)
 
-            Image(systemName: tab.systemImage)
+            Image(systemName: tab.designSystemImage)
                 .foregroundColor(EnsembleDesign.Color.accent)
                 .frame(width: EnsembleScaffold.TabEditor.rowIconWidth, alignment: .center)
 

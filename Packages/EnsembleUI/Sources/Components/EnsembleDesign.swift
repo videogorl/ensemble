@@ -1,3 +1,4 @@
+import EnsembleCore
 import SwiftUI
 
 /// Semantic design tokens for Ensemble UI surfaces.
@@ -399,6 +400,33 @@ public enum EnsembleDesign {
                     return false
                 }
             }
+        }
+    }
+}
+
+public extension TabItem {
+    var designSystemImage: String {
+        switch self {
+        case .home:
+            return EnsembleDesign.Icon.home
+        case .songs:
+            return EnsembleDesign.Icon.musicNote
+        case .artists:
+            return EnsembleDesign.Icon.artist
+        case .albums:
+            return EnsembleDesign.Icon.album
+        case .genres:
+            return EnsembleDesign.Icon.genreEmpty
+        case .playlists:
+            return EnsembleDesign.Icon.playlist
+        case .favorites:
+            return EnsembleDesign.Icon.favorite
+        case .search:
+            return EnsembleDesign.Icon.search
+        case .downloads:
+            return EnsembleDesign.Icon.download
+        case .settings:
+            return EnsembleDesign.Icon.settings
         }
     }
 }
