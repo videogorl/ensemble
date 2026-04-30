@@ -174,6 +174,8 @@ public enum EnsembleDesign {
         public static let favoriteRemove = "heart.slash"
         public static let favoriteRemoveFilled = "heart.slash.fill"
         public static let filter = "line.3.horizontal.decrease"
+        public static let filterCircle = "line.3.horizontal.decrease.circle"
+        public static let filterCircleFilled = "line.3.horizontal.decrease.circle.fill"
         public static let forward = "forward.fill"
         public static let generatedBadge = "sparkles"
         public static let genre = "music.note.list"

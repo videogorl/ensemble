@@ -221,7 +221,9 @@ public struct TrackSwipeContainer<Content: View>: View {
     private func actionIcon(for action: TrackSwipeAction) -> String {
         switch action {
         case .favoriteToggle:
-            return nowPlayingVM.isTrackFavorited(track) ? "heart.slash.fill" : "heart.fill"
+            return nowPlayingVM.isTrackFavorited(track)
+                ? EnsembleDesign.Icon.favoriteRemoveFilled
+                : EnsembleDesign.Icon.favoriteFilled
         default:
             return action.systemImage
         }
@@ -297,7 +299,9 @@ public struct TrackSwipeContainer<Content: View>: View {
         toastCenter.show(
             ToastPayload(
                 style: .info,
-                iconSystemName: willFavorite ? "heart.fill" : "heart.slash.fill",
+                iconSystemName: willFavorite
+                    ? EnsembleDesign.Icon.favoriteFilled
+                    : EnsembleDesign.Icon.favoriteRemoveFilled,
                 title: willFavorite ? "Adding to Favorites..." : "Removing from Favorites...",
                 message: track.title,
                 duration: 1.0,

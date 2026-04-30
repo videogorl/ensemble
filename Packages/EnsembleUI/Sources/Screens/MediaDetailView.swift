@@ -294,8 +294,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     Label(
                         "Filters",
                         systemImage: viewModel.filterOptions.hasActiveFilters
-                            ? "line.3.horizontal.decrease.circle.fill"
-                            : "line.3.horizontal.decrease.circle"
+                            ? EnsembleDesign.Icon.filterCircleFilled
+                            : EnsembleDesign.Icon.filterCircle
                     )
                 }
 

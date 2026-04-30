@@ -1056,7 +1056,7 @@ public struct SidebarView: View {
                 deps.toastCenter.show(
                     ToastPayload(
                         style: outcome == .queued ? .info : .success,
-                        iconSystemName: outcome == .queued ? "clock.arrow.circlepath" : "pencil.circle.fill",
+                        iconSystemName: outcome == .queued ? EnsembleDesign.Icon.recentPlaylist : EnsembleDesign.Icon.editCircleFilled,
                         title: outcome == .queued ? "Rename queued — will sync when online" : "Renamed playlist",
                         dedupeKey: "sidebar-playlist-rename-success-\(playlist.id)"
                     )

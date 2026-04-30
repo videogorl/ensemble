@@ -443,7 +443,7 @@ public struct QueueCard: View {
     }
     
     private var autoplayIcon: String {
-        viewModel.isAutoplayEnabled ? "infinity" : "infinity"
+        EnsembleDesign.Icon.infinity
     }
     
     private var autoplayColor: Color {

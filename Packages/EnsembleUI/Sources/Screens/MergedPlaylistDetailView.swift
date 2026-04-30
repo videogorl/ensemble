@@ -108,7 +108,7 @@ public struct MergedPlaylistDetailView: View {
                     deps.toastCenter.show(
                         ToastPayload(
                             style: didRename ? .success : .error,
-                            iconSystemName: didRename ? "pencil.circle.fill" : "xmark.octagon.fill",
+                            iconSystemName: didRename ? EnsembleDesign.Icon.editCircleFilled : EnsembleDesign.Icon.failure,
                             title: didRename ? "Renamed playlist" : "Could not rename playlist",
                             dedupeKey: "merged-rename-result-\(viewModel.displayPlaylist.id)"
                         )
