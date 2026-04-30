@@ -552,8 +552,7 @@ public struct ArtistDetailView: View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
             heroBanner
 
-            actionButtons
-                .padding(.horizontal)
+            compactActionButtons
                 .padding(.top, EnsembleScaffold.ArtistDetail.compactActionTopPadding)
         }
     }
@@ -587,7 +586,7 @@ public struct ArtistDetailView: View {
 
                 artistHeaderFacts
 
-                actionButtons
+                wideActionButtons
                     .frame(maxWidth: EnsembleScaffold.ArtistDetail.wideActionMaxWidth)
                     .padding(.top, EnsembleScaffold.DetailSurface.actionTopPadding)
             }
@@ -716,8 +715,10 @@ public struct ArtistDetailView: View {
 
     // MARK: - Action Buttons
 
-    private var actionButtons: some View {
+    private var compactActionButtons: some View {
         MediaDetailSurface<EmptyView>.PlaybackActionRow(
+            horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding,
+            bottomPadding: EnsembleDesign.Spacing.lg,
             isDisabled: viewModel.filteredTracks.isEmpty,
             play: {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
@@ -727,6 +728,29 @@ public struct ArtistDetailView: View {
             }
         ) {
             // Radio button - queue all shuffled, enable sonically similar
+            Button {
+                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
+            } label: {
+                MediaDetailSurface<EmptyView>.IconActionLabel(systemImage: EnsembleDesign.Icon.radio)
+            }
+            #if os(macOS)
+            .help("Artist Radio - Queue all shuffled, enable sonically similar")
+            #endif
+        }
+    }
+
+    private var wideActionButtons: some View {
+        MediaDetailSurface<EmptyView>.AdaptivePlaybackActionRow(
+            availableWidth: EnsembleScaffold.ArtistDetail.wideActionMaxWidth,
+            isDisabled: viewModel.filteredTracks.isEmpty,
+            includesExtraActions: true,
+            play: {
+                nowPlayingVM.play(tracks: viewModel.filteredTracks)
+            },
+            shuffle: {
+                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
+            }
+        ) {
             Button {
                 nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
             } label: {
@@ -996,38 +1020,17 @@ public struct ArtistDetailView: View {
             }
             .frame(height: height)
             #else
-            // Basic fallback for macOS
-            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                ForEach(Array(viewModel.favoritedTracks.enumerated()), id: \.element.id) { index, track in
-                    let resolvedActions = interactionModel.resolve(for: track)
-                    TrackRow(
-                        track: track,
-                        showArtwork: true,
-                        isPlaying: track.id == currentTrackId,
-                        onPlayNext: resolvedActions.onPlayNext,
-                        onPlayLast: resolvedActions.onPlayLast,
-                        onAddToPlaylist: resolvedActions.onAddToPlaylist,
-                        onAddToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
-                        onToggleFavorite: resolvedActions.onToggleFavorite,
-                        onGoToAlbum: resolvedActions.onGoToAlbum,
-                        onGoToArtist: nil,
-                        onShareLink: resolvedActions.onShareLink,
-                        onShareFile: resolvedActions.onShareFile,
-                        isFavorited: resolvedActions.isFavorited,
-                        recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
-                        supplementalMetadataWidth: favoritedTrackListWidth
-                    ) {
-                        nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
-                    }
-                    .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-                    .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
-
-                    if index < viewModel.favoritedTracks.count - 1 {
-                        Divider()
-                            .padding(.leading, TrackListLayoutMetrics.artworkLeadingInset)
-                    }
-                }
+            SongsTrackListHost(
+                tracks: viewModel.favoritedTracks,
+                currentTrackId: currentTrackId,
+                availabilityGeneration: availabilityGeneration,
+                activeDownloadRatingKeys: activeDownloadRatingKeys,
+                supplementalMetadataWidth: favoritedTrackListWidth,
+                interactionModel: interactionModel
+            ) { _, index in
+                nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
             }
+            .frame(height: CGFloat(viewModel.favoritedTracks.count) * TrackListLayoutMetrics.defaultRowHeight)
             #endif
         }
         .background(

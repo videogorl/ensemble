@@ -728,82 +728,18 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     /// Compact action buttons for the wide header layout — don't stretch to fill width.
     private func wideActionButtons(availableWidth: CGFloat) -> some View {
-        Group {
-            if availableWidth < EnsembleScaffold.DetailSurface.compactWideActionThreshold {
-                VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                    widePlayButton(
-                        horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding,
-                        expands: true
-                    )
-                    wideShuffleButton(
-                        horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding,
-                        expands: true
-                    )
-
-                    if hasRadioButton {
-                        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                            radioButton
-                            Spacer(minLength: 0)
-                        }
-                    }
-                }
-            } else if availableWidth < EnsembleScaffold.DetailSurface.stackedWideActionThreshold {
-                VStack(alignment: .leading, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                    HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                        widePlayButton(horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding)
-                        wideShuffleButton(horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding)
-                    }
-
-                    if hasRadioButton {
-                        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                            radioButton
-                            Spacer(minLength: 0)
-                        }
-                    }
-                }
-            } else {
-                HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                    widePlayButton()
-                    wideShuffleButton()
-                    radioButton
-                }
+        MediaDetailSurface<EmptyView>.AdaptivePlaybackActionRow(
+            availableWidth: availableWidth,
+            isDisabled: viewModel.filteredTracks.isEmpty,
+            includesExtraActions: hasRadioButton,
+            play: {
+                nowPlayingVM.play(tracks: viewModel.filteredTracks)
+            },
+            shuffle: {
+                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
             }
-        }
-        .chromelessMediaControlButton()
-        .disabled(viewModel.filteredTracks.isEmpty)
-    }
-
-    private func widePlayButton(
-        horizontalPadding: CGFloat = EnsembleScaffold.DetailSurface.wideActionHorizontalPadding,
-        expands: Bool = false
-    ) -> some View {
-        Button {
-            nowPlayingVM.play(tracks: viewModel.filteredTracks)
-        } label: {
-            MediaDetailSurface<EmptyView>.ActionLabel(
-                "Play",
-                systemImage: EnsembleDesign.Icon.play,
-                role: .primary,
-                horizontalPadding: horizontalPadding,
-                expands: expands
-            )
-        }
-    }
-
-    private func wideShuffleButton(
-        horizontalPadding: CGFloat = EnsembleScaffold.DetailSurface.wideActionHorizontalPadding,
-        expands: Bool = false
-    ) -> some View {
-        Button {
-            nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
-        } label: {
-            MediaDetailSurface<EmptyView>.ActionLabel(
-                "Shuffle",
-                systemImage: EnsembleDesign.Icon.shuffle,
-                role: .secondary,
-                horizontalPadding: horizontalPadding,
-                expands: expands
-            )
+        ) {
+            radioButton
         }
     }
 

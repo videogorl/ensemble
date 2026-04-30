@@ -206,6 +206,110 @@ extension MediaDetailSurface {
         }
     }
 
+    /// Adaptive wide-header action row shared by album, artist, and virtual
+    /// collection headers. The row constrains itself at narrow widths, then
+    /// switches to intrinsic button sizing once the metadata column has room.
+    struct AdaptivePlaybackActionRow<ExtraActions: View>: View {
+        let availableWidth: CGFloat
+        let isDisabled: Bool
+        let includesExtraActions: Bool
+        let play: () -> Void
+        let shuffle: () -> Void
+        @ViewBuilder private let extraActions: () -> ExtraActions
+
+        init(
+            availableWidth: CGFloat,
+            isDisabled: Bool = false,
+            includesExtraActions: Bool = true,
+            play: @escaping () -> Void,
+            shuffle: @escaping () -> Void,
+            @ViewBuilder extraActions: @escaping () -> ExtraActions
+        ) {
+            self.availableWidth = availableWidth
+            self.isDisabled = isDisabled
+            self.includesExtraActions = includesExtraActions
+            self.play = play
+            self.shuffle = shuffle
+            self.extraActions = extraActions
+        }
+
+        var body: some View {
+            Group {
+                if availableWidth < EnsembleScaffold.DetailSurface.compactWideActionThreshold {
+                    VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                        playButton(
+                            horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding,
+                            expands: true
+                        )
+                        shuffleButton(
+                            horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding,
+                            expands: true
+                        )
+                        extraActionRowIfNeeded
+                    }
+                } else if availableWidth < EnsembleScaffold.DetailSurface.stackedWideActionThreshold {
+                    VStack(alignment: .leading, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                            playButton(horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding)
+                            shuffleButton(horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding)
+                        }
+                        extraActionRowIfNeeded
+                    }
+                } else {
+                    HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                        playButton()
+                        shuffleButton()
+                        if includesExtraActions {
+                            extraActions()
+                        }
+                    }
+                }
+            }
+            .chromelessMediaControlButton()
+            .disabled(isDisabled)
+        }
+
+        private func playButton(
+            horizontalPadding: CGFloat = EnsembleScaffold.DetailSurface.wideActionHorizontalPadding,
+            expands: Bool = false
+        ) -> some View {
+            Button(action: play) {
+                ActionLabel(
+                    "Play",
+                    systemImage: EnsembleDesign.Icon.play,
+                    role: .primary,
+                    horizontalPadding: horizontalPadding,
+                    expands: expands
+                )
+            }
+        }
+
+        private func shuffleButton(
+            horizontalPadding: CGFloat = EnsembleScaffold.DetailSurface.wideActionHorizontalPadding,
+            expands: Bool = false
+        ) -> some View {
+            Button(action: shuffle) {
+                ActionLabel(
+                    "Shuffle",
+                    systemImage: EnsembleDesign.Icon.shuffle,
+                    role: .secondary,
+                    horizontalPadding: horizontalPadding,
+                    expands: expands
+                )
+            }
+        }
+
+        @ViewBuilder
+        private var extraActionRowIfNeeded: some View {
+            if includesExtraActions {
+                HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                    extraActions()
+                    Spacer(minLength: EnsembleDesign.Spacing.none)
+                }
+            }
+        }
+    }
+
     /// Compact two-button Play/Shuffle row for nested detail sections.
     struct CompactPlaybackActionRow: View {
         let horizontalPadding: CGFloat
@@ -359,16 +463,17 @@ extension MediaDetailSurface {
                 ) {
                     EmptyView()
                 }
-            } wideActions: { _ in
-                PlaybackActionRow(
-                    horizontalPadding: EnsembleDesign.Spacing.none,
-                    bottomPadding: EnsembleDesign.Spacing.lg,
+            } wideActions: { availableWidth in
+                AdaptivePlaybackActionRow(
+                    availableWidth: availableWidth,
                     isDisabled: isDisabled,
+                    includesExtraActions: false,
                     play: play,
                     shuffle: shuffle
                 ) {
                     EmptyView()
                 }
+                .padding(.bottom, EnsembleDesign.Spacing.lg)
             }
             .padding(.bottom, bottomPadding)
         }
