@@ -144,7 +144,7 @@ public struct DownloadsView: View {
             } label: {
                 EmptyView()
             }
-            .opacity(0)
+            .opacity(EnsembleScaffold.UtilityRow.hiddenNavigationLinkOpacity)
 
             // Visible row content: label, toggle, then chevron on trailing edge
             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
@@ -171,7 +171,7 @@ public struct DownloadsView: View {
                 // Manual chevron since the hidden NavigationLink won't render one
                 Image(systemName: EnsembleDesign.Icon.chevronRight)
                     .font(EnsembleDesign.Typography.rowSecondary.weight(.semibold))
-                    .foregroundColor(EnsembleDesign.Color.secondaryText.opacity(0.5))
+                    .foregroundColor(EnsembleDesign.Color.secondaryText.opacity(EnsembleScaffold.UtilityRow.chevronSubtleOpacity))
                     .frame(width: EnsembleScaffold.UtilityRow.chevronLaneWidth, alignment: .trailing)
             }
         }
@@ -188,11 +188,7 @@ public struct DownloadsView: View {
                         width: EnsembleScaffold.UtilityRow.compactArtworkDimension,
                         height: EnsembleScaffold.UtilityRow.compactArtworkDimension
                     )
-                    #if os(iOS)
-                    .background(Color(UIColor.tertiarySystemGroupedBackground))
-                    #else
-                    .background(Color(NSColor.controlBackgroundColor))
-                    #endif
+                    .background(EnsembleScaffold.UtilityRow.insetIconBackground)
                     .clipShape(RoundedRectangle(cornerRadius: EnsembleDesign.Radius.compactControl, style: .continuous))
 
                 VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
@@ -231,7 +227,7 @@ public struct DownloadsView: View {
                     .progressViewStyle(.linear)
             }
         }
-        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
+        .padding(.vertical, EnsembleScaffold.UtilityRow.halfRowVerticalPadding)
     }
 
     private func libraryTrackCountText(for library: LibraryDownloadSummary) -> String {
@@ -458,7 +454,7 @@ private struct DownloadedItemRow: View {
                     .progressViewStyle(.linear)
             }
         }
-        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
+        .padding(.vertical, EnsembleScaffold.UtilityRow.halfRowVerticalPadding)
     }
 
     private var metadataText: String {
@@ -544,6 +540,6 @@ private struct RemovalProgressRow: View {
                     .progressViewStyle(.linear)
             }
         }
-        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
+        .padding(.vertical, EnsembleScaffold.UtilityRow.halfRowVerticalPadding)
     }
 }

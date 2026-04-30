@@ -1,4 +1,9 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 /// Shared adaptive UI patterns that sit above raw design tokens.
 public enum EnsembleScaffold {
@@ -179,9 +184,20 @@ public enum EnsembleScaffold {
         public static let nestedLeadingPadding: CGFloat = iconLaneWidth - EnsembleDesign.Spacing.lg
         public static let tightVerticalPadding = EnsembleDesign.Spacing.xxs
         public static let subtleVerticalPadding = EnsembleDesign.Spacing.xs
+        public static let halfRowVerticalPadding = TrackListLayoutMetrics.rowVerticalPadding / 2
         public static let negativeListPadding: CGFloat = -EnsembleDesign.Spacing.xs
+        public static let hiddenNavigationLinkOpacity = EnsembleDesign.Spacing.none
+        public static let chevronSubtleOpacity = 0.5
         public static let statusChipOpacity = 0.12
         public static let downloadErrorLeadingPadding: CGFloat = downloadArtworkDimension + rowSpacing + EnsembleDesign.Spacing.xs
+
+        public static var insetIconBackground: Color {
+            #if os(iOS)
+            return Color(UIColor.tertiarySystemGroupedBackground)
+            #else
+            return Color(NSColor.controlBackgroundColor)
+            #endif
+        }
     }
 
     public enum TabEditor {
