@@ -96,7 +96,7 @@ public struct ControlsCard: View {
     // MARK: - Content View
     
     private func contentView(track: Track, geometry: GeometryProxy) -> some View {
-        VStack(spacing: 0) {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
             // Dynamic artwork sizing for small screens
             let maxWidth = geometry.size.width - EnsembleScaffold.NowPlaying.emptyIconSize
             let maxHeight = geometry.size.height * 0.4
@@ -143,7 +143,7 @@ public struct ControlsCard: View {
                     : EnsembleScaffold.NowPlaying.sectionTopPadding
                 )
 
-            Spacer(minLength: 0)
+            Spacer(minLength: EnsembleDesign.Spacing.none)
 
             // Secondary controls + spacing for fixed page indicator
             VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
@@ -155,7 +155,7 @@ public struct ControlsCard: View {
     }
     
     private func emptyStateView(geometry: GeometryProxy) -> some View {
-        VStack(spacing: 0) {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
             let maxWidth = geometry.size.width - EnsembleScaffold.NowPlaying.emptyIconSize
             let maxHeight = geometry.size.height * 0.4
             let artworkSize = min(maxWidth, maxHeight, 400)
@@ -197,7 +197,7 @@ public struct ControlsCard: View {
                 .allowsHitTesting(false)
                 .padding(.top, EnsembleDesign.Spacing.xxxl)
             
-            Spacer(minLength: 0)
+            Spacer(minLength: EnsembleDesign.Spacing.none)
             
             VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 secondaryControlsView

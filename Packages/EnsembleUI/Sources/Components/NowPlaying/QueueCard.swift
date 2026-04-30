@@ -39,7 +39,7 @@ public struct QueueCard: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
             // Pinned header
             headerView
                 .padding(.top, EnsembleScaffold.NowPlaying.headerTopPadding)
@@ -51,7 +51,7 @@ public struct QueueCard: View {
                 // by forcing IntrinsicTableView to report full contentSize.
                 queueListView
                     .mask(
-                        VStack(spacing: 0) {
+                        VStack(spacing: EnsembleDesign.Spacing.none) {
                             // Top fade
                             LinearGradient(
                                 gradient: Gradient(stops: [
@@ -84,7 +84,7 @@ public struct QueueCard: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
-            Spacer(minLength: 0) // Push secondary controls to bottom, matching ControlsCard
+            Spacer(minLength: EnsembleDesign.Spacing.none) // Push secondary controls to bottom, matching ControlsCard
 
             // Secondary controls + spacing for fixed page indicator
             VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
@@ -346,7 +346,7 @@ public struct QueueCard: View {
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
                 .monospacedDigit()
         }
-        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
+        .padding(.vertical, EnsembleScaffold.UtilityRow.halfRowVerticalPadding)
     }
 
     /// Context menu for queue items

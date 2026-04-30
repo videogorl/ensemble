@@ -51,8 +51,8 @@ struct CompositeArtworkView: View {
         return GeometryReader { geo in
             let halfWidth = geo.size.width / 2
             let halfHeight = geo.size.height / 2
-            VStack(spacing: 0) {
-                HStack(spacing: 0) {
+            VStack(spacing: EnsembleDesign.Spacing.none) {
+                HStack(spacing: EnsembleDesign.Spacing.none) {
                     subArtwork(at: 0)
                         .frame(width: halfWidth, height: halfHeight)
                         .clipped()
@@ -60,7 +60,7 @@ struct CompositeArtworkView: View {
                         .frame(width: halfWidth, height: halfHeight)
                         .clipped()
                 }
-                HStack(spacing: 0) {
+                HStack(spacing: EnsembleDesign.Spacing.none) {
                     subArtwork(at: 2)
                         .frame(width: halfWidth, height: halfHeight)
                         .clipped()
@@ -86,7 +86,7 @@ struct CompositeArtworkView: View {
             sourceKey: playlist.sourceCompositeKey,
             ratingKey: playlist.id,
             size: subArtworkSize,
-            cornerRadius: 0,
+            cornerRadius: EnsembleDesign.Spacing.none,
             isResponsive: isResponsive
         )
     }
@@ -158,19 +158,18 @@ public struct DisplayPlaylistCard: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.contentSpacing) {
             PlaylistArtwork(displayPlaylist: displayPlaylist, size: .thumbnail)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {
                 Text(displayPlaylist.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                    .font(EnsembleDesign.Typography.cardTitle)
                     .lineLimit(2)
-                    .foregroundColor(.primary)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
 
                 Text("\(displayPlaylist.trackCount) songs")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.cardSubtitle)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
         .frame(width: ArtworkSize.thumbnail.cgSize.width)

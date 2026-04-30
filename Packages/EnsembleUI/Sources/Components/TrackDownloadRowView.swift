@@ -51,7 +51,7 @@ struct TrackDownloadRowView: View {
 
                 // Quality mismatch indicator
                 if isQualityMismatched {
-                    Image(systemName: "arrow.triangle.2.circlepath")
+                    Image(systemName: EnsembleDesign.Icon.refreshCycle)
                         .font(EnsembleDesign.Typography.cardSubtitle)
                         .foregroundColor(EnsembleDesign.Color.warning)
                 }

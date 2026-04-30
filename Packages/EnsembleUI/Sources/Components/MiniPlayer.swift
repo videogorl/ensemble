@@ -207,7 +207,7 @@ private struct MiniPlayerTrackInfo: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
             // Error banner (if playback failed)
             if case .failed(let errorMessage) = viewModel.playbackState {
                 HStack(spacing: EnsembleDesign.Spacing.sm) {
@@ -275,7 +275,7 @@ private struct MiniPlayerTrackInfo: View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             trackInfoLane(for: track)
 
-            Spacer(minLength: 0)
+            Spacer(minLength: EnsembleDesign.Spacing.none)
 
             MiniPlayerControls(viewModel: viewModel)
                 .layoutPriority(0.4)
@@ -626,7 +626,7 @@ private struct MiniPlayerActionsPopoverContent: View {
     let onGoToArtist: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
             actionButton(title: favoriteTitle, systemImage: favoriteSystemImage, action: onFavorite)
 
             if let recentPlaylistTitle {

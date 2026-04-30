@@ -532,7 +532,7 @@ public struct TrackListView: View {
     }
 
     public var body: some View {
-        LazyVStack(spacing: 0) {
+        LazyVStack(spacing: EnsembleDesign.Spacing.none) {
             ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
                 let resolvedActions = interactionModel.resolve(for: track)
                 let row = TrackRow(

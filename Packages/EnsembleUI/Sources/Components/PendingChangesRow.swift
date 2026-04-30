@@ -33,6 +33,6 @@ public struct PendingChangesRow: View {
                 .background(EnsembleDesign.Color.warning)
                 .clipShape(Capsule())
         }
-        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
+        .padding(.vertical, EnsembleScaffold.UtilityRow.halfRowVerticalPadding)
     }
 }
