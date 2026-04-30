@@ -24,13 +24,13 @@ public struct DownloadsView: View {
         }
         .navigationTitle("Downloads")
         .profileToolbar()
-                .toolbar {
+        .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 NavigationLink {
                     DownloadManagerSettingsView()
                 } label: {
-                    Image(systemName: "slider.horizontal.3")
+                    Image(systemName: EnsembleDesign.Icon.editPlaylist)
                 }
             }
 
@@ -43,7 +43,7 @@ public struct DownloadsView: View {
                 NavigationLink {
                     DownloadManagerSettingsView()
                 } label: {
-                    Label("Settings", systemImage: "slider.horizontal.3")
+                    Label("Settings", systemImage: EnsembleDesign.Icon.editPlaylist)
                 }
             }
 
@@ -169,10 +169,10 @@ public struct DownloadsView: View {
                 .disabled(viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
 
                 // Manual chevron since the hidden NavigationLink won't render one
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
+                Image(systemName: EnsembleDesign.Icon.chevronRight)
+                    .font(EnsembleDesign.Typography.rowSecondary.weight(.semibold))
                     .foregroundColor(EnsembleDesign.Color.secondaryText.opacity(0.5))
-                    .frame(width: 12, alignment: .trailing)
+                    .frame(width: EnsembleScaffold.UtilityRow.chevronLaneWidth, alignment: .trailing)
             }
         }
     }
@@ -181,8 +181,8 @@ public struct DownloadsView: View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 // Library icon
-                Image(systemName: "building.columns")
-                    .font(.title3)
+                Image(systemName: EnsembleDesign.Icon.libraryBuilding)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(EnsembleDesign.Color.accent)
                     .frame(
                         width: EnsembleScaffold.UtilityRow.compactArtworkDimension,
@@ -300,7 +300,7 @@ public struct DownloadsView: View {
             deps.toastCenter.show(
                 ToastPayload(
                     style: .info,
-                    iconSystemName: "arrow.triangle.2.circlepath",
+                    iconSystemName: EnsembleDesign.Icon.refreshCycle,
                     title: "Refreshing Downloads",
                     message: "Re-queued \(refreshResult.requeuedCount) track\(requeuedTrackSuffix) for \(qualityLabel) quality.\(skippedSuffix)"
                 )
@@ -310,7 +310,7 @@ public struct DownloadsView: View {
             deps.toastCenter.show(
                 ToastPayload(
                     style: .warning,
-                    iconSystemName: "exclamationmark.triangle",
+                    iconSystemName: EnsembleDesign.Icon.errorOutline,
                     title: "Original Quality Only",
                     message: "\(refreshResult.skippedUnsupportedCount) track\(skippedTrackSuffix) skipped because this server rejects offline transcode requests."
                 )
@@ -319,7 +319,7 @@ public struct DownloadsView: View {
             deps.toastCenter.show(
                 ToastPayload(
                     style: .info,
-                    iconSystemName: "checkmark.circle",
+                    iconSystemName: EnsembleDesign.Icon.checkmarkOutline,
                     title: "Downloads Up to Date",
                     message: "Completed downloads already match \(qualityLabel) quality."
                 )
@@ -364,7 +364,7 @@ public struct DownloadsView: View {
                     if isRefreshingDownloadQuality {
                         ProgressView()
                     } else {
-                        Label("Refresh Downloads", systemImage: "arrow.triangle.2.circlepath")
+                        Label("Refresh Downloads", systemImage: EnsembleDesign.Icon.refreshCycle)
                     }
                 }
                 .disabled(isRefreshingDownloadQuality)
@@ -373,14 +373,14 @@ public struct DownloadsView: View {
                 Button {
                     Task { await viewModel.pauseQueue() }
                 } label: {
-                    Label("Pause Downloads", systemImage: "pause.fill")
+                    Label("Pause Downloads", systemImage: EnsembleDesign.Icon.pause)
                 }
             } else if hasActiveDownloads {
                 // Resume mode — downloads are paused with tracks remaining
                 Button {
                     Task { await viewModel.resumeQueue() }
                 } label: {
-                    Label("Resume Downloads", systemImage: "play.fill")
+                    Label("Resume Downloads", systemImage: EnsembleDesign.Icon.play)
                 }
             }
         }
@@ -443,7 +443,7 @@ private struct DownloadedItemRow: View {
 
                 // Refresh indicator when target has quality-mismatched or failed tracks
                 if item.needsRefresh {
-                    Image(systemName: "arrow.triangle.2.circlepath")
+                    Image(systemName: EnsembleDesign.Icon.refreshCycle)
                         .font(EnsembleDesign.Typography.rowSecondary)
                         .foregroundColor(EnsembleDesign.Color.warning)
                 }

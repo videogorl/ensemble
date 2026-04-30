@@ -100,7 +100,7 @@ public struct MusicSourceAccountDetailView: View {
                         }
                     } label: {
                         HStack {
-                            Image(systemName: "arrow.triangle.2.circlepath")
+                            Image(systemName: EnsembleDesign.Icon.refreshCycle)
                                 .foregroundColor(EnsembleDesign.Color.accent)
                             Text("Sync Enabled Libraries")
                             Spacer()
@@ -117,7 +117,7 @@ public struct MusicSourceAccountDetailView: View {
                         }
                     } label: {
                         HStack {
-                            Image(systemName: "arrow.clockwise")
+                            Image(systemName: EnsembleDesign.Icon.retry)
                                 .foregroundColor(EnsembleDesign.Color.accent)
                             Text("Refresh Available Libraries")
                             Spacer()
@@ -147,9 +147,9 @@ public struct MusicSourceAccountDetailView: View {
                 // Feature legend (plain text, no cell styling)
                 Section {
                     VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
-                        featureLegendRow(icon: "ticket.fill", text: "Plex Pass: Higher quality transcoding and lyrics")
-                        featureLegendRow(icon: "quote.bubble.fill", text: "Lyrics: Time-synced lyrics via LyricFind")
-                        featureLegendRow(icon: "infinity", text: "Radio: Sonically similar radio stations")
+                        featureLegendRow(icon: EnsembleDesign.Icon.ticket, text: "Plex Pass: Higher quality transcoding and lyrics")
+                        featureLegendRow(icon: EnsembleDesign.Icon.lyrics, text: "Lyrics: Time-synced lyrics via LyricFind")
+                        featureLegendRow(icon: EnsembleDesign.Icon.infinity, text: "Radio: Sonically similar radio stations")
                     }
                     .padding(.vertical, EnsembleScaffold.UtilityRow.negativeListPadding)
                     .listRowBackground(Color.clear)
@@ -203,7 +203,7 @@ public struct MusicSourceAccountDetailView: View {
     private func featureLegendRow(icon: String, text: String) -> some View {
         HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
             Image(systemName: icon)
-                .font(.caption2)
+                .font(EnsembleDesign.Typography.statusBadgeIcon)
                 .foregroundColor(EnsembleDesign.Color.accent)
                 .frame(width: EnsembleScaffold.UtilityRow.inlineIconWidth)
             Text(text)
@@ -221,7 +221,7 @@ private struct LibrarySyncStatusRow: View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
             Button(action: onToggle) {
                 HStack(spacing: EnsembleScaffold.UtilityRow.controlSpacing) {
-                    Image(systemName: row.isEnabled ? "checkmark.circle.fill" : "circle")
+                    Image(systemName: row.isEnabled ? EnsembleDesign.Icon.checkmark : EnsembleDesign.Icon.selectionCircle)
                         .font(EnsembleDesign.Typography.rowPrimary)
                         .foregroundColor(row.isEnabled ? EnsembleDesign.Color.accent : EnsembleDesign.Color.secondaryText)
 
@@ -231,8 +231,8 @@ private struct LibrarySyncStatusRow: View {
                     Spacer()
 
                     if row.allowSync == true {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .font(.caption2)
+                        Image(systemName: EnsembleDesign.Icon.downloaded)
+                            .font(EnsembleDesign.Typography.statusBadgeIcon)
                             .foregroundColor(EnsembleDesign.Color.accent)
                     }
                 }
@@ -245,7 +245,7 @@ private struct LibrarySyncStatusRow: View {
                     .padding(.leading, EnsembleScaffold.UtilityRow.nestedLeadingPadding)
             } else {
                 HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
-                    Image(systemName: "minus.circle")
+                    Image(systemName: EnsembleDesign.Icon.removeCircle)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                     Text("Not synced")
                         .font(EnsembleDesign.Typography.rowSecondary)
@@ -289,13 +289,13 @@ private struct EnabledLibraryStatusView: View {
     private var syncIcon: String {
         switch status.syncStatus {
         case .idle:
-            return "checkmark.circle"
+            return EnsembleDesign.Icon.checkmarkOutline
         case .syncing:
-            return "arrow.triangle.2.circlepath"
+            return EnsembleDesign.Icon.refreshCycle
         case .error:
-            return "exclamationmark.triangle.fill"
+            return EnsembleDesign.Icon.error
         case .lastSynced:
-            return "clock"
+            return EnsembleDesign.Icon.clock
         }
     }
 
@@ -344,15 +344,15 @@ private struct EnabledLibraryStatusView: View {
     private var connectionIcon: String {
         switch status.connectionState {
         case .connected:
-            return "checkmark.circle.fill"
+            return EnsembleDesign.Icon.checkmark
         case .connecting:
-            return "arrow.triangle.2.circlepath"
+            return EnsembleDesign.Icon.refreshCycle
         case .degraded:
-            return "exclamationmark.triangle.fill"
+            return EnsembleDesign.Icon.error
         case .offline:
-            return "xmark.circle.fill"
+            return EnsembleDesign.Icon.closeCircle
         case .unknown:
-            return "questionmark.circle"
+            return EnsembleDesign.Icon.unknown
         }
     }
 
@@ -388,18 +388,18 @@ private struct ServerFeatureBadges: View {
     var body: some View {
         HStack(spacing: EnsembleScaffold.UtilityRow.detailTextSpacing) {
             if section.hasPlexPass {
-                Image(systemName: "ticket.fill")
-                    .font(.caption2)
+                Image(systemName: EnsembleDesign.Icon.ticket)
+                    .font(EnsembleDesign.Typography.statusBadgeIcon)
                     .foregroundColor(EnsembleDesign.Color.accent)
             }
             if section.capabilities?.hasLyrics == true {
-                Image(systemName: "quote.bubble.fill")
-                    .font(.caption2)
+                Image(systemName: EnsembleDesign.Icon.lyrics)
+                    .font(EnsembleDesign.Typography.statusBadgeIcon)
                     .foregroundColor(EnsembleDesign.Color.accent)
             }
             if section.capabilities?.hasRadio == true {
-                Image(systemName: "infinity")
-                    .font(.caption2)
+                Image(systemName: EnsembleDesign.Icon.infinity)
+                    .font(EnsembleDesign.Typography.statusBadgeIcon)
                     .foregroundColor(EnsembleDesign.Color.accent)
             }
         }

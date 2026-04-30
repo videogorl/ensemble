@@ -20,18 +20,18 @@ struct MusicSourceAccountRow: View {
 
     var body: some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-            Image(systemName: "music.note.list")
-                .font(.title2)
-                .foregroundColor(.accentColor)
+            Image(systemName: EnsembleDesign.Icon.playlist)
+                .font(EnsembleDesign.Typography.utilityIcon)
+                .foregroundColor(EnsembleDesign.Color.accent)
                 .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
 
             VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.detailTextSpacing) {
                 Text(sourceName)
-                    .font(.body)
+                    .font(EnsembleDesign.Typography.rowPrimary)
 
                 Text(accountIdentifier)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
     }
@@ -54,7 +54,7 @@ struct AudioQualitySettingsView: View {
                 }
             } header: {
                 Text("Streaming")
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(EnsembleDesign.Color.accent)
                     .textCase(nil)
             } footer: {
                 Text("Lower quality uses less data when streaming over cellular.")
@@ -69,7 +69,7 @@ struct AudioQualitySettingsView: View {
                 }
             } header: {
                 Text("Downloads")
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(EnsembleDesign.Color.accent)
                     .textCase(nil)
             } footer: {
                 Text("Higher quality downloads use more storage space.")
@@ -97,8 +97,8 @@ struct ConnectionPolicySettingsView: View {
                         VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                             Text(policy.title)
                             Text(policy.subtitle)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                                .font(EnsembleDesign.Typography.rowSecondary)
+                                .foregroundColor(EnsembleDesign.Color.secondaryText)
                         }
                         .tag(policy)
                     }
@@ -139,7 +139,7 @@ struct StorageSettingsView: View {
                     Text("Downloaded Music")
                     Spacer()
                     Text(totalSize)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }
 

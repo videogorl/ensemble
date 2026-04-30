@@ -95,7 +95,7 @@ public struct ProfileHeaderView: View {
     }
 
     private var placeholderImage: some View {
-        Image(systemName: "person.circle.fill")
+        Image(systemName: EnsembleDesign.Icon.signIn)
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(

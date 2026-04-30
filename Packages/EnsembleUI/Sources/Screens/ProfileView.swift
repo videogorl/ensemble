@@ -49,7 +49,7 @@ public struct ProfileView: View {
                     Label {
                         Text("iCloud Sync")
                     } icon: {
-                        Image(systemName: "icloud")
+                        Image(systemName: EnsembleDesign.Icon.cloud)
                     }
                 }
             }
@@ -162,7 +162,7 @@ public struct ProfileView: View {
                 AddPlexAccountView(embedded: true)
             } label: {
                 HStack {
-                    Image(systemName: "plus.circle.fill")
+                    Image(systemName: EnsembleDesign.Icon.addCircle)
                         .foregroundColor(settingsManager.accentColor.color)
                         .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Add Plex Account")
@@ -188,11 +188,22 @@ public struct ProfileView: View {
                     ForEach(AppAccentColor.allCases) { colorOption in
                         Circle()
                             .fill(colorOption.color)
-                            .frame(width: 30, height: 30)
+                            .frame(
+                                width: EnsembleScaffold.ProfileHeader.accentSwatchDimension,
+                                height: EnsembleScaffold.ProfileHeader.accentSwatchDimension
+                            )
                             .overlay(
                                 Circle()
-                                    .stroke(EnsembleDesign.Color.primaryText, lineWidth: settingsManager.accentColor == colorOption ? 2 : 0)
-                                    .frame(width: 36, height: 36)
+                                    .stroke(
+                                        EnsembleDesign.Color.primaryText,
+                                        lineWidth: settingsManager.accentColor == colorOption
+                                            ? EnsembleScaffold.ProfileHeader.accentSwatchSelectionLineWidth
+                                            : 0
+                                    )
+                                    .frame(
+                                        width: EnsembleScaffold.ProfileHeader.accentSwatchSelectionDimension,
+                                        height: EnsembleScaffold.ProfileHeader.accentSwatchSelectionDimension
+                                    )
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
@@ -206,7 +217,7 @@ public struct ProfileView: View {
 
             Toggle(isOn: $settingsManager.auroraVisualizationEnabled) {
                 HStack {
-                    Image(systemName: "sparkles")
+                    Image(systemName: EnsembleDesign.Icon.aurora)
                         .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                         Text("Aurora Visualization")
@@ -229,7 +240,7 @@ public struct ProfileView: View {
         Section(header: Text("Playback").foregroundColor(EnsembleDesign.Color.accent).textCase(nil)) {
             Toggle(isOn: $isAutoplayEnabled) {
                 HStack {
-                    Image(systemName: "infinity.circle.fill")
+                    Image(systemName: EnsembleDesign.Icon.autoplay)
                         .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                         Text("Autoplay")
@@ -245,7 +256,7 @@ public struct ProfileView: View {
 
             Toggle(isOn: $settingsManager.scrobblingEnabled) {
                 HStack {
-                    Image(systemName: "checkmark.circle")
+                    Image(systemName: EnsembleDesign.Icon.scrobble)
                         .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                         Text("Scrobbling")
@@ -260,7 +271,7 @@ public struct ProfileView: View {
                 AudioQualitySettingsView()
             } label: {
                 HStack {
-                    Image(systemName: "waveform")
+                    Image(systemName: EnsembleDesign.Icon.waveform)
                         .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Audio Quality")
                 }
@@ -270,7 +281,7 @@ public struct ProfileView: View {
                 ConnectionPolicySettingsView()
             } label: {
                 HStack {
-                    Image(systemName: "lock.shield")
+                    Image(systemName: EnsembleDesign.Icon.secureConnection)
                         .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Connection Security")
                 }
@@ -280,7 +291,7 @@ public struct ProfileView: View {
                 TrackSwipeActionsSettingsView()
             } label: {
                 HStack {
-                    Image(systemName: "slider.horizontal.3")
+                    Image(systemName: EnsembleDesign.Icon.editPlaylist)
                         .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Track Swipe Actions")
                 }
@@ -296,7 +307,7 @@ public struct ProfileView: View {
                 showingClearDataAlert = true
             } label: {
                 HStack {
-                    Image(systemName: "trash")
+                    Image(systemName: EnsembleDesign.Icon.delete)
                         .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Clear All Library Data")
                         .foregroundColor(EnsembleDesign.Color.destructive)
@@ -315,7 +326,7 @@ public struct ProfileView: View {
                 }
             } label: {
                 HStack {
-                    Image(systemName: "person.2.slash")
+                    Image(systemName: EnsembleDesign.Icon.removeAccounts)
                         .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Remove All Accounts")
                         .foregroundColor(EnsembleDesign.Color.destructive)
@@ -332,7 +343,7 @@ public struct ProfileView: View {
                 LogsSettingsView()
             } label: {
                 HStack {
-                    Image(systemName: "doc.text.magnifyingglass")
+                    Image(systemName: EnsembleDesign.Icon.logs)
                         .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Logs")
                 }
@@ -341,7 +352,7 @@ public struct ProfileView: View {
             #if DEBUG
             Toggle(isOn: $debugSimulateOffline) {
                 HStack {
-                    Image(systemName: "wifi.slash")
+                    Image(systemName: EnsembleDesign.Icon.offline)
                         .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                         Text("Simulate No Connection")
@@ -359,14 +370,14 @@ public struct ProfileView: View {
                 DependencyContainer.shared.toastCenter.show(
                     ToastPayload(
                         style: .info,
-                        iconSystemName: "bell.fill",
+                        iconSystemName: EnsembleDesign.Icon.notification,
                         title: "Test Toast",
                         message: "This is a test notification"
                     )
                 )
             } label: {
                 HStack {
-                    Image(systemName: "bell.badge")
+                    Image(systemName: EnsembleDesign.Icon.notificationBadge)
                         .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Send Test Toast")
                 }
@@ -380,7 +391,7 @@ public struct ProfileView: View {
     private var aboutSection: some View {
         Section(header: Text("About").foregroundColor(EnsembleDesign.Color.accent).textCase(nil)) {
             HStack {
-                Image(systemName: "info.circle")
+                Image(systemName: EnsembleDesign.Icon.info)
                     .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                 Text("Version")
                 Spacer()
@@ -390,11 +401,11 @@ public struct ProfileView: View {
 
             Link(destination: Self.supportURL) {
                 HStack {
-                    Image(systemName: "questionmark.circle")
+                    Image(systemName: EnsembleDesign.Icon.help)
                         .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                     Text("Help & Support")
                     Spacer()
-                    Image(systemName: "arrow.up.right.square")
+                    Image(systemName: EnsembleDesign.Icon.externalLinkSquare)
                         .font(EnsembleDesign.Typography.rowSecondary)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }

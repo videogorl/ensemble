@@ -64,6 +64,9 @@ public enum EnsembleScaffold {
         public static let nameSpacing = EnsembleDesign.Spacing.xs
         public static let placeholderOpacity = 0.5
         public static let imageLoadingOpacity = 0.2
+        public static let accentSwatchDimension: CGFloat = 30
+        public static let accentSwatchSelectionDimension: CGFloat = 36
+        public static let accentSwatchSelectionLineWidth: CGFloat = 2
     }
 
     public enum ProfileToolbar {
@@ -163,6 +166,7 @@ public enum EnsembleScaffold {
     public enum UtilityRow {
         public static let iconLaneWidth = EnsembleScaffold.AccountSetup.rowIconWidth
         public static let inlineIconWidth: CGFloat = 14
+        public static let chevronLaneWidth: CGFloat = 12
         public static let statusIconWidth: CGFloat = 24
         public static let compactArtworkDimension: CGFloat = 40
         public static let downloadArtworkDimension: CGFloat = 44

@@ -135,8 +135,7 @@ public struct AddPlexAccountView: View {
                     .foregroundColor(EnsembleDesign.Color.accent)
 
                 Text("Add Plex Account")
-                    .font(.title2)
-                    .fontWeight(.semibold)
+                    .font(EnsembleDesign.Typography.stateTitle)
             }
 
             // Auth content
@@ -145,8 +144,8 @@ public struct AddPlexAccountView: View {
             // Error message
             if let error = viewModel.error {
                 Text(error)
-                    .font(.caption)
-                    .foregroundColor(.red)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.destructive)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
             }
@@ -185,7 +184,7 @@ public struct AddPlexAccountView: View {
                 }
             } label: {
                 HStack {
-                    Image(systemName: "person.circle.fill")
+                    Image(systemName: EnsembleDesign.Icon.signIn)
                     Text("Sign in with Plex")
                 }
             }
@@ -202,14 +201,14 @@ public struct AddPlexAccountView: View {
     private func pinView(code: String, linkURL: URL) -> some View {
         VStack(spacing: EnsembleScaffold.AccountSetup.contentSpacing) {
             Text("Enter this code at plex.tv/link")
-                .font(.headline)
+                .font(EnsembleDesign.Typography.actionLabel)
 
             Button {
                 copyToClipboard(code)
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .success,
-                        iconSystemName: "checkmark.circle.fill",
+                        iconSystemName: EnsembleDesign.Icon.checkmark,
                         title: "Code copied",
                         message: "Paste it at plex.tv/link",
                         dedupeKey: "add-account-pin-copied"
@@ -228,11 +227,11 @@ public struct AddPlexAccountView: View {
                         .fixedSize(horizontal: true, vertical: false)
 
                     HStack(spacing: EnsembleScaffold.AccountSetup.inlineIconSpacing) {
-                        Image(systemName: "doc.on.doc")
+                        Image(systemName: EnsembleDesign.Icon.copy)
                         Text("Tap to copy")
                     }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
                 .padding()
                 .background(EnsembleScaffold.AccountSetup.cardBackground)
@@ -248,36 +247,36 @@ public struct AddPlexAccountView: View {
             } label: {
                 HStack {
                     Text("Open plex.tv/link")
-                    Image(systemName: "arrow.up.right.square")
+                    Image(systemName: EnsembleDesign.Icon.externalLinkSquare)
                 }
-                .font(.headline)
+                .font(EnsembleDesign.Typography.actionLabel)
                 .lineLimit(1)
             }
 
             Text("Waiting for authorization...")
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
 
             ProgressView()
 
             Button("Cancel") {
                 viewModel.cancelAuth()
             }
-            .font(.subheadline)
-            .foregroundColor(.secondary)
+            .font(EnsembleDesign.Typography.stateMessage)
+            .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
     }
 
     private var serverLibrarySelectionView: some View {
         VStack(spacing: EnsembleScaffold.AccountSetup.sectionSpacing) {
             Text("Select Servers and Libraries")
-                .font(.headline)
+                .font(EnsembleDesign.Typography.actionLabel)
 
             if viewModel.isLoading {
                 ProgressView()
             } else if viewModel.servers.isEmpty {
                 Text("No servers found")
-                    .foregroundColor(.secondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
 
                 Button("Refresh") {
                     Task {
@@ -289,31 +288,31 @@ public struct AddPlexAccountView: View {
                     ForEach(viewModel.servers) { server in
                         VStack(alignment: .leading, spacing: EnsembleScaffold.AccountSetup.cardSpacing) {
                             HStack(spacing: EnsembleScaffold.AccountSetup.cardSpacing) {
-                                Image(systemName: "server.rack")
-                                    .font(.subheadline)
-                                    .foregroundColor(.accentColor)
+                                Image(systemName: EnsembleDesign.Icon.server)
+                                    .font(EnsembleDesign.Typography.stateMessage)
+                                    .foregroundColor(EnsembleDesign.Color.accent)
 
                                 Text(server.name)
-                                    .font(.headline)
+                                    .font(EnsembleDesign.Typography.actionLabel)
 
                                 if let platform = server.platform {
                                     Text("(\(platform))")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
+                                        .font(EnsembleDesign.Typography.rowSecondary)
+                                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                                 }
                             }
 
                             if let serverError = viewModel.serverLibraryErrors[server.id] {
                                 Text(serverError)
-                                    .font(.caption)
-                                    .foregroundColor(.red)
-                                    .padding(.bottom, 4)
+                                    .font(EnsembleDesign.Typography.rowSecondary)
+                                    .foregroundColor(EnsembleDesign.Color.destructive)
+                                    .padding(.bottom, EnsembleDesign.Spacing.xs)
                             } else {
                                 let serverLibraries = viewModel.libraries(for: server.id)
                                 if serverLibraries.isEmpty {
                                     Text("No music libraries found")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
+                                        .font(EnsembleDesign.Typography.rowSecondary)
+                                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 } else {
                                     ServerLibrariesSelection(
@@ -367,13 +366,13 @@ struct LibrarySelectionRow: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                Image(systemName: isSelected ? EnsembleDesign.Icon.checkmark : "circle")
-                    .font(.title2)
-                    .foregroundColor(isSelected ? EnsembleDesign.Color.accent : .gray)
+                Image(systemName: isSelected ? EnsembleDesign.Icon.checkmark : EnsembleDesign.Icon.selectionCircle)
+                    .font(EnsembleDesign.Typography.utilityIcon)
+                    .foregroundColor(isSelected ? EnsembleDesign.Color.accent : EnsembleDesign.Color.secondaryText)
                     .frame(width: EnsembleScaffold.AccountSetup.rowIconWidth)
 
                 Text(library.title)
-                    .font(.headline)
+                    .font(EnsembleDesign.Typography.actionLabel)
 
                 Spacer()
             }
@@ -395,19 +394,19 @@ struct ServerRow: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                Image(systemName: "server.rack")
-                    .font(.title2)
+                Image(systemName: EnsembleDesign.Icon.server)
+                    .font(EnsembleDesign.Typography.utilityIcon)
                     .foregroundColor(EnsembleDesign.Color.accent)
                     .frame(width: EnsembleScaffold.AccountSetup.rowIconWidth)
                 
                 VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
                     Text(server.name)
-                        .font(.headline)
-                    
+                        .font(EnsembleDesign.Typography.actionLabel)
+
                     if let platform = server.platform {
                         Text(platform)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 }
                 
