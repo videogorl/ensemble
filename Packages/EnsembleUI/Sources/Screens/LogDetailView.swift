@@ -129,12 +129,12 @@ public struct LogDetailView: View {
             Button {
                 Task { await refreshLogContent() }
             } label: {
-                Image(systemName: "arrow.clockwise")
+                Image(systemName: EnsembleDesign.Icon.retry)
             }
             Button {
                 shareLogFile()
             } label: {
-                Image(systemName: "square.and.arrow.up")
+                Image(systemName: EnsembleDesign.Icon.shareAudioFile)
             }
         }
     }

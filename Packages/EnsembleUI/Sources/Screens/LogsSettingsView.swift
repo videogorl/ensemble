@@ -16,9 +16,9 @@ public struct LogsSettingsView: View {
             Section {
                 Toggle(isOn: $isLoggingEnabled) {
                     HStack {
-                        Image(systemName: "text.badge.checkmark")
-                            .frame(width: 44)
-                        VStack(alignment: .leading, spacing: 2) {
+                        Image(systemName: EnsembleDesign.Icon.logsVerified)
+                            .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
+                        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxs) {
                             Text("Persistent Logging")
                             Text("When enabled, app logs are saved each session. Useful for diagnosing issues.")
                                 .font(.caption)
@@ -65,8 +65,8 @@ public struct LogsSettingsView: View {
                         logService.deleteAllSessions()
                     } label: {
                         HStack {
-                            Image(systemName: "trash")
-                                .frame(width: 44)
+                            Image(systemName: EnsembleDesign.Icon.delete)
+                                .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                             Text("Delete All Sessions")
                                 .foregroundColor(.red)
                         }
@@ -96,14 +96,14 @@ private struct LogSessionRow: View {
     let session: LogSession
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
             Text(formattedDate)
                 .font(.body)
             Text(formattedSize)
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, EnsembleDesign.Spacing.xxs)
     }
 
     private var formattedDate: String {

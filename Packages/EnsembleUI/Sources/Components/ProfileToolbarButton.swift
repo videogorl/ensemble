@@ -37,7 +37,7 @@ public struct ProfileToolbarButton: View {
                 )
                 .clipShape(Circle())
         } else {
-            Image(systemName: "person.circle")
+            Image(systemName: EnsembleDesign.Icon.profilePlaceholder)
                 .font(EnsembleDesign.Typography.detailSubtitle)
         }
     }
@@ -107,7 +107,7 @@ private struct LocalToolbarProfileImage: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
-                Image(systemName: "person.circle")
+                Image(systemName: EnsembleDesign.Icon.profilePlaceholder)
                     .font(EnsembleDesign.Typography.detailSubtitle)
             }
         }

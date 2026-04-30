@@ -244,7 +244,7 @@ public struct MergedPlaylistDetailView: View {
                                     .foregroundColor(.secondary)
                             }
                             Spacer()
-                            Image(systemName: "chevron.right")
+                            Image(systemName: EnsembleDesign.Icon.chevronRight)
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -313,9 +313,9 @@ public struct MergedPlaylistDetailLoader: View {
                 ProgressView()
             } else {
                 // Playlist no longer exists (deleted, etc.)
-                VStack(spacing: 16) {
-                    Image(systemName: "music.note.list")
-                        .font(.system(size: 40))
+                VStack(spacing: EnsembleDesign.Spacing.lg) {
+                    Image(systemName: EnsembleDesign.Icon.playlist)
+                        .font(EnsembleDesign.Typography.mediaPlaceholderIcon)
                         .foregroundColor(.secondary)
                     Text("Playlist not found")
                         .foregroundColor(.secondary)

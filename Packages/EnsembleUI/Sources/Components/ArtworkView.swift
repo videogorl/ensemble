@@ -158,7 +158,7 @@ public struct ArtworkView: View {
                 // placeholder flash when switching between albums.
                 platformImageView(previousImage)
             } else {
-                Image(systemName: "music.note")
+                Image(systemName: EnsembleDesign.Icon.musicNote)
                     .font(.system(size: iconSize))
                     .foregroundColor(.gray.opacity(0.5))
             }

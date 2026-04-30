@@ -80,7 +80,7 @@ public struct PlaylistPickerSheet: View {
                     Button {
                         Task { await createPlaylist(named: newPlaylistName) }
                     } label: {
-                        Label("Add new playlist: \"\(newPlaylistName)\"", systemImage: "plus.circle")
+                        Label("Add new playlist: \"\(newPlaylistName)\"", systemImage: EnsembleDesign.Icon.addCircleOutline)
                     }
                     .disabled(
                         isSubmitting ||

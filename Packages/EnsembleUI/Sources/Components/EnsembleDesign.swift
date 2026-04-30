@@ -132,13 +132,14 @@ public enum EnsembleDesign {
     }
 
     public enum Icon {
+        public static let add = "plus"
         public static let addCircle = "plus.circle.fill"
         public static let addCircleOutline = "plus.circle"
         public static let addToPlaylist = "text.badge.plus"
         public static let removeFromPlaylist = "text.badge.minus"
         public static let album = "square.stack"
-        public static let artist = "person.circle"
-        public static let artists = "person.2"
+        public static let artist = "music.mic"
+        public static let artists = artist
         public static let back = "chevron.left"
         public static let chevronDown = "chevron.down"
         public static let chevronRight = "chevron.right"
@@ -176,7 +177,9 @@ public enum EnsembleDesign {
         public static let genreFilled = "guitars.fill"
         public static let library = "music.note.house.fill"
         public static let libraryBuilding = "building.columns"
+        public static let home = "house"
         public static let logs = "doc.text.magnifyingglass"
+        public static let logsVerified = "text.badge.checkmark"
         public static let merge = "arrow.triangle.merge"
         public static let mergeBranch = "arrow.triangle.branch"
         public static let more = "ellipsis"
@@ -196,8 +199,11 @@ public enum EnsembleDesign {
         public static let playLast = "text.append"
         public static let playNext = "text.insert"
         public static let play = "play.fill"
+        public static let playCircleFilled = "play.circle.fill"
         public static let pause = "pause.fill"
+        public static let pauseCircleFilled = "pause.circle.fill"
         public static let profile = "person.crop.circle"
+        public static let profilePlaceholder = "person.circle"
         public static let playlist = "music.note.list"
         public static let previous = "backward.fill"
         public static let radio = "dot.radiowaves.left.and.right"

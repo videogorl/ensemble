@@ -177,7 +177,7 @@ public struct MainTabView: View {
                         tabRootView(for: .settings, isMoreRoot: true)
                             .tag(TabItem.settings)
                             .tabItem {
-                                Label("More", systemImage: "ellipsis")
+                                Label("More", systemImage: EnsembleDesign.Icon.more)
                             }
                     },
                     isHidden: rootChromeSuppressed
@@ -1228,22 +1228,22 @@ public struct SidebarView: View {
     private var sidebarColumn: some View {
         List(selection: $selection) {
             // Search always appears first
-            Label("Search", systemImage: "magnifyingglass")
+            Label("Search", systemImage: EnsembleDesign.Icon.search)
                 .tag(SidebarSelection.library(.search))
 
             // Library section (non-collapsible)
             Section("Library") {
-                Label("Home", systemImage: "house")
+                Label("Home", systemImage: EnsembleDesign.Icon.home)
                     .tag(SidebarSelection.library(.home))
-                Label("Songs", systemImage: "music.note")
+                Label("Songs", systemImage: EnsembleDesign.Icon.musicNote)
                     .tag(SidebarSelection.library(.songs))
-                Label("Artists", systemImage: "music.mic")
+                Label("Artists", systemImage: EnsembleDesign.Icon.artist)
                     .tag(SidebarSelection.library(.artists))
-                Label("Albums", systemImage: "square.stack")
+                Label("Albums", systemImage: EnsembleDesign.Icon.album)
                     .tag(SidebarSelection.library(.albums))
-                Label("Genres", systemImage: "guitars")
+                Label("Genres", systemImage: EnsembleDesign.Icon.genreEmpty)
                     .tag(SidebarSelection.library(.genres))
-                Label("Favorites", systemImage: "heart.fill")
+                Label("Favorites", systemImage: EnsembleDesign.Icon.favoriteFilled)
                     .tag(SidebarSelection.library(.favorites))
             }
 
@@ -1270,7 +1270,7 @@ public struct SidebarView: View {
 
             // Playlists section (collapsible)
             collapsibleSidebarSection("Playlists", isExpanded: $isPlaylistsExpanded) {
-                Label("All Playlists", systemImage: "music.note.list")
+                Label("All Playlists", systemImage: EnsembleDesign.Icon.playlist)
                     .tag(SidebarSelection.library(.playlists))
 
                 ForEach(cachedRegularPlaylists) { playlist in
@@ -1295,7 +1295,7 @@ public struct SidebarView: View {
             #endif
             ToolbarItemGroup(placement: .primaryActionIfAvailable) {
                 Button { navigationCoordinator.openDownloads() } label: {
-                    Image(systemName: "arrow.down.circle")
+                    Image(systemName: EnsembleDesign.Icon.download)
                 }
                 .help("Downloads")
                 ProfileToolbarButton()
@@ -2021,7 +2021,7 @@ public struct SidebarView: View {
                     )
                     pinManager.unpinAll(ids: Set(pinnedItems.map(\.id)))
                 } label: {
-                    Label("Unpin All", systemImage: "pin.slash")
+                    Label("Unpin All", systemImage: EnsembleDesign.Icon.unpin)
                 }
             }
         }

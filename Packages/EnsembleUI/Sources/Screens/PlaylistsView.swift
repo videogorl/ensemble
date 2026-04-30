@@ -775,7 +775,7 @@ private struct PlaylistsNewButton: View {
         Button {
             action()
         } label: {
-            Label("New Playlist", systemImage: "plus")
+            Label("New Playlist", systemImage: EnsembleDesign.Icon.add)
         }
         .disabled(syncCoordinator.isOffline)
     }

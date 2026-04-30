@@ -406,7 +406,7 @@ public struct ControlsCard: View {
             Button(action: viewModel.togglePlayPause) {
                 ZStack {
                     if showLoadingIndicator {
-                        Image(systemName: "play.circle.fill")
+                        Image(systemName: EnsembleDesign.Icon.playCircleFilled)
                             .font(.system(size: EnsembleScaffold.NowPlaying.playPauseControlIconSize))
                             .opacity(EnsembleScaffold.NowPlaying.lyricFutureOpacity)
 
@@ -418,7 +418,7 @@ public struct ControlsCard: View {
                         // the pause→play flicker when skipping tracks
                         let showPause = viewModel.isPlaying ||
                             ((viewModel.playbackState == .loading || viewModel.playbackState == .buffering) && wasPlayingBeforeTransition)
-                        Image(systemName: showPause ? "pause.circle.fill" : "play.circle.fill")
+                        Image(systemName: showPause ? EnsembleDesign.Icon.pauseCircleFilled : EnsembleDesign.Icon.playCircleFilled)
                             .font(.system(size: EnsembleScaffold.NowPlaying.playPauseControlIconSize))
                     }
                 }
