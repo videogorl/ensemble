@@ -72,7 +72,7 @@ struct CollapsingToolbarTitleModifier: ViewModifier {
                     .toolbar {
                         ToolbarItem(placement: .principal) {
                             Text(title)
-                                .font(.headline)
+                                .font(EnsembleDesign.Typography.toolbarTitle)
                                 .lineLimit(1)
                                 .opacity(showToolbarTitle ? 1 : 0)
                         }

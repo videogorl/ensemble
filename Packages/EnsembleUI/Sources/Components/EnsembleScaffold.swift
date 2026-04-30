@@ -529,6 +529,7 @@ public enum EnsembleScaffold {
         public static let actionCornerRadius = EnsembleDesign.Radius.card
         public static let actionLabelSpacing: CGFloat = 5
         public static let actionIconFont: Font = .system(size: 16, weight: .semibold)
+        public static let actionTextFont = EnsembleDesign.Typography.cardMetadata
     }
 
     public enum MiniPlayer {
@@ -739,7 +740,7 @@ public struct EnsembleBrowseSectionHeader: View {
 
     public var body: some View {
         Text(title)
-            .font(.headline)
+            .font(EnsembleDesign.Typography.browseSectionHeader)
             .foregroundColor(EnsembleDesign.Color.secondaryText)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, EnsembleScaffold.BrowseSectionHeader.horizontalPadding)

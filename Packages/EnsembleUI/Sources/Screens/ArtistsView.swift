@@ -580,8 +580,7 @@ public struct ArtistDetailView: View {
 
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
                 Text(viewModel.artist.name)
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
+                    .font(EnsembleDesign.Typography.screenTitle)
                     .background(TitleOffsetTracker(coordinateSpace: "artistDetailScroll"))
 
                 artistStatsLine
@@ -688,8 +687,7 @@ public struct ArtistDetailView: View {
                 // the text stays visually pinned instead of drifting down
                 VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.metadataSpacing) {
                     Text(viewModel.artist.name)
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
+                        .font(EnsembleDesign.Typography.screenTitle)
                         .background(TitleOffsetTracker(coordinateSpace: "artistDetailScroll"))
 
                     if !viewModel.filteredAlbums.isEmpty || !viewModel.filteredTracks.isEmpty {

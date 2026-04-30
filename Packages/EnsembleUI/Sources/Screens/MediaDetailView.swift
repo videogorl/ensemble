@@ -696,8 +696,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
         return VStack(alignment: alignment, spacing: EnsembleScaffold.DetailSurface.metadataSpacing) {
             Text(headerData.title)
-                .font(.title2)
-                .fontWeight(.bold)
+                .font(EnsembleDesign.Typography.sectionTitle)
                 .multilineTextAlignment(textAlignment)
                 .background(TitleOffsetTracker(coordinateSpace: "mediaDetailScroll"))
 

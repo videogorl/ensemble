@@ -59,8 +59,7 @@ public struct FilterSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xl) {
                     Text("Filters")
-                        .font(.title2)
-                        .fontWeight(.semibold)
+                        .font(EnsembleDesign.Typography.sectionTitle)
 
                     macOSToggleSection(
                         title: "Availability",
@@ -101,7 +100,7 @@ public struct FilterSheet: View {
                                 HStack(alignment: .top, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                                     VStack(alignment: .leading, spacing: EnsembleScaffold.FilterSheet.macFieldLabelSpacing) {
                                         Text("Min Year")
-                                            .font(.caption)
+                                            .font(EnsembleDesign.Typography.cardSubtitle)
                                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                                         TextField("Min Year", text: $minYear)
                                             .textFieldStyle(.roundedBorder)
@@ -109,7 +108,7 @@ public struct FilterSheet: View {
 
                                     VStack(alignment: .leading, spacing: EnsembleScaffold.FilterSheet.macFieldLabelSpacing) {
                                         Text("Max Year")
-                                            .font(.caption)
+                                            .font(EnsembleDesign.Typography.cardSubtitle)
                                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                                         TextField("Max Year", text: $maxYear)
                                             .textFieldStyle(.roundedBorder)
@@ -482,13 +481,13 @@ public struct FilterSheet: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Text(title)
-                .font(.headline)
+                .font(EnsembleDesign.Typography.actionLabel)
 
             content()
 
             if let footer {
                 Text(footer)
-                    .font(.caption)
+                    .font(EnsembleDesign.Typography.cardSubtitle)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
@@ -508,8 +507,7 @@ public struct FilterSheet: View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
             HStack {
                 Text(title)
-                    .font(.title3)
-                    .fontWeight(.semibold)
+                    .font(EnsembleDesign.Typography.detailSubtitle.weight(.semibold))
                 Spacer()
             }
             .padding(.horizontal, EnsembleDesign.Spacing.sheetFooterHorizontal)

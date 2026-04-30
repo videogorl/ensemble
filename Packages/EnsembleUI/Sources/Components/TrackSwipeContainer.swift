@@ -165,11 +165,11 @@ public struct TrackSwipeContainer<Content: View>: View {
                 Image(systemName: actionIcon(for: action))
                     .font(EnsembleScaffold.TrackSwipe.actionIconFont)
                 Text(actionTitle(for: action))
-                    .font(.caption2)
+                    .font(EnsembleScaffold.TrackSwipe.actionTextFont)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .foregroundColor(.white)
+            .foregroundColor(EnsembleDesign.Color.onAccent)
         }
         .frame(width: actionWidth)
         .frame(maxHeight: .infinity)
