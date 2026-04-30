@@ -379,7 +379,7 @@ public struct ControlsCard: View {
         let isMaxFine = verticalDistance >= EnsembleScaffold.NowPlaying.scrubFineDistance
         let scrubInfo = getScrubInfo()
         
-        return HStack(spacing: 4) {
+        return HStack(spacing: EnsembleScaffold.NowPlaying.scrubIndicatorSpacing) {
             Image(systemName: isMaxFine ? EnsembleDesign.Icon.scrubFine : (isMovingUp ? EnsembleDesign.Icon.scrubUp : EnsembleDesign.Icon.scrubDown))
                 .font(EnsembleDesign.Typography.statusBadgeIcon)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)

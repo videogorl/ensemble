@@ -73,6 +73,16 @@ public enum EnsembleScaffold {
         public static let preferredLineHeightMultiplier: CGFloat = 1.5
     }
 
+    public enum Waveform {
+        public static let emptyBarCount = 40
+        public static let emptyBarHeightRatio = 0.2
+        public static let barSpacing: CGFloat = 1
+        public static let barCornerRadius: CGFloat = 1
+        public static let minimumBarHeight = EnsembleDesign.Spacing.xxs
+        public static let bufferedOpacity = 0.35
+        public static let idleOpacity = 0.12
+    }
+
     public enum ProfileHeader {
         public static let contentSpacing = EnsembleDesign.Spacing.md
         public static let verticalPadding = EnsembleDesign.Spacing.xxl
@@ -404,6 +414,7 @@ public enum EnsembleScaffold {
         public static let primaryControlsSpacing: CGFloat = 50
         public static let secondaryControlsTopPadding = EnsembleDesign.Spacing.lg
         public static let secondaryControlsStackSpacing = EnsembleDesign.Spacing.sm
+        public static let scrubIndicatorSpacing = EnsembleDesign.Spacing.xs
         public static let inactiveControlOpacity = 0.7
         public static let activeControlOpacity = 0.9
         public static let unavailableControlOpacity = 0.4

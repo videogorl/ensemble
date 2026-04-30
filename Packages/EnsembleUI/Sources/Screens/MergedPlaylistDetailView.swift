@@ -35,7 +35,7 @@ public struct MergedPlaylistDetailView: View {
             groupByDisc: false,
             mediaType: .playlist,
             genreChipContent: AnyView(
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.sm) {
                     // Source server chips — shows which servers this merge pulls from
                     if !viewModel.sourceServerNames.isEmpty {
                         sourceServerChips

@@ -57,7 +57,7 @@ public struct PlaylistPickerSheet: View {
                                     cornerRadius: ArtworkCornerRadius.square(for: .tiny)
                                 )
 
-                                VStack(alignment: .leading, spacing: 4) {
+                                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                                     Text(playlist.title)
                                     Text("\(playlist.trackCount) songs")
                                         .font(EnsembleDesign.Typography.rowSecondary)

@@ -15,19 +15,19 @@ public struct WaveformView: View {
     
     public var body: some View {
         GeometryReader { geometry in
-            HStack(spacing: 1) {
-                let count = heights.isEmpty ? 40 : heights.count
+            HStack(spacing: EnsembleScaffold.Waveform.barSpacing) {
+                let count = heights.isEmpty ? EnsembleScaffold.Waveform.emptyBarCount : heights.count
                 let maxHeight = geometry.size.height
                 
                 ForEach(0..<count, id: \.self) { index in
                     let barProgress = Double(index) / Double(count)
                     let isPlayed = barProgress <= progress
                     let isBuffered = barProgress <= bufferedProgress
-                    let height = heights.isEmpty ? 0.2 : heights[index]
+                    let height = heights.isEmpty ? EnsembleScaffold.Waveform.emptyBarHeightRatio : heights[index]
                     
-                    RoundedRectangle(cornerRadius: 1)
+                    RoundedRectangle(cornerRadius: EnsembleScaffold.Waveform.barCornerRadius)
                         .fill(barColor(isPlayed: isPlayed, isBuffered: isBuffered))
-                        .frame(height: max(2, CGFloat(height) * maxHeight))
+                        .frame(height: max(EnsembleScaffold.Waveform.minimumBarHeight, CGFloat(height) * maxHeight))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -40,9 +40,9 @@ public struct WaveformView: View {
         }
 
         if isBuffered {
-            return color.opacity(0.35)
+            return color.opacity(EnsembleScaffold.Waveform.bufferedOpacity)
         }
 
-        return color.opacity(0.12)
+        return color.opacity(EnsembleScaffold.Waveform.idleOpacity)
     }
 }

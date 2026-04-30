@@ -822,7 +822,7 @@ public struct ArtistDetailView: View {
                             .font(EnsembleDesign.Typography.rowPrimary)
                             .foregroundColor(EnsembleDesign.Color.primaryText)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, index > 0 ? EnsembleDesign.Spacing.md : 0)
+                            .padding(.top, index > 0 ? EnsembleDesign.Spacing.md : EnsembleDesign.Spacing.none)
                     }
                 } else {
                     // Collapsed: show truncated text
