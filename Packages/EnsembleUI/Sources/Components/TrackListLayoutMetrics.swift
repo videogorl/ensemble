@@ -17,6 +17,7 @@ public enum TrackListLayoutMetrics {
     public static let overflowControlDimension: CGFloat = 25
     public static let queueDragHandleDimension: CGFloat = 20
     public static let queueGeneratedBadgeDimension: CGFloat = 14
+    public static let nativeSectionIconDimension: CGFloat = 14
     public static let nativePrimaryFontSize: CGFloat = 16
     public static let nativeSecondaryFontSize: CGFloat = 14
     public static let nativeCompactPrimaryFontSize: CGFloat = 15

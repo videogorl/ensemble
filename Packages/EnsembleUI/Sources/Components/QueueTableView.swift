@@ -559,7 +559,7 @@ public struct QueueTableView: UIViewRepresentable {
             
             let label = UILabel()
             label.text = sectionData.type.title
-            label.font = .systemFont(ofSize: 14, weight: .bold)
+            label.font = .systemFont(ofSize: TrackListLayoutMetrics.nativeSecondaryFontSize, weight: .bold)
             label.textColor = .secondaryLabel
             label.translatesAutoresizingMaskIntoConstraints = false
             
@@ -573,20 +573,20 @@ public struct QueueTableView: UIViewRepresentable {
                 headerView.addSubview(clockIcon)
                 
                 NSLayoutConstraint.activate([
-                    clockIcon.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 40),
+                    clockIcon.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: TrackListLayoutMetrics.detailHorizontalPadding),
                     clockIcon.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
-                    clockIcon.widthAnchor.constraint(equalToConstant: 14),
-                    clockIcon.heightAnchor.constraint(equalToConstant: 14),
+                    clockIcon.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.nativeSectionIconDimension),
+                    clockIcon.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.nativeSectionIconDimension),
                     
-                    label.leadingAnchor.constraint(equalTo: clockIcon.trailingAnchor, constant: 6),
+                    label.leadingAnchor.constraint(equalTo: clockIcon.trailingAnchor, constant: TrackListLayoutMetrics.rowTightAccessoryGap),
                     label.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
-                    label.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16)
+                    label.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -TrackListLayoutMetrics.rowHorizontalPadding)
                 ])
             } else {
                 NSLayoutConstraint.activate([
-                    label.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 40),
+                    label.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: TrackListLayoutMetrics.detailHorizontalPadding),
                     label.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
-                    label.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16)
+                    label.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -TrackListLayoutMetrics.rowHorizontalPadding)
                 ])
             }
             
