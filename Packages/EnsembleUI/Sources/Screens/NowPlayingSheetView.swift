@@ -14,12 +14,12 @@ public struct NowPlayingSheetView: View {
     private let namespace: Namespace.ID?
     private let animationID: String?
     private let dismissAction: (() -> Void)?
-    private let dismissThreshold: CGFloat = 120
+    private let dismissThreshold: CGFloat = EnsembleScaffold.NowPlaying.dismissDragThreshold
     private var auroraActiveContentMaxWidth: CGFloat? {
         #if os(iOS)
         return nil
         #else
-        return 670
+        return EnsembleScaffold.NowPlaying.auroraActiveContentMaxWidth
         #endif
     }
 
@@ -42,8 +42,8 @@ public struct NowPlayingSheetView: View {
 
                 VStack(spacing: 0) {
                     dismissPill
-                        .padding(.top, 28)
-                        .padding(.bottom, 8)
+                        .padding(.top, EnsembleScaffold.NowPlaying.dismissPillTopPadding)
+                        .padding(.bottom, EnsembleDesign.Spacing.sm)
                         .contentShape(Rectangle())
                         .onTapGesture {
                             handleDismiss()
@@ -83,10 +83,10 @@ public struct NowPlayingSheetView: View {
             .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
 
             if colorScheme == .dark {
-                Color.black.opacity(0.45)
+                Color.black.opacity(EnsembleScaffold.NowPlaying.backgroundDarkOverlayOpacity)
                     .allowsHitTesting(false)
             } else {
-                lightOverlayColor.opacity(0.7)
+                lightOverlayColor.opacity(EnsembleScaffold.NowPlaying.backgroundLightOverlayOpacity)
                     .allowsHitTesting(false)
             }
 
@@ -99,7 +99,7 @@ public struct NowPlayingSheetView: View {
                     activeContentMaxWidth: auroraActiveContentMaxWidth
                 )
                 .allowsHitTesting(false)
-                .opacity(0.7)
+                .opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity)
             }
         }
         .ignoresSafeArea()
@@ -107,22 +107,27 @@ public struct NowPlayingSheetView: View {
 
     private var dismissPill: some View {
         Capsule()
-            .fill(Color.primary.opacity(0.3))
-            .frame(width: 36, height: 5)
+            .fill(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.dismissPillOpacity))
+            .frame(
+                width: EnsembleScaffold.NowPlaying.dismissPillWidth,
+                height: EnsembleScaffold.NowPlaying.dismissPillHeight
+            )
     }
 
     private func usesWideNowPlayingLayout(for size: CGSize) -> Bool {
-        let minimumPanelWidth: CGFloat = 320
-        let minimumWideWidth = (24 * 2) + 20 + (minimumPanelWidth * 2)
-        return size.width >= minimumWideWidth && size.width > size.height * 0.82
+        let minimumWideWidth = (EnsembleScaffold.NowPlaying.viewportContentPadding * 2)
+            + EnsembleScaffold.NowPlaying.viewportInnerSpacing
+            + (EnsembleScaffold.NowPlaying.viewportMinimumPanelWidth * 2)
+        return size.width >= minimumWideWidth
+            && size.width > size.height * EnsembleScaffold.NowPlaying.viewportWideAspectMultiplier
     }
 
     @ViewBuilder
     private func wideLayout(for geometry: GeometryProxy) -> some View {
-        VStack(spacing: 20) {
+        VStack(spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
             wideHeader
 
-            HStack(alignment: .top, spacing: 20) {
+            HStack(alignment: .top, spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
                 ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
                     .frame(width: panelWidth(for: geometry))
                     .frame(maxHeight: .infinity, alignment: .topLeading)
@@ -132,23 +137,22 @@ public struct NowPlayingSheetView: View {
                     .frame(maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.top, max(geometry.safeAreaInsets.top, 8))
-        .padding(.bottom, 24)
+        .padding(.horizontal, EnsembleScaffold.NowPlaying.viewportContentPadding)
+        .padding(.top, max(geometry.safeAreaInsets.top, EnsembleDesign.Spacing.sm))
+        .padding(.bottom, EnsembleScaffold.NowPlaying.viewportContentPadding)
     }
 
     private var wideHeader: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .center, spacing: EnsembleScaffold.NowPlaying.sectionTopPadding) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
                 Text(viewModel.currentTrack?.title ?? "Now Playing")
-                    .font(.title3)
-                    .fontWeight(.semibold)
+                    .font(EnsembleDesign.Typography.detailSubtitle.weight(.semibold))
                     .lineLimit(1)
 
                 if let artist = viewModel.currentTrack?.artistName, !artist.isEmpty {
                     Text(artist)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.stateMessage)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
                 }
             }
@@ -161,9 +165,9 @@ public struct NowPlayingSheetView: View {
                 Text("Info").tag(3)
             }
             .pickerStyle(.segmented)
-            .frame(width: 300)
+            .frame(width: EnsembleScaffold.NowPlaying.viewportPickerWidth)
         }
-        .frame(maxWidth: 1120)
+        .frame(maxWidth: EnsembleScaffold.NowPlaying.viewportHeaderMaxWidth)
     }
 
     private var widePanelSelection: Binding<Int> {
@@ -195,8 +199,11 @@ public struct NowPlayingSheetView: View {
     }
 
     private func panelWidth(for geometry: GeometryProxy) -> CGFloat {
-        let available = min(geometry.size.width - 48, 1120)
-        return max((available - 20) / 2, 0)
+        let available = min(
+            geometry.size.width - (EnsembleScaffold.NowPlaying.viewportContentPadding * 2),
+            EnsembleScaffold.NowPlaying.viewportHeaderMaxWidth
+        )
+        return max((available - EnsembleScaffold.NowPlaying.viewportInnerSpacing) / 2, 0)
     }
 
     private var dismissDragGesture: some Gesture {

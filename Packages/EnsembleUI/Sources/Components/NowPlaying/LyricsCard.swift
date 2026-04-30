@@ -42,8 +42,8 @@ public struct LyricsCard: View {
         VStack(spacing: 0) {
             // Pinned header
             headerView
-                .padding(.top, 16)
-                .padding(.bottom, 12)
+                .padding(.top, EnsembleScaffold.NowPlaying.headerTopPadding)
+                .padding(.bottom, EnsembleScaffold.NowPlaying.headerBottomPadding)
 
             // Scrollable content area with fade masks
             contentView
@@ -52,12 +52,12 @@ public struct LyricsCard: View {
 
             if showsTransportControls {
                 // Secondary transport controls + page indicator spacing
-                VStack(spacing: 8) {
+                VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                     transportControlsView
-                        .padding(.top, 16)
-                    Spacer().frame(height: 36) // Reserve space for fixed page indicator
+                        .padding(.top, EnsembleScaffold.NowPlaying.secondaryControlsTopPadding)
+                    Spacer().frame(height: EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight)
                 }
-                .padding(.bottom, 20)
+                .padding(.bottom, EnsembleScaffold.NowPlaying.cardBottomPadding)
             }
         }
         .onReceive(viewModel.currentLyricsLineIndexPublisher) { index in
@@ -76,9 +76,8 @@ public struct LyricsCard: View {
     private var headerView: some View {
         HStack {
             Text("Lyrics")
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(.primary)
+                .font(EnsembleDesign.Typography.sectionTitle)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
 
             Spacer()
 
@@ -88,12 +87,12 @@ public struct LyricsCard: View {
                     viewModel.toggleInstrumentalMode()
                 } label: {
                     Image(systemName: viewModel.isInstrumentalModeActive
-                        ? "mic.slash.circle"
-                        : "mic.circle")
-                        .font(.title3)
+                        ? EnsembleDesign.Icon.instrumentalOn
+                        : EnsembleDesign.Icon.instrumentalOff)
+                        .font(EnsembleDesign.Typography.detailSubtitle)
                         .foregroundColor(viewModel.isInstrumentalModeActive
-                            ? .accentColor
-                            : .primary.opacity(0.7))
+                            ? EnsembleDesign.Color.accent
+                            : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
                 }
                 .accessibilityLabel(viewModel.isInstrumentalModeActive
                     ? "Disable instrumental mode"
@@ -101,7 +100,7 @@ public struct LyricsCard: View {
             }
         }
         .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
-        .frame(minHeight: 36) // Consistent height across all NPV card headers
+        .frame(minHeight: EnsembleScaffold.NowPlaying.headerMinHeight)
     }
 
     // MARK: - Content
@@ -151,19 +150,19 @@ public struct LyricsCard: View {
     // MARK: - Not Available State
 
     private var notAvailableView: some View {
-        VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing + 4) {
-            Image(systemName: "text.quote")
-                .font(.system(size: 48))
-                .foregroundColor(.primary.opacity(0.3))
+        VStack(spacing: EnsembleScaffold.NowPlaying.emptyTextSpacing) {
+            Image(systemName: EnsembleDesign.Icon.lyricsUnavailable)
+                .font(.system(size: EnsembleScaffold.NowPlaying.emptyIconSize))
+                .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.lyricFutureOpacity))
 
             Text("No Lyrics Available")
-                .font(.headline)
-                .foregroundColor(.primary.opacity(0.6))
+                .font(EnsembleDesign.Typography.actionLabel)
+                .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.lyricIndicatorFilledOpacity))
 
             Button {
                 viewModel.retryLyrics()
             } label: {
-                Label("Retry", systemImage: "arrow.clockwise")
+                Label("Retry", systemImage: EnsembleDesign.Icon.retry)
             }
             .buttonStyle(.bordered)
         }
@@ -174,10 +173,13 @@ public struct LyricsCard: View {
     private func lyricsScrollView(lyrics: ParsedLyrics) -> some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
-                LazyVStack(spacing: lyrics.isTimed ? 24 : 12) {
+                LazyVStack(spacing: lyrics.isTimed
+                    ? EnsembleScaffold.NowPlaying.lyricTimedLineSpacing
+                    : EnsembleScaffold.NowPlaying.lyricPlainLineSpacing
+                ) {
                     // Top spacer so first line can scroll to center
                     Spacer()
-                        .frame(height: 120)
+                        .frame(height: EnsembleScaffold.NowPlaying.lyricTopSpacerHeight)
 
                     // Intro dot — always present for timed lyrics, tap to seek to beginning.
                     // Time-synced when there's a real intro gap, otherwise just past/future.
@@ -185,7 +187,7 @@ public struct LyricsCard: View {
                         let introBlur = lineBlurRadius(index: 0, isTimed: true)
                         instrumentalIndicator(progress: introProgress)
                             .blur(radius: introBlur)
-                            .animation(.easeInOut(duration: 0.3), value: introBlur)
+                            .animation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration), value: introBlur)
                             .id("intro-instrumental")
                             .onTapGesture {
                                 viewModel.seek(to: 0)
@@ -224,7 +226,7 @@ public struct LyricsCard: View {
                             let gapBlur = lineBlurRadius(index: index, isTimed: true)
                             instrumentalIndicator(progress: progress)
                                 .blur(radius: gapBlur)
-                                .animation(.easeInOut(duration: 0.3), value: gapBlur)
+                                .animation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration), value: gapBlur)
                                 .id("gap-\(index)")
                                 .onTapGesture {
                                     let nextIndex = index + 1
@@ -244,7 +246,7 @@ public struct LyricsCard: View {
                         let outroBlur = lineBlurRadius(index: lastIndex + 1, isTimed: true)
                         instrumentalIndicator(progress: outroProgress(lastIndex: lastIndex))
                             .blur(radius: outroBlur)
-                            .animation(.easeInOut(duration: 0.3), value: outroBlur)
+                            .animation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration), value: outroBlur)
                             .id("outro-instrumental")
                             .onTapGesture {
                                 // Seek near track end (last 5 seconds)
@@ -256,7 +258,7 @@ public struct LyricsCard: View {
 
                     // Bottom spacer so last line can scroll to center
                     Spacer()
-                        .frame(height: 200)
+                        .frame(height: EnsembleScaffold.NowPlaying.lyricBottomSpacerHeight)
                 }
                 .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
             }
@@ -318,7 +320,7 @@ public struct LyricsCard: View {
                     // Snap immediately for seeks — prevents animation backlog
                     proxy.scrollTo(scrollTarget, anchor: .center)
                 } else {
-                    withAnimation(.easeInOut(duration: 0.3)) {
+                    withAnimation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration)) {
                         proxy.scrollTo(scrollTarget, anchor: .center)
                     }
                 }
@@ -366,13 +368,19 @@ public struct LyricsCard: View {
     /// Shown at all gap positions — active gaps animate, past gaps are fully filled,
     /// future gaps are dim.
     private func instrumentalIndicator(progress: Double) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: EnsembleScaffold.NowPlaying.lyricIndicatorSpacing) {
             ForEach(0..<3, id: \.self) { dotIndex in
                 let dotThreshold = Double(dotIndex + 1) / 4.0  // 0.25, 0.5, 0.75
                 Circle()
-                    .fill(Color.primary.opacity(progress >= dotThreshold ? 0.6 : 0.15))
-                    .frame(width: 8, height: 8)
-                    .animation(.easeInOut(duration: 0.25), value: progress >= dotThreshold)
+                    .fill(EnsembleDesign.Color.primaryText.opacity(progress >= dotThreshold
+                        ? EnsembleScaffold.NowPlaying.lyricIndicatorFilledOpacity
+                        : EnsembleScaffold.NowPlaying.lyricIndicatorEmptyOpacity
+                    ))
+                    .frame(
+                        width: EnsembleScaffold.NowPlaying.lyricIndicatorDotSize,
+                        height: EnsembleScaffold.NowPlaying.lyricIndicatorDotSize
+                    )
+                    .animation(.easeInOut(duration: EnsembleDesign.Animation.quickDuration), value: progress >= dotThreshold)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -382,27 +390,32 @@ public struct LyricsCard: View {
 
     /// Secondary transport controls: previous, play/pause, next
     private var transportControlsView: some View {
-        HStack(spacing: 40) {
+        HStack(spacing: EnsembleScaffold.NowPlaying.transportControlsSpacing) {
             Button(action: viewModel.previous) {
-                Image(systemName: "backward.fill")
-                    .font(.title3)
-                    .foregroundColor(.primary.opacity(0.7))
+                Image(systemName: EnsembleDesign.Icon.previous)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
+                    .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }
 
             Button(action: viewModel.togglePlayPause) {
-                Image(systemName: viewModel.playbackState == .playing ? "pause.fill" : "play.fill")
-                    .font(.title2)
-                    .foregroundColor(.primary.opacity(0.9))
+                Image(systemName: viewModel.playbackState == .playing ? EnsembleDesign.Icon.pause : EnsembleDesign.Icon.play)
+                    .font(EnsembleDesign.Typography.utilityIcon)
+                    .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.activeControlOpacity))
             }
 
             Button(action: viewModel.next) {
-                Image(systemName: "forward.fill")
-                    .font(.title3)
-                    .foregroundColor(.primary.opacity(0.7))
+                Image(systemName: EnsembleDesign.Icon.forward)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
+                    .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }
         }
         .chromelessMediaControlButton()
-        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
+        .shadow(
+            color: EnsembleScaffold.NowPlaying.Shadow.controlColor,
+            radius: EnsembleScaffold.NowPlaying.Shadow.controlRadius,
+            x: EnsembleScaffold.NowPlaying.Shadow.controlX,
+            y: EnsembleScaffold.NowPlaying.Shadow.controlY
+        )
     }
 
     // MARK: - Helpers
@@ -444,10 +457,10 @@ public struct LyricsCard: View {
 
     /// Determine opacity for a lyrics line
     private func lineOpacity(isTimed: Bool, isActive: Bool, isPast: Bool) -> Double {
-        guard isTimed else { return 0.9 } // Plain text: all lines equal
+        guard isTimed else { return EnsembleScaffold.NowPlaying.lyricPlainOpacity }
         if isActive { return 1.0 }
-        if isPast { return 0.5 }
-        return 0.3 // Future lines
+        if isPast { return EnsembleScaffold.NowPlaying.lyricPastOpacity }
+        return EnsembleScaffold.NowPlaying.lyricFutureOpacity
     }
 
     /// Progressive blur based on distance from the active line (which is centered in viewport).
@@ -463,9 +476,11 @@ public struct LyricsCard: View {
         guard let center else { return 0 }
 
         let distance = abs(index - center)
-        // Lines within 2 of center: no blur. Beyond that: progressive blur up to 5pt.
-        guard distance > 2 else { return 0 }
-        return min(CGFloat(distance - 2) * 1.5, 5.0)
+        guard distance > EnsembleScaffold.NowPlaying.lyricBlurStartDistance else { return 0 }
+        return min(
+            CGFloat(distance - EnsembleScaffold.NowPlaying.lyricBlurStartDistance) * EnsembleScaffold.NowPlaying.lyricBlurStep,
+            EnsembleScaffold.NowPlaying.lyricMaxBlur
+        )
     }
 
     /// Whether a line is in the past (before the current active line)
@@ -494,12 +509,12 @@ public struct LyricsCard: View {
             LinearGradient(
                 gradient: Gradient(stops: [
                     .init(color: .clear, location: 0),
-                    .init(color: .black, location: 0.1)
+                    .init(color: .black, location: EnsembleScaffold.NowPlaying.FadeMask.topOpaqueLocation)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 50)
+            .frame(height: EnsembleScaffold.NowPlaying.FadeMask.topHeight)
 
             // Middle: full opacity
             Rectangle().fill(Color.black)
@@ -507,13 +522,13 @@ public struct LyricsCard: View {
             // Bottom fade (gradual)
             LinearGradient(
                 gradient: Gradient(stops: [
-                    .init(color: .black, location: 0.7),
+                    .init(color: .black, location: EnsembleScaffold.NowPlaying.FadeMask.bottomOpaqueLocation),
                     .init(color: .clear, location: 1)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 80)
+            .frame(height: EnsembleScaffold.NowPlaying.FadeMask.bottomHeight)
         }
     }
 }
@@ -749,15 +764,15 @@ private struct LyricsLineView: View, Equatable {
 
     var body: some View {
         Text(text)
-            .font(.title3)
+            .font(EnsembleDesign.Typography.detailSubtitle)
             .fontWeight(.medium)
-            .foregroundColor(.primary)
+            .foregroundColor(EnsembleDesign.Color.primaryText)
             .opacity(opacity)
-            .scaleEffect(isActive && isTimed ? 1.05 : 1.0, anchor: .leading)
+            .scaleEffect(isActive && isTimed ? EnsembleScaffold.NowPlaying.lyricActiveScale : 1.0, anchor: .leading)
             .blur(radius: blur)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(.easeInOut(duration: 0.25), value: isActive)
-            .animation(.easeInOut(duration: 0.3), value: blur)
+            .animation(.easeInOut(duration: EnsembleDesign.Animation.quickDuration), value: isActive)
+            .animation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration), value: blur)
     }
 }

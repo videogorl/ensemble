@@ -31,13 +31,13 @@ public struct InfoCard: View {
         VStack(spacing: 0) {
             // Pinned header
             headerView
-                .padding(.top, 16)
-                .padding(.bottom, 12)
+                .padding(.top, EnsembleScaffold.NowPlaying.headerTopPadding)
+                .padding(.bottom, EnsembleScaffold.NowPlaying.headerBottomPadding)
 
             if isVisible {
                 // Scrollable content area with fade masks
                 contentView
-                    .padding(.bottom, 60) // Space for fixed page indicator
+                    .padding(.bottom, EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight + EnsembleDesign.Spacing.xxl)
             } else {
                 // Lightweight placeholder when off-screen
                 Color.clear
@@ -79,14 +79,13 @@ public struct InfoCard: View {
     private var headerView: some View {
         HStack {
             Text("Info")
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(.primary)
+                .font(EnsembleDesign.Typography.sectionTitle)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
 
             Spacer()
         }
         .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
-        .frame(minHeight: 36) // Consistent height across all NPV card headers
+        .frame(minHeight: EnsembleScaffold.NowPlaying.headerMinHeight)
     }
 
     // MARK: - Content
@@ -99,7 +98,7 @@ public struct InfoCard: View {
 
                 // Divider
                 Divider()
-                    .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing + 4)
+                    .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing + EnsembleDesign.Spacing.xs)
                     .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
 
                 // File info section (codec, bitrate, sample rate, etc.)
@@ -107,14 +106,14 @@ public struct InfoCard: View {
 
                 // Divider
                 Divider()
-                    .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing + 4)
+                    .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing + EnsembleDesign.Spacing.xs)
                     .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
 
                 // Server info section
                 serverInfoSection
             }
-            .padding(.top, 8)
-            .padding(.bottom, 32)
+            .padding(.top, EnsembleDesign.Spacing.sm)
+            .padding(.bottom, EnsembleDesign.Spacing.xxxl)
         }
         .mask(fadeMask)
     }
@@ -189,11 +188,11 @@ public struct InfoCard: View {
             // Section header
             HStack {
                 Text("File")
-                    .font(.headline)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.actionLabel)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                 Spacer()
             }
-            .padding(.bottom, 4)
+            .padding(.bottom, EnsembleDesign.Spacing.xs)
 
             // Playback codec and file size (what AVPlayer is actually decoding)
             playbackFileInfoRows
@@ -247,11 +246,11 @@ public struct InfoCard: View {
             // Section header
             HStack {
                 Text("Server")
-                    .font(.headline)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.actionLabel)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                 Spacer()
             }
-            .padding(.bottom, 4)
+            .padding(.bottom, EnsembleDesign.Spacing.xs)
 
             // Server name
             if let serverName = resolveServerName() {
@@ -272,16 +271,19 @@ public struct InfoCard: View {
             if let statusInfo = resolveConnectionStatus() {
                 HStack {
                     Text("Status")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.stateMessage)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                     Spacer()
-                    HStack(spacing: 6) {
+                    HStack(spacing: EnsembleDesign.Spacing.chipVertical) {
                         Circle()
                             .fill(statusInfo.color)
-                            .frame(width: 8, height: 8)
+                            .frame(
+                                width: EnsembleScaffold.NowPlaying.statusDotSize,
+                                height: EnsembleScaffold.NowPlaying.statusDotSize
+                            )
                         Text(statusInfo.text)
-                            .font(.subheadline)
-                            .foregroundColor(.primary)
+                            .font(EnsembleDesign.Typography.stateMessage)
+                            .foregroundColor(EnsembleDesign.Color.primaryText)
                     }
                 }
             }
@@ -335,31 +337,31 @@ public struct InfoCard: View {
     ) -> some View {
         HStack(alignment: .top, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             Text(label)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .frame(minWidth: 72, alignment: .leading)
+                .font(EnsembleDesign.Typography.stateMessage)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+                .frame(minWidth: EnsembleScaffold.NowPlaying.infoLabelWidth, alignment: .leading)
 
             if isTappable, let action = action {
                 Button(action: action) {
-                    HStack(alignment: .top, spacing: 4) {
+                    HStack(alignment: .top, spacing: EnsembleDesign.Spacing.xs) {
                         Text(value)
-                            .font(.subheadline)
-                            .foregroundColor(.primary)
+                            .font(EnsembleDesign.Typography.stateMessage)
+                            .foregroundColor(EnsembleDesign.Color.primaryText)
                             .multilineTextAlignment(.trailing)
                             .lineLimit(nil)
                             .fixedSize(horizontal: false, vertical: true)
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .padding(.top, 2)
+                        Image(systemName: EnsembleDesign.Icon.chevronRight)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                            .padding(.top, EnsembleScaffold.NowPlaying.rowDisclosureTopPadding)
                     }
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 .buttonStyle(.plain)
             } else {
                 Text(value)
-                    .font(.subheadline)
-                    .foregroundColor(.primary)
+                    .font(EnsembleDesign.Typography.stateMessage)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
                     .multilineTextAlignment(.trailing)
                     .lineLimit(nil)
                     .fixedSize(horizontal: false, vertical: true)
@@ -621,7 +623,7 @@ public struct InfoCard: View {
     private func resolveConnectionStatus() -> (text: String, color: Color)? {
         // Device is offline — always reflect that regardless of cached server state
         guard deps.networkMonitor.isConnected else {
-            return ("Offline", Color.red)
+            return ("Offline", EnsembleDesign.Color.destructive)
         }
 
         guard let serverKey = extractServerKey(from: viewModel.currentTrack?.sourceCompositeKey) else {
@@ -629,20 +631,20 @@ public struct InfoCard: View {
         }
 
         guard let state = deps.serverHealthChecker.serverStates[serverKey] else {
-            return ("Unknown", Color.gray)
+            return ("Unknown", EnsembleDesign.Color.neutralStatus)
         }
 
         switch state {
         case .connected:
-            return ("Connected", Color.green)
+            return ("Connected", EnsembleDesign.Color.success)
         case .connecting:
-            return ("Connecting", Color.yellow)
+            return ("Connecting", EnsembleDesign.Color.pending)
         case .degraded:
-            return ("Degraded", Color.orange)
+            return ("Degraded", EnsembleDesign.Color.warning)
         case .offline:
-            return ("Offline", Color.red)
+            return ("Offline", EnsembleDesign.Color.destructive)
         case .unknown:
-            return ("Unknown", Color.gray)
+            return ("Unknown", EnsembleDesign.Color.neutralStatus)
         }
     }
 
@@ -678,12 +680,12 @@ public struct InfoCard: View {
             LinearGradient(
                 gradient: Gradient(stops: [
                     .init(color: .clear, location: 0),
-                    .init(color: .black, location: 0.05)
+                    .init(color: .black, location: EnsembleScaffold.NowPlaying.FadeMask.infoTopOpaqueLocation)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 30)
+            .frame(height: EnsembleScaffold.NowPlaying.FadeMask.infoTopHeight)
 
             // Middle: full opacity
             Rectangle().fill(Color.black)
@@ -691,13 +693,13 @@ public struct InfoCard: View {
             // Bottom fade
             LinearGradient(
                 gradient: Gradient(stops: [
-                    .init(color: .black, location: 0.85),
+                    .init(color: .black, location: EnsembleScaffold.NowPlaying.FadeMask.infoBottomOpaqueLocation),
                     .init(color: .clear, location: 1)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 50)
+            .frame(height: EnsembleScaffold.NowPlaying.FadeMask.infoBottomHeight)
         }
     }
 }

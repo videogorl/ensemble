@@ -23,7 +23,7 @@ struct NowPlayingViewportRoot: View {
         #if os(iOS)
         return nil
         #else
-        return 670
+        return EnsembleScaffold.NowPlaying.auroraActiveContentMaxWidth
         #endif
     }
 
@@ -46,11 +46,11 @@ struct NowPlayingViewportRoot: View {
                 #endif
 
                 let mode = layoutMode(for: geometry)
-                VStack(spacing: 20) {
+                VStack(spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
                     header(for: geometry, mode: mode)
 
                     if mode == .dualPanel {
-                        HStack(alignment: .top, spacing: 20) {
+                        HStack(alignment: .top, spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
                             ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
                                 .frame(width: panelWidth(for: geometry))
                                 .frame(maxHeight: .infinity, alignment: .topLeading)
@@ -66,9 +66,9 @@ struct NowPlayingViewportRoot: View {
                     }
                 }
                 .frame(maxWidth: contentMaxWidth, maxHeight: contentMaxHeight)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, EnsembleScaffold.NowPlaying.viewportContentPadding)
                 .padding(.top, topInset(for: geometry))
-                .padding(.bottom, 24)
+                .padding(.bottom, EnsembleScaffold.NowPlaying.viewportContentPadding)
             }
         }
     }
@@ -98,10 +98,10 @@ struct NowPlayingViewportRoot: View {
             .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
 
             if colorScheme == .dark {
-                Color.black.opacity(0.45)
+                Color.black.opacity(EnsembleScaffold.NowPlaying.backgroundDarkOverlayOpacity)
                     .allowsHitTesting(false)
             } else {
-                lightOverlayColor.opacity(0.7)
+                lightOverlayColor.opacity(EnsembleScaffold.NowPlaying.backgroundLightOverlayOpacity)
                     .allowsHitTesting(false)
             }
 
@@ -114,14 +114,14 @@ struct NowPlayingViewportRoot: View {
                     activeContentMaxWidth: auroraActiveContentMaxWidth
                 )
                 .allowsHitTesting(false)
-                .opacity(0.7)
+                .opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity)
             }
         }
         .ignoresSafeArea()
     }
 
     private func header(for geometry: GeometryProxy, mode: LayoutMode) -> some View {
-        HStack(alignment: .center, spacing: 16) {
+        HStack(alignment: .center, spacing: EnsembleScaffold.NowPlaying.sectionTopPadding) {
             Spacer()
 
             Picker("Panel", selection: panelSelection(for: mode)) {
@@ -133,21 +133,24 @@ struct NowPlayingViewportRoot: View {
                 Text("Info").tag(3)
             }
             .pickerStyle(.segmented)
-            .frame(width: mode == .singlePanel ? 390 : 300)
+            .frame(width: mode == .singlePanel
+                ? EnsembleScaffold.NowPlaying.viewportSinglePickerWidth
+                : EnsembleScaffold.NowPlaying.viewportPickerWidth
+            )
 
             Button {
                 dismissAction()
             } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundColor(.secondary)
+                Image(systemName: EnsembleDesign.Icon.closeCircle)
+                    .font(.system(size: EnsembleDesign.Spacing.xl))
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.cancelAction)
         }
-        .frame(maxWidth: 1120)
+        .frame(maxWidth: EnsembleScaffold.NowPlaying.viewportHeaderMaxWidth)
         .padding(.leading, leadingSystemChromeInset(for: geometry))
-        .padding(.trailing, 8)
+        .padding(.trailing, EnsembleScaffold.NowPlaying.viewportNarrowTrailingPadding)
     }
 
     private func panelSelection(for mode: LayoutMode) -> Binding<Int> {
@@ -205,33 +208,45 @@ struct NowPlayingViewportRoot: View {
     /// Equal panel width for the two-column layout (controls + detail).
     /// Computed from geometry so both sides are always exactly the same width.
     private func panelWidth(for geometry: GeometryProxy) -> CGFloat {
-        // 48pt = horizontal padding (24 * 2), 20pt = HStack spacing
-        let available = min(geometry.size.width - 48, contentMaxWidth)
-        return max((available - 20) / 2, 0)
+        let horizontalPadding = EnsembleScaffold.NowPlaying.viewportContentPadding * 2
+        let available = min(geometry.size.width - horizontalPadding, contentMaxWidth)
+        return max((available - EnsembleScaffold.NowPlaying.viewportInnerSpacing) / 2, 0)
     }
 
     private func singlePanelWidth(for geometry: GeometryProxy) -> CGFloat {
-        min(max(geometry.size.width - 48, 0), 560)
+        min(
+            max(geometry.size.width - (EnsembleScaffold.NowPlaying.viewportContentPadding * 2), 0),
+            EnsembleScaffold.NowPlaying.viewportSinglePanelMaxWidth
+        )
     }
 
     private func layoutMode(for geometry: GeometryProxy) -> LayoutMode {
-        let widthAllowsDual = geometry.size.width >= 920
-        let heightAllowsDual = geometry.size.height >= 620
+        let widthAllowsDual = geometry.size.width >= EnsembleScaffold.NowPlaying.viewportDualPanelMinimumWidth
+        let heightAllowsDual = geometry.size.height >= EnsembleScaffold.NowPlaying.viewportDualPanelMinimumHeight
         return widthAllowsDual && heightAllowsDual ? .dualPanel : .singlePanel
     }
 
-    private var contentMaxWidth: CGFloat { 1024 }
+    private var contentMaxWidth: CGFloat { EnsembleScaffold.NowPlaying.viewportContentMaxWidth }
 
-    private var contentMaxHeight: CGFloat { 768 }
+    private var contentMaxHeight: CGFloat { EnsembleScaffold.NowPlaying.viewportContentMaxHeight }
 
     private func topInset(for geometry: GeometryProxy) -> CGFloat {
         #if os(macOS)
-        return max(geometry.safeAreaInsets.top + 16, 60)
+        return max(
+            geometry.safeAreaInsets.top + EnsembleScaffold.NowPlaying.viewportMacTopSafeAreaPadding,
+            EnsembleScaffold.NowPlaying.viewportMacMinimumTopInset
+        )
         #else
         if #available(iOS 26.0, *) {
-            return max(geometry.safeAreaInsets.top + 18, 30)
+            return max(
+                geometry.safeAreaInsets.top + EnsembleScaffold.NowPlaying.viewportModernTopSafeAreaPadding,
+                EnsembleScaffold.NowPlaying.viewportModernMinimumTopInset
+            )
         }
-        return max(geometry.safeAreaInsets.top + 12, 20)
+        return max(
+            geometry.safeAreaInsets.top + EnsembleScaffold.NowPlaying.viewportLegacyTopSafeAreaPadding,
+            EnsembleScaffold.NowPlaying.viewportLegacyMinimumTopInset
+        )
         #endif
     }
 
@@ -242,18 +257,18 @@ struct NowPlayingViewportRoot: View {
         if #available(iOS 26.0, *) {
             return max(geometry.safeAreaInsets.leading + trafficLightClearance, trafficLightClearance)
         }
-        return 8
+        return EnsembleScaffold.NowPlaying.viewportLegacyChromeInset
         #endif
     }
 
     private var trafficLightClearance: CGFloat {
         #if os(macOS)
-        return 88
+        return EnsembleScaffold.NowPlaying.viewportMacTrafficLightClearance
         #else
         if #available(iOS 26.0, *) {
-            return 92
+            return EnsembleScaffold.NowPlaying.viewportModernTrafficLightClearance
         }
-        return 8
+        return EnsembleScaffold.NowPlaying.viewportLegacyChromeInset
         #endif
     }
 }

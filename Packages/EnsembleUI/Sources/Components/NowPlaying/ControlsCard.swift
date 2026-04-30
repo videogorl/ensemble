@@ -98,7 +98,7 @@ public struct ControlsCard: View {
     private func contentView(track: Track, geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
             // Dynamic artwork sizing for small screens
-            let maxWidth = geometry.size.width - 48
+            let maxWidth = geometry.size.width - EnsembleScaffold.NowPlaying.emptyIconSize
             let maxHeight = geometry.size.height * 0.4
             let artworkSize = min(maxWidth, maxHeight, 400)
             let artworkCornerRadius = ArtworkCornerRadius.square(for: artworkSize)
@@ -109,12 +109,20 @@ public struct ControlsCard: View {
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
                 .contrast(1.1)
-                .shadow(color: .black.opacity(0.3), radius: 15, x: 0, y: 8)
+                .shadow(
+                    color: EnsembleScaffold.NowPlaying.Shadow.artworkColor,
+                    radius: EnsembleScaffold.NowPlaying.Shadow.artworkRadius,
+                    x: EnsembleScaffold.NowPlaying.Shadow.controlX,
+                    y: EnsembleScaffold.NowPlaying.Shadow.artworkY
+                )
                 .ifLet(namespace, animationID) { view, ns, id in
                     view.matchedGeometryEffect(id: id, in: ns)
                 }
-                .padding(.top, 20)
-                .padding(.bottom, geometry.size.height > 700 ? 40 : 20)
+                .padding(.top, EnsembleScaffold.NowPlaying.cardBottomPadding)
+                .padding(.bottom, geometry.size.height > 700
+                    ? EnsembleScaffold.NowPlaying.emptyVerticalPadding
+                    : EnsembleScaffold.NowPlaying.cardBottomPadding
+                )
 
             // Scrubber/waveform
             progressView(track: track)
@@ -123,78 +131,88 @@ public struct ControlsCard: View {
             // Track metadata
             trackMetadataView(track: track)
                 .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
-                .padding(.top, geometry.size.height > 700 ? 16 : 8)
+                .padding(.top, geometry.size.height > 700
+                    ? EnsembleScaffold.NowPlaying.sectionTopPadding
+                    : EnsembleScaffold.NowPlaying.compactSectionTopPadding
+                )
 
             // Primary playback controls
             controlsView
-                .padding(.top, geometry.size.height > 700 ? 24 : 16)
+                .padding(.top, geometry.size.height > 700
+                    ? EnsembleDesign.Spacing.xxl
+                    : EnsembleScaffold.NowPlaying.sectionTopPadding
+                )
 
             Spacer(minLength: 0)
 
             // Secondary controls + spacing for fixed page indicator
-            VStack(spacing: 8) {
+            VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 secondaryControlsView
-                Spacer().frame(height: 36) // Reserve space for fixed page indicator
+                Spacer().frame(height: EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight)
             }
-            .padding(.bottom, 20)
+            .padding(.bottom, EnsembleScaffold.NowPlaying.cardBottomPadding)
         }
     }
     
     private func emptyStateView(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
-            let maxWidth = geometry.size.width - 48
+            let maxWidth = geometry.size.width - EnsembleScaffold.NowPlaying.emptyIconSize
             let maxHeight = geometry.size.height * 0.4
             let artworkSize = min(maxWidth, maxHeight, 400)
             let artworkCornerRadius = ArtworkCornerRadius.square(for: artworkSize)
             
             RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
+                .fill(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.emptyArtworkFillOpacity))
                 .overlay(
-                    Image(systemName: "music.note")
-                        .font(.system(size: 64))
-                        .foregroundColor(.primary.opacity(0.35))
+                    Image(systemName: EnsembleDesign.Icon.musicNote)
+                        .font(EnsembleDesign.Typography.emptyStateIcon)
+                        .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.emptyArtworkIconOpacity))
                 )
                 .frame(width: artworkSize, height: artworkSize)
-                .shadow(color: .black.opacity(0.15), radius: 15, x: 0, y: 8)
-                .padding(.top, 40)
-                .padding(.bottom, 60)
+                .shadow(
+                    color: EnsembleScaffold.NowPlaying.Shadow.emptyArtworkColor,
+                    radius: EnsembleScaffold.NowPlaying.Shadow.artworkRadius,
+                    x: EnsembleScaffold.NowPlaying.Shadow.controlX,
+                    y: EnsembleScaffold.NowPlaying.Shadow.artworkY
+                )
+                .padding(.top, EnsembleScaffold.NowPlaying.emptyVerticalPadding)
+                .padding(.bottom, EnsembleScaffold.NowPlaying.emptyVerticalPadding + EnsembleDesign.Spacing.xl)
             
-            VStack(spacing: 8) {
+            VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 Text("Nothing Playing")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.primary)
+                    .font(EnsembleDesign.Typography.sectionTitle)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
                 
                 Text("Play music from your library to start listening")
-                    .font(.callout)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.stateMessage)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
             }
             .frame(maxWidth: .infinity)
-            .padding(.bottom, 16)
+            .padding(.bottom, EnsembleScaffold.NowPlaying.sectionTopPadding)
             
             controlsView
-                .opacity(0.5)
+                .opacity(EnsembleScaffold.NowPlaying.disabledControlsOpacity)
                 .allowsHitTesting(false)
-                .padding(.top, 32)
+                .padding(.top, EnsembleDesign.Spacing.xxxl)
             
             Spacer(minLength: 0)
             
-            VStack(spacing: 8) {
+            VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 secondaryControlsView
-                    .opacity(0.5)
+                    .opacity(EnsembleScaffold.NowPlaying.disabledControlsOpacity)
                     .allowsHitTesting(false)
-                Spacer().frame(height: 36) // Reserve space for fixed page indicator
+                Spacer().frame(height: EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight)
             }
-            .padding(.bottom, 20)
+            .padding(.bottom, EnsembleScaffold.NowPlaying.cardBottomPadding)
         }
     }
     
     // MARK: - Track Metadata
     
     private func trackMetadataView(track: Track) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
             if let artist = track.artistName {
                 Button(action: {
                     handleArtistTap(track: track)
@@ -202,7 +220,7 @@ public struct ControlsCard: View {
                     MarqueeText(
                         text: artist,
                         font: .title3,
-                        color: .primary.opacity(0.9)
+                        color: EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.activeControlOpacity)
                     )
                 }
                 .chromelessMediaControlButton()
@@ -211,7 +229,7 @@ public struct ControlsCard: View {
             MarqueeText(
                 text: track.title,
                 font: .title2,
-                color: .primary,
+                color: EnsembleDesign.Color.primaryText,
                 fontWeight: .bold
             )
             
@@ -222,7 +240,7 @@ public struct ControlsCard: View {
                     MarqueeText(
                         text: album,
                         font: .callout,
-                        color: .primary.opacity(0.7)
+                        color: EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity)
                     )
                 }
                 .chromelessMediaControlButton()
@@ -238,7 +256,7 @@ public struct ControlsCard: View {
         // Single TimelineView replaces 3 individual ones (waveform + 2 time labels).
         // On a dual-core A9, this reduces timer wake-ups from 3 to 1 per 0.5s tick.
         TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-            VStack(spacing: 8) {
+            VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
                         waveformContent(track: track, width: geometry.size.width)
@@ -246,7 +264,7 @@ public struct ControlsCard: View {
                         Color.clear
                             .contentShape(Rectangle())
                     }
-                    .frame(height: 24)
+                    .frame(height: EnsembleScaffold.NowPlaying.scrubberHeight)
                     .clipped()
                     .onAppear {
                         sliderWidth = geometry.size.width
@@ -289,7 +307,7 @@ public struct ControlsCard: View {
                             }
                     )
                 }
-                .frame(height: 24)
+                .frame(height: EnsembleScaffold.NowPlaying.scrubberHeight)
 
                 HStack {
                     Group {
@@ -299,9 +317,9 @@ public struct ControlsCard: View {
                             Text(viewModel.formattedCurrentTime)
                         }
                     }
-                    .font(.caption)
+                    .font(EnsembleDesign.Typography.rowSecondary)
                     .monospacedDigit()
-                    .foregroundColor(.secondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
 
                     Spacer()
 
@@ -318,9 +336,9 @@ public struct ControlsCard: View {
                             Text(viewModel.formattedRemainingTime)
                         }
                     }
-                    .font(.caption)
+                    .font(EnsembleDesign.Typography.rowSecondary)
                     .monospacedDigit()
-                    .foregroundColor(.secondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }
         }
@@ -332,11 +350,11 @@ public struct ControlsCard: View {
         let waveform = WaveformView(
             progress: isDraggingSlider ? localProgress : playbackProgress,
             bufferedProgress: viewModel.bufferedProgress,
-            color: .primary,
+            color: EnsembleDesign.Color.primaryText,
             heights: waveformHeights
         )
         .frame(width: width)
-        .opacity(0.8)
+        .opacity(EnsembleScaffold.NowPlaying.waveformOpacity)
 
         #if os(iOS)
         if #available(iOS 16.0, *) {
@@ -358,17 +376,17 @@ public struct ControlsCard: View {
     private var scrubIndicator: some View {
         let isMovingUp = currentDragY < dragStartY
         let verticalDistance = abs(currentDragY - dragStartY)
-        let isMaxFine = verticalDistance >= 120
+        let isMaxFine = verticalDistance >= EnsembleScaffold.NowPlaying.scrubFineDistance
         let scrubInfo = getScrubInfo()
         
         return HStack(spacing: 4) {
-            Image(systemName: isMaxFine ? "minus" : (isMovingUp ? "chevron.compact.up" : "chevron.compact.down"))
-                .font(.caption2)
-                .foregroundColor(.secondary)
+            Image(systemName: isMaxFine ? EnsembleDesign.Icon.scrubFine : (isMovingUp ? EnsembleDesign.Icon.scrubUp : EnsembleDesign.Icon.scrubDown))
+                .font(EnsembleDesign.Typography.statusBadgeIcon)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
             
             Text(scrubInfo.label)
-                .font(.caption2)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.statusBadgeIcon)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
         .transition(.opacity)
     }
@@ -376,11 +394,11 @@ public struct ControlsCard: View {
     // MARK: - Primary Controls
     
     private var controlsView: some View {
-        HStack(spacing: 50) {
+        HStack(spacing: EnsembleScaffold.NowPlaying.primaryControlsSpacing) {
             // Previous
             Button(action: viewModel.previous) {
-                Image(systemName: "backward.fill")
-                    .font(.system(size: 32))
+                Image(systemName: EnsembleDesign.Icon.previous)
+                    .font(.system(size: EnsembleScaffold.NowPlaying.primaryControlIconSize))
             }
 
             // Play/Pause — disabled when track isn't yet confirmed playable
@@ -389,19 +407,19 @@ public struct ControlsCard: View {
                 ZStack {
                     if showLoadingIndicator {
                         Image(systemName: "play.circle.fill")
-                            .font(.system(size: 80))
-                            .opacity(0.3)
+                            .font(.system(size: EnsembleScaffold.NowPlaying.playPauseControlIconSize))
+                            .opacity(EnsembleScaffold.NowPlaying.lyricFutureOpacity)
 
                         ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .primary))
-                            .scaleEffect(1.5)
+                            .progressViewStyle(CircularProgressViewStyle(tint: EnsembleDesign.Color.primaryText))
+                            .scaleEffect(EnsembleScaffold.NowPlaying.loadingIndicatorScale)
                     } else {
                         // During loading/buffering, hold the last settled icon to prevent
                         // the pause→play flicker when skipping tracks
                         let showPause = viewModel.isPlaying ||
                             ((viewModel.playbackState == .loading || viewModel.playbackState == .buffering) && wasPlayingBeforeTransition)
                         Image(systemName: showPause ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 80))
+                            .font(.system(size: EnsembleScaffold.NowPlaying.playPauseControlIconSize))
                     }
                 }
             }
@@ -418,7 +436,7 @@ public struct ControlsCard: View {
                 if isLoading {
                     loadingDelayTask?.cancel()
                     loadingDelayTask = Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        try? await Task.sleep(nanoseconds: EnsembleScaffold.NowPlaying.loadingIndicatorDelayNanoseconds)
                         guard !Task.isCancelled else { return }
                         showLoadingIndicator = true
                     }
@@ -433,7 +451,7 @@ public struct ControlsCard: View {
                     // Debounce the loading indicator to avoid flicker during fast track skips
                     loadingDelayTask?.cancel()
                     loadingDelayTask = Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+                        try? await Task.sleep(nanoseconds: EnsembleScaffold.NowPlaying.loadingIndicatorDelayNanoseconds)
                         guard !Task.isCancelled else { return }
                         showLoadingIndicator = true
                     }
@@ -448,11 +466,11 @@ public struct ControlsCard: View {
             
             // Next
             Button(action: viewModel.next) {
-                Image(systemName: "forward.fill")
-                    .font(.system(size: 32))
+                Image(systemName: EnsembleDesign.Icon.forward)
+                    .font(.system(size: EnsembleScaffold.NowPlaying.primaryControlIconSize))
             }
         }
-        .foregroundColor(.primary)
+        .foregroundColor(EnsembleDesign.Color.primaryText)
         .chromelessMediaControlButton()
         // Removed shadow on controls
     }
@@ -460,16 +478,19 @@ public struct ControlsCard: View {
     // MARK: - Secondary Controls
     
     private var secondaryControlsView: some View {
-        HStack(spacing: 30) {
+        HStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsSpacing) {
             // AirPlay
             AirPlayButton()
-                .frame(width: 24, height: 24)
+                .frame(
+                    width: EnsembleScaffold.NowPlaying.routePickerSize,
+                    height: EnsembleScaffold.NowPlaying.routePickerSize
+                )
             
             // Favorite toggle (heart)
             Button(action: viewModel.toggleRating) {
                 Image(systemName: viewModel.currentRating.icon)
-                    .font(.title3)
-                    .foregroundColor(viewModel.currentRating == .none ? .primary.opacity(0.7) : .accentColor)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
+                    .foregroundColor(viewModel.currentRating == .none ? EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity) : EnsembleDesign.Color.accent)
             }
             
             // Add to Playlist
@@ -481,9 +502,9 @@ public struct ControlsCard: View {
                     )
                 }
             } label: {
-                Image(systemName: "text.badge.plus")
-                    .font(.title3)
-                    .foregroundColor(.primary.opacity(0.7))
+                Image(systemName: EnsembleDesign.Icon.addToPlaylist)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
+                    .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }
             
             // More menu with navigation, sharing, and quick add
@@ -533,14 +554,14 @@ public struct ControlsCard: View {
                                 _ = try? await viewModel.addTracks([currentTrack], to: lastPlaylistQuickTarget)
                             }
                         } label: {
-                            Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: "clock.arrow.circlepath")
+                            Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: EnsembleDesign.Icon.recentPlaylist)
                         }
                     }
                 }
             } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.title3)
-                    .foregroundColor(.primary.opacity(0.7))
+                Image(systemName: EnsembleDesign.Icon.moreCircle)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
+                    .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }
             .transaction { transaction in
                 transaction.animation = nil
@@ -592,7 +613,7 @@ public struct ControlsCard: View {
             deps.toastCenter.show(
                 ToastPayload(
                     style: .warning,
-                    iconSystemName: "exclamationmark.triangle.fill",
+                    iconSystemName: EnsembleDesign.Icon.error,
                     title: "No tracks available",
                     message: "Try again in a moment.",
                     dedupeKey: "playlist-picker-empty-\(title)"
@@ -605,20 +626,26 @@ public struct ControlsCard: View {
     
     private func getScrubRate(verticalDistance: CGFloat) -> Double {
         switch verticalDistance {
-        case 0..<40: return 1.0
-        case 40..<80: return 0.5
-        case 80..<120: return 0.25
-        default: return 0.1
+        case 0..<EnsembleScaffold.NowPlaying.scrubFullSpeedDistance: return 1.0
+        case EnsembleScaffold.NowPlaying.scrubFullSpeedDistance..<EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance:
+            return EnsembleScaffold.NowPlaying.scrubHalfRate
+        case EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance..<EnsembleScaffold.NowPlaying.scrubFineDistance:
+            return EnsembleScaffold.NowPlaying.scrubQuarterRate
+        default: return EnsembleScaffold.NowPlaying.scrubFineRate
         }
     }
     
     private func getScrubInfo() -> (label: String, rate: Double) {
         let verticalDistance = abs(currentDragY - dragStartY)
         switch verticalDistance {
-        case 0..<40: return ("Hi-Speed Scrubbing", 1.0)
-        case 40..<80: return ("Half-Speed Scrubbing", 0.5)
-        case 80..<120: return ("Quarter-Speed Scrubbing", 0.25)
-        default: return ("Fine Scrubbing", 0.1)
+        case 0..<EnsembleScaffold.NowPlaying.scrubFullSpeedDistance:
+            return ("Hi-Speed Scrubbing", 1.0)
+        case EnsembleScaffold.NowPlaying.scrubFullSpeedDistance..<EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance:
+            return ("Half-Speed Scrubbing", EnsembleScaffold.NowPlaying.scrubHalfRate)
+        case EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance..<EnsembleScaffold.NowPlaying.scrubFineDistance:
+            return ("Quarter-Speed Scrubbing", EnsembleScaffold.NowPlaying.scrubQuarterRate)
+        default:
+            return ("Fine Scrubbing", EnsembleScaffold.NowPlaying.scrubFineRate)
         }
     }
     

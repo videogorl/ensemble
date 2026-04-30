@@ -42,8 +42,8 @@ public struct QueueCard: View {
         VStack(spacing: 0) {
             // Pinned header
             headerView
-                .padding(.top, 16)
-                .padding(.bottom, 12)
+                .padding(.top, EnsembleScaffold.NowPlaying.headerTopPadding)
+                .padding(.bottom, EnsembleScaffold.NowPlaying.headerBottomPadding)
 
             if isVisible {
                 // Queue list — QueueTableView manages its own scrolling now.
@@ -56,12 +56,12 @@ public struct QueueCard: View {
                             LinearGradient(
                                 gradient: Gradient(stops: [
                                     .init(color: .clear, location: 0),
-                                    .init(color: .black, location: 0.1)
+                                    .init(color: .black, location: EnsembleScaffold.NowPlaying.FadeMask.topOpaqueLocation)
                                 ]),
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
-                            .frame(height: 50)
+                            .frame(height: EnsembleScaffold.NowPlaying.FadeMask.topHeight)
 
                             // Middle: full opacity
                             Rectangle().fill(Color.black)
@@ -69,13 +69,13 @@ public struct QueueCard: View {
                             // Bottom fade
                             LinearGradient(
                                 gradient: Gradient(stops: [
-                                    .init(color: .black, location: 0.7),
+                                    .init(color: .black, location: EnsembleScaffold.NowPlaying.FadeMask.bottomOpaqueLocation),
                                     .init(color: .clear, location: 1)
                                 ]),
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
-                            .frame(height: 80)
+                            .frame(height: EnsembleScaffold.NowPlaying.FadeMask.bottomHeight)
                         }
                     )
             } else {
@@ -87,12 +87,12 @@ public struct QueueCard: View {
             Spacer(minLength: 0) // Push secondary controls to bottom, matching ControlsCard
 
             // Secondary controls + spacing for fixed page indicator
-            VStack(spacing: 8) {
+            VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 secondaryControlsView
-                    .padding(.top, 16) // Extra padding above secondary controls
-                Spacer().frame(height: 36) // Reserve space for fixed page indicator
+                    .padding(.top, EnsembleScaffold.NowPlaying.secondaryControlsTopPadding)
+                Spacer().frame(height: EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight)
             }
-            .padding(.bottom, 20)
+            .padding(.bottom, EnsembleScaffold.NowPlaying.cardBottomPadding)
         }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(
@@ -117,9 +117,8 @@ public struct QueueCard: View {
     private var headerView: some View {
         HStack {
             Text(viewModel.showHistory ? "History" : "Queue")
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(.primary)
+                .font(EnsembleDesign.Typography.sectionTitle)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
             
             Spacer()
             
@@ -130,13 +129,13 @@ public struct QueueCard: View {
                         viewModel.toggleHistory()
                     }
                 }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .font(.system(size: 14))
+                    HStack(spacing: EnsembleDesign.Spacing.chipVertical) {
+                        Image(systemName: EnsembleDesign.Icon.recentPlaylist)
+                            .font(.system(size: EnsembleScaffold.NowPlaying.smallIconSize))
                         Text("History")
-                            .font(.subheadline)
+                            .font(EnsembleDesign.Typography.stateMessage)
                     }
-                    .foregroundColor(viewModel.showHistory ? .accentColor : .secondary)
+                    .foregroundColor(viewModel.showHistory ? EnsembleDesign.Color.accent : EnsembleDesign.Color.secondaryText)
                 }
                 
                 // Tertiary actions menu
@@ -145,22 +144,22 @@ public struct QueueCard: View {
                         let snapshot = viewModel.queueSnapshotForPlaylistSave()
                         presentPlaylistPicker(with: snapshot, title: "Save Queue as Playlist")
                     } label: {
-                        Label("Save Queue as Playlist", systemImage: "square.and.arrow.down")
+                        Label("Save Queue as Playlist", systemImage: EnsembleDesign.Icon.saveQueue)
                     }
                     
                     // TODO: Future "Replay" action for replaying past queues
                     // Button { } label: { Label("Replay Queue...", systemImage: "clock.arrow.circlepath") }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 16))
-                        .foregroundColor(.primary.opacity(0.7))
+                    Image(systemName: EnsembleDesign.Icon.moreCircle)
+                        .font(.system(size: EnsembleScaffold.NowPlaying.menuIconSize))
+                        .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
                 }
             }
             .chromelessMediaControlButton()
             .chromelessMediaControlMenu()
         }
         .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
-        .frame(minHeight: 36) // Consistent height across all NPV card headers
+        .frame(minHeight: EnsembleScaffold.NowPlaying.headerMinHeight)
     }
 
     // MARK: - Queue List
@@ -227,14 +226,14 @@ public struct QueueCard: View {
                 if viewModel.recommendationsExhausted && viewModel.isAutoplayEnabled {
                     VStack {
                         Spacer()
-                        HStack(spacing: 6) {
-                            Image(systemName: "music.note.list")
-                                .font(.system(size: 14))
+                        HStack(spacing: EnsembleDesign.Spacing.chipVertical) {
+                            Image(systemName: EnsembleDesign.Icon.playlist)
+                                .font(.system(size: EnsembleScaffold.NowPlaying.smallIconSize))
                             Text("End of recommendations")
-                                .font(.subheadline)
+                                .font(EnsembleDesign.Typography.stateMessage)
                         }
-                        .foregroundColor(.secondary)
-                        .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing + 4)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing + EnsembleDesign.Spacing.xs)
                     }
                 }
                 #else
@@ -244,16 +243,16 @@ public struct QueueCard: View {
             } else {
                 // Empty state
                 VStack(spacing: TrackListLayoutMetrics.rowHorizontalPadding) {
-                    Image(systemName: "music.note.list")
-                        .font(.system(size: 48))
-                        .foregroundColor(.primary.opacity(0.3))
+                    Image(systemName: EnsembleDesign.Icon.playlist)
+                        .font(.system(size: EnsembleScaffold.NowPlaying.emptyIconSize))
+                        .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.lyricFutureOpacity))
                     
                     Text("Queue is empty")
-                        .font(.headline)
-                        .foregroundColor(.primary.opacity(0.6))
+                        .font(EnsembleDesign.Typography.actionLabel)
+                        .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.lyricIndicatorFilledOpacity))
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
+                .padding(.vertical, EnsembleScaffold.NowPlaying.emptyVerticalPadding)
             }
         }
     }
@@ -301,13 +300,13 @@ public struct QueueCard: View {
 
             // Recommendations exhausted indicator
             if viewModel.recommendationsExhausted && viewModel.isAutoplayEnabled {
-                HStack(spacing: 6) {
-                    Image(systemName: "music.note.list")
-                        .font(.system(size: 14))
+                HStack(spacing: EnsembleDesign.Spacing.chipVertical) {
+                    Image(systemName: EnsembleDesign.Icon.playlist)
+                        .font(.system(size: EnsembleScaffold.NowPlaying.smallIconSize))
                     Text("End of recommendations")
-                        .font(.subheadline)
+                        .font(EnsembleDesign.Typography.stateMessage)
                 }
-                .foregroundColor(.secondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
                 .padding(.vertical, TrackListLayoutMetrics.rowInterItemSpacing)
             }
         }
@@ -320,22 +319,22 @@ public struct QueueCard: View {
             ArtworkView(track: item.track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
 
             // Track info
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxs) {
+                HStack(spacing: EnsembleDesign.Spacing.xs) {
                     if isAutoplay {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 11))
-                            .foregroundColor(.purple)
+                        Image(systemName: EnsembleDesign.Icon.aurora)
+                            .font(EnsembleDesign.Typography.overflowIcon)
+                            .foregroundColor(EnsembleDesign.Color.generated)
                     }
                     Text(item.track.title)
-                        .font(.callout)
-                        .foregroundColor(isAutoplay ? .purple : .primary)
+                        .font(EnsembleDesign.Typography.stateMessage)
+                        .foregroundColor(isAutoplay ? EnsembleDesign.Color.generated : EnsembleDesign.Color.primaryText)
                         .lineLimit(1)
                 }
                 if let artist = item.track.artistName, !artist.isEmpty {
                     Text(artist)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
                 }
             }
@@ -343,8 +342,8 @@ public struct QueueCard: View {
             Spacer()
 
             Text(item.track.formattedDuration)
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
                 .monospacedDigit()
         }
         .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
@@ -370,7 +369,7 @@ public struct QueueCard: View {
                     _ = try? await viewModel.addTracks([item.track], to: lastPlaylistQuickTarget)
                 }
             } label: {
-                Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: "plus.circle")
+                Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: EnsembleDesign.Icon.addCircleOutline)
             }
         }
         Divider()
@@ -390,7 +389,7 @@ public struct QueueCard: View {
         }
         Divider()
         Button(role: .destructive) { viewModel.removeFromQueue(at: absoluteIndex) } label: {
-            Label("Remove from Queue", systemImage: "minus.circle")
+            Label("Remove from Queue", systemImage: EnsembleDesign.Icon.removeCircle)
         }
     }
 
@@ -428,32 +427,37 @@ public struct QueueCard: View {
     // MARK: - Secondary Controls (Relocated from Controls Card)
     
     private var secondaryControlsView: some View {
-        HStack(spacing: 30) {
+        HStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsSpacing) {
             // Shuffle
             Button(action: viewModel.toggleShuffle) {
-                Image(systemName: "shuffle")
-                    .font(.title3)
-                    .foregroundColor(viewModel.isShuffleEnabled ? .accentColor : .primary.opacity(0.7))
+                Image(systemName: EnsembleDesign.Icon.shuffle)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
+                    .foregroundColor(viewModel.isShuffleEnabled ? EnsembleDesign.Color.accent : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }
             
             // Repeat
             Button(action: viewModel.cycleRepeatMode) {
                 Image(systemName: viewModel.repeatMode.icon)
-                    .font(.title3)
-                    .foregroundColor(viewModel.repeatMode.isActive ? .accentColor : .primary.opacity(0.7))
+                    .font(EnsembleDesign.Typography.detailSubtitle)
+                    .foregroundColor(viewModel.repeatMode.isActive ? EnsembleDesign.Color.accent : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }
             
             // Autoplay — dimmed and non-interactive when offline (no network for recommendations)
             Button(action: viewModel.toggleAutoplay) {
                 Image(systemName: autoplayIcon)
-                    .font(.title3)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(autoplayColor)
             }
             .disabled(!deps.networkMonitor.isConnected)
-            .opacity(!deps.networkMonitor.isConnected ? 0.25 : 1.0)
+            .opacity(!deps.networkMonitor.isConnected ? EnsembleScaffold.NowPlaying.offlineControlOpacity : 1.0)
         }
         .chromelessMediaControlButton()
-        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
+        .shadow(
+            color: EnsembleScaffold.NowPlaying.Shadow.controlColor,
+            radius: EnsembleScaffold.NowPlaying.Shadow.controlRadius,
+            x: EnsembleScaffold.NowPlaying.Shadow.controlX,
+            y: EnsembleScaffold.NowPlaying.Shadow.controlY
+        )
     }
     
     private var autoplayIcon: String {
@@ -461,7 +465,9 @@ public struct QueueCard: View {
     }
     
     private var autoplayColor: Color {
-        viewModel.isAutoplayEnabled ? .accentColor : .primary.opacity(0.7)
+        viewModel.isAutoplayEnabled
+            ? EnsembleDesign.Color.accent
+            : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity)
     }
     
     // MARK: - Helper Methods
@@ -480,7 +486,7 @@ public struct QueueCard: View {
             deps.toastCenter.show(
                 ToastPayload(
                     style: .warning,
-                    iconSystemName: "exclamationmark.triangle.fill",
+                    iconSystemName: EnsembleDesign.Icon.error,
                     title: "No tracks available",
                     message: "Try again in a moment.",
                     dedupeKey: "playlist-picker-empty-\(title)"

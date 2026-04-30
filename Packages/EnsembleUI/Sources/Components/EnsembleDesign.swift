@@ -100,7 +100,9 @@ public enum EnsembleDesign {
         public static let secondaryControlFill = SwiftUI.Color.gray.opacity(0.2)
         public static let destructive = SwiftUI.Color.red
         public static let warning = SwiftUI.Color.orange
+        public static let pending = SwiftUI.Color.yellow
         public static let success = SwiftUI.Color.green
+        public static let neutralStatus = SwiftUI.Color.gray
         public static let favorite = SwiftUI.Color.pink
         public static let generated = SwiftUI.Color.purple
         public static let queueNext = SwiftUI.Color.blue
@@ -220,6 +222,13 @@ public enum EnsembleDesign {
         public static let infinity = "infinity"
         public static let clock = "clock"
         public static let unknown = "questionmark.circle"
+        public static let saveQueue = "square.and.arrow.down"
+        public static let instrumentalOn = "mic.slash.circle"
+        public static let instrumentalOff = "mic.circle"
+        public static let lyricsUnavailable = "text.quote"
+        public static let scrubFine = "minus"
+        public static let scrubUp = "chevron.compact.up"
+        public static let scrubDown = "chevron.compact.down"
     }
 
     public enum Breakpoint {
@@ -237,6 +246,11 @@ public enum EnsembleDesign {
         public static let elevatedShadowColor = SwiftUI.Color.black.opacity(0.15)
         public static let elevatedShadowRadius: CGFloat = 20
         public static let elevatedShadowY: CGFloat = 5
+    }
+
+    public enum Animation {
+        public static let quickDuration = 0.25
+        public static let standardDuration = 0.3
     }
 
     public enum Material {

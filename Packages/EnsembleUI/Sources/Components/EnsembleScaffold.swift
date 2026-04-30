@@ -275,8 +275,127 @@ public enum EnsembleScaffold {
         }
     }
 
-        public enum AuxiliaryWindow {
-            public struct Configuration: Equatable {
+    public enum NowPlaying {
+        public static let headerTopPadding = EnsembleDesign.Spacing.lg
+        public static let headerBottomPadding = EnsembleDesign.Spacing.md
+        public static let headerMinHeight: CGFloat = 36
+        public static let pageIndicatorReservedHeight: CGFloat = headerMinHeight
+        public static let cardBottomPadding = EnsembleDesign.Spacing.xl
+        public static let viewportContentPadding = EnsembleDesign.Spacing.xxl
+        public static let viewportInnerSpacing = EnsembleDesign.Spacing.xl
+        public static let viewportNarrowTrailingPadding = EnsembleDesign.Spacing.sm
+        public static let sectionTopPadding = EnsembleDesign.Spacing.lg
+        public static let compactSectionTopPadding = EnsembleDesign.Spacing.sm
+        public static let secondaryControlsSpacing: CGFloat = 30
+        public static let transportControlsSpacing: CGFloat = 40
+        public static let primaryControlsSpacing: CGFloat = 50
+        public static let secondaryControlsTopPadding = EnsembleDesign.Spacing.lg
+        public static let secondaryControlsStackSpacing = EnsembleDesign.Spacing.sm
+        public static let inactiveControlOpacity = 0.7
+        public static let activeControlOpacity = 0.9
+        public static let unavailableControlOpacity = 0.4
+        public static let offlineControlOpacity = 0.25
+        public static let backgroundDarkOverlayOpacity = 0.45
+        public static let backgroundLightOverlayOpacity = 0.7
+        public static let smallIconSize: CGFloat = 14
+        public static let menuIconSize: CGFloat = 16
+        public static let routePickerSize: CGFloat = 24
+        public static let primaryControlIconSize: CGFloat = 32
+        public static let playPauseControlIconSize: CGFloat = 80
+        public static let loadingIndicatorScale: CGFloat = 1.5
+        public static let emptyIconSize: CGFloat = 48
+        public static let emptyArtworkFillOpacity = 0.05
+        public static let emptyArtworkIconOpacity = 0.35
+        public static let emptyVerticalPadding = TrackListLayoutMetrics.detailHorizontalPadding
+        public static let emptyTextSpacing = TrackListLayoutMetrics.rowInterItemSpacing + EnsembleDesign.Spacing.xs
+        public static let statusDotSize = EnsembleDesign.Spacing.sm
+        public static let infoLabelWidth: CGFloat = 72
+        public static let rowDisclosureTopPadding = EnsembleDesign.Spacing.xxs
+        public static let disabledControlsOpacity = 0.5
+        public static let scrubberHeight: CGFloat = 24
+        public static let waveformOpacity = 0.8
+        public static let scrubFineDistance: CGFloat = 120
+        public static let scrubFullSpeedDistance: CGFloat = 40
+        public static let scrubHalfSpeedDistance: CGFloat = 80
+        public static let scrubHalfRate = 0.5
+        public static let scrubQuarterRate = 0.25
+        public static let scrubFineRate = 0.1
+        public static let loadingIndicatorDelayNanoseconds: UInt64 = 300_000_000
+        public static let auroraActiveContentMaxWidth: CGFloat = 670
+        public static let viewportContentMaxWidth: CGFloat = 1024
+        public static let viewportHeaderMaxWidth: CGFloat = 1120
+        public static let viewportContentMaxHeight: CGFloat = 768
+        public static let viewportSinglePanelMaxWidth: CGFloat = 560
+        public static let viewportDualPanelMinimumWidth: CGFloat = 920
+        public static let viewportDualPanelMinimumHeight: CGFloat = 620
+        public static let viewportSinglePickerWidth: CGFloat = 390
+        public static let viewportPickerWidth: CGFloat = 300
+        public static let viewportMinimumPanelWidth: CGFloat = 320
+        public static let viewportWideAspectMultiplier: CGFloat = 0.82
+        public static let viewportMacTopSafeAreaPadding = EnsembleDesign.Spacing.lg
+        public static let viewportMacMinimumTopInset: CGFloat = 60
+        public static let viewportModernTopSafeAreaPadding: CGFloat = 18
+        public static let viewportModernMinimumTopInset: CGFloat = 30
+        public static let viewportLegacyTopSafeAreaPadding = EnsembleDesign.Spacing.md
+        public static let viewportLegacyMinimumTopInset = EnsembleDesign.Spacing.xl
+        public static let viewportMacTrafficLightClearance: CGFloat = 88
+        public static let viewportModernTrafficLightClearance: CGFloat = 92
+        public static let viewportLegacyChromeInset = EnsembleDesign.Spacing.sm
+        public static let dismissPillTopPadding: CGFloat = 28
+        public static let dismissPillWidth: CGFloat = 36
+        public static let dismissPillHeight: CGFloat = 5
+        public static let dismissPillOpacity = 0.3
+        public static let dismissDragThreshold: CGFloat = 120
+        public static let externalDisplayAspectRatio: CGFloat = 4.0 / 3.0
+        public static let lyricTimedLineSpacing: CGFloat = 24
+        public static let lyricPlainLineSpacing = EnsembleDesign.Spacing.md
+        public static let lyricTopSpacerHeight: CGFloat = 120
+        public static let lyricBottomSpacerHeight: CGFloat = 200
+        public static let lyricIndicatorSpacing = EnsembleDesign.Spacing.chipVertical
+        public static let lyricIndicatorDotSize = EnsembleDesign.Spacing.sm
+        public static let lyricIndicatorFilledOpacity = 0.6
+        public static let lyricIndicatorEmptyOpacity = 0.15
+        public static let lyricActiveScale = 1.05
+        public static let lyricPastOpacity = 0.5
+        public static let lyricFutureOpacity = 0.3
+        public static let lyricPlainOpacity = 0.9
+        public static let lyricBlurStartDistance = 2
+        public static let lyricBlurStep: CGFloat = 1.5
+        public static let lyricMaxBlur: CGFloat = 5
+
+        public enum FadeMask {
+            public static let topHeight: CGFloat = 50
+            public static let bottomHeight: CGFloat = 80
+            public static let topOpaqueLocation = 0.1
+            public static let bottomOpaqueLocation = 0.7
+            public static let infoTopHeight: CGFloat = 30
+            public static let infoBottomHeight: CGFloat = 50
+            public static let infoTopOpaqueLocation = 0.05
+            public static let infoBottomOpaqueLocation = 0.85
+        }
+
+        public enum Shadow {
+            public static let controlColor = Color.black.opacity(0.3)
+            public static let controlRadius: CGFloat = 10
+            public static let controlX: CGFloat = 0
+            public static let controlY: CGFloat = 0
+            public static let artworkColor = Color.black.opacity(0.3)
+            public static let emptyArtworkColor = Color.black.opacity(0.15)
+            public static let artworkRadius: CGFloat = 15
+            public static let artworkY: CGFloat = 8
+        }
+
+        public enum PageIndicator {
+            public static let itemSize: CGFloat = 20
+            public static let activeDotSize = EnsembleDesign.Spacing.sm
+            public static let inactiveIconSize: CGFloat = 12
+            public static let inactiveOpacity = 0.4
+            public static let verticalPadding = EnsembleDesign.Spacing.sm
+        }
+    }
+
+    public enum AuxiliaryWindow {
+        public struct Configuration: Equatable {
             public let minWidth: CGFloat
             public let idealWidth: CGFloat
             public let maxWidth: CGFloat

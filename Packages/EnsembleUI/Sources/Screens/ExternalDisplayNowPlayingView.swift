@@ -39,7 +39,10 @@ public struct ExternalDisplayNowPlayingView: View {
     /// Reference size matching a landscape iPad layout. The card components are
     /// designed for this viewing scale. We lay out at this size and use `scaleEffect`
     /// to fill the 4:3 container.
-    private static let referenceSize = CGSize(width: 1024, height: 768)
+    private static let referenceSize = CGSize(
+        width: EnsembleScaffold.NowPlaying.viewportContentMaxWidth,
+        height: EnsembleScaffold.NowPlaying.viewportContentMaxHeight
+    )
 
     public var body: some View {
         GeometryReader { geometry in
@@ -88,7 +91,7 @@ public struct ExternalDisplayNowPlayingView: View {
 
     /// Two-column Now Playing layout (controls + detail panel).
     private var contentView: some View {
-        HStack(alignment: .top, spacing: 24) {
+        HStack(alignment: .top, spacing: EnsembleScaffold.NowPlaying.viewportContentPadding) {
             // Left panel: artwork, scrubber, playback controls (always visible)
             ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
                 .frame(maxWidth: .infinity)
@@ -99,8 +102,8 @@ public struct ExternalDisplayNowPlayingView: View {
                 .frame(maxWidth: .infinity)
                 .frame(maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(.horizontal, 32)
-        .padding(.vertical, 32)
+        .padding(.horizontal, EnsembleDesign.Spacing.xxxl)
+        .padding(.vertical, EnsembleDesign.Spacing.xxxl)
     }
 
     // MARK: - Detail Panel
@@ -155,7 +158,7 @@ public struct ExternalDisplayNowPlayingView: View {
             .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
 
             // Dark overlay for readability on TV
-            Color.black.opacity(0.45)
+            Color.black.opacity(EnsembleScaffold.NowPlaying.backgroundDarkOverlayOpacity)
                 .allowsHitTesting(false)
 
             if settingsManager.auroraVisualizationEnabled {
@@ -166,7 +169,7 @@ public struct ExternalDisplayNowPlayingView: View {
                     isLowPowerMode: powerStateMonitor.isLowPowerMode
                 )
                 .allowsHitTesting(false)
-                .opacity(0.7)
+                .opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity)
             }
         }
         .ignoresSafeArea()
@@ -178,7 +181,7 @@ public struct ExternalDisplayNowPlayingView: View {
     /// This keeps controls and panels at iPad-like proportions instead of
     /// stretching across the full 16:9 (or wider) TV width.
     private func containerSize(for screenSize: CGSize) -> CGSize {
-        let targetRatio: CGFloat = 4.0 / 3.0
+        let targetRatio = EnsembleScaffold.NowPlaying.externalDisplayAspectRatio
         let screenRatio = screenSize.width / screenSize.height
 
         if screenRatio > targetRatio {

@@ -14,9 +14,9 @@ public enum NowPlayingPage: Int, CaseIterable {
     func icon(lyricsAvailable: Bool) -> String {
         switch self {
         case .queue: return "list.bullet"
-        case .controls: return "play.fill"
-        case .lyrics: return lyricsAvailable ? "quote.bubble.fill" : "quote.bubble"
-        case .info: return "info.circle"
+        case .controls: return EnsembleDesign.Icon.play
+        case .lyrics: return lyricsAvailable ? EnsembleDesign.Icon.lyrics : "quote.bubble"
+        case .info: return EnsembleDesign.Icon.info
         }
     }
 }
@@ -36,13 +36,13 @@ public struct PageIndicator: View {
             ForEach(NowPlayingPage.allCases, id: \.rawValue) { page in
                 pageIndicatorItem(for: page, isCurrent: page.rawValue == currentPage)
                     .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.3)) {
+                        withAnimation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration)) {
                             currentPage = page.rawValue
                         }
                     }
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, EnsembleScaffold.NowPlaying.PageIndicator.verticalPadding)
     }
 
     // MARK: - Helpers
@@ -52,16 +52,22 @@ public struct PageIndicator: View {
             if isCurrent {
                 // Active page: filled circle
                 Circle()
-                    .fill(Color.primary)
-                    .frame(width: 8, height: 8)
+                    .fill(EnsembleDesign.Color.primaryText)
+                    .frame(
+                        width: EnsembleScaffold.NowPlaying.PageIndicator.activeDotSize,
+                        height: EnsembleScaffold.NowPlaying.PageIndicator.activeDotSize
+                    )
             } else {
                 // Inactive pages: icon with transparency
                 Image(systemName: page.icon(lyricsAvailable: lyricsAvailable))
-                    .font(.system(size: 12))
-                    .foregroundColor(Color.primary.opacity(0.4))
+                    .font(.system(size: EnsembleScaffold.NowPlaying.PageIndicator.inactiveIconSize))
+                    .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.PageIndicator.inactiveOpacity))
             }
         }
-        .frame(width: 20, height: 20) // Consistent hit area
+        .frame(
+            width: EnsembleScaffold.NowPlaying.PageIndicator.itemSize,
+            height: EnsembleScaffold.NowPlaying.PageIndicator.itemSize
+        )
         .contentShape(Rectangle()) // Expand tap area
     }
 }
