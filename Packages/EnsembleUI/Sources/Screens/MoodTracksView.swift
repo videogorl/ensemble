@@ -28,6 +28,7 @@ public struct MoodTracksView: View {
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     @State private var currentTrackId: String?
+    @State private var nvmRecentPlaylistTitle: String?
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
 
     public init(mood: Mood, nowPlayingVM: NowPlayingViewModel) {
@@ -56,48 +57,9 @@ public struct MoodTracksView: View {
                 bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
                 tableHeaderContent: AnyView(moodHeader),
                 tableFooterContent: AnyView(moodFooter),
-                supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-                onPlayNext: { track in
-                    nowPlayingVM.playNext(track)
-                },
-                onPlayLast: { track in
-                    nowPlayingVM.playLast(track)
-                },
-                onAddToPlaylist: { track in
-                    presentPlaylistPicker(with: [track])
-                },
-                onAddToRecentPlaylist: { track in
-                    addToRecentPlaylist(track)
-                },
-                onToggleFavorite: { track in
-                    Task {
-                        await nowPlayingVM.toggleTrackFavorite(track)
-                    }
-                },
-                onGoToAlbum: { track in
-                    if let albumId = track.albumRatingKey {
-                        navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
-                    }
-                },
-                onGoToArtist: { track in
-                    if let artistId = track.artistRatingKey {
-                        navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
-                    }
-                },
-                onShareLink: { track in
-                    ShareActions.shareTrackLink(track, deps: deps)
-                },
-                onShareFile: { track in
-                    ShareActions.shareTrackFile(track, deps: deps)
-                },
-                isTrackFavorited: { track in
-                    nowPlayingVM.isTrackFavorited(track)
-                },
-                canAddToRecentPlaylist: { track in
-                    recentPlaylistTitle(for: track) != nil
-                },
-                recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
-            ) { track, index in
+                interactionModel: trackInteractionModel,
+                supplementalMetadataWidth: trackListSupplementalMetadataWidth
+            ) { _, index in
                 if !nowPlayingVM.isAutoplayEnabled {
                     nowPlayingVM.toggleAutoplay()
                 }
@@ -120,55 +82,20 @@ public struct MoodTracksView: View {
                     } else if moodTracks.isEmpty {
                         emptyView
                     } else {
-                        TrackListView(
+                        SongsTrackListHost(
                             tracks: moodTracks,
-                            showArtwork: true,
-                            showTrackNumbers: false,
                             currentTrackId: currentTrackId,
-                            onPlayNext: { track in
-                                nowPlayingVM.playNext(track)
-                            },
-                            onPlayLast: { track in
-                                nowPlayingVM.playLast(track)
-                            },
-                            onAddToPlaylist: { track in
-                                presentPlaylistPicker(with: [track])
-                            },
-                            onAddToRecentPlaylist: { track in
-                                addToRecentPlaylist(track)
-                            },
-                            onToggleFavorite: { track in
-                                Task {
-                                    await nowPlayingVM.toggleTrackFavorite(track)
-                                }
-                            },
-                            onGoToAlbum: { track in
-                                if let albumId = track.albumRatingKey {
-                                    navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
-                                }
-                            },
-                            onGoToArtist: { track in
-                                if let artistId = track.artistRatingKey {
-                                    navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
-                                }
-                            },
-                            onShareLink: { track in
-                                ShareActions.shareTrackLink(track, deps: deps)
-                            },
-                            onShareFile: { track in
-                                ShareActions.shareTrackFile(track, deps: deps)
-                            },
-                            canAddToRecentPlaylist: { track in
-                                recentPlaylistTitle(for: track) != nil
-                            },
-                            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title,
-                            nowPlayingVM: nowPlayingVM
-                        ) { track, index in
+                            availabilityGeneration: availabilityGeneration,
+                            activeDownloadRatingKeys: activeDownloadRatingKeys,
+                            supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+                            interactionModel: trackInteractionModel
+                        ) { _, index in
                             if !nowPlayingVM.isAutoplayEnabled {
                                 nowPlayingVM.toggleAutoplay()
                             }
                             nowPlayingVM.play(tracks: moodTracks, startingAt: index)
                         }
+                        .frame(height: CGFloat(moodTracks.count) * TrackListLayoutMetrics.defaultRowHeight)
                     }
                 }
             }
@@ -191,6 +118,10 @@ public struct MoodTracksView: View {
         .onReceive(nowPlayingVM.$currentTrack) { track in
             let id = track?.id
             if id != currentTrackId { currentTrackId = id }
+        }
+        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
+            let title = target?.title
+            if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
         }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
@@ -331,6 +262,51 @@ public struct MoodTracksView: View {
             sourceCompositeKey: target.sourceCompositeKey
         )
         return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
+    }
+
+    private var trackInteractionModel: TrackRowInteractionModel {
+        TrackRowInteractionModel(
+            onPlayNext: { track in
+                nowPlayingVM.playNext(track)
+            },
+            onPlayLast: { track in
+                nowPlayingVM.playLast(track)
+            },
+            onAddToPlaylist: { track in
+                presentPlaylistPicker(with: [track])
+            },
+            onAddToRecentPlaylist: { track in
+                addToRecentPlaylist(track)
+            },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
+            onGoToAlbum: { track in
+                if let albumId = track.albumRatingKey {
+                    navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
+                }
+            },
+            onGoToArtist: { track in
+                if let artistId = track.artistRatingKey {
+                    navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
+                }
+            },
+            onShareLink: { track in
+                ShareActions.shareTrackLink(track, deps: deps)
+            },
+            onShareFile: { track in
+                ShareActions.shareTrackFile(track, deps: deps)
+            },
+            isTrackFavorited: { track in
+                nowPlayingVM.isTrackFavorited(track)
+            },
+            canAddToRecentPlaylist: { track in
+                recentPlaylistTitle(for: track) != nil
+            },
+            recentPlaylistTitle: nvmRecentPlaylistTitle
+        )
     }
 
     private var headerView: some View {

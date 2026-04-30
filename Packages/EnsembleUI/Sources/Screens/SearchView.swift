@@ -918,95 +918,16 @@ public struct SearchView: View {
         case .songs:
             if !viewModel.trackResults.isEmpty {
                 #if os(iOS)
-                iOSSongsResultsSection
+                songsResultsSection
                 #else
-                compactSection(
-                    title: "Songs",
-                    count: viewModel.trackResults.count,
-                    items: Array(viewModel.trackResults.prefix(5))
-                ) { track in
-                    TrackSwipeContainer(
-                        track: track,
-                        nowPlayingVM: nowPlayingVM,
-                        onPlayNext: { nowPlayingVM.playNext(track) },
-                        onPlayLast: { nowPlayingVM.playLast(track) },
-                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
-                    ) {
-                        CompactTrackRow(
-                            track: track,
-                            isPlaying: track.id == currentTrackId
-                        ) {
-                            viewModel.commitCurrentSearch()
-                            if let index = viewModel.trackResults.firstIndex(where: { $0.id == track.id }) {
-                                nowPlayingVM.play(tracks: viewModel.trackResults, startingAt: index)
-                            }
-                        }
-                    }
-                    .contextMenu {
-                        Button {
-                            nowPlayingVM.playNext(track)
-                        } label: {
-                            MediaActionLabel(kind: .playNext)
-                        }
-                        
-                        Button {
-                            nowPlayingVM.playLast(track)
-                        } label: {
-                            MediaActionLabel(kind: .playLast)
-                        }
-
-                        if let albumId = track.albumRatingKey {
-                            Button {
-                                navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
-                            } label: {
-                                MediaActionLabel(kind: .goToAlbum)
-                            }
-                        }
-
-                        if let artistId = track.artistRatingKey {
-                            Button {
-                                navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
-                            } label: {
-                                MediaActionLabel(kind: .goToArtist)
-                            }
-                        }
-
-                        if let recentTitle = recentPlaylistTitle(for: track) {
-                            Button {
-                                addToRecentPlaylist(track)
-                            } label: {
-                                MediaActionLabel(kind: .addToRecentPlaylist(recentTitle))
-                            }
-                        }
-
-                        Button {
-                            presentPlaylistPicker(with: [track])
-                        } label: {
-                            MediaActionLabel(kind: .addToPlaylist)
-                        }
-
-                        Button {
-                            Task {
-                                await nowPlayingVM.toggleTrackFavorite(track)
-                            }
-                        } label: {
-                            MediaActionLabel(
-                                kind: .favorite(
-                                    isFavorited: nowPlayingVM.isTrackFavorited(track),
-                                    usesFilledIcon: false
-                                )
-                            )
-                        }
-                    }
-                }
+                songsResultsSection
                 #endif
             }
         }
     }
 
-    #if os(iOS)
-    private var iOSSongsResultsSection: some View {
-        let tracks = Array(viewModel.trackResults.prefix(5))
+    private var songsResultsSection: some View {
+        let tracks = limitedTrackResults
         let height: CGFloat = tracks.isEmpty ? 0 : CGFloat(tracks.count) * TrackListLayoutMetrics.defaultRowHeight
 
         return VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
@@ -1016,68 +937,95 @@ public struct SearchView: View {
             }
             .padding(.horizontal)
 
-            MediaTrackList(
-                tracks: tracks,
-                showArtwork: true,
-                showTrackNumbers: false,
-                groupByDisc: false,
-                currentTrackId: currentTrackId,
-                availabilityGeneration: availabilityGeneration,
-                activeDownloadRatingKeys: activeDownloadRatingKeys,
-                onPlayNext: { track in
-                    nowPlayingVM.playNext(track)
-                },
-                onPlayLast: { track in
-                    nowPlayingVM.playLast(track)
-                },
-                onAddToPlaylist: { track in
-                    presentPlaylistPicker(with: [track])
-                },
-                onAddToRecentPlaylist: { track in
-                    addToRecentPlaylist(track)
-                },
-                onToggleFavorite: { track in
-                    Task {
-                        await nowPlayingVM.toggleTrackFavorite(track)
-                    }
-                },
-                onGoToAlbum: { track in
-                    guard let albumId = track.albumRatingKey else { return }
-                    navigationCoordinator.push(
-                        .album(id: albumId),
-                        in: navigationCoordinator.selectedTab
-                    )
-                },
-                onGoToArtist: { track in
-                    guard let artistId = track.artistRatingKey else { return }
-                    navigationCoordinator.push(
-                        .artist(id: artistId),
-                        in: navigationCoordinator.selectedTab
-                    )
-                },
-                onShareLink: { track in
-                    ShareActions.shareTrackLink(track, deps: deps)
-                },
-                onShareFile: { track in
-                    ShareActions.shareTrackFile(track, deps: deps)
-                },
-                isTrackFavorited: { track in
-                    nowPlayingVM.isTrackFavorited(track)
-                },
-                canAddToRecentPlaylist: { track in
-                    recentPlaylistTitle(for: track) != nil
-                },
-                recentPlaylistTitle: nvmRecentPlaylistTitle
-            ) { track, _ in
-                handleSearchResultNavigation()
-                if let index = viewModel.trackResults.firstIndex(where: { $0.id == track.id }) {
-                    nowPlayingVM.play(tracks: viewModel.trackResults, startingAt: index)
+            Group {
+                #if os(iOS)
+                MediaTrackList(
+                    tracks: tracks,
+                    showArtwork: true,
+                    showTrackNumbers: false,
+                    groupByDisc: false,
+                    currentTrackId: currentTrackId,
+                    availabilityGeneration: availabilityGeneration,
+                    activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    interactionModel: trackInteractionModel
+                ) { track, _ in
+                    playSearchResult(track)
                 }
+                #else
+                SongsTrackListHost(
+                    tracks: tracks,
+                    currentTrackId: currentTrackId,
+                    availabilityGeneration: availabilityGeneration,
+                    activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    interactionModel: trackInteractionModel
+                ) { track, _ in
+                    playSearchResult(track)
+                }
+                #endif
             }
             .frame(height: height)
         }
     }
-    #endif
+
+    private var limitedTrackResults: [Track] {
+        Array(viewModel.trackResults.prefix(5))
+    }
+
+    private var trackInteractionModel: TrackRowInteractionModel {
+        TrackRowInteractionModel(
+            onPlayNext: { track in
+                nowPlayingVM.playNext(track)
+            },
+            onPlayLast: { track in
+                nowPlayingVM.playLast(track)
+            },
+            onAddToPlaylist: { track in
+                presentPlaylistPicker(with: [track])
+            },
+            onAddToRecentPlaylist: { track in
+                addToRecentPlaylist(track)
+            },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
+            onGoToAlbum: { track in
+                guard let albumId = track.albumRatingKey else { return }
+                navigationCoordinator.push(
+                    .album(id: albumId),
+                    in: navigationCoordinator.selectedTab
+                )
+            },
+            onGoToArtist: { track in
+                guard let artistId = track.artistRatingKey else { return }
+                navigationCoordinator.push(
+                    .artist(id: artistId),
+                    in: navigationCoordinator.selectedTab
+                )
+            },
+            onShareLink: { track in
+                ShareActions.shareTrackLink(track, deps: deps)
+            },
+            onShareFile: { track in
+                ShareActions.shareTrackFile(track, deps: deps)
+            },
+            isTrackFavorited: { track in
+                nowPlayingVM.isTrackFavorited(track)
+            },
+            canAddToRecentPlaylist: { track in
+                recentPlaylistTitle(for: track) != nil
+            },
+            recentPlaylistTitle: nvmRecentPlaylistTitle
+        )
+    }
+
+    private func playSearchResult(_ track: Track) {
+        handleSearchResultNavigation()
+        if let index = viewModel.trackResults.firstIndex(where: { $0.id == track.id }) {
+            nowPlayingVM.play(tracks: viewModel.trackResults, startingAt: index)
+        }
+    }
 
     private func presentPlaylistPicker(with tracks: [Track]) {
         guard !tracks.isEmpty else { return }

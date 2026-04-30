@@ -267,6 +267,7 @@ extension MediaDetailSurface {
             }
             .chromelessMediaControlButton()
             .disabled(isDisabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
 
         private func playButton(
