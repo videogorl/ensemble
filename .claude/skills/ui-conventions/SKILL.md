@@ -194,6 +194,9 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Indexed browse section headers should use `EnsembleBrowseSectionHeader`, and large-screen browse selection rows should use `EnsembleScaffold.BrowseSelection` / `browseSelectionBackground(isSelected:)`.
 - Content shelves and tappable section headers should use `EnsembleContentSectionHeader` so title weight, color, and disclosure icons stay aligned across Feed, Search, and library sections.
 - Shared media menu and swipe labels should use `MediaActionLabel` so icons, ellipses, and verb choices stay consistent across rows, cards, shelves, and detail surfaces.
+- SF Symbols should be referenced through `EnsembleDesign.Icon` for app/navigation/action intent. Keep account/profile person symbols separate from artist/music symbols; artist-facing UI uses `EnsembleDesign.Icon.artist`/`artists`.
+- Reusable utility metrics should live under the matching `EnsembleScaffold` family (`Sidebar`, `ScrollIndex`, `BrowseSplit`, `TrackSwipe`, `Marquee`, `LogViewer`, `Toast`, etc.) instead of local raw sizes.
+- StageFlow geometry, animation, mask, and transform constants are intentionally local unless a future pass explicitly retunes StageFlow as a whole; do not silently normalize those values during broad token sweeps.
 - Shared card/chip geometry should use `EnsembleScaffold.MediaCard` and `EnsembleScaffold.Chip`; hub cards, playlist chips, merged-source chips, and download status chips should avoid local padding/font/radius literals unless the component has a documented one-off layout reason.
 - Liquid Glass and fallback material stacks should go through `EnsembleDesign.Material.Role` or a documented local composition when the surface is too specialized, such as artwork-reactive mini-player backgrounds.
 - UIKit/AppKit chrome fallbacks, auxiliary window backgrounds, and specialized compositions should still pull blur style, fallback material, background color, stroke, and shadow values from `EnsembleDesign.Material.Role` so the semantic material policy stays centralized.
@@ -204,7 +207,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 ### Artwork Display
 - **Hub items:** 140x140pt artwork
 - **Corner radius:** Albums/playlists use 8pt; artists use 70pt (circular)
-- **Shadows:** `Color.black.opacity(0.15)` with radius 6 for card depth
+- **Shadows:** use `EnsembleDesign.Effect` / component bridge tokens for shared card/detail depth; StageFlow keeps its own tuned 3D shadows.
 - **Blurred backgrounds:** NowPlayingView and detail views use `BlurredArtworkBackground`
 - **Shared detail artwork wash:** `MediaDetailView` and `DownloadTargetDetailView` must use `ArtworkDetailBackground` for the blurred header image so dark/light overlay behavior stays identical across detail screens
 - **Shared detail shell:** Media-style detail screens should build their hero artwork, metadata block, action row, and list-card styling on `MediaDetailSurface` so `MediaDetailView` and `DownloadTargetDetailView` do not drift on spacing, wide-layout behavior, or light/dark presentation
@@ -212,7 +215,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - **Shared detail actions:** Detail Play/Shuffle-style button labels should use `MediaDetailSurface.ActionLabel`, and repeated Play/Shuffle action strips should use `MediaDetailSurface.ActionRow`, so filled/accent, secondary action, spacing, disabled state, and chromeless button treatment stay aligned across media detail variants.
 
 ### Typography & Spacing
-- **System fonts:** SF Pro with semantic styles (.headline, .subheadline, etc.)
+- **System fonts:** SF Pro through `EnsembleDesign.Typography` for repeatable roles; only keep local font styles when the component has a documented rendering reason.
 - **Line limits:** `.lineLimit(1)` or `MarqueeText` for auto-scrolling long titles
 - **Information density:** Dense layouts without clutter
 
