@@ -332,6 +332,23 @@ public enum EnsembleScaffold {
         }
     }
 
+    public enum DownloadDetail {
+        public static let headerSpacing = EnsembleDesign.Spacing.lg
+        public static let metadataSpacing = EnsembleDesign.Spacing.sm
+        public static let progressSpacing = EnsembleDesign.Spacing.xs
+        public static let bannerSpacing = EnsembleDesign.Spacing.sm
+        public static let actionVerticalPadding = EnsembleScaffold.DetailSurface.actionVerticalPadding
+        public static let actionCornerRadius = EnsembleScaffold.DetailSurface.actionCornerRadius
+        public static let headerIconDimension: CGFloat = 120
+        public static let headerIconSize = EnsembleDesign.Typography.emptyStateIcon
+        public static let backgroundHeight: CGFloat = 400
+        public static let progressMaxWidth: CGFloat = 280
+        public static let backgroundAccentOpacity = 0.3
+        public static let headerIconShadowColor = EnsembleDesign.Effect.cardShadowColor
+        public static let headerIconShadowRadius = EnsembleDesign.Effect.elevatedShadowRadius
+        public static let headerIconShadowY = EnsembleDesign.Effect.elevatedShadowY
+    }
+
     public enum NowPlaying {
         public static let headerTopPadding = EnsembleDesign.Spacing.lg
         public static let headerBottomPadding = EnsembleDesign.Spacing.md

@@ -58,7 +58,7 @@ public struct PendingMutationsView: View {
         EnsembleStateScaffold(
             kind: .empty,
             title: "No pending changes",
-            iconSystemName: "checkmark.circle",
+            iconSystemName: EnsembleDesign.Icon.checkmarkOutline,
             presentation: .compactFooter
         )
         .listRowBackground(Color.clear)
@@ -90,30 +90,30 @@ private struct MutationRowView: View {
             // Type icon
             Image(systemName: iconName)
                 .foregroundColor(iconColor)
-                .frame(width: 24)
+                .frame(width: EnsembleScaffold.UtilityRow.statusIconWidth)
 
             // Description + timestamp
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
                 Text(row.description)
-                    .font(.subheadline)
+                    .font(EnsembleDesign.Typography.stateMessage)
                     .lineLimit(2)
 
-                HStack(spacing: 6) {
+                HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
                     Text(row.createdAt, style: .relative)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
 
                     if row.status == .failed {
                         Text("Failed")
-                            .font(.caption)
+                            .font(EnsembleDesign.Typography.rowSecondary)
                             .fontWeight(.medium)
-                            .foregroundColor(.red)
+                            .foregroundColor(EnsembleDesign.Color.destructive)
                     }
 
                     if row.retryCount > 0 {
                         Text("\(row.retryCount) retries")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .font(EnsembleDesign.Typography.cardMetadata)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 }
             }
@@ -123,22 +123,22 @@ private struct MutationRowView: View {
             // Retry button for failed mutations
             if row.status == .failed {
                 Button(action: onRetry) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.caption)
-                        .foregroundColor(.accentColor)
+                    Image(systemName: EnsembleDesign.Icon.retry)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.accent)
                 }
                 .buttonStyle(.plain)
             } else {
                 // Pending indicator
-                Image(systemName: "clock")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Image(systemName: EnsembleDesign.Icon.clock)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
-        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding / 2)
+        .padding(.vertical, EnsembleScaffold.UtilityRow.halfRowVerticalPadding)
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             Button(role: .destructive, action: onDelete) {
-                Label("Delete", systemImage: "trash")
+                Label("Delete", systemImage: EnsembleDesign.Icon.delete)
             }
         }
     }
@@ -146,26 +146,26 @@ private struct MutationRowView: View {
     private var iconName: String {
         switch row.mutationType {
         case .trackRating:
-            return "heart"
+            return EnsembleDesign.Icon.favorite
         case .playlistAdd:
-            return "text.badge.plus"
+            return EnsembleDesign.Icon.addToPlaylist
         case .playlistRemove:
-            return "text.badge.minus"
+            return EnsembleDesign.Icon.removeFromPlaylist
         case .playlistRename:
-            return "pencil"
+            return EnsembleDesign.Icon.edit
         case .playlistDelete:
-            return "trash"
+            return EnsembleDesign.Icon.delete
         case .scrobble:
-            return "music.note"
+            return EnsembleDesign.Icon.musicNote
         }
     }
 
     private var iconColor: Color {
         switch row.status {
         case .failed:
-            return .red
+            return EnsembleDesign.Color.destructive
         case .pending:
-            return .accentColor
+            return EnsembleDesign.Color.accent
         }
     }
 }

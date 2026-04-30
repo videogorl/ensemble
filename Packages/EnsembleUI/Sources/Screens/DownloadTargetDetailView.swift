@@ -24,7 +24,7 @@ public struct DownloadTargetDetailView: View {
     public var body: some View {
         MediaDetailSurface(artworkImage: artworkImage) {
             ScrollView {
-                VStack(spacing: 0) {
+                VStack(spacing: EnsembleDesign.Spacing.none) {
                     detailHeader
                     trackListSection
                 }
@@ -97,44 +97,42 @@ public struct DownloadTargetDetailView: View {
     }
 
     private func headerMetadata(alignment: HorizontalAlignment) -> some View {
-        VStack(alignment: alignment, spacing: 8) {
+        VStack(alignment: alignment, spacing: EnsembleScaffold.DownloadDetail.metadataSpacing) {
             if canLinkToOriginalItem {
                 NavigationLink {
                     originalItemDestination()
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: EnsembleScaffold.DownloadDetail.progressSpacing) {
                         Text(viewModel.summary.title)
-                            .font(.title2)
-                            .fontWeight(.bold)
+                            .font(EnsembleDesign.Typography.stateTitle)
                             .multilineTextAlignment(alignment == .center ? .center : .leading)
-                            .foregroundColor(.accentColor)
-                        Image(systemName: "arrow.up.forward")
-                            .font(.caption)
-                            .foregroundColor(.accentColor)
+                            .foregroundColor(EnsembleDesign.Color.accent)
+                        Image(systemName: EnsembleDesign.Icon.externalLink)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.accent)
                     }
                     .frame(maxWidth: alignment == .center ? .infinity : nil, alignment: alignment == .center ? .center : .leading)
                 }
                 .buttonStyle(.plain)
             } else {
                 Text(viewModel.summary.title)
-                    .font(.title2)
-                    .fontWeight(.bold)
+                    .font(EnsembleDesign.Typography.stateTitle)
                     .multilineTextAlignment(alignment == .center ? .center : .leading)
             }
 
             Text(headerSubtitle)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.stateMessage)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
                 .multilineTextAlignment(alignment == .center ? .center : .leading)
 
             if viewModel.liveStatus != .completed && viewModel.liveTotalCount > 0 {
-                VStack(alignment: alignment, spacing: 4) {
+                VStack(alignment: alignment, spacing: EnsembleScaffold.DownloadDetail.progressSpacing) {
                     ProgressView(value: Double(viewModel.liveProgress))
                         .progressViewStyle(.linear)
-                        .frame(maxWidth: 280)
+                        .frame(maxWidth: EnsembleScaffold.DownloadDetail.progressMaxWidth)
 
                     Text("\(viewModel.liveCompletedCount) of \(viewModel.liveTotalCount) tracks • \(statusLabel(for: viewModel.liveStatus))")
-                        .font(.caption)
+                        .font(EnsembleDesign.Typography.rowSecondary)
                         .foregroundColor(statusColor(for: viewModel.liveStatus))
                         .multilineTextAlignment(alignment == .center ? .center : .leading)
                 }
@@ -167,7 +165,7 @@ public struct DownloadTargetDetailView: View {
                 )
             }
         }
-        .padding(.horizontal, horizontalPadding ? TrackListLayoutMetrics.rowHorizontalPadding : 0)
+        .padding(.horizontal, horizontalPadding ? TrackListLayoutMetrics.rowHorizontalPadding : EnsembleDesign.Spacing.none)
         .padding(.bottom)
         .chromelessMediaControlButton()
         .disabled(viewModel.playableTracks.isEmpty)
@@ -182,12 +180,12 @@ public struct DownloadTargetDetailView: View {
             switch viewModel.queueStatusReason {
             case .waitingForWiFi:
                 queueBannerRow(
-                    icon: "wifi.slash",
+                    icon: EnsembleDesign.Icon.offline,
                     message: "Downloads paused \u{2014} connect to Wi-Fi to continue"
                 )
             case .offline:
                 queueBannerRow(
-                    icon: "wifi.slash",
+                    icon: EnsembleDesign.Icon.offline,
                     message: "Downloads paused \u{2014} no connection"
                 )
             case .idle, .downloading, .paused:
@@ -197,15 +195,15 @@ public struct DownloadTargetDetailView: View {
     }
 
     private func queueBannerRow(icon: String, message: String) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: EnsembleScaffold.DownloadDetail.bannerSpacing) {
             Image(systemName: icon)
-                .foregroundColor(.secondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
             Text(message)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.stateMessage)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
         .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-        .padding(.vertical, 10)
+        .padding(.vertical, EnsembleDesign.Spacing.compactControlVertical)
     }
 
     // MARK: - Track List
@@ -229,7 +227,7 @@ public struct DownloadTargetDetailView: View {
             queueStatusBanner
 
             MediaDetailSurface<EmptyView>.ListCard {
-                LazyVStack(spacing: 0) {
+                LazyVStack(spacing: EnsembleDesign.Spacing.none) {
                     ForEach(viewModel.tracks) { row in
                         TrackDownloadRowView(row: row, currentQuality: downloadQuality) {
                             Task { await viewModel.retryDownload(row: row) }
@@ -270,7 +268,7 @@ public struct DownloadTargetDetailView: View {
                     deps.toastCenter.show(
                         ToastPayload(
                             style: .info,
-                            iconSystemName: "arrow.triangle.2.circlepath",
+                            iconSystemName: EnsembleDesign.Icon.refreshCycle,
                             title: "Target Refreshed",
                             message: "Re-queued mismatched and failed downloads."
                         )
@@ -280,7 +278,7 @@ public struct DownloadTargetDetailView: View {
                 if isRefreshing {
                     ProgressView()
                 } else {
-                    Label("Refresh Downloads", systemImage: "arrow.triangle.2.circlepath")
+                    Label("Refresh Downloads", systemImage: EnsembleDesign.Icon.refreshCycle)
                 }
             }
             .disabled(isRefreshing)
@@ -295,7 +293,7 @@ public struct DownloadTargetDetailView: View {
             Button {
                 Task { await viewModel.retryAllFailed() }
             } label: {
-                Label("Retry All Failed", systemImage: "arrow.clockwise")
+                Label("Retry All Failed", systemImage: EnsembleDesign.Icon.retry)
             }
         }
     }

@@ -104,7 +104,7 @@ public struct MoodTracksView: View {
             .ignoresSafeArea(.container, edges: [.top, .bottom])
             #else
             ScrollView {
-                VStack(spacing: 0) {
+                VStack(spacing: EnsembleDesign.Spacing.none) {
                     moodHeader
                     if isLoading {
                         EnsembleStateScaffold(
@@ -158,7 +158,7 @@ public struct MoodTracksView: View {
     // MARK: - Table Header (scrolls with tracks)
 
     private var moodHeader: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
             headerView
             actionButtons
         }

@@ -135,6 +135,7 @@ public enum EnsembleDesign {
         public static let addCircle = "plus.circle.fill"
         public static let addCircleOutline = "plus.circle"
         public static let addToPlaylist = "text.badge.plus"
+        public static let removeFromPlaylist = "text.badge.minus"
         public static let album = "square.stack"
         public static let artist = "person.circle"
         public static let artists = "person.2"

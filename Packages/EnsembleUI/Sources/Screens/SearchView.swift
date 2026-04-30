@@ -44,7 +44,7 @@ public struct SearchView: View {
     }
 
     public var body: some View {
-        let baseContent = VStack(spacing: 0) {
+        let baseContent = VStack(spacing: EnsembleDesign.Spacing.none) {
             // Content - either explore or search results
             if viewModel.searchQuery.isEmpty {
                 exploreView
@@ -1125,7 +1125,7 @@ public struct SearchView: View {
             }
             .padding(.horizontal)
             
-            VStack(spacing: 0) {
+            VStack(spacing: EnsembleDesign.Spacing.none) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     content(item)
                     

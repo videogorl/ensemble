@@ -30,7 +30,7 @@ struct LibraryDownloadDetailView: View {
                 .ignoresSafeArea()
 
             ScrollView {
-                VStack(spacing: 0) {
+                VStack(spacing: EnsembleDesign.Spacing.none) {
                     headerView
                     actionButtons
                     trackListSection
@@ -65,56 +65,59 @@ struct LibraryDownloadDetailView: View {
 
     private var backgroundGradient: some View {
         LinearGradient(
-            colors: [Color.accentColor.opacity(0.3), Color.clear],
+            colors: [EnsembleDesign.Color.accent.opacity(EnsembleScaffold.DownloadDetail.backgroundAccentOpacity), Color.clear],
             startPoint: .top,
             endPoint: .bottom
         )
-        .frame(height: 400)
+        .frame(height: EnsembleScaffold.DownloadDetail.backgroundHeight)
     }
 
     // MARK: - Header
 
     private var headerView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: EnsembleScaffold.DownloadDetail.headerSpacing) {
             // Generic library icon
-            Image(systemName: "building.columns")
-                .font(.system(size: 60))
-                .foregroundColor(.accentColor)
-                .frame(width: 120, height: 120)
-                #if os(iOS)
-                .background(Color(UIColor.secondarySystemGroupedBackground))
-                #else
-                .background(Color(NSColor.controlBackgroundColor))
-                #endif
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 10)
+            Image(systemName: EnsembleDesign.Icon.libraryBuilding)
+                .font(EnsembleScaffold.DownloadDetail.headerIconSize)
+                .foregroundColor(EnsembleDesign.Color.accent)
+                .frame(
+                    width: EnsembleScaffold.DownloadDetail.headerIconDimension,
+                    height: EnsembleScaffold.DownloadDetail.headerIconDimension
+                )
+                .background(EnsembleDesign.Color.groupedSurface)
+                .clipShape(RoundedRectangle(cornerRadius: EnsembleDesign.Radius.card, style: .continuous))
+                .shadow(
+                    color: EnsembleScaffold.DownloadDetail.headerIconShadowColor,
+                    radius: EnsembleScaffold.DownloadDetail.headerIconShadowRadius,
+                    x: EnsembleDesign.Spacing.none,
+                    y: EnsembleScaffold.DownloadDetail.headerIconShadowY
+                )
 
-            VStack(spacing: 8) {
+            VStack(spacing: EnsembleScaffold.DownloadDetail.metadataSpacing) {
                 Text(viewModel.title)
-                    .font(.title2)
-                    .fontWeight(.bold)
+                    .font(EnsembleDesign.Typography.stateTitle)
                     .multilineTextAlignment(.center)
 
                 Text(headerSubtitle)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.stateMessage)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                     .multilineTextAlignment(.center)
 
                 // Progress bar while downloading
                 if viewModel.liveStatus != .completed && viewModel.liveTotalCount > 0 {
-                    VStack(spacing: 4) {
+                    VStack(spacing: EnsembleScaffold.DownloadDetail.progressSpacing) {
                         ProgressView(value: Double(viewModel.liveProgress))
                             .progressViewStyle(.linear)
-                            .frame(maxWidth: 280)
+                            .frame(maxWidth: EnsembleScaffold.DownloadDetail.progressMaxWidth)
 
                         Text("\(viewModel.liveCompletedCount) of \(viewModel.liveTotalCount) tracks \u{2022} \(statusLabel(for: viewModel.liveStatus))")
-                            .font(.caption)
+                            .font(EnsembleDesign.Typography.rowSecondary)
                             .foregroundColor(statusColor(for: viewModel.liveStatus))
                     }
                 }
             }
         }
-        .padding()
+        .padding(EnsembleDesign.Spacing.lg)
     }
 
     // MARK: - Action Buttons
@@ -125,30 +128,30 @@ struct LibraryDownloadDetailView: View {
                 nowPlayingVM.play(tracks: viewModel.playableTracks)
             } label: {
                 HStack {
-                    Image(systemName: "play.fill")
+                    Image(systemName: EnsembleDesign.Icon.play)
                     Text("Play")
                 }
-                .font(.headline)
+                .font(EnsembleDesign.Typography.actionLabel)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.accentColor)
-                .foregroundColor(.white)
-                .cornerRadius(10)
+                .padding(.vertical, EnsembleScaffold.DownloadDetail.actionVerticalPadding)
+                .background(EnsembleDesign.Color.accent)
+                .foregroundColor(EnsembleDesign.Color.onAccent)
+                .cornerRadius(EnsembleScaffold.DownloadDetail.actionCornerRadius)
             }
 
             Button {
                 nowPlayingVM.shufflePlay(tracks: viewModel.playableTracks)
             } label: {
                 HStack {
-                    Image(systemName: "shuffle")
+                    Image(systemName: EnsembleDesign.Icon.shuffle)
                     Text("Shuffle")
                 }
-                .font(.headline)
+                .font(EnsembleDesign.Typography.actionLabel)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.gray.opacity(0.2))
-                .foregroundColor(.primary)
-                .cornerRadius(10)
+                .padding(.vertical, EnsembleScaffold.DownloadDetail.actionVerticalPadding)
+                .background(EnsembleDesign.Color.secondaryControlFill)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
+                .cornerRadius(EnsembleScaffold.DownloadDetail.actionCornerRadius)
             }
         }
         .padding(.horizontal)
@@ -166,12 +169,12 @@ struct LibraryDownloadDetailView: View {
             switch viewModel.queueStatusReason {
             case .waitingForWiFi:
                 queueBannerRow(
-                    icon: "wifi.slash",
+                    icon: EnsembleDesign.Icon.offline,
                     message: "Downloads paused \u{2014} connect to Wi-Fi to continue"
                 )
             case .offline:
                 queueBannerRow(
-                    icon: "wifi.slash",
+                    icon: EnsembleDesign.Icon.offline,
                     message: "Downloads paused \u{2014} no connection"
                 )
             case .idle, .downloading, .paused:
@@ -181,15 +184,15 @@ struct LibraryDownloadDetailView: View {
     }
 
     private func queueBannerRow(icon: String, message: String) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: EnsembleScaffold.DownloadDetail.bannerSpacing) {
             Image(systemName: icon)
-                .foregroundColor(.secondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
             Text(message)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.stateMessage)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
         .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-        .padding(.vertical, 10)
+        .padding(.vertical, EnsembleDesign.Spacing.compactControlVertical)
     }
 
     // MARK: - Track List
@@ -212,7 +215,7 @@ struct LibraryDownloadDetailView: View {
         } else {
             queueStatusBanner
 
-            LazyVStack(spacing: 0) {
+            LazyVStack(spacing: EnsembleDesign.Spacing.none) {
                 ForEach(viewModel.tracks) { row in
                     TrackDownloadRowView(row: row, currentQuality: downloadQuality) {
                         Task { await viewModel.retryDownload(row: row) }
@@ -233,12 +236,8 @@ struct LibraryDownloadDetailView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.35), value: viewModel.tracks.map { "\($0.id)-\($0.status.rawValue)" })
-            #if os(iOS)
-            .background(Color(UIColor.secondarySystemGroupedBackground))
-            #else
-            .background(Color(NSColor.controlBackgroundColor))
-            #endif
-            .cornerRadius(12)
+            .background(EnsembleDesign.Color.groupedSurface)
+            .cornerRadius(EnsembleDesign.Radius.card)
             .padding(.horizontal)
             .padding(.bottom, TrackListLayoutMetrics.miniPlayerBottomSpacing)
         }
@@ -252,7 +251,7 @@ struct LibraryDownloadDetailView: View {
             Button {
                 Task { await viewModel.retryAllFailed() }
             } label: {
-                Label("Retry All Failed", systemImage: "arrow.clockwise")
+                Label("Retry All Failed", systemImage: EnsembleDesign.Icon.retry)
             }
         }
     }
