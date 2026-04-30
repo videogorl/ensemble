@@ -346,6 +346,7 @@ Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterize
 | Sticky action buttons | region | Play/Shuffle/Radio buttons that pin when scrolled past | `stickyActionButtons`, `LazyVStack(pinnedViews:)` |
 | Action buttons | region | Play, Shuffle, and optional Radio buttons | `actionButtons` |
 | Detail action label | component | Shared filled/secondary Play and Shuffle button label treatment | `MediaDetailSurface.ActionLabel` |
+| Detail symbol artwork | component | Shared virtual-collection artwork surface for Favorites, moods, and similar non-album headers | `MediaDetailSurface.SymbolArtwork` |
 | Detail surface policy | policy | Semantic metrics for media-style detail headers, artwork shadows, action labels, and list cards | `EnsembleScaffold.DetailSurface` |
 | Track list | list | Ordered track list (UIKit-backed on iOS for swipe actions) | `tracksSection`, `MediaTrackList` |
 | Background gradient | region | Blurred artwork background fading to content | `backgroundGradient`, `BlurredArtworkBackground` |
@@ -500,7 +501,7 @@ Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterize
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Favorites header | region | Top area with heart icon, title, statistics | header |
+| Favorites header | region | Adaptive top area with symbol artwork, title, statistics, and actions | `favoritesHeaderSurface`, `MediaDetailSurface.Header` |
 | Heart icon | artwork | Large red heart symbol | `heart.fill` |
 | Track count and duration | text | Number of favorites and total duration | `filteredTracks.count`, `totalDuration` |
 | Play button | action | Play all favorites in order | `Play`, `play.fill` |

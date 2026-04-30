@@ -208,6 +208,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - **Blurred backgrounds:** NowPlayingView and detail views use `BlurredArtworkBackground`
 - **Shared detail artwork wash:** `MediaDetailView` and `DownloadTargetDetailView` must use `ArtworkDetailBackground` for the blurred header image so dark/light overlay behavior stays identical across detail screens
 - **Shared detail shell:** Media-style detail screens should build their hero artwork, metadata block, action row, and list-card styling on `MediaDetailSurface` so `MediaDetailView` and `DownloadTargetDetailView` do not drift on spacing, wide-layout behavior, or light/dark presentation
+- **Shared virtual detail headers:** Favorites, mood, smart playlist, and other virtual collections that do not have album artwork should use `MediaDetailSurface.Header` with `MediaDetailSurface.SymbolArtwork` so compact and large-screen headers inherit the same fluid resizing behavior as media detail screens.
 - **Shared detail actions:** Detail Play/Shuffle-style button labels should use `MediaDetailSurface.ActionLabel`, and repeated Play/Shuffle action strips should use `MediaDetailSurface.ActionRow`, so filled/accent, secondary action, spacing, disabled state, and chromeless button treatment stay aligned across media detail variants.
 
 ### Typography & Spacing

@@ -118,6 +118,42 @@ extension MediaDetailSurface {
         }
     }
 
+    /// Shared symbol artwork used by virtual/detail collections without album art.
+    struct SymbolArtwork: View {
+        let systemImage: String
+        let foregroundColor: Color
+        let backgroundColor: Color
+        let dimension: CGFloat
+        let iconSize: CGFloat
+
+        init(
+            systemImage: String,
+            foregroundColor: Color,
+            backgroundColor: Color,
+            dimension: CGFloat = EnsembleScaffold.Favorites.heroArtworkDimension,
+            iconSize: CGFloat = EnsembleScaffold.Favorites.heroIconSize
+        ) {
+            self.systemImage = systemImage
+            self.foregroundColor = foregroundColor
+            self.backgroundColor = backgroundColor
+            self.dimension = dimension
+            self.iconSize = iconSize
+        }
+
+        var body: some View {
+            ZStack {
+                RoundedRectangle(cornerRadius: ArtworkCornerRadius.square(for: dimension), style: .continuous)
+                    .fill(backgroundColor)
+
+                Image(systemName: systemImage)
+                    .font(.system(size: iconSize))
+                    .foregroundColor(foregroundColor)
+            }
+            .frame(width: dimension, height: dimension)
+            .mediaDetailArtworkShadow()
+        }
+    }
+
     struct Header<
         TopContent: View,
         Artwork: View,

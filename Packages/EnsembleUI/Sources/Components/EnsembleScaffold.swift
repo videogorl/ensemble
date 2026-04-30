@@ -103,9 +103,19 @@ public enum EnsembleScaffold {
 
     public enum Favorites {
         public static let heroIconSize: CGFloat = 80
+        public static let heroArtworkDimension: CGFloat = 140
         public static let heroTopPadding = EnsembleDesign.Spacing.xl
         public static let headerBottomPadding = EnsembleDesign.Spacing.xl
         public static let metadataSpacing = EnsembleDesign.Spacing.xs
+    }
+
+    public enum MoodDetail {
+        public static let heroIconSize: CGFloat = 60
+        public static let heroArtworkDimension: CGFloat = EnsembleScaffold.Favorites.heroArtworkDimension
+        public static let backgroundHeight: CGFloat = 400
+        public static let backgroundStrongOpacity = 0.6
+        public static let backgroundSoftOpacity = 0.3
+        public static let symbolBackgroundOpacity = 0.2
     }
 
     public enum Genres {

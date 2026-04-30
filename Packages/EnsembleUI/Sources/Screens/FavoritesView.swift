@@ -248,8 +248,7 @@ public struct FavoritesView: View {
         // iOS: ScrollView with embedded UITableView (MediaTrackList)
         ScrollView {
             VStack(spacing: EnsembleDesign.Spacing.none) {
-                favoritesHeader
-                favoritesActionButtons
+                favoritesHeaderSurface
 
                 // Track list
                 let trackCount = viewModel.filteredTracks.count
@@ -278,8 +277,7 @@ public struct FavoritesView: View {
         List {
             // Header section: heart icon, stats, action buttons
             Section {
-                favoritesHeader
-                favoritesActionButtons
+                favoritesHeaderSurface
             }
             .hideListRowSeparator()
             .listRowInsets(EdgeInsets())
@@ -344,36 +342,46 @@ public struct FavoritesView: View {
         }
     }
 
-    /// Favorites header with heart icon and track stats
-    private var favoritesHeader: some View {
-        VStack(spacing: EnsembleDesign.Spacing.lg) {
-            Image(systemName: EnsembleDesign.Icon.favoriteFilled)
-                .font(.system(size: EnsembleScaffold.Favorites.heroIconSize))
-                .foregroundColor(EnsembleDesign.Color.favorite)
-                .padding(.top, EnsembleScaffold.Favorites.heroTopPadding)
-
-            VStack(spacing: EnsembleScaffold.Favorites.metadataSpacing) {
+    /// Adaptive Favorites header with shared detail artwork and action layout.
+    private var favoritesHeaderSurface: some View {
+        MediaDetailSurface<EmptyView>.Header {
+            EmptyView()
+        } artwork: {
+            MediaDetailSurface<EmptyView>.SymbolArtwork(
+                systemImage: EnsembleDesign.Icon.favoriteFilled,
+                foregroundColor: EnsembleDesign.Color.favorite,
+                backgroundColor: EnsembleDesign.Color.favorite.opacity(0.16)
+            )
+        } metadata: { alignment in
+            VStack(alignment: alignment, spacing: EnsembleScaffold.Favorites.metadataSpacing) {
                 Text("Favorites")
                     .font(EnsembleDesign.Typography.sectionTitle)
+                    .multilineTextAlignment(alignment == .center ? .center : .leading)
 
                 Text("\(viewModel.filteredTracks.count) tracks \u{2022} \(viewModel.totalDuration)")
                     .font(EnsembleDesign.Typography.stateMessage)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    .multilineTextAlignment(alignment == .center ? .center : .leading)
 
                 Text("All libraries")
                     .font(EnsembleDesign.Typography.rowSecondary)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    .multilineTextAlignment(alignment == .center ? .center : .leading)
             }
+        } compactActions: {
+            favoritesActionButtons(horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding)
+        } wideActions: { _ in
+            favoritesActionButtons(horizontalPadding: EnsembleDesign.Spacing.none)
         }
-        .frame(maxWidth: .infinity)
         .padding(.bottom, EnsembleScaffold.Favorites.headerBottomPadding)
     }
 
     /// Play and Shuffle action buttons
-    private var favoritesActionButtons: some View {
+    private func favoritesActionButtons(horizontalPadding: CGFloat) -> some View {
         MediaDetailSurface<EmptyView>.ActionRow(
-            horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding,
-            bottomPadding: EnsembleDesign.Spacing.lg
+            horizontalPadding: horizontalPadding,
+            bottomPadding: EnsembleDesign.Spacing.lg,
+            isDisabled: viewModel.filteredTracks.isEmpty
         ) {
             Button {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)

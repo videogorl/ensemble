@@ -28,6 +28,7 @@ public struct MoodTracksView: View {
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     @State private var currentTrackId: String?
+    @State private var trackListSupplementalMetadataWidth: CGFloat = 0
 
     public init(mood: Mood, nowPlayingVM: NowPlayingViewModel) {
         self.mood = mood
@@ -55,6 +56,7 @@ public struct MoodTracksView: View {
                 bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
                 tableHeaderContent: AnyView(moodHeader),
                 tableFooterContent: AnyView(moodFooter),
+                supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                 onPlayNext: { track in
                     nowPlayingVM.playNext(track)
                 },
@@ -102,6 +104,7 @@ public struct MoodTracksView: View {
                 nowPlayingVM.play(tracks: moodTracks, startingAt: index)
             }
             .ignoresSafeArea(.container, edges: [.top, .bottom])
+            .background(trackListSupplementalMetadataWidthReader)
             #else
             ScrollView {
                 VStack(spacing: EnsembleDesign.Spacing.none) {
@@ -121,6 +124,44 @@ public struct MoodTracksView: View {
                             tracks: moodTracks,
                             showArtwork: true,
                             showTrackNumbers: false,
+                            currentTrackId: currentTrackId,
+                            onPlayNext: { track in
+                                nowPlayingVM.playNext(track)
+                            },
+                            onPlayLast: { track in
+                                nowPlayingVM.playLast(track)
+                            },
+                            onAddToPlaylist: { track in
+                                presentPlaylistPicker(with: [track])
+                            },
+                            onAddToRecentPlaylist: { track in
+                                addToRecentPlaylist(track)
+                            },
+                            onToggleFavorite: { track in
+                                Task {
+                                    await nowPlayingVM.toggleTrackFavorite(track)
+                                }
+                            },
+                            onGoToAlbum: { track in
+                                if let albumId = track.albumRatingKey {
+                                    navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
+                                }
+                            },
+                            onGoToArtist: { track in
+                                if let artistId = track.artistRatingKey {
+                                    navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
+                                }
+                            },
+                            onShareLink: { track in
+                                ShareActions.shareTrackLink(track, deps: deps)
+                            },
+                            onShareFile: { track in
+                                ShareActions.shareTrackFile(track, deps: deps)
+                            },
+                            canAddToRecentPlaylist: { track in
+                                recentPlaylistTitle(for: track) != nil
+                            },
+                            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title,
                             nowPlayingVM: nowPlayingVM
                         ) { track, index in
                             if !nowPlayingVM.isAutoplayEnabled {
@@ -131,6 +172,7 @@ public struct MoodTracksView: View {
                     }
                 }
             }
+            .background(trackListSupplementalMetadataWidthReader)
             #endif
         }
         .navigationTitle(mood.title)
@@ -158,10 +200,7 @@ public struct MoodTracksView: View {
     // MARK: - Table Header (scrolls with tracks)
 
     private var moodHeader: some View {
-        VStack(spacing: EnsembleDesign.Spacing.none) {
-            headerView
-            actionButtons
-        }
+        headerView
     }
 
     // MARK: - Table Footer (loading/error/empty states)
@@ -228,8 +267,8 @@ public struct MoodTracksView: View {
     private var backgroundGradient: some View {
         LinearGradient(
             colors: [
-                moodColor.opacity(0.6),
-                moodColor.opacity(0.3)
+                moodColor.opacity(EnsembleScaffold.MoodDetail.backgroundStrongOpacity),
+                moodColor.opacity(EnsembleScaffold.MoodDetail.backgroundSoftOpacity)
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
@@ -241,7 +280,25 @@ public struct MoodTracksView: View {
                 endPoint: .bottom
             )
         )
-        .frame(height: 400)
+        .frame(height: EnsembleScaffold.MoodDetail.backgroundHeight)
+    }
+
+    private var trackListSupplementalMetadataWidthReader: some View {
+        GeometryReader { geometry in
+            Color.clear
+                .onAppear {
+                    updateTrackListSupplementalMetadataWidth(geometry.size.width)
+                }
+                .onChange(of: geometry.size.width) { newWidth in
+                    updateTrackListSupplementalMetadataWidth(newWidth)
+                }
+        }
+    }
+
+    private func updateTrackListSupplementalMetadataWidth(_ newWidth: CGFloat) {
+        if abs(trackListSupplementalMetadataWidth - newWidth) > 1 {
+            trackListSupplementalMetadataWidth = newWidth
+        }
     }
 
     private func presentPlaylistPicker(with tracks: [Track]) {
@@ -277,30 +334,33 @@ public struct MoodTracksView: View {
     }
 
     private var headerView: some View {
-        VStack(spacing: 16) {
-            // Centered mood icon
-            ZStack {
-                Circle()
-                    .fill(moodColor.opacity(0.2))
-                    .frame(width: 140, height: 140)
-
-                Image(systemName: "music.note.list")
-                    .font(.system(size: 60))
-                    .foregroundColor(moodColor)
-            }
-            .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
-
-            // Mood title
+        MediaDetailSurface<EmptyView>.Header {
+            EmptyView()
+        } artwork: {
+            MediaDetailSurface<EmptyView>.SymbolArtwork(
+                systemImage: EnsembleDesign.Icon.playlist,
+                foregroundColor: moodColor,
+                backgroundColor: moodColor.opacity(EnsembleScaffold.MoodDetail.symbolBackgroundOpacity),
+                dimension: EnsembleScaffold.MoodDetail.heroArtworkDimension,
+                iconSize: EnsembleScaffold.MoodDetail.heroIconSize
+            )
+        } metadata: { alignment in
             Text(mood.title)
-                .font(.title2)
-                .fontWeight(.bold)
-                .multilineTextAlignment(.center)
+                .font(EnsembleDesign.Typography.sectionTitle)
+                .multilineTextAlignment(alignment == .center ? .center : .leading)
+        } compactActions: {
+            actionButtons(horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding)
+        } wideActions: { _ in
+            actionButtons(horizontalPadding: EnsembleDesign.Spacing.none)
         }
-        .padding()
     }
 
-    private var actionButtons: some View {
-        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+    private func actionButtons(horizontalPadding: CGFloat) -> some View {
+        MediaDetailSurface<EmptyView>.ActionRow(
+            horizontalPadding: horizontalPadding,
+            bottomPadding: EnsembleDesign.Spacing.lg,
+            isDisabled: moodTracks.isEmpty
+        ) {
             Button(action: {
                 if !nowPlayingVM.isAutoplayEnabled {
                     nowPlayingVM.toggleAutoplay()
@@ -310,16 +370,11 @@ public struct MoodTracksView: View {
                 }
                 nowPlayingVM.play(tracks: moodTracks, startingAt: 0)
             }) {
-                HStack {
-                    Image(systemName: "play.fill")
-                    Text("Play")
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.accentColor)
-                .foregroundColor(.white)
-                .cornerRadius(10)
+                MediaDetailSurface<EmptyView>.ActionLabel(
+                    "Play",
+                    systemImage: EnsembleDesign.Icon.play,
+                    role: .primary
+                )
             }
 
             Button(action: {
@@ -331,21 +386,13 @@ public struct MoodTracksView: View {
                 }
                 nowPlayingVM.play(tracks: moodTracks, startingAt: 0)
             }) {
-                HStack {
-                    Image(systemName: "shuffle")
-                    Text("Shuffle")
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.gray.opacity(0.2))
-                .foregroundColor(.primary)
-                .cornerRadius(10)
+                MediaDetailSurface<EmptyView>.ActionLabel(
+                    "Shuffle",
+                    systemImage: EnsembleDesign.Icon.shuffle,
+                    role: .secondary
+                )
             }
         }
-        .padding(.horizontal)
-        .padding(.bottom)
-        .chromelessMediaControlButton()
     }
 
     // MARK: - Helpers

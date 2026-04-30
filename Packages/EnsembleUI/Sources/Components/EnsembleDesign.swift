@@ -250,9 +250,9 @@ public enum EnsembleDesign {
 
     public enum Effect {
         public static let shadowColor = SwiftUI.Color.black.opacity(0.15)
-        public static let shadowRadius: CGFloat = 20
+        public static let shadowRadius: CGFloat = 6
         public static let shadowX: CGFloat = 0
-        public static let shadowY: CGFloat = 5
+        public static let shadowY: CGFloat = 2
 
         public static let cardShadowColor = shadowColor
         public static let cardShadowRadius = shadowRadius
