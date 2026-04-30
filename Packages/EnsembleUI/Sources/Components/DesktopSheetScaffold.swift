@@ -35,7 +35,7 @@ public struct DesktopSheetScaffold<Content: View, Footer: View>: View {
 
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.subheadline)
+                        .font(EnsembleDesign.Typography.stateMessage)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }

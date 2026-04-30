@@ -21,8 +21,8 @@ public struct LogsSettingsView: View {
                         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxs) {
                             Text("Persistent Logging")
                             Text("When enabled, app logs are saved each session. Useful for diagnosing issues.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                                .font(EnsembleDesign.Typography.rowSecondary)
+                                .foregroundColor(EnsembleDesign.Color.secondaryText)
                         }
                     }
                 }
@@ -35,8 +35,8 @@ public struct LogsSettingsView: View {
             Section {
                 if logService.sessions.isEmpty {
                     Text("No log sessions yet.")
-                        .foregroundColor(.secondary)
-                        .font(.subheadline)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .font(EnsembleDesign.Typography.stateMessage)
                 } else {
                     ForEach(logService.sessions) { session in
                         NavigationLink {
@@ -54,7 +54,7 @@ public struct LogsSettingsView: View {
                 }
             } header: {
                 Text("Sessions")
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(EnsembleDesign.Color.accent)
                     .textCase(nil)
             }
 
@@ -68,7 +68,7 @@ public struct LogsSettingsView: View {
                             Image(systemName: EnsembleDesign.Icon.delete)
                                 .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
                             Text("Delete All Sessions")
-                                .foregroundColor(.red)
+                                .foregroundColor(EnsembleDesign.Color.destructive)
                         }
                     }
                 }
@@ -98,10 +98,10 @@ private struct LogSessionRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
             Text(formattedDate)
-                .font(.body)
+                .font(EnsembleDesign.Typography.rowPrimary)
             Text(formattedSize)
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
         .padding(.vertical, EnsembleDesign.Spacing.xxs)
     }

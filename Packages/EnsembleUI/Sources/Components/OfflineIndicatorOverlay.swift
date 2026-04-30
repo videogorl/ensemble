@@ -52,9 +52,9 @@ public struct OfflineIndicatorOverlay: View {
     private var indicatorColor: Color {
         switch networkState {
         case .offline:
-            return Color.orange
+            return EnsembleDesign.Color.warning
         case .limited:
-            return Color.yellow
+            return EnsembleDesign.Color.pending
         case .online, .unknown:
             return Color.clear
         }

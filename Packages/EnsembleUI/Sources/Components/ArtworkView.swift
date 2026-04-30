@@ -149,7 +149,7 @@ public struct ArtworkView: View {
     @ViewBuilder
     private func artworkContent(iconSize: CGFloat) -> some View {
         ZStack {
-            Color.gray.opacity(0.2)
+            EnsembleDesign.Color.placeholderArtwork
 
             if let image = resolvedImage {
                 platformImageView(image)
@@ -160,7 +160,7 @@ public struct ArtworkView: View {
             } else {
                 Image(systemName: EnsembleDesign.Icon.musicNote)
                     .font(.system(size: iconSize))
-                    .foregroundColor(.gray.opacity(0.5))
+                    .foregroundColor(EnsembleDesign.Color.placeholderArtworkIcon)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -112,6 +112,7 @@ public enum EnsembleDesign {
         public static let onArtwork = SwiftUI.Color.white.opacity(0.9)
         public static let divider = SwiftUI.Color.secondary.opacity(0.18)
         public static let placeholderArtwork = SwiftUI.Color.primary.opacity(0.1)
+        public static let placeholderArtworkIcon = SwiftUI.Color.gray.opacity(0.5)
         public static let modalProgressScrim = SwiftUI.Color.black.opacity(0.12)
 
         public static var groupedSurface: SwiftUI.Color {

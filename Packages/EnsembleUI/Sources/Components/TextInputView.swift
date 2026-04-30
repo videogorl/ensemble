@@ -50,7 +50,7 @@ struct TextInputView: View {
             if !message.isEmpty {
                 Section {
                     Text(message)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }
 

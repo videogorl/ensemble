@@ -458,7 +458,7 @@ private struct MiniPlayerControls: View {
             if showsPreviousButton {
                 Button(action: viewModel.previous) {
                     Image(systemName: EnsembleDesign.Icon.previous)
-                        .font(.title3)
+                        .font(EnsembleDesign.Typography.detailSubtitle)
                 }
             }
 
@@ -470,8 +470,8 @@ private struct MiniPlayerControls: View {
                             .progressViewStyle(CircularProgressViewStyle(tint: .primary))
                             .scaleEffect(EnsembleScaffold.MiniPlayer.controlLoadingScale)
                     } else {
-                        Image(systemName: viewModel.isPlaying ? "pause.fill" : EnsembleDesign.Icon.play)
-                            .font(.title2)
+                        Image(systemName: viewModel.isPlaying ? EnsembleDesign.Icon.pause : EnsembleDesign.Icon.play)
+                            .font(EnsembleDesign.Typography.sectionTitle)
                     }
                 }
             }
@@ -481,7 +481,7 @@ private struct MiniPlayerControls: View {
 
             Button(action: viewModel.next) {
                 Image(systemName: EnsembleDesign.Icon.next)
-                    .font(.title3)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
             }
 
             if showsActionsMenu {

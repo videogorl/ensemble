@@ -95,8 +95,8 @@ public struct LogDetailView: View {
                             loadMoreLines()
                         } label: {
                             Text("\(hiddenLineCount) earlier lines — tap to load more")
-                                .font(.caption)
-                                .foregroundColor(.accentColor)
+                                .font(EnsembleDesign.Typography.rowSecondary)
+                                .foregroundColor(EnsembleDesign.Color.accent)
                                 .padding(.vertical, EnsembleScaffold.LogViewer.loadMoreButtonVerticalPadding)
                                 .frame(maxWidth: .infinity)
                         }

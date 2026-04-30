@@ -15,7 +15,7 @@ public struct OfflineServersView: View {
             if viewModel.sections.isEmpty {
                 Section {
                     Text("No enabled libraries")
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 } footer: {
                     Text("Enable library sync first in Music Sources to make server downloads available.")
                 }
@@ -37,22 +37,22 @@ public struct OfflineServersView: View {
                                     }
                                 }
                             )) {
-                                VStack(alignment: .leading, spacing: 2) {
+                                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxs) {
                                     Text(library.title)
                                     Text(library.sourceCompositeKey)
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
+                                        .font(EnsembleDesign.Typography.cardMetadata)
+                                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                                         .lineLimit(1)
                                 }
                             }
                         }
                     } header: {
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxs) {
                             Text(section.title)
                             if let subtitle = section.subtitle {
                                 Text(subtitle)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    .font(EnsembleDesign.Typography.cardSubtitle)
+                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                             }
                         }
                         .textCase(nil)

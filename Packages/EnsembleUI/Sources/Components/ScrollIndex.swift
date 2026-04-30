@@ -36,7 +36,7 @@ public struct ScrollIndex: View {
             ForEach(letters, id: \.self) { letter in
                 Text(letter)
                     .font(EnsembleScaffold.ScrollIndex.letterFont)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(EnsembleDesign.Color.accent)
                     .frame(width: EnsembleScaffold.ScrollIndex.letterWidth, height: letterHeight)
                     .contentShape(Rectangle())
             }

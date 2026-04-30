@@ -26,7 +26,7 @@ public struct DownloadManagerSettingsView: View {
                 .pickerStyle(.menu)
             } header: {
                 Text("Downloads")
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(EnsembleDesign.Color.accent)
                     .textCase(nil)
             } footer: {
                 if let estimates = viewModel.sizeEstimates {
@@ -53,7 +53,7 @@ public struct DownloadManagerSettingsView: View {
                     sizeRow(label: "Low (128 kbps)", size: estimates.lowBytes)
                 } header: {
                     Text("Estimated Size")
-                        .foregroundColor(.accentColor)
+                        .foregroundColor(EnsembleDesign.Color.accent)
                         .textCase(nil)
                 } footer: {
                     Text("Estimates are based on downloaded content. Original quality varies by source file.")
@@ -123,11 +123,11 @@ public struct DownloadManagerSettingsView: View {
             Spacer()
             if let note {
                 Text(note)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.cardSubtitle)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             } else {
                 Text(formatBytes(size))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
     }

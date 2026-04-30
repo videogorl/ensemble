@@ -236,20 +236,20 @@ public struct MergedPlaylistDetailView: View {
                         }
                     } label: {
                         HStack {
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
                                 Text(serverName(for: playlist))
-                                    .font(.body)
+                                    .font(EnsembleDesign.Typography.rowPrimary)
                                 Text("\(playlist.trackCount) songs")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    .font(EnsembleDesign.Typography.rowSecondary)
+                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                             }
                             Spacer()
                             Image(systemName: EnsembleDesign.Icon.chevronRight)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                                .font(EnsembleDesign.Typography.rowSecondary)
+                                .foregroundColor(EnsembleDesign.Color.secondaryText)
                         }
                     }
-                    .foregroundColor(.primary)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
                 }
             }
             .listStyle(.plain)
@@ -316,9 +316,9 @@ public struct MergedPlaylistDetailLoader: View {
                 VStack(spacing: EnsembleDesign.Spacing.lg) {
                     Image(systemName: EnsembleDesign.Icon.playlist)
                         .font(EnsembleDesign.Typography.mediaPlaceholderIcon)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                     Text("Playlist not found")
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }
         }
