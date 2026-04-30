@@ -203,6 +203,15 @@ public enum EnsembleScaffold {
         public static let dropExitAnimationDuration = 0.15
     }
 
+    public enum SyncSettings {
+        public static let rowStatusSpacing = EnsembleDesign.Spacing.compactControlVertical
+        public static let iconLaneWidth = EnsembleDesign.Spacing.lg
+        public static let statusFont = EnsembleDesign.Typography.rowSecondary.weight(.semibold)
+        public static let timestampFont = EnsembleDesign.Typography.cardMetadata
+        public static let rowVerticalPadding = EnsembleDesign.Spacing.xxs
+        public static let successTint = EnsembleDesign.Color.success
+    }
+
     public enum FilterPresentation {
         public enum Style: Equatable {
             case toolbarPopover

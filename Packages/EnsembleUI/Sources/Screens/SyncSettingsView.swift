@@ -28,7 +28,7 @@ public struct SyncSettingsView: View {
                         if syncSettings.isManualSyncInProgress {
                             ProgressView()
                         } else {
-                            Image(systemName: "arrow.triangle.2.circlepath")
+                            Image(systemName: EnsembleDesign.Icon.refreshCycle)
                                 .foregroundColor(EnsembleDesign.Color.accent)
                         }
 
@@ -94,13 +94,13 @@ public struct SyncSettingsView: View {
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 } icon: {
-                    Image(systemName: "icloud")
+                    Image(systemName: EnsembleDesign.Icon.cloud)
                 }
             }
 
             if let lastManualSyncDate = syncSettings.lastManualSyncDate {
                 HStack(spacing: EnsembleDesign.Spacing.sm) {
-                    Image(systemName: "clock.arrow.circlepath")
+                    Image(systemName: EnsembleDesign.Icon.recentPlaylist)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                     Text("Last manual sync \(formattedTimestamp(lastManualSyncDate))")
                         .font(EnsembleDesign.Typography.rowSecondary)
@@ -119,7 +119,7 @@ public struct SyncSettingsView: View {
                     .foregroundColor(EnsembleDesign.Color.primaryText)
                 Spacer()
                 Text(presentation.status)
-                    .font(.caption.weight(.semibold))
+                    .font(EnsembleScaffold.SyncSettings.statusFont)
                     .foregroundColor(presentation.tint)
             }
 
@@ -129,18 +129,18 @@ public struct SyncSettingsView: View {
 
             if let timestamp = presentation.timestamp {
                 Text("Updated \(formattedTimestamp(timestamp))")
-                    .font(.caption2)
+                    .font(EnsembleScaffold.SyncSettings.timestampFont)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
-        .padding(.vertical, EnsembleDesign.Spacing.xxs)
+        .padding(.vertical, EnsembleScaffold.SyncSettings.rowVerticalPadding)
     }
 
     private func featureRow(for feature: SyncSettingsManager.SyncFeature) -> some View {
         let presentation = featureStatusPresentation(for: feature)
         let isToggleable = syncSettings.isFeatureToggleable(feature)
 
-        return VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.compactControlVertical) {
+        return VStack(alignment: .leading, spacing: EnsembleScaffold.SyncSettings.rowStatusSpacing) {
             Toggle(isOn: Binding(
                 get: { syncSettings.rawToggleValue(feature) },
                 set: { syncSettings.setFeatureEnabled(feature, enabled: $0) }
@@ -157,11 +157,11 @@ public struct SyncSettingsView: View {
             HStack(alignment: .top, spacing: EnsembleDesign.Spacing.sm) {
                 Image(systemName: presentation.symbolName)
                     .foregroundColor(presentation.tint)
-                    .frame(width: 16)
+                    .frame(width: EnsembleScaffold.SyncSettings.iconLaneWidth)
 
                 VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
                     Text(presentation.status)
-                        .font(.caption.weight(.semibold))
+                        .font(EnsembleScaffold.SyncSettings.statusFont)
                         .foregroundColor(presentation.tint)
 
                     Text(presentation.detail)
@@ -170,17 +170,17 @@ public struct SyncSettingsView: View {
 
                     if !isToggleable, let dependencyMessage = dependencyMessage(for: feature) {
                         Text(dependencyMessage)
-                            .font(.caption2)
+                            .font(EnsembleScaffold.SyncSettings.timestampFont)
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                     } else if let timestamp = presentation.timestamp {
                         Text("Updated \(formattedTimestamp(timestamp))")
-                            .font(.caption2)
+                            .font(EnsembleScaffold.SyncSettings.timestampFont)
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 }
             }
         }
-        .padding(.vertical, EnsembleDesign.Spacing.xxs)
+        .padding(.vertical, EnsembleScaffold.SyncSettings.rowVerticalPadding)
     }
 
     private func dependencyMessage(for feature: SyncSettingsManager.SyncFeature) -> String? {
@@ -199,7 +199,7 @@ public struct SyncSettingsView: View {
             return StatusPresentation(
                 id: "profile",
                 title: "Profile",
-                symbolName: "person.crop.circle",
+                symbolName: EnsembleDesign.Icon.profile,
                 status: "Not Checked",
                 detail: status.detail,
                 tint: EnsembleDesign.Color.secondaryText,
@@ -210,7 +210,7 @@ public struct SyncSettingsView: View {
             return StatusPresentation(
                 id: "profile",
                 title: "Profile",
-                symbolName: "person.crop.circle",
+                symbolName: EnsembleDesign.Icon.profile,
                 status: "No Cloud Record",
                 detail: status.detail,
                 tint: EnsembleDesign.Color.secondaryText,
@@ -221,7 +221,7 @@ public struct SyncSettingsView: View {
             return StatusPresentation(
                 id: "profile",
                 title: "Profile",
-                symbolName: "person.crop.circle",
+                symbolName: EnsembleDesign.Icon.profile,
                 status: profileStatusText(for: transportState, direction: status.direction),
                 detail: status.detail,
                 tint: profileTint(for: transportState),
@@ -256,7 +256,7 @@ public struct SyncSettingsView: View {
                 symbolName: symbolName(for: feature),
                 status: activity.flatMap(statusText(for:)) ?? "Ready",
                 detail: activity?.detail ?? "Waiting for a local or iCloud change.",
-                tint: activity == nil ? EnsembleDesign.Color.secondaryText : .green,
+                tint: activity == nil ? EnsembleDesign.Color.secondaryText : EnsembleScaffold.SyncSettings.successTint,
                 timestamp: activity?.date
             )
 
@@ -278,7 +278,7 @@ public struct SyncSettingsView: View {
                 symbolName: symbolName(for: feature),
                 status: activity.flatMap(statusText(for:)) ?? "Pulled from iCloud",
                 detail: activity?.detail ?? "Applied the latest value from iCloud.",
-                tint: .green,
+                tint: EnsembleScaffold.SyncSettings.successTint,
                 timestamp: activity?.date
             )
 
@@ -289,7 +289,7 @@ public struct SyncSettingsView: View {
                 symbolName: symbolName(for: feature),
                 status: activity.flatMap(statusText(for:)) ?? "Pushed from This Device",
                 detail: activity?.detail ?? "Uploaded the local value to iCloud.",
-                tint: .green,
+                tint: EnsembleScaffold.SyncSettings.successTint,
                 timestamp: activity?.date
             )
 
@@ -371,7 +371,7 @@ public struct SyncSettingsView: View {
     private func profileTint(for state: CloudSyncService.ProfileTransportState) -> Color {
         switch state {
         case .available:
-            return .green
+            return EnsembleScaffold.SyncSettings.successTint
         case .unknown:
             return EnsembleDesign.Color.secondaryText
         case .notAuthenticated, .networkUnavailable, .rateLimited:
@@ -384,15 +384,15 @@ public struct SyncSettingsView: View {
     private func symbolName(for feature: SyncSettingsManager.SyncFeature) -> String {
         switch feature {
         case .sources:
-            return "music.note.list"
+            return EnsembleDesign.Icon.playlist
         case .libraries:
-            return "square.stack.3d.up"
+            return EnsembleDesign.Icon.libraryStack
         case .pins:
-            return "pin"
+            return EnsembleDesign.Icon.pin
         case .accentColor:
-            return "paintpalette"
+            return EnsembleDesign.Icon.paintPalette
         case .swipeActions:
-            return "hand.tap"
+            return EnsembleDesign.Icon.tapGesture
         }
     }
 
