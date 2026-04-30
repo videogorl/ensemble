@@ -53,7 +53,7 @@ public struct MusicSourceAccountDetailView: View {
                                             .font(EnsembleDesign.Typography.rowSecondary)
                                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                                     }
-                                    ProgressView(value: Double(scanProgress), total: 100)
+                                    ProgressView(value: Double(scanProgress), total: EnsembleScaffold.UtilityRow.percentProgressTotal)
                                         .tint(EnsembleDesign.Color.accent)
                                 }
                                 .padding(.vertical, EnsembleScaffold.UtilityRow.tightVerticalPadding)
@@ -326,18 +326,18 @@ private struct EnabledLibraryStatusView: View {
     private var connectionColor: Color {
         switch status.connectionState.statusColor {
         case .green:
-            return .green
+            return EnsembleDesign.Color.success
         case .yellow:
-            return .yellow
+            return EnsembleDesign.Color.pending
         case .orange:
-            return .orange
+            return EnsembleDesign.Color.warning
         case .red:
             if case .unknown = status.connectionState {
                 return EnsembleDesign.Color.secondaryText
             }
             return EnsembleDesign.Color.destructive
         case .gray:
-            return .gray
+            return EnsembleDesign.Color.neutralStatus
         }
     }
 

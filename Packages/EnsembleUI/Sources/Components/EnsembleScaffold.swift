@@ -188,6 +188,7 @@ public enum EnsembleScaffold {
         public static let negativeListPadding: CGFloat = -EnsembleDesign.Spacing.xs
         public static let hiddenNavigationLinkOpacity = EnsembleDesign.Spacing.none
         public static let chevronSubtleOpacity = 0.5
+        public static let percentProgressTotal = 100.0
         public static let statusChipOpacity = 0.12
         public static let downloadErrorLeadingPadding: CGFloat = downloadArtworkDimension + rowSpacing + EnsembleDesign.Spacing.xs
 
