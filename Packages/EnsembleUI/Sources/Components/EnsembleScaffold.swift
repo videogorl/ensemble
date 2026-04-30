@@ -57,6 +57,9 @@ public enum EnsembleScaffold {
         public static let iconTextSpacing: CGFloat = 10
         public static let textSpacing = EnsembleDesign.Spacing.xxs
         public static let trailingSpacerMinLength = EnsembleDesign.Spacing.sm
+        public static let hostHorizontalPadding = EnsembleDesign.Spacing.lg
+        public static let hostBottomPadding = EnsembleDesign.Spacing.lg
+        public static let globalHorizontalPadding = EnsembleDesign.Spacing.xl
         public static let horizontalPadding: CGFloat = 14
         public static let verticalPadding = EnsembleDesign.Spacing.md
         public static let borderOpacity = 0.4
@@ -259,6 +262,7 @@ public enum EnsembleScaffold {
         public static let macMinimumHeight: CGFloat = EnsembleScaffold.AccountSetup.macMinimumHeight
         public static let macFieldLabelSpacing = EnsembleDesign.Spacing.chipVertical
         public static let sectionBackgroundOpacity = 0.04
+        public static let subtleSectionBackgroundOpacity = 0.1
         public static let keyboardDismissDelay: TimeInterval = 0.35
         public static let selectionSheetMinimumWidth = EnsembleDesign.Breakpoint.auxiliaryWindowMaxWidth
         public static let selectionSheetMinimumHeight: CGFloat = 520

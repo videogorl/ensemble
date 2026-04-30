@@ -12,8 +12,8 @@ public struct ToastHostView: View {
 
     public init(
         toastCenter: ToastCenter,
-        horizontalPadding: CGFloat = 16,
-        bottomPadding: CGFloat = 16,
+        horizontalPadding: CGFloat = EnsembleScaffold.Toast.hostHorizontalPadding,
+        bottomPadding: CGFloat = EnsembleScaffold.Toast.hostBottomPadding,
         onToastTap: (() -> Void)? = nil
     ) {
         self.toastCenter = toastCenter
@@ -154,7 +154,7 @@ private struct GlobalToastOverlayRootView: View {
                 .overlay(alignment: .bottom) {
                     ToastHostView(
                         toastCenter: toastCenter,
-                        horizontalPadding: 20,
+                        horizontalPadding: EnsembleScaffold.Toast.globalHorizontalPadding,
                         // Account for safe-area when rendering in a window that
                         // ignores safe areas so the toast stays above mini player.
                         bottomPadding: baseBottomPadding + geometry.safeAreaInsets.bottom

@@ -55,7 +55,7 @@ public struct FilterSheet: View {
 
     #if os(macOS)
     private var macOSBody: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
             ScrollView {
                 VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xl) {
                     Text("Filters")
@@ -505,7 +505,7 @@ public struct FilterSheet: View {
         title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(spacing: 0) {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
             HStack {
                 Text(title)
                     .font(.title3)

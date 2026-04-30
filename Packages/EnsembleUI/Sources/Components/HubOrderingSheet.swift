@@ -52,7 +52,7 @@ public struct HubOrderingSheet: View {
 
     private var iOSBody: some View {
         NavigationView {
-            VStack(spacing: 0) {
+            VStack(spacing: EnsembleDesign.Spacing.none) {
                 headerBanner
                 hubList
             }
@@ -86,26 +86,26 @@ public struct HubOrderingSheet: View {
     private var headerBanner: some View {
         VStack(spacing: EnsembleDesign.Spacing.xs) {
             Text("Drag to reorder sections")
-                .font(.subheadline)
+                .font(EnsembleDesign.Typography.stateMessage)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
 
             if !viewModel.currentSourceName.isEmpty {
                 Text(viewModel.currentSourceName)
-                    .font(.caption)
+                    .font(EnsembleDesign.Typography.rowSecondary)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding + 4)
+        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding + EnsembleDesign.Spacing.xs)
         .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         .background(headerBackgroundColor)
     }
 
     private var headerBackgroundColor: Color {
         #if os(iOS)
-        return Color(UIColor.systemGray6)
+        return EnsembleDesign.Color.groupedSurface
         #else
-        return Color.secondary.opacity(0.1)
+        return EnsembleDesign.Color.secondaryText.opacity(EnsembleScaffold.FilterSheet.subtleSectionBackgroundOpacity)
         #endif
     }
 
@@ -120,7 +120,7 @@ public struct HubOrderingSheet: View {
                     // Drag handle (6-dot grid like Plexamp)
                     Image(systemName: EnsembleDesign.Icon.dragHandle)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
-                        .font(.system(size: 14))
+                        .font(EnsembleDesign.Typography.rowSecondary)
 
                     VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxs) {
                         // Category name (generic for dynamic hubs)
@@ -130,7 +130,7 @@ public struct HubOrderingSheet: View {
                         // Subtitle showing current value for dynamic hubs
                         if let subtitle = displayInfo.subtitle {
                             Text(subtitle)
-                                .font(.caption)
+                                .font(EnsembleDesign.Typography.rowSecondary)
                                 .foregroundColor(EnsembleDesign.Color.secondaryText)
                                 .lineLimit(1)
                         }
@@ -141,7 +141,7 @@ public struct HubOrderingSheet: View {
                     // Library badge for artist hubs from specific libraries
                     if let badge = displayInfo.badge {
                         Text(badge)
-                            .font(.caption2)
+                            .font(EnsembleDesign.Typography.cardMetadata)
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                             .padding(.horizontal, EnsembleDesign.Spacing.chipVertical)
                             .padding(.vertical, EnsembleDesign.Spacing.xxs)
@@ -175,7 +175,7 @@ public struct HubOrderingSheet: View {
             Button("Done") {
                 viewModel.exitEditMode(save: true)
             }
-            .font(.body.bold())
+            .font(EnsembleDesign.Typography.rowPrimary.bold())
         }
         #else
         ToolbarItem(placement: .cancellationAction) {

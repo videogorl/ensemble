@@ -281,7 +281,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     ) -> some View {
         let reflectionHeight = stageReflectionHeight(for: itemSize)
 
-        return VStack(spacing: 0) {
+        return VStack(spacing: EnsembleDesign.Spacing.none) {
             itemView(item)
                 .frame(width: itemSize, height: itemSize)
 
@@ -387,11 +387,11 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 )
                 .shadow(color: .black.opacity(0.26), radius: 18, x: -6, y: 8)
 
-            HStack(spacing: 0) {
+            HStack(spacing: EnsembleDesign.Spacing.none) {
                 itemView(item)
                     .frame(width: centeredItemSize, height: centeredItemSize)
 
-                VStack(spacing: 0) {
+                VStack(spacing: EnsembleDesign.Spacing.none) {
                     detailView(item)
                 }
                 .frame(width: trackPanelWidth)
