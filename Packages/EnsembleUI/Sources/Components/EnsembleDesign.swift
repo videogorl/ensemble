@@ -152,6 +152,7 @@ public enum EnsembleDesign {
         public static let deleteFilled = "trash.fill"
         public static let download = "arrow.down.circle"
         public static let downloaded = "arrow.down.circle.fill"
+        public static let dragReorder = "line.3.horizontal"
         public static let dragHandle = "circle.grid.2x3.fill"
         public static let edit = "pencil"
         public static let editCircleFilled = "pencil.circle.fill"

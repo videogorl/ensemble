@@ -184,6 +184,25 @@ public enum EnsembleScaffold {
         public static let downloadErrorLeadingPadding: CGFloat = downloadArtworkDimension + rowSpacing + EnsembleDesign.Spacing.xs
     }
 
+    public enum TabEditor {
+        public static let maximumTabBarItems = 4
+        public static let instructionHorizontalPadding = EnsembleDesign.Spacing.xl
+        public static let instructionTopPadding = EnsembleDesign.Spacing.lg
+        public static let instructionBottomPadding = EnsembleDesign.Spacing.md
+        public static let dividerLeadingPadding: CGFloat = 52
+        public static let rowIconWidth = EnsembleScaffold.UtilityRow.statusIconWidth
+        public static let rowVerticalPadding = TrackListLayoutMetrics.rowVerticalPadding + EnsembleDesign.Spacing.xs
+        public static let sectionHeaderTopPadding = EnsembleDesign.Spacing.xxl
+        public static let sectionHeaderBottomPadding = EnsembleDesign.Spacing.sm
+        public static let emptyVerticalPadding = EnsembleDesign.Spacing.xxl
+        public static let sectionCornerRadius = EnsembleDesign.Radius.control
+        public static let insertionDotSize = EnsembleDesign.Spacing.chipVertical
+        public static let insertionLineHeight = EnsembleDesign.Spacing.xxs
+        public static let addRemoveAnimationDuration = EnsembleDesign.Animation.quickDuration
+        public static let reorderAnimationDuration = EnsembleDesign.Animation.standardDuration - 0.05
+        public static let dropExitAnimationDuration = 0.15
+    }
+
     public enum FilterPresentation {
         public enum Style: Equatable {
             case toolbarPopover

@@ -23,7 +23,7 @@ public struct MoreView: View {
     }
 
     private var barTabs: [TabItem] {
-        Array(settingsManager.enabledTabs.prefix(4))
+        Array(settingsManager.enabledTabs.prefix(EnsembleScaffold.TabEditor.maximumTabBarItems))
     }
 
     private var moreTabs: [TabItem] {
@@ -82,12 +82,12 @@ public struct MoreView: View {
                             HStack {
                                 Label(tab.displayTitle, systemImage: tab.systemImage)
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                Image(systemName: EnsembleDesign.Icon.chevronRight)
+                                    .font(EnsembleDesign.Typography.rowSecondary)
+                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                             }
                         }
-                        .foregroundColor(.primary)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
                     }
                 }
             }
@@ -106,12 +106,12 @@ public struct MoreView: View {
                             HStack {
                                 Label(tab.displayTitle, systemImage: tab.systemImage)
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                Image(systemName: EnsembleDesign.Icon.chevronRight)
+                                    .font(EnsembleDesign.Typography.rowSecondary)
+                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                             }
                         }
-                        .foregroundColor(.primary)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
                     }
                 }
             }
@@ -171,12 +171,12 @@ private struct EditTabsView: View {
             VStack(spacing: 0) {
                 // Instructions
                 Text("Drag items between sections to customize your tab bar. Tap available items to add them.")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
-                    .padding(.bottom, 12)
+                    .padding(.horizontal, EnsembleScaffold.TabEditor.instructionHorizontalPadding)
+                    .padding(.top, EnsembleScaffold.TabEditor.instructionTopPadding)
+                    .padding(.bottom, EnsembleScaffold.TabEditor.instructionBottomPadding)
 
                 // Tab Bar Items section
                 tabBarSection
@@ -208,7 +208,7 @@ private struct EditTabsView: View {
                         }
 
                         if index > 0 && !(dropTargetSection == .tabBar && dropTargetIndex == index) {
-                            Divider().padding(.leading, 52)
+                            Divider().padding(.leading, EnsembleScaffold.TabEditor.dividerLeadingPadding)
                         }
                         tabEditRow(tab: tab)
                             .background(
@@ -253,10 +253,10 @@ private struct EditTabsView: View {
 
             if availableTabs.isEmpty {
                 Text("All items are in the tab bar")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .font(EnsembleDesign.Typography.stateMessage)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 24)
+                    .padding(.vertical, EnsembleScaffold.TabEditor.emptyVerticalPadding)
                     .sectionBackground()
                     .padding(.horizontal, TrackListLayoutMetrics.utilitySectionOuterPadding)
                     .onDrop(of: [.text], delegate: AvailableDropDelegate(
@@ -270,7 +270,7 @@ private struct EditTabsView: View {
                     ForEach(Array(availableTabs.enumerated()), id: \.element) { index, tab in
                         VStack(spacing: 0) {
                             if index > 0 {
-                                Divider().padding(.leading, 52)
+                                Divider().padding(.leading, EnsembleScaffold.TabEditor.dividerLeadingPadding)
                             }
                             tabEditRow(tab: tab)
                                 .contentShape(Rectangle())
@@ -300,32 +300,35 @@ private struct EditTabsView: View {
 
     private func tabEditRow(tab: TabItem) -> some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-            Image(systemName: "line.3.horizontal")
-                .foregroundColor(.secondary)
-                .font(.body)
+            Image(systemName: EnsembleDesign.Icon.dragReorder)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+                .font(EnsembleDesign.Typography.rowPrimary)
 
             Image(systemName: tab.systemImage)
-                .foregroundColor(.accentColor)
-                .frame(width: 24, alignment: .center)
+                .foregroundColor(EnsembleDesign.Color.accent)
+                .frame(width: EnsembleScaffold.TabEditor.rowIconWidth, alignment: .center)
 
             Text(tab.displayTitle)
-                .font(.body)
+                .font(EnsembleDesign.Typography.rowPrimary)
 
             Spacer()
         }
         .padding(.horizontal, TrackListLayoutMetrics.utilitySectionOuterPadding)
-        .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding + 4)
+        .padding(.vertical, EnsembleScaffold.TabEditor.rowVerticalPadding)
     }
 
     /// Visual indicator showing where a dragged item will be inserted
     private var insertionIndicator: some View {
         HStack(spacing: 0) {
             Circle()
-                .fill(Color.accentColor)
-                .frame(width: 6, height: 6)
+                .fill(EnsembleDesign.Color.accent)
+                .frame(
+                    width: EnsembleScaffold.TabEditor.insertionDotSize,
+                    height: EnsembleScaffold.TabEditor.insertionDotSize
+                )
             Rectangle()
-                .fill(Color.accentColor)
-                .frame(height: 2)
+                .fill(EnsembleDesign.Color.accent)
+                .frame(height: EnsembleScaffold.TabEditor.insertionLineHeight)
         }
         .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         .transition(.opacity)
@@ -333,11 +336,11 @@ private struct EditTabsView: View {
 
     private func sectionHeaderText(_ text: String) -> some View {
         Text(text)
-            .font(.footnote)
-            .foregroundColor(.secondary)
+            .font(EnsembleDesign.Typography.rowSecondary)
+            .foregroundColor(EnsembleDesign.Color.secondaryText)
             .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
-            .padding(.top, 24)
-            .padding(.bottom, 8)
+            .padding(.top, EnsembleScaffold.TabEditor.sectionHeaderTopPadding)
+            .padding(.bottom, EnsembleScaffold.TabEditor.sectionHeaderBottomPadding)
     }
 
     // MARK: - Actions
@@ -347,11 +350,11 @@ private struct EditTabsView: View {
     private func addTabToBar(_ tab: TabItem) {
         var current = settingsManager.enabledTabs
         current.append(tab)
-        // Truncate to 4 — the 5th item (previously 4th) falls back to available
-        if current.count > 4 {
-            current = Array(current.prefix(4))
+        // Truncate to the visible tab-bar cap; overflow falls back to available.
+        if current.count > EnsembleScaffold.TabEditor.maximumTabBarItems {
+            current = Array(current.prefix(EnsembleScaffold.TabEditor.maximumTabBarItems))
         }
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(.easeInOut(duration: EnsembleScaffold.TabEditor.addRemoveAnimationDuration)) {
             settingsManager.enabledTabs = current
         }
     }
@@ -365,11 +368,11 @@ private extension View {
         #if os(iOS)
         self
             .background(Color(UIColor.secondarySystemGroupedBackground))
-            .cornerRadius(10)
+            .cornerRadius(EnsembleScaffold.TabEditor.sectionCornerRadius)
         #else
         self
             .background(Color(.controlBackgroundColor))
-            .cornerRadius(10)
+            .cornerRadius(EnsembleScaffold.TabEditor.sectionCornerRadius)
         #endif
     }
 }
@@ -424,12 +427,12 @@ private struct TabBarSectionDropDelegate: DropDelegate {
             // Moving from available to tab bar — insert at position, overflow past 4
             let insertIndex = min(targetIndex, current.count)
             current.insert(draggedTab, at: insertIndex)
-            if current.count > 4 {
-                current = Array(current.prefix(4))
+            if current.count > EnsembleScaffold.TabEditor.maximumTabBarItems {
+                current = Array(current.prefix(EnsembleScaffold.TabEditor.maximumTabBarItems))
             }
         }
 
-        withAnimation(.easeInOut(duration: 0.25)) {
+        withAnimation(.easeInOut(duration: EnsembleScaffold.TabEditor.reorderAnimationDuration)) {
             settingsManager.enabledTabs = current
         }
         cleanup()
@@ -438,7 +441,7 @@ private struct TabBarSectionDropDelegate: DropDelegate {
 
     func dropExited(info: DropInfo) {
         if dropTargetSection == .tabBar {
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(.easeInOut(duration: EnsembleScaffold.TabEditor.dropExitAnimationDuration)) {
                 dropTargetIndex = nil
                 dropTargetSection = nil
             }
@@ -463,7 +466,7 @@ private struct TabBarSectionDropDelegate: DropDelegate {
         }
 
         if newIndex != dropTargetIndex {
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(.easeInOut(duration: EnsembleScaffold.TabEditor.dropExitAnimationDuration)) {
                 dropTargetIndex = newIndex
             }
         }
@@ -504,13 +507,13 @@ private struct AvailableDropDelegate: DropDelegate {
 
         // Only process if the tab is currently in the tab bar
         if let index = current.firstIndex(of: draggedTab) {
-            // Enforce minimum 1 tab
+            // Enforce minimum one tab.
             guard current.count > 1 else {
                 cleanup()
                 return false
             }
             current.remove(at: index)
-            withAnimation(.easeInOut(duration: 0.25)) {
+            withAnimation(.easeInOut(duration: EnsembleScaffold.TabEditor.reorderAnimationDuration)) {
                 settingsManager.enabledTabs = current
             }
         }
