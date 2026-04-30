@@ -169,9 +169,7 @@ public struct ProfileView: View {
                 }
             }
         } header: {
-            Text("Music Sources")
-                .foregroundColor(EnsembleDesign.Color.accent)
-                .textCase(nil)
+            profileSectionHeader("Music Sources")
         } footer: {
             if accountManager.plexAccounts.isEmpty {
                 Text("Add a music source account to access your libraries.")
@@ -226,18 +224,16 @@ public struct ProfileView: View {
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 }
-            }
+        }
         } header: {
-            Text("Accent Color: \(settingsManager.accentColor.rawValue.capitalized)")
-                .foregroundColor(EnsembleDesign.Color.accent)
-                .textCase(nil)
+            profileSectionHeader("Accent Color: \(settingsManager.accentColor.rawValue.capitalized)")
         }
     }
 
     // MARK: - Playback
 
     private var playbackSection: some View {
-        Section(header: Text("Playback").foregroundColor(EnsembleDesign.Color.accent).textCase(nil)) {
+        Section(header: profileSectionHeader("Playback")) {
             Toggle(isOn: $isAutoplayEnabled) {
                 HStack {
                     Image(systemName: EnsembleDesign.Icon.autoplay)
@@ -302,7 +298,7 @@ public struct ProfileView: View {
     // MARK: - Storage
 
     private var storageSection: some View {
-        Section(header: Text("Storage").foregroundColor(EnsembleDesign.Color.accent).textCase(nil)) {
+        Section(header: profileSectionHeader("Storage")) {
             Button(role: .destructive) {
                 showingClearDataAlert = true
             } label: {
@@ -319,7 +315,7 @@ public struct ProfileView: View {
     // MARK: - Reset
 
     private var resetSection: some View {
-        Section(header: Text("Reset").foregroundColor(EnsembleDesign.Color.accent).textCase(nil)) {
+        Section(header: profileSectionHeader("Reset")) {
             Button(role: .destructive) {
                 for account in accountManager.plexAccounts {
                     accountManager.removePlexAccount(id: account.id)
@@ -338,7 +334,7 @@ public struct ProfileView: View {
     // MARK: - Developer
 
     private var developerSection: some View {
-        Section(header: Text("Developer").foregroundColor(EnsembleDesign.Color.accent).textCase(nil)) {
+        Section(header: profileSectionHeader("Developer")) {
             NavigationLink {
                 LogsSettingsView()
             } label: {
@@ -389,7 +385,7 @@ public struct ProfileView: View {
     // MARK: - About
 
     private var aboutSection: some View {
-        Section(header: Text("About").foregroundColor(EnsembleDesign.Color.accent).textCase(nil)) {
+        Section(header: profileSectionHeader("About")) {
             HStack {
                 Image(systemName: EnsembleDesign.Icon.info)
                     .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
@@ -414,6 +410,12 @@ public struct ProfileView: View {
     }
 
     // MARK: - Helpers
+
+    private func profileSectionHeader(_ title: String) -> some View {
+        Text(title)
+            .foregroundColor(EnsembleDesign.Color.accent)
+            .textCase(nil)
+    }
 
     private func enabledSources(for account: PlexAccountConfig) -> [MusicSourceIdentifier] {
         account.servers.flatMap { server in
