@@ -147,7 +147,7 @@ public struct AddPlexAccountView: View {
                     .font(EnsembleDesign.Typography.rowSecondary)
                     .foregroundColor(EnsembleDesign.Color.destructive)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal)
+                    .padding(.horizontal, EnsembleScaffold.AccountSetup.horizontalPadding)
             }
         }
         .frame(maxWidth: EnsembleScaffold.AccountSetup.contentMaxWidth)
@@ -332,7 +332,7 @@ public struct AddPlexAccountView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
+                .padding(.horizontal, EnsembleScaffold.AccountSetup.horizontalPadding)
 
                 Button {
                     viewModel.confirmLibraries()
