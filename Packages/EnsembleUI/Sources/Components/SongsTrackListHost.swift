@@ -475,18 +475,22 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
 
         private func rowAction(for action: TrackSwipeAction, track: Track) -> NSTableViewRowAction? {
             let resolvedActions = interactionModel.resolve(for: track)
-            guard isSwipeActionSupported(action, resolvedActions: resolvedActions) else { return nil }
+            guard NativeTrackSwipeActionPresenter.isSupported(action, resolvedActions: resolvedActions) else { return nil }
 
             let rowAction = NSTableViewRowAction(
                 style: .regular,
-                title: swipeTitle(for: action, resolvedActions: resolvedActions)
+                title: NativeTrackSwipeActionPresenter.title(for: action, resolvedActions: resolvedActions)
             ) { [weak self] _, _ in
-                self?.executeSwipeAction(action, track: track)
+                if action == .favoriteToggle {
+                    self?.showFavoriteLoadingToast(for: track, willFavorite: !resolvedActions.isFavorited)
+                }
+                NativeTrackSwipeActionPresenter.execute(action, track: track, resolvedActions: resolvedActions)
+                self?.showSwipeConfirmation(for: action, track: track)
             }
-            rowAction.backgroundColor = swipeColor(for: action, resolvedActions: resolvedActions)
+            rowAction.backgroundColor = NSColor(NativeTrackSwipeActionPresenter.tint(for: action, resolvedActions: resolvedActions))
             rowAction.image = NSImage(
-                systemSymbolName: swipeIcon(for: action, resolvedActions: resolvedActions),
-                accessibilityDescription: swipeTitle(for: action, resolvedActions: resolvedActions)
+                systemSymbolName: NativeTrackSwipeActionPresenter.systemImage(for: action, resolvedActions: resolvedActions),
+                accessibilityDescription: NativeTrackSwipeActionPresenter.title(for: action, resolvedActions: resolvedActions)
             )
             return rowAction
         }
@@ -495,130 +499,15 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
             for track: Track,
             resolvedActions: TrackRowInteractionModel.ResolvedActions
         ) -> NSMenu? {
-            guard resolvedActions.hasContextMenu else { return nil }
-            let menu = NSMenu()
-
-            if let onPlayNext = resolvedActions.onPlayNext {
-                menu.addItem(item("Play Next", systemImage: "text.insert", action: onPlayNext))
-            }
-            if let onPlayLast = resolvedActions.onPlayLast {
-                menu.addItem(item("Play Last", systemImage: "text.append", action: onPlayLast))
-            }
-            addSeparatorIfNeeded(to: menu)
-
-            if let onGoToAlbum = resolvedActions.onGoToAlbum, track.albumRatingKey != nil {
-                menu.addItem(item("Go to Album", systemImage: "square.stack", action: onGoToAlbum))
-            }
-            if let onGoToArtist = resolvedActions.onGoToArtist, track.artistRatingKey != nil {
-                menu.addItem(item("Go to Artist", systemImage: "person.circle", action: onGoToArtist))
-            }
-            addSeparatorIfNeeded(to: menu)
-
-            if let onAddToRecentPlaylist = resolvedActions.onAddToRecentPlaylist,
-               let recentPlaylistTitle = resolvedActions.recentPlaylistTitle {
-                menu.addItem(item("Add to \(recentPlaylistTitle)", systemImage: "clock.arrow.circlepath", action: onAddToRecentPlaylist))
-            }
-            if let onAddToPlaylist = resolvedActions.onAddToPlaylist {
-                menu.addItem(item("Add to Playlist…", systemImage: "text.badge.plus", action: onAddToPlaylist))
-            }
-            if let onToggleFavorite = resolvedActions.onToggleFavorite {
-                menu.addItem(item(
-                    resolvedActions.isFavorited ? "Unfavorite" : "Favorite",
-                    systemImage: resolvedActions.isFavorited ? "heart.slash" : "heart",
-                    action: onToggleFavorite
-                ))
-            }
-            addSeparatorIfNeeded(to: menu)
-
-            if let onShareLink = resolvedActions.onShareLink {
-                menu.addItem(item("Share Link…", systemImage: "link", action: onShareLink))
-            }
-            if let onShareFile = resolvedActions.onShareFile {
-                menu.addItem(item("Share Audio File…", systemImage: "square.and.arrow.up", action: onShareFile))
-            }
-
-            return menu.items.isEmpty ? nil : menu
-        }
-
-        private func item(
-            _ title: String,
-            systemImage: String,
-            action: @escaping () -> Void
-        ) -> NSMenuItem {
-            let menuItem = ClosureMenuItem(title: title, action: action)
-            menuItem.image = NSImage(systemSymbolName: systemImage, accessibilityDescription: title)
-            return menuItem
-        }
-
-        private func addSeparatorIfNeeded(to menu: NSMenu) {
-            guard let last = menu.items.last, !last.isSeparatorItem else { return }
-            menu.addItem(.separator())
-        }
-
-        private func isSwipeActionSupported(
-            _ action: TrackSwipeAction,
-            resolvedActions: TrackRowInteractionModel.ResolvedActions
-        ) -> Bool {
-            switch action {
-            case .playNext:
-                return resolvedActions.onPlayNext != nil
-            case .playLast:
-                return resolvedActions.onPlayLast != nil
-            case .addToPlaylist:
-                return resolvedActions.onAddToPlaylist != nil
-            case .favoriteToggle:
-                return resolvedActions.onToggleFavorite != nil
-            }
-        }
-
-        private func executeSwipeAction(_ action: TrackSwipeAction, track: Track) {
-            let resolvedActions = interactionModel.resolve(for: track)
-            switch action {
-            case .playNext:
-                resolvedActions.onPlayNext?()
-                showSwipeConfirmation(for: action, track: track)
-            case .playLast:
-                resolvedActions.onPlayLast?()
-                showSwipeConfirmation(for: action, track: track)
-            case .addToPlaylist:
-                resolvedActions.onAddToPlaylist?()
-                showSwipeConfirmation(for: action, track: track)
-            case .favoriteToggle:
-                showFavoriteLoadingToast(for: track, willFavorite: !resolvedActions.isFavorited)
-                resolvedActions.onToggleFavorite?()
-            }
+            NativeMediaTableActionBuilder.contextMenu(for: track, resolvedActions: resolvedActions)
         }
 
         private func showSwipeConfirmation(for action: TrackSwipeAction, track: Track) {
-            let toast: ToastPayload
-            switch action {
-            case .playNext:
-                toast = ToastPayload(
-                    style: .success,
-                    iconSystemName: "text.insert",
-                    title: "Play Next",
-                    message: "Added \(track.title).",
-                    dedupeKey: "mac-swipe-play-next-\(track.id)"
-                )
-            case .playLast:
-                toast = ToastPayload(
-                    style: .success,
-                    iconSystemName: "text.append",
-                    title: "Play Last",
-                    message: "Queued \(track.title) for later.",
-                    dedupeKey: "mac-swipe-play-last-\(track.id)"
-                )
-            case .addToPlaylist:
-                toast = ToastPayload(
-                    style: .info,
-                    iconSystemName: "text.badge.plus",
-                    title: "Add to Playlist…",
-                    message: "Choose a playlist to continue.",
-                    dedupeKey: "mac-swipe-add-to-playlist-\(track.id)"
-                )
-            case .favoriteToggle:
-                return
-            }
+            guard let toast = NativeTrackSwipeActionPresenter.confirmationToast(
+                for: action,
+                track: track,
+                dedupeNamespace: "mac-songs-table"
+            ) else { return }
             Task { @MainActor in
                 toastCenter.show(toast)
             }
@@ -626,57 +515,12 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
 
         private func showFavoriteLoadingToast(for track: Track, willFavorite: Bool) {
             Task { @MainActor in
-                toastCenter.show(
-                    ToastPayload(
-                        style: .info,
-                        iconSystemName: willFavorite ? EnsembleDesign.Icon.favoriteFilled : EnsembleDesign.Icon.favoriteRemoveFilled,
-                        title: willFavorite ? "Adding to Favorites..." : "Removing from Favorites...",
-                        message: track.title,
-                        duration: 1.0,
-                        dedupeKey: "mac-favorite-toggle-loading-\(track.id)",
-                        showsActivityIndicator: true
-                    )
+                toastCenter.show(NativeTrackSwipeActionPresenter.favoriteLoadingToast(
+                    for: track,
+                    willFavorite: willFavorite,
+                    dedupeNamespace: "mac-songs-table"
                 )
-            }
-        }
-
-        private func swipeTitle(
-            for action: TrackSwipeAction,
-            resolvedActions: TrackRowInteractionModel.ResolvedActions
-        ) -> String {
-            switch action {
-            case .favoriteToggle:
-                return resolvedActions.isFavorited ? "Unfavorite" : "Favorite"
-            default:
-                return action.title
-            }
-        }
-
-        private func swipeIcon(
-            for action: TrackSwipeAction,
-            resolvedActions: TrackRowInteractionModel.ResolvedActions
-        ) -> String {
-            switch action {
-            case .favoriteToggle:
-                return resolvedActions.isFavorited ? EnsembleDesign.Icon.favoriteRemoveFilled : EnsembleDesign.Icon.favoriteFilled
-            default:
-                return action.systemImage
-            }
-        }
-
-        private func swipeColor(
-            for action: TrackSwipeAction,
-            resolvedActions: TrackRowInteractionModel.ResolvedActions
-        ) -> NSColor {
-            switch action {
-            case .playNext:
-                return .systemBlue
-            case .playLast:
-                return .systemIndigo
-            case .addToPlaylist:
-                return .systemOrange
-            case .favoriteToggle:
-                return resolvedActions.isFavorited ? .systemGray : .systemPink
+                )
             }
         }
     }
@@ -970,27 +814,6 @@ private final class MacSongsTrackCell: NSTableCellView {
 
     private static func albumMetadataColumnWidth(for width: CGFloat?) -> CGFloat {
         TrackListLayoutMetrics.albumMetadataColumnWidth(for: width)
-    }
-}
-
-private final class ClosureMenuItem: NSMenuItem {
-    private let closure: () -> Void
-
-    init(title: String, action: @escaping () -> Void) {
-        self.closure = action
-        super.init(title: title, action: #selector(runClosure), keyEquivalent: "")
-        target = self
-    }
-
-    required init(coder: NSCoder) {
-        self.closure = {}
-        super.init(coder: coder)
-        target = self
-        action = #selector(runClosure)
-    }
-
-    @objc private func runClosure() {
-        closure()
     }
 }
 

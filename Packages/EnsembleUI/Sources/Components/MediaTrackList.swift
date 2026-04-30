@@ -1180,136 +1180,48 @@ public struct MediaTrackList: UIViewRepresentable {
         private func swipeActions(from configured: [TrackSwipeAction?], track: Track) -> [UIContextualAction] {
             let resolvedActions = interactionModel.resolve(for: track)
             return configured.compactMap { candidate -> UIContextualAction? in
-                guard let action = candidate, isSwipeActionSupported(action, resolvedActions: resolvedActions) else { return nil }
-                let contextual = UIContextualAction(style: .normal, title: swipeTitle(for: action, track: track)) { [weak self] _, _, completion in
+                guard let action = candidate,
+                      NativeTrackSwipeActionPresenter.isSupported(action, resolvedActions: resolvedActions) else { return nil }
+                let contextual = UIContextualAction(
+                    style: .normal,
+                    title: NativeTrackSwipeActionPresenter.title(for: action, resolvedActions: resolvedActions)
+                ) { [weak self] _, _, completion in
                     guard let self else {
                         completion(false)
                         return
                     }
-                    self.executeSwipeAction(action, track: track)
+                    if action == .favoriteToggle {
+                        self.showFavoriteLoadingToast(for: track, willFavorite: !resolvedActions.isFavorited)
+                    }
+                    NativeTrackSwipeActionPresenter.execute(action, track: track, resolvedActions: resolvedActions)
+                    self.showSwipeConfirmation(for: action, track: track)
                     completion(true)
                 }
-                contextual.backgroundColor = UIColor(swipeTint(for: action, track: track))
-                contextual.image = UIImage(systemName: swipeIcon(for: action, track: track))
+                contextual.backgroundColor = UIColor(NativeTrackSwipeActionPresenter.tint(for: action, resolvedActions: resolvedActions))
+                contextual.image = UIImage(systemName: NativeTrackSwipeActionPresenter.systemImage(for: action, resolvedActions: resolvedActions))
                 return contextual
             }
         }
 
-        private func isSwipeActionSupported(
-            _ action: TrackSwipeAction,
-            resolvedActions: TrackRowInteractionModel.ResolvedActions
-        ) -> Bool {
-            switch action {
-            case .playNext:
-                return resolvedActions.onPlayNext != nil
-            case .playLast:
-                return resolvedActions.onPlayLast != nil
-            case .addToPlaylist:
-                return resolvedActions.onAddToPlaylist != nil
-            case .favoriteToggle:
-                return resolvedActions.onToggleFavorite != nil
-            }
-        }
-
-        private func executeSwipeAction(_ action: TrackSwipeAction, track: Track) {
-            let resolvedActions = interactionModel.resolve(for: track)
-
-            switch action {
-            case .playNext:
-                resolvedActions.onPlayNext?()
-                showSwipeConfirmation(for: action, track: track)
-            case .playLast:
-                resolvedActions.onPlayLast?()
-                showSwipeConfirmation(for: action, track: track)
-            case .addToPlaylist:
-                resolvedActions.onAddToPlaylist?()
-                showSwipeConfirmation(for: action, track: track)
-            case .favoriteToggle:
-                let isFavorited = resolvedActions.isFavorited
-                showFavoriteLoadingToast(for: track, willFavorite: !isFavorited)
-                resolvedActions.onToggleFavorite?()
-            }
-        }
-
         private func showSwipeConfirmation(for action: TrackSwipeAction, track: Track) {
-            let toast: ToastPayload
-
-            switch action {
-            case .playNext:
-                toast = ToastPayload(
-                    style: .success,
-                    iconSystemName: "text.insert",
-                    title: "Play Next",
-                    message: "Added \(track.title).",
-                    dedupeKey: "swipe-play-next-\(track.id)"
-                )
-            case .playLast:
-                toast = ToastPayload(
-                    style: .success,
-                    iconSystemName: "text.append",
-                    title: "Play Last",
-                    message: "Queued \(track.title) for later.",
-                    dedupeKey: "swipe-play-last-\(track.id)"
-                )
-            case .addToPlaylist:
-                toast = ToastPayload(
-                    style: .info,
-                    iconSystemName: "text.badge.plus",
-                    title: "Add to Playlist…",
-                    message: "Choose a playlist to continue.",
-                    dedupeKey: "swipe-add-to-playlist-\(track.id)"
-                )
-            case .favoriteToggle:
-                return
-            }
-
+            guard let toast = NativeTrackSwipeActionPresenter.confirmationToast(
+                for: action,
+                track: track,
+                dedupeNamespace: "media-table"
+            ) else { return }
             Task { @MainActor in
                 toastCenter.show(toast)
             }
         }
 
         private func showFavoriteLoadingToast(for track: Track, willFavorite: Bool) {
-            let toast = ToastPayload(
-                style: .info,
-                        iconSystemName: willFavorite ? EnsembleDesign.Icon.favoriteFilled : EnsembleDesign.Icon.favoriteRemoveFilled,
-                title: willFavorite ? "Adding to Favorites..." : "Removing from Favorites...",
-                message: track.title,
-                duration: 1.0,
-                dedupeKey: "favorite-toggle-loading-\(track.id)",
-                showsActivityIndicator: true
+            let toast = NativeTrackSwipeActionPresenter.favoriteLoadingToast(
+                for: track,
+                willFavorite: willFavorite,
+                dedupeNamespace: "media-table"
             )
             Task { @MainActor in
                 toastCenter.show(toast)
-            }
-        }
-
-        private func swipeTitle(for action: TrackSwipeAction, track: Track) -> String {
-            switch action {
-            case .favoriteToggle:
-                let resolvedActions = interactionModel.resolve(for: track)
-                return resolvedActions.isFavorited ? "Unfavorite" : "Favorite"
-            default:
-                return action.title
-            }
-        }
-
-        private func swipeIcon(for action: TrackSwipeAction, track: Track) -> String {
-            switch action {
-            case .favoriteToggle:
-                let resolvedActions = interactionModel.resolve(for: track)
-                return resolvedActions.isFavorited ? EnsembleDesign.Icon.favoriteRemoveFilled : EnsembleDesign.Icon.favoriteFilled
-            default:
-                return action.systemImage
-            }
-        }
-
-        private func swipeTint(for action: TrackSwipeAction, track: Track) -> Color {
-            switch action {
-            case .favoriteToggle:
-                let resolvedActions = interactionModel.resolve(for: track)
-                return resolvedActions.isFavorited ? .gray : .pink
-            default:
-                return action.tint
             }
         }
 
