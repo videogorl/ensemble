@@ -123,34 +123,18 @@ struct LibraryDownloadDetailView: View {
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
-        MediaDetailSurface<EmptyView>.ActionRow(
+        MediaDetailSurface<EmptyView>.PlaybackActionRow(
             horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding,
             bottomPadding: EnsembleDesign.Spacing.lg,
-            isDisabled: viewModel.playableTracks.isEmpty
-        ) {
-            Button {
+            isDisabled: viewModel.playableTracks.isEmpty,
+            play: {
                 nowPlayingVM.play(tracks: viewModel.playableTracks)
-            } label: {
-                MediaDetailSurface<EmptyView>.ActionLabel(
-                    "Play",
-                    systemImage: EnsembleDesign.Icon.play,
-                    role: .primary,
-                    verticalPadding: EnsembleScaffold.DownloadDetail.actionVerticalPadding,
-                    cornerRadius: EnsembleScaffold.DownloadDetail.actionCornerRadius
-                )
-            }
-
-            Button {
+            },
+            shuffle: {
                 nowPlayingVM.shufflePlay(tracks: viewModel.playableTracks)
-            } label: {
-                MediaDetailSurface<EmptyView>.ActionLabel(
-                    "Shuffle",
-                    systemImage: EnsembleDesign.Icon.shuffle,
-                    role: .secondary,
-                    verticalPadding: EnsembleScaffold.DownloadDetail.actionVerticalPadding,
-                    cornerRadius: EnsembleScaffold.DownloadDetail.actionCornerRadius
-                )
             }
+        ) {
+            EmptyView()
         }
     }
 

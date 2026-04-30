@@ -834,15 +834,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var radioButtonLabel: some View {
-        Image(systemName: EnsembleDesign.Icon.radio)
-            .font(EnsembleDesign.Typography.actionIcon)
-            .frame(
-                width: EnsembleScaffold.DetailSurface.iconActionDimension,
-                height: EnsembleScaffold.DetailSurface.iconActionDimension
-            )
-            .background(EnsembleDesign.Color.secondaryControlFill)
-            .foregroundColor(EnsembleDesign.Color.primaryText)
-            .cornerRadius(EnsembleScaffold.DetailSurface.actionCornerRadius)
+        MediaDetailSurface<EmptyView>.IconActionLabel(systemImage: EnsembleDesign.Icon.radio)
     }
 
     /// Footer content shown when the track list is loading or empty.

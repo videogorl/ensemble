@@ -126,6 +126,32 @@ extension MediaDetailSurface {
         }
     }
 
+    /// Shared icon-only action used beside Play/Shuffle rows, such as Radio.
+    struct IconActionLabel: View {
+        let systemImage: String
+        let role: ActionRole
+
+        init(
+            systemImage: String,
+            role: ActionRole = .secondary
+        ) {
+            self.systemImage = systemImage
+            self.role = role
+        }
+
+        var body: some View {
+            Image(systemName: systemImage)
+                .font(EnsembleDesign.Typography.actionIcon)
+                .frame(
+                    width: EnsembleScaffold.DetailSurface.iconActionDimension,
+                    height: EnsembleScaffold.DetailSurface.iconActionDimension
+                )
+                .background(role.backgroundColor)
+                .foregroundColor(role.foregroundColor)
+                .cornerRadius(EnsembleScaffold.DetailSurface.actionCornerRadius)
+        }
+    }
+
     /// Shared Play/Shuffle action row used by media, virtual collection, and
     /// download detail headers. Extra actions allow Artist/Album radio buttons
     /// to keep the same spacing and disabled behavior without forking the row.
@@ -176,6 +202,59 @@ extension MediaDetailSurface {
                 }
 
                 extraActions()
+            }
+        }
+    }
+
+    /// Compact two-button Play/Shuffle row for nested detail sections.
+    struct CompactPlaybackActionRow: View {
+        let horizontalPadding: CGFloat
+        let bottomPadding: CGFloat
+        let isDisabled: Bool
+        let play: () -> Void
+        let shuffle: () -> Void
+
+        init(
+            horizontalPadding: CGFloat = TrackListLayoutMetrics.rowHorizontalPadding,
+            bottomPadding: CGFloat = EnsembleDesign.Spacing.none,
+            isDisabled: Bool = false,
+            play: @escaping () -> Void,
+            shuffle: @escaping () -> Void
+        ) {
+            self.horizontalPadding = horizontalPadding
+            self.bottomPadding = bottomPadding
+            self.isDisabled = isDisabled
+            self.play = play
+            self.shuffle = shuffle
+        }
+
+        var body: some View {
+            ActionRow(
+                horizontalPadding: horizontalPadding,
+                bottomPadding: bottomPadding,
+                isDisabled: isDisabled
+            ) {
+                Button(action: play) {
+                    ActionLabel(
+                        "Play",
+                        systemImage: EnsembleDesign.Icon.play,
+                        role: .primary,
+                        font: EnsembleScaffold.DetailSurface.compactActionFont,
+                        verticalPadding: EnsembleScaffold.DetailSurface.compactActionVerticalPadding,
+                        cornerRadius: EnsembleScaffold.DetailSurface.compactActionCornerRadius
+                    )
+                }
+
+                Button(action: shuffle) {
+                    ActionLabel(
+                        "Shuffle",
+                        systemImage: EnsembleDesign.Icon.shuffle,
+                        role: .secondary,
+                        font: EnsembleScaffold.DetailSurface.compactActionFont,
+                        verticalPadding: EnsembleScaffold.DetailSurface.compactActionVerticalPadding,
+                        cornerRadius: EnsembleScaffold.DetailSurface.compactActionCornerRadius
+                    )
+                }
             }
         }
     }

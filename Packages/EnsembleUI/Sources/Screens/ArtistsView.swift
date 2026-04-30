@@ -730,15 +730,7 @@ public struct ArtistDetailView: View {
             Button {
                 nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
             } label: {
-                Image(systemName: EnsembleDesign.Icon.radio)
-                    .font(EnsembleDesign.Typography.actionIcon)
-                    .frame(
-                        width: EnsembleScaffold.ArtistDetail.actionIconDimension,
-                        height: EnsembleScaffold.ArtistDetail.actionIconDimension
-                    )
-                    .background(EnsembleDesign.Color.secondaryControlFill)
-                    .foregroundColor(EnsembleDesign.Color.primaryText)
-                    .cornerRadius(EnsembleScaffold.DetailSurface.actionCornerRadius)
+                MediaDetailSurface<EmptyView>.IconActionLabel(systemImage: EnsembleDesign.Icon.radio)
             }
             #if os(macOS)
             .help("Artist Radio - Queue all shuffled, enable sonically similar")
@@ -935,36 +927,15 @@ public struct ArtistDetailView: View {
             EnsembleContentSectionHeader("Favorited Tracks")
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
-            // Play / Shuffle buttons
-            HStack(spacing: EnsembleDesign.Spacing.md) {
-                Button {
+            MediaDetailSurface<EmptyView>.CompactPlaybackActionRow(
+                isDisabled: viewModel.favoritedTracks.isEmpty,
+                play: {
                     nowPlayingVM.play(tracks: viewModel.favoritedTracks)
-                } label: {
-                    MediaDetailSurface<EmptyView>.ActionLabel(
-                        "Play",
-                        systemImage: EnsembleDesign.Icon.play,
-                        role: .primary,
-                        font: .subheadline.bold(),
-                        verticalPadding: EnsembleDesign.Spacing.compactControlVertical,
-                        cornerRadius: EnsembleDesign.Radius.compactControl
-                    )
-                }
-
-                Button {
+                },
+                shuffle: {
                     nowPlayingVM.shufflePlay(tracks: viewModel.favoritedTracks)
-                } label: {
-                    MediaDetailSurface<EmptyView>.ActionLabel(
-                        "Shuffle",
-                        systemImage: EnsembleDesign.Icon.shuffle,
-                        role: .secondary,
-                        font: .subheadline.bold(),
-                        verticalPadding: EnsembleDesign.Spacing.compactControlVertical,
-                        cornerRadius: EnsembleDesign.Radius.compactControl
-                    )
                 }
-            }
-            .padding(.horizontal)
-            .chromelessMediaControlButton()
+            )
 
             let interactionModel = TrackRowInteractionModel(
                 onPlayNext: { track in

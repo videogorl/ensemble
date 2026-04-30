@@ -123,21 +123,27 @@ public enum EnsembleScaffold {
         public static let fillColor = EnsembleDesign.Material.Role.selection.fallbackBackgroundColor
     }
 
-    public enum Favorites {
+    public enum VirtualDetailHeader {
         public static let heroIconSize: CGFloat = 80
         public static let heroArtworkDimension: CGFloat = 140
+        public static let symbolBackgroundOpacity = 0.16
+    }
+
+    public enum Favorites {
+        public static let heroIconSize = EnsembleScaffold.VirtualDetailHeader.heroIconSize
+        public static let heroArtworkDimension = EnsembleScaffold.VirtualDetailHeader.heroArtworkDimension
         public static let heroTopPadding = EnsembleDesign.Spacing.xl
         public static let headerBottomPadding = EnsembleDesign.Spacing.xl
         public static let metadataSpacing = EnsembleDesign.Spacing.xs
     }
 
     public enum MoodDetail {
-        public static let heroIconSize: CGFloat = 60
-        public static let heroArtworkDimension: CGFloat = EnsembleScaffold.Favorites.heroArtworkDimension
+        public static let heroIconSize = EnsembleScaffold.VirtualDetailHeader.heroIconSize
+        public static let heroArtworkDimension = EnsembleScaffold.VirtualDetailHeader.heroArtworkDimension
         public static let backgroundHeight: CGFloat = 400
         public static let backgroundStrongOpacity = 0.6
         public static let backgroundSoftOpacity = 0.3
-        public static let symbolBackgroundOpacity = 0.2
+        public static let symbolBackgroundOpacity = EnsembleScaffold.VirtualDetailHeader.symbolBackgroundOpacity
     }
 
     public enum Genres {
@@ -361,6 +367,9 @@ public enum EnsembleScaffold {
         public static let headerPadding = EnsembleDesign.Spacing.lg
         public static let actionVerticalPadding = EnsembleDesign.Spacing.md
         public static let actionCornerRadius = EnsembleDesign.Radius.control
+        public static let compactActionFont = EnsembleDesign.Typography.actionLabel
+        public static let compactActionVerticalPadding = EnsembleDesign.Spacing.compactControlVertical
+        public static let compactActionCornerRadius = EnsembleDesign.Radius.compactControl
         public static let listCardCornerRadius = EnsembleDesign.Radius.card
         public static let listCardHorizontalPadding = EnsembleDesign.Spacing.lg
         public static let loadingTopPadding = TrackListLayoutMetrics.detailHorizontalPadding
