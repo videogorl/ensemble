@@ -157,7 +157,7 @@ struct AlbumActionsContextMenu: View {
                     deps.toastCenter.show(
                         ToastPayload(
                             style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
+                            iconSystemName: EnsembleDesign.Icon.error,
                             title: "No tracks available",
                             message: "Try again after the album finishes loading.",
                             dedupeKey: "\(toastNamespace)-empty-\(album.id)"
@@ -189,7 +189,7 @@ struct AlbumActionsContextMenu: View {
                         deps.toastCenter.show(
                             ToastPayload(
                                 style: .warning,
-                                iconSystemName: "exclamationmark.triangle.fill",
+                                iconSystemName: EnsembleDesign.Icon.error,
                                 title: "Can't add to \(expectedTitle)",
                                 message: "This album isn't compatible with that playlist.",
                                 dedupeKey: "\(toastNamespace)-recent-playlist-incompatible-\(album.id)"
@@ -286,7 +286,7 @@ struct ArtistActionsContextMenu: View {
                     deps.toastCenter.show(
                         ToastPayload(
                             style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
+                            iconSystemName: EnsembleDesign.Icon.error,
                             title: "No tracks available",
                             message: "Try again after the artist finishes loading.",
                             dedupeKey: "\(toastNamespace)-empty-\(artist.id)"
@@ -420,7 +420,7 @@ struct PlaylistActionsContextMenu: View {
                     deps.toastCenter.show(
                         ToastPayload(
                             style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
+                            iconSystemName: EnsembleDesign.Icon.error,
                             title: "No tracks available",
                             message: "Try again after this playlist finishes syncing.",
                             dedupeKey: "\(toastNamespace)-empty-\(playlist.id)"

@@ -99,7 +99,7 @@ public struct FilterSheet: View {
                                 .foregroundColor(EnsembleDesign.Color.destructive)
                             } else {
                                 HStack(alignment: .top, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                                    VStack(alignment: .leading, spacing: 6) {
+                                    VStack(alignment: .leading, spacing: EnsembleScaffold.FilterSheet.macFieldLabelSpacing) {
                                         Text("Min Year")
                                             .font(.caption)
                                             .foregroundColor(EnsembleDesign.Color.secondaryText)
@@ -107,7 +107,7 @@ public struct FilterSheet: View {
                                             .textFieldStyle(.roundedBorder)
                                     }
 
-                                    VStack(alignment: .leading, spacing: 6) {
+                                    VStack(alignment: .leading, spacing: EnsembleScaffold.FilterSheet.macFieldLabelSpacing) {
                                         Text("Max Year")
                                             .font(.caption)
                                             .foregroundColor(EnsembleDesign.Color.secondaryText)
@@ -197,7 +197,7 @@ public struct FilterSheet: View {
                         .foregroundColor(EnsembleDesign.Color.destructive)
                     }
                 }
-                .frame(maxWidth: 640, alignment: .leading)
+                .frame(maxWidth: EnsembleScaffold.FilterSheet.macContentMaxWidth, alignment: .leading)
                 .padding(.horizontal, EnsembleDesign.Spacing.sheetOuterHorizontal)
                 .padding(.vertical, EnsembleDesign.Spacing.sheetOuterVertical)
                 .frame(maxWidth: .infinity, alignment: .top)
@@ -215,7 +215,10 @@ public struct FilterSheet: View {
             .padding(.horizontal, EnsembleDesign.Spacing.sheetFooterHorizontal)
             .padding(.vertical, EnsembleDesign.Spacing.sheetFooterVertical)
         }
-        .frame(minWidth: 720, minHeight: 560)
+        .frame(
+            minWidth: EnsembleScaffold.FilterSheet.macMinimumWidth,
+            minHeight: EnsembleScaffold.FilterSheet.macMinimumHeight
+        )
         .onAppear(perform: initializeYearRange)
         .sheet(isPresented: $showingArtistSelection) {
             macOSSelectionSheet(title: "Artists") {
@@ -462,7 +465,7 @@ public struct FilterSheet: View {
     private func dismissAfterKeyboard() {
         #if os(iOS)
         focusedYearField = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + EnsembleScaffold.FilterSheet.keyboardDismissDelay) {
             dismiss()
         }
         #else
@@ -493,7 +496,7 @@ public struct FilterSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: EnsembleDesign.Radius.sectionCard, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
+                .fill(Color.primary.opacity(EnsembleScaffold.FilterSheet.sectionBackgroundOpacity))
         )
     }
 
@@ -532,7 +535,10 @@ public struct FilterSheet: View {
             .padding(.horizontal, EnsembleDesign.Spacing.sheetFooterHorizontal)
             .padding(.vertical, EnsembleDesign.Spacing.sheetFooterVertical)
         }
-        .frame(minWidth: 420, minHeight: 520)
+        .frame(
+            minWidth: EnsembleScaffold.FilterSheet.selectionSheetMinimumWidth,
+            minHeight: EnsembleScaffold.FilterSheet.selectionSheetMinimumHeight
+        )
     }
     #endif
 }
