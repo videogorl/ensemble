@@ -559,7 +559,7 @@ public struct ControlsCard: View {
                     }
                 }
             } label: {
-                Image(systemName: EnsembleDesign.Icon.moreCircle)
+                Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }

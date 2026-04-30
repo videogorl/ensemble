@@ -144,7 +144,7 @@ public class TrackTableViewCell: UITableViewCell {
         overflowButton.translatesAutoresizingMaskIntoConstraints = false
         let overflowSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
         overflowButton.setPreferredSymbolConfiguration(overflowSymbolConfiguration, forImageIn: .normal)
-        overflowButton.setImage(UIImage(systemName: EnsembleDesign.Icon.more, withConfiguration: overflowSymbolConfiguration), for: .normal)
+        overflowButton.setImage(UIImage(systemName: EnsembleDesign.Icon.trackActions, withConfiguration: overflowSymbolConfiguration), for: .normal)
         overflowButton.tintColor = .secondaryLabel
         overflowButton.showsMenuAsPrimaryAction = true
         overflowButton.setContentHuggingPriority(.required, for: .horizontal)

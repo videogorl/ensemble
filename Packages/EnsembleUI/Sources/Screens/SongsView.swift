@@ -112,7 +112,7 @@ public struct SongsView: View {
                 Label("Play All", systemImage: EnsembleDesign.Icon.play)
             }
         } label: {
-            Image(systemName: EnsembleDesign.Icon.moreCircle)
+            Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
         }
         .accessibilityLabel("More Song Actions")
     }

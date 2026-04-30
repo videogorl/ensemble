@@ -515,7 +515,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .disabled(!playlistMenuActions.canDelete)
             }
         } label: {
-            Image(systemName: EnsembleDesign.Icon.moreCircle)
+            Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
         }
     }
 

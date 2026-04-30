@@ -515,7 +515,7 @@ private struct MiniPlayerActionsMenuButton: View {
         Button {
             showingActionsPopover = viewModel.currentTrack != nil
         } label: {
-            Image(systemName: EnsembleDesign.Icon.more)
+            Image(systemName: EnsembleDesign.Icon.trackActions)
                 .font(EnsembleDesign.Typography.overflowIcon)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
                 .frame(
@@ -685,7 +685,7 @@ private struct NativeMiniPlayerActionsMenuButton: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSButton {
         let button = NSButton()
-        button.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: "Track Actions")
+        button.image = NSImage(systemSymbolName: EnsembleDesign.Icon.trackActions, accessibilityDescription: "Track Actions")
         button.imagePosition = .imageOnly
         button.isBordered = false
         button.bezelStyle = .regularSquare

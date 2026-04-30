@@ -248,6 +248,8 @@ public enum EnsembleDesign {
         public static let scrubFine = "minus"
         public static let scrubUp = "chevron.compact.up"
         public static let scrubDown = "chevron.compact.down"
+        public static let trackActions = more
+        public static let trackActionsCircle = moreCircle
     }
 
     public enum Breakpoint {

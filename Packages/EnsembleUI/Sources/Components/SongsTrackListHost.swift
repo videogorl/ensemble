@@ -675,7 +675,7 @@ private final class MacSongsTrackCell: NSTableCellView {
         downloadImageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(downloadImageView)
 
-        overflowButton.image = NSImage(systemSymbolName: EnsembleDesign.Icon.more, accessibilityDescription: "Track Actions")
+        overflowButton.image = NSImage(systemSymbolName: EnsembleDesign.Icon.trackActions, accessibilityDescription: "Track Actions")
         overflowButton.isBordered = false
         overflowButton.target = self
         overflowButton.action = #selector(showMenu(_:))

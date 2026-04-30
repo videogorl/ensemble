@@ -488,7 +488,7 @@ public struct ArtistDetailView: View {
                 )
             }
         } label: {
-            Image(systemName: EnsembleDesign.Icon.moreCircle)
+            Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
         }
     }
     

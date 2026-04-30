@@ -283,7 +283,7 @@ public struct TrackRow: View {
         Menu {
             contextMenuItems
         } label: {
-            Image(systemName: EnsembleDesign.Icon.more)
+            Image(systemName: EnsembleDesign.Icon.trackActions)
                 .font(EnsembleDesign.Typography.overflowIcon)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
                 .frame(

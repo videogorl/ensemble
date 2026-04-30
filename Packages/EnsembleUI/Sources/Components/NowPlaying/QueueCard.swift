@@ -150,7 +150,7 @@ public struct QueueCard: View {
                     // TODO: Future "Replay" action for replaying past queues
                     // Button { } label: { Label("Replay Queue...", systemImage: "clock.arrow.circlepath") }
                 } label: {
-                    Image(systemName: EnsembleDesign.Icon.moreCircle)
+                    Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
                         .font(.system(size: EnsembleScaffold.NowPlaying.menuIconSize))
                         .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
                 }
