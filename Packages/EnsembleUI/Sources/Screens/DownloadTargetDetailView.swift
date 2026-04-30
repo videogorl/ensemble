@@ -144,31 +144,19 @@ public struct DownloadTargetDetailView: View {
     // MARK: - Action Buttons
 
     private func actionButtons(horizontalPadding: Bool) -> some View {
-        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-            Button {
+        MediaDetailSurface<EmptyView>.PlaybackActionRow(
+            horizontalPadding: horizontalPadding ? TrackListLayoutMetrics.rowHorizontalPadding : EnsembleDesign.Spacing.none,
+            bottomPadding: EnsembleDesign.Spacing.lg,
+            isDisabled: viewModel.playableTracks.isEmpty,
+            play: {
                 nowPlayingVM.play(tracks: viewModel.playableTracks)
-            } label: {
-                MediaDetailSurface<EmptyView>.ActionLabel(
-                    "Play",
-                    systemImage: EnsembleDesign.Icon.play,
-                    role: .primary
-                )
-            }
-
-            Button {
+            },
+            shuffle: {
                 nowPlayingVM.shufflePlay(tracks: viewModel.playableTracks)
-            } label: {
-                MediaDetailSurface<EmptyView>.ActionLabel(
-                    "Shuffle",
-                    systemImage: EnsembleDesign.Icon.shuffle,
-                    role: .secondary
-                )
             }
+        ) {
+            EmptyView()
         }
-        .padding(.horizontal, horizontalPadding ? TrackListLayoutMetrics.rowHorizontalPadding : EnsembleDesign.Spacing.none)
-        .padding(.bottom)
-        .chromelessMediaControlButton()
-        .disabled(viewModel.playableTracks.isEmpty)
     }
 
     // MARK: - Queue Status Banner

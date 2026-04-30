@@ -126,6 +126,175 @@ extension MediaDetailSurface {
         }
     }
 
+    /// Shared Play/Shuffle action row used by media, virtual collection, and
+    /// download detail headers. Extra actions allow Artist/Album radio buttons
+    /// to keep the same spacing and disabled behavior without forking the row.
+    struct PlaybackActionRow<ExtraActions: View>: View {
+        let horizontalPadding: CGFloat
+        let bottomPadding: CGFloat
+        let isDisabled: Bool
+        let play: () -> Void
+        let shuffle: () -> Void
+        @ViewBuilder private let extraActions: () -> ExtraActions
+
+        init(
+            horizontalPadding: CGFloat = 0,
+            bottomPadding: CGFloat = 0,
+            isDisabled: Bool = false,
+            play: @escaping () -> Void,
+            shuffle: @escaping () -> Void,
+            @ViewBuilder extraActions: @escaping () -> ExtraActions
+        ) {
+            self.horizontalPadding = horizontalPadding
+            self.bottomPadding = bottomPadding
+            self.isDisabled = isDisabled
+            self.play = play
+            self.shuffle = shuffle
+            self.extraActions = extraActions
+        }
+
+        var body: some View {
+            ActionRow(
+                horizontalPadding: horizontalPadding,
+                bottomPadding: bottomPadding,
+                isDisabled: isDisabled
+            ) {
+                Button(action: play) {
+                    ActionLabel(
+                        "Play",
+                        systemImage: EnsembleDesign.Icon.play,
+                        role: .primary
+                    )
+                }
+
+                Button(action: shuffle) {
+                    ActionLabel(
+                        "Shuffle",
+                        systemImage: EnsembleDesign.Icon.shuffle,
+                        role: .secondary
+                    )
+                }
+
+                extraActions()
+            }
+        }
+    }
+
+    struct MetadataBlock: View {
+        let title: String
+        let subtitle: String?
+        let tertiary: String?
+        let alignment: HorizontalAlignment
+        let titleFont: Font
+
+        init(
+            title: String,
+            subtitle: String? = nil,
+            tertiary: String? = nil,
+            alignment: HorizontalAlignment,
+            titleFont: Font = EnsembleDesign.Typography.sectionTitle
+        ) {
+            self.title = title
+            self.subtitle = subtitle
+            self.tertiary = tertiary
+            self.alignment = alignment
+            self.titleFont = titleFont
+        }
+
+        var body: some View {
+            VStack(alignment: alignment, spacing: EnsembleScaffold.Favorites.metadataSpacing) {
+                Text(title)
+                    .font(titleFont)
+                    .multilineTextAlignment(textAlignment)
+
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(EnsembleDesign.Typography.stateMessage)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .multilineTextAlignment(textAlignment)
+                }
+
+                if let tertiary, !tertiary.isEmpty {
+                    Text(tertiary)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .multilineTextAlignment(textAlignment)
+                }
+            }
+        }
+
+        private var textAlignment: TextAlignment {
+            alignment == .center ? .center : .leading
+        }
+    }
+
+    struct VirtualCollectionHeader<Artwork: View>: View {
+        let title: String
+        let subtitle: String?
+        let tertiary: String?
+        let bottomPadding: CGFloat
+        @ViewBuilder private let artwork: () -> Artwork
+        private let play: () -> Void
+        private let shuffle: () -> Void
+        private let isDisabled: Bool
+
+        init(
+            title: String,
+            subtitle: String? = nil,
+            tertiary: String? = nil,
+            bottomPadding: CGFloat = 0,
+            isDisabled: Bool,
+            @ViewBuilder artwork: @escaping () -> Artwork,
+            play: @escaping () -> Void,
+            shuffle: @escaping () -> Void
+        ) {
+            self.title = title
+            self.subtitle = subtitle
+            self.tertiary = tertiary
+            self.bottomPadding = bottomPadding
+            self.isDisabled = isDisabled
+            self.artwork = artwork
+            self.play = play
+            self.shuffle = shuffle
+        }
+
+        var body: some View {
+            Header {
+                EmptyView()
+            } artwork: {
+                artwork()
+            } metadata: { alignment in
+                MetadataBlock(
+                    title: title,
+                    subtitle: subtitle,
+                    tertiary: tertiary,
+                    alignment: alignment
+                )
+            } compactActions: {
+                PlaybackActionRow(
+                    horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding,
+                    bottomPadding: EnsembleDesign.Spacing.lg,
+                    isDisabled: isDisabled,
+                    play: play,
+                    shuffle: shuffle
+                ) {
+                    EmptyView()
+                }
+            } wideActions: { _ in
+                PlaybackActionRow(
+                    horizontalPadding: EnsembleDesign.Spacing.none,
+                    bottomPadding: EnsembleDesign.Spacing.lg,
+                    isDisabled: isDisabled,
+                    play: play,
+                    shuffle: shuffle
+                ) {
+                    EmptyView()
+                }
+            }
+            .padding(.bottom, bottomPadding)
+        }
+    }
+
     /// Shared symbol artwork used by virtual/detail collections without album art.
     struct SymbolArtwork: View {
         let systemImage: String

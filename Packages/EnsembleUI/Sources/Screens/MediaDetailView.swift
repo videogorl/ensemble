@@ -710,33 +710,17 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var actionButtons: some View {
-        MediaDetailSurface<EmptyView>.ActionRow(
+        MediaDetailSurface<EmptyView>.PlaybackActionRow(
             horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding,
             bottomPadding: EnsembleDesign.Spacing.lg,
-            isDisabled: viewModel.filteredTracks.isEmpty
-        ) {
-            // Play button
-            Button {
+            isDisabled: viewModel.filteredTracks.isEmpty,
+            play: {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
-            } label: {
-                MediaDetailSurface<EmptyView>.ActionLabel(
-                    "Play",
-                    systemImage: EnsembleDesign.Icon.play,
-                    role: .primary
-                )
-            }
-
-            // Shuffle button
-            Button {
+            },
+            shuffle: {
                 nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
-            } label: {
-                MediaDetailSurface<EmptyView>.ActionLabel(
-                    "Shuffle",
-                    systemImage: EnsembleDesign.Icon.shuffle,
-                    role: .secondary
-                )
             }
-
+        ) {
             // Radio button (for Artist or Album views)
             radioButton
         }

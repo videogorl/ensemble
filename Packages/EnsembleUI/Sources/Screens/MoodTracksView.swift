@@ -334,34 +334,19 @@ public struct MoodTracksView: View {
     }
 
     private var headerView: some View {
-        MediaDetailSurface<EmptyView>.Header {
-            EmptyView()
-        } artwork: {
-            MediaDetailSurface<EmptyView>.SymbolArtwork(
-                systemImage: EnsembleDesign.Icon.playlist,
-                foregroundColor: moodColor,
-                backgroundColor: moodColor.opacity(EnsembleScaffold.MoodDetail.symbolBackgroundOpacity),
-                dimension: EnsembleScaffold.MoodDetail.heroArtworkDimension,
-                iconSize: EnsembleScaffold.MoodDetail.heroIconSize
-            )
-        } metadata: { alignment in
-            Text(mood.title)
-                .font(EnsembleDesign.Typography.sectionTitle)
-                .multilineTextAlignment(alignment == .center ? .center : .leading)
-        } compactActions: {
-            actionButtons(horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding)
-        } wideActions: { _ in
-            actionButtons(horizontalPadding: EnsembleDesign.Spacing.none)
-        }
-    }
-
-    private func actionButtons(horizontalPadding: CGFloat) -> some View {
-        MediaDetailSurface<EmptyView>.ActionRow(
-            horizontalPadding: horizontalPadding,
-            bottomPadding: EnsembleDesign.Spacing.lg,
-            isDisabled: moodTracks.isEmpty
-        ) {
-            Button(action: {
+        MediaDetailSurface<EmptyView>.VirtualCollectionHeader(
+            title: mood.title,
+            isDisabled: moodTracks.isEmpty,
+            artwork: {
+                MediaDetailSurface<EmptyView>.SymbolArtwork(
+                    systemImage: EnsembleDesign.Icon.playlist,
+                    foregroundColor: moodColor,
+                    backgroundColor: moodColor.opacity(EnsembleScaffold.MoodDetail.symbolBackgroundOpacity),
+                    dimension: EnsembleScaffold.MoodDetail.heroArtworkDimension,
+                    iconSize: EnsembleScaffold.MoodDetail.heroIconSize
+                )
+            },
+            play: {
                 if !nowPlayingVM.isAutoplayEnabled {
                     nowPlayingVM.toggleAutoplay()
                 }
@@ -369,15 +354,8 @@ public struct MoodTracksView: View {
                     nowPlayingVM.toggleShuffle()
                 }
                 nowPlayingVM.play(tracks: moodTracks, startingAt: 0)
-            }) {
-                MediaDetailSurface<EmptyView>.ActionLabel(
-                    "Play",
-                    systemImage: EnsembleDesign.Icon.play,
-                    role: .primary
-                )
-            }
-
-            Button(action: {
+            },
+            shuffle: {
                 if !nowPlayingVM.isAutoplayEnabled {
                     nowPlayingVM.toggleAutoplay()
                 }
@@ -385,14 +363,8 @@ public struct MoodTracksView: View {
                     nowPlayingVM.toggleShuffle()
                 }
                 nowPlayingVM.play(tracks: moodTracks, startingAt: 0)
-            }) {
-                MediaDetailSurface<EmptyView>.ActionLabel(
-                    "Shuffle",
-                    systemImage: EnsembleDesign.Icon.shuffle,
-                    role: .secondary
-                )
             }
-        }
+        )
     }
 
     // MARK: - Helpers

@@ -717,27 +717,15 @@ public struct ArtistDetailView: View {
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
-        MediaDetailSurface<EmptyView>.ActionRow(isDisabled: viewModel.filteredTracks.isEmpty) {
-            Button {
+        MediaDetailSurface<EmptyView>.PlaybackActionRow(
+            isDisabled: viewModel.filteredTracks.isEmpty,
+            play: {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
-            } label: {
-                MediaDetailSurface<EmptyView>.ActionLabel(
-                    "Play",
-                    systemImage: EnsembleDesign.Icon.play,
-                    role: .primary
-                )
-            }
-
-            Button {
+            },
+            shuffle: {
                 nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
-            } label: {
-                MediaDetailSurface<EmptyView>.ActionLabel(
-                    "Shuffle",
-                    systemImage: EnsembleDesign.Icon.shuffle,
-                    role: .secondary
-                )
             }
-            
+        ) {
             // Radio button - queue all shuffled, enable sonically similar
             Button {
                 nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)

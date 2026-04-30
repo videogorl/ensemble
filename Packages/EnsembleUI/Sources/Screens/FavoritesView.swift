@@ -344,65 +344,26 @@ public struct FavoritesView: View {
 
     /// Adaptive Favorites header with shared detail artwork and action layout.
     private var favoritesHeaderSurface: some View {
-        MediaDetailSurface<EmptyView>.Header {
-            EmptyView()
-        } artwork: {
-            MediaDetailSurface<EmptyView>.SymbolArtwork(
-                systemImage: EnsembleDesign.Icon.favoriteFilled,
-                foregroundColor: EnsembleDesign.Color.favorite,
-                backgroundColor: EnsembleDesign.Color.favorite.opacity(0.16)
-            )
-        } metadata: { alignment in
-            VStack(alignment: alignment, spacing: EnsembleScaffold.Favorites.metadataSpacing) {
-                Text("Favorites")
-                    .font(EnsembleDesign.Typography.sectionTitle)
-                    .multilineTextAlignment(alignment == .center ? .center : .leading)
-
-                Text("\(viewModel.filteredTracks.count) tracks \u{2022} \(viewModel.totalDuration)")
-                    .font(EnsembleDesign.Typography.stateMessage)
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    .multilineTextAlignment(alignment == .center ? .center : .leading)
-
-                Text("All libraries")
-                    .font(EnsembleDesign.Typography.rowSecondary)
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    .multilineTextAlignment(alignment == .center ? .center : .leading)
-            }
-        } compactActions: {
-            favoritesActionButtons(horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding)
-        } wideActions: { _ in
-            favoritesActionButtons(horizontalPadding: EnsembleDesign.Spacing.none)
-        }
-        .padding(.bottom, EnsembleScaffold.Favorites.headerBottomPadding)
-    }
-
-    /// Play and Shuffle action buttons
-    private func favoritesActionButtons(horizontalPadding: CGFloat) -> some View {
-        MediaDetailSurface<EmptyView>.ActionRow(
-            horizontalPadding: horizontalPadding,
-            bottomPadding: EnsembleDesign.Spacing.lg,
-            isDisabled: viewModel.filteredTracks.isEmpty
-        ) {
-            Button {
+        MediaDetailSurface<EmptyView>.VirtualCollectionHeader(
+            title: "Favorites",
+            subtitle: "\(viewModel.filteredTracks.count) tracks \u{2022} \(viewModel.totalDuration)",
+            tertiary: "All libraries",
+            bottomPadding: EnsembleScaffold.Favorites.headerBottomPadding,
+            isDisabled: viewModel.filteredTracks.isEmpty,
+            artwork: {
+                MediaDetailSurface<EmptyView>.SymbolArtwork(
+                    systemImage: EnsembleDesign.Icon.favoriteFilled,
+                    foregroundColor: EnsembleDesign.Color.favorite,
+                    backgroundColor: EnsembleDesign.Color.favorite.opacity(0.16)
+                )
+            },
+            play: {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
-            } label: {
-                MediaDetailSurface<EmptyView>.ActionLabel(
-                    "Play",
-                    systemImage: EnsembleDesign.Icon.play,
-                    role: .primary
-                )
-            }
-
-            Button {
+            },
+            shuffle: {
                 nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
-            } label: {
-                MediaDetailSurface<EmptyView>.ActionLabel(
-                    "Shuffle",
-                    systemImage: EnsembleDesign.Icon.shuffle,
-                    role: .secondary
-                )
             }
-        }
+        )
     }
 
     private func presentPlaylistPicker(with tracks: [Track]) {
