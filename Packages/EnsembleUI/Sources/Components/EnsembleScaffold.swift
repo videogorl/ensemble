@@ -142,9 +142,9 @@ public enum EnsembleScaffold {
         public static let aboutSpacing = EnsembleDesign.Spacing.lg
         public static let factLabelWidth: CGFloat = 50
         public static let actionIconDimension = EnsembleScaffold.UtilityRow.iconLaneWidth
-        public static let wideArtworkShadowColor = Color.black.opacity(0.18)
-        public static let wideArtworkShadowRadius: CGFloat = 18
-        public static let wideArtworkShadowY = EnsembleScaffold.UtilityRow.rowSpacing
+        public static let wideArtworkShadowColor = EnsembleDesign.Effect.shadowColor
+        public static let wideArtworkShadowRadius = EnsembleDesign.Effect.shadowRadius
+        public static let wideArtworkShadowY = EnsembleDesign.Effect.shadowY
         public static let placeholderArtworkColor = Color.gray.opacity(0.2)
         public static let darkLegibilityOverlayOpacity = 0.45
         public static let lightLegibilityOverlayOpacity = 0.7
@@ -325,10 +325,10 @@ public enum EnsembleScaffold {
         public static let iconActionDimension = EnsembleScaffold.UtilityRow.iconLaneWidth
 
         public enum ArtworkShadow {
-            public static let color = Color.black.opacity(0.2)
-            public static let radius: CGFloat = 20
-            public static let x: CGFloat = 0
-            public static let y: CGFloat = 10
+            public static let color = EnsembleDesign.Effect.shadowColor
+            public static let radius = EnsembleDesign.Effect.shadowRadius
+            public static let x = EnsembleDesign.Effect.shadowX
+            public static let y = EnsembleDesign.Effect.shadowY
         }
 
         public static var listCardBackground: Color {
@@ -348,9 +348,9 @@ public enum EnsembleScaffold {
         public static let backgroundHeight: CGFloat = 400
         public static let progressMaxWidth: CGFloat = 280
         public static let backgroundAccentOpacity = 0.3
-        public static let headerIconShadowColor = EnsembleDesign.Effect.cardShadowColor
-        public static let headerIconShadowRadius = EnsembleDesign.Effect.elevatedShadowRadius
-        public static let headerIconShadowY = EnsembleDesign.Effect.elevatedShadowY
+        public static let headerIconShadowColor = EnsembleDesign.Effect.shadowColor
+        public static let headerIconShadowRadius = EnsembleDesign.Effect.shadowRadius
+        public static let headerIconShadowY = EnsembleDesign.Effect.shadowY
     }
 
     public enum NowPlaying {
@@ -453,14 +453,14 @@ public enum EnsembleScaffold {
         }
 
         public enum Shadow {
-            public static let controlColor = Color.black.opacity(0.3)
-            public static let controlRadius: CGFloat = 10
-            public static let controlX: CGFloat = 0
-            public static let controlY: CGFloat = 0
-            public static let artworkColor = Color.black.opacity(0.3)
-            public static let emptyArtworkColor = Color.black.opacity(0.15)
-            public static let artworkRadius: CGFloat = 15
-            public static let artworkY: CGFloat = 8
+            public static let controlColor = EnsembleDesign.Effect.shadowColor
+            public static let controlRadius = EnsembleDesign.Effect.shadowRadius
+            public static let controlX = EnsembleDesign.Effect.shadowX
+            public static let controlY = EnsembleDesign.Effect.shadowY
+            public static let artworkColor = EnsembleDesign.Effect.shadowColor
+            public static let emptyArtworkColor = EnsembleDesign.Effect.shadowColor
+            public static let artworkRadius = EnsembleDesign.Effect.shadowRadius
+            public static let artworkY = EnsembleDesign.Effect.shadowY
         }
 
         public enum PageIndicator {

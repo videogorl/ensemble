@@ -249,12 +249,17 @@ public enum EnsembleDesign {
     }
 
     public enum Effect {
-        public static let cardShadowColor = SwiftUI.Color.black.opacity(0.15)
-        public static let cardShadowRadius: CGFloat = 6
-        public static let cardShadowY: CGFloat = 2
-        public static let elevatedShadowColor = SwiftUI.Color.black.opacity(0.15)
-        public static let elevatedShadowRadius: CGFloat = 20
-        public static let elevatedShadowY: CGFloat = 5
+        public static let shadowColor = SwiftUI.Color.black.opacity(0.15)
+        public static let shadowRadius: CGFloat = 20
+        public static let shadowX: CGFloat = 0
+        public static let shadowY: CGFloat = 5
+
+        public static let cardShadowColor = shadowColor
+        public static let cardShadowRadius = shadowRadius
+        public static let cardShadowY = shadowY
+        public static let elevatedShadowColor = shadowColor
+        public static let elevatedShadowRadius = shadowRadius
+        public static let elevatedShadowY = shadowY
     }
 
     public enum Animation {
@@ -312,10 +317,10 @@ public enum EnsembleDesign {
 
             var shadowRadius: CGFloat {
                 switch self {
-                case .miniPlayer:
-                    return EnsembleDesign.Effect.elevatedShadowRadius
                 case .toolbarPill, .floatingControl, .popover:
-                    return 12
+                    return EnsembleDesign.Effect.shadowRadius
+                case .miniPlayer:
+                    return EnsembleDesign.Effect.shadowRadius
                 case .sheet, .detailSurface, .sidebar, .selection:
                     return 0
                 }
@@ -323,24 +328,15 @@ public enum EnsembleDesign {
 
             var shadowY: CGFloat {
                 switch self {
-                case .miniPlayer:
-                    return EnsembleDesign.Effect.elevatedShadowY
-                case .toolbarPill, .floatingControl:
-                    return 3
-                case .popover:
-                    return 4
+                case .miniPlayer, .toolbarPill, .floatingControl, .popover:
+                    return EnsembleDesign.Effect.shadowY
                 case .sheet, .detailSurface, .sidebar, .selection:
                     return 0
                 }
             }
 
             var shadowColor: SwiftUI.Color {
-                switch self {
-                case .popover:
-                    return SwiftUI.Color.black.opacity(0.18)
-                default:
-                    return EnsembleDesign.Effect.elevatedShadowColor
-                }
+                EnsembleDesign.Effect.shadowColor
             }
 
             var fallbackBackgroundColor: SwiftUI.Color {
