@@ -285,7 +285,7 @@ public struct AlbumsView: View {
                         )
 
                         if isSortIndexed {
-                            LazyVStack(alignment: .leading, spacing: 0) {
+                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                 ForEach(cachedAlbumSections) { section in
                                     Section(header: sectionHeader(section.letter)) {
                                         AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
@@ -615,7 +615,7 @@ public struct AlbumDetailView: View {
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
 
             // Tappable description text
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                 if isBioExpanded {
                     ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
                         Text(paragraph)

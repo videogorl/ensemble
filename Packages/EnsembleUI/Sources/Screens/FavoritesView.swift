@@ -38,9 +38,9 @@ public struct FavoritesView: View {
 
     private var backgroundColor: Color {
         #if os(macOS)
-        return Color(NSColor.windowBackgroundColor)
+        return EnsembleDesign.Color.windowSurface
         #else
-        return Color(UIColor.systemBackground)
+        return EnsembleDesign.Color.windowSurface
         #endif
     }
     
@@ -247,7 +247,7 @@ public struct FavoritesView: View {
         #if os(iOS)
         // iOS: ScrollView with embedded UITableView (MediaTrackList)
         ScrollView {
-            VStack(spacing: 0) {
+            VStack(spacing: EnsembleDesign.Spacing.none) {
                 favoritesHeader
                 favoritesActionButtons
 

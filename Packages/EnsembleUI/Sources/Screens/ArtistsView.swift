@@ -154,7 +154,7 @@ public struct ArtistsView: View {
                         )
 
                         if libraryVM.artistSortOption == .name {
-                            LazyVStack(alignment: .leading, spacing: 0) {
+                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                 ForEach(cachedArtistSections) { section in
                                     Section(header: sectionHeader(section.letter)) {
                                         ForEach(section.artists) { artist in
@@ -166,7 +166,7 @@ public struct ArtistsView: View {
                             }
                             .padding(.vertical)
                         } else {
-                            LazyVStack(alignment: .leading, spacing: 0) {
+                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                 ForEach(libraryVM.filteredArtists) { artist in
                                     artistSelectionRow(artist)
                                 }
@@ -266,7 +266,7 @@ public struct ArtistsView: View {
                         )
 
                         if libraryVM.artistSortOption == .name {
-                            LazyVStack(alignment: .leading, spacing: 0) {
+                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                 ForEach(cachedArtistSections) { section in
                                     Section(header: sectionHeader(section.letter)) {
                                         ArtistGrid(
@@ -355,7 +355,7 @@ public struct ArtistDetailView: View {
 
     public var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
+            VStack(spacing: EnsembleDesign.Spacing.none) {
                 artistHeader
 
                 // Albums Section
@@ -396,7 +396,7 @@ public struct ArtistDetailView: View {
             // VStack + Spacer pins the gradient to the top of the viewport
             // so it doesn't drift down when the ScrollView frame is taller
             // than the gradient's 600pt height.
-            VStack(spacing: 0) {
+            VStack(spacing: EnsembleDesign.Spacing.none) {
                 backgroundGradient
                 Spacer(minLength: 0)
             }
@@ -496,9 +496,9 @@ public struct ArtistDetailView: View {
 
     private var backgroundOverlayColor: Color {
         #if os(iOS)
-        return colorScheme == .dark ? .black : Color(UIColor.systemBackground)
+        return colorScheme == .dark ? .black : EnsembleDesign.Color.windowSurface
         #else
-        return colorScheme == .dark ? .black : Color(NSColor.windowBackgroundColor)
+        return colorScheme == .dark ? .black : EnsembleDesign.Color.windowSurface
         #endif
     }
 
@@ -578,7 +578,7 @@ public struct ArtistDetailView: View {
     }
 
     private var compactArtistHeader: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
             heroBanner
 
             actionButtons
@@ -859,7 +859,7 @@ public struct ArtistDetailView: View {
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
 
             // Tappable description text to toggle expanded/collapsed
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                 if isBioExpanded {
                     // Expanded: show all paragraphs with paragraph spacing
                     ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
@@ -1071,7 +1071,7 @@ public struct ArtistDetailView: View {
             .frame(height: height)
             #else
             // Basic fallback for macOS
-            LazyVStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                 ForEach(Array(viewModel.favoritedTracks.enumerated()), id: \.element.id) { index, track in
                     let resolvedActions = interactionModel.resolve(for: track)
                     TrackRow(

@@ -175,7 +175,7 @@ struct GenreDetailContentView: View {
 
     var body: some View {
         let tracks = tracks(for: genre)
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
             VStack(alignment: .leading, spacing: EnsembleScaffold.Genres.detailHeaderSpacing) {
                 Text(genre.title)
                     .font(EnsembleDesign.Typography.stateTitle)

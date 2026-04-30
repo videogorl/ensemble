@@ -49,9 +49,9 @@ public struct SongsView: View {
     
     private var backgroundColor: Color {
         #if os(macOS)
-        return Color(NSColor.windowBackgroundColor)
+        return EnsembleDesign.Color.windowSurface
         #else
-        return Color(UIColor.systemBackground)
+        return EnsembleDesign.Color.windowSurface
         #endif
     }
 
@@ -388,7 +388,7 @@ public struct SongsView: View {
                 // Non-indexed mode: UITableView manages its own scrolling directly.
                 // No SwiftUI ScrollView wrapper — avoids the fixed-frame height hack
                 // that was forcing all 1500+ rows to be laid out simultaneously.
-                VStack(spacing: 0) {
+                VStack(spacing: EnsembleDesign.Spacing.none) {
                     GenreChipBar(
                         availableGenres: libraryVM.availableTrackGenres,
                         selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
@@ -397,7 +397,7 @@ public struct SongsView: View {
                     unsortedTrackListContent
                 }
                 #else
-                VStack(spacing: 0) {
+                VStack(spacing: EnsembleDesign.Spacing.none) {
                     GenreChipBar(
                         availableGenres: libraryVM.availableTrackGenres,
                         selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
@@ -420,7 +420,7 @@ public struct SongsView: View {
 
     @ViewBuilder
     private func largeScreenSongBrowserView(width: CGFloat) -> some View {
-        VStack(spacing: 0) {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
             GenreChipBar(
                 availableGenres: libraryVM.availableTrackGenres,
                 selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
@@ -540,7 +540,7 @@ public struct SongsView: View {
     }
     
     private var indexedTrackListContent: some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
+        LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
             ForEach(libraryVM.trackSections) { section in
                 indexedSection(section: section)
             }

@@ -961,7 +961,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             managesOwnScrolling: true,
             bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
             tableHeaderContent: AnyView(tableHeaderForTrackList),
-            tableFooterContent: AnyView(VStack(spacing: 0) {
+            tableFooterContent: AnyView(VStack(spacing: EnsembleDesign.Spacing.none) {
                 emptyStateFooter
                 if let additionalFooterContent { additionalFooterContent }
             }),
