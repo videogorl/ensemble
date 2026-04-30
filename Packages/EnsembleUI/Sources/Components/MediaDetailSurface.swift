@@ -104,8 +104,8 @@ extension MediaDetailSurface {
         @ViewBuilder private let content: () -> RowContent
 
         init(
-            horizontalPadding: CGFloat = 0,
-            bottomPadding: CGFloat = 0,
+            horizontalPadding: CGFloat = EnsembleDesign.Spacing.none,
+            bottomPadding: CGFloat = EnsembleDesign.Spacing.none,
             isDisabled: Bool = false,
             @ViewBuilder content: @escaping () -> RowContent
         ) {
@@ -164,8 +164,8 @@ extension MediaDetailSurface {
         @ViewBuilder private let extraActions: () -> ExtraActions
 
         init(
-            horizontalPadding: CGFloat = 0,
-            bottomPadding: CGFloat = 0,
+            horizontalPadding: CGFloat = EnsembleDesign.Spacing.none,
+            bottomPadding: CGFloat = EnsembleDesign.Spacing.none,
             isDisabled: Bool = false,
             play: @escaping () -> Void,
             shuffle: @escaping () -> Void,
@@ -321,7 +321,7 @@ extension MediaDetailSurface {
             title: String,
             subtitle: String? = nil,
             tertiary: String? = nil,
-            bottomPadding: CGFloat = 0,
+            bottomPadding: CGFloat = EnsembleDesign.Spacing.none,
             isDisabled: Bool,
             @ViewBuilder artwork: @escaping () -> Artwork,
             play: @escaping () -> Void,
@@ -444,7 +444,7 @@ extension MediaDetailSurface {
         }
 
         var body: some View {
-            VStack(spacing: 0) {
+            VStack(spacing: EnsembleDesign.Spacing.none) {
                 topContent()
                 adaptiveBody
             }
@@ -472,7 +472,7 @@ extension MediaDetailSurface {
         }
 
         private var compactHeader: some View {
-            VStack(spacing: 0) {
+            VStack(spacing: EnsembleDesign.Spacing.none) {
                 VStack(spacing: EnsembleScaffold.DetailSurface.compactHeaderSpacing) {
                     artwork()
                     metadata(.center)

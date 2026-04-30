@@ -136,14 +136,14 @@ public struct TrackSwipeContainer<Content: View>: View {
     @ViewBuilder
     private var backgroundActions: some View {
         ZStack {
-            HStack(spacing: 0) {
+            HStack(spacing: EnsembleDesign.Spacing.none) {
                 ForEach(Array(leadingActions.enumerated()), id: \.offset) { _, action in
                     swipeButton(for: action)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
-            HStack(spacing: 0) {
+            HStack(spacing: EnsembleDesign.Spacing.none) {
                 ForEach(Array(trailingActions.reversed().enumerated()), id: \.offset) { _, action in
                     swipeButton(for: action)
                 }

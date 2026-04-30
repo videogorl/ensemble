@@ -12,7 +12,7 @@ public struct GenreCard: View {
     }
 
     public var body: some View {
-        VStack(alignment: .center, spacing: 0) {
+        VStack(alignment: .center, spacing: EnsembleDesign.Spacing.none) {
             // Gradient background with music icon
             ZStack {
                 // Generate a deterministic color based on genre name
@@ -87,6 +87,6 @@ public struct GenreGrid: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal)
+        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
     }
 }

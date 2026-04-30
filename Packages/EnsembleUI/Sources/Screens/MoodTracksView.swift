@@ -375,7 +375,7 @@ public struct MoodTracksView: View {
             .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .indigo
         ]
 
-        let hash = mood.title.utf8.reduce(0) { ($0 &* 31) &+ Int($1) }
+        let hash = mood.title.utf8.reduce(0) { ($0 &* EnsembleScaffold.MediaCard.genreHashMultiplier) &+ Int($1) }
         return colors[abs(hash) % colors.count]
     }
 
