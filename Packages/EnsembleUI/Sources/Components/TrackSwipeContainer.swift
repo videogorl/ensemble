@@ -18,7 +18,7 @@ public struct TrackSwipeContainer<Content: View>: View {
     @State private var dragStartOffset: CGFloat = 0
     @State private var hasHorizontalDrag = false
 
-    private let actionWidth: CGFloat = 72
+    private let actionWidth = EnsembleScaffold.TrackSwipe.actionWidth
 
     public init(
         track: Track,
@@ -151,7 +151,7 @@ public struct TrackSwipeContainer<Content: View>: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: EnsembleScaffold.TrackSwipe.actionCornerRadius, style: .continuous))
     }
 
     private func swipeButton(for action: TrackSwipeAction) -> some View {
@@ -161,9 +161,9 @@ public struct TrackSwipeContainer<Content: View>: View {
                 closeActions()
             }
         } label: {
-            VStack(spacing: 5) {
+            VStack(spacing: EnsembleScaffold.TrackSwipe.actionLabelSpacing) {
                 Image(systemName: actionIcon(for: action))
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(EnsembleScaffold.TrackSwipe.actionIconFont)
                 Text(actionTitle(for: action))
                     .font(.caption2)
                     .lineLimit(1)

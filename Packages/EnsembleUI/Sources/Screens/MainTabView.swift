@@ -262,7 +262,10 @@ public struct MainTabView: View {
             .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
                 AddPlexAccountView()
                 #if os(macOS)
-                    .frame(width: 720, height: 560)
+                    .frame(
+                        width: EnsembleScaffold.AccountSetup.macMinimumWidth,
+                        height: EnsembleScaffold.AccountSetup.macMinimumHeight
+                    )
                 #endif
             }
             .keyboardSafeEditorPresentation(item: $contextMenuMetadataEditorCoordinator.request) { request in
@@ -1117,7 +1120,10 @@ public struct SidebarView: View {
         .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
             AddPlexAccountView()
             #if os(macOS)
-                .frame(width: 720, height: 560)
+                .frame(
+                    width: EnsembleScaffold.AccountSetup.macMinimumWidth,
+                    height: EnsembleScaffold.AccountSetup.macMinimumHeight
+                )
             #endif
         }
         .keyboardSafeEditorPresentation(item: $contextMenuMetadataEditorCoordinator.request) { request in
@@ -1873,7 +1879,7 @@ public struct SidebarView: View {
     /// Sidebar row for a pinned item, showing artwork preview instead of an icon.
     @ViewBuilder
     private func sidebarPinRow(_ pin: ResolvedPin) -> some View {
-        let artworkDimension: CGFloat = 22
+        let artworkDimension = EnsembleScaffold.Sidebar.artworkDimension
         let cornerRadius: CGFloat = pin.pinnedItem.type == .artist
             ? ArtworkCornerRadius.circle(for: artworkDimension)
             : ArtworkCornerRadius.square(for: artworkDimension)
@@ -1883,7 +1889,7 @@ public struct SidebarView: View {
                 Text(pinnedItem.title)
             } icon: {
                 ArtworkView(artist: artist, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
-                    .frame(width: 22, height: 22)
+                    .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .tag(SidebarSelection.pin(id: pinnedItem.id, type: pinnedItem.type))
@@ -1913,7 +1919,7 @@ public struct SidebarView: View {
                 Text(pinnedItem.title)
             } icon: {
                 ArtworkView(album: album, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
-                    .frame(width: 22, height: 22)
+                    .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .tag(SidebarSelection.pin(id: pinnedItem.id, type: pinnedItem.type))
@@ -1949,7 +1955,7 @@ public struct SidebarView: View {
                 Text(pinnedItem.title)
             } icon: {
                 ArtworkView(playlist: playlist, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
-                    .frame(width: 22, height: 22)
+                    .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .tag(SidebarSelection.pin(id: pinnedItem.id, type: pinnedItem.type))
@@ -2038,11 +2044,11 @@ public struct SidebarView: View {
                 sourceKey: playlist.sourceKey,
                 ratingKey: playlist.playlistID,
                 size: .tiny,
-                cornerRadius: ArtworkCornerRadius.square(for: 22),
+                cornerRadius: ArtworkCornerRadius.square(for: EnsembleScaffold.Sidebar.artworkDimension),
                 isResponsive: true
             )
-            .frame(width: 22, height: 22)
-            .clipShape(RoundedRectangle(cornerRadius: ArtworkCornerRadius.square(for: 22), style: .continuous))
+            .frame(width: EnsembleScaffold.Sidebar.artworkDimension, height: EnsembleScaffold.Sidebar.artworkDimension)
+            .clipShape(RoundedRectangle(cornerRadius: ArtworkCornerRadius.square(for: EnsembleScaffold.Sidebar.artworkDimension), style: .continuous))
         }
 
         if playlist.isMerged {

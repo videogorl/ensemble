@@ -81,6 +81,10 @@ public enum EnsembleScaffold {
         public static let imageDimension: CGFloat = 28
     }
 
+    public enum Sidebar {
+        public static let artworkDimension: CGFloat = 22
+    }
+
     public enum BrowseToolbar {
         public static let itemSpacing = EnsembleDesign.Spacing.lg
         public static let activeBadgeSize = EnsembleDesign.Spacing.sm
@@ -313,6 +317,12 @@ public enum EnsembleScaffold {
         }
 
         public static let coordinateSpaceName = "LargeScreenBrowseSplitView"
+        public static let resizeHandleBackingWidth: CGFloat = 10
+        public static let resizeHandleBackingHeight: CGFloat = 64
+        public static let resizeHandleThumbWidth: CGFloat = 3
+        public static let resizeHandleThumbHeight: CGFloat = 48
+        public static let resizeHandleThumbCornerRadius: CGFloat = 1.5
+        public static let placeholderIcon = EnsembleDesign.Typography.mediaPlaceholderIcon
     }
 
     public enum DetailSurface {
@@ -482,6 +492,26 @@ public enum EnsembleScaffold {
             public static let inactiveOpacity = 0.4
             public static let verticalPadding = EnsembleDesign.Spacing.sm
         }
+    }
+
+    public enum ScrollIndex {
+        public static let verticalPadding = EnsembleDesign.Spacing.sm
+        public static let horizontalPadding = EnsembleDesign.Spacing.xs
+        public static let letterHeight: CGFloat = 15
+        public static let letterSpacing = EnsembleDesign.Spacing.xxs
+        public static let letterWidth = EnsembleDesign.Spacing.xl
+        public static let letterFont: Font = .system(size: 10, weight: .bold)
+        public static let bottomLift: CGFloat = 6
+        public static let compactTrailingPadding: CGFloat = -2
+        public static let regularTrailingPadding = EnsembleDesign.Spacing.xxs
+        public static let regularBottomPadding = EnsembleDesign.Spacing.lg
+    }
+
+    public enum TrackSwipe {
+        public static let actionWidth: CGFloat = 72
+        public static let actionCornerRadius = EnsembleDesign.Radius.card
+        public static let actionLabelSpacing: CGFloat = 5
+        public static let actionIconFont: Font = .system(size: 16, weight: .semibold)
     }
 
     public enum MiniPlayer {

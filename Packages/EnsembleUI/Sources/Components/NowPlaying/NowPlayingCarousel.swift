@@ -48,8 +48,7 @@ public struct NowPlayingCarousel: View {
                 currentPage: $currentPage,
                 lyricsAvailable: viewModel.lyricsState.isAvailable
             )
-            .padding(.top, 10)
-            .padding(.bottom, 10)
+            .padding(.vertical, EnsembleScaffold.NowPlaying.PageIndicator.verticalPadding)
         }
     }
 

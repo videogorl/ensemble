@@ -122,11 +122,17 @@ public struct LargeScreenBrowseSplitView<
             // Masks list separators that can otherwise draw through the translucent thumb.
             RoundedRectangle(cornerRadius: EnsembleDesign.Spacing.xs + 1, style: .continuous)
                 .fill(resizeHandleBackingColor)
-                .frame(width: 10, height: 64)
+                .frame(
+                    width: EnsembleScaffold.BrowseSplit.resizeHandleBackingWidth,
+                    height: EnsembleScaffold.BrowseSplit.resizeHandleBackingHeight
+                )
 
-            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+            RoundedRectangle(cornerRadius: EnsembleScaffold.BrowseSplit.resizeHandleThumbCornerRadius, style: .continuous)
                 .fill(EnsembleDesign.Color.secondaryText.opacity(isResizeHandleHovered ? 0.7 : 0.35))
-                .frame(width: 3, height: 48)
+                .frame(
+                    width: EnsembleScaffold.BrowseSplit.resizeHandleThumbWidth,
+                    height: EnsembleScaffold.BrowseSplit.resizeHandleThumbHeight
+                )
                 .opacity(isResizeHandleHovered ? 1 : 0.65)
         }
         .frame(width: configuration.resizeHandleWidth)
@@ -209,7 +215,7 @@ public struct LargeScreenPlaceholderView: View {
     public var body: some View {
         VStack(spacing: EnsembleDesign.Spacing.popoverActionHorizontal) {
             Image(systemName: systemImage)
-                .font(.system(size: 42, weight: .regular))
+                .font(EnsembleScaffold.BrowseSplit.placeholderIcon)
                 .foregroundColor(EnsembleDesign.Color.secondaryText.opacity(0.75))
 
             Text(title)

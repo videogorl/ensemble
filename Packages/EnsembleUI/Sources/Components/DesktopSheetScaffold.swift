@@ -14,8 +14,8 @@ public struct DesktopSheetScaffold<Content: View, Footer: View>: View {
     public init(
         title: String,
         subtitle: String? = nil,
-        minWidth: CGFloat = 720,
-        minHeight: CGFloat = 560,
+        minWidth: CGFloat = EnsembleScaffold.AccountSetup.macMinimumWidth,
+        minHeight: CGFloat = EnsembleScaffold.AccountSetup.macMinimumHeight,
         @ViewBuilder content: () -> Content,
         @ViewBuilder footer: () -> Footer
     ) {
@@ -41,7 +41,7 @@ public struct DesktopSheetScaffold<Content: View, Footer: View>: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, EnsembleDesign.Spacing.xxl)
-            .padding(.vertical, 18)
+            .padding(.vertical, EnsembleDesign.Spacing.sheetSectionPadding)
 
             Divider()
 

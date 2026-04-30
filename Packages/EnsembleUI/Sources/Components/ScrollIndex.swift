@@ -9,10 +9,10 @@ public struct ScrollIndex: View {
     let onLetterTap: (String) -> Void
     
     @State private var dragLetter: String?
-    private let verticalPadding: CGFloat = 8
-    private let horizontalPadding: CGFloat = 4
-    private let letterHeight: CGFloat = 15
-    private let letterSpacing: CGFloat = 2
+    private let verticalPadding = EnsembleScaffold.ScrollIndex.verticalPadding
+    private let horizontalPadding = EnsembleScaffold.ScrollIndex.horizontalPadding
+    private let letterHeight = EnsembleScaffold.ScrollIndex.letterHeight
+    private let letterSpacing = EnsembleScaffold.ScrollIndex.letterSpacing
     
     public init(letters: [String], currentLetter: Binding<String?>, onLetterTap: @escaping (String) -> Void) {
         self.letters = letters
@@ -35,9 +35,9 @@ public struct ScrollIndex: View {
         VStack(spacing: letterSpacing) {
             ForEach(letters, id: \.self) { letter in
                 Text(letter)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(EnsembleScaffold.ScrollIndex.letterFont)
                     .foregroundColor(.accentColor)
-                    .frame(width: 20, height: letterHeight)
+                    .frame(width: EnsembleScaffold.ScrollIndex.letterWidth, height: letterHeight)
                     .contentShape(Rectangle())
             }
         }
@@ -64,7 +64,7 @@ public struct ScrollIndex: View {
                     dragLetter = nil
                 }
         )
-        .padding(.trailing, 0)
+        .padding(.trailing, EnsembleDesign.Spacing.none)
     }
 
     /// Maps a drag/tap y-position within the compact control to the nearest letter slot.
@@ -106,18 +106,18 @@ public extension View {
     private func bottomChromeScrollIndexPositioning() -> some View {
         #if os(iOS)
         let bottomChromeInset = TrackListLayoutMetrics.miniPlayerContainerInset
-        let bottomLift: CGFloat = 6
+        let bottomLift = EnsembleScaffold.ScrollIndex.bottomLift
         self
             // Anchor to bottom chrome so search/filter header changes do not
             // shift the index vertically while browsing.
             .frame(maxHeight: .infinity, alignment: .bottom)
             .padding(.bottom, bottomChromeInset + bottomLift)
-            .padding(.trailing, -2)
+            .padding(.trailing, EnsembleScaffold.ScrollIndex.compactTrailingPadding)
         #else
         self
             .frame(maxHeight: .infinity, alignment: .bottom)
-            .padding(.bottom, 16)
-            .padding(.trailing, 2)
+            .padding(.bottom, EnsembleScaffold.ScrollIndex.regularBottomPadding)
+            .padding(.trailing, EnsembleScaffold.ScrollIndex.regularTrailingPadding)
         #endif
     }
 
@@ -127,11 +127,11 @@ public extension View {
         #if os(iOS)
         self
             .frame(maxHeight: .infinity, alignment: .center)
-            .padding(.trailing, -2)
+            .padding(.trailing, EnsembleScaffold.ScrollIndex.compactTrailingPadding)
         #else
         self
             .frame(maxHeight: .infinity, alignment: .center)
-            .padding(.trailing, 2)
+            .padding(.trailing, EnsembleScaffold.ScrollIndex.regularTrailingPadding)
         #endif
     }
 }
