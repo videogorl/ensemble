@@ -642,63 +642,34 @@ public struct QueueTableView: UIViewRepresentable {
             }
         }
 
-        private func contextMenu(for track: Track, absoluteIndex: Int?) -> UIMenu {
-            var topActions: [UIAction] = []
-            topActions.append(UIAction(title: "Play Next", image: UIImage(systemName: EnsembleDesign.Icon.playNext)) { _ in
-                self.onPlayNext(track)
-            })
-            topActions.append(UIAction(title: "Play Last", image: UIImage(systemName: EnsembleDesign.Icon.playLast)) { _ in
-                self.onPlayLast(track)
-            })
-
-            var navigationActions: [UIAction] = []
-            if let onGoToAlbum = self.onGoToAlbum, track.albumRatingKey != nil {
-                navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: EnsembleDesign.Icon.album)) { _ in
-                    onGoToAlbum(track)
-                })
-            }
-            if let onGoToArtist = self.onGoToArtist, track.artistRatingKey != nil {
-                navigationActions.append(UIAction(title: "Go to Artist", image: UIImage(systemName: EnsembleDesign.Icon.artist)) { _ in
-                    onGoToArtist(track)
-                })
-            }
-
-            var bottomActions: [UIAction] = []
-            if let onAddToRecentPlaylist = self.onAddToRecentPlaylist,
-               let canAddToRecentPlaylist = self.canAddToRecentPlaylist,
-               canAddToRecentPlaylist(track),
-               let recentPlaylistTitle = self.recentPlaylistTitle {
-                bottomActions.append(
-                    UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: EnsembleDesign.Icon.recentPlaylist)) { _ in
-                        onAddToRecentPlaylist(track)
-                    }
-                )
-            }
-            if let onAddToPlaylist = self.onAddToPlaylist {
-                bottomActions.append(
-                    UIAction(title: "Add to Playlist...", image: UIImage(systemName: EnsembleDesign.Icon.addToPlaylist)) { _ in
-                        onAddToPlaylist(track)
-                    }
-                )
-            }
-
+        private func contextMenu(for track: Track, absoluteIndex: Int?) -> UIMenu? {
+            let interactionModel = TrackRowInteractionModel(
+                onPlayNext: { [weak self] track in self?.onPlayNext(track) },
+                onPlayLast: { [weak self] track in self?.onPlayLast(track) },
+                onAddToPlaylist: self.onAddToPlaylist,
+                onAddToRecentPlaylist: self.onAddToRecentPlaylist,
+                onGoToAlbum: self.onGoToAlbum,
+                onGoToArtist: self.onGoToArtist,
+                canAddToRecentPlaylist: self.canAddToRecentPlaylist,
+                recentPlaylistTitle: self.recentPlaylistTitle
+            )
+            let resolvedActions = interactionModel.resolve(for: track)
+            let extraBottomActions: [UIAction]
             if let absoluteIndex {
-                let remove = UIAction(title: "Remove from Queue", image: UIImage(systemName: EnsembleDesign.Icon.delete), attributes: .destructive) { _ in
-                    self.onRemoveFromQueue(absoluteIndex)
-                }
-                bottomActions.append(remove)
+                extraBottomActions = [
+                    UIAction(title: "Remove from Queue", image: UIImage(systemName: EnsembleDesign.Icon.delete), attributes: .destructive) { [weak self] _ in
+                        self?.onRemoveFromQueue(absoluteIndex)
+                    }
+                ]
+            } else {
+                extraBottomActions = []
             }
 
-            var children: [UIMenuElement] = []
-            children.append(UIMenu(title: "", options: .displayInline, children: topActions))
-            if !navigationActions.isEmpty {
-                children.append(UIMenu(title: "", options: .displayInline, children: navigationActions))
-            }
-            if !bottomActions.isEmpty {
-                children.append(UIMenu(title: "", options: .displayInline, children: bottomActions))
-            }
-
-            return UIMenu(children: children)
+            return NativeMediaTableActionBuilder.contextMenu(
+                for: track,
+                resolvedActions: resolvedActions,
+                extraBottomActions: extraBottomActions
+            )
         }
         
         // MARK: - Drag & Drop

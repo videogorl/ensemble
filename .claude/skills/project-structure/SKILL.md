@@ -336,6 +336,7 @@ Sources/
 |   +-- MediaActionLabel.swift        # Semantic media action labels/icons for menus and swipe actions
 |   +-- MediaContextMenus.swift       # Shared album/artist/playlist/merged-playlist context menu actions for grids, search, and sidebar pins
 |   +-- MediaTrackList.swift          # Reusable track list with context menu
+|   +-- NativeMediaTableActionBuilder.swift # UIKit table-row context menu builder shared by MediaTrackList and QueueTableView
 |   +-- MiniPlayer.swift              # Compact persistent player overlay
 |   +-- ExternalDisplayNowPlayingView.swift # Non-interactive Now Playing for AirPlay screen mirroring (TV)
 |   +-- NowPlayingViewportRoot.swift  # Dedicated iPad/macOS Now Playing root + macOS window chrome bridge
