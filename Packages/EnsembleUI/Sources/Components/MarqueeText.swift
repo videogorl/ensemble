@@ -58,7 +58,7 @@ public struct MarqueeText: View {
                 ZStack(alignment: .leading) {
                     if textWidth > containerWidth {
                         // Scrolling text
-                        HStack(spacing: 50) {
+                        HStack(spacing: EnsembleScaffold.Marquee.duplicateTextSpacing) {
                             Text(text)
                                 .font(font)
                                 .fontWeight(fontWeight)
@@ -99,7 +99,7 @@ public struct MarqueeText: View {
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
-                            .frame(width: 24)
+                            .frame(width: EnsembleScaffold.Marquee.fadeWidth)
                             
                             Rectangle().fill(Color.black)
                             
@@ -109,7 +109,7 @@ public struct MarqueeText: View {
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
-                            .frame(width: 24)
+                            .frame(width: EnsembleScaffold.Marquee.fadeWidth)
                         } else {
                             Rectangle().fill(Color.black)
                         }
@@ -124,9 +124,9 @@ public struct MarqueeText: View {
     private var fontHeight: CGFloat {
         // Approximate height based on font
         #if os(iOS)
-        return UIFont.preferredFont(forTextStyle: .body).lineHeight * 1.5
+        return UIFont.preferredFont(forTextStyle: .body).lineHeight * EnsembleScaffold.Marquee.preferredLineHeightMultiplier
         #else
-        return 24
+        return EnsembleScaffold.Marquee.fallbackLineHeight
         #endif
     }
     

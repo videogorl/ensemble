@@ -45,7 +45,10 @@ public extension View {
         #if os(iOS)
         background(
             GlobalToastWindowHost(toastCenter: toastCenter)
-                .frame(width: 0, height: 0)
+                .frame(
+                    width: EnsembleScaffold.Toast.hiddenHostDimension,
+                    height: EnsembleScaffold.Toast.hiddenHostDimension
+                )
         )
         #else
         self

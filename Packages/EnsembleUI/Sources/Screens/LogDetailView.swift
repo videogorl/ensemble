@@ -97,7 +97,7 @@ public struct LogDetailView: View {
                             Text("\(hiddenLineCount) earlier lines — tap to load more")
                                 .font(.caption)
                                 .foregroundColor(.accentColor)
-                                .padding(.vertical, 8)
+                                .padding(.vertical, EnsembleScaffold.LogViewer.loadMoreButtonVerticalPadding)
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.plain)
@@ -109,7 +109,7 @@ public struct LogDetailView: View {
                             .font(.system(.caption2, design: .monospaced))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, TrackListLayoutMetrics.rowInterItemSpacing)
-                            .padding(.vertical, 1)
+                            .padding(.vertical, EnsembleScaffold.LogViewer.lineVerticalPadding)
                             .id("line-\(allLines.count - visibleLineCount + index)")
                     }
                 }

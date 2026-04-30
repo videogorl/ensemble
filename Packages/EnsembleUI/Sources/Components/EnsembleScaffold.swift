@@ -54,6 +54,7 @@ public enum EnsembleScaffold {
     }
 
     public enum Toast {
+        public static let hiddenHostDimension = EnsembleDesign.Spacing.none
         public static let iconTextSpacing: CGFloat = 10
         public static let textSpacing = EnsembleDesign.Spacing.xxs
         public static let trailingSpacerMinLength = EnsembleDesign.Spacing.sm
@@ -63,6 +64,13 @@ public enum EnsembleScaffold {
         public static let horizontalPadding: CGFloat = 14
         public static let verticalPadding = EnsembleDesign.Spacing.md
         public static let borderOpacity = 0.4
+    }
+
+    public enum Marquee {
+        public static let duplicateTextSpacing: CGFloat = 50
+        public static let fadeWidth = EnsembleDesign.Spacing.xxl
+        public static let fallbackLineHeight = EnsembleDesign.Spacing.xxl
+        public static let preferredLineHeightMultiplier: CGFloat = 1.5
     }
 
     public enum ProfileHeader {
@@ -217,6 +225,11 @@ public enum EnsembleScaffold {
             return Color(NSColor.controlBackgroundColor)
             #endif
         }
+    }
+
+    public enum LogViewer {
+        public static let loadMoreButtonVerticalPadding = EnsembleDesign.Spacing.sm
+        public static let lineVerticalPadding: CGFloat = 1
     }
 
     public enum TabEditor {
@@ -491,6 +504,10 @@ public enum EnsembleScaffold {
             public static let inactiveIconSize: CGFloat = 12
             public static let inactiveOpacity = 0.4
             public static let verticalPadding = EnsembleDesign.Spacing.sm
+        }
+
+        public enum ToolbarSuppression {
+            public static let hostDimension = EnsembleDesign.Spacing.none
         }
     }
 

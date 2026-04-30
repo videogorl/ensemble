@@ -42,7 +42,10 @@ struct NowPlayingViewportRoot: View {
 
                 #if os(macOS)
                 SidebarToggleToolbarSuppressionBridge()
-                    .frame(width: 0, height: 0)
+                    .frame(
+                        width: EnsembleScaffold.NowPlaying.ToolbarSuppression.hostDimension,
+                        height: EnsembleScaffold.NowPlaying.ToolbarSuppression.hostDimension
+                    )
                 #endif
 
                 let mode = layoutMode(for: geometry)
