@@ -159,6 +159,7 @@ public enum EnsembleScaffold {
         public static let contentSpacing = EnsembleDesign.Spacing.xxl
         public static let sectionSpacing = EnsembleDesign.Spacing.lg
         public static let cardSpacing = EnsembleDesign.Spacing.sm
+        public static let rowSpacing = TrackListLayoutMetrics.rowInterItemSpacing
         public static let inlineIconSpacing = EnsembleDesign.Spacing.chipVertical
         public static let cardPadding = EnsembleDesign.Spacing.lg
         public static let horizontalPadding = EnsembleDesign.Spacing.xl

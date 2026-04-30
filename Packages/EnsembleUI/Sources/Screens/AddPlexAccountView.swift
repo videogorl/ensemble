@@ -31,7 +31,7 @@ public struct AddPlexAccountView: View {
 
     #if os(macOS)
     private var macOSBody: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
             ScrollView {
                 contentStack
             }
@@ -233,7 +233,7 @@ public struct AddPlexAccountView: View {
                     .font(EnsembleDesign.Typography.rowSecondary)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
-                .padding()
+                .padding(EnsembleScaffold.AccountSetup.cardPadding)
                 .background(EnsembleScaffold.AccountSetup.cardBackground)
                 .cornerRadius(EnsembleScaffold.AccountSetup.cardCornerRadius)
                 .frame(maxWidth: EnsembleScaffold.AccountSetup.pinCodeMaxWidth)
@@ -365,7 +365,7 @@ struct LibrarySelectionRow: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+            HStack(spacing: EnsembleScaffold.AccountSetup.rowSpacing) {
                 Image(systemName: isSelected ? EnsembleDesign.Icon.checkmark : EnsembleDesign.Icon.selectionCircle)
                     .font(EnsembleDesign.Typography.utilityIcon)
                     .foregroundColor(isSelected ? EnsembleDesign.Color.accent : EnsembleDesign.Color.secondaryText)
@@ -393,7 +393,7 @@ struct ServerRow: View {
     
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+            HStack(spacing: EnsembleScaffold.AccountSetup.rowSpacing) {
                 Image(systemName: EnsembleDesign.Icon.server)
                     .font(EnsembleDesign.Typography.utilityIcon)
                     .foregroundColor(EnsembleDesign.Color.accent)
