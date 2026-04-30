@@ -147,6 +147,7 @@ public enum EnsembleDesign {
         public static let checkmarkOutline = "checkmark.circle"
         public static let cloud = "icloud"
         public static let selectionCheckmark = "checkmark"
+        public static let close = "xmark"
         public static let closeCircle = "xmark.circle.fill"
         public static let copy = "doc.on.doc"
         public static let delete = "trash"

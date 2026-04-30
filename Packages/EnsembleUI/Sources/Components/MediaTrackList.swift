@@ -144,7 +144,7 @@ public class TrackTableViewCell: UITableViewCell {
         overflowButton.translatesAutoresizingMaskIntoConstraints = false
         let overflowSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
         overflowButton.setPreferredSymbolConfiguration(overflowSymbolConfiguration, forImageIn: .normal)
-        overflowButton.setImage(UIImage(systemName: "ellipsis", withConfiguration: overflowSymbolConfiguration), for: .normal)
+        overflowButton.setImage(UIImage(systemName: EnsembleDesign.Icon.more, withConfiguration: overflowSymbolConfiguration), for: .normal)
         overflowButton.tintColor = .secondaryLabel
         overflowButton.showsMenuAsPrimaryAction = true
         overflowButton.setContentHuggingPriority(.required, for: .horizontal)
@@ -1126,25 +1126,25 @@ public struct MediaTrackList: UIViewRepresentable {
             var topActions: [UIAction] = []
 
             if let onPlayNext = resolvedActions.onPlayNext {
-                topActions.append(UIAction(title: "Play Next", image: UIImage(systemName: "text.insert")) { _ in
+                topActions.append(UIAction(title: "Play Next", image: UIImage(systemName: EnsembleDesign.Icon.playNext)) { _ in
                     onPlayNext()
                 })
             }
 
             if let onPlayLast = resolvedActions.onPlayLast {
-                topActions.append(UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
+                topActions.append(UIAction(title: "Play Last", image: UIImage(systemName: EnsembleDesign.Icon.playLast)) { _ in
                     onPlayLast()
                 })
             }
 
             var navigationActions: [UIAction] = []
             if let onGoToAlbum = resolvedActions.onGoToAlbum, track.albumRatingKey != nil {
-                navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: "square.stack")) { _ in
+                navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: EnsembleDesign.Icon.album)) { _ in
                     onGoToAlbum()
                 })
             }
             if let onGoToArtist = resolvedActions.onGoToArtist, track.artistRatingKey != nil {
-                navigationActions.append(UIAction(title: "Go to Artist", image: UIImage(systemName: "person.circle")) { _ in
+                navigationActions.append(UIAction(title: "Go to Artist", image: UIImage(systemName: EnsembleDesign.Icon.artist)) { _ in
                     onGoToArtist()
                 })
             }
@@ -1152,13 +1152,13 @@ public struct MediaTrackList: UIViewRepresentable {
             var bottomActions: [UIAction] = []
             if let onAddToRecentPlaylist = resolvedActions.onAddToRecentPlaylist,
                let recentPlaylistTitle = resolvedActions.recentPlaylistTitle {
-                bottomActions.append(UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: "clock.arrow.circlepath")) { _ in
+                bottomActions.append(UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: EnsembleDesign.Icon.recentPlaylist)) { _ in
                     onAddToRecentPlaylist()
                 })
             }
 
             if let onAddToPlaylist = resolvedActions.onAddToPlaylist {
-                bottomActions.append(UIAction(title: "Add to Playlist…", image: UIImage(systemName: "text.badge.plus")) { _ in
+                bottomActions.append(UIAction(title: "Add to Playlist…", image: UIImage(systemName: EnsembleDesign.Icon.addToPlaylist)) { _ in
                     onAddToPlaylist()
                 })
             }
@@ -1174,12 +1174,12 @@ public struct MediaTrackList: UIViewRepresentable {
 
             var shareActions: [UIAction] = []
             if let onShareLink = resolvedActions.onShareLink {
-                shareActions.append(UIAction(title: "Share Link…", image: UIImage(systemName: "link")) { _ in
+                shareActions.append(UIAction(title: "Share Link…", image: UIImage(systemName: EnsembleDesign.Icon.shareLink)) { _ in
                     onShareLink()
                 })
             }
             if let onShareFile = resolvedActions.onShareFile {
-                shareActions.append(UIAction(title: "Share Audio File…", image: UIImage(systemName: "square.and.arrow.up")) { _ in
+                shareActions.append(UIAction(title: "Share Audio File…", image: UIImage(systemName: EnsembleDesign.Icon.shareAudioFile)) { _ in
                     onShareFile()
                 })
             }

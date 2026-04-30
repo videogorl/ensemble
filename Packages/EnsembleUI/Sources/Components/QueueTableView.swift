@@ -61,21 +61,21 @@ public class QueueItemCell: UITableViewCell {
         durationLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(durationLabel)
         
-        playingIndicator.image = UIImage(systemName: "speaker.wave.3.fill")
+        playingIndicator.image = UIImage(systemName: EnsembleDesign.Icon.speakerPlaying)
         playingIndicator.tintColor = .systemBlue
         playingIndicator.contentMode = .scaleAspectFit
         playingIndicator.translatesAutoresizingMaskIntoConstraints = false
         playingIndicator.isHidden = true
         contentView.addSubview(playingIndicator)
         
-        autoplayIndicator.image = UIImage(systemName: "sparkles")
+        autoplayIndicator.image = UIImage(systemName: EnsembleDesign.Icon.generatedBadge)
         autoplayIndicator.tintColor = .systemPurple
         autoplayIndicator.contentMode = .scaleAspectFit
         autoplayIndicator.translatesAutoresizingMaskIntoConstraints = false
         autoplayIndicator.isHidden = true
         contentView.addSubview(autoplayIndicator)
         
-        dragHandleView.image = UIImage(systemName: "line.3.horizontal")
+        dragHandleView.image = UIImage(systemName: EnsembleDesign.Icon.dragReorder)
         dragHandleView.tintColor = .systemGray
         dragHandleView.contentMode = .scaleAspectFit
         dragHandleView.translatesAutoresizingMaskIntoConstraints = false
@@ -566,7 +566,7 @@ public struct QueueTableView: UIViewRepresentable {
             headerView.addSubview(label)
             
             if sectionData.type == .history {
-                let clockIcon = UIImageView(image: UIImage(systemName: "clock"))
+                let clockIcon = UIImageView(image: UIImage(systemName: EnsembleDesign.Icon.clock))
                 clockIcon.tintColor = .secondaryLabel
                 clockIcon.contentMode = .scaleAspectFit
                 clockIcon.translatesAutoresizingMaskIntoConstraints = false
@@ -644,21 +644,21 @@ public struct QueueTableView: UIViewRepresentable {
 
         private func contextMenu(for track: Track, absoluteIndex: Int?) -> UIMenu {
             var topActions: [UIAction] = []
-            topActions.append(UIAction(title: "Play Next", image: UIImage(systemName: "text.insert")) { _ in
+            topActions.append(UIAction(title: "Play Next", image: UIImage(systemName: EnsembleDesign.Icon.playNext)) { _ in
                 self.onPlayNext(track)
             })
-            topActions.append(UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
+            topActions.append(UIAction(title: "Play Last", image: UIImage(systemName: EnsembleDesign.Icon.playLast)) { _ in
                 self.onPlayLast(track)
             })
 
             var navigationActions: [UIAction] = []
             if let onGoToAlbum = self.onGoToAlbum, track.albumRatingKey != nil {
-                navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: "square.stack")) { _ in
+                navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: EnsembleDesign.Icon.album)) { _ in
                     onGoToAlbum(track)
                 })
             }
             if let onGoToArtist = self.onGoToArtist, track.artistRatingKey != nil {
-                navigationActions.append(UIAction(title: "Go to Artist", image: UIImage(systemName: "person.circle")) { _ in
+                navigationActions.append(UIAction(title: "Go to Artist", image: UIImage(systemName: EnsembleDesign.Icon.artist)) { _ in
                     onGoToArtist(track)
                 })
             }
@@ -669,21 +669,21 @@ public struct QueueTableView: UIViewRepresentable {
                canAddToRecentPlaylist(track),
                let recentPlaylistTitle = self.recentPlaylistTitle {
                 bottomActions.append(
-                    UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: "clock.arrow.circlepath")) { _ in
+                    UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: EnsembleDesign.Icon.recentPlaylist)) { _ in
                         onAddToRecentPlaylist(track)
                     }
                 )
             }
             if let onAddToPlaylist = self.onAddToPlaylist {
                 bottomActions.append(
-                    UIAction(title: "Add to Playlist...", image: UIImage(systemName: "text.badge.plus")) { _ in
+                    UIAction(title: "Add to Playlist...", image: UIImage(systemName: EnsembleDesign.Icon.addToPlaylist)) { _ in
                         onAddToPlaylist(track)
                     }
                 )
             }
 
             if let absoluteIndex {
-                let remove = UIAction(title: "Remove from Queue", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
+                let remove = UIAction(title: "Remove from Queue", image: UIImage(systemName: EnsembleDesign.Icon.delete), attributes: .destructive) { _ in
                     self.onRemoveFromQueue(absoluteIndex)
                 }
                 bottomActions.append(remove)

@@ -403,7 +403,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 Button {
                     closePanel()
                 } label: {
-                    Image(systemName: "xmark")
+                    Image(systemName: EnsembleDesign.Icon.close)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(.primary.opacity(0.8))
                         .frame(width: 32, height: 32)

@@ -632,7 +632,7 @@ private struct MiniPlayerActionsPopoverContent: View {
             if let recentPlaylistTitle {
                 actionButton(
                     title: "Add to \(recentPlaylistTitle)",
-                    systemImage: "clock.arrow.circlepath",
+                    systemImage: EnsembleDesign.Icon.recentPlaylist,
                     action: onAddToRecentPlaylist
                 )
             }
@@ -726,7 +726,7 @@ private struct NativeMiniPlayerActionsMenuButton: NSViewRepresentable {
             menu.addItem(menuItem(title: parent.favoriteTitle, systemImage: parent.favoriteSystemImage, action: #selector(toggleFavorite(_:))))
 
             if let recentPlaylistTitle = parent.recentPlaylistTitle {
-                menu.addItem(menuItem(title: "Add to \(recentPlaylistTitle)", systemImage: "clock.arrow.circlepath", action: #selector(addToRecentPlaylist(_:))))
+                menu.addItem(menuItem(title: "Add to \(recentPlaylistTitle)", systemImage: EnsembleDesign.Icon.recentPlaylist, action: #selector(addToRecentPlaylist(_:))))
             }
 
             menu.addItem(menuItem(title: "Add to Playlist…", systemImage: EnsembleDesign.Icon.addToPlaylist, action: #selector(addToPlaylist(_:))))
