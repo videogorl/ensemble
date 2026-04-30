@@ -268,6 +268,20 @@ public enum EnsembleDesign {
     }
 
     public enum Material {
+        public enum FloatingGlass {
+            public static let fallbackMaterial = SwiftUI.Material.ultraThinMaterial
+            public static let tintOpacity: Double = 0
+            public static let strokeOpacity: Double = 0.10
+            public static let shadowRadius = EnsembleDesign.Effect.shadowRadius
+            public static let shadowY = EnsembleDesign.Effect.shadowY
+            public static let shadowColor = EnsembleDesign.Effect.shadowColor
+
+            #if canImport(UIKit) && !os(watchOS)
+            public static let chromeBlurStyle = UIBlurEffect.Style.systemUltraThinMaterial
+            public static let chromeBackgroundAlpha: CGFloat = 0.85
+            #endif
+        }
+
         public enum Role {
             case miniPlayer
             case toolbarPill
@@ -280,22 +294,20 @@ public enum EnsembleDesign {
 
             var fallbackMaterial: SwiftUI.Material {
                 switch self {
-                case .miniPlayer, .toolbarPill, .floatingControl:
-                    return .ultraThinMaterial
+                case .miniPlayer, .toolbarPill, .floatingControl, .popover:
+                    return EnsembleDesign.Material.FloatingGlass.fallbackMaterial
                 case .sheet:
                     return .regularMaterial
-                case .detailSurface, .sidebar, .popover, .selection:
+                case .detailSurface, .sidebar, .selection:
                     return .thinMaterial
                 }
             }
 
             var tintOpacity: Double {
                 switch self {
-                case .miniPlayer:
-                    return 0
-                case .toolbarPill, .floatingControl:
-                    return 0.04
-                case .sheet, .detailSurface, .sidebar, .popover:
+                case .miniPlayer, .toolbarPill, .floatingControl, .popover:
+                    return EnsembleDesign.Material.FloatingGlass.tintOpacity
+                case .sheet, .detailSurface, .sidebar:
                     return 0.02
                 case .selection:
                     return 0.12
@@ -304,11 +316,9 @@ public enum EnsembleDesign {
 
             var strokeOpacity: Double {
                 switch self {
-                case .miniPlayer:
-                    return 0.10
-                case .toolbarPill, .floatingControl:
-                    return 0.08
-                case .sheet, .detailSurface, .sidebar, .popover:
+                case .miniPlayer, .toolbarPill, .floatingControl, .popover:
+                    return EnsembleDesign.Material.FloatingGlass.strokeOpacity
+                case .sheet, .detailSurface, .sidebar:
                     return 0.06
                 case .selection:
                     return 0
@@ -318,9 +328,9 @@ public enum EnsembleDesign {
             var shadowRadius: CGFloat {
                 switch self {
                 case .toolbarPill, .floatingControl, .popover:
-                    return EnsembleDesign.Effect.shadowRadius
+                    return EnsembleDesign.Material.FloatingGlass.shadowRadius
                 case .miniPlayer:
-                    return EnsembleDesign.Effect.shadowRadius
+                    return EnsembleDesign.Material.FloatingGlass.shadowRadius
                 case .sheet, .detailSurface, .sidebar, .selection:
                     return 0
                 }
@@ -329,14 +339,14 @@ public enum EnsembleDesign {
             var shadowY: CGFloat {
                 switch self {
                 case .miniPlayer, .toolbarPill, .floatingControl, .popover:
-                    return EnsembleDesign.Effect.shadowY
+                    return EnsembleDesign.Material.FloatingGlass.shadowY
                 case .sheet, .detailSurface, .sidebar, .selection:
                     return 0
                 }
             }
 
             var shadowColor: SwiftUI.Color {
-                EnsembleDesign.Effect.shadowColor
+                EnsembleDesign.Material.FloatingGlass.shadowColor
             }
 
             var fallbackBackgroundColor: SwiftUI.Color {
@@ -356,7 +366,7 @@ public enum EnsembleDesign {
             var chromeBlurStyle: UIBlurEffect.Style {
                 switch self {
                 case .miniPlayer, .toolbarPill, .floatingControl, .popover:
-                    return .systemUltraThinMaterial
+                    return EnsembleDesign.Material.FloatingGlass.chromeBlurStyle
                 case .sheet, .detailSurface, .sidebar, .selection:
                     return .systemChromeMaterial
                 }
@@ -367,16 +377,16 @@ public enum EnsembleDesign {
                 case .sidebar:
                     return auroraEnabled ? 0.3 : 0.85
                 case .miniPlayer, .toolbarPill, .floatingControl, .sheet, .detailSurface, .popover, .selection:
-                    return 0.85
+                    return EnsembleDesign.Material.FloatingGlass.chromeBackgroundAlpha
                 }
             }
             #endif
 
             var prefersLiquidGlass: Bool {
                 switch self {
-                case .miniPlayer, .toolbarPill, .floatingControl:
+                case .miniPlayer, .toolbarPill, .floatingControl, .popover:
                     return true
-                case .sheet, .detailSurface, .sidebar, .popover, .selection:
+                case .sheet, .detailSurface, .sidebar, .selection:
                     return false
                 }
             }
