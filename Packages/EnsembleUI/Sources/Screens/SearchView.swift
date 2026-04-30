@@ -207,10 +207,10 @@ public struct SearchView: View {
             )
         } else {
             ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
+            VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.exploreSectionSpacing) {
                 // Recent Searches
                 if !viewModel.recentSearches.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
                         HStack {
                             EnsembleContentSectionHeader("Recent Searches")
                             
@@ -228,7 +228,7 @@ public struct SearchView: View {
                         
                         // List for swipeActions support, with scrolling disabled
                         recentSearchesList
-                            .cornerRadius(10)
+                            .cornerRadius(EnsembleScaffold.Discovery.recentSearchCornerRadius)
                             .padding(.horizontal)
                     }
                 }
@@ -271,11 +271,11 @@ public struct SearchView: View {
                 
                 // Recommended
                 if !recommendedDisplayItems.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
                         EnsembleContentSectionHeader("Recommended for You")
                             .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
                         
-                        LazyVGrid(columns: gridColumns, spacing: 16) {
+                        LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
                             ForEach(recommendedDisplayItems) { item in
                                 recommendedItemCard(item)
                             }
@@ -286,21 +286,21 @@ public struct SearchView: View {
                 
                 // Browse Moods (with loading state)
                 if viewModel.isLoadingExplore && viewModel.allMoods.isEmpty {
-                    VStack(spacing: 12) {
+                    VStack(spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
                         ProgressView()
-                            .frame(height: 200)
+                            .frame(height: EnsembleScaffold.Discovery.loadingPlaceholderHeight)
                         Text("Loading moods...")
                             .font(EnsembleDesign.Typography.stateMessage)
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 20)
+                    .padding(.vertical, EnsembleScaffold.Discovery.loadingVerticalPadding)
                 } else if !viewModel.allMoods.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
                         EnsembleContentSectionHeader("Moods")
                             .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
                         
-                        LazyVGrid(columns: gridColumns, spacing: 16) {
+                        LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
                             ForEach(viewModel.allMoods) { mood in
                                 if #available(iOS 16.0, macOS 13.0, *) {
                                     NavigationLink(value: NavigationCoordinator.Destination.moodTracks(mood: mood)) {
@@ -347,8 +347,8 @@ public struct SearchView: View {
     /// Recent searches list with swipe-to-delete, sized to fit content without scrolling
     private var recentSearchesList: some View {
         let items = Array(viewModel.recentSearches.prefix(3))
-        let rowHeight: CGFloat = 48
-        let listHeight = CGFloat(items.count) * rowHeight + 16
+        let rowHeight = EnsembleScaffold.Discovery.recentSearchRowHeight
+        let listHeight = CGFloat(items.count) * rowHeight + EnsembleScaffold.Discovery.recentSearchExtraHeight
 
         let list = List {
             ForEach(items, id: \.self) { search in
@@ -356,12 +356,12 @@ public struct SearchView: View {
                     viewModel.searchQuery = search
                 } label: {
                     HStack {
-                        Image(systemName: "magnifyingglass")
+                        Image(systemName: EnsembleDesign.Icon.search)
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                         Text(search)
                             .foregroundColor(EnsembleDesign.Color.primaryText)
                         Spacer()
-                        Image(systemName: "arrow.up.left")
+                        Image(systemName: EnsembleDesign.Icon.recentSearchReuse)
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                             .font(EnsembleDesign.Typography.rowSecondary)
                     }
@@ -371,7 +371,7 @@ public struct SearchView: View {
                     Button(role: .destructive) {
                         viewModel.removeRecentSearch(search)
                     } label: {
-                        Label("Delete", systemImage: "trash")
+                        Label("Delete", systemImage: EnsembleDesign.Icon.delete)
                     }
                 }
             }
@@ -392,7 +392,7 @@ public struct SearchView: View {
         @ViewBuilder content: @escaping (T) -> Content
     ) -> some View {
         Section {
-            LazyVGrid(columns: gridColumns, spacing: 16) {
+            LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
                 ForEach(items) { item in
                     content(item)
                 }
@@ -410,11 +410,11 @@ public struct SearchView: View {
         items: [T],
         @ViewBuilder content: @escaping (T) -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
             EnsembleContentSectionHeader(title)
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
             
-            LazyVGrid(columns: gridColumns, spacing: 16) {
+            LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
                 ForEach(items) { item in
                     content(item)
                 }
@@ -506,7 +506,7 @@ public struct SearchView: View {
             ? pinnedVM.resolvedPins
             : Array(pinnedVM.resolvedPins.prefix(6))
 
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
             // Section header with expand/collapse chevron
             Button {
                 withAnimation {
@@ -533,11 +533,11 @@ public struct SearchView: View {
                                 .font(EnsembleDesign.Typography.stateMessage)
                                 .foregroundColor(EnsembleDesign.Color.accent)
                         }
-                        .padding(.trailing, 4)
+                        .padding(.trailing, EnsembleScaffold.Discovery.editControlTrailingPadding)
                     }
 
                     if pinnedVM.resolvedPins.count > 6 && !isEditingPins {
-                        Image(systemName: isPinnedExpanded ? "chevron.up" : "chevron.down")
+                        Image(systemName: isPinnedExpanded ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
                             .font(EnsembleDesign.Typography.stateMessage)
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
@@ -554,7 +554,7 @@ public struct SearchView: View {
                     .padding(.horizontal)
             } else {
                 // Grid of pinned items with drag reordering on iOS 16+
-                LazyVGrid(columns: gridColumns, spacing: 16) {
+                LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
                     ForEach(displayItems) { pin in
                         pinnedItemCard(pin)
                             .contextMenu {
@@ -562,7 +562,7 @@ public struct SearchView: View {
                                 Button(role: .destructive) {
                                     pinnedVM.unpinAll(pin)
                                 } label: {
-                                    Label("Unpin", systemImage: "pin.slash")
+                                    Label("Unpin", systemImage: EnsembleDesign.Icon.unpin)
                                 }
                             }
                     }
@@ -620,12 +620,15 @@ public struct SearchView: View {
                             pinnedVM.unpinAll(pin)
                         }
                     } label: {
-                        Image(systemName: "minus.circle.fill")
+                        Image(systemName: EnsembleDesign.Icon.removeCircleFilled)
                             .symbolRenderingMode(.palette)
                             .foregroundStyle(EnsembleDesign.Color.onAccent, EnsembleDesign.Color.destructive)
-                            .font(.title3)
+                            .font(EnsembleDesign.Typography.detailSubtitle)
                     }
-                    .offset(x: 8, y: -8)
+                    .offset(
+                        x: EnsembleScaffold.Discovery.editingBadgeOffset,
+                        y: -EnsembleScaffold.Discovery.editingBadgeOffset
+                    )
                     .transition(.scale.combined(with: .opacity))
                 }
             }
@@ -787,7 +790,7 @@ public struct SearchView: View {
 
     private var searchResultsView: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.sectionSpacing) {
                 ForEach(viewModel.orderedSections, id: \.self) { section in
                     searchResultSection(for: section)
                 }

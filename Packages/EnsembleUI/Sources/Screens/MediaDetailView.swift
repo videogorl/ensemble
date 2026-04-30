@@ -524,7 +524,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             deps.toastCenter.show(
                 ToastPayload(
                     style: .warning,
-                    iconSystemName: "exclamationmark.triangle.fill",
+                    iconSystemName: EnsembleDesign.Icon.error,
                     title: "No tracks available",
                     message: "Try again after the album finishes loading.",
                     dedupeKey: "album-playlist-picker-empty"

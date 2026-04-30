@@ -589,7 +589,7 @@ public struct PlaylistsView: View {
 
         let deletingToast = ToastPayload(
             style: .info,
-            iconSystemName: "trash",
+            iconSystemName: EnsembleDesign.Icon.delete,
             title: "Deleting \(playlist.title)...",
             isPersistent: true,
             dedupeKey: "playlist-delete-pending-\(playlist.id)",
@@ -630,7 +630,7 @@ public struct PlaylistsView: View {
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .error,
-                        iconSystemName: "xmark.octagon.fill",
+                        iconSystemName: EnsembleDesign.Icon.failure,
                         title: "Could not delete \(playlist.title)",
                         message: viewModel.error ?? "Try again later.",
                         dedupeKey: "playlist-delete-error-\(playlist.id)"
@@ -645,7 +645,7 @@ public struct PlaylistsView: View {
     private func createPlaylistOnServers(named title: String, serverSourceKeys: [String]) {
         let creatingToast = ToastPayload(
             style: .info,
-            iconSystemName: "plus.circle",
+            iconSystemName: EnsembleDesign.Icon.addCircleOutline,
             title: "Creating \(title)...",
             isPersistent: true,
             dedupeKey: "playlist-create-pending-\(title.lowercased())",
@@ -678,7 +678,7 @@ public struct PlaylistsView: View {
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .success,
-                        iconSystemName: "plus.circle.fill",
+                        iconSystemName: EnsembleDesign.Icon.addCircle,
                         title: "Created \(title)",
                         dedupeKey: "playlist-create-success-\(title.lowercased())"
                     )
@@ -699,7 +699,7 @@ public struct PlaylistsView: View {
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .error,
-                        iconSystemName: "xmark.octagon.fill",
+                        iconSystemName: EnsembleDesign.Icon.failure,
                         title: "Could not create \(title)",
                         message: lastError ?? "Try again later.",
                         dedupeKey: "playlist-create-error-\(title.lowercased())"
@@ -716,7 +716,7 @@ public struct PlaylistsView: View {
 
         let renamingToast = ToastPayload(
             style: .info,
-            iconSystemName: "pencil",
+            iconSystemName: EnsembleDesign.Icon.edit,
             title: "Renaming \(playlist.title)...",
             isPersistent: true,
             dedupeKey: "playlist-rename-pending-\(playlist.id)",
@@ -739,7 +739,7 @@ public struct PlaylistsView: View {
                 deps.toastCenter.show(
                     ToastPayload(
                         style: outcome == .queued ? .info : .success,
-                        iconSystemName: outcome == .queued ? "clock.arrow.circlepath" : "pencil.circle.fill",
+                        iconSystemName: outcome == .queued ? EnsembleDesign.Icon.recentPlaylist : EnsembleDesign.Icon.editCircleFilled,
                         title: outcome == .queued ? "Rename queued — will sync when online" : "Renamed playlist",
                         dedupeKey: "playlist-rename-success-\(playlist.id)"
                     )
@@ -751,7 +751,7 @@ public struct PlaylistsView: View {
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .error,
-                        iconSystemName: "xmark.octagon.fill",
+                        iconSystemName: EnsembleDesign.Icon.failure,
                         title: "Could not rename playlist",
                         message: error.localizedDescription,
                         dedupeKey: "playlist-rename-error-\(playlist.id)"
@@ -924,7 +924,7 @@ public struct PlaylistDetailView: View {
                 let playlistID = viewModel.playlist.id
                 let renamingToast = ToastPayload(
                     style: .info,
-                    iconSystemName: "pencil",
+                    iconSystemName: EnsembleDesign.Icon.edit,
                     title: "Renaming \(previousTitle)...",
                     isPersistent: true,
                     dedupeKey: "playlist-rename-pending-\(playlistID)",
@@ -954,7 +954,7 @@ public struct PlaylistDetailView: View {
                         deps.toastCenter.show(
                             ToastPayload(
                                 style: .success,
-                                iconSystemName: "pencil.circle.fill",
+                                iconSystemName: EnsembleDesign.Icon.editCircleFilled,
                                 title: "Renamed playlist",
                                 dedupeKey: "playlist-rename-success-\(playlistID)"
                             )
@@ -968,7 +968,7 @@ public struct PlaylistDetailView: View {
                         deps.toastCenter.show(
                             ToastPayload(
                                 style: .error,
-                                iconSystemName: "xmark.octagon.fill",
+                                iconSystemName: EnsembleDesign.Icon.failure,
                                 title: "Could not rename playlist",
                                 message: viewModel.error ?? "Try again later.",
                                 dedupeKey: "playlist-rename-error-\(playlistID)"
@@ -987,7 +987,7 @@ public struct PlaylistDetailView: View {
                 let playlistID = viewModel.playlist.id
                 let deletingToast = ToastPayload(
                     style: .info,
-                    iconSystemName: "trash",
+                    iconSystemName: EnsembleDesign.Icon.delete,
                     title: "Deleting \(playlistTitle)...",
                     isPersistent: true,
                     dedupeKey: "playlist-delete-pending-\(playlistID)",
@@ -1031,7 +1031,7 @@ public struct PlaylistDetailView: View {
                         deps.toastCenter.show(
                             ToastPayload(
                                 style: .error,
-                                iconSystemName: "xmark.octagon.fill",
+                                iconSystemName: EnsembleDesign.Icon.failure,
                                 title: "Could not delete \(playlistTitle)",
                                 message: viewModel.error ?? "Try again later.",
                                 dedupeKey: "playlist-delete-error-\(playlistID)"

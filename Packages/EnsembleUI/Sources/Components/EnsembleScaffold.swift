@@ -102,6 +102,20 @@ public enum EnsembleScaffold {
         public static let detailHeaderSpacing = EnsembleDesign.Spacing.xs
     }
 
+    public enum Discovery {
+        public static let sectionSpacing = EnsembleDesign.Spacing.xxl
+        public static let exploreSectionSpacing = EnsembleDesign.Spacing.xxxl
+        public static let subsectionSpacing = EnsembleDesign.Spacing.md
+        public static let gridSpacing = EnsembleDesign.Spacing.lg
+        public static let loadingPlaceholderHeight: CGFloat = 200
+        public static let loadingVerticalPadding = EnsembleDesign.Spacing.xl
+        public static let recentSearchRowHeight = EnsembleScaffold.UtilityRow.artworkDimension
+        public static let recentSearchExtraHeight = EnsembleDesign.Spacing.lg
+        public static let recentSearchCornerRadius = EnsembleDesign.Radius.control
+        public static let editControlTrailingPadding = EnsembleDesign.Spacing.xs
+        public static let editingBadgeOffset = EnsembleDesign.Spacing.sm
+    }
+
     public enum ArtistDetail {
         public static let wideHeaderThreshold: CGFloat = 700
         public static let backgroundHeight: CGFloat = 600

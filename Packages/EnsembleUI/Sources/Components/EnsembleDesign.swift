@@ -129,6 +129,7 @@ public enum EnsembleDesign {
 
     public enum Icon {
         public static let addCircle = "plus.circle.fill"
+        public static let addCircleOutline = "plus.circle"
         public static let addToPlaylist = "text.badge.plus"
         public static let album = "square.stack"
         public static let artist = "person.circle"
@@ -146,8 +147,10 @@ public enum EnsembleDesign {
         public static let downloaded = "arrow.down.circle.fill"
         public static let dragHandle = "circle.grid.2x3.fill"
         public static let edit = "pencil"
+        public static let editCircleFilled = "pencil.circle.fill"
         public static let editPlaylist = "slider.horizontal.3"
         public static let error = "exclamationmark.triangle.fill"
+        public static let failure = "xmark.octagon.fill"
         public static let externalLink = "arrow.up.forward.app"
         public static let favorite = "heart"
         public static let favoriteFilled = "heart.fill"
@@ -165,6 +168,8 @@ public enum EnsembleDesign {
         public static let moreCircle = "ellipsis.circle"
         public static let musicNote = "music.note"
         public static let next = "forward.fill"
+        public static let recentSearchReuse = "arrow.up.left"
+        public static let removeCircleFilled = "minus.circle.fill"
         public static let pin = "pin.fill"
         public static let playLast = "text.append"
         public static let playNext = "text.insert"

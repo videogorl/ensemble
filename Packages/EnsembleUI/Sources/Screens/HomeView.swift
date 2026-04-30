@@ -185,7 +185,7 @@ public struct HomeView: View {
     
     private var hubsScrollView: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.sectionSpacing) {
                 ForEach(viewModel.hubs) { hub in
                     HubSection(hub: hub, nowPlayingVM: nowPlayingVM, playlistPickerTracks: $playlistPickerTracks)
                 }
@@ -227,13 +227,13 @@ struct HubSection: View {
     @Binding var playlistPickerTracks: [Track]?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
             // Section header — navigable when hub is artist-scoped
             sectionHeader
 
             // Horizontal scroll of items
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: EnsembleScaffold.Discovery.gridSpacing) {
                     ForEach(hub.items) { item in
                         HubItemCard(
                             item: item,
@@ -712,7 +712,7 @@ struct HubItemCard: View {
                     deps.toastCenter.show(
                         ToastPayload(
                             style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
+                            iconSystemName: EnsembleDesign.Icon.error,
                             title: "No tracks available",
                             message: "Try again after the album finishes loading.",
                             dedupeKey: "hub-album-empty-\(item.id)"
@@ -744,7 +744,7 @@ struct HubItemCard: View {
                     deps.toastCenter.show(
                         ToastPayload(
                             style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
+                            iconSystemName: EnsembleDesign.Icon.error,
                             title: "No tracks available",
                             message: "Try again after the artist finishes loading.",
                             dedupeKey: "hub-artist-empty-\(item.id)"
@@ -776,7 +776,7 @@ struct HubItemCard: View {
                     deps.toastCenter.show(
                         ToastPayload(
                             style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
+                            iconSystemName: EnsembleDesign.Icon.error,
                             title: "No tracks available",
                             message: "Try again after the playlist finishes syncing.",
                             dedupeKey: "hub-playlist-empty-\(item.id)"
@@ -807,7 +807,7 @@ struct HubItemCard: View {
                         deps.toastCenter.show(
                             ToastPayload(
                                 style: .warning,
-                                iconSystemName: "exclamationmark.triangle.fill",
+                                iconSystemName: EnsembleDesign.Icon.error,
                                 title: "Can't add to \(expectedTitle)",
                                 message: "This album isn't compatible with that playlist.",
                                 dedupeKey: "hub-recent-playlist-\(item.id)"
