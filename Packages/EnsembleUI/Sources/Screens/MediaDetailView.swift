@@ -797,18 +797,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         Button {
             nowPlayingVM.play(tracks: viewModel.filteredTracks)
         } label: {
-            HStack {
-                Image(systemName: EnsembleDesign.Icon.play)
-                Text("Play")
-                    .lineLimit(1)
-            }
-            .font(EnsembleDesign.Typography.actionLabel)
-            .frame(maxWidth: expands ? .infinity : nil)
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, EnsembleScaffold.DetailSurface.actionVerticalPadding)
-            .background(EnsembleDesign.Color.accent)
-            .foregroundColor(EnsembleDesign.Color.onAccent)
-            .cornerRadius(EnsembleScaffold.DetailSurface.actionCornerRadius)
+            MediaDetailSurface<EmptyView>.ActionLabel(
+                "Play",
+                systemImage: EnsembleDesign.Icon.play,
+                role: .primary,
+                horizontalPadding: horizontalPadding,
+                expands: expands
+            )
         }
     }
 
@@ -819,18 +814,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         Button {
             nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
         } label: {
-            HStack {
-                Image(systemName: EnsembleDesign.Icon.shuffle)
-                Text("Shuffle")
-                    .lineLimit(1)
-            }
-            .font(EnsembleDesign.Typography.actionLabel)
-            .frame(maxWidth: expands ? .infinity : nil)
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, EnsembleScaffold.DetailSurface.actionVerticalPadding)
-            .background(EnsembleDesign.Color.secondaryControlFill)
-            .foregroundColor(EnsembleDesign.Color.primaryText)
-            .cornerRadius(EnsembleScaffold.DetailSurface.actionCornerRadius)
+            MediaDetailSurface<EmptyView>.ActionLabel(
+                "Shuffle",
+                systemImage: EnsembleDesign.Icon.shuffle,
+                role: .secondary,
+                horizontalPadding: horizontalPadding,
+                expands: expands
+            )
         }
     }
 

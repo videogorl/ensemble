@@ -123,41 +123,35 @@ struct LibraryDownloadDetailView: View {
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
-        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+        MediaDetailSurface<EmptyView>.ActionRow(
+            horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding,
+            bottomPadding: EnsembleDesign.Spacing.lg,
+            isDisabled: viewModel.playableTracks.isEmpty
+        ) {
             Button {
                 nowPlayingVM.play(tracks: viewModel.playableTracks)
             } label: {
-                HStack {
-                    Image(systemName: EnsembleDesign.Icon.play)
-                    Text("Play")
-                }
-                .font(EnsembleDesign.Typography.actionLabel)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, EnsembleScaffold.DownloadDetail.actionVerticalPadding)
-                .background(EnsembleDesign.Color.accent)
-                .foregroundColor(EnsembleDesign.Color.onAccent)
-                .cornerRadius(EnsembleScaffold.DownloadDetail.actionCornerRadius)
+                MediaDetailSurface<EmptyView>.ActionLabel(
+                    "Play",
+                    systemImage: EnsembleDesign.Icon.play,
+                    role: .primary,
+                    verticalPadding: EnsembleScaffold.DownloadDetail.actionVerticalPadding,
+                    cornerRadius: EnsembleScaffold.DownloadDetail.actionCornerRadius
+                )
             }
 
             Button {
                 nowPlayingVM.shufflePlay(tracks: viewModel.playableTracks)
             } label: {
-                HStack {
-                    Image(systemName: EnsembleDesign.Icon.shuffle)
-                    Text("Shuffle")
-                }
-                .font(EnsembleDesign.Typography.actionLabel)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, EnsembleScaffold.DownloadDetail.actionVerticalPadding)
-                .background(EnsembleDesign.Color.secondaryControlFill)
-                .foregroundColor(EnsembleDesign.Color.primaryText)
-                .cornerRadius(EnsembleScaffold.DownloadDetail.actionCornerRadius)
+                MediaDetailSurface<EmptyView>.ActionLabel(
+                    "Shuffle",
+                    systemImage: EnsembleDesign.Icon.shuffle,
+                    role: .secondary,
+                    verticalPadding: EnsembleScaffold.DownloadDetail.actionVerticalPadding,
+                    cornerRadius: EnsembleScaffold.DownloadDetail.actionCornerRadius
+                )
             }
         }
-        .padding(.horizontal)
-        .padding(.bottom)
-        .chromelessMediaControlButton()
-        .disabled(viewModel.playableTracks.isEmpty)
     }
 
     // MARK: - Queue Status Banner

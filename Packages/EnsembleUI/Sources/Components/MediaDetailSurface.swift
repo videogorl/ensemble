@@ -57,6 +57,8 @@ extension MediaDetailSurface {
         let font: Font
         let verticalPadding: CGFloat
         let cornerRadius: CGFloat
+        let horizontalPadding: CGFloat
+        let expands: Bool
 
         init(
             _ title: String,
@@ -64,7 +66,9 @@ extension MediaDetailSurface {
             role: ActionRole,
             font: Font = EnsembleDesign.Typography.actionLabel,
             verticalPadding: CGFloat = EnsembleScaffold.DetailSurface.actionVerticalPadding,
-            cornerRadius: CGFloat = EnsembleScaffold.DetailSurface.actionCornerRadius
+            cornerRadius: CGFloat = EnsembleScaffold.DetailSurface.actionCornerRadius,
+            horizontalPadding: CGFloat = EnsembleDesign.Spacing.none,
+            expands: Bool = true
         ) {
             self.title = title
             self.systemImage = systemImage
@@ -72,15 +76,19 @@ extension MediaDetailSurface {
             self.font = font
             self.verticalPadding = verticalPadding
             self.cornerRadius = cornerRadius
+            self.horizontalPadding = horizontalPadding
+            self.expands = expands
         }
 
         var body: some View {
             HStack {
                 Image(systemName: systemImage)
                 Text(title)
+                    .lineLimit(1)
             }
             .font(font)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: expands ? .infinity : nil)
+            .padding(.horizontal, horizontalPadding)
             .padding(.vertical, verticalPadding)
             .background(role.backgroundColor)
             .foregroundColor(role.foregroundColor)
