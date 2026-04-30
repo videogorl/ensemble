@@ -404,10 +404,22 @@ public class TrackTableViewCell: UITableViewCell {
             ? TrackListLayoutMetrics.primarySecondaryTextSpacing / 2
             : TrackListLayoutMetrics.primarySecondaryTextSpacing
 
-        trackNumberLabel.font = .systemFont(ofSize: isCompact ? 13 : 14, weight: .regular)
-        titleLabel.font = .systemFont(ofSize: isCompact ? 15 : 16, weight: .regular)
-        subtitleLabel.font = .systemFont(ofSize: isCompact ? 13 : 14, weight: .regular)
-        durationLabel.font = .systemFont(ofSize: isCompact ? 13 : 14, weight: .regular)
+        trackNumberLabel.font = .systemFont(
+            ofSize: isCompact ? TrackListLayoutMetrics.nativeCompactSecondaryFontSize : TrackListLayoutMetrics.nativeSecondaryFontSize,
+            weight: .regular
+        )
+        titleLabel.font = .systemFont(
+            ofSize: isCompact ? TrackListLayoutMetrics.nativeCompactPrimaryFontSize : TrackListLayoutMetrics.nativePrimaryFontSize,
+            weight: .regular
+        )
+        subtitleLabel.font = .systemFont(
+            ofSize: isCompact ? TrackListLayoutMetrics.nativeCompactSecondaryFontSize : TrackListLayoutMetrics.nativeSecondaryFontSize,
+            weight: .regular
+        )
+        durationLabel.font = .systemFont(
+            ofSize: isCompact ? TrackListLayoutMetrics.nativeCompactSecondaryFontSize : TrackListLayoutMetrics.nativeSecondaryFontSize,
+            weight: .regular
+        )
     }
 
     private func updateArtworkCornerRadius(for dimension: CGFloat) {

@@ -42,21 +42,21 @@ public class QueueItemCell: UITableViewCell {
         
         artworkImageView.contentMode = .scaleAspectFill
         artworkImageView.clipsToBounds = true
-        artworkImageView.layer.cornerRadius = ArtworkCornerRadius.square(for: 44)
+        artworkImageView.layer.cornerRadius = ArtworkCornerRadius.square(for: TrackListLayoutMetrics.standardArtworkDimension)
         artworkImageView.backgroundColor = UIColor.systemGray5
         artworkImageView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(artworkImageView)
         
-        titleLabel.font = .systemFont(ofSize: 16, weight: .regular)
+        titleLabel.font = .systemFont(ofSize: TrackListLayoutMetrics.nativePrimaryFontSize, weight: .regular)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(titleLabel)
         
-        subtitleLabel.font = .systemFont(ofSize: 14, weight: .regular)
+        subtitleLabel.font = .systemFont(ofSize: TrackListLayoutMetrics.nativeSecondaryFontSize, weight: .regular)
         subtitleLabel.textColor = .secondaryLabel
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(subtitleLabel)
         
-        durationLabel.font = .systemFont(ofSize: 14, weight: .regular)
+        durationLabel.font = .systemFont(ofSize: TrackListLayoutMetrics.nativeSecondaryFontSize, weight: .regular)
         durationLabel.textColor = .secondaryLabel
         durationLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(durationLabel)
@@ -81,40 +81,40 @@ public class QueueItemCell: UITableViewCell {
         dragHandleView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(dragHandleView)
         
-        let widthConstraint = autoplayIndicator.widthAnchor.constraint(equalToConstant: 14)
+        let widthConstraint = autoplayIndicator.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueGeneratedBadgeDimension)
         self.autoplayWidthConstraint = widthConstraint
         
         NSLayoutConstraint.activate([
             artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: TrackListLayoutMetrics.detailHorizontalPadding),
             artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            artworkImageView.widthAnchor.constraint(equalToConstant: 44),
-            artworkImageView.heightAnchor.constraint(equalToConstant: 44),
+            artworkImageView.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.standardArtworkDimension),
+            artworkImageView.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.standardArtworkDimension),
             
-            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
+            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: TrackListLayoutMetrics.defaultTitleTopPadding),
             // Title expands until it hits autoplay indicator (which is pinned right to duration)
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: autoplayIndicator.leadingAnchor, constant: -6),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: autoplayIndicator.leadingAnchor, constant: -TrackListLayoutMetrics.rowTightAccessoryGap),
             
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            subtitleLabel.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -8),
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: TrackListLayoutMetrics.primarySecondaryTextSpacing),
+            subtitleLabel.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap),
             
-            durationLabel.trailingAnchor.constraint(equalTo: dragHandleView.leadingAnchor, constant: -12),
+            durationLabel.trailingAnchor.constraint(equalTo: dragHandleView.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing),
             durationLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
+            durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: TrackListLayoutMetrics.durationMinimumWidth),
             
-            playingIndicator.trailingAnchor.constraint(equalTo: dragHandleView.leadingAnchor, constant: -12),
+            playingIndicator.trailingAnchor.constraint(equalTo: dragHandleView.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing),
             playingIndicator.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            playingIndicator.widthAnchor.constraint(equalToConstant: 20),
-            playingIndicator.heightAnchor.constraint(equalToConstant: 20),
+            playingIndicator.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueDragHandleDimension),
+            playingIndicator.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueDragHandleDimension),
             
-            autoplayIndicator.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -8),
+            autoplayIndicator.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap),
             autoplayIndicator.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
-            autoplayIndicator.heightAnchor.constraint(equalToConstant: 14),
+            autoplayIndicator.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueGeneratedBadgeDimension),
             widthConstraint,
             
             dragHandleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.detailHorizontalPadding),
             dragHandleView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            dragHandleView.widthAnchor.constraint(equalToConstant: 20),
-            dragHandleView.heightAnchor.constraint(equalToConstant: 20)
+            dragHandleView.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueDragHandleDimension),
+            dragHandleView.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueDragHandleDimension)
         ])
     }
     
