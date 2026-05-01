@@ -240,7 +240,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 Async loading wrappers for smooth hub-to-detail navigation:
 
-Three loaders in `EnsembleUI/Sources/Components/`:
+Three loaders in `EnsembleUI/Sources/Screens/Details/`:
 - `AlbumDetailLoader` -- Loads full album data by ratingKey
 - `ArtistDetailLoader` -- Loads full artist data by ratingKey
 - `PlaylistDetailLoader` -- Loads full playlist data by ratingKey

@@ -649,11 +649,6 @@ extension MediaDetailSurface {
 
 extension View {
     func mediaDetailArtworkShadow() -> some View {
-        shadow(
-            color: EnsembleScaffold.DetailSurface.ArtworkShadow.color,
-            radius: EnsembleScaffold.DetailSurface.ArtworkShadow.radius,
-            x: EnsembleScaffold.DetailSurface.ArtworkShadow.x,
-            y: EnsembleScaffold.DetailSurface.ArtworkShadow.y
-        )
+        ensembleArtworkShadow()
     }
 }

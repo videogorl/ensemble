@@ -2,228 +2,17 @@ import EnsembleCore
 import SwiftUI
 import Nuke
 
-#if os(iOS)
-import UIKit
-#elseif os(macOS)
-import AppKit
-#endif
-
-/// Section model used by `SongsTrackListHost` so Songs can share one native table
-/// host across indexed and flat layouts.
-public struct SongsTrackListSection: Identifiable, Equatable {
-    public let id: String
-    public let title: String
-    public let tracks: [Track]
-
-    public init(id: String, title: String, tracks: [Track]) {
-        self.id = id
-        self.title = title
-        self.tracks = tracks
-    }
-}
-
-/// Platform host for dense Songs track lists.
-///
-/// iOS/iPadOS uses `MediaTrackList` (`UITableView`) and macOS uses an AppKit
-/// `NSTableView`. The calling view owns filtering/sorting; this host owns the
-/// native row backend and section index wiring.
-public struct SongsTrackListHost: View {
-    private let sections: [SongsTrackListSection]
-    private let currentTrackId: String?
-    private let availabilityGeneration: UInt64
-    private let activeDownloadRatingKeys: Set<String>
-    private let bottomContentInset: CGFloat
-    private let supplementalMetadataWidth: CGFloat?
-    private let showsSectionIndex: Bool
-    private let interactionModel: TrackRowInteractionModel
-    private let onTrackTap: (Track, Int) -> Void
-
-    @State private var requestedSectionID: String?
-
-    private var allTracks: [Track] {
-        sections.flatMap(\.tracks)
-    }
-
-    public init(
-        tracks: [Track],
-        currentTrackId: String? = nil,
-        availabilityGeneration: UInt64 = 0,
-        activeDownloadRatingKeys: Set<String> = [],
-        bottomContentInset: CGFloat = 0,
-        supplementalMetadataWidth: CGFloat? = nil,
-        interactionModel: TrackRowInteractionModel,
-        onTrackTap: @escaping (Track, Int) -> Void
-    ) {
-        self.sections = [
-            SongsTrackListSection(id: "all", title: "", tracks: tracks)
-        ]
-        self.currentTrackId = currentTrackId
-        self.availabilityGeneration = availabilityGeneration
-        self.activeDownloadRatingKeys = activeDownloadRatingKeys
-        self.bottomContentInset = bottomContentInset
-        self.supplementalMetadataWidth = supplementalMetadataWidth
-        self.showsSectionIndex = false
-        self.interactionModel = interactionModel
-        self.onTrackTap = onTrackTap
-    }
-
-    public init(
-        sections: [SongsTrackListSection],
-        currentTrackId: String? = nil,
-        availabilityGeneration: UInt64 = 0,
-        activeDownloadRatingKeys: Set<String> = [],
-        bottomContentInset: CGFloat = 0,
-        supplementalMetadataWidth: CGFloat? = nil,
-        showsSectionIndex: Bool = true,
-        interactionModel: TrackRowInteractionModel,
-        onTrackTap: @escaping (Track, Int) -> Void
-    ) {
-        self.sections = sections
-        self.currentTrackId = currentTrackId
-        self.availabilityGeneration = availabilityGeneration
-        self.activeDownloadRatingKeys = activeDownloadRatingKeys
-        self.bottomContentInset = bottomContentInset
-        self.supplementalMetadataWidth = supplementalMetadataWidth
-        self.showsSectionIndex = showsSectionIndex
-        self.interactionModel = interactionModel
-        self.onTrackTap = onTrackTap
-    }
-
-    public var body: some View {
-        #if os(iOS)
-        iOSTrackList
-        #elseif os(macOS)
-        macTrackList
-        #else
-        EmptyView()
-        #endif
-    }
-
-    #if os(iOS)
-    private var iOSTrackList: some View {
-        Group {
-            if showsSectionIndex {
-                ScrollViewReader { proxy in
-                    ZStack(alignment: .trailing) {
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(sections) { section in
-                                    iOSSection(section, allTracks: allTracks)
-                                }
-                            }
-                            .padding(.vertical)
-                        }
-
-                        sectionIndex { sectionID in
-                            proxy.scrollTo(sectionID, anchor: .top)
-                        }
-                    }
-                }
-            } else {
-                MediaTrackList(
-                    tracks: allTracks,
-                    showArtwork: true,
-                    showTrackNumbers: false,
-                    groupByDisc: false,
-                    currentTrackId: currentTrackId,
-                    availabilityGeneration: availabilityGeneration,
-                    activeDownloadRatingKeys: activeDownloadRatingKeys,
-                    managesOwnScrolling: true,
-                    bottomContentInset: bottomContentInset,
-                    interactionModel: interactionModel,
-                    supplementalMetadataWidth: supplementalMetadataWidth
-                ) { track, index in
-                    onTrackTap(track, index)
-                }
-            }
-        }
-    }
-
-    private func iOSSection(
-        _ section: SongsTrackListSection,
-        allTracks: [Track]
-    ) -> some View {
-        let height = CGFloat(section.tracks.count) * TrackListLayoutMetrics.defaultRowHeight
-
-        return VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-            sectionHeader(section.title)
-
-            MediaTrackList(
-                tracks: section.tracks,
-                showArtwork: true,
-                showTrackNumbers: false,
-                groupByDisc: false,
-                currentTrackId: currentTrackId,
-                availabilityGeneration: availabilityGeneration,
-                activeDownloadRatingKeys: activeDownloadRatingKeys,
-                interactionModel: interactionModel,
-                supplementalMetadataWidth: supplementalMetadataWidth
-            ) { track, _ in
-                onTrackTap(track, allTracks.firstIndex(where: { $0.id == track.id }) ?? 0)
-            }
-            .frame(height: height)
-        }
-        .id(section.id)
-    }
-    #endif
-
-    #if os(macOS)
-    private var macTrackList: some View {
-        ZStack(alignment: .trailing) {
-            MacSongsTrackTableView(
-                sections: sections,
-                currentTrackId: currentTrackId,
-                availabilityGeneration: availabilityGeneration,
-                activeDownloadRatingKeys: activeDownloadRatingKeys,
-                bottomContentInset: bottomContentInset,
-                supplementalMetadataWidth: supplementalMetadataWidth,
-                interactionModel: interactionModel,
-                requestedSectionID: $requestedSectionID,
-                onTrackTap: onTrackTap
-            )
-
-            sectionIndex { sectionID in
-                requestedSectionID = sectionID
-            }
-        }
-    }
-    #endif
-
-    @ViewBuilder
-    private func sectionIndex(onTap: @escaping (String) -> Void) -> some View {
-        if showsSectionIndex && !sections.isEmpty {
-            ScrollIndex(
-                letters: sections.map(\.title),
-                currentLetter: .constant(nil),
-                onLetterTap: onTap
-            )
-            .libraryScrollIndexPositioning(.centered)
-        }
-    }
-
-    private func sectionHeader(_ title: String) -> some View {
-        EnsembleBrowseSectionHeader(title, backgroundColor: platformBackground)
-    }
-
-    private var platformBackground: Color {
-        #if os(macOS)
-        Color(NSColor.windowBackgroundColor)
-        #elseif os(iOS)
-        Color(UIColor.systemBackground)
-        #else
-        Color.clear
-        #endif
-    }
-}
-
 #if os(macOS)
-private struct MacSongsTrackTableView: NSViewRepresentable {
+import AppKit
+
+struct MacNativeTrackTableView: NSViewRepresentable {
     let sections: [SongsTrackListSection]
     let currentTrackId: String?
     let availabilityGeneration: UInt64
     let activeDownloadRatingKeys: Set<String>
     let bottomContentInset: CGFloat
     let supplementalMetadataWidth: CGFloat?
+    let rowHeight: CGFloat
     let interactionModel: TrackRowInteractionModel
     @Binding var requestedSectionID: String?
     let onTrackTap: (Track, Int) -> Void
@@ -266,6 +55,7 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
         context.coordinator.activeDownloadRatingKeys = activeDownloadRatingKeys
         context.coordinator.bottomContentInset = bottomContentInset
         context.coordinator.supplementalMetadataWidth = supplementalMetadataWidth
+        context.coordinator.rowHeight = rowHeight
         context.coordinator.interactionModel = interactionModel
         context.coordinator.artworkLoader = dependencies.artworkLoader
         context.coordinator.toastCenter = dependencies.toastCenter
@@ -299,6 +89,7 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
             activeDownloadRatingKeys: activeDownloadRatingKeys,
             bottomContentInset: bottomContentInset,
             supplementalMetadataWidth: supplementalMetadataWidth,
+            rowHeight: rowHeight,
             interactionModel: interactionModel,
             artworkLoader: dependencies.artworkLoader,
             toastCenter: dependencies.toastCenter,
@@ -321,6 +112,7 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
         var activeDownloadRatingKeys: Set<String>
         var bottomContentInset: CGFloat
         var supplementalMetadataWidth: CGFloat?
+        var rowHeight: CGFloat
         var interactionModel: TrackRowInteractionModel
         var artworkLoader: ArtworkLoaderProtocol
         var toastCenter: ToastCenter
@@ -336,6 +128,7 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
             activeDownloadRatingKeys: Set<String>,
             bottomContentInset: CGFloat,
             supplementalMetadataWidth: CGFloat?,
+            rowHeight: CGFloat,
             interactionModel: TrackRowInteractionModel,
             artworkLoader: ArtworkLoaderProtocol,
             toastCenter: ToastCenter,
@@ -348,6 +141,7 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
             self.activeDownloadRatingKeys = activeDownloadRatingKeys
             self.bottomContentInset = bottomContentInset
             self.supplementalMetadataWidth = supplementalMetadataWidth
+            self.rowHeight = rowHeight
             self.interactionModel = interactionModel
             self.artworkLoader = artworkLoader
             self.toastCenter = toastCenter
@@ -395,10 +189,10 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-            guard row < rows.count else { return TrackListLayoutMetrics.defaultRowHeight }
+            guard row < rows.count else { return rowHeight }
             if case .section = rows[row] { return 40 }
             if case let .bottomSpacer(height) = rows[row] { return height }
-            return TrackListLayoutMetrics.defaultRowHeight
+            return rowHeight
         }
 
         func tableView(
@@ -410,14 +204,14 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
 
             switch rows[row] {
             case let .section(section):
-                let view = tableView.makeView(withIdentifier: .sectionHeader, owner: self) as? MacSongsSectionCell
-                    ?? MacSongsSectionCell()
+                let view = tableView.makeView(withIdentifier: .sectionHeader, owner: self) as? MacNativeTrackSectionCell
+                    ?? MacNativeTrackSectionCell()
                 view.identifier = .sectionHeader
                 view.configure(title: section.title)
                 return view
             case .track:
-                let view = tableView.makeView(withIdentifier: .trackRow, owner: self) as? MacSongsTrackCell
-                    ?? MacSongsTrackCell()
+                let view = tableView.makeView(withIdentifier: .trackRow, owner: self) as? MacNativeTrackTableCell
+                    ?? MacNativeTrackTableCell()
                 view.identifier = .trackRow
                 configure(view: view, row: row)
                 return view
@@ -431,7 +225,7 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
 
         func configure(view: NSView?, row: Int) {
             guard row < rows.count,
-                  let view = view as? MacSongsTrackCell,
+                  let view = view as? MacNativeTrackTableCell,
                   case let .track(track, _) = rows[row] else { return }
 
             let resolvedActions = interactionModel.resolve(for: track)
@@ -526,7 +320,7 @@ private struct MacSongsTrackTableView: NSViewRepresentable {
     }
 }
 
-private final class MacSongsSectionCell: NSTableCellView {
+private final class MacNativeTrackSectionCell: NSTableCellView {
     private let titleField = NSTextField(labelWithString: "")
 
     override init(frame frameRect: NSRect) {
@@ -558,7 +352,7 @@ private final class MacSongsSectionCell: NSTableCellView {
     }
 }
 
-private final class MacSongsTrackCell: NSTableCellView {
+private final class MacNativeTrackTableCell: NSTableCellView {
     private let favoriteImageView = NSImageView()
     private let artworkImageView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
@@ -818,9 +612,9 @@ private final class MacSongsTrackCell: NSTableCellView {
 }
 
 private extension NSUserInterfaceItemIdentifier {
-    static let track = NSUserInterfaceItemIdentifier("SongsTrackListHost.TrackColumn")
-    static let trackRow = NSUserInterfaceItemIdentifier("SongsTrackListHost.TrackRow")
-    static let sectionHeader = NSUserInterfaceItemIdentifier("SongsTrackListHost.SectionHeader")
-    static let bottomSpacer = NSUserInterfaceItemIdentifier("SongsTrackListHost.BottomSpacer")
+    static let track = NSUserInterfaceItemIdentifier("NativeTrackListHost.TrackColumn")
+    static let trackRow = NSUserInterfaceItemIdentifier("NativeTrackListHost.TrackRow")
+    static let sectionHeader = NSUserInterfaceItemIdentifier("NativeTrackListHost.SectionHeader")
+    static let bottomSpacer = NSUserInterfaceItemIdentifier("NativeTrackListHost.BottomSpacer")
 }
 #endif

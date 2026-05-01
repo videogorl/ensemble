@@ -626,7 +626,7 @@ On-device vocal removal using Apple's AUSoundIsolation AudioUnit (same technolog
 - `Packages/EnsembleCore/Sources/Services/InstrumentalAudioEngine.swift`
 - `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` (engine switching logic)
 - `Packages/EnsembleCore/Sources/ViewModels/NowPlayingViewModel.swift`
-- `Packages/EnsembleUI/Sources/Components/NowPlaying/LyricsCard.swift`
+- `Packages/EnsembleUI/Sources/NowPlaying/LyricsCard.swift`
 
 ## Subsystem: Live Lyrics
 
@@ -666,7 +666,7 @@ Karaoke-style time-synced lyrics fetched from Plex and displayed in the Lyrics C
 - `Packages/EnsembleCore/Sources/Services/PlexMusicSourceSyncProvider.swift` - exposedAPIClient
 - `Packages/EnsembleCore/Sources/Services/OfflineDownloadService.swift` - .lrc sidecar generation
 - `Packages/EnsemblePersistence/Sources/Downloads/DownloadManager.swift` - .lrc sidecar cleanup
-- `Packages/EnsembleUI/Sources/Components/NowPlaying/LyricsCard.swift` - three-state lyrics display
+- `Packages/EnsembleUI/Sources/NowPlaying/LyricsCard.swift` - three-state lyrics display
 
 **Known limitation:** The `/library/streams/` endpoint occasionally returns 404 for tracks that report a valid `lyricsStream`. See Known Issues.
 
@@ -696,9 +696,9 @@ User-editable profile (display name, profile image) with iCloud private database
 1. **UserProfile** (`EnsembleCore/Models`) -- Data model with `displayName`, `profileImagePath`, and `lastModified` fields.
 2. **UserProfileStore** (`EnsembleCore/Services`, @MainActor ObservableObject) -- Local profile persistence and image processing. Publishes the current profile for UI binding.
 3. **CloudSyncService** (`EnsembleCore/Services`, actor) -- CloudKit private database sync using container `iCloud.com.videogorl.ensemble`, record type `UserProfile`. Supports push, pull, subscription setup, silent-push delivery handling, and foreground recovery refresh. Prefers CloudKit server `modificationDate` when ordering pulled profile changes, and exposes transport state (`available`, `notAuthenticated`, `networkUnavailable`, etc.) so profile sync can degrade independently from KVS-backed features.
-4. **ProfileView** (`EnsembleUI/Screens`) -- Full profile screen replacing the previous SettingsView content. Settings are migrated into ProfileView; SettingsView redirects here.
-5. **ProfileHeaderView** (`EnsembleUI/Components`) -- Circular profile image + display name header with photo picker integration.
-6. **ProfileToolbarButton** (`EnsembleUI/Components`) -- 28×28pt circular profile image button rendered by `MainTabView` on iPhone root tab destinations and by the sidebar toolbar on iPad/macOS.
+4. **ProfileView** (`EnsembleUI/Screens/AccountSettings`) -- Full profile screen replacing the previous SettingsView content. Settings are migrated into ProfileView; SettingsView redirects here.
+5. **ProfileHeaderView** (`EnsembleUI/Utility`) -- Circular profile image + display name header with photo picker integration.
+6. **ProfileToolbarButton** (`EnsembleUI/Utility`) -- 28x28pt circular profile image button rendered by `MainTabView` on iPhone root tab destinations and by the sidebar toolbar on iPad/macOS.
 7. **Navigation change:** `AuxiliaryPresentation.settings` renamed to `.profile`; `openSettings()` renamed to `openProfile()` (legacy alias kept for backward compatibility).
 8. **DependencyContainer** wires `UserProfileStore` and `CloudSyncService` as singleton services and triggers a foreground profile reconcile path on iOS/macOS activation so missed silent pushes self-heal quickly.
 
