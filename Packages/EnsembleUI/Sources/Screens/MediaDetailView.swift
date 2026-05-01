@@ -879,6 +879,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             TrackRow(
                 track: track,
                 showArtwork: showArtwork,
+                showTrackNumber: showTrackNumbers,
                 isPlaying: track.id == currentTrackId,
                 onPlayNext: resolvedActions.onPlayNext,
                 onPlayLast: resolvedActions.onPlayLast,
