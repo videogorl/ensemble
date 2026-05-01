@@ -682,6 +682,11 @@ public struct SidebarView: View {
     @Environment(\.openWindow) private var openWindow
     #endif
 
+    private enum CompactColumnPreference: Int {
+        case sidebar
+        case detail
+    }
+
     private enum RootBrowseKind: Hashable {
         case artists
         case playlists
@@ -710,6 +715,7 @@ public struct SidebarView: View {
     @State private var selectedBrowseGenre: Genre?
     @State private var pinnedDetailPath: [NavigationCoordinator.Destination] = []
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var compactColumnPreference: CompactColumnPreference = .sidebar
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var playlistForEditSheet: Playlist?
     @State private var playlistPendingRename: Playlist?
@@ -762,6 +768,23 @@ public struct SidebarView: View {
         isViewportNowPlayingPresented
     }
 
+    private var isShowingCompactSidebarRoot: Bool {
+        guard compactColumnPreference == .sidebar else {
+            return false
+        }
+
+        guard let selection else {
+            return true
+        }
+
+        switch selection {
+        case .library(let tab):
+            return sidebarPath(for: tab).isEmpty
+        case .playlist, .mergedPlaylist, .pin:
+            return false
+        }
+    }
+
     private var activeRootBrowseKind: RootBrowseKind? {
         guard case .library(let tab) = selection else { return nil }
         switch tab {
@@ -774,6 +797,14 @@ public struct SidebarView: View {
         default:
             return nil
         }
+    }
+
+    private var usesRootBrowseSplitInSidebarDetail: Bool {
+        #if os(macOS)
+        return true
+        #else
+        return false
+        #endif
     }
 
     private func sidebarPath(for tab: TabItem) -> [NavigationCoordinator.Destination] {
@@ -1206,6 +1237,11 @@ public struct SidebarView: View {
                 EnsembleLogger.debug("🧭 Sidebar selection changed to=\(String(describing: tab))")
                 navigationCoordinator.selectedTab = tab
             }
+            #if os(iOS)
+            if #available(iOS 17.0, *), newSelection != nil {
+                compactColumnPreference = .detail
+            }
+            #endif
             pinnedDetailPath.removeAll()
         }
         .environmentObject(contextMenuMetadataEditorCoordinator)
@@ -1415,6 +1451,11 @@ public struct SidebarView: View {
 
     private func setCompactBrowseColumnAfterSelection(_ hasSelection: Bool) {
         EnsembleLogger.debug("Root browse selection changed hasSelection=\(hasSelection)")
+        #if os(iOS)
+        if #available(iOS 17.0, *), hasSelection {
+            compactColumnPreference = .detail
+        }
+        #endif
     }
 
     private func handleRootBrowseSplitLayoutChange(_ isSplitLayout: Bool, for browseKind: RootBrowseKind) {
@@ -1422,6 +1463,11 @@ public struct SidebarView: View {
         EnsembleLogger.debug(
             "Root browse split layout changed: kind=\(browseKind.debugDescription) isSplit=\(isSplitLayout)"
         )
+        #if os(iOS)
+        if #available(iOS 17.0, *), isSplitLayout {
+            compactColumnPreference = .sidebar
+        }
+        #endif
     }
 
     private func prepareBrowseSelection(for destination: NavigationCoordinator.Destination) {
@@ -1449,7 +1495,7 @@ public struct SidebarView: View {
     @ViewBuilder
     private var detailView: some View {
         Group {
-            if let browseKind = activeRootBrowseKind {
+            if usesRootBrowseSplitInSidebarDetail, let browseKind = activeRootBrowseKind {
                 rootBrowseSectionNavigationStack(for: browseKind)
             } else {
                 switch selection {
@@ -1827,7 +1873,18 @@ public struct SidebarView: View {
     @ViewBuilder
     private var splitNavigationViewWithCompactColumn: some View {
         #if os(iOS)
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        let preferredCompactColumn = Binding<NavigationSplitViewColumn>(
+            get: {
+                isShowingCompactSidebarRoot ? .sidebar : .detail
+            },
+            set: { newValue in
+                compactColumnPreference = newValue == .sidebar ? .sidebar : .detail
+            }
+        )
+        NavigationSplitView(
+            columnVisibility: $columnVisibility,
+            preferredCompactColumn: preferredCompactColumn
+        ) {
             sidebarColumn
         } detail: {
             detailContainerView
