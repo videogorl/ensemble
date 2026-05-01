@@ -276,10 +276,10 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
 
         let isOffline = await syncCoordinator.isOffline
-        // Use optimistic check: treat .unknown/.connecting as "possibly available"
-        // so artwork attempts the network URL instead of falling back to local files
-        // before health checks complete. Nuke handles failures gracefully.
-        let serverAvailable = await syncCoordinator.isServerPossiblyAvailable(sourceKey: sourceKey)
+        // Artwork should wait for a confirmed healthy endpoint. Returning a remote URL
+        // while the server is still in .unknown/.connecting can hand the UI a stale
+        // pre-health-check endpoint that never resolves, especially on macOS Feed startup.
+        let serverAvailable = await syncCoordinator.isServerAvailable(sourceKey: sourceKey)
         let connectivityTag = isOffline ? "offline" : (serverAvailable ? "online" : "server-offline")
         let cacheKey = "\(sourceKey ?? ""):\(finalPath):\(actualRatingKey ?? ""):\(cappedSize):\(connectivityTag)"
 

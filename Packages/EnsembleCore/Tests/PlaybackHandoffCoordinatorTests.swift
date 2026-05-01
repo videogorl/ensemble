@@ -203,6 +203,25 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.state.interruption, .none)
     }
 
+    func testExplicitPlaybackStartClearsStaleInterruptionState() {
+        var coordinator = PlaybackHandoffCoordinator()
+
+        _ = coordinator.handle(
+            .interruptionBegan(now: Date()),
+            playbackState: .playing
+        )
+
+        let outcome = coordinator.handle(
+            .explicitPlaybackStart,
+            playbackState: .paused
+        )
+
+        XCTAssertEqual(outcome.actions, [])
+        XCTAssertNil(coordinator.state.pauseReason)
+        XCTAssertEqual(coordinator.state.routeTransition, .idle)
+        XCTAssertEqual(coordinator.state.interruption, .none)
+    }
+
     func testInterruptionEndWithShouldResumeOnlyResumesTrueInterruptionPause() {
         var coordinator = PlaybackHandoffCoordinator()
 

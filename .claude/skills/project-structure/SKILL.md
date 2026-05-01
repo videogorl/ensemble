@@ -20,6 +20,7 @@ ensemble/
 |   +-- verify_package_baseline.sh # Rebuilds the SwiftPM CoreData bundle, then runs package tests with pass/fail summary
 |   +-- capture_runtime_baseline.sh # Captures or summarizes repeatable simulator/runtime baselines (OS log + persistent log + optional trace)
 |   +-- check_core_warning_budget.sh # Builds EnsembleCore and fails when Core-package compiler warnings exceed the current budget
+|   +-- design_token_audit.sh     # Non-blocking design-token literal inventory and hotspot report
 |   +-- plex_hls_spike.sh        # Bounded PMS music-HLS viability probe used before transport changes
 |   +-- update_build_number.sh    # Sets deterministic CFBundleVersion for app + Siri extension builds
 |
@@ -289,101 +290,44 @@ Tests/
 
 ```
 Sources/
-+-- Components/
-|   +-- NowPlaying/
-|   |   +-- ControlsCard.swift        # Center card with artwork, scrubber, playback controls
-|   |   +-- InfoCard.swift            # Track metadata and streaming/connection details card
-|   |   +-- LyricsCard.swift          # Lyrics display card: loading / not-available / karaoke-style timed line highlight
-|   |   +-- NowPlayingCarousel.swift  # Horizontal paging carousel for all cards
-|   |   +-- PageIndicator.swift       # Page dots/icons for carousel navigation
-|   |   +-- QueueCard.swift           # Queue list with shuffle/repeat/autoplay controls
-|   +-- AirPlayButton.swift           # AVRoutePickerView wrapper for AirPlay
-|   +-- AlbumCard.swift               # Grid card for albums
-|   +-- AlbumDetailLoader.swift       # Async loader for album detail with loading/error states
-|   +-- ArtistCard.swift              # Grid card for artists
-|   +-- ArtistDetailLoader.swift      # Async loader for artist detail with loading/error states
-|   +-- ArtworkColorExtractor.swift   # Actor-based color extraction from artwork for dynamic gradients
-|   +-- ArtworkDetailBackground.swift # Shared detail-screen blurred artwork + overlay treatment used by MediaDetailView and download detail screens
-|   +-- ArtworkView.swift             # Lazy-loading artwork with Nuke
-|   +-- MediaDetailSurface.swift     # Shared media-detail shell (adaptive header + list card styling) used by MediaDetailView and DownloadTargetDetailView
-|   +-- CompositeArtworkView.swift    # Composite 2x2 artwork grid for merged playlists + PlaylistArtwork wrapper
-|   +-- AuroraVisualizationView.swift # Aurora-style background visualization of music loudness
-|   +-- MetalAuroraSurface.swift      # MTKView-backed Aurora renderer with Canvas fallback support
-|   +-- BlurredArtworkBackground.swift # Heavily blurred artwork background with contrast/saturation
-|   +-- CollapsingToolbar.swift      # Shared collapsing toolbar title with nav bar appearance toggle
-|   +-- ChromeVisibilityPreferenceKey.swift # SwiftUI preference key for hiding tab bar in immersive views
-|   +-- CompactSearchRows.swift       # Compact row layouts for search results
-|   +-- DesktopSheetScaffold.swift    # Shared macOS sheet scaffold with title bar and footer actions
-|   +-- LargeScreenBrowseSplitView.swift # Adaptive regular-width browse shell with selection list + detail pane
-|   +-- MacAuxiliaryWindowScaffold.swift # Native macOS auxiliary window scaffold for Profile/Downloads-style windows
-|   +-- OfflineIndicatorOverlay.swift  # Device-aware offline connectivity indicator (DI/notch/classic)
-|   +-- SongsTrackListHost.swift      # Cross-platform native Songs table host (UITableView on iOS/iPadOS, NSTableView on macOS)
-|   +-- SongsStageFlowAlbum.swift     # Builds StageFlow album cards from filtered song results
-|   +-- StageFlowView.swift           # Center-stage carousel with snapping and transport overlay
-|   +-- StageFlowItemView.swift       # Individual card used in StageFlow
-|   +-- StageFlowTrackPanel.swift     # Slide-out track panel for centered StageFlow items
-|   +-- EmptyLibraryView.swift        # Empty state with sync prompt
-|   +-- FilterSheet.swift             # Advanced filtering UI with persistence
-|   +-- FlipOpacity.swift             # View modifier for flip animations
-|   +-- GenreCard.swift               # Grid card for genres
-|   +-- GenreChipBar.swift            # Horizontal scrollable genre filter chips (OR multi-select)
-|   +-- HubOrderingSheet.swift        # Sheet for reordering hub sections with drag & drop
-|   +-- KeyboardObserver.swift        # iOS-specific keyboard height tracking with view modifier
-|   +-- MarqueeText.swift             # Auto-scrolling text component for long titles
-|   +-- MediaContextMenus.swift       # Shared album/artist/playlist/merged-playlist context menu actions for grids, search, and sidebar pins
-|   +-- MediaTrackList.swift          # Reusable track list with context menu
-|   +-- MiniPlayer.swift              # Compact persistent player overlay
-|   +-- ExternalDisplayNowPlayingView.swift # Non-interactive Now Playing for AirPlay screen mirroring (TV)
-|   +-- NowPlayingViewportRoot.swift  # Dedicated iPad/macOS Now Playing root + macOS window chrome bridge
-|   +-- PendingChangesRow.swift        # Shared row for pending mutations (used in Downloads + Source Detail)
-|   +-- PlaylistActionSheets.swift    # Shared add-to-playlist and create-playlist UI sheets
-|   +-- ShareSheet.swift              # iOS 15-compatible UIActivityViewController / NSSharingServicePicker wrapper
-|   +-- ShareActions.swift            # Static helpers bridging ShareService payloads to share sheet presentation
-|   +-- PlaylistCard.swift            # Grid card for playlists
-|   +-- PlaylistDetailLoader.swift    # Async loader for playlist detail with loading/error states
-|   +-- QueueTableView.swift          # UIKit-backed drag-to-reorder table view for queue
-|   +-- RefreshCommandAction.swift    # Focused async refresh action bridge for View > Refresh commands
-|   +-- ScrollIndex.swift             # A-Z index for fast scrolling
-|   +-- ToastView.swift               # Toast notification overlay component
-|   +-- TrackRow.swift                # Single track row with artwork
-|   +-- TrackListLayoutMetrics.swift  # Shared row spacing, separator insets, and mini-player clearance tokens
-|   +-- TrackRowInteractionModel.swift # Shared per-track action/favorite/recent-playlist resolver for SwiftUI + UIKit rows
-|   +-- TrackSwipeContainer.swift     # Shared swipe gesture container for track row actions on large-screen + iOS
-|   +-- ProfileHeaderView.swift      # Circular profile image + name header with photo picker
-|   +-- ProfileToolbarButton.swift   # 28×28pt toolbar profile button for all top-level views
-|   +-- View+Extensions.swift         # SwiftUI view extensions and helpers
-|   +-- WaveformView.swift            # Audio waveform visualization
++-- DesignSystem/                    # Tokens, adaptive scaffolds, and shared chrome modifiers
+|   +-- EnsembleDesign.swift
+|   +-- EnsembleScaffold.swift
+|   +-- TrackListLayoutMetrics.swift
+|   +-- ArtworkCornerRadius.swift
+|   +-- View+DesignModifiers.swift
++-- Artwork/                         # Artwork loading, backgrounds, composites, and color extraction
++-- Browse/                          # Browse split, filter sheet, genre chips, scroll index, refresh command bridge
++-- Cards/                           # Album, artist, playlist, and genre cards
++-- TrackLists/                      # SwiftUI/UIKit/AppKit track row and table backends
+|   +-- AppKit/
+|   |   +-- MacNativeTrackTableView.swift # NSTableView backend used by SongsTrackListHost on macOS
+|   +-- MediaTrackList.swift
+|   +-- NativeMediaTableActionBuilder.swift
+|   +-- NativeTrackListConfiguration.swift
+|   +-- NativeTrackListSections.swift
+|   +-- QueueTableView.swift
+|   +-- SongsTrackListHost.swift
+|   +-- StandardSwipeActions.swift
+|   +-- TrackRow.swift
+|   +-- TrackRowInteractionModel.swift
+|   +-- TrackSwipeContainer.swift
++-- DetailSurfaces/                  # Shared media-detail shell/header/action/list-card primitives
++-- PlaybackChrome/                  # Mini player, AirPlay button, waveform
++-- NowPlaying/                      # Now Playing cards, carousel, queue, lyrics, page indicator
++-- StageFlow/                       # iPhone landscape StageFlow experience
++-- Aurora/                          # Aurora background and Metal/Canvas renderers
++-- Sheets/                          # Shared sheets and macOS auxiliary sheet/window scaffolds
++-- Utility/                         # Shared rows, menus, toolbar/profile helpers, keyboard/chrome utilities
 +-- Screens/
-|   +-- AddPlexAccountView.swift      # Account setup flow
-|   +-- AlbumsView.swift              # Album grid
-|   +-- ArtistsView.swift             # Artist grid
-|   +-- AuxiliaryPresentationContainer.swift # Shared Settings/Downloads modal+window root wrappers
-|   +-- DownloadsView.swift           # Offline downloads
-|   +-- FavoritesView.swift           # Tracks rated 4+ stars
-|   +-- GenresView.swift              # Genre browsing
-|   +-- HomeView.swift                # Hub-based home screen (Recently Added, etc.)
-|   +-- MainTabView.swift             # iPhone tab bar
-|   +-- MediaDetailView.swift         # Artist/Album/Playlist detail (adaptive, protocol-based)
-|   +-- MergedPlaylistDetailView.swift # Detail view + loader for merged playlists (source servers, edit picker)
-|   +-- MoodTracksView.swift          # Track list for a specific Plex mood/vibe category
-|   +-- MoreView.swift                # Additional options
-|   +-- NowPlayingView.swift          # Full-screen player
-|   +-- PendingMutationsView.swift    # Offline-queued mutations (pending/failed playlist & track changes)
-|   +-- PlaylistsView.swift           # Playlist grid
-|   +-- DownloadManagerSettingsView.swift # Settings-only offline manager (quality, cellular toggle, remove all)
-|   +-- DownloadTargetDetailView.swift # Per-track detail for album/artist/playlist download target
-|   +-- LibraryDownloadDetailView.swift # All downloaded tracks in a library (by sourceCompositeKey)
-|   +-- OfflineServersView.swift      # (Legacy) Server-grouped sync-enabled library toggles
-|   +-- RootView.swift                # Platform-adaptive root (tabs vs sidebar)
-|   +-- SearchView.swift              # Search interface
-|   +-- ProfileView.swift             # Full profile view (replaces SettingsView content; includes all settings)
-|   +-- SettingsView.swift            # Legacy redirect to ProfileView
-|   +-- SyncSettingsView.swift       # Toggle UI for iCloud sync features (shown in ProfileView)
-|   +-- TrackSwipeActionsSettingsView.swift # Settings UI for configuring track swipe action slots
-|   +-- SongsView.swift               # All songs list
-|   +-- LogsSettingsView.swift        # Log session management (toggle, session list, delete)
-|   +-- LogDetailView.swift           # Full-text log viewer with share
-|   +-- MusicSourceAccountDetailView.swift # Source account detail (library toggles + sync status/actions)
+|   +-- Root/                         # RootView, MainTabView, MoreView, auxiliary presentation routing
+|   +-- Library/                      # Songs, Artists, Albums, Genres, Playlists, Favorites, Mood
+|   +-- Details/                      # Media detail, merged playlist detail, async detail loaders
+|   +-- Discovery/                    # Home/Feed and Search
+|   +-- AccountSettings/              # Profile, settings, account setup, source detail, sync/swipe settings
+|   +-- Downloads/                    # Downloads, download details/settings, offline servers, pending mutations
+|   +-- NowPlaying/                   # Now Playing sheet, viewport root, external display
+|   +-- Diagnostics/                  # Logs list/detail
 +-- EnsembleLogger.swift              # Package logger categories
 +-- EnsembleUI.swift                  # Public exports
 

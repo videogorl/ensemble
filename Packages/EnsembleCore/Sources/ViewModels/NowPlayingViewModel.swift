@@ -92,6 +92,12 @@ public final class NowPlayingViewModel: ObservableObject {
     public var waveformHeightsPublisher: AnyPublisher<[Double], Never> {
         _waveformHeights.eraseToAnyPublisher()
     }
+    // Playback progress is high-frequency like waveform heights. Keep it out of
+    // @Published so scrubbers can animate without invalidating every NP panel.
+    private let _progress = CurrentValueSubject<Double, Never>(0)
+    public var progressPublisher: AnyPublisher<Double, Never> {
+        _progress.eraseToAnyPublisher()
+    }
     @Published public var currentRating: TrackRating = .none
     @Published public private(set) var isAutoplayEnabled = false
     @Published public private(set) var autoplayTracks: [Track] = []
@@ -275,6 +281,7 @@ public final class NowPlayingViewModel: ObservableObject {
                 } else {
                     self.duration = self.playbackService.duration
                 }
+                self._progress.send(self.progress)
             }
             .store(in: &cancellables)
 
@@ -288,6 +295,7 @@ public final class NowPlayingViewModel: ObservableObject {
                 if abs(self.duration - latestDuration) > 0.05 {
                     self.duration = latestDuration
                 }
+                self._progress.send(self.progress)
             }
             .store(in: &cancellables)
         

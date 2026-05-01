@@ -1,0 +1,279 @@
+import EnsembleCore
+import SwiftUI
+
+/// Supported detail sources for the StageFlow track panel.
+enum StageFlowContentType: Equatable {
+    case album(id: String, sourceCompositeKey: String?)
+    case playlist(id: String, sourceCompositeKey: String?)
+    case mergedPlaylist(playlists: [Playlist])
+}
+
+/// Repository-backed track loading for StageFlow panels.
+struct StageFlowTrackLoader {
+    let libraryRepository: LibraryRepositoryProtocol
+    let playlistRepository: PlaylistRepositoryProtocol
+
+    func loadTracks(for contentType: StageFlowContentType) async throws -> [Track] {
+        switch contentType {
+        case .album(let id, let sourceCompositeKey):
+            let tracks: [CDTrack]
+            if let sourceCompositeKey {
+                tracks = try await libraryRepository.fetchTracks(forAlbum: id, sourceCompositeKey: sourceCompositeKey)
+            } else {
+                tracks = try await libraryRepository.fetchTracks(forAlbum: id)
+            }
+
+            return tracks
+                .map { Track(from: $0) }
+                .sorted { lhs, rhs in
+                    if lhs.discNumber != rhs.discNumber {
+                        return lhs.discNumber < rhs.discNumber
+                    }
+                    if lhs.trackNumber != rhs.trackNumber {
+                        return lhs.trackNumber < rhs.trackNumber
+                    }
+                    return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+                }
+
+        case .playlist(let id, let sourceCompositeKey):
+            guard let playlist = try await playlistRepository.fetchPlaylist(
+                ratingKey: id,
+                sourceCompositeKey: sourceCompositeKey
+            ) else {
+                return []
+            }
+
+            return playlist.tracksArray.map { Track(from: $0) }
+
+        case .mergedPlaylist(let playlists):
+            // Fetch tracks from each constituent playlist and interleave them
+            var trackSets: [[Track]] = []
+            for playlist in playlists {
+                if let cached = try await playlistRepository.fetchPlaylist(
+                    ratingKey: playlist.id,
+                    sourceCompositeKey: playlist.sourceCompositeKey
+                ) {
+                    trackSets.append(cached.tracksArray.map { Track(from: $0) })
+                }
+            }
+            return DisplayPlaylist.interleave(trackSets)
+        }
+    }
+}
+
+/// Scrollable trailing panel that shows the centered StageFlow item's tracks.
+struct StageFlowTrackPanel: View {
+    private struct PlaylistPickerPayload: Identifiable {
+        let id = UUID()
+        let tracks: [Track]
+        let title: String
+    }
+
+    let contentType: StageFlowContentType
+    let nowPlayingVM: NowPlayingViewModel
+
+    @Environment(\.dependencies) private var deps
+
+    @State private var tracks: [Track] = []
+    @State private var isLoading = true
+    @State private var error: Error?
+    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
+    @State private var currentTrackId: String?
+    @State private var recentPlaylistTitle: String?
+
+    var body: some View {
+        Group {
+            if isLoading {
+                EnsembleStateScaffold(kind: .loading, title: "Loading tracks…")
+            } else if let error {
+                errorState(error)
+            } else if tracks.isEmpty {
+                emptyState
+            } else {
+                #if os(iOS)
+                MediaTrackList(
+                    tracks: tracks,
+                    showArtwork: true,
+                    showTrackNumbers: true,
+                    showAlbumName: false,
+                    groupByDisc: false,
+                    currentTrackId: currentTrackId,
+                    availabilityGeneration: availabilityGeneration,
+                    activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    managesOwnScrolling: true,
+                    bottomContentInset: 4,
+                    rowHeight: 58,
+                    onPlayNext: { track in
+                        nowPlayingVM.playNext(track)
+                    },
+                    onPlayLast: { track in
+                        nowPlayingVM.playLast(track)
+                    },
+                    onAddToPlaylist: { track in
+                        presentPlaylistPicker(with: [track])
+                    },
+                    onAddToRecentPlaylist: { track in
+                        addToRecentPlaylist(track)
+                    },
+                    onToggleFavorite: { track in
+                        Task {
+                            await nowPlayingVM.toggleTrackFavorite(track)
+                        }
+                    },
+                    onShareLink: { track in
+                        ShareActions.shareTrackLink(track, deps: deps)
+                    },
+                    onShareFile: { track in
+                        ShareActions.shareTrackFile(track, deps: deps)
+                    },
+                    isTrackFavorited: { track in
+                        nowPlayingVM.isTrackFavorited(track)
+                    },
+                    canAddToRecentPlaylist: { track in
+                        recentPlaylistTitle(for: track) != nil
+                    },
+                    recentPlaylistTitle: recentPlaylistTitle
+                ) { _, index in
+                    nowPlayingVM.play(tracks: tracks, startingAt: index)
+                }
+                #else
+                // macOS: List with native .swipeActions for trackpad two-finger swipe support
+                List {
+                    ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+                        TrackRow(
+                            track: track,
+                            showArtwork: true,
+                            isPlaying: track.id == currentTrackId,
+                            onPlayNext: { nowPlayingVM.playNext(track) },
+                            onPlayLast: { nowPlayingVM.playLast(track) },
+                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                            onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                            onShareLink: {
+                                ShareActions.shareTrackLink(track, deps: deps)
+                            },
+                            onShareFile: {
+                                ShareActions.shareTrackFile(track, deps: deps)
+                            },
+                            recentPlaylistTitle: recentPlaylistTitle(for: track)
+                        ) {
+                            nowPlayingVM.play(tracks: tracks, startingAt: index)
+                        }
+                        .trackSwipeActions(
+                            track: track,
+                            nowPlayingVM: nowPlayingVM,
+                            onPlayNext: { nowPlayingVM.playNext(track) },
+                            onPlayLast: { nowPlayingVM.playLast(track) },
+                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
+                        )
+                        .listRowBackground(Color.clear)
+                        .hideListRowSeparator()
+                        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                    }
+                }
+                .listStyle(.plain)
+                .modifier(ClearScrollContentBackgroundModifier())
+                #endif
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.leading, 12)
+        .padding(.trailing, 12)
+        .padding(.vertical, 8)
+        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
+            if keys != activeDownloadRatingKeys {
+                activeDownloadRatingKeys = keys
+            }
+        }
+        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { generation in
+            if generation != availabilityGeneration {
+                availabilityGeneration = generation
+            }
+        }
+        .onReceive(nowPlayingVM.$currentTrack) { track in
+            let trackID = track?.id
+            if trackID != currentTrackId {
+                currentTrackId = trackID
+            }
+        }
+        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
+            let updatedTitle = target?.title
+            if updatedTitle != recentPlaylistTitle {
+                recentPlaylistTitle = updatedTitle
+            }
+        }
+        .task(id: contentType) {
+            await loadTracks()
+        }
+        .sheet(item: $playlistPickerPayload) { payload in
+            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
+        }
+    }
+
+    private func errorState(_ error: Error) -> some View {
+        EnsembleStateScaffold(
+            kind: .error,
+            title: "Couldn’t load tracks",
+            message: error.localizedDescription
+        )
+    }
+
+    private var emptyState: some View {
+        EnsembleStateScaffold(
+            kind: .empty,
+            title: "No tracks available",
+            message: "This item doesn’t have any cached tracks yet.",
+            iconSystemName: EnsembleDesign.Icon.playlist
+        )
+    }
+
+    private func loadTracks() async {
+        isLoading = true
+        error = nil
+
+        do {
+            let loader = StageFlowTrackLoader(
+                libraryRepository: deps.libraryRepository,
+                playlistRepository: deps.playlistRepository
+            )
+            tracks = try await loader.loadTracks(for: contentType)
+            isLoading = false
+        } catch {
+            self.error = error
+            isLoading = false
+        }
+    }
+
+    private func presentPlaylistPicker(with tracks: [Track]) {
+        guard !tracks.isEmpty else { return }
+        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: "Add to Playlist")
+    }
+
+    private func addToRecentPlaylist(_ track: Track) {
+        guard recentPlaylistTitle(for: track) != nil else { return }
+        Task {
+            guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: [track]) else { return }
+            _ = try? await nowPlayingVM.addTracks([track], to: playlist)
+        }
+    }
+
+    private func recentPlaylistTitle(for track: Track) -> String? {
+        guard let target = nowPlayingVM.lastPlaylistTarget else { return nil }
+        let playlist = Playlist(
+            id: target.id,
+            key: "/playlists/\(target.id)",
+            title: target.title,
+            summary: nil,
+            isSmart: false,
+            trackCount: 0,
+            duration: 0,
+            compositePath: nil,
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            sourceCompositeKey: target.sourceCompositeKey
+        )
+        return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
+    }
+}

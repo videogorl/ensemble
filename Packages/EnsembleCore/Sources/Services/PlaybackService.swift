@@ -2323,6 +2323,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     // MARK: - Playback Control
 
+    private func resetHandoffForUserPlaybackIntent() {
+        _ = handoffCoordinator.handle(.explicitPlaybackStart, playbackState: playbackState)
+        isInterrupted = false
+        isRouteChangeInProgress = false
+    }
+
     public func play(track: Track) async {
         await play(tracks: [track], startingAt: 0)
     }
@@ -2330,9 +2336,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func play(tracks: [Track], startingAt index: Int) async {
         guard !tracks.isEmpty, index >= 0, index < tracks.count else { return }
 
-        _ = handoffCoordinator.handle(.explicitPlaybackStart, playbackState: playbackState)
-        isInterrupted = false
-        isRouteChangeInProgress = false
+        resetHandoffForUserPlaybackIntent()
 
         // Queue injection resets instrumental mode (sync both UI flag and engine state)
         if isInstrumentalModeActive {
@@ -2384,9 +2388,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func shufflePlay(tracks: [Track]) async {
         guard !tracks.isEmpty else { return }
 
-        _ = handoffCoordinator.handle(.explicitPlaybackStart, playbackState: playbackState)
-        isInterrupted = false
-        isRouteChangeInProgress = false
+        resetHandoffForUserPlaybackIntent()
 
         // Queue injection resets instrumental mode (sync both UI flag and engine state)
         if isInstrumentalModeActive {
@@ -2836,6 +2838,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let currentTrackTitle = currentTrack?.title ?? "nil"
         let currentState = playbackState
         EnsembleLogger.debug("[next] called — track='\(currentTrackTitle)', state=\(currentState), idx=\(currentQueueIndex)/\(queue.count)")
+        resetHandoffForUserPlaybackIntent()
 
         // Cancel any in-progress skip transition
         skipTransitionTask?.cancel()
@@ -2913,6 +2916,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             seek(to: 0)
             return
         }
+        resetHandoffForUserPlaybackIntent()
 
         // Cancel any in-progress skip transition
         skipTransitionTask?.cancel()

@@ -4,6 +4,8 @@ import Combine
 /// Centralized navigation coordinator for handling deep links and cross-tab navigation
 @MainActor
 public final class NavigationCoordinator: ObservableObject {
+    private static weak var activeAuxiliaryCommandCoordinator: NavigationCoordinator?
+
     public enum AuxiliaryPresentation: String, Identifiable {
         case profile
         case downloads
@@ -82,6 +84,19 @@ public final class NavigationCoordinator: ObservableObject {
     }
 
     public init() {}
+
+    public static func setActiveAuxiliaryCommandCoordinator(_ coordinator: NavigationCoordinator) {
+        activeAuxiliaryCommandCoordinator = coordinator
+    }
+
+    public static func clearActiveAuxiliaryCommandCoordinator(_ coordinator: NavigationCoordinator) {
+        guard activeAuxiliaryCommandCoordinator === coordinator else { return }
+        activeAuxiliaryCommandCoordinator = nil
+    }
+
+    public static func openProfileFromActiveScene(fallback: NavigationCoordinator) {
+        (activeAuxiliaryCommandCoordinator ?? fallback).openProfile()
+    }
     
     // MARK: - Navigation Methods
     

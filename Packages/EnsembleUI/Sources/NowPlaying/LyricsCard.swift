@@ -1,0 +1,773 @@
+import EnsembleCore
+import SwiftUI
+
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
+/// Left card displaying lyrics with time-synced highlighting (karaoke style)
+/// Supports timed LRC lyrics with auto-scroll, plain text lyrics, and empty/loading states
+public struct LyricsCard: View {
+    @ObservedObject var viewModel: NowPlayingViewModel
+    @Binding var currentPage: Int
+
+    /// When true, disables progressive blur on lyrics lines to reduce GPU work
+    let isLowPowerMode: Bool
+    private let showsTransportControls: Bool
+
+    // Track last scroll target to detect large jumps (seeks) vs natural progression
+    @State private var lastScrollIndex: Int?
+
+    // Decoupled from @Published via CurrentValueSubject — these update every ~0.5s
+    // during lyrics sync but only LyricsCard needs them, not all 4 NP cards.
+    @State private var currentLyricsLineIndex: Int?
+    @State private var lyricsScrollTargetIndex: Int?
+    @State private var instrumentalProgress: Double?
+
+    public init(
+        viewModel: NowPlayingViewModel,
+        currentPage: Binding<Int>,
+        isLowPowerMode: Bool = false,
+        showsTransportControls: Bool = true
+    ) {
+        self.viewModel = viewModel
+        self._currentPage = currentPage
+        self.isLowPowerMode = isLowPowerMode
+        self.showsTransportControls = showsTransportControls
+    }
+
+    public var body: some View {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
+            // Pinned header
+            headerView
+                .padding(.top, EnsembleScaffold.NowPlaying.headerTopPadding)
+                .padding(.bottom, EnsembleScaffold.NowPlaying.headerBottomPadding)
+
+            // Scrollable content area with fade masks
+            contentView
+
+            Spacer(minLength: 0) // Push transport controls to bottom
+
+            if showsTransportControls {
+                // Secondary transport controls + page indicator spacing
+                VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
+                    transportControlsView
+                        .padding(.top, EnsembleScaffold.NowPlaying.secondaryControlsTopPadding)
+                    Spacer().frame(height: EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight)
+                }
+                .padding(.bottom, EnsembleScaffold.NowPlaying.cardBottomPadding)
+            }
+        }
+        .onReceive(viewModel.currentLyricsLineIndexPublisher) { index in
+            if index != currentLyricsLineIndex { currentLyricsLineIndex = index }
+        }
+        .onReceive(viewModel.lyricsScrollTargetIndexPublisher) { index in
+            if index != lyricsScrollTargetIndex { lyricsScrollTargetIndex = index }
+        }
+        .onReceive(viewModel.instrumentalProgressPublisher) { progress in
+            if progress != instrumentalProgress { instrumentalProgress = progress }
+        }
+    }
+
+    // MARK: - Header
+
+    private var headerView: some View {
+        HStack {
+            Text("Lyrics")
+                .font(EnsembleDesign.Typography.sectionTitle)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
+
+            Spacer()
+
+            // Instrumental mode toggle (A13+ / iOS 16+ only)
+            if viewModel.isInstrumentalModeSupported {
+                Button {
+                    viewModel.toggleInstrumentalMode()
+                } label: {
+                    Image(systemName: viewModel.isInstrumentalModeActive
+                        ? EnsembleDesign.Icon.instrumentalOn
+                        : EnsembleDesign.Icon.instrumentalOff)
+                        .font(EnsembleDesign.Typography.detailSubtitle)
+                        .foregroundColor(viewModel.isInstrumentalModeActive
+                            ? EnsembleDesign.Color.accent
+                            : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
+                }
+                .accessibilityLabel(viewModel.isInstrumentalModeActive
+                    ? "Disable instrumental mode"
+                    : "Enable instrumental mode")
+            }
+        }
+        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
+        .frame(minHeight: EnsembleScaffold.NowPlaying.headerMinHeight)
+    }
+
+    // MARK: - Content
+
+    /// Whether this card is the active page in the carousel.
+    /// TabView's .page style renders ALL children simultaneously — gate expensive
+    /// blur/scroll/animation content behind this check to avoid GPU work off-screen.
+    private var isVisible: Bool {
+        currentPage == 2
+    }
+
+    @ViewBuilder
+    private var contentView: some View {
+        if isVisible {
+            switch viewModel.lyricsState {
+            case .loading:
+                loadingView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .mask(fadeMask)
+
+            case .notAvailable:
+                notAvailableView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .mask(fadeMask)
+
+            case .available(let lyrics):
+                lyricsScrollView(lyrics: lyrics)
+                    .mask(fadeMask)
+            }
+        } else {
+            // Lightweight placeholder — keeps layout stable for TabView paging
+            // without any blur/scroll/animation GPU cost
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    // MARK: - Loading State
+
+    private var loadingView: some View {
+        VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+            ProgressView()
+                .scaleEffect(1.2)
+        }
+    }
+
+    // MARK: - Not Available State
+
+    private var notAvailableView: some View {
+        VStack(spacing: EnsembleScaffold.NowPlaying.emptyTextSpacing) {
+            Image(systemName: EnsembleDesign.Icon.lyricsUnavailable)
+                .font(.system(size: EnsembleScaffold.NowPlaying.emptyIconSize))
+                .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.lyricFutureOpacity))
+
+            Text("No Lyrics Available")
+                .font(EnsembleDesign.Typography.actionLabel)
+                .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.lyricIndicatorFilledOpacity))
+
+            Button {
+                viewModel.retryLyrics()
+            } label: {
+                Label("Retry", systemImage: EnsembleDesign.Icon.retry)
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+
+    // MARK: - Lyrics Scroll View
+
+    private func lyricsScrollView(lyrics: ParsedLyrics) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                LazyVStack(spacing: lyrics.isTimed
+                    ? EnsembleScaffold.NowPlaying.lyricTimedLineSpacing
+                    : EnsembleScaffold.NowPlaying.lyricPlainLineSpacing
+                ) {
+                    // Top spacer so first line can scroll to center
+                    Spacer()
+                        .frame(height: EnsembleScaffold.NowPlaying.lyricTopSpacerHeight)
+
+                    // Intro dot — always present for timed lyrics, tap to seek to beginning.
+                    // Time-synced when there's a real intro gap, otherwise just past/future.
+                    if lyrics.isTimed {
+                        let introBlur = lineBlurRadius(index: 0, isTimed: true)
+                        instrumentalIndicator(progress: introProgress)
+                            .blur(radius: introBlur)
+                            .animation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration), value: introBlur)
+                            .id("intro-instrumental")
+                            .onTapGesture {
+                                viewModel.seek(to: 0)
+                                resumeIfPaused()
+                            }
+                    }
+
+                    ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, line in
+                        // Each lyric line as its own item in the LazyVStack
+                        lyricsLineView(
+                            line: line,
+                            index: index,
+                            isTimed: lyrics.isTimed,
+                            isActive: currentLyricsLineIndex == index,
+                            isPast: isPastLine(index: index)
+                        )
+                        .onTapGesture {
+                            if lyrics.isTimed, let timestamp = line.timestamp {
+                                // LRC timestamps mark when to START DISPLAYING a line,
+                                // which is slightly before the vocals begin. Add a small
+                                // offset so tap-to-seek lands on the actual vocal start
+                                // rather than the tail of the previous line.
+                                viewModel.seek(to: timestamp + 0.5)
+                                resumeIfPaused()
+                            }
+                        }
+                        .id(index)
+
+                        // Instrumental gap indicator as its own item (same spacing as lyrics)
+                        if lyrics.isTimed,
+                           viewModel.instrumentalGapAfterIndices.contains(index) {
+                            let isActiveGap = instrumentalProgress != nil
+                                && currentLyricsLineIndex == nil
+                                && isCurrentGap(afterIndex: index, lyrics: lyrics)
+                            let progress = isActiveGap ? (instrumentalProgress ?? 0) : (isPastLine(index: index) ? 1.0 : 0.0)
+                            let gapBlur = lineBlurRadius(index: index, isTimed: true)
+                            instrumentalIndicator(progress: progress)
+                                .blur(radius: gapBlur)
+                                .animation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration), value: gapBlur)
+                                .id("gap-\(index)")
+                                .onTapGesture {
+                                    let nextIndex = index + 1
+                                    if nextIndex < lyrics.lines.count,
+                                       let nextTimestamp = lyrics.lines[nextIndex].timestamp {
+                                        viewModel.seek(to: nextTimestamp)
+                                        resumeIfPaused()
+                                    }
+                                }
+                        }
+                    }
+
+                    // Outro dot — always present for timed lyrics, tap to seek to end.
+                    // Time-synced when there's a real outro gap, otherwise just past/future.
+                    if lyrics.isTimed {
+                        let lastIndex = lyrics.lines.count - 1
+                        let outroBlur = lineBlurRadius(index: lastIndex + 1, isTimed: true)
+                        instrumentalIndicator(progress: outroProgress(lastIndex: lastIndex))
+                            .blur(radius: outroBlur)
+                            .animation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration), value: outroBlur)
+                            .id("outro-instrumental")
+                            .onTapGesture {
+                                // Seek near track end (last 5 seconds)
+                                let endTime = max(viewModel.duration - 5, 0)
+                                viewModel.seek(to: endTime)
+                                resumeIfPaused()
+                            }
+                    }
+
+                    // Bottom spacer so last line can scroll to center
+                    Spacer()
+                        .frame(height: EnsembleScaffold.NowPlaying.lyricBottomSpacerHeight)
+                }
+                .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
+            }
+            // Detect vertical scrolls to suppress auto-scroll temporarily.
+            // Uses a UIKit gesture recognizer that only activates for vertical pans,
+            // allowing horizontal swipes to pass through to the parent TabView.
+            #if canImport(UIKit)
+            .background(
+                VerticalDragDetector {
+                    viewModel.userDidScrollLyrics()
+                }
+            )
+            #elseif canImport(AppKit)
+            .background(
+                MacScrollWheelDetector {
+                    viewModel.userDidScrollLyrics()
+                }
+            )
+            #endif
+            // Restore scroll position when view appears (e.g., swiping back from another card).
+            // The isVisible gate replaces the ScrollView with Color.clear when off-screen,
+            // so scroll position is lost. Snap to the current lyrics position on re-creation.
+            .onAppear {
+                guard lyrics.isTimed else { return }
+                let scrollTarget: AnyHashable
+                if let index = lyricsScrollTargetIndex {
+                    scrollTarget = index
+                } else {
+                    scrollTarget = "intro-instrumental"
+                }
+                lastScrollIndex = lyricsScrollTargetIndex
+                // Defer to next frame so the LazyVStack has laid out its content
+                DispatchQueue.main.async {
+                    proxy.scrollTo(scrollTarget, anchor: .center)
+                }
+            }
+            // Scroll to active lyric — animate for natural progression, snap for seeks.
+            // nil target means "before first lyric" — scroll to top (index 0 or intro).
+            .onChange(of: lyricsScrollTargetIndex) { newIndex in
+                guard lyrics.isTimed else { return }
+
+                // Determine scroll destination: active line, or intro dot if before lyrics
+                let scrollTarget: AnyHashable
+                if let newIndex {
+                    scrollTarget = newIndex
+                } else {
+                    scrollTarget = "intro-instrumental" // Always present for timed lyrics
+                }
+
+                let isLargeJump: Bool
+                if let newIndex, let last = lastScrollIndex {
+                    isLargeJump = abs(newIndex - last) > 2
+                } else {
+                    isLargeJump = true // First scroll or nil target — snap without animation
+                }
+                lastScrollIndex = newIndex
+
+                if isLargeJump {
+                    // Snap immediately for seeks — prevents animation backlog
+                    proxy.scrollTo(scrollTarget, anchor: .center)
+                } else {
+                    withAnimation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration)) {
+                        proxy.scrollTo(scrollTarget, anchor: .center)
+                    }
+                }
+            }
+            // Re-center on active lyric when user scroll pause ends
+            .onChange(of: viewModel.isUserScrollingLyrics) { isScrolling in
+                guard !isScrolling, lyrics.isTimed else { return }
+                let scrollTarget: AnyHashable
+                if let index = lyricsScrollTargetIndex {
+                    scrollTarget = index
+                } else {
+                    scrollTarget = "intro-instrumental"
+                }
+                // Snap back without animation (same as large jump behavior)
+                proxy.scrollTo(scrollTarget, anchor: .center)
+            }
+        }
+    }
+
+    // MARK: - Line View
+
+    private func lyricsLineView(
+        line: LyricsLine,
+        index: Int,
+        isTimed: Bool,
+        isActive: Bool,
+        isPast: Bool
+    ) -> some View {
+        let blur = lineBlurRadius(index: index, isTimed: isTimed)
+        let opacity = lineOpacity(isTimed: isTimed, isActive: isActive, isPast: isPast)
+        // Use Equatable wrapper so SwiftUI skips re-rendering lines whose params
+        // haven't changed — reduces N re-renders per tick to ~2 (old + new active line)
+        return EquatableView(content: LyricsLineView(
+            text: line.text,
+            isActive: isActive,
+            isTimed: isTimed,
+            opacity: opacity,
+            blur: blur
+        ))
+    }
+
+    // MARK: - Instrumental Indicator
+
+    /// Animated ellipsis that fills in during instrumental gaps between lyrics.
+    /// Shown at all gap positions — active gaps animate, past gaps are fully filled,
+    /// future gaps are dim.
+    private func instrumentalIndicator(progress: Double) -> some View {
+        HStack(spacing: EnsembleScaffold.NowPlaying.lyricIndicatorSpacing) {
+            ForEach(0..<3, id: \.self) { dotIndex in
+                let dotThreshold = Double(dotIndex + 1) / 4.0  // 0.25, 0.5, 0.75
+                Circle()
+                    .fill(EnsembleDesign.Color.primaryText.opacity(progress >= dotThreshold
+                        ? EnsembleScaffold.NowPlaying.lyricIndicatorFilledOpacity
+                        : EnsembleScaffold.NowPlaying.lyricIndicatorEmptyOpacity
+                    ))
+                    .frame(
+                        width: EnsembleScaffold.NowPlaying.lyricIndicatorDotSize,
+                        height: EnsembleScaffold.NowPlaying.lyricIndicatorDotSize
+                    )
+                    .animation(.easeInOut(duration: EnsembleDesign.Animation.quickDuration), value: progress >= dotThreshold)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Transport Controls
+
+    /// Secondary transport controls: previous, play/pause, next
+    private var transportControlsView: some View {
+        HStack(spacing: EnsembleScaffold.NowPlaying.transportControlsSpacing) {
+            Button(action: viewModel.previous) {
+                Image(systemName: EnsembleDesign.Icon.previous)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
+                    .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
+            }
+
+            Button(action: viewModel.togglePlayPause) {
+                Image(systemName: viewModel.playbackState == .playing ? EnsembleDesign.Icon.pause : EnsembleDesign.Icon.play)
+                    .font(EnsembleDesign.Typography.utilityIcon)
+                    .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.activeControlOpacity))
+            }
+
+            Button(action: viewModel.next) {
+                Image(systemName: EnsembleDesign.Icon.forward)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
+                    .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
+            }
+        }
+        .chromelessMediaControlButton()
+        .ensembleStandardShadow()
+    }
+
+    // MARK: - Helpers
+
+    /// Intro dot progress: time-synced if there's a real intro gap, otherwise just past/future
+    private var introProgress: Double {
+        if viewModel.hasIntroInstrumentalGap {
+            let isIntroActive = lyricsScrollTargetIndex == nil
+                && instrumentalProgress != nil
+            if isIntroActive {
+                return instrumentalProgress ?? 0
+            }
+        }
+        // Filled once any lyric line has been reached
+        let hasStarted = currentLyricsLineIndex != nil
+            || lyricsScrollTargetIndex != nil
+        return hasStarted ? 1.0 : 0.0
+    }
+
+    /// Outro dot progress: time-synced if there's a real outro gap, otherwise just past/future
+    private func outroProgress(lastIndex: Int) -> Double {
+        if viewModel.hasOutroInstrumentalGap {
+            let isOutroActive = instrumentalProgress != nil
+                && currentLyricsLineIndex == nil
+                && lyricsScrollTargetIndex == lastIndex
+            if isOutroActive {
+                return instrumentalProgress ?? 0
+            }
+        }
+        return isPastLine(index: lastIndex) ? 1.0 : 0.0
+    }
+
+    /// Resume playback if currently paused (for tap-to-seek interactions)
+    private func resumeIfPaused() {
+        if viewModel.playbackState == .paused {
+            viewModel.resume()
+        }
+    }
+
+    /// Determine opacity for a lyrics line
+    private func lineOpacity(isTimed: Bool, isActive: Bool, isPast: Bool) -> Double {
+        guard isTimed else { return EnsembleScaffold.NowPlaying.lyricPlainOpacity }
+        if isActive { return 1.0 }
+        if isPast { return EnsembleScaffold.NowPlaying.lyricPastOpacity }
+        return EnsembleScaffold.NowPlaying.lyricFutureOpacity
+    }
+
+    /// Progressive blur based on distance from the active line (which is centered in viewport).
+    /// Lines close to the active line are sharp; distant lines blur progressively.
+    /// Disabled for plain text lyrics and in Low Power Mode.
+    private func lineBlurRadius(index: Int, isTimed: Bool) -> CGFloat {
+        // No blur for plain text, Low Power Mode, or when user is manually scrolling
+        guard isTimed, !isLowPowerMode, !viewModel.isUserScrollingLyrics else { return 0 }
+
+        // Use active line index, fall back to scroll target during instrumental gaps
+        let center = currentLyricsLineIndex
+            ?? lyricsScrollTargetIndex
+        guard let center else { return 0 }
+
+        let distance = abs(index - center)
+        guard distance > EnsembleScaffold.NowPlaying.lyricBlurStartDistance else { return 0 }
+        return min(
+            CGFloat(distance - EnsembleScaffold.NowPlaying.lyricBlurStartDistance) * EnsembleScaffold.NowPlaying.lyricBlurStep,
+            EnsembleScaffold.NowPlaying.lyricMaxBlur
+        )
+    }
+
+    /// Whether a line is in the past (before the current active line)
+    private func isPastLine(index: Int) -> Bool {
+        guard let activeIndex = currentLyricsLineIndex else {
+            // During instrumental gaps, currentLyricsLineIndex is nil.
+            // Use the scroll target as fallback to determine past/future.
+            guard let scrollTarget = lyricsScrollTargetIndex else { return false }
+            return index < scrollTarget
+        }
+        return index < activeIndex
+    }
+
+    /// Whether a gap after the given index is the currently active instrumental gap.
+    /// During gaps, currentLyricsLineIndex is nil but the scroll target tracks the
+    /// underlying active line index from the binary search.
+    private func isCurrentGap(afterIndex index: Int, lyrics: ParsedLyrics) -> Bool {
+        guard let scrollTarget = lyricsScrollTargetIndex else { return false }
+        return scrollTarget == index
+    }
+
+    /// Fade mask matching QueueCard style — gradual top and bottom fades
+    private var fadeMask: some View {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
+            // Top fade (gradual)
+            LinearGradient(
+                gradient: Gradient(stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black, location: EnsembleScaffold.NowPlaying.FadeMask.topOpaqueLocation)
+                ]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: EnsembleScaffold.NowPlaying.FadeMask.topHeight)
+
+            // Middle: full opacity
+            Rectangle().fill(Color.black)
+
+            // Bottom fade (gradual)
+            LinearGradient(
+                gradient: Gradient(stops: [
+                    .init(color: .black, location: EnsembleScaffold.NowPlaying.FadeMask.bottomOpaqueLocation),
+                    .init(color: .clear, location: 1)
+                ]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: EnsembleScaffold.NowPlaying.FadeMask.bottomHeight)
+        }
+    }
+}
+
+#if canImport(UIKit)
+// MARK: - Vertical Drag Detector
+
+/// Detects vertical scroll gestures by attaching a UIPanGestureRecognizer directly to the
+/// ancestor UIScrollView. Uses a hidden probe view in `.background` — when it appears in
+/// the window, it walks up the view hierarchy to find the ScrollView's underlying
+/// UIScrollView and adds a vertical-only pan gesture. This approach lets horizontal swipes
+/// pass through to the parent TabView for card navigation, while still detecting vertical
+/// scrolling for auto-scroll suppression.
+private struct VerticalDragDetector: UIViewRepresentable {
+    let onVerticalDrag: () -> Void
+
+    func makeUIView(context: Context) -> DragDetectorProbeView {
+        let view = DragDetectorProbeView()
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
+        view.isHidden = true
+        view.coordinator = context.coordinator
+        return view
+    }
+
+    func updateUIView(_ uiView: DragDetectorProbeView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onVerticalDrag: onVerticalDrag)
+    }
+
+    // Hidden probe view that finds the ancestor UIScrollView on window attachment
+    class DragDetectorProbeView: UIView {
+        weak var coordinator: Coordinator?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard window != nil else { return }
+            // Defer to let the view hierarchy settle
+            DispatchQueue.main.async { [weak self] in
+                self?.coordinator?.attachIfNeeded(from: self)
+            }
+        }
+    }
+
+    class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        let onVerticalDrag: () -> Void
+        private var verticalDetector: UIPanGestureRecognizer?
+
+        init(onVerticalDrag: @escaping () -> Void) {
+            self.onVerticalDrag = onVerticalDrag
+        }
+
+        func attachIfNeeded(from view: UIView?) {
+            guard verticalDetector == nil, let view else { return }
+
+            // Walk up to find the lyrics UIScrollView, then continue to find
+            // the TabView's paging UIScrollView above it.
+            var lyricsScrollView: UIScrollView?
+            var pagingScrollView: UIScrollView?
+            var current: UIView? = view
+            while let v = current {
+                if let sv = v as? UIScrollView {
+                    if lyricsScrollView == nil {
+                        // First UIScrollView found = lyrics vertical scroll
+                        lyricsScrollView = sv
+                    } else if sv.isPagingEnabled {
+                        // Paging UIScrollView = TabView's horizontal page container
+                        pagingScrollView = sv
+                        break
+                    }
+                }
+                current = v.superview
+            }
+
+            guard let lyricsScrollView else { return }
+
+            // Vertical drag detector — fires callback for auto-scroll suppression.
+            // Only recognizes vertical pans so it doesn't interfere with page swiping.
+            let vertical = UIPanGestureRecognizer(
+                target: self,
+                action: #selector(handleVerticalPan(_:))
+            )
+            vertical.delegate = self
+            vertical.name = "lyrics-vertical-detector"
+            lyricsScrollView.addGestureRecognizer(vertical)
+            verticalDetector = vertical
+
+            // Make the TabView's paging pan wait for our vertical detector to fail.
+            // Vertical swipe → detector recognizes → TabView pan blocked → lyrics scroll works.
+            // Horizontal swipe → detector fails → TabView pan starts → page swipe works.
+            if let pagingScrollView {
+                pagingScrollView.panGestureRecognizer.require(toFail: vertical)
+            }
+        }
+
+        @objc func handleVerticalPan(_ gesture: UIPanGestureRecognizer) {
+            if gesture.state == .began {
+                onVerticalDrag()
+            }
+        }
+
+        // Only begin for predominantly vertical pans — lets horizontal swipes
+        // fall through to the TabView page gesture.
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+            let velocity = pan.velocity(in: pan.view)
+            return abs(velocity.y) > abs(velocity.x)
+        }
+
+        // Allow simultaneous recognition with the ScrollView's built-in pan
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            return true
+        }
+    }
+}
+#endif
+
+#if canImport(AppKit)
+// MARK: - macOS Scroll Wheel Detector
+
+/// Detects user scroll-wheel and trackpad scrolling over the lyrics scroll view
+/// without intercepting the native NSScrollView event handling.
+private struct MacScrollWheelDetector: NSViewRepresentable {
+    let onUserScroll: () -> Void
+
+    func makeNSView(context: Context) -> ScrollDetectorProbeView {
+        let view = ScrollDetectorProbeView()
+        view.coordinator = context.coordinator
+        return view
+    }
+
+    func updateNSView(_ nsView: ScrollDetectorProbeView, context: Context) {
+        nsView.coordinator = context.coordinator
+        context.coordinator.scheduleAttach(from: nsView)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onUserScroll: onUserScroll)
+    }
+
+    final class ScrollDetectorProbeView: NSView {
+        weak var coordinator: Coordinator?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil else {
+                coordinator?.detach()
+                return
+            }
+
+            coordinator?.scheduleAttach(from: self)
+        }
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            coordinator?.scheduleAttach(from: self)
+        }
+    }
+
+    final class Coordinator {
+        private let onUserScroll: () -> Void
+        private weak var scrollView: NSScrollView?
+        private var monitor: Any?
+
+        init(onUserScroll: @escaping () -> Void) {
+            self.onUserScroll = onUserScroll
+        }
+
+        deinit {
+            detach()
+        }
+
+        func scheduleAttach(from view: NSView?) {
+            attachIfNeeded(from: view)
+            DispatchQueue.main.async { [weak self, weak view] in
+                self?.attachIfNeeded(from: view)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak view] in
+                self?.attachIfNeeded(from: view)
+            }
+        }
+
+        private func attachIfNeeded(from view: NSView?) {
+            guard monitor == nil, let view else { return }
+
+            var current: NSView? = view
+            while let candidate = current {
+                if let scrollView = candidate as? NSScrollView {
+                    self.scrollView = scrollView
+                    break
+                }
+                current = candidate.superview
+            }
+
+            guard let scrollView else { return }
+
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self, weak scrollView] event in
+                guard let self, let scrollView else { return event }
+                guard event.window === scrollView.window else { return event }
+
+                let location = scrollView.convert(event.locationInWindow, from: nil)
+                if scrollView.bounds.contains(location) {
+                    self.onUserScroll()
+                }
+
+                return event
+            }
+        }
+
+        func detach() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+            scrollView = nil
+        }
+    }
+}
+#endif
+
+// MARK: - Equatable Lyrics Line
+
+private struct LyricsLineView: View, Equatable {
+    let text: String
+    let isActive: Bool
+    let isTimed: Bool
+    let opacity: Double
+    let blur: CGFloat
+
+    var body: some View {
+        Text(text)
+            .font(EnsembleDesign.Typography.detailSubtitle)
+            .fontWeight(.medium)
+            .foregroundColor(EnsembleDesign.Color.primaryText)
+            .opacity(opacity)
+            .scaleEffect(isActive && isTimed ? EnsembleScaffold.NowPlaying.lyricActiveScale : 1.0, anchor: .leading)
+            .blur(radius: blur)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(.easeInOut(duration: EnsembleDesign.Animation.quickDuration), value: isActive)
+            .animation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration), value: blur)
+    }
+}

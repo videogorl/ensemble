@@ -1,0 +1,541 @@
+import EnsembleCore
+import SwiftUI
+
+public struct DownloadsView: View {
+    @StateObject private var viewModel: DownloadsViewModel
+    let nowPlayingVM: NowPlayingViewModel
+    @Environment(\.dependencies) private var deps
+    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @State private var isRefreshingDownloadQuality = false
+    @AppStorage("downloadQuality") private var downloadQuality = "high"
+
+    public init(nowPlayingVM: NowPlayingViewModel) {
+        self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeDownloadsViewModel())
+        self.nowPlayingVM = nowPlayingVM
+    }
+
+    public var body: some View {
+        ZStack {
+            downloadListView
+
+            if viewModel.isLoading && viewModel.items.isEmpty {
+                loadingOverlay
+            }
+        }
+        .navigationTitle("Downloads")
+        .profileToolbar()
+        .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                NavigationLink {
+                    DownloadManagerSettingsView()
+                } label: {
+                    Image(systemName: EnsembleDesign.Icon.editPlaylist)
+                }
+            }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
+                queueControlButton
+            }
+            #else
+            EnsembleToolbarLeadingSpacer()
+            ToolbarItem(placement: .primaryActionIfAvailable) {
+                NavigationLink {
+                    DownloadManagerSettingsView()
+                } label: {
+                    Label("Settings", systemImage: EnsembleDesign.Icon.editPlaylist)
+                }
+            }
+
+            ToolbarItem(placement: .primaryActionIfAvailable) {
+                queueControlButton
+            }
+            #endif
+        }
+        .task {
+            await viewModel.refresh()
+        }
+        .refreshable {
+            await viewModel.refresh()
+        }
+        .refreshCommand("Refresh Downloads") {
+            await viewModel.refresh()
+        }
+    }
+
+    private var downloadListView: some View {
+        List {
+            // Libraries section — shows each sync-enabled library with toggle + drill-in
+            if !viewModel.librarySummaries.isEmpty {
+                Section {
+                    ForEach(viewModel.librarySummaries) { library in
+                        libraryRow(for: library)
+                    }
+                } header: {
+                    EnsembleUtilitySectionHeader("Libraries")
+                } footer: {
+                    Text("Toggle to enable entire libraries for offline playback. Tap a row to see downloaded tracks.")
+                }
+            }
+
+            // Pending Changes entry — only when there are queued mutations
+            if viewModel.pendingMutationCount > 0 {
+                Section {
+                    NavigationLink {
+                        PendingMutationsView()
+                    } label: {
+                        PendingChangesRow(count: viewModel.pendingMutationCount)
+                    }
+                }
+            }
+
+            Section {
+                if viewModel.items.isEmpty {
+                    Text("No offline items selected")
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                } else {
+                    ForEach(viewModel.items) { item in
+                        if let progress = viewModel.removalInProgress[item.key] {
+                            // Show removal progress indicator instead of normal row
+                            RemovalProgressRow(progress: progress)
+                        } else {
+                            targetRow(for: item)
+                                .standardDeleteSwipeAction {
+                                    Task {
+                                        await viewModel.removeDownloadTarget(key: item.key)
+                                    }
+                                }
+                        }
+                    }
+                }
+            } header: {
+                EnsembleUtilitySectionHeader("Items")
+            } footer: {
+                Text("Playlists, albums, and artists selected for offline are listed here.")
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+        .miniPlayerBottomSpacing()
+    }
+
+    // MARK: - Library Row
+
+    @ViewBuilder
+    private func libraryRow(for library: LibraryDownloadSummary) -> some View {
+        // Hidden NavigationLink provides drill-in without rendering a second chevron.
+        // The visible row uses a ZStack overlay so the toggle stays interactive
+        // while tapping anywhere else navigates.
+        ZStack(alignment: .trailing) {
+            // Invisible NavigationLink fills the row for tap-to-navigate
+            NavigationLink {
+                LibraryDownloadDetailView(
+                    sourceCompositeKey: library.sourceCompositeKey,
+                    title: "\(library.serverName): \(library.libraryName)",
+                    nowPlayingVM: nowPlayingVM
+                )
+            } label: {
+                EmptyView()
+            }
+            .opacity(EnsembleScaffold.UtilityRow.hiddenNavigationLinkOpacity)
+
+            // Visible row content: label, toggle, then chevron on trailing edge
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                libraryRowLabel(for: library)
+                Spacer()
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { viewModel.isLibraryEnabled(sourceCompositeKey: library.sourceCompositeKey) },
+                        set: { enabled in
+                            Task {
+                                await viewModel.setLibraryEnabled(
+                                    sourceCompositeKey: library.sourceCompositeKey,
+                                    title: library.libraryName,
+                                    isEnabled: enabled
+                                )
+                            }
+                        }
+                    )
+                )
+                .labelsHidden()
+                .disabled(viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
+
+                // Manual chevron since the hidden NavigationLink won't render one
+                Image(systemName: EnsembleDesign.Icon.chevronRight)
+                    .font(EnsembleDesign.Typography.rowSecondary.weight(.semibold))
+                    .foregroundColor(EnsembleDesign.Color.secondaryText.opacity(EnsembleScaffold.UtilityRow.chevronSubtleOpacity))
+                    .frame(width: EnsembleScaffold.UtilityRow.chevronLaneWidth, alignment: .trailing)
+            }
+        }
+    }
+
+    private func libraryRowLabel(for library: LibraryDownloadSummary) -> some View {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                // Library icon
+                Image(systemName: EnsembleDesign.Icon.libraryBuilding)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
+                    .foregroundColor(EnsembleDesign.Color.accent)
+                    .frame(
+                        width: EnsembleScaffold.UtilityRow.compactArtworkDimension,
+                        height: EnsembleScaffold.UtilityRow.compactArtworkDimension
+                    )
+                    .background(EnsembleScaffold.UtilityRow.insetIconBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: EnsembleDesign.Radius.compactControl, style: .continuous))
+
+                VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
+                    Text("\(library.serverName): \(library.libraryName)")
+                        .font(EnsembleDesign.Typography.rowPrimary)
+                        .lineLimit(1)
+
+                    // Track count line
+                    Text(libraryTrackCountText(for: library))
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .lineLimit(1)
+
+                    // Size line
+                    Text(librarySizeText(for: library))
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .lineLimit(1)
+                }
+            }
+
+            // Toggle-in-progress spinner
+            if viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey) {
+                HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("Updating...")
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+            }
+
+            // Progress bar when downloading (has an active status and isn't complete)
+            if let status = library.status, status != .completed, library.downloadedTrackCount > 0 || status == .downloading || status == .pending {
+                ProgressView(value: Double(library.progress))
+                    .progressViewStyle(.linear)
+            }
+        }
+        .padding(.vertical, EnsembleScaffold.UtilityRow.halfRowVerticalPadding)
+    }
+
+    private func libraryTrackCountText(for library: LibraryDownloadSummary) -> String {
+        if library.downloadedTrackCount > 0 {
+            return "\(library.downloadedTrackCount) of \(library.totalTrackCount) tracks downloaded"
+        }
+        return "\(library.totalTrackCount) tracks"
+    }
+
+    private func librarySizeText(for library: LibraryDownloadSummary) -> String {
+        let downloadedSize = formatBytes(library.downloadedBytes)
+        let estimatedSize = formatBytes(library.estimatedTotalBytes)
+
+        if library.downloadedTrackCount > 0 {
+            return "\(downloadedSize) / ~\(estimatedSize)"
+        }
+        return "~\(estimatedSize) estimated"
+    }
+
+    // MARK: - Target Rows
+
+    @ViewBuilder
+    private func targetRow(for item: DownloadedItemSummary) -> some View {
+        if isTargetNavigable(item) {
+            NavigationLink {
+                destinationView(for: item)
+            } label: {
+                DownloadedItemRow(item: item)
+            }
+        } else {
+            DownloadedItemRow(item: item)
+        }
+    }
+
+    private func isTargetNavigable(_ item: DownloadedItemSummary) -> Bool {
+        guard item.ratingKey != nil else { return false }
+        switch item.kind {
+        case .album, .artist, .playlist:
+            return true
+        case .library, .favorites:
+            return false
+        }
+    }
+
+    @ViewBuilder
+    private func destinationView(for item: DownloadedItemSummary) -> some View {
+        DownloadTargetDetailView(summary: item, nowPlayingVM: nowPlayingVM)
+    }
+
+    private func refreshCompletedDownloadsForCurrentQuality() async {
+        guard !isRefreshingDownloadQuality else { return }
+        isRefreshingDownloadQuality = true
+
+        let refreshResult = await deps.offlineDownloadService.requeueCompletedDownloadsForCurrentQuality()
+        await viewModel.refresh()
+
+        let qualityLabel = formattedQuality(downloadQuality)
+        if refreshResult.requeuedCount > 0 {
+            let skippedSuffix: String
+            if refreshResult.skippedUnsupportedCount > 0 {
+                skippedSuffix = " \(refreshResult.skippedUnsupportedCount) track\(refreshResult.skippedUnsupportedCount == 1 ? " was" : "s were") skipped because this server only supports original-quality offline downloads."
+            } else {
+                skippedSuffix = ""
+            }
+            let requeuedTrackSuffix = refreshResult.requeuedCount == 1 ? "" : "s"
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: EnsembleDesign.Icon.refreshCycle,
+                    title: "Refreshing Downloads",
+                    message: "Re-queued \(refreshResult.requeuedCount) track\(requeuedTrackSuffix) for \(qualityLabel) quality.\(skippedSuffix)"
+                )
+            )
+        } else if refreshResult.skippedUnsupportedCount > 0 {
+            let skippedTrackSuffix = refreshResult.skippedUnsupportedCount == 1 ? "" : "s"
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: EnsembleDesign.Icon.errorOutline,
+                    title: "Original Quality Only",
+                    message: "\(refreshResult.skippedUnsupportedCount) track\(skippedTrackSuffix) skipped because this server rejects offline transcode requests."
+                )
+            )
+        } else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: EnsembleDesign.Icon.checkmarkOutline,
+                    title: "Downloads Up to Date",
+                    message: "Completed downloads already match \(qualityLabel) quality."
+                )
+            )
+        }
+
+        isRefreshingDownloadQuality = false
+    }
+
+    private func formattedQuality(_ quality: String) -> String {
+        switch quality {
+        case "high":
+            return "high (320 kbps)"
+        case "medium":
+            return "medium (192 kbps)"
+        case "low":
+            return "low (128 kbps)"
+        default:
+            return "original"
+        }
+    }
+
+    /// Whether any download target has tracks needing a quality refresh or retry
+    private var anyItemNeedsRefresh: Bool {
+        viewModel.items.contains { $0.needsRefresh }
+    }
+
+    /// Whether any items have non-completed tracks (pending/downloading/paused)
+    private var hasActiveDownloads: Bool {
+        viewModel.items.contains { $0.status != .completed }
+    }
+
+    /// Toolbar button that switches between refresh, pause, and resume states
+    @ViewBuilder
+    private var queueControlButton: some View {
+        if !viewModel.items.isEmpty {
+            if anyItemNeedsRefresh {
+                // Refresh mode — re-queue mismatched/failed tracks
+                Button {
+                    Task { await refreshCompletedDownloadsForCurrentQuality() }
+                } label: {
+                    if isRefreshingDownloadQuality {
+                        ProgressView()
+                    } else {
+                        Label("Refresh Downloads", systemImage: EnsembleDesign.Icon.refreshCycle)
+                    }
+                }
+                .disabled(isRefreshingDownloadQuality)
+            } else if viewModel.isQueueRunning {
+                // Pause mode — queue is actively downloading
+                Button {
+                    Task { await viewModel.pauseQueue() }
+                } label: {
+                    Label("Pause Downloads", systemImage: EnsembleDesign.Icon.pause)
+                }
+            } else if hasActiveDownloads {
+                // Resume mode — downloads are paused with tracks remaining
+                Button {
+                    Task { await viewModel.resumeQueue() }
+                } label: {
+                    Label("Resume Downloads", systemImage: EnsembleDesign.Icon.play)
+                }
+            }
+        }
+    }
+
+    private var loadingOverlay: some View {
+        VStack(spacing: EnsembleDesign.Spacing.md) {
+            ProgressView()
+            Text("Loading offline items...")
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+        }
+        .padding(EnsembleDesign.Spacing.xl)
+        .ensembleMaterial(.floatingControl, cornerRadius: EnsembleDesign.Radius.card)
+    }
+
+    private func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+}
+
+// MARK: - Supporting Row Views
+
+private struct DownloadedItemRow: View {
+    let item: DownloadedItemSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                // Album/artist art thumbnail (circle for artists)
+                ArtworkView(
+                    path: item.thumbPath,
+                    sourceKey: item.sourceCompositeKey,
+                    ratingKey: item.ratingKey,
+                    size: .thumbnail,
+                    cornerRadius: item.kind == .artist
+                        ? ArtworkCornerRadius.circle(for: EnsembleScaffold.UtilityRow.artworkDimension)
+                        : ArtworkCornerRadius.square(for: EnsembleScaffold.UtilityRow.artworkDimension),
+                    isResponsive: true
+                )
+                .frame(
+                    width: EnsembleScaffold.UtilityRow.artworkDimension,
+                    height: EnsembleScaffold.UtilityRow.artworkDimension
+                )
+
+                VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
+                    Text(item.title)
+                        .font(EnsembleDesign.Typography.rowPrimary)
+                        .lineLimit(1)
+                    Text(metadataText)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                // Refresh indicator when target has quality-mismatched or failed tracks
+                if item.needsRefresh {
+                    Image(systemName: EnsembleDesign.Icon.refreshCycle)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.warning)
+                }
+
+                Text(statusText)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(statusColor)
+            }
+
+            if item.totalTrackCount > 0 && item.status != .completed {
+                ProgressView(value: Double(item.progress))
+                    .progressViewStyle(.linear)
+            }
+        }
+        .padding(.vertical, EnsembleScaffold.UtilityRow.halfRowVerticalPadding)
+    }
+
+    private var metadataText: String {
+        let size = formatBytes(item.downloadedBytes)
+        if item.totalTrackCount > 0 {
+            if item.status == .completed {
+                return "\(item.completedTrackCount) \(trackLabel(for: item.completedTrackCount)) \u{2022} \(size)"
+            }
+            return "\(item.completedTrackCount) of \(item.totalTrackCount) \(trackLabel(for: item.totalTrackCount)) \u{2022} \(size)"
+        }
+        return "0 tracks \u{2022} \(size)"
+    }
+
+    private func trackLabel(for count: Int) -> String {
+        count == 1 ? "track" : "tracks"
+    }
+
+    private var statusText: String {
+        switch item.status {
+        case .pending:
+            return "Queued"
+        case .downloading:
+            return "Downloading"
+        case .completed:
+            return "Downloaded"
+        case .paused:
+            return "Paused"
+        case .failed:
+            return "Failed"
+        }
+    }
+
+    private var statusColor: Color {
+        switch item.status {
+        case .failed:
+            return EnsembleDesign.Color.destructive
+        case .downloading:
+            return EnsembleDesign.Color.accent
+        case .paused:
+            return EnsembleDesign.Color.warning
+        case .pending, .completed:
+            return EnsembleDesign.Color.secondaryText
+        }
+    }
+
+    private func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+}
+
+// PendingChangesRow is now a shared component in Components/PendingChangesRow.swift
+
+/// Shows a spinner + progress bar while a target is being removed
+private struct RemovalProgressRow: View {
+    let progress: RemovalProgress
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                ProgressView()
+                    .frame(
+                        width: EnsembleScaffold.UtilityRow.artworkDimension,
+                        height: EnsembleScaffold.UtilityRow.artworkDimension
+                    )
+
+                VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
+                    Text("Removing \(progress.targetTitle)...")
+                        .font(EnsembleDesign.Typography.rowPrimary)
+                        .lineLimit(1)
+                    Text("\(progress.completed) of \(progress.total) tracks")
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+
+                Spacer()
+            }
+
+            if progress.total > 0 {
+                ProgressView(value: Double(progress.completed), total: Double(progress.total))
+                    .progressViewStyle(.linear)
+            }
+        }
+        .padding(.vertical, EnsembleScaffold.UtilityRow.halfRowVerticalPadding)
+    }
+}

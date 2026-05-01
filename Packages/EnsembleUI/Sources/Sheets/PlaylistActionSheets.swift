@@ -1,0 +1,319 @@
+import EnsembleCore
+import SwiftUI
+
+public struct PlaylistPickerSheet: View {
+    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let tracks: [Track]
+    let title: String
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dependencies) private var deps
+    @State private var playlists: [Playlist] = []
+    @State private var isLoading = true
+    @State private var inferredServerSourceKey: String?
+    @State private var isSubmitting = false
+    @State private var searchText = ""
+
+    public init(nowPlayingVM: NowPlayingViewModel, tracks: [Track], title: String = "Add to Playlist") {
+        self.nowPlayingVM = nowPlayingVM
+        self.tracks = tracks
+        self.title = title
+    }
+
+    public var body: some View {
+        platformBody
+            .task {
+                if inferredServerSourceKey == nil {
+                    inferredServerSourceKey = await nowPlayingVM.resolveDefaultPlaylistServerSourceKey(for: tracks)
+                }
+                await loadPlaylists()
+            }
+            .overlay {
+                if isSubmitting {
+                    ZStack {
+                        EnsembleDesign.Color.modalProgressScrim
+                            .ignoresSafeArea()
+                        ProgressView("Updating playlist...")
+                            .padding(TrackListLayoutMetrics.rowInterItemSpacing)
+                            .ensembleMaterial(.sheet, cornerRadius: EnsembleDesign.Radius.control)
+                    }
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var platformBody: some View {
+        #if os(macOS)
+        macOSBody
+        #else
+        navigationBody
+        #endif
+    }
+
+    #if os(macOS)
+    private var macOSBody: some View {
+        DesktopSheetScaffold(
+            title: title,
+            minWidth: 520,
+            minHeight: 520
+        ) {
+            VStack(spacing: EnsembleDesign.Spacing.none) {
+                macOSSearchField
+                    .padding(.horizontal, EnsembleDesign.Spacing.xl)
+                    .padding(.vertical, EnsembleDesign.Spacing.md)
+
+                Divider()
+
+                playlistList
+                    .listStyle(.inset)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        } footer: {
+            Button("Close") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+        }
+    }
+
+    private var macOSSearchField: some View {
+        HStack(spacing: EnsembleDesign.Spacing.sm) {
+            Image(systemName: EnsembleDesign.Icon.search)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+
+            TextField("Find or create playlist", text: $searchText)
+                .textFieldStyle(.plain)
+        }
+        .padding(.horizontal, EnsembleDesign.Spacing.md)
+        .padding(.vertical, EnsembleDesign.Spacing.sm)
+        .background(
+            Capsule()
+                .fill(EnsembleDesign.Material.Role.sheet.fallbackBackgroundColor)
+        )
+        .overlay(
+            Capsule()
+                .stroke(EnsembleDesign.Color.divider.opacity(0.7), lineWidth: 1)
+        )
+    }
+    #endif
+
+    private var navigationBody: some View {
+        Group {
+            if #available(iOS 16.0, macOS 13.0, *) {
+                NavigationStack { listContent }
+            } else {
+                NavigationView { listContent }
+                    #if os(iOS)
+                    .navigationViewStyle(.stack)
+                    #endif
+            }
+        }
+    }
+
+    // Extracted so both NavigationStack and NavigationView share the same content
+    private var listContent: some View {
+        playlistList
+            .searchable(text: $searchText, prompt: "Find or create playlist")
+            .navigationTitle(title)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
+    }
+
+    private var playlistList: some View {
+        List {
+            Section("Playlists") {
+                if isLoading {
+                    ProgressView("Loading playlists...")
+                } else if compatibleTrackCountForSelectedServer == 0 {
+                    Text("No compatible tracks are available for playlist updates.")
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                } else if filteredPlaylists.isEmpty {
+                    Text("No playlists found.")
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                } else {
+                    ForEach(filteredPlaylists) { playlist in
+                        playlistRow(for: playlist)
+                    }
+                }
+            }
+
+            if shouldShowCreateAction {
+                Section {
+                    Button {
+                        Task { await createPlaylist(named: newPlaylistName) }
+                    } label: {
+                        Label("Add new playlist: \"\(newPlaylistName)\"", systemImage: EnsembleDesign.Icon.addCircleOutline)
+                    }
+                    .disabled(
+                        isSubmitting ||
+                        inferredServerSourceKey == nil ||
+                        compatibleTrackCountForSelectedServer == 0
+                    )
+                }
+            }
+        }
+    }
+
+    private func playlistRow(for playlist: Playlist) -> some View {
+        Button {
+            addToPlaylist(playlist)
+        } label: {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                ArtworkView(
+                    playlist: playlist,
+                    size: .tiny,
+                    cornerRadius: ArtworkCornerRadius.square(for: .tiny)
+                )
+
+                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
+                    Text(playlist.title)
+                    Text("\(playlist.trackCount) songs")
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+
+                Spacer()
+            }
+        }
+        .disabled(
+            isSubmitting ||
+            nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0
+        )
+    }
+
+    private var filteredPlaylists: [Playlist] {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return playlists }
+        let lower = trimmed.lowercased()
+        return playlists.filter { $0.title.lowercased().contains(lower) }
+    }
+
+    private var newPlaylistName: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var hasExactNameMatch: Bool {
+        let name = newPlaylistName.lowercased()
+        guard !name.isEmpty else { return false }
+        return playlists.contains { $0.title.lowercased() == name }
+    }
+
+    private var shouldShowCreateAction: Bool {
+        // Don't show the create option when offline — playlist creation requires a server round-trip
+        guard !DependencyContainer.shared.syncCoordinator.isOffline else { return false }
+        return !newPlaylistName.isEmpty && !hasExactNameMatch
+    }
+
+    private var compatibleTrackCountForSelectedServer: Int {
+        guard !tracks.isEmpty else { return 0 }
+        // If server source is still unknown, avoid false "no compatible tracks" state.
+        guard inferredServerSourceKey != nil else { return tracks.count }
+        return nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: inferredServerSourceKey)
+    }
+
+    private func loadPlaylists() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            playlists = try await nowPlayingVM.loadPlaylists(forServerSourceKey: inferredServerSourceKey)
+                .filter { !$0.isSmart }
+                .sorted { lhs, rhs in
+                    (lhs.dateModified ?? .distantPast) > (rhs.dateModified ?? .distantPast)
+                }
+        } catch {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .error,
+                    iconSystemName: "wifi.exclamationmark",
+                    title: "Unable to load playlists",
+                    message: error.localizedDescription,
+                    action: ToastAction(title: "Retry") {
+                        Task { await loadPlaylists() }
+                    },
+                    isPersistent: true,
+                    dedupeKey: "playlist-load-error"
+                )
+            )
+        }
+    }
+
+    private func addToPlaylist(_ playlist: Playlist) {
+        let compatibleTracks = nowPlayingVM.tracks(tracks, compatibleWithServerSourceKey: playlist.sourceCompositeKey)
+        guard !compatibleTracks.isEmpty else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "exclamationmark.triangle.fill",
+                    title: "Playlist update skipped",
+                    message: PlaylistMutationError.emptySelection.localizedDescription,
+                    dedupeKey: "playlist-empty-selection"
+                )
+            )
+            return
+        }
+        dismiss()
+        Task {
+            do {
+                _ = try await nowPlayingVM.addTracksOptimistically(compatibleTracks, to: playlist)
+            } catch {
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: .error,
+                        iconSystemName: "xmark.octagon.fill",
+                        title: "Could not add to playlist",
+                        message: error.localizedDescription,
+                        action: ToastAction(title: "Retry") {
+                            addToPlaylist(playlist)
+                        },
+                        isPersistent: true,
+                        dedupeKey: "playlist-add-error-\(playlist.id)"
+                    )
+                )
+            }
+        }
+    }
+
+    private func createPlaylist(named name: String) async {
+        guard let inferredServerSourceKey else { return }
+        let compatibleTracks = nowPlayingVM.tracks(tracks, compatibleWithServerSourceKey: inferredServerSourceKey)
+        guard !compatibleTracks.isEmpty else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "exclamationmark.triangle.fill",
+                    title: "Playlist creation skipped",
+                    message: PlaylistMutationError.emptySelection.localizedDescription,
+                    dedupeKey: "playlist-create-empty-selection"
+                )
+            )
+            return
+        }
+        guard !isSubmitting, !nowPlayingVM.isPlaylistMutationInProgress else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        do {
+            _ = try await nowPlayingVM.createPlaylist(
+                title: name,
+                tracks: compatibleTracks,
+                serverSourceKey: inferredServerSourceKey
+            )
+            dismiss()
+        } catch {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .error,
+                    iconSystemName: "xmark.octagon.fill",
+                    title: "Could not create playlist",
+                    message: error.localizedDescription,
+                    action: ToastAction(title: "Retry") {
+                        Task { await createPlaylist(named: name) }
+                    },
+                    isPersistent: true,
+                    dedupeKey: "playlist-create-error-\(name.lowercased())"
+                )
+            )
+        }
+    }
+}

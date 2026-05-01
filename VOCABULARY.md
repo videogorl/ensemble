@@ -194,6 +194,26 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 
 ---
 
+## Browse Toolbar
+
+- **View name:** `EnsembleBrowseToolbar`
+- **Canonical name:** Browse Toolbar
+- **Area:** Shared
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Browse toolbar group | region | Shared sort/filter/overflow toolbar action host for browse screens | `EnsembleBrowseToolbar` |
+| Filter button | control | Standard browse filter button with active-filter badge | `EnsembleBrowseFilterButton` |
+| Filter presentation | presentation | Adaptive filter host that chooses compact sheets or large-screen toolbar popovers | `ensembleFilterPresentation`, `EnsembleScaffold.FilterPresentation` |
+| Active filter badge | indicator | Small red dot shown when a browse filter has active constraints | `hasActiveFilters` |
+| Sort menu | menu | Per-screen sort menu hosted inside the shared toolbar group | `Sort By` |
+
+---
+
 ## SearchView
 
 - **View name:** `SearchView`
@@ -325,6 +345,9 @@ Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterize
 | Collapsing toolbar title | control | Title appears in toolbar when header scrolls out of view | `CollapsingToolbarTitleModifier`, `showToolbarTitle` |
 | Sticky action buttons | region | Play/Shuffle/Radio buttons that pin when scrolled past | `stickyActionButtons`, `LazyVStack(pinnedViews:)` |
 | Action buttons | region | Play, Shuffle, and optional Radio buttons | `actionButtons` |
+| Detail action label | component | Shared filled/secondary Play and Shuffle button label treatment | `MediaDetailSurface.ActionLabel` |
+| Detail symbol artwork | component | Shared virtual-collection artwork surface for Favorites, moods, and similar non-album headers | `MediaDetailSurface.SymbolArtwork` |
+| Detail surface policy | policy | Semantic metrics for media-style detail headers, artwork shadows, action labels, and list cards | `EnsembleScaffold.DetailSurface` |
 | Track list | list | Ordered track list (UIKit-backed on iOS for swipe actions) | `tracksSection`, `MediaTrackList` |
 | Background gradient | region | Blurred artwork background fading to content | `backgroundGradient`, `BlurredArtworkBackground` |
 | Pin menu | menu | Toolbar overflow with pin/unpin, download, playlist actions | `pinMenuButton` |
@@ -367,7 +390,9 @@ Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterize
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
 | Background gradient | region | Blurred artwork background fading to content | `backgroundGradient`, `BlurredArtworkBackground` |
+| Adaptive artist header | region | Header that uses compact hero layout on narrow screens and a wide two-column layout when space allows | `artistHeader`, `wideArtistHeader`, `compactArtistHeader` |
 | Hero banner | region | Full-width artist photo with overlay info | `heroBanner` |
+| Wide artist artwork | image | Circular artist artwork in the wide two-column header | `ArtworkView(artist:)`, `Circle` |
 | Artist name | text | Large artist name heading | `viewModel.artist.name` |
 | Statistics line | text | Album and song counts | `"X albums - Y songs"` |
 | Play button | action | Play all artist tracks in order | `Play`, `play.fill` |
@@ -476,7 +501,7 @@ Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterize
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Favorites header | region | Top area with heart icon, title, statistics | header |
+| Favorites header | region | Adaptive top area with symbol artwork, title, statistics, and actions | `favoritesHeaderSurface`, `MediaDetailSurface.Header` |
 | Heart icon | artwork | Large red heart symbol | `heart.fill` |
 | Track count and duration | text | Number of favorites and total duration | `filteredTracks.count`, `totalDuration` |
 | Play button | action | Play all favorites in order | `Play`, `play.fill` |
@@ -877,9 +902,29 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
 | Selection pane | list | Left-side browse list for choosing an artist, playlist, or genre | `listContent` |
+| Resize handle | control | Draggable divider that resizes the selection pane while preserving usable detail width | `resizeHandle` |
 | Detail pane | region | Right-side surface showing the selected item's detail or tracks | `detailContent` |
 | Placeholder pane | region | Empty detail state prompting the user to select an item | `LargeScreenPlaceholderView` |
 | Compact fallback | state | Existing iPhone push-navigation layout used when split view is not active | `compactContent` |
+| Browse split configuration | policy | Semantic pane width, breakpoint, and resize-handle preset for a browse split | `EnsembleScaffold.BrowseSplit.Configuration`, `.rootBrowse` |
+
+---
+
+## EnsembleStateScaffold
+
+- **View name:** `EnsembleStateScaffold`
+- **Canonical name:** Shared state scaffold
+- **Area:** Shared (Components)
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| State kind | state | Semantic empty, loading, or error mode | `EnsembleStateScaffold.Kind` |
+| State presentation | policy | Full-screen state layout or compact track-list/footer layout | `EnsembleStateScaffold.Presentation`, `.fullScreen`, `.compactFooter` |
+| State action | control | Optional retry, add, or recovery action shown under the state message | `action` |
 
 ---
 
@@ -956,6 +1001,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Window content | region | Embedded Profile, Downloads, or similar auxiliary content centered in a single-column macOS window | `content` |
 | Maximum width | state | Width cap that keeps Profile/Downloads aligned with their iOS single-column layouts | `maxWidth` |
 | Minimum height | state | Window height floor applied by the scaffold | `minHeight` |
+| Window configuration | policy | Shared min/ideal/max scene sizing and content-width presets for Profile, Downloads, and similar utility windows | `EnsembleScaffold.AuxiliaryWindow.Configuration` |
 
 ---
 

@@ -1,0 +1,65 @@
+import EnsembleCore
+import SwiftUI
+
+struct PlaylistDetailLoader: View {
+    let playlistId: String
+    let playlistSourceKey: String?
+    let nowPlayingVM: NowPlayingViewModel
+    @State private var playlist: Playlist?
+    @State private var isLoading = true
+    @State private var error: Error?
+    @State private var hasStartedLoading = false
+    @State private var loadTask: Task<Void, Never>?
+    
+    @Environment(\.dependencies) private var deps
+
+    init(playlistId: String, playlistSourceKey: String? = nil, nowPlayingVM: NowPlayingViewModel) {
+        self.playlistId = playlistId
+        self.playlistSourceKey = playlistSourceKey
+        self.nowPlayingVM = nowPlayingVM
+    }
+    
+    var body: some View {
+        Group {
+            if let playlist = playlist {
+                PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
+            } else if isLoading {
+                EnsembleStateScaffold(kind: .loading, title: "Loading playlist…")
+            } else if let error = error {
+                EnsembleStateScaffold(
+                    kind: .error,
+                    title: "Failed to load playlist",
+                    message: error.localizedDescription
+                )
+            } else {
+                EnsembleStateScaffold(kind: .empty, title: "Playlist not found")
+            }
+        }
+        .onAppear {
+            guard !hasStartedLoading else { return }
+            hasStartedLoading = true
+            loadTask = Task {
+                await loadPlaylist()
+            }
+        }
+        .onDisappear {
+            loadTask?.cancel()
+        }
+    }
+    
+    @MainActor
+    private func loadPlaylist() async {
+        do {
+            if let cdPlaylist = try await deps.playlistRepository.fetchPlaylist(
+                ratingKey: playlistId,
+                sourceCompositeKey: playlistSourceKey
+            ) {
+                self.playlist = Playlist(from: cdPlaylist)
+            }
+            self.isLoading = false
+        } catch {
+            self.error = error
+            self.isLoading = false
+        }
+    }
+}

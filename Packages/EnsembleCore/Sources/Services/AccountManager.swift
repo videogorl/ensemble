@@ -160,7 +160,9 @@ public final class AccountManager: ObservableObject {
         let entries = flags.keys.sorted().map { key in
             LibraryFlagEntry(key: key, isEnabled: flags[key] ?? false)
         }
-        return try? JSONEncoder().encode(entries)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try? encoder.encode(entries)
     }
 
     /// Apply synced library flags from iCloud KVS.

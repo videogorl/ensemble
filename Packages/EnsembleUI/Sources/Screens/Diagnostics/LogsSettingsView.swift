@@ -1,0 +1,120 @@
+import EnsembleCore
+import SwiftUI
+
+/// Settings sub-view for managing persistent session logs.
+/// Shows a toggle to enable/disable logging, a list of saved session files
+/// with swipe-to-delete, and navigation to view individual log contents.
+public struct LogsSettingsView: View {
+    @ObservedObject private var logService = DependencyContainer.shared.persistentLogService
+    @State private var isLoggingEnabled: Bool = UserDefaults.standard.bool(forKey: "persistentLoggingEnabled")
+
+    public init() {}
+
+    public var body: some View {
+        List {
+            // Toggle section
+            Section {
+                Toggle(isOn: $isLoggingEnabled) {
+                    HStack {
+                        Image(systemName: EnsembleDesign.Icon.logsVerified)
+                            .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
+                        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxs) {
+                            Text("Persistent Logging")
+                            Text("When enabled, app logs are saved each session. Useful for diagnosing issues.")
+                                .font(EnsembleDesign.Typography.rowSecondary)
+                                .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        }
+                    }
+                }
+                .onChange(of: isLoggingEnabled) { newValue in
+                    logService.isEnabled = newValue
+                }
+            }
+
+            // Sessions list
+            Section {
+                if logService.sessions.isEmpty {
+                    Text("No log sessions yet.")
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .font(EnsembleDesign.Typography.stateMessage)
+                } else {
+                    ForEach(logService.sessions) { session in
+                        NavigationLink {
+                            LogDetailView(session: session)
+                        } label: {
+                            LogSessionRow(session: session)
+                        }
+                    }
+                    .onDelete { indexSet in
+                        for index in indexSet {
+                            guard logService.sessions.indices.contains(index) else { continue }
+                            logService.deleteSession(logService.sessions[index])
+                        }
+                    }
+                }
+            } header: {
+                EnsembleUtilitySectionHeader("Sessions")
+            }
+
+            // Delete All button (only when sessions exist)
+            if !logService.sessions.isEmpty {
+                Section {
+                    Button(role: .destructive) {
+                        logService.deleteAllSessions()
+                    } label: {
+                        HStack {
+                            Image(systemName: EnsembleDesign.Icon.delete)
+                                .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
+                            Text("Delete All Sessions")
+                                .foregroundColor(EnsembleDesign.Color.destructive)
+                        }
+                    }
+                }
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+        .navigationTitle("Logs")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .onAppear {
+            logService.loadSessions()
+        }
+    }
+}
+
+// MARK: - Session Row
+
+/// A single row displaying a log session's date and file size.
+private struct LogSessionRow: View {
+    let session: LogSession
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
+            Text(formattedDate)
+                .font(EnsembleDesign.Typography.rowPrimary)
+            Text(formattedSize)
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+        }
+        .padding(.vertical, EnsembleDesign.Spacing.xxs)
+    }
+
+    private var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: session.date)
+    }
+
+    private var formattedSize: String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: session.fileSize)
+    }
+}

@@ -36,7 +36,7 @@ These are core design decisions that must be maintained throughout the app.
 - **Detail gutter:** Treat the 40pt horizontal gutter used by Now Playing and queue surfaces as the app's premium detail inset. Reuse `TrackListLayoutMetrics.detailHorizontalPadding` and `utilityListRowInsets()` for downloads/settings/manual utility rows instead of hardcoding fresh edge values.
 - **MediaTrackList padding:** Do not wrap `MediaTrackList` in an extra outer horizontal padding layer for normal full-width track lists; the rows already own their horizontal inset through `TrackListLayoutMetrics`
 - **Detail action strips:** Reuse `TrackListLayoutMetrics.rowInterItemSpacing` and `rowHorizontalPadding` for repeated Play/Shuffle-style button rows and lightweight status banners in media/detail screens
-- **Shared row actions:** Use `TrackRowInteractionModel` to resolve per-track context-menu availability, recent-playlist gating, and favorite state for both `TrackRow` and `MediaTrackList` paths instead of duplicating that logic per framework
+- **Shared row actions:** Use `TrackRowInteractionModel` to resolve per-track context-menu availability, recent-playlist gating, and favorite state for both `TrackRow` and native table paths. UIKit table menus should be built through `NativeMediaTableActionBuilder`; keep swipe gestures owned by `TrackSwipeContainer`/`MediaTrackList` so card and shelf interfaces do not inherit row gestures.
 
 ### Keyboard-Heavy Editors (iPhone)
 - Default to a normal `.sheet` for short rename/create/filter flows on iPhone, including profile-name, playlist creation, album/favorites/artists/songs filters, and the validated playlist rename flows.
@@ -98,11 +98,22 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - iPadOS and macOS always use their standard list/grid layouts for Songs, Albums, and Playlists.
 - iOS orientation is portrait-locked by default and only unlocks landscape while a CoverFlow-capable root view is active.
 - StageFlow rotation support is registered with a per-view token and the app delays the final unregister briefly, so SwiftUI view recreation during rotation does not snap the app back to portrait.
+- Large mini-player layouts with waveform should expose Previous, Play/Pause, Next, and a row-style ellipsis menu. Compact mini-player layouts keep the simpler Play/Pause + Next controls. On iPadOS, use a plain popover anchored to the ellipsis so the mini-player remains visible behind the menu. On macOS, host the menu with an AppKit `NSButton`/`NSMenu` so the control does not show a pull-down chevron.
 
 ### Large-Screen Browse Surfaces
-- Artists, Playlists, and Genres use `LargeScreenBrowseSplitView` only on macOS and regular-width iPad layouts. Compact iPhone keeps the existing push-navigation list.
-- The split shell owns the left selection list and right detail pane. Keep selection rows visually dense and use `LargeScreenPlaceholderView` for empty right-pane states such as "Select an Artist".
+- Artists, Playlists, and Genres keep the app's root `NavigationSplitView` as a stable two-column sidebar/detail shell on iPadOS/macOS. Their browse list + selected detail split lives inside the detail host so switching sections does not recreate the app sidebar or reset its scroll state.
+- Compact iPhone and unsupported OS fallbacks keep the existing push/list root behavior by rendering each browse screen in compact mode.
+- Store selected artist/playlist/genre state in `SidebarView`, outside the section-owned split subtree, so selection survives detail host rebuilds, compact collapse/expand, and detail pushes.
+- Keep selection rows visually dense and use `LargeScreenPlaceholderView` for empty right-pane states such as "Select an Artist".
+- Do not clip the selected detail pane inside large-screen browse splits. Artwork-backed detail screens rely on top safe-area bleed plus transparent toolbar chrome so the media wash continues behind search and toolbar controls on iPadOS/macOS.
+- On macOS, SwiftUI toolbar actions that need to sit to the right of a search field should use `EnsembleToolbarLeadingSpacer` before the action group. Do this as a toolbar-level alignment spacer, not as column-width math or screen-level toolbar delegate proxying.
+- Browse screens should use `EnsembleBrowseToolbar` for sort/filter/overflow action groups so iOS trailing placement and macOS search-spacer placement stay consistent. Use `EnsembleBrowseFilterButton` for active-filter badges instead of rebuilding the badge per screen.
+- Notes/Mail-style toolbar sections require a real window-toolbar owner with `NSTrackingSeparatorToolbarItem`. Do not proxy SwiftUI's private toolbar delegate from a screen-level view; that can collapse or drop existing SwiftUI toolbar items. If toolbar tracking is needed, introduce a dedicated macOS toolbar coordinator at the window/root split level.
+- Artist detail keeps the full-width square hero on compact/collapsed layouts across platforms, then switches at wide widths to a media-detail-style header with circular artist artwork on the left and metadata/actions on the right.
 - Songs uses `SongsTrackListHost` on large screens, with adaptive artist/album metadata columns when width allows. iPad hosts rows in `MediaTrackList`/`UITableView`; macOS hosts rows in the AppKit `NSTableView` backend. Keep row actions resolved through `TrackRowInteractionModel` so UIKit/AppKit behavior stays aligned. Do not use `TrackSwipeContainer` or reintroduce a column-customization table for Songs unless explicitly requested.
+- Native track-list surfaces should pass display and state through `NativeTrackListConfiguration` / `NativeTrackListSection` when they need the shared host. Keep direct `MediaTrackList` use for compact iPhone or self-scrolling table-header cases where the UIKit table owns the header/footer.
+- Native track-list metadata columns must be fixed-width and right-pinned with equality constraints; only the title region should flex/truncate. Keep duration and status/download lanes fixed-width too. Do not chain artist/album/duration with `lessThanOrEqual` constraints, or mixed title/artist/album lengths, duration strings, or download state will shift columns per row.
+- Search song results and virtual collection/detail track lists such as Favorites, Mood, and Artist Favorited Tracks should use the same native track-list backends (`MediaTrackList` on iOS/iPadOS and `SongsTrackListHost`/AppKit table host on macOS) instead of `TrackListView` or hand-built compact track rows, so wide metadata columns, context menus, and native row actions stay aligned.
 - Do not replace compact `TrackRow` lists with table rows on iPhone. Compact Songs must keep genre chips, row swipe actions, and existing mini-player spacing.
 - Refreshable root screens should also attach `.refreshCommand { ... }` so macOS View > Refresh invokes the focused screen's same async refresh action.
 
@@ -137,6 +148,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - **iPhone:** `ProfileToolbarButton` (28×28pt circular profile image) is owned by `MainTabView` and shown only on root tab destinations: the visible tab-bar tabs plus the root `More` view. Do not add it per-screen, or it will leak into pushed `More` destinations and can disappear on iOS 15 when trailing toolbar items compete.
 - **iPad/macOS:** `ProfileToolbarButton` placed in sidebar toolbar, replacing the previous gear icon
 - Tapping opens `ProfileView` via `AuxiliaryPresentation.profile` (formerly `.settings`)
+- App-level Settings commands route through `NavigationCoordinator.openProfileFromActiveScene(fallback:)`; `RootView` registers its window-scoped coordinator as the active auxiliary command coordinator on appear/scene activation so `⌘,` opens Profile in the active scene instead of the legacy shared coordinator.
 - The button displays the user's profile image if set, otherwise falls back to a person icon
 
 ### System Integration
@@ -166,16 +178,49 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 ## Visual Design
 
+### Design Tokens And Adaptive Patterns
+- Use `EnsembleDesign` for semantic UI values instead of introducing new raw literals for repeatable roles.
+- Token groups cover spacing, radius, typography, color, icons, breakpoints, effects, and semantic material roles.
+- Keep specialized existing helpers where they encode behavior, such as `TrackListLayoutMetrics` for track rows and `ArtworkCornerRadius` for media artwork. These bridge into `EnsembleDesign` instead of being replaced by unrelated literals.
+- Use `EnsembleScaffold` for larger adaptive patterns, such as OS-aware filter presentation and shared empty/loading/error states.
+- Filter presenters should use `.ensembleFilterPresentation(...)` instead of raw `.sheet` when presenting `FilterSheet`, so compact iPhone stays sheet-based while regular-width modern iPadOS and macOS can use toolbar popovers.
+- Large-screen browse splits should use `LargeScreenBrowseSplitView` with `EnsembleScaffold.BrowseSplit.Configuration` presets instead of repeating raw pane width, breakpoint, and resize-handle values per screen.
+- Media-style detail screens should keep header/list/action/shadow metrics under `EnsembleScaffold.DetailSurface` and render through `MediaDetailSurface` helpers rather than inventing parallel detail surface constants.
+- Artist detail's custom square/circular adaptive header should keep its specialized thresholds, hero dimensions, section rhythm, and overlay strengths under `EnsembleScaffold.ArtistDetail`.
+- macOS Profile/Downloads-style utility windows should use `MacAuxiliaryWindowScaffold` plus `EnsembleScaffold.AuxiliaryWindow.Configuration` presets so scene sizing and in-window content width stay in sync.
+- Loading, empty, and error states should use `EnsembleStateScaffold`. Use the default full-screen presentation for standalone states and `.compactFooter` for track-list/table-footer states.
+- Library browse empty states that branch on cloud restore, missing sources, syncing, disabled libraries, or true empty content should use `EnsembleLibraryEmptyStateScaffold` instead of rebuilding that decision tree per screen.
+- Filled actions inside empty/loading/error states should use `EnsembleStateActionLabel`; account setup/authentication surfaces should use `EnsembleScaffold.AccountSetup` for PIN, card, row, and sheet sizing.
+- Profile, downloads, account detail, and lightweight settings rows should use `EnsembleUtilitySectionHeader`, `EnsembleUtilityIcon`, `EnsembleUtilityTextStack`, `EnsembleUtilityRowLabel`, and `EnsembleScaffold.UtilityRow` for section headers, icon lanes, thumbnail dimensions, nested status indentation, and compact text/status spacing.
+- Shared browse toolbar groups live in `EnsembleBrowseToolbar`; keep screen-owned actions as small button/menu helpers and let the scaffold own platform placement and spacing.
+- Standalone macOS detail toolbar actions that need trailing alignment should use `EnsembleDetailToolbarLeadingSpacer`; ordinary root/action toolbars should use `EnsembleToolbarLeadingSpacer`; large-screen browse detail panes are marked by `LargeScreenBrowseSplitView` so detail spacers are suppressed in dual-pane mode.
+- Indexed browse section headers should use `EnsembleBrowseSectionHeader`, and large-screen browse selection rows should use `EnsembleScaffold.BrowseSelection` / `browseSelectionBackground(isSelected:)`.
+- Content shelves and tappable section headers should use `EnsembleContentSectionHeader` so title weight, color, and disclosure icons stay aligned across Feed, Search, and library sections.
+- Shared media menu and swipe labels should use `MediaActionLabel` so icons, ellipses, and verb choices stay consistent across rows, cards, shelves, and detail surfaces.
+- SF Symbols should be referenced through `EnsembleDesign.Icon` for app/navigation/action intent. Keep account/profile person symbols separate from artist/music symbols; artist-facing UI uses `EnsembleDesign.Icon.artist`/`artists`.
+- Reusable utility metrics should live under the matching `EnsembleScaffold` family (`Sidebar`, `ScrollIndex`, `BrowseSplit`, `TrackSwipe`, `Waveform`, `Marquee`, `LogViewer`, `Toast`, etc.) instead of local raw sizes.
+- StageFlow geometry, animation, mask, and transform constants are intentionally local unless a future pass explicitly retunes StageFlow as a whole; do not silently normalize those values during broad token sweeps.
+- The 2026 design-token sweep re-checked StageFlow and Now Playing literals: Now Playing's remaining strict spacing hits are structural zero-spacings, while StageFlow's remaining nonzero values are panel, footer, reflection, and dismissal-control tuning. Treat a future StageFlow namespace as a dedicated visual retune, not as part of routine utility/card token cleanup.
+- Shared card/chip geometry should use `EnsembleScaffold.MediaCard` and `EnsembleScaffold.Chip`; hub cards, playlist chips, merged-source chips, and download status chips should avoid local padding/font/radius literals unless the component has a documented one-off layout reason.
+- Liquid Glass and fallback material stacks should go through `EnsembleDesign.Material.Role` or a documented local composition when the surface is too specialized, such as artwork-reactive mini-player backgrounds.
+- UIKit/AppKit chrome fallbacks, auxiliary window backgrounds, and specialized compositions should still pull blur style, fallback material, background color, stroke, and shadow values from `EnsembleDesign.Material.Role` so the semantic material policy stays centralized.
+- Mini-player and mini-player-adjacent popovers should use the `EnsembleScaffold.MiniPlayer` material role and corner-radius tokens. Keep separate semantic roles for mini-player and popover, but keep their fallback glass values aligned unless a deliberate material retune is requested.
+- iOS 15 navigation/tab/toolbar chrome fallback opacity should come from the matching material role, such as `EnsembleDesign.Material.Role.sidebar.chromeBackgroundAlpha(auroraEnabled:)`, instead of local alpha literals.
+- During broad literal sweeps, ask before normalizing ambiguous values that could change visual rhythm, iPad/macOS breakpoints, prominent material opacity, or established icon intent.
+- Use `scripts/design_token_audit.sh` as a non-blocking inventory before and after broad sweeps; it reports literal counts and the largest screen/component hotspots.
+
 ### Artwork Display
 - **Hub items:** 140x140pt artwork
 - **Corner radius:** Albums/playlists use 8pt; artists use 70pt (circular)
-- **Shadows:** `Color.black.opacity(0.15)` with radius 6 for card depth
+- **Shadows:** use `EnsembleDesign.Effect` / component bridge tokens for shared card/detail depth; StageFlow keeps its own tuned 3D shadows.
 - **Blurred backgrounds:** NowPlayingView and detail views use `BlurredArtworkBackground`
 - **Shared detail artwork wash:** `MediaDetailView` and `DownloadTargetDetailView` must use `ArtworkDetailBackground` for the blurred header image so dark/light overlay behavior stays identical across detail screens
 - **Shared detail shell:** Media-style detail screens should build their hero artwork, metadata block, action row, and list-card styling on `MediaDetailSurface` so `MediaDetailView` and `DownloadTargetDetailView` do not drift on spacing, wide-layout behavior, or light/dark presentation
+- **Shared virtual detail headers:** Favorites, mood, smart playlist, and other virtual collections that do not have album artwork should use `MediaDetailSurface.Header` with `MediaDetailSurface.SymbolArtwork` so compact and large-screen headers inherit the same fluid resizing behavior as media detail screens.
+- **Shared detail actions:** Detail Play/Shuffle-style button labels should use `MediaDetailSurface.ActionLabel`, repeated compact Play/Shuffle action strips should use `MediaDetailSurface.ActionRow`/`PlaybackActionRow`, wide metadata-column headers should use `AdaptivePlaybackActionRow`, nested compact sections should use `CompactPlaybackActionRow`, and icon-only actions such as Radio should use `IconActionLabel` so filled/accent, secondary action, spacing, disabled state, and chromeless button treatment stay aligned across media detail variants.
 
 ### Typography & Spacing
-- **System fonts:** SF Pro with semantic styles (.headline, .subheadline, etc.)
+- **System fonts:** SF Pro through `EnsembleDesign.Typography` for repeatable roles; only keep local font styles when the component has a documented rendering reason.
 - **Line limits:** `.lineLimit(1)` or `MarqueeText` for auto-scrolling long titles
 - **Information density:** Dense layouts without clutter
 
@@ -196,7 +241,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 Async loading wrappers for smooth hub-to-detail navigation:
 
-Three loaders in `EnsembleUI/Sources/Components/`:
+Three loaders in `EnsembleUI/Sources/Screens/Details/`:
 - `AlbumDetailLoader` -- Loads full album data by ratingKey
 - `ArtistDetailLoader` -- Loads full artist data by ratingKey
 - `PlaylistDetailLoader` -- Loads full playlist data by ratingKey
