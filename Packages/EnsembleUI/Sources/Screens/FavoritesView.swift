@@ -273,52 +273,24 @@ public struct FavoritesView: View {
         .miniPlayerBottomSpacing()
         .background(trackListSupplementalMetadataWidthReader)
         #else
-        // macOS: List with header section + track rows with native swipe actions
-        List {
-            // Header section: heart icon, stats, action buttons
-            Section {
+        // macOS: header plus AppKit-backed table so row layout/actions match Songs, Search, and Mood.
+        ScrollView {
+            VStack(spacing: EnsembleDesign.Spacing.none) {
                 favoritesHeaderSurface
-            }
-            .hideListRowSeparator()
-            .listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
 
-            // Track rows with swipe actions
-            ForEach(Array(viewModel.filteredTracks.enumerated()), id: \.element.id) { index, track in
-                let resolvedActions = interactionModel.resolve(for: track)
-                TrackRow(
-                    track: track,
-                    showArtwork: true,
-                    isPlaying: track.id == currentTrackId,
-                    onPlayNext: resolvedActions.onPlayNext,
-                    onPlayLast: resolvedActions.onPlayLast,
-                    onAddToPlaylist: resolvedActions.onAddToPlaylist,
-                    onAddToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
-                    onToggleFavorite: resolvedActions.onToggleFavorite,
-                    onGoToAlbum: resolvedActions.onGoToAlbum,
-                    onGoToArtist: resolvedActions.onGoToArtist,
-                    onShareLink: resolvedActions.onShareLink,
-                    onShareFile: resolvedActions.onShareFile,
-                    isFavorited: resolvedActions.isFavorited,
-                    recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
-                    supplementalMetadataWidth: trackListSupplementalMetadataWidth
-                ) {
+                SongsTrackListHost(
+                    tracks: viewModel.filteredTracks,
+                    currentTrackId: currentTrackId,
+                    availabilityGeneration: availabilityGeneration,
+                    activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+                    interactionModel: interactionModel
+                ) { _, index in
                     nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
                 }
-                .trackSwipeActions(
-                    track: track,
-                    nowPlayingVM: nowPlayingVM,
-                    onPlayNext: resolvedActions.onPlayNext,
-                    onPlayLast: resolvedActions.onPlayLast,
-                    onAddToPlaylist: resolvedActions.onAddToPlaylist
-                )
-                .listRowBackground(Color.clear)
-                .hideListRowSeparator()
-                .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
+                .frame(height: CGFloat(viewModel.filteredTracks.count) * TrackListLayoutMetrics.defaultRowHeight)
             }
         }
-        .listStyle(.plain)
-        .modifier(ClearScrollContentBackgroundModifier())
         .miniPlayerBottomSpacing()
         .background(trackListSupplementalMetadataWidthReader)
         #endif
