@@ -583,6 +583,15 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 } else {
                     tracksSection
                 }
+
+                if let additionalFooterContent {
+                    Section {
+                        additionalFooterContent
+                    }
+                    .hideListRowSeparator()
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
             }
             .listStyle(.plain)
             .modifier(ClearScrollContentBackgroundModifier())
@@ -650,7 +659,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             if let artistId = headerData.artistRatingKey {
                 Button {
                     navigationCoordinator.push(
-                        .artist(id: artistId),
+                        .artist(id: artistId, sourceKey: headerData.sourceKey),
                         in: navigationCoordinator.selectedTab
                     )
                 } label: {

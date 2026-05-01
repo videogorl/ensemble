@@ -23,8 +23,14 @@ public struct MacAuxiliaryWindowScaffold<Content: View>: View {
             content
                 .frame(maxWidth: configuration.maxWidth, maxHeight: .infinity, alignment: .top)
         }
-        .frame(width: configuration.idealWidth)
-        .frame(minHeight: configuration.minHeight)
+        .frame(
+            minWidth: configuration.minWidth,
+            idealWidth: configuration.idealWidth,
+            maxWidth: configuration.maxWidth,
+            minHeight: configuration.minHeight,
+            idealHeight: configuration.idealHeight,
+            alignment: .top
+        )
     }
 
     private var windowBackground: Color {

@@ -469,6 +469,8 @@ public enum EnsembleScaffold {
         public static let viewportSinglePanelMaxWidth: CGFloat = 560
         public static let viewportDualPanelMinimumWidth: CGFloat = 920
         public static let viewportDualPanelMinimumHeight: CGFloat = 620
+        public static let viewportMacMinimumWindowWidth: CGFloat = 760
+        public static let viewportMacMinimumWindowHeight: CGFloat = 560
         public static let viewportSinglePickerWidth: CGFloat = 390
         public static let viewportPickerWidth: CGFloat = 300
         public static let viewportMinimumPanelWidth: CGFloat = 320
@@ -547,7 +549,7 @@ public enum EnsembleScaffold {
         public static let letterWidth = EnsembleDesign.Spacing.xl
         public static let letterFont: Font = .system(size: 10, weight: .bold)
         public static let bottomLift: CGFloat = 6
-        public static let compactTrailingPadding: CGFloat = -2
+        public static let compactTrailingPadding = EnsembleDesign.Spacing.xxs
         public static let regularTrailingPadding = EnsembleDesign.Spacing.xxs
         public static let regularBottomPadding = EnsembleDesign.Spacing.lg
     }

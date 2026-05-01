@@ -1068,19 +1068,13 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         guard !userProfileStore.profile.isEmpty else {
-            guard !shouldKeepFirstConnectPending else {
-                syncSettingsManager.setProfileStatus(
-                    phase: .unknown,
-                    direction: nil,
-                    detail: "Waiting for iCloud profile during first-device sync."
-                )
-                return
-            }
-
+            let status = Self.missingProfileStatusForEmptyLocalProfile(
+                shouldKeepFirstConnectPending: shouldKeepFirstConnectPending
+            )
             syncSettingsManager.setProfileStatus(
-                phase: .noRecord,
-                direction: nil,
-                detail: "No profile found in iCloud yet."
+                phase: status.phase,
+                direction: status.direction,
+                detail: status.detail
             )
             return
         }
@@ -1550,6 +1544,24 @@ public final class DependencyContainer: @unchecked Sendable {
         default:
             return false
         }
+    }
+
+    static func missingProfileStatusForEmptyLocalProfile(
+        shouldKeepFirstConnectPending: Bool
+    ) -> SyncSettingsManager.ProfileSyncStatus {
+        if shouldKeepFirstConnectPending {
+            return SyncSettingsManager.ProfileSyncStatus(
+                phase: .unknown,
+                direction: nil,
+                detail: "Waiting for iCloud profile during first-device sync."
+            )
+        }
+
+        return SyncSettingsManager.ProfileSyncStatus(
+            phase: .unknown,
+            direction: nil,
+            detail: "No iCloud profile has been created yet."
+        )
     }
 
     static func shouldRetryFirstConnectForSources(

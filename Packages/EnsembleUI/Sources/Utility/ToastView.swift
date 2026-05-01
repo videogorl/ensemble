@@ -32,10 +32,10 @@ public struct ToastHostView: View {
                 )
                     .padding(.horizontal, horizontalPadding)
                     .padding(.bottom, bottomPadding)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(.opacity)
             }
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.9), value: toastCenter.currentToast?.id)
+        .animation(.easeInOut(duration: 0.18), value: toastCenter.currentToast?.id)
     }
 }
 

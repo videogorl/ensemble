@@ -665,13 +665,22 @@ public struct AlbumDetailView: View {
             HStack(spacing: EnsembleDesign.Spacing.lg) {
                 ForEach(albums) { scrollAlbum in
                     if #available(iOS 16.0, macOS 13.0, *) {
-                        NavigationLink(value: NavigationCoordinator.Destination.album(id: scrollAlbum.id)) {
+                        NavigationLink(
+                            value: NavigationCoordinator.Destination.album(
+                                id: scrollAlbum.id,
+                                sourceKey: scrollAlbum.sourceCompositeKey
+                            )
+                        ) {
                             AlbumCard(album: scrollAlbum, layout: .shelf)
                         }
                         .buttonStyle(.plain)
                     } else {
                         NavigationLink {
-                            AlbumDetailView(album: scrollAlbum, nowPlayingVM: nowPlayingVM)
+                            AlbumDetailLoader(
+                                albumId: scrollAlbum.id,
+                                albumSourceKey: scrollAlbum.sourceCompositeKey,
+                                nowPlayingVM: nowPlayingVM
+                            )
                         } label: {
                             AlbumCard(album: scrollAlbum, layout: .shelf)
                         }

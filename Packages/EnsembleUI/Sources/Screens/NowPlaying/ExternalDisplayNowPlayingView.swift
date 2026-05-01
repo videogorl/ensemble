@@ -51,7 +51,7 @@ public struct ExternalDisplayNowPlayingView: View {
 
             ZStack {
                 // Background fills the entire TV screen (edge-to-edge blur)
-                backgroundView
+                backgroundView(activeContentMaxWidth: container.width)
 
                 // Content constrained to 4:3, laid out at iPad reference size
                 // then scaled up proportionally via scaleEffect.
@@ -148,7 +148,7 @@ public struct ExternalDisplayNowPlayingView: View {
 
     // MARK: - Background
 
-    private var backgroundView: some View {
+    private func backgroundView(activeContentMaxWidth: CGFloat) -> some View {
         ZStack {
             BlurredArtworkBackground(
                 image: viewModel.artworkImage,
@@ -166,7 +166,8 @@ public struct ExternalDisplayNowPlayingView: View {
                     playbackService: DependencyContainer.shared.playbackService,
                     consumer: .externalDisplay,
                     accentColor: settingsManager.accentColor.color,
-                    isLowPowerMode: powerStateMonitor.isLowPowerMode
+                    isLowPowerMode: powerStateMonitor.isLowPowerMode,
+                    activeContentMaxWidth: activeContentMaxWidth
                 )
                 .allowsHitTesting(false)
                 .opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity)

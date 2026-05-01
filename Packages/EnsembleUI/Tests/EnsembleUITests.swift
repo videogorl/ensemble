@@ -3,6 +3,39 @@ import XCTest
 import EnsembleCore
 
 final class EnsembleUITests: XCTestCase {
+    func testMediaDragPayloadPreservesTrackIdentity() throws {
+        let track = Track(
+            id: "track-1",
+            key: "/library/metadata/track-1",
+            title: "Track One",
+            sourceCompositeKey: "server/library"
+        )
+
+        let payload = MediaDragPayload.track(track)
+
+        XCTAssertEqual(payload.items.count, 1)
+        XCTAssertEqual(payload.items[0].kind, .track)
+        XCTAssertEqual(payload.items[0].id, "track-1")
+        XCTAssertEqual(payload.items[0].sourceKey, "server/library")
+        XCTAssertNil(payload.items[0].isSmartPlaylist)
+    }
+
+    func testMediaDragPayloadProviderRoundTripsPlaylist() async throws {
+        let playlist = Playlist(
+            id: "playlist-1",
+            key: "/playlists/playlist-1",
+            title: "Road",
+            isSmart: false,
+            sourceCompositeKey: "server/library"
+        )
+        let expected = MediaDragPayload.playlist(playlist)
+        let provider = expected.itemProvider()
+
+        let decoded = await MediaDragPayload.load(from: [provider])
+
+        XCTAssertEqual(decoded, expected)
+    }
+
     func testArtworkSizeValues() {
         XCTAssertEqual(ArtworkSize.thumbnail.rawValue, 100)
         XCTAssertEqual(ArtworkSize.small.rawValue, 200)
@@ -47,6 +80,10 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(insets.leading, TrackListLayoutMetrics.detailHorizontalPadding)
         XCTAssertEqual(insets.bottom, 4)
         XCTAssertEqual(insets.trailing, TrackListLayoutMetrics.detailHorizontalPadding)
+    }
+
+    func testScrollIndexCompactTrailingPaddingDoesNotOverlapViewportEdge() {
+        XCTAssertGreaterThanOrEqual(EnsembleScaffold.ScrollIndex.compactTrailingPadding, 0)
     }
 
     func testTrackRowInteractionModelResolvesRecentPlaylistAndFavoriteState() {

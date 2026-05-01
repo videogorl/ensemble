@@ -1,5 +1,16 @@
 import EnsembleCore
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
+
+private var supportsCustomTrackSwipeGestures: Bool {
+    #if os(iOS)
+    UIDevice.current.userInterfaceIdiom == .phone
+    #else
+    false
+    #endif
+}
 
 /// Reusable swipe container for track rows in ScrollView-based layouts.
 /// UIKit-backed tables use native `UISwipeActionsConfiguration` separately.
@@ -38,18 +49,22 @@ public struct TrackSwipeContainer<Content: View>: View {
 
     public var body: some View {
         #if os(iOS) || os(macOS)
-        ZStack {
-            backgroundActions
+        if supportsCustomTrackSwipeGestures {
+            ZStack {
+                backgroundActions
+                content
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(trackRowBackgroundColor)
+                    .contentShape(Rectangle())
+                    .offset(x: offset)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .clipped()
+            .highPriorityGesture(dragGesture)
+        } else {
             content
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(trackRowBackgroundColor)
-                .contentShape(Rectangle())
-                .offset(x: offset)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .clipped()
-        .highPriorityGesture(dragGesture)
         #else
         content
         #endif

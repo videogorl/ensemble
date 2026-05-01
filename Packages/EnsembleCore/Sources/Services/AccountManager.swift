@@ -157,6 +157,12 @@ public final class AccountManager: ObservableObject {
                 }
             }
         }
+
+        guard !shouldSuppressLibraryFlagsDuringFirstConnect(flags) else {
+            EnsembleLogger.debug("Sync library flags: skipped local export while first-connect source discovery is unsettled")
+            return nil
+        }
+
         let entries = flags.keys.sorted().map { key in
             LibraryFlagEntry(key: key, isEnabled: flags[key] ?? false)
         }
@@ -171,6 +177,11 @@ public final class AccountManager: ObservableObject {
     @discardableResult
     public func applyLibraryFlags(_ data: Data) -> LibraryFlagApplicationResult {
         guard let flags = decodeLibraryFlags(from: data) else {
+            return LibraryFlagApplicationResult()
+        }
+
+        guard !shouldSuppressLibraryFlagsDuringFirstConnect(flags) else {
+            EnsembleLogger.debug("Sync library flags: ignored empty/all-disabled remote payload while first-connect source discovery is unsettled")
             return LibraryFlagApplicationResult()
         }
 
@@ -683,6 +694,11 @@ public final class AccountManager: ObservableObject {
 
     private func libraryFlagKey(accountId: String, serverId: String, libraryKey: String) -> String {
         "\(accountId):\(serverId):\(libraryKey)"
+    }
+
+    private func shouldSuppressLibraryFlagsDuringFirstConnect(_ flags: [String: Bool]) -> Bool {
+        guard isAwaitingCloudSources else { return false }
+        return flags.isEmpty || flags.values.allSatisfy { !$0 }
     }
 
     private func requiresSyncReconciliation(

@@ -218,6 +218,12 @@ FilterPersistence.save(filterOptions, key: "myViewFilter")
 
 All playlist mutations go through `SyncCoordinator`, which handles the server call and then refreshes the local CoreData cache automatically.
 
+## Adding Media Drag And Drop
+
+Use `MediaDragPayload` in `Packages/EnsembleUI/Sources/Utility/` for in-app drags involving tracks, albums, playlists, or merged display playlists. Drag sources should provide the app payload first and keep any existing platform fallback, such as downloaded file URLs, as a secondary provider.
+
+Playlist drops are copy/add operations only. Resolve albums and source playlists to tracks before mutating, reject smart or merged playlist targets with a toast, and reject unresolved or cross-source drops without changing playlist contents.
+
 ```swift
 let syncCoordinator = DependencyContainer.shared.syncCoordinator
 

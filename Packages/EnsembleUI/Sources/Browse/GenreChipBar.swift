@@ -59,7 +59,7 @@ public struct GenreChipBar: View {
                         )
                     }
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
             }
             .frame(height: EnsembleScaffold.Chip.barHeight)
         }

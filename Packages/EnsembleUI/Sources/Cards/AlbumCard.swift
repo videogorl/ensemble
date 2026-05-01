@@ -104,6 +104,11 @@ public struct AlbumCard: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .multilineTextAlignment(.leading)
+        #if !os(watchOS)
+        .onDrag {
+            MediaDragPayload.album(album).itemProvider()
+        }
+        #endif
     }
 }
 

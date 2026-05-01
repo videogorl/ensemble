@@ -1,4 +1,5 @@
 import SwiftUI
+import EnsembleCore
 
 /// Adaptive two-pane shell for large browse surfaces.
 /// Compact widths keep the existing single-column content unchanged.
@@ -15,9 +16,11 @@ public struct LargeScreenBrowseSplitView<
     private let sidebar: Sidebar
     private let detail: (Selection) -> Detail
     private let placeholder: Placeholder
+    private let onLayoutModeChange: ((Bool) -> Void)?
     @State private var adjustedSidebarWidth: CGFloat?
     @State private var dragStartSidebarWidth: CGFloat?
     @State private var isResizeHandleHovered = false
+    @State private var lastReportedSplitLayout: Bool?
 
     public init(
         selection: Binding<Selection?>,
@@ -29,7 +32,8 @@ public struct LargeScreenBrowseSplitView<
         @ViewBuilder compact: () -> Compact,
         @ViewBuilder sidebar: () -> Sidebar,
         @ViewBuilder detail: @escaping (Selection) -> Detail,
-        @ViewBuilder placeholder: () -> Placeholder
+        @ViewBuilder placeholder: () -> Placeholder,
+        onLayoutModeChange: ((Bool) -> Void)? = nil
     ) {
         self.init(
             selection: selection,
@@ -43,7 +47,8 @@ public struct LargeScreenBrowseSplitView<
             compact: compact,
             sidebar: sidebar,
             detail: detail,
-            placeholder: placeholder
+            placeholder: placeholder,
+            onLayoutModeChange: onLayoutModeChange
         )
     }
 
@@ -53,7 +58,8 @@ public struct LargeScreenBrowseSplitView<
         @ViewBuilder compact: () -> Compact,
         @ViewBuilder sidebar: () -> Sidebar,
         @ViewBuilder detail: @escaping (Selection) -> Detail,
-        @ViewBuilder placeholder: () -> Placeholder
+        @ViewBuilder placeholder: () -> Placeholder,
+        onLayoutModeChange: ((Bool) -> Void)? = nil
     ) {
         self._selection = selection
         self.configuration = configuration
@@ -61,14 +67,25 @@ public struct LargeScreenBrowseSplitView<
         self.sidebar = sidebar()
         self.detail = detail
         self.placeholder = placeholder()
+        self.onLayoutModeChange = onLayoutModeChange
     }
 
     public var body: some View {
         GeometryReader { geometry in
-            if usesSplitLayout(for: geometry.size) {
-                splitLayout(for: geometry.size)
-            } else {
-                compact
+            let isSplitLayout = usesSplitLayout(for: geometry.size)
+
+            Group {
+                if isSplitLayout {
+                    splitLayout(for: geometry.size)
+                } else {
+                    compact
+                }
+            }
+            .onAppear {
+                reportLayoutMode(isSplitLayout, width: geometry.size.width)
+            }
+            .onChange(of: isSplitLayout) { nextValue in
+                reportLayoutMode(nextValue, width: geometry.size.width)
             }
         }
     }
@@ -185,6 +202,15 @@ public struct LargeScreenBrowseSplitView<
         guard UIDevice.current.userInterfaceIdiom != .phone else { return false }
         #endif
         return size.width >= configuration.minimumSplitWidth
+    }
+
+    private func reportLayoutMode(_ isSplitLayout: Bool, width: CGFloat) {
+        guard lastReportedSplitLayout != isSplitLayout else { return }
+        lastReportedSplitLayout = isSplitLayout
+        EnsembleLogger.debug(
+            "Browse split layout mode changed: isSplit=\(isSplitLayout) width=\(Int(width.rounded())) minimum=\(Int(configuration.minimumSplitWidth.rounded()))"
+        )
+        onLayoutModeChange?(isSplitLayout)
     }
 
     private func resolvedSidebarWidth(for size: CGSize) -> CGFloat {

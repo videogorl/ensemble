@@ -1130,13 +1130,12 @@ public struct MediaTrackList: UIViewRepresentable {
             NativeMediaTableActionBuilder.contextMenu(for: track, resolvedActions: resolvedActions)
         }
 
-        // MARK: - Drag Delegate (iPad drag-and-drop for downloaded tracks)
+        // MARK: - Drag Delegate (iPad drag-and-drop for media references)
 
         public func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
             guard let track = track(at: indexPath) else { return [] }
-            guard let path = track.localFilePath else { return [] }
-            let fileURL = URL(fileURLWithPath: path)
-            guard let provider = NSItemProvider(contentsOf: fileURL) else { return [] }
+            let fileURL = track.localFilePath.map(URL.init(fileURLWithPath:))
+            let provider = MediaDragPayload.track(track).itemProvider(fallbackFileURL: fileURL)
             if let artist = track.artistName {
                 provider.suggestedName = "\(artist) - \(track.title)"
             } else {
@@ -1150,6 +1149,7 @@ public struct MediaTrackList: UIViewRepresentable {
         // MARK: - Swipe Actions
 
         public func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+            guard UIDevice.current.userInterfaceIdiom == .phone else { return nil }
             guard let track = track(at: indexPath) else { return nil }
             let configured = DependencyContainer.shared.settingsManager.trackSwipeLayout.leading
             let actions = swipeActions(from: configured, track: track)
@@ -1161,6 +1161,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
 
         public func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+            guard UIDevice.current.userInterfaceIdiom == .phone else { return nil }
             guard let track = track(at: indexPath) else { return nil }
             let configured = DependencyContainer.shared.settingsManager.trackSwipeLayout.trailing
             let actions = swipeActions(from: configured, track: track)

@@ -200,6 +200,49 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         XCTAssertEqual(initialData, manager.exportLibraryFlags())
     }
 
+    func testExportLibraryFlagsSuppressesAllFalsePayloadWhileAwaitingCloudSources() throws {
+        let manager = AccountManager(keychain: TestKeychain())
+        manager.addPlexAccount(
+            makeAccount(
+                libraries: [
+                    PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: false),
+                    PlexLibraryConfig(id: "lib-2", key: "2", title: "Alt", isEnabled: false)
+                ]
+            )
+        )
+
+        manager.setAwaitingCloudSources(true)
+
+        XCTAssertNil(manager.exportLibraryFlags())
+
+        manager.setAwaitingCloudSources(false)
+        XCTAssertNotNil(manager.exportLibraryFlags())
+    }
+
+    func testApplyLibraryFlagsIgnoresAllFalsePayloadWhileAwaitingCloudSources() throws {
+        let manager = AccountManager(keychain: TestKeychain())
+        manager.addPlexAccount(
+            makeAccount(
+                libraries: [
+                    PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: true),
+                    PlexLibraryConfig(id: "lib-2", key: "2", title: "Alt", isEnabled: true)
+                ]
+            )
+        )
+        manager.setAwaitingCloudSources(true)
+
+        let result = manager.applyLibraryFlags(
+            try makeFlagsData([
+                "account-1:server-1:1": false,
+                "account-1:server-1:2": false
+            ])
+        )
+
+        let libraries = try XCTUnwrap(manager.plexAccounts.first?.servers.first?.libraries)
+        XCTAssertFalse(result.hasChanges)
+        XCTAssertTrue(libraries.allSatisfy(\.isEnabled))
+    }
+
     func testPullSyncCredentialsReturnsExistingAccountWhenRemoteCredentialsChanged() throws {
         let keychain = TestKeychain()
         let manager = AccountManager(keychain: keychain)

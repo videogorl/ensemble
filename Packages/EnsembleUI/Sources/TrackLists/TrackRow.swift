@@ -157,20 +157,18 @@ public struct TrackRow: View {
         } message: {
             Text("This permanently deletes \"\(track.title)\" from the Plex server and removes its local cache.")
         }
-        #if os(iOS)
-        // Drag and drop for downloaded tracks on iPad (Split View / Stage Manager)
-        .if(track.localFilePath != nil) { view in
-            view.onDrag {
-                guard let path = track.localFilePath else { return NSItemProvider() }
-                let fileURL = URL(fileURLWithPath: path)
-                let provider = NSItemProvider(contentsOf: fileURL) ?? NSItemProvider()
-                if let artist = track.artistName {
-                    provider.suggestedName = "\(artist) - \(track.title)"
-                } else {
-                    provider.suggestedName = track.title
-                }
-                return provider
+        #if !os(watchOS)
+        // App-internal drags use media references; downloaded tracks also keep
+        // a file representation for external drop targets.
+        .onDrag {
+            let fileURL = track.localFilePath.map(URL.init(fileURLWithPath:))
+            let provider = MediaDragPayload.track(track).itemProvider(fallbackFileURL: fileURL)
+            if let artist = track.artistName {
+                provider.suggestedName = "\(artist) - \(track.title)"
+            } else {
+                provider.suggestedName = track.title
             }
+            return provider
         }
         #endif
         // Update cached availability when generation bumps (network/server/download change).

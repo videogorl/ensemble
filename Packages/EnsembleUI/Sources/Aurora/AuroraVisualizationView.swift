@@ -408,8 +408,8 @@ public struct AuroraVisualizationView: View {
         }
 
         let responsiveBands = enhanceBandResponsiveness(bands)
-        let blendedBands = lateralBlend(bands: responsiveBands, sigma: 2.2, mix: 0.32)
-        return flowingBandEnvelope(bands: blendedBands, sigma: 1.5, influence: 0.34)
+        let blendedBands = lateralBlend(bands: responsiveBands, sigma: 2.8, mix: 0.42)
+        return flowingBandEnvelope(bands: blendedBands, sigma: 2.0, influence: 0.46)
     }
 
     /// Applies a gentle spectral tilt: lows get headroom, highs get logarithmic lift.

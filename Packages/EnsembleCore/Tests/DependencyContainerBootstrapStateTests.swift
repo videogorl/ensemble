@@ -33,4 +33,24 @@ final class DependencyContainerBootstrapStateTests: XCTestCase {
             )
         )
     }
+
+    func testMissingRemoteProfileWithoutLocalProfileIsNeutralAfterFirstConnect() {
+        let status = DependencyContainer.missingProfileStatusForEmptyLocalProfile(
+            shouldKeepFirstConnectPending: false
+        )
+
+        XCTAssertEqual(status.phase, .unknown)
+        XCTAssertNil(status.direction)
+        XCTAssertEqual(status.detail, "No iCloud profile has been created yet.")
+    }
+
+    func testMissingRemoteProfileRemainsPendingDuringFirstConnect() {
+        let status = DependencyContainer.missingProfileStatusForEmptyLocalProfile(
+            shouldKeepFirstConnectPending: true
+        )
+
+        XCTAssertEqual(status.phase, .unknown)
+        XCTAssertNil(status.direction)
+        XCTAssertEqual(status.detail, "Waiting for iCloud profile during first-device sync.")
+    }
 }

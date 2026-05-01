@@ -319,6 +319,7 @@ Sources/
 +-- Aurora/                          # Aurora background and Metal/Canvas renderers
 +-- Sheets/                          # Shared sheets and macOS auxiliary sheet/window scaffolds
 +-- Utility/                         # Shared rows, menus, toolbar/profile helpers, keyboard/chrome utilities
+|   +-- MediaDragPayload.swift        # Internal drag/drop payload for tracks, albums, playlists, and merged display playlists
 +-- Screens/
 |   +-- Root/                         # RootView, MainTabView, MoreView, auxiliary presentation routing
 |   +-- Library/                      # Songs, Artists, Albums, Genres, Playlists, Favorites, Mood

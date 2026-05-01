@@ -1,9 +1,20 @@
 import EnsembleCore
 import SwiftUI
 import Nuke
+#if os(iOS)
+import UIKit
+#endif
 #if os(macOS)
 import AppKit
 #endif
+
+private var supportsCustomMiniPlayerSwipeGestures: Bool {
+    #if os(iOS)
+    UIDevice.current.userInterfaceIdiom == .phone
+    #else
+    false
+    #endif
+}
 
 // MARK: - MiniPlayer
 
@@ -77,22 +88,12 @@ public struct MiniPlayer: View {
         }
         .contentShape(RoundedRectangle(cornerRadius: pillCornerRadius))
         .onTapGesture(perform: onTap)
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    // Vertical only for the whole player
-                    if value.translation.height < 0 {
-                        verticalOffset = value.translation.height * EnsembleScaffold.MiniPlayer.verticalSwipeRubberBandFactor
-                    }
-                }
-                .onEnded { value in
-                    if value.translation.height < -EnsembleScaffold.MiniPlayer.verticalOpenThreshold {
-                        onTap()
-                    }
-                    withAnimation(.spring()) {
-                        verticalOffset = 0
-                    }
-                }
+        .modifier(
+            MiniPlayerVerticalSwipeModifier(
+                isEnabled: supportsCustomMiniPlayerSwipeGestures,
+                verticalOffset: $verticalOffset,
+                onOpen: onTap
+            )
         )
         .padding(.horizontal, horizontalPadding)
         .padding(.bottom, isFloating ? EnsembleScaffold.MiniPlayer.floatingBottomPadding : EnsembleScaffold.MiniPlayer.inlineBottomPadding)
@@ -147,6 +148,35 @@ public struct MiniPlayer: View {
                         } label: {
                             MediaActionLabel(kind: .goToArtist)
                         }
+                    }
+                }
+
+                Section {
+                    Button {
+                        viewModel.toggleShuffle()
+                    } label: {
+                        Label(
+                            viewModel.isShuffleEnabled ? "Turn Shuffle Off" : "Turn Shuffle On",
+                            systemImage: EnsembleDesign.Icon.shuffle
+                        )
+                    }
+
+                    Button {
+                        viewModel.setRepeatMode(.all)
+                    } label: {
+                        Label(
+                            viewModel.repeatMode == .all ? "Repeat On" : "Repeat",
+                            systemImage: RepeatMode.all.icon
+                        )
+                    }
+
+                    Button {
+                        viewModel.setRepeatMode(.one)
+                    } label: {
+                        Label(
+                            viewModel.repeatMode == .one ? "Repeat One On" : "Repeat One",
+                            systemImage: RepeatMode.one.icon
+                        )
                     }
                 }
 
@@ -368,52 +398,99 @@ private struct MiniPlayerTrackInfo: View {
         .offset(x: dragOffset)
         .opacity(opacity)
         .contentShape(Rectangle())
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    // Horizontal only
-                    if abs(value.translation.width) > abs(value.translation.height) {
-                        dragOffset = value.translation.width
-                        opacity = 1.0 - min(
-                            abs(value.translation.width) / EnsembleScaffold.MiniPlayer.horizontalSwipeFadeDistance,
-                            EnsembleScaffold.MiniPlayer.horizontalSwipeMaximumFade
-                        )
-                    }
-                }
-                .onEnded { value in
-                    let threshold = EnsembleScaffold.MiniPlayer.horizontalSwipeThreshold
-                    if value.translation.width > threshold {
-                        withAnimation(.spring(response: 0.3)) {
-                            dragOffset = EnsembleScaffold.MiniPlayer.horizontalSwipeDismissOffset
-                            opacity = 0
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + EnsembleScaffold.MiniPlayer.horizontalSwipeResetDelay) {
-                            viewModel.previous()
-                            withAnimation(.spring(response: 0.3)) {
-                                dragOffset = 0
-                                opacity = 1.0
-                            }
-                        }
-                    } else if value.translation.width < -threshold {
-                        withAnimation(.spring(response: 0.3)) {
-                            dragOffset = -EnsembleScaffold.MiniPlayer.horizontalSwipeDismissOffset
-                            opacity = 0
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + EnsembleScaffold.MiniPlayer.horizontalSwipeResetDelay) {
-                            viewModel.next()
-                            withAnimation(.spring(response: 0.3)) {
-                                dragOffset = 0
-                                opacity = 1.0
-                            }
-                        }
-                    } else {
-                        withAnimation(.spring(response: 0.3)) {
-                            dragOffset = 0
-                            opacity = 1.0
-                        }
-                    }
-                }
+        .modifier(
+            MiniPlayerHorizontalSwipeModifier(
+                isEnabled: supportsCustomMiniPlayerSwipeGestures,
+                dragOffset: $dragOffset,
+                opacity: $opacity,
+                onPrevious: viewModel.previous,
+                onNext: viewModel.next
+            )
         )
+    }
+}
+
+private struct MiniPlayerVerticalSwipeModifier: ViewModifier {
+    let isEnabled: Bool
+    @Binding var verticalOffset: CGFloat
+    let onOpen: () -> Void
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if value.translation.height < 0 {
+                            verticalOffset = value.translation.height * EnsembleScaffold.MiniPlayer.verticalSwipeRubberBandFactor
+                        }
+                    }
+                    .onEnded { value in
+                        if value.translation.height < -EnsembleScaffold.MiniPlayer.verticalOpenThreshold {
+                            onOpen()
+                        }
+                        withAnimation(.spring()) {
+                            verticalOffset = 0
+                        }
+                    }
+            )
+        } else {
+            content
+        }
+    }
+}
+
+private struct MiniPlayerHorizontalSwipeModifier: ViewModifier {
+    let isEnabled: Bool
+    @Binding var dragOffset: CGFloat
+    @Binding var opacity: Double
+    let onPrevious: () -> Void
+    let onNext: () -> Void
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if abs(value.translation.width) > abs(value.translation.height) {
+                            dragOffset = value.translation.width
+                            opacity = 1.0 - min(
+                                abs(value.translation.width) / EnsembleScaffold.MiniPlayer.horizontalSwipeFadeDistance,
+                                EnsembleScaffold.MiniPlayer.horizontalSwipeMaximumFade
+                            )
+                        }
+                    }
+                    .onEnded { value in
+                        let threshold = EnsembleScaffold.MiniPlayer.horizontalSwipeThreshold
+                        if value.translation.width > threshold {
+                            dismissThenReset(offset: EnsembleScaffold.MiniPlayer.horizontalSwipeDismissOffset, action: onPrevious)
+                        } else if value.translation.width < -threshold {
+                            dismissThenReset(offset: -EnsembleScaffold.MiniPlayer.horizontalSwipeDismissOffset, action: onNext)
+                        } else {
+                            reset()
+                        }
+                    }
+            )
+        } else {
+            content
+        }
+    }
+
+    private func dismissThenReset(offset: CGFloat, action: @escaping () -> Void) {
+        withAnimation(.spring(response: 0.3)) {
+            dragOffset = offset
+            opacity = 0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + EnsembleScaffold.MiniPlayer.horizontalSwipeResetDelay) {
+            action()
+            reset()
+        }
+    }
+
+    private func reset() {
+        withAnimation(.spring(response: 0.3)) {
+            dragOffset = 0
+            opacity = 1.0
+        }
     }
 }
 
@@ -474,6 +551,10 @@ private struct MiniPlayerControls: View {
                             .font(EnsembleDesign.Typography.sectionTitle)
                     }
                 }
+                .frame(
+                    width: EnsembleScaffold.MiniPlayer.actionButtonDimension,
+                    height: EnsembleScaffold.MiniPlayer.actionButtonDimension
+                )
             }
             // Disable play when track not yet confirmed playable (e.g. pending health check)
             .disabled(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable)
@@ -532,6 +613,8 @@ private struct MiniPlayerActionsMenuButton: View {
                 favoriteTitle: favoriteTitle,
                 favoriteSystemImage: favoriteSystemImage,
                 recentPlaylistTitle: viewModel.lastPlaylistTarget?.title,
+                isShuffleEnabled: viewModel.isShuffleEnabled,
+                repeatMode: viewModel.repeatMode,
                 showsAlbumNavigation: viewModel.currentTrack?.albumRatingKey != nil,
                 showsArtistNavigation: viewModel.currentTrack?.artistRatingKey != nil,
                 onFavorite: {
@@ -545,6 +628,18 @@ private struct MiniPlayerActionsMenuButton: View {
                 onAddToPlaylist: {
                     showingActionsPopover = false
                     showingPlaylistPicker = true
+                },
+                onToggleShuffle: {
+                    showingActionsPopover = false
+                    toggleShuffle()
+                },
+                onRepeatAll: {
+                    showingActionsPopover = false
+                    repeatAll()
+                },
+                onRepeatOne: {
+                    showingActionsPopover = false
+                    repeatOne()
                 },
                 onGoToAlbum: {
                     showingActionsPopover = false
@@ -562,11 +657,16 @@ private struct MiniPlayerActionsMenuButton: View {
             favoriteTitle: favoriteTitle,
             favoriteSystemImage: favoriteSystemImage,
             recentPlaylistTitle: viewModel.lastPlaylistTarget?.title,
+            isShuffleEnabled: viewModel.isShuffleEnabled,
+            repeatMode: viewModel.repeatMode,
             showsAlbumNavigation: viewModel.currentTrack?.albumRatingKey != nil,
             showsArtistNavigation: viewModel.currentTrack?.artistRatingKey != nil,
             onFavorite: toggleFavorite,
             onAddToRecentPlaylist: addToRecentPlaylist,
             onAddToPlaylist: { showingPlaylistPicker = true },
+            onToggleShuffle: toggleShuffle,
+            onRepeatAll: repeatAll,
+            onRepeatOne: repeatOne,
             onGoToAlbum: goToAlbum,
             onGoToArtist: goToArtist
         )
@@ -601,6 +701,18 @@ private struct MiniPlayerActionsMenuButton: View {
         }
     }
 
+    private func toggleShuffle() {
+        viewModel.toggleShuffle()
+    }
+
+    private func repeatAll() {
+        viewModel.setRepeatMode(.all)
+    }
+
+    private func repeatOne() {
+        viewModel.setRepeatMode(.one)
+    }
+
     private func goToAlbum() {
         guard let albumId = viewModel.currentTrack?.albumRatingKey else { return }
         navigationCoordinator.navigate(to: .album(id: albumId))
@@ -617,11 +729,16 @@ private struct MiniPlayerActionsPopoverContent: View {
     let favoriteTitle: String
     let favoriteSystemImage: String
     let recentPlaylistTitle: String?
+    let isShuffleEnabled: Bool
+    let repeatMode: RepeatMode
     let showsAlbumNavigation: Bool
     let showsArtistNavigation: Bool
     let onFavorite: () -> Void
     let onAddToRecentPlaylist: () -> Void
     let onAddToPlaylist: () -> Void
+    let onToggleShuffle: () -> Void
+    let onRepeatAll: () -> Void
+    let onRepeatOne: () -> Void
     let onGoToAlbum: () -> Void
     let onGoToArtist: () -> Void
 
@@ -638,6 +755,25 @@ private struct MiniPlayerActionsPopoverContent: View {
             }
 
             actionButton(title: "Add to Playlist…", systemImage: EnsembleDesign.Icon.addToPlaylist, action: onAddToPlaylist)
+
+            Divider()
+                .padding(.vertical, EnsembleScaffold.MiniPlayer.popoverDividerVerticalPadding)
+
+            actionButton(
+                title: isShuffleEnabled ? "Turn Shuffle Off" : "Turn Shuffle On",
+                systemImage: EnsembleDesign.Icon.shuffle,
+                action: onToggleShuffle
+            )
+            actionButton(
+                title: repeatMode == .all ? "Repeat On" : "Repeat",
+                systemImage: RepeatMode.all.icon,
+                action: onRepeatAll
+            )
+            actionButton(
+                title: repeatMode == .one ? "Repeat One On" : "Repeat One",
+                systemImage: RepeatMode.one.icon,
+                action: onRepeatOne
+            )
 
             if showsAlbumNavigation || showsArtistNavigation {
                 Divider()
@@ -678,11 +814,16 @@ private struct NativeMiniPlayerActionsMenuButton: NSViewRepresentable {
     let favoriteTitle: String
     let favoriteSystemImage: String
     let recentPlaylistTitle: String?
+    let isShuffleEnabled: Bool
+    let repeatMode: RepeatMode
     let showsAlbumNavigation: Bool
     let showsArtistNavigation: Bool
     let onFavorite: () -> Void
     let onAddToRecentPlaylist: () -> Void
     let onAddToPlaylist: () -> Void
+    let onToggleShuffle: () -> Void
+    let onRepeatAll: () -> Void
+    let onRepeatOne: () -> Void
     let onGoToAlbum: () -> Void
     let onGoToArtist: () -> Void
 
@@ -734,6 +875,22 @@ private struct NativeMiniPlayerActionsMenuButton: NSViewRepresentable {
             }
 
             menu.addItem(menuItem(title: "Add to Playlist…", systemImage: EnsembleDesign.Icon.addToPlaylist, action: #selector(addToPlaylist(_:))))
+            menu.addItem(.separator())
+            menu.addItem(menuItem(
+                title: parent.isShuffleEnabled ? "Turn Shuffle Off" : "Turn Shuffle On",
+                systemImage: EnsembleDesign.Icon.shuffle,
+                action: #selector(toggleShuffle(_:))
+            ))
+            menu.addItem(menuItem(
+                title: parent.repeatMode == .all ? "Repeat On" : "Repeat",
+                systemImage: RepeatMode.all.icon,
+                action: #selector(repeatAll(_:))
+            ))
+            menu.addItem(menuItem(
+                title: parent.repeatMode == .one ? "Repeat One On" : "Repeat One",
+                systemImage: RepeatMode.one.icon,
+                action: #selector(repeatOne(_:))
+            ))
 
             if parent.showsAlbumNavigation || parent.showsArtistNavigation {
                 menu.addItem(.separator())
@@ -767,6 +924,18 @@ private struct NativeMiniPlayerActionsMenuButton: NSViewRepresentable {
 
         @objc private func addToPlaylist(_ sender: NSMenuItem) {
             parent.onAddToPlaylist()
+        }
+
+        @objc private func toggleShuffle(_ sender: NSMenuItem) {
+            parent.onToggleShuffle()
+        }
+
+        @objc private func repeatAll(_ sender: NSMenuItem) {
+            parent.onRepeatAll()
+        }
+
+        @objc private func repeatOne(_ sender: NSMenuItem) {
+            parent.onRepeatOne()
         }
 
         @objc private func goToAlbum(_ sender: NSMenuItem) {

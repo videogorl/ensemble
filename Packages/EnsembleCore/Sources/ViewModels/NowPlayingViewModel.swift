@@ -1247,6 +1247,14 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.cycleRepeatMode()
     }
 
+    public func setRepeatMode(_ targetMode: RepeatMode) {
+        var attempts = 0
+        while playbackService.repeatMode != targetMode && attempts < RepeatMode.allCases.count {
+            playbackService.cycleRepeatMode()
+            attempts += 1
+        }
+    }
+
     // MARK: - Autoplay & Radio
 
     public func toggleAutoplay() {

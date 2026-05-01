@@ -682,11 +682,6 @@ public struct SidebarView: View {
     @Environment(\.openWindow) private var openWindow
     #endif
 
-    private enum CompactColumnPreference: Int {
-        case sidebar
-        case detail
-    }
-
     private enum RootBrowseKind: Hashable {
         case artists
         case playlists
@@ -699,6 +694,14 @@ public struct SidebarView: View {
             case .genres: return .genres
             }
         }
+
+        var debugDescription: String {
+            switch self {
+            case .artists: return "artists"
+            case .playlists: return "playlists"
+            case .genres: return "genres"
+            }
+        }
     }
 
     @State private var selection: SidebarSelection? = .library(.home)
@@ -707,7 +710,6 @@ public struct SidebarView: View {
     @State private var selectedBrowseGenre: Genre?
     @State private var pinnedDetailPath: [NavigationCoordinator.Destination] = []
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
-    @State private var compactColumnPreference: CompactColumnPreference = .sidebar
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var playlistForEditSheet: Playlist?
     @State private var playlistPendingRename: Playlist?
@@ -758,23 +760,6 @@ public struct SidebarView: View {
 
     private var isShowingNowPlaying: Bool {
         isViewportNowPlayingPresented
-    }
-
-    private var isShowingCompactSidebarRoot: Bool {
-        guard compactColumnPreference == .sidebar else {
-            return false
-        }
-
-        guard let selection else {
-            return true
-        }
-
-        switch selection {
-        case .library(let tab):
-            return sidebarPath(for: tab).isEmpty
-        case .playlist, .mergedPlaylist, .pin:
-            return false
-        }
     }
 
     private var activeRootBrowseKind: RootBrowseKind? {
@@ -1221,11 +1206,6 @@ public struct SidebarView: View {
                 EnsembleLogger.debug("🧭 Sidebar selection changed to=\(String(describing: tab))")
                 navigationCoordinator.selectedTab = tab
             }
-            #if os(iOS)
-            if #available(iOS 17.0, *), newSelection != nil {
-                compactColumnPreference = .detail
-            }
-            #endif
             pinnedDetailPath.removeAll()
         }
         .environmentObject(contextMenuMetadataEditorCoordinator)
@@ -1433,12 +1413,15 @@ public struct SidebarView: View {
         )
     }
 
-    private func setCompactBrowseColumnAfterSelection(_: Bool) {
-        #if os(iOS)
-        if #available(iOS 17.0, *) {
-            compactColumnPreference = .detail
-        }
-        #endif
+    private func setCompactBrowseColumnAfterSelection(_ hasSelection: Bool) {
+        EnsembleLogger.debug("Root browse selection changed hasSelection=\(hasSelection)")
+    }
+
+    private func handleRootBrowseSplitLayoutChange(_ isSplitLayout: Bool, for browseKind: RootBrowseKind) {
+        guard activeRootBrowseKind == browseKind else { return }
+        EnsembleLogger.debug(
+            "Root browse split layout changed: kind=\(browseKind.debugDescription) isSplit=\(isSplitLayout)"
+        )
     }
 
     private func prepareBrowseSelection(for destination: NavigationCoordinator.Destination) {
@@ -1588,14 +1571,21 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private func pinnedDetailRootView(id: String, type: PinnedItemType) -> some View {
+        let sourceKey = pinnedSourceKey(for: id)
         switch type {
         case .album:
-            AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
+            AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .artist:
-            ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
+            ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .playlist:
-            PlaylistDetailLoader(playlistId: id, playlistSourceKey: nil, nowPlayingVM: nowPlayingVM)
+            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         }
+    }
+
+    private func pinnedSourceKey(for id: String) -> String? {
+        let sourceKey = pinManager.pinnedItems.first(where: { $0.id == id })?.sourceCompositeKey
+        let trimmed = sourceKey?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     @ViewBuilder
@@ -1734,6 +1724,9 @@ public struct SidebarView: View {
                 },
                 placeholder: {
                     rootBrowsePlaceholder(for: browseKind)
+                },
+                onLayoutModeChange: { isSplitLayout in
+                    handleRootBrowseSplitLayoutChange(isSplitLayout, for: browseKind)
                 }
             )
         case .playlists:
@@ -1751,6 +1744,9 @@ public struct SidebarView: View {
                 },
                 placeholder: {
                     rootBrowsePlaceholder(for: browseKind)
+                },
+                onLayoutModeChange: { isSplitLayout in
+                    handleRootBrowseSplitLayoutChange(isSplitLayout, for: browseKind)
                 }
             )
         case .genres:
@@ -1768,6 +1764,9 @@ public struct SidebarView: View {
                 },
                 placeholder: {
                     rootBrowsePlaceholder(for: browseKind)
+                },
+                onLayoutModeChange: { isSplitLayout in
+                    handleRootBrowseSplitLayoutChange(isSplitLayout, for: browseKind)
                 }
             )
         }
@@ -1828,18 +1827,7 @@ public struct SidebarView: View {
     @ViewBuilder
     private var splitNavigationViewWithCompactColumn: some View {
         #if os(iOS)
-        let preferredCompactColumn = Binding<NavigationSplitViewColumn>(
-            get: {
-                isShowingCompactSidebarRoot ? .sidebar : .detail
-            },
-            set: { newValue in
-                compactColumnPreference = newValue == .sidebar ? .sidebar : .detail
-            }
-        )
-        NavigationSplitView(
-            columnVisibility: $columnVisibility,
-            preferredCompactColumn: preferredCompactColumn
-        ) {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarColumn
         } detail: {
             detailContainerView
@@ -1932,7 +1920,12 @@ public struct SidebarView: View {
                     },
                     toastNamespace: "sidebar-album-menu",
                     navigateToArtist: { artistID in
-                        navigateFromPinnedMenu(to: .artist(id: artistID))
+                        navigateFromPinnedMenu(
+                            to: .artist(
+                                id: artistID,
+                                sourceKey: album.sourceCompositeKey ?? pinnedSourceKey(for: pinnedItem.id)
+                            )
+                        )
                     },
                     customPinAction: { isPinned in
                         if isPinned {
@@ -2052,13 +2045,347 @@ public struct SidebarView: View {
         }
 
         if playlist.isMerged {
-            artworkLabel
-                .tag(SidebarSelection.mergedPlaylist(title: playlist.title, isSmart: playlist.isSmart))
+            sidebarPlaylistDragDropRow(
+                artworkLabel
+                    .tag(SidebarSelection.mergedPlaylist(title: playlist.title, isSmart: playlist.isSmart)),
+                playlist: playlist
+            )
         } else {
-            artworkLabel
-                .tag(SidebarSelection.playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey))
+            sidebarPlaylistDragDropRow(
+                artworkLabel
+                    .tag(SidebarSelection.playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey)),
+                playlist: playlist
+            )
         }
     }
+
+    @ViewBuilder
+    private func sidebarPlaylistDragDropRow<Content: View>(_ content: Content, playlist: SidebarPlaylistItem) -> some View {
+        #if os(iOS)
+        content
+        #elseif !os(watchOS)
+        SidebarPlaylistDragDropHost(
+            content: content,
+            playlist: playlist,
+            libraryVM: libraryVM,
+            playlistsVM: playlistsVM,
+            nowPlayingVM: nowPlayingVM
+        )
+        #else
+        content
+        #endif
+    }
+
+    #if !os(watchOS)
+    private struct SidebarPlaylistDragDropHost<Content: View>: View {
+        @Environment(\.dependencies) private var deps
+
+        let content: Content
+        let playlist: SidebarPlaylistItem
+        let libraryVM: LibraryViewModel
+        let playlistsVM: PlaylistViewModel
+        let nowPlayingVM: NowPlayingViewModel
+
+        var body: some View {
+            content
+                .onDrag {
+                    sidebarPlaylistDragPayload(for: playlist).itemProvider()
+                }
+                .onDrop(of: MediaDragPayload.contentTypes, isTargeted: nil) { providers in
+                    handleSidebarPlaylistDrop(providers, onto: playlist)
+                }
+        }
+
+        private func handleSidebarPlaylistDrop(_ providers: [NSItemProvider], onto playlist: SidebarPlaylistItem) -> Bool {
+            guard providers.contains(where: { $0.hasItemConformingToTypeIdentifier(MediaDragPayload.typeIdentifier) }) else {
+                return false
+            }
+
+            Task { @MainActor in
+                guard let payload = await MediaDragPayload.load(from: providers) else {
+                    showSidebarDropToast(
+                        style: .warning,
+                        title: "Drop not supported",
+                        message: "That item could not be resolved.",
+                        dedupeKey: "playlist-drop-unresolved-payload"
+                    )
+                    return
+                }
+                await performSidebarPlaylistDrop(payload, onto: playlist)
+            }
+            return true
+        }
+
+        @MainActor
+        private func performSidebarPlaylistDrop(_ payload: MediaDragPayload, onto sidebarPlaylist: SidebarPlaylistItem) async {
+            guard !sidebarPlaylist.isMerged else {
+                showSidebarDropToast(
+                    style: .warning,
+                    title: "Choose a playlist",
+                    message: "Drop onto one editable playlist, not a merged group.",
+                    dedupeKey: "playlist-drop-merged-target"
+                )
+                return
+            }
+
+            guard let target = resolvedSidebarPlaylistTarget(sidebarPlaylist) else {
+                showSidebarDropToast(
+                    style: .warning,
+                    title: "Playlist unavailable",
+                    message: "The destination playlist could not be resolved.",
+                    dedupeKey: "playlist-drop-target-unresolved-\(sidebarPlaylist.id)"
+                )
+                return
+            }
+
+            guard !target.isSmart else {
+                showSidebarDropToast(
+                    style: .warning,
+                    title: "Smart playlist",
+                    message: "Smart playlists cannot be edited manually.",
+                    dedupeKey: "playlist-drop-smart-target-\(target.id)"
+                )
+                return
+            }
+
+            guard let tracks = await resolveDroppedTracks(from: payload, targetPlaylist: target),
+                  !tracks.isEmpty else {
+                return
+            }
+
+            do {
+                _ = try await nowPlayingVM.addTracks(tracks, to: target)
+            } catch {
+                showSidebarDropToast(
+                    style: .error,
+                    title: "Couldn't add tracks",
+                    message: error.localizedDescription,
+                    dedupeKey: "playlist-drop-add-failed-\(target.id)"
+                )
+            }
+        }
+
+        @MainActor
+        private func resolveDroppedTracks(from payload: MediaDragPayload, targetPlaylist: Playlist) async -> [Track]? {
+            var resolvedTracks: [Track] = []
+
+            for item in payload.items {
+                switch item.kind {
+                case .track:
+                    guard let track = resolvedTrack(for: item) else {
+                        showUnresolvedDropToast(title: item.title)
+                        return nil
+                    }
+                    guard isSourceCompatible(track.sourceCompositeKey, with: targetPlaylist.sourceCompositeKey) else {
+                        showCrossSourceDropToast(itemTitle: track.title, playlistTitle: targetPlaylist.title)
+                        return nil
+                    }
+                    resolvedTracks.append(track)
+
+                case .album:
+                    guard let album = resolvedAlbum(for: item) else {
+                        showUnresolvedDropToast(title: item.title)
+                        return nil
+                    }
+                    guard isSourceCompatible(album.sourceCompositeKey, with: targetPlaylist.sourceCompositeKey) else {
+                        showCrossSourceDropToast(itemTitle: album.title, playlistTitle: targetPlaylist.title)
+                        return nil
+                    }
+
+                    let detailVM = DependencyContainer.shared.makeAlbumDetailViewModel(album: album)
+                    await detailVM.loadTracks()
+                    guard !detailVM.tracks.isEmpty else {
+                        showUnresolvedDropToast(title: album.title)
+                        return nil
+                    }
+                    guard detailVM.tracks.allSatisfy({ isSourceCompatible($0.sourceCompositeKey, with: targetPlaylist.sourceCompositeKey) }) else {
+                        showCrossSourceDropToast(itemTitle: album.title, playlistTitle: targetPlaylist.title)
+                        return nil
+                    }
+                    resolvedTracks.append(contentsOf: detailVM.tracks)
+
+                case .playlist:
+                    guard item.isSmartPlaylist != true else {
+                        showSidebarDropToast(
+                            style: .warning,
+                            title: "Smart playlist",
+                            message: "Smart playlist tracks cannot be copied from a drag.",
+                            dedupeKey: "playlist-drop-smart-source-\(item.id)"
+                        )
+                        return nil
+                    }
+                    guard let sourcePlaylist = resolvedPlaylist(for: item), !sourcePlaylist.isSmart else {
+                        showUnresolvedDropToast(title: item.title)
+                        return nil
+                    }
+                    guard isSourceCompatible(sourcePlaylist.sourceCompositeKey, with: targetPlaylist.sourceCompositeKey) else {
+                        showCrossSourceDropToast(itemTitle: sourcePlaylist.title, playlistTitle: targetPlaylist.title)
+                        return nil
+                    }
+
+                    let detailVM = DependencyContainer.shared.makePlaylistDetailViewModel(playlist: sourcePlaylist)
+                    await detailVM.loadTracks()
+                    guard !detailVM.tracks.isEmpty else {
+                        showUnresolvedDropToast(title: sourcePlaylist.title)
+                        return nil
+                    }
+                    guard detailVM.tracks.allSatisfy({ isSourceCompatible($0.sourceCompositeKey, with: targetPlaylist.sourceCompositeKey) }) else {
+                        showCrossSourceDropToast(itemTitle: sourcePlaylist.title, playlistTitle: targetPlaylist.title)
+                        return nil
+                    }
+                    resolvedTracks.append(contentsOf: detailVM.tracks)
+                }
+            }
+
+            let uniqueTracks = uniqueTracksBySourceAndID(resolvedTracks)
+            if uniqueTracks.isEmpty {
+                showSidebarDropToast(
+                    style: .warning,
+                    title: "Nothing to add",
+                    message: "No playable tracks were found in the drop.",
+                    dedupeKey: "playlist-drop-empty"
+                )
+                return nil
+            }
+            return uniqueTracks
+        }
+
+        private func sidebarPlaylistDragPayload(for item: SidebarPlaylistItem) -> MediaDragPayload {
+            if item.isMerged,
+               let displayPlaylist = playlistsVM.sortedDisplayPlaylists.first(where: { displayPlaylist in
+                   displayPlaylist.title == item.title && displayPlaylist.isSmart == item.isSmart
+               }) {
+                return .displayPlaylist(displayPlaylist)
+            }
+
+            if let playlist = resolvedSidebarPlaylistTarget(item) {
+                return .playlist(playlist)
+            }
+
+            return MediaDragPayload(items: [
+                MediaDragPayload.Item(
+                    kind: .playlist,
+                    id: item.playlistID,
+                    sourceKey: item.sourceKey,
+                    title: item.title,
+                    isSmartPlaylist: item.isSmart
+                )
+            ])
+        }
+
+        private func resolvedSidebarPlaylistTarget(_ item: SidebarPlaylistItem) -> Playlist? {
+            playlistsVM.playlists.first { playlist in
+                mediaReferenceMatches(
+                    id: item.playlistID,
+                    sourceKey: item.sourceKey,
+                    candidateID: playlist.id,
+                    candidateSourceKey: playlist.sourceCompositeKey
+                )
+            }
+        }
+
+        private func resolvedTrack(for item: MediaDragPayload.Item) -> Track? {
+            uniqueMatch(in: libraryVM.tracks, id: item.id, sourceKey: item.sourceKey) { track in
+                (track.id, track.sourceCompositeKey)
+            }
+        }
+
+        private func resolvedAlbum(for item: MediaDragPayload.Item) -> Album? {
+            uniqueMatch(in: libraryVM.albums, id: item.id, sourceKey: item.sourceKey) { album in
+                (album.id, album.sourceCompositeKey)
+            }
+        }
+
+        private func resolvedPlaylist(for item: MediaDragPayload.Item) -> Playlist? {
+            uniqueMatch(in: playlistsVM.playlists, id: item.id, sourceKey: item.sourceKey) { playlist in
+                (playlist.id, playlist.sourceCompositeKey)
+            }
+        }
+
+        private func uniqueMatch<T>(
+            in values: [T],
+            id: String,
+            sourceKey: String?,
+            identity: (T) -> (id: String, sourceKey: String?)
+        ) -> T? {
+            let matches = values.filter { value in
+                let candidate = identity(value)
+                return mediaReferenceMatches(
+                    id: id,
+                    sourceKey: sourceKey,
+                    candidateID: candidate.id,
+                    candidateSourceKey: candidate.sourceKey
+                )
+            }
+            return matches.count == 1 ? matches[0] : nil
+        }
+
+        private func mediaReferenceMatches(
+            id: String,
+            sourceKey: String?,
+            candidateID: String,
+            candidateSourceKey: String?
+        ) -> Bool {
+            guard candidateID == id else { return false }
+            guard let sourceKey = normalizedSourceKey(sourceKey) else { return true }
+            return normalizedSourceKey(candidateSourceKey) == sourceKey
+        }
+
+        private func isSourceCompatible(_ itemSourceKey: String?, with targetSourceKey: String?) -> Bool {
+            guard let targetSourceKey = normalizedSourceKey(targetSourceKey) else { return true }
+            return normalizedSourceKey(itemSourceKey) == targetSourceKey
+        }
+
+        private func uniqueTracksBySourceAndID(_ tracks: [Track]) -> [Track] {
+            var seen = Set<String>()
+            return tracks.filter { track in
+                let key = "\(normalizedSourceKey(track.sourceCompositeKey) ?? "")|\(track.id)"
+                return seen.insert(key).inserted
+            }
+        }
+
+        private func normalizedSourceKey(_ sourceKey: String?) -> String? {
+            let trimmed = sourceKey?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed?.isEmpty == false ? trimmed : nil
+        }
+
+        private func showUnresolvedDropToast(title: String) {
+            showSidebarDropToast(
+                style: .warning,
+                title: "Drop not added",
+                message: "\"\(title)\" could not be resolved in the local library.",
+                dedupeKey: "playlist-drop-unresolved-\(title)"
+            )
+        }
+
+        private func showCrossSourceDropToast(itemTitle: String, playlistTitle: String) {
+            showSidebarDropToast(
+                style: .warning,
+                title: "Different source",
+                message: "\"\(itemTitle)\" cannot be added to \"\(playlistTitle)\" from another source.",
+                dedupeKey: "playlist-drop-cross-source-\(itemTitle)-\(playlistTitle)"
+            )
+        }
+
+        private func showSidebarDropToast(
+            style: ToastStyle,
+            title: String,
+            message: String,
+            dedupeKey: String
+        ) {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: style,
+                    iconSystemName: style == .error ? "exclamationmark.triangle.fill" : "exclamationmark.triangle",
+                    title: title,
+                    message: message,
+                    dedupeKey: dedupeKey
+                )
+            )
+        }
+    }
+
+    #endif
 
     @ViewBuilder
     private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
