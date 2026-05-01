@@ -193,7 +193,7 @@ public class TrackTableViewCell: UITableViewCell {
 
             durationLabel.trailingAnchor.constraint(equalTo: overflowButton.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap),
             durationLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: TrackListLayoutMetrics.durationMinimumWidth),
+            durationLabel.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.durationColumnWidth),
 
             overflowButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.rowHorizontalPadding),
             overflowButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
@@ -231,8 +231,8 @@ public class TrackTableViewCell: UITableViewCell {
         subtitleTrailingToDownloadConstraint?.isActive = true
 
         // Stored constraints toggled based on download state
-        downloadIconWidthConstraint = downloadIcon.widthAnchor.constraint(equalToConstant: 0)
-        downloadIconTrailingConstraint = downloadIcon.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor)
+        downloadIconWidthConstraint = downloadIcon.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.downloadIndicatorDimension)
+        downloadIconTrailingConstraint = downloadIcon.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -TrackListLayoutMetrics.rowTightAccessoryGap)
         downloadIconWidthConstraint?.isActive = true
         downloadIconTrailingConstraint?.isActive = true
     }
@@ -303,18 +303,12 @@ public class TrackTableViewCell: UITableViewCell {
         if isActivelyDownloading {
             downloadIcon.isHidden = true
             downloadSpinner.startAnimating()
-            downloadIconWidthConstraint?.constant = TrackListLayoutMetrics.downloadIndicatorDimension
-            downloadIconTrailingConstraint?.constant = -4
         } else if track.isDownloaded {
             downloadIcon.isHidden = false
             downloadSpinner.stopAnimating()
-            downloadIconWidthConstraint?.constant = TrackListLayoutMetrics.downloadIndicatorDimension
-            downloadIconTrailingConstraint?.constant = -4
         } else {
             downloadIcon.isHidden = true
             downloadSpinner.stopAnimating()
-            downloadIconWidthConstraint?.constant = 0
-            downloadIconTrailingConstraint?.constant = 0
         }
         
         // Show/hide artwork

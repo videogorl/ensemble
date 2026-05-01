@@ -23,6 +23,7 @@ public enum TrackListLayoutMetrics {
     public static let nativeCompactPrimaryFontSize: CGFloat = 15
     public static let nativeCompactSecondaryFontSize: CGFloat = 13
     public static let durationMinimumWidth: CGFloat = 40
+    public static let durationColumnWidth: CGFloat = 52
     public static let favoriteIndicatorDimension: CGFloat = 14
     public static let favoriteIndicatorCenterX: CGFloat = 8
     public static let downloadIndicatorDimension: CGFloat = 14

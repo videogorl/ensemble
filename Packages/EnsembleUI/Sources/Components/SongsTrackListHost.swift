@@ -690,11 +690,11 @@ private final class MacSongsTrackCell: NSTableCellView {
         titleTopConstraint = titleField.topAnchor.constraint(equalTo: topAnchor, constant: TrackListLayoutMetrics.defaultTitleTopPadding)
         titleCenterYConstraint = titleField.centerYAnchor.constraint(equalTo: centerYAnchor)
         subtitleTopConstraint = subtitleField.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: TrackListLayoutMetrics.primarySecondaryTextSpacing)
-        titleTrailingToDurationConstraint = titleField.trailingAnchor.constraint(lessThanOrEqualTo: durationField.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap)
+        titleTrailingToDurationConstraint = titleField.trailingAnchor.constraint(lessThanOrEqualTo: downloadImageView.leadingAnchor, constant: -TrackListLayoutMetrics.rowTightAccessoryGap)
         titleTrailingToArtistConstraint = titleField.trailingAnchor.constraint(lessThanOrEqualTo: artistField.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing)
         artistTrailingToAlbumConstraint = artistField.trailingAnchor.constraint(equalTo: albumField.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing)
-        artistTrailingToDurationConstraint = artistField.trailingAnchor.constraint(equalTo: durationField.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing)
-        albumTrailingToDurationConstraint = albumField.trailingAnchor.constraint(equalTo: durationField.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing)
+        artistTrailingToDurationConstraint = artistField.trailingAnchor.constraint(equalTo: downloadImageView.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing)
+        albumTrailingToDurationConstraint = albumField.trailingAnchor.constraint(equalTo: downloadImageView.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing)
         artistWidthConstraint = artistField.widthAnchor.constraint(equalToConstant: 0)
         albumWidthConstraint = albumField.widthAnchor.constraint(equalToConstant: 0)
 
@@ -725,7 +725,7 @@ private final class MacSongsTrackCell: NSTableCellView {
 
             durationField.trailingAnchor.constraint(equalTo: overflowButton.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap),
             durationField.centerYAnchor.constraint(equalTo: centerYAnchor),
-            durationField.widthAnchor.constraint(greaterThanOrEqualToConstant: TrackListLayoutMetrics.durationMinimumWidth),
+            durationField.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.durationColumnWidth),
 
             downloadImageView.trailingAnchor.constraint(equalTo: durationField.leadingAnchor, constant: -TrackListLayoutMetrics.rowTightAccessoryGap),
             downloadImageView.centerYAnchor.constraint(equalTo: centerYAnchor),

@@ -244,24 +244,20 @@ public struct TrackRow: View {
 
             Spacer()
 
-            // Download status: spinner while queued/downloading, icon when complete
-            if isActivelyDownloading {
-                ProgressView()
-                    .scaleEffect(TrackListLayoutMetrics.downloadIndicatorScale)
+            if usesFixedAccessoryColumns {
+                downloadStatusView
                     .frame(
                         width: TrackListLayoutMetrics.downloadIndicatorDimension,
                         height: TrackListLayoutMetrics.downloadIndicatorDimension
                     )
-            } else if track.isDownloaded {
-                Image(systemName: EnsembleDesign.Icon.downloaded)
-                    .font(EnsembleDesign.Typography.rowSecondary)
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-            }
 
-            Text(track.formattedDuration)
-                .font(EnsembleDesign.Typography.stateMessage)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-                .monospacedDigit()
+                durationText
+                    .frame(width: TrackListLayoutMetrics.durationColumnWidth, alignment: .trailing)
+            } else {
+                downloadStatusView
+
+                durationText
+            }
         }
         .frame(
             maxWidth: .infinity,
@@ -430,12 +426,49 @@ public struct TrackRow: View {
         return TrackListLayoutMetrics.showsAlbumMetadataColumn(for: supplementalMetadataWidth)
     }
 
+    private var usesFixedAccessoryColumns: Bool {
+        showsArtistMetadataColumn || showsAlbumMetadataColumn
+    }
+
     private var artistMetadataColumnWidth: CGFloat {
         TrackListLayoutMetrics.artistMetadataColumnWidth(for: supplementalMetadataWidth)
     }
 
     private var albumMetadataColumnWidth: CGFloat {
         TrackListLayoutMetrics.albumMetadataColumnWidth(for: supplementalMetadataWidth)
+    }
+
+    @ViewBuilder
+    private var downloadStatusView: some View {
+        if isActivelyDownloading {
+            ProgressView()
+                .scaleEffect(TrackListLayoutMetrics.downloadIndicatorScale)
+                .frame(
+                    width: TrackListLayoutMetrics.downloadIndicatorDimension,
+                    height: TrackListLayoutMetrics.downloadIndicatorDimension
+                )
+        } else if track.isDownloaded {
+            Image(systemName: EnsembleDesign.Icon.downloaded)
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+                .frame(
+                    width: TrackListLayoutMetrics.downloadIndicatorDimension,
+                    height: TrackListLayoutMetrics.downloadIndicatorDimension
+                )
+        } else if usesFixedAccessoryColumns {
+            Color.clear
+                .frame(
+                    width: TrackListLayoutMetrics.downloadIndicatorDimension,
+                    height: TrackListLayoutMetrics.downloadIndicatorDimension
+                )
+        }
+    }
+
+    private var durationText: some View {
+        Text(track.formattedDuration)
+            .font(EnsembleDesign.Typography.stateMessage)
+            .foregroundColor(EnsembleDesign.Color.secondaryText)
+            .monospacedDigit()
     }
 
     @ViewBuilder
