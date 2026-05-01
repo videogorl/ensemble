@@ -219,10 +219,10 @@ public class TrackTableViewCell: UITableViewCell {
 
         titleTrailingToDownloadConstraint = titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -TrackListLayoutMetrics.rowTightAccessoryGap)
         subtitleTrailingToDownloadConstraint = subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -TrackListLayoutMetrics.rowTightAccessoryGap)
-        titleTrailingToArtistConstraint = titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: artistMetadataLabel.leadingAnchor, constant: -16)
-        artistTrailingToAlbumConstraint = artistMetadataLabel.trailingAnchor.constraint(lessThanOrEqualTo: albumMetadataLabel.leadingAnchor, constant: -16)
-        artistTrailingToDownloadConstraint = artistMetadataLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -16)
-        albumTrailingToDownloadConstraint = albumMetadataLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -16)
+        titleTrailingToArtistConstraint = titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: artistMetadataLabel.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing)
+        artistTrailingToAlbumConstraint = artistMetadataLabel.trailingAnchor.constraint(equalTo: albumMetadataLabel.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing)
+        artistTrailingToDownloadConstraint = artistMetadataLabel.trailingAnchor.constraint(equalTo: downloadIcon.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing)
+        albumTrailingToDownloadConstraint = albumMetadataLabel.trailingAnchor.constraint(equalTo: downloadIcon.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing)
         artistWidthConstraint = artistMetadataLabel.widthAnchor.constraint(equalToConstant: 0)
         albumWidthConstraint = albumMetadataLabel.widthAnchor.constraint(equalToConstant: 0)
         artistWidthConstraint?.isActive = true
