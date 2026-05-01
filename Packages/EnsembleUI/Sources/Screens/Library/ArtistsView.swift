@@ -88,7 +88,7 @@ public struct ArtistsView: View {
     private var rootContent: some View {
         switch presentationMode {
         case .compactRoot:
-            artistListView
+            adaptiveArtistView
         case .selectionColumn:
             artistSelectionList
         }
@@ -104,6 +104,33 @@ public struct ArtistsView: View {
         } else {
             localSelectedArtist = artist
         }
+    }
+
+    private var selectedArtistBinding: Binding<Artist?> {
+        Binding(
+            get: { selectedArtist },
+            set: { setSelectedArtist($0) }
+        )
+    }
+
+    private var adaptiveArtistView: some View {
+        LargeScreenBrowseSplitView(
+            selection: selectedArtistBinding,
+            configuration: .rootBrowse,
+            compact: {
+                artistListView
+            },
+            sidebar: {
+                artistSelectionList
+            },
+            detail: { artist in
+                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
+                    .id(artist.id)
+            },
+            placeholder: {
+                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.artist, title: "Select an Artist")
+            }
+        )
     }
 
     private var artistFilterButton: some View {

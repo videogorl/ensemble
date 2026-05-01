@@ -402,7 +402,7 @@ public struct PlaylistsView: View {
     private var rootContent: some View {
         switch presentationMode {
         case .compactRoot:
-            playlistListView
+            adaptivePlaylistView
         case .selectionColumn:
             playlistSelectionList
         }
@@ -425,6 +425,38 @@ public struct PlaylistsView: View {
         } else {
             localSelectedPlaylist = displayPlaylist
         }
+    }
+
+    private var adaptivePlaylistView: some View {
+        LargeScreenBrowseSplitView(
+            selection: selectedPlaylistBinding,
+            configuration: .rootBrowse,
+            compact: {
+                playlistListView
+            },
+            sidebar: {
+                playlistSelectionList
+            },
+            detail: { displayPlaylist in
+                if displayPlaylist.isMerged {
+                    MergedPlaylistDetailLoader(
+                        title: displayPlaylist.title,
+                        isSmart: displayPlaylist.isSmart,
+                        nowPlayingVM: nowPlayingVM
+                    )
+                    .id(displayPlaylist.id)
+                } else {
+                    PlaylistDetailView(
+                        playlist: displayPlaylist.primaryPlaylist,
+                        nowPlayingVM: nowPlayingVM
+                    )
+                    .id(displayPlaylist.id)
+                }
+            },
+            placeholder: {
+                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.playlist, title: "Select a Playlist")
+            }
+        )
     }
 
     private var playlistSelectionList: some View {

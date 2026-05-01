@@ -687,32 +687,7 @@ public struct SidebarView: View {
         case detail
     }
 
-    private enum RootBrowseKind: Hashable {
-        case artists
-        case playlists
-        case genres
-
-        var tab: TabItem {
-            switch self {
-            case .artists: return .artists
-            case .playlists: return .playlists
-            case .genres: return .genres
-            }
-        }
-
-        var debugDescription: String {
-            switch self {
-            case .artists: return "artists"
-            case .playlists: return "playlists"
-            case .genres: return "genres"
-            }
-        }
-    }
-
     @State private var selection: SidebarSelection? = .library(.home)
-    @State private var selectedBrowseArtist: Artist?
-    @State private var selectedBrowsePlaylist: DisplayPlaylist?
-    @State private var selectedBrowseGenre: Genre?
     @State private var pinnedDetailPath: [NavigationCoordinator.Destination] = []
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var compactColumnPreference: CompactColumnPreference = .sidebar
@@ -783,28 +758,6 @@ public struct SidebarView: View {
         case .playlist, .mergedPlaylist, .pin:
             return false
         }
-    }
-
-    private var activeRootBrowseKind: RootBrowseKind? {
-        guard case .library(let tab) = selection else { return nil }
-        switch tab {
-        case .artists:
-            return .artists
-        case .playlists:
-            return .playlists
-        case .genres:
-            return .genres
-        default:
-            return nil
-        }
-    }
-
-    private var usesRootBrowseSplitInSidebarDetail: Bool {
-        #if os(macOS)
-        return true
-        #else
-        return false
-        #endif
     }
 
     private func sidebarPath(for tab: TabItem) -> [NavigationCoordinator.Destination] {
@@ -1117,7 +1070,6 @@ public struct SidebarView: View {
                 // Switch sidebar to the matching section
                 let targetTab = self.targetTab(for: pending.destination)
                 self.selection = self.sidebarSelection(for: pending.destination)
-                self.prepareBrowseSelection(for: pending.destination)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                     navigationCoordinator.push(pending.destination, in: targetTab)
                 }
@@ -1410,107 +1362,21 @@ public struct SidebarView: View {
         }
     }
 
-    private var selectedBrowseArtistBinding: Binding<Artist?> {
-        Binding(
-            get: { selectedBrowseArtist },
-            set: { artist in
-                if selectedBrowseArtist?.id != artist?.id {
-                    navigationCoordinator.popToRoot(tab: .artists)
-                }
-                selectedBrowseArtist = artist
-                setCompactBrowseColumnAfterSelection(artist != nil)
-            }
-        )
-    }
-
-    private var selectedBrowsePlaylistBinding: Binding<DisplayPlaylist?> {
-        Binding(
-            get: { selectedBrowsePlaylist },
-            set: { playlist in
-                if selectedBrowsePlaylist?.id != playlist?.id {
-                    navigationCoordinator.popToRoot(tab: .playlists)
-                }
-                selectedBrowsePlaylist = playlist
-                setCompactBrowseColumnAfterSelection(playlist != nil)
-            }
-        )
-    }
-
-    private var selectedBrowseGenreBinding: Binding<Genre?> {
-        Binding(
-            get: { selectedBrowseGenre },
-            set: { genre in
-                if selectedBrowseGenre?.id != genre?.id {
-                    navigationCoordinator.popToRoot(tab: .genres)
-                }
-                selectedBrowseGenre = genre
-                setCompactBrowseColumnAfterSelection(genre != nil)
-            }
-        )
-    }
-
-    private func setCompactBrowseColumnAfterSelection(_ hasSelection: Bool) {
-        EnsembleLogger.debug("Root browse selection changed hasSelection=\(hasSelection)")
-        #if os(iOS)
-        if #available(iOS 17.0, *), hasSelection {
-            compactColumnPreference = .detail
-        }
-        #endif
-    }
-
-    private func handleRootBrowseSplitLayoutChange(_ isSplitLayout: Bool, for browseKind: RootBrowseKind) {
-        guard activeRootBrowseKind == browseKind else { return }
-        EnsembleLogger.debug(
-            "Root browse split layout changed: kind=\(browseKind.debugDescription) isSplit=\(isSplitLayout)"
-        )
-        #if os(iOS)
-        if #available(iOS 17.0, *), isSplitLayout {
-            compactColumnPreference = .sidebar
-        }
-        #endif
-    }
-
-    private func prepareBrowseSelection(for destination: NavigationCoordinator.Destination) {
-        switch destination {
-        case .artist(let id, let sourceKey):
-            selectedBrowseArtist = libraryVM.artists.first { artist in
-                artist.id == id && (sourceKey == nil || artist.sourceCompositeKey == sourceKey)
-            } ?? libraryVM.artists.first { $0.id == id }
-        case .playlist(let id, let sourceKey):
-            selectedBrowsePlaylist = playlistsVM.sortedDisplayPlaylists.first { displayPlaylist in
-                displayPlaylist.playlists.contains { playlist in
-                    playlist.id == id && (sourceKey == nil || playlist.sourceCompositeKey == sourceKey)
-                }
-            }
-        case .mergedPlaylist(let title, let isSmart):
-            selectedBrowsePlaylist = playlistsVM.sortedDisplayPlaylists.first {
-                $0.title == title && $0.isSmart == isSmart
-            }
-        case .moodTracks, .album, .view:
-            break
-        }
-    }
-
-    
     @ViewBuilder
     private var detailView: some View {
         Group {
-            if usesRootBrowseSplitInSidebarDetail, let browseKind = activeRootBrowseKind {
-                rootBrowseSectionNavigationStack(for: browseKind)
-            } else {
-                switch selection {
-                case .library(let tab):
-                    sidebarNavigationStack(for: tab)
-                case .playlist(let id, let sourceKey):
-                    playlistDetailNavigationStack(playlistID: id, sourceKey: sourceKey)
-                case .mergedPlaylist(let title, let isSmart):
-                    mergedPlaylistDetailNavigationStack(title: title, isSmart: isSmart)
-                case .pin(let id, let type):
-                    pinnedDetailNavigationStack(id: id, type: type)
-                case .none:
-                    // Fallback when nothing is selected — show Home
-                    sidebarNavigationStack(for: .home)
-                }
+            switch selection {
+            case .library(let tab):
+                sidebarNavigationStack(for: tab)
+            case .playlist(let id, let sourceKey):
+                playlistDetailNavigationStack(playlistID: id, sourceKey: sourceKey)
+            case .mergedPlaylist(let title, let isSmart):
+                mergedPlaylistDetailNavigationStack(title: title, isSmart: isSmart)
+            case .pin(let id, let type):
+                pinnedDetailNavigationStack(id: id, type: type)
+            case .none:
+                // Fallback when nothing is selected — show Home
+                sidebarNavigationStack(for: .home)
             }
         }
         .auroraBackgroundSupport()
@@ -1665,192 +1531,6 @@ public struct SidebarView: View {
                     priority: priority
                 )
             )
-        }
-    }
-
-    @ViewBuilder
-    private func rootBrowseContentColumn(for browseKind: RootBrowseKind) -> some View {
-        switch browseKind {
-        case .artists:
-            ArtistsView(
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                presentationMode: .selectionColumn,
-                selectedArtist: selectedBrowseArtistBinding
-            )
-        case .playlists:
-            PlaylistsView(
-                nowPlayingVM: nowPlayingVM,
-                viewModel: playlistsVM,
-                presentationMode: .selectionColumn,
-                selectedPlaylist: selectedBrowsePlaylistBinding
-            )
-        case .genres:
-            GenresView(
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                presentationMode: .selectionColumn,
-                selectedGenre: selectedBrowseGenreBinding
-            )
-        }
-    }
-
-    @ViewBuilder
-    private func rootBrowseDetailRoot(for browseKind: RootBrowseKind) -> some View {
-        switch browseKind {
-        case .artists:
-            if let artist = selectedBrowseArtist {
-                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
-                    .id(artist.id)
-            } else {
-                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.artist, title: "Select an Artist")
-            }
-        case .playlists:
-            if let displayPlaylist = selectedBrowsePlaylist {
-                if displayPlaylist.isMerged {
-                    MergedPlaylistDetailLoader(
-                        title: displayPlaylist.title,
-                        isSmart: displayPlaylist.isSmart,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                    .id(displayPlaylist.id)
-                } else {
-                    PlaylistDetailView(
-                        playlist: displayPlaylist.primaryPlaylist,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                    .id(displayPlaylist.id)
-                }
-            } else {
-                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.playlist, title: "Select a Playlist")
-            }
-        case .genres:
-            if let genre = selectedBrowseGenre {
-                GenreDetailContentView(libraryVM: libraryVM, genre: genre, nowPlayingVM: nowPlayingVM)
-                    .id(genre.id)
-            } else {
-                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.genreEmpty, title: "Select a Genre")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func rootBrowseSectionNavigationStack(for browseKind: RootBrowseKind) -> some View {
-        detailColumnNavigationHost {
-            NavigationStack(path: sidebarPathBinding(for: browseKind.tab)) {
-                detailChromeRegistrationHost {
-                    rootBrowseSectionHost(for: browseKind)
-                }
-                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                    detailChromeRegistrationHost(
-                        priority: max(sidebarPath(for: browseKind.tab).count, 1)
-                    ) {
-                        destinationView(for: destination)
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func rootBrowseSectionHost(for browseKind: RootBrowseKind) -> some View {
-        switch browseKind {
-        case .artists:
-            LargeScreenBrowseSplitView(
-                selection: selectedBrowseArtistBinding,
-                configuration: .rootBrowse,
-                compact: {
-                    rootBrowseCompactHost(for: browseKind)
-                },
-                sidebar: {
-                    rootBrowseContentColumn(for: browseKind)
-                },
-                detail: { _ in
-                    rootBrowseDetailRoot(for: browseKind)
-                },
-                placeholder: {
-                    rootBrowsePlaceholder(for: browseKind)
-                },
-                onLayoutModeChange: { isSplitLayout in
-                    handleRootBrowseSplitLayoutChange(isSplitLayout, for: browseKind)
-                }
-            )
-        case .playlists:
-            LargeScreenBrowseSplitView(
-                selection: selectedBrowsePlaylistBinding,
-                configuration: .rootBrowse,
-                compact: {
-                    rootBrowseCompactHost(for: browseKind)
-                },
-                sidebar: {
-                    rootBrowseContentColumn(for: browseKind)
-                },
-                detail: { _ in
-                    rootBrowseDetailRoot(for: browseKind)
-                },
-                placeholder: {
-                    rootBrowsePlaceholder(for: browseKind)
-                },
-                onLayoutModeChange: { isSplitLayout in
-                    handleRootBrowseSplitLayoutChange(isSplitLayout, for: browseKind)
-                }
-            )
-        case .genres:
-            LargeScreenBrowseSplitView(
-                selection: selectedBrowseGenreBinding,
-                configuration: .rootBrowse,
-                compact: {
-                    rootBrowseCompactHost(for: browseKind)
-                },
-                sidebar: {
-                    rootBrowseContentColumn(for: browseKind)
-                },
-                detail: { _ in
-                    rootBrowseDetailRoot(for: browseKind)
-                },
-                placeholder: {
-                    rootBrowsePlaceholder(for: browseKind)
-                },
-                onLayoutModeChange: { isSplitLayout in
-                    handleRootBrowseSplitLayoutChange(isSplitLayout, for: browseKind)
-                }
-            )
-        }
-    }
-
-    @ViewBuilder
-    private func rootBrowseCompactHost(for browseKind: RootBrowseKind) -> some View {
-        switch browseKind {
-        case .artists:
-            if selectedBrowseArtist == nil {
-                rootBrowseContentColumn(for: browseKind)
-            } else {
-                rootBrowseDetailRoot(for: browseKind)
-            }
-        case .playlists:
-            if selectedBrowsePlaylist == nil {
-                rootBrowseContentColumn(for: browseKind)
-            } else {
-                rootBrowseDetailRoot(for: browseKind)
-            }
-        case .genres:
-            if selectedBrowseGenre == nil {
-                rootBrowseContentColumn(for: browseKind)
-            } else {
-                rootBrowseDetailRoot(for: browseKind)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func rootBrowsePlaceholder(for browseKind: RootBrowseKind) -> some View {
-        switch browseKind {
-        case .artists:
-            LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.artist, title: "Select an Artist")
-        case .playlists:
-            LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.playlist, title: "Select a Playlist")
-        case .genres:
-            LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.genreEmpty, title: "Select a Genre")
         }
     }
 
