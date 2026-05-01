@@ -21,6 +21,81 @@ public struct PlaylistPickerSheet: View {
     }
 
     public var body: some View {
+        platformBody
+            .task {
+                if inferredServerSourceKey == nil {
+                    inferredServerSourceKey = await nowPlayingVM.resolveDefaultPlaylistServerSourceKey(for: tracks)
+                }
+                await loadPlaylists()
+            }
+            .overlay {
+                if isSubmitting {
+                    ZStack {
+                        EnsembleDesign.Color.modalProgressScrim
+                            .ignoresSafeArea()
+                        ProgressView("Updating playlist...")
+                            .padding(TrackListLayoutMetrics.rowInterItemSpacing)
+                            .ensembleMaterial(.sheet, cornerRadius: EnsembleDesign.Radius.control)
+                    }
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var platformBody: some View {
+        #if os(macOS)
+        macOSBody
+        #else
+        navigationBody
+        #endif
+    }
+
+    #if os(macOS)
+    private var macOSBody: some View {
+        DesktopSheetScaffold(
+            title: title,
+            minWidth: 520,
+            minHeight: 520
+        ) {
+            VStack(spacing: EnsembleDesign.Spacing.none) {
+                macOSSearchField
+                    .padding(.horizontal, EnsembleDesign.Spacing.xl)
+                    .padding(.vertical, EnsembleDesign.Spacing.md)
+
+                Divider()
+
+                playlistList
+                    .listStyle(.inset)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        } footer: {
+            Button("Close") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+        }
+    }
+
+    private var macOSSearchField: some View {
+        HStack(spacing: EnsembleDesign.Spacing.sm) {
+            Image(systemName: EnsembleDesign.Icon.search)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+
+            TextField("Find or create playlist", text: $searchText)
+                .textFieldStyle(.plain)
+        }
+        .padding(.horizontal, EnsembleDesign.Spacing.md)
+        .padding(.vertical, EnsembleDesign.Spacing.sm)
+        .background(
+            Capsule()
+                .fill(EnsembleDesign.Material.Role.sheet.fallbackBackgroundColor)
+        )
+        .overlay(
+            Capsule()
+                .stroke(EnsembleDesign.Color.divider.opacity(0.7), lineWidth: 1)
+        )
+    }
+    #endif
+
+    private var navigationBody: some View {
         Group {
             if #available(iOS 16.0, macOS 13.0, *) {
                 NavigationStack { listContent }
@@ -35,6 +110,17 @@ public struct PlaylistPickerSheet: View {
 
     // Extracted so both NavigationStack and NavigationView share the same content
     private var listContent: some View {
+        playlistList
+            .searchable(text: $searchText, prompt: "Find or create playlist")
+            .navigationTitle(title)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
+    }
+
+    private var playlistList: some View {
         List {
             Section("Playlists") {
                 if isLoading {
@@ -47,30 +133,7 @@ public struct PlaylistPickerSheet: View {
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 } else {
                     ForEach(filteredPlaylists) { playlist in
-                        Button {
-                            addToPlaylist(playlist)
-                        } label: {
-                            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                                ArtworkView(
-                                    playlist: playlist,
-                                    size: .tiny,
-                                    cornerRadius: ArtworkCornerRadius.square(for: .tiny)
-                                )
-
-                                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
-                                    Text(playlist.title)
-                                    Text("\(playlist.trackCount) songs")
-                                        .font(EnsembleDesign.Typography.rowSecondary)
-                                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                                }
-
-                                Spacer()
-                            }
-                        }
-                        .disabled(
-                            isSubmitting ||
-                            nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0
-                        )
+                        playlistRow(for: playlist)
                     }
                 }
             }
@@ -90,30 +153,33 @@ public struct PlaylistPickerSheet: View {
                 }
             }
         }
-        .searchable(text: $searchText, prompt: "Find or create playlist")
-        .navigationTitle(title)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Close") { dismiss() }
-            }
-        }
-        .task {
-            if inferredServerSourceKey == nil {
-                inferredServerSourceKey = await nowPlayingVM.resolveDefaultPlaylistServerSourceKey(for: tracks)
-            }
-            await loadPlaylists()
-        }
-        .overlay {
-            if isSubmitting {
-                ZStack {
-                    EnsembleDesign.Color.modalProgressScrim
-                        .ignoresSafeArea()
-                    ProgressView("Updating playlist...")
-                        .padding(TrackListLayoutMetrics.rowInterItemSpacing)
-                        .ensembleMaterial(.sheet, cornerRadius: EnsembleDesign.Radius.control)
+    }
+
+    private func playlistRow(for playlist: Playlist) -> some View {
+        Button {
+            addToPlaylist(playlist)
+        } label: {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                ArtworkView(
+                    playlist: playlist,
+                    size: .tiny,
+                    cornerRadius: ArtworkCornerRadius.square(for: .tiny)
+                )
+
+                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
+                    Text(playlist.title)
+                    Text("\(playlist.trackCount) songs")
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
+
+                Spacer()
             }
         }
+        .disabled(
+            isSubmitting ||
+            nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0
+        )
     }
 
     private var filteredPlaylists: [Playlist] {
