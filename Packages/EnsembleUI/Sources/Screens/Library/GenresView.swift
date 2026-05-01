@@ -191,20 +191,16 @@ struct GenreDetailContentView: View {
             if tracks.isEmpty {
                 LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.musicNote, title: "No Songs")
             } else {
-                List {
-                    ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
-                        TrackRow(
-                            track: track,
-                            showArtwork: true,
-                            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
-                            supplementalMetadataWidth: trackListSupplementalMetadataWidth
-                        ) {
-                            nowPlayingVM.play(tracks: tracks, startingAt: index)
-                        }
-                        .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
-                    }
+                SongsTrackListHost(
+                    tracks: tracks,
+                    configuration: .songs(
+                        currentTrackId: nowPlayingVM.currentTrack?.id,
+                        supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+                        interactionModel: TrackRowInteractionModel()
+                    )
+                ) { _, index in
+                    nowPlayingVM.play(tracks: tracks, startingAt: index)
                 }
-                .listStyle(.plain)
                 .background(trackListSupplementalMetadataWidthReader)
             }
         }

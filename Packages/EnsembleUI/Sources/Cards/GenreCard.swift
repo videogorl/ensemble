@@ -31,12 +31,7 @@ public struct GenreCard: View {
             }
             .frame(width: ArtworkSize.thumbnail.cgSize.width, height: ArtworkSize.thumbnail.cgSize.width)
             .cornerRadius(ArtworkCornerRadius.square(for: ArtworkSize.thumbnail))
-            .shadow(
-                color: EnsembleDesign.Effect.cardShadowColor,
-                radius: EnsembleDesign.Effect.cardShadowRadius,
-                x: EnsembleDesign.Effect.shadowX,
-                y: EnsembleDesign.Effect.cardShadowY
-            )
+            .ensembleCardShadow()
             
             // Genre name
             Text(genre.title)

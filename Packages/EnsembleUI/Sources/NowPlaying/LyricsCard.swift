@@ -410,12 +410,7 @@ public struct LyricsCard: View {
             }
         }
         .chromelessMediaControlButton()
-        .shadow(
-            color: EnsembleScaffold.NowPlaying.Shadow.controlColor,
-            radius: EnsembleScaffold.NowPlaying.Shadow.controlRadius,
-            x: EnsembleScaffold.NowPlaying.Shadow.controlX,
-            y: EnsembleScaffold.NowPlaying.Shadow.controlY
-        )
+        .ensembleStandardShadow()
     }
 
     // MARK: - Helpers

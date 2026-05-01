@@ -339,12 +339,7 @@ struct HubItemCard: View {
                 isResponsive: true
             )
             .frame(width: artworkDimension, height: artworkDimension)
-            .shadow(
-                color: EnsembleDesign.Effect.cardShadowColor,
-                radius: EnsembleDesign.Effect.cardShadowRadius,
-                x: EnsembleDesign.Effect.shadowX,
-                y: EnsembleScaffold.MediaCard.hubShadowY
-            )
+            .ensembleCardShadow()
             
             // Text content
             VStack(alignment: isArtist ? .center : .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {

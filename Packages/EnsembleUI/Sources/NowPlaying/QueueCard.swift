@@ -434,12 +434,7 @@ public struct QueueCard: View {
             .opacity(!deps.networkMonitor.isConnected ? EnsembleScaffold.NowPlaying.offlineControlOpacity : 1.0)
         }
         .chromelessMediaControlButton()
-        .shadow(
-            color: EnsembleScaffold.NowPlaying.Shadow.controlColor,
-            radius: EnsembleScaffold.NowPlaying.Shadow.controlRadius,
-            x: EnsembleScaffold.NowPlaying.Shadow.controlX,
-            y: EnsembleScaffold.NowPlaying.Shadow.controlY
-        )
+        .ensembleStandardShadow()
     }
     
     private var autoplayIcon: String {

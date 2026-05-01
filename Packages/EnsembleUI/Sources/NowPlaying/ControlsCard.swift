@@ -109,12 +109,7 @@ public struct ControlsCard: View {
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
                 .contrast(1.1)
-                .shadow(
-                    color: EnsembleScaffold.NowPlaying.Shadow.artworkColor,
-                    radius: EnsembleScaffold.NowPlaying.Shadow.artworkRadius,
-                    x: EnsembleScaffold.NowPlaying.Shadow.controlX,
-                    y: EnsembleScaffold.NowPlaying.Shadow.artworkY
-                )
+                .ensembleStandardShadow()
                 .ifLet(namespace, animationID) { view, ns, id in
                     view.matchedGeometryEffect(id: id, in: ns)
                 }
@@ -169,12 +164,7 @@ public struct ControlsCard: View {
                         .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.emptyArtworkIconOpacity))
                 )
                 .frame(width: artworkSize, height: artworkSize)
-                .shadow(
-                    color: EnsembleScaffold.NowPlaying.Shadow.emptyArtworkColor,
-                    radius: EnsembleScaffold.NowPlaying.Shadow.artworkRadius,
-                    x: EnsembleScaffold.NowPlaying.Shadow.controlX,
-                    y: EnsembleScaffold.NowPlaying.Shadow.artworkY
-                )
+                .ensembleStandardShadow()
                 .padding(.top, EnsembleScaffold.NowPlaying.emptyVerticalPadding)
                 .padding(.bottom, EnsembleScaffold.NowPlaying.emptyVerticalPadding + EnsembleDesign.Spacing.xl)
             

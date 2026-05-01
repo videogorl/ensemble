@@ -86,12 +86,7 @@ struct LibraryDownloadDetailView: View {
                 )
                 .background(EnsembleDesign.Color.groupedSurface)
                 .clipShape(RoundedRectangle(cornerRadius: EnsembleDesign.Radius.card, style: .continuous))
-                .shadow(
-                    color: EnsembleScaffold.DownloadDetail.headerIconShadowColor,
-                    radius: EnsembleScaffold.DownloadDetail.headerIconShadowRadius,
-                    x: EnsembleDesign.Effect.shadowX,
-                    y: EnsembleScaffold.DownloadDetail.headerIconShadowY
-                )
+                .ensembleCardShadow()
 
             VStack(spacing: EnsembleScaffold.DownloadDetail.metadataSpacing) {
                 Text(viewModel.title)

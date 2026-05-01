@@ -570,12 +570,7 @@ public struct ArtistDetailView: View {
                 height: EnsembleScaffold.ArtistDetail.wideArtworkDimension
             )
             .clipShape(Circle())
-            .shadow(
-                color: EnsembleScaffold.ArtistDetail.wideArtworkShadowColor,
-                radius: EnsembleScaffold.ArtistDetail.wideArtworkShadowRadius,
-                x: EnsembleDesign.Effect.shadowX,
-                y: EnsembleScaffold.ArtistDetail.wideArtworkShadowY
-            )
+            .ensembleArtworkShadow()
 
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
                 Text(viewModel.artist.name)
