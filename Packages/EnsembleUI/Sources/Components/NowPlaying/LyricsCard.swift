@@ -39,7 +39,7 @@ public struct LyricsCard: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
             // Pinned header
             headerView
                 .padding(.top, EnsembleScaffold.NowPlaying.headerTopPadding)
@@ -504,7 +504,7 @@ public struct LyricsCard: View {
 
     /// Fade mask matching QueueCard style — gradual top and bottom fades
     private var fadeMask: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
             // Top fade (gradual)
             LinearGradient(
                 gradient: Gradient(stops: [

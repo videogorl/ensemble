@@ -28,7 +28,7 @@ public struct InfoCard: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
             // Pinned header
             headerView
                 .padding(.top, EnsembleScaffold.NowPlaying.headerTopPadding)
@@ -92,7 +92,7 @@ public struct InfoCard: View {
 
     private var contentView: some View {
         ScrollView {
-            VStack(spacing: 0) {
+            VStack(spacing: EnsembleDesign.Spacing.none) {
                 // Track metadata section
                 trackMetadataSection
 
@@ -675,7 +675,7 @@ public struct InfoCard: View {
 
     /// Fade mask for top and bottom of scrollable content
     private var fadeMask: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
             // Top fade
             LinearGradient(
                 gradient: Gradient(stops: [

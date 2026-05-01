@@ -40,7 +40,7 @@ public struct NowPlayingSheetView: View {
             ZStack {
                 backgroundView
 
-                VStack(spacing: 0) {
+                VStack(spacing: EnsembleDesign.Spacing.none) {
                     dismissPill
                         .padding(.top, EnsembleScaffold.NowPlaying.dismissPillTopPadding)
                         .padding(.bottom, EnsembleDesign.Spacing.sm)

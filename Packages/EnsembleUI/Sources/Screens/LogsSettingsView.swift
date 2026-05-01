@@ -53,9 +53,7 @@ public struct LogsSettingsView: View {
                     }
                 }
             } header: {
-                Text("Sessions")
-                    .foregroundColor(EnsembleDesign.Color.accent)
-                    .textCase(nil)
+                EnsembleUtilitySectionHeader("Sessions")
             }
 
             // Delete All button (only when sessions exist)

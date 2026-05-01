@@ -172,7 +172,7 @@ private struct EditTabsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
+            VStack(spacing: EnsembleDesign.Spacing.none) {
                 // Instructions
                 Text("Drag items between sections to customize your tab bar. Tap available items to add them.")
                     .font(EnsembleDesign.Typography.rowSecondary)
@@ -200,12 +200,12 @@ private struct EditTabsView: View {
     // MARK: - Tab Bar Section
 
     private var tabBarSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
             sectionHeaderText("TAB BAR ITEMS")
 
-            VStack(spacing: 0) {
+            VStack(spacing: EnsembleDesign.Spacing.none) {
                 ForEach(Array(settingsManager.enabledTabs.enumerated()), id: \.element) { index, tab in
-                    VStack(spacing: 0) {
+                    VStack(spacing: EnsembleDesign.Spacing.none) {
                         // Insertion indicator before this row
                         if dropTargetSection == .tabBar && dropTargetIndex == index {
                             insertionIndicator
@@ -252,7 +252,7 @@ private struct EditTabsView: View {
     // MARK: - Available Section
 
     private var availableSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
             sectionHeaderText("AVAILABLE ITEMS")
 
             if availableTabs.isEmpty {
@@ -270,9 +270,9 @@ private struct EditTabsView: View {
                         dropTargetSection: $dropTargetSection
                     ))
             } else {
-                VStack(spacing: 0) {
+                VStack(spacing: EnsembleDesign.Spacing.none) {
                     ForEach(Array(availableTabs.enumerated()), id: \.element) { index, tab in
-                        VStack(spacing: 0) {
+                        VStack(spacing: EnsembleDesign.Spacing.none) {
                             if index > 0 {
                                 Divider().padding(.leading, EnsembleScaffold.TabEditor.dividerLeadingPadding)
                             }
@@ -323,7 +323,7 @@ private struct EditTabsView: View {
 
     /// Visual indicator showing where a dragged item will be inserted
     private var insertionIndicator: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: EnsembleDesign.Spacing.none) {
             Circle()
                 .fill(EnsembleDesign.Color.accent)
                 .frame(

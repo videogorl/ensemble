@@ -28,7 +28,7 @@ public struct DesktopSheetScaffold<Content: View, Footer: View>: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: EnsembleDesign.Spacing.none) {
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.chipVertical) {
                 Text(title)
                     .font(EnsembleDesign.Typography.sectionTitle)

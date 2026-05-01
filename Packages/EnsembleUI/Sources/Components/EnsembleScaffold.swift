@@ -71,6 +71,7 @@ public enum EnsembleScaffold {
         public static let fadeWidth = EnsembleDesign.Spacing.xxl
         public static let fallbackLineHeight = EnsembleDesign.Spacing.xxl
         public static let preferredLineHeightMultiplier: CGFloat = 1.5
+        public static let measurementOpacity = EnsembleDesign.Spacing.none
     }
 
     public enum Waveform {

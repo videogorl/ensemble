@@ -163,7 +163,7 @@ public struct MainTabView: View {
             let stageFlowFallbackImmersive = shouldForceStageFlowImmersive(for: geometry.size)
             let rootChromeSuppressed = isRootChromeSuppressed || stageFlowFallbackImmersive
 
-            let rootView = VStack(spacing: 0) {
+            let rootView = VStack(spacing: EnsembleDesign.Spacing.none) {
                 tabBarVisibility(
                     TabView(selection: tabBinding) {
                         ForEach(barTabs) { tab in

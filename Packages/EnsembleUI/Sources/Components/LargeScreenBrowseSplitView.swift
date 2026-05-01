@@ -80,7 +80,7 @@ public struct LargeScreenBrowseSplitView<
 
     private func swiftUISplitLayout(for size: CGSize) -> some View {
         let currentSidebarWidth = resolvedSidebarWidth(for: size)
-        return HStack(spacing: 0) {
+        return HStack(spacing: EnsembleDesign.Spacing.none) {
             sidebar
                 .frame(width: currentSidebarWidth)
                 .frame(maxHeight: .infinity)

@@ -88,7 +88,7 @@ public struct LogDetailView: View {
     private var logContentView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                     // "Load earlier" button when there are more lines above
                     if hasMoreLines {
                         Button {

@@ -46,11 +46,11 @@ public struct ProfileView: View {
                 NavigationLink {
                     SyncSettingsView()
                 } label: {
-                    Label {
-                        Text("iCloud Sync")
-                    } icon: {
-                        Image(systemName: EnsembleDesign.Icon.cloud)
-                    }
+                    EnsembleUtilityRowLabel(
+                        iconSystemName: EnsembleDesign.Icon.cloud,
+                        title: "iCloud Sync",
+                        iconColor: EnsembleDesign.Color.primaryText
+                    )
                 }
             }
 
@@ -370,8 +370,11 @@ public struct ProfileView: View {
     private var aboutSection: some View {
         Section(header: EnsembleUtilitySectionHeader("About")) {
             HStack {
-                EnsembleUtilityIcon(EnsembleDesign.Icon.info, color: EnsembleDesign.Color.primaryText)
-                Text("Version")
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.info,
+                    title: "Version",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
                 Spacer()
                 Text(Bundle.main.appVersion)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
@@ -379,8 +382,11 @@ public struct ProfileView: View {
 
             Link(destination: Self.supportURL) {
                 HStack {
-                    EnsembleUtilityIcon(EnsembleDesign.Icon.help, color: EnsembleDesign.Color.primaryText)
-                    Text("Help & Support")
+                    EnsembleUtilityRowLabel(
+                        iconSystemName: EnsembleDesign.Icon.help,
+                        title: "Help & Support",
+                        iconColor: EnsembleDesign.Color.primaryText
+                    )
                     Spacer()
                     Image(systemName: EnsembleDesign.Icon.externalLinkSquare)
                         .font(EnsembleDesign.Typography.rowSecondary)

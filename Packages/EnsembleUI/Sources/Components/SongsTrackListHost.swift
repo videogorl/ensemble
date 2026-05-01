@@ -106,7 +106,7 @@ public struct SongsTrackListHost: View {
                 ScrollViewReader { proxy in
                     ZStack(alignment: .trailing) {
                         ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 0) {
+                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                 ForEach(sections) { section in
                                     iOSSection(section, allTracks: allTracks)
                                 }
@@ -145,7 +145,7 @@ public struct SongsTrackListHost: View {
     ) -> some View {
         let height = CGFloat(section.tracks.count) * TrackListLayoutMetrics.defaultRowHeight
 
-        return VStack(alignment: .leading, spacing: 0) {
+        return VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
             sectionHeader(section.title)
 
             MediaTrackList(

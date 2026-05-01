@@ -29,7 +29,7 @@ public struct MarqueeText: View {
             .font(font)
             .fontWeight(fontWeight)
             .lineLimit(1)
-            .opacity(0)
+            .opacity(EnsembleScaffold.Marquee.measurementOpacity)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 GeometryReader { geometry in
@@ -52,7 +52,7 @@ public struct MarqueeText: View {
                     .background(GeometryReader { proxy in
                         Color.clear.onAppear { self.textWidth = proxy.size.width }
                     })
-                    .opacity(0)
+                    .opacity(EnsembleScaffold.Marquee.measurementOpacity)
             )
             .overlay(
                 ZStack(alignment: .leading) {
@@ -88,7 +88,7 @@ public struct MarqueeText: View {
                 }
                 .frame(width: containerWidth > 0 ? containerWidth : nil, alignment: .leading)
                 .mask(
-                    HStack(spacing: 0) {
+                    HStack(spacing: EnsembleDesign.Spacing.none) {
                         if textWidth > containerWidth {
                             // Left fade - appears quickly when scrolling starts
                             LinearGradient(
