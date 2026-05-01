@@ -99,8 +99,8 @@ public struct ControlsCard: View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
             // Dynamic artwork sizing for small screens
             let maxWidth = geometry.size.width - EnsembleScaffold.NowPlaying.emptyIconSize
-            let maxHeight = geometry.size.height * 0.4
-            let artworkSize = min(maxWidth, maxHeight, 400)
+            let maxHeight = geometry.size.height * EnsembleScaffold.NowPlaying.artworkMaxHeightRatio
+            let artworkSize = min(maxWidth, maxHeight, EnsembleScaffold.NowPlaying.artworkMaxDimension)
             let artworkCornerRadius = ArtworkCornerRadius.square(for: artworkSize)
 
             // Artwork
@@ -119,7 +119,7 @@ public struct ControlsCard: View {
                     view.matchedGeometryEffect(id: id, in: ns)
                 }
                 .padding(.top, EnsembleScaffold.NowPlaying.cardBottomPadding)
-                .padding(.bottom, geometry.size.height > 700
+                .padding(.bottom, geometry.size.height > EnsembleScaffold.NowPlaying.spaciousHeightThreshold
                     ? EnsembleScaffold.NowPlaying.emptyVerticalPadding
                     : EnsembleScaffold.NowPlaying.cardBottomPadding
                 )
@@ -131,14 +131,14 @@ public struct ControlsCard: View {
             // Track metadata
             trackMetadataView(track: track)
                 .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
-                .padding(.top, geometry.size.height > 700
+                .padding(.top, geometry.size.height > EnsembleScaffold.NowPlaying.spaciousHeightThreshold
                     ? EnsembleScaffold.NowPlaying.sectionTopPadding
                     : EnsembleScaffold.NowPlaying.compactSectionTopPadding
                 )
 
             // Primary playback controls
             controlsView
-                .padding(.top, geometry.size.height > 700
+                .padding(.top, geometry.size.height > EnsembleScaffold.NowPlaying.spaciousHeightThreshold
                     ? EnsembleDesign.Spacing.xxl
                     : EnsembleScaffold.NowPlaying.sectionTopPadding
                 )
@@ -157,8 +157,8 @@ public struct ControlsCard: View {
     private func emptyStateView(geometry: GeometryProxy) -> some View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
             let maxWidth = geometry.size.width - EnsembleScaffold.NowPlaying.emptyIconSize
-            let maxHeight = geometry.size.height * 0.4
-            let artworkSize = min(maxWidth, maxHeight, 400)
+            let maxHeight = geometry.size.height * EnsembleScaffold.NowPlaying.artworkMaxHeightRatio
+            let artworkSize = min(maxWidth, maxHeight, EnsembleScaffold.NowPlaying.artworkMaxDimension)
             let artworkCornerRadius = ArtworkCornerRadius.square(for: artworkSize)
             
             RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous)

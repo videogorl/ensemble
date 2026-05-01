@@ -423,6 +423,9 @@ public enum EnsembleScaffold {
         public static let viewportNarrowTrailingPadding = EnsembleDesign.Spacing.sm
         public static let sectionTopPadding = EnsembleDesign.Spacing.lg
         public static let compactSectionTopPadding = EnsembleDesign.Spacing.sm
+        public static let spaciousHeightThreshold: CGFloat = 700
+        public static let artworkMaxHeightRatio: CGFloat = 0.4
+        public static let artworkMaxDimension: CGFloat = 400
         public static let secondaryControlsSpacing: CGFloat = 30
         public static let transportControlsSpacing: CGFloat = 40
         public static let primaryControlsSpacing: CGFloat = 50
