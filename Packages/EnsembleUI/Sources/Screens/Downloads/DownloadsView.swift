@@ -16,7 +16,7 @@ public struct DownloadsView: View {
 
     public var body: some View {
         ZStack {
-            downloadListView
+            downloadContentView
 
             if viewModel.isLoading && viewModel.items.isEmpty {
                 loadingOverlay
@@ -61,6 +61,15 @@ public struct DownloadsView: View {
         .refreshCommand("Refresh Downloads") {
             await viewModel.refresh()
         }
+    }
+
+    @ViewBuilder
+    private var downloadContentView: some View {
+        #if os(macOS)
+        macOSDownloadContent
+        #else
+        downloadListView
+        #endif
     }
 
     private var downloadListView: some View {
@@ -121,6 +130,153 @@ public struct DownloadsView: View {
         #endif
         .miniPlayerBottomSpacing()
     }
+
+    #if os(macOS)
+    private var macOSDownloadContent: some View {
+        EnsembleUtilityScreenScaffold {
+            if !viewModel.librarySummaries.isEmpty {
+                EnsembleUtilityCardSection(
+                    "Libraries",
+                    footer: "Toggle to enable entire libraries for offline playback. Open a row to see downloaded tracks."
+                ) {
+                    ForEach(viewModel.librarySummaries) { library in
+                        macOSLibraryRow(for: library)
+                    }
+                }
+            }
+
+            if viewModel.pendingMutationCount > 0 {
+                EnsembleUtilityCardSection {
+                    macNavigationRow {
+                        PendingMutationsView()
+                    } label: {
+                        PendingChangesRow(count: viewModel.pendingMutationCount)
+                    }
+                }
+            }
+
+            EnsembleUtilityCardSection(
+                "Items",
+                footer: "Playlists, albums, and artists selected for offline are listed here."
+            ) {
+                if viewModel.items.isEmpty {
+                    EnsembleUtilityCardRow {
+                        Text("No offline items selected")
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    }
+                } else {
+                    ForEach(viewModel.items) { item in
+                        if let progress = viewModel.removalInProgress[item.key] {
+                            EnsembleUtilityCardRow {
+                                RemovalProgressRow(progress: progress)
+                            }
+                        } else {
+                            macOSTargetRow(for: item)
+                        }
+                    }
+                }
+            }
+        }
+        .miniPlayerBottomSpacing()
+    }
+
+    private func macOSLibraryRow(for library: LibraryDownloadSummary) -> some View {
+        EnsembleUtilityCardRow {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                NavigationLink {
+                    LibraryDownloadDetailView(
+                        sourceCompositeKey: library.sourceCompositeKey,
+                        title: "\(library.serverName): \(library.libraryName)",
+                        nowPlayingVM: nowPlayingVM
+                    )
+                } label: {
+                    HStack {
+                        libraryRowLabel(for: library)
+                        Spacer()
+                        macChevron
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { viewModel.isLibraryEnabled(sourceCompositeKey: library.sourceCompositeKey) },
+                        set: { enabled in
+                            Task {
+                                await viewModel.setLibraryEnabled(
+                                    sourceCompositeKey: library.sourceCompositeKey,
+                                    title: library.libraryName,
+                                    isEnabled: enabled
+                                )
+                            }
+                        }
+                    )
+                )
+                .labelsHidden()
+                .disabled(viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func macOSTargetRow(for item: DownloadedItemSummary) -> some View {
+        EnsembleUtilityCardRow {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                if isTargetNavigable(item) {
+                    NavigationLink {
+                        destinationView(for: item)
+                    } label: {
+                        HStack {
+                            DownloadedItemRow(item: item)
+                            Spacer()
+                            macChevron
+                        }
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    DownloadedItemRow(item: item)
+                }
+
+                Button(role: .destructive) {
+                    Task {
+                        await viewModel.removeDownloadTarget(key: item.key)
+                    }
+                } label: {
+                    Image(systemName: EnsembleDesign.Icon.delete)
+                        .foregroundColor(EnsembleDesign.Color.destructive)
+                }
+                .buttonStyle(.plain)
+                .help("Remove download")
+            }
+        }
+    }
+
+    private func macNavigationRow<Destination: View, LabelContent: View>(
+        @ViewBuilder destination: () -> Destination,
+        @ViewBuilder label: () -> LabelContent
+    ) -> some View {
+        NavigationLink {
+            destination()
+        } label: {
+            EnsembleUtilityCardRow {
+                HStack {
+                    label()
+                    Spacer()
+                    macChevron
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var macChevron: some View {
+        Image(systemName: EnsembleDesign.Icon.chevronRight)
+            .font(EnsembleDesign.Typography.rowSecondary.weight(.semibold))
+            .foregroundColor(EnsembleDesign.Color.secondaryText.opacity(EnsembleScaffold.UtilityRow.chevronSubtleOpacity))
+            .frame(width: EnsembleScaffold.UtilityRow.chevronLaneWidth, alignment: .trailing)
+    }
+    #endif
 
     // MARK: - Library Row
 

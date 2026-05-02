@@ -275,48 +275,38 @@ public struct SongsView: View {
             if libraryVM.trackSortOption == .title {
                 #if os(iOS)
                 // Indexed mode: ScrollView + LazyVStack for section headers + scroll index
-                ScrollViewReader { proxy in
-                    ZStack(alignment: .trailing) {
-                        ScrollView {
-                            GenreChipBar(
-                                availableGenres: libraryVM.availableTrackGenres,
-                                selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
-                                excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
-                            )
-                            indexedTrackListContent
-                        }
-                        .miniPlayerBottomSpacing()
+                VStack(spacing: EnsembleDesign.Spacing.none) {
+                    songsGenreChipBar
 
-                        if !libraryVM.filteredTracks.isEmpty && ScrollIndex.isVisible(forContainerWidth: width) {
-                            ScrollIndex(
-                                letters: libraryVM.trackSections.map { $0.letter },
-                                currentLetter: .constant(nil),
-                                onLetterTap: { letter in
-                                    proxy.scrollTo(letter, anchor: .top)
-                                }
-                            )
-                            .libraryScrollIndexPositioning()
+                    ScrollViewReader { proxy in
+                        ZStack(alignment: .trailing) {
+                            ScrollView {
+                                indexedTrackListContent
+                            }
+                            .miniPlayerBottomSpacing()
+
+                            if !libraryVM.filteredTracks.isEmpty && ScrollIndex.isVisible(forContainerWidth: width) {
+                                ScrollIndex(
+                                    letters: libraryVM.trackSections.map { $0.letter },
+                                    currentLetter: .constant(nil),
+                                    onLetterTap: { letter in
+                                        proxy.scrollTo(letter, anchor: .top)
+                                    }
+                                )
+                                .libraryScrollIndexPositioning(.centered)
+                            }
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 #else
                 // macOS indexed mode: List with Section headers + native swipe actions
-                ScrollViewReader { proxy in
-                    ZStack(alignment: .trailing) {
-                        List {
-                            // Genre chip bar as a non-interactive header section
-                            Section {
-                                GenreChipBar(
-                                    availableGenres: libraryVM.availableTrackGenres,
-                                    selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
-                                    excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
-                                )
-                            }
-                            .hideListRowSeparator()
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color.clear)
+                VStack(spacing: EnsembleDesign.Spacing.none) {
+                    songsGenreChipBar
 
+                    ScrollViewReader { proxy in
+                        ZStack(alignment: .trailing) {
+                            List {
                             ForEach(libraryVM.trackSections) { section in
                                 Section(header: sectionHeader(section.letter)) {
                                     ForEach(Array(section.tracks.enumerated()), id: \.element.id) { _, track in
@@ -358,7 +348,6 @@ public struct SongsView: View {
                                             onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
                                         )
                                         .listRowBackground(Color.clear)
-                                        .hideListRowSeparator()
                                         .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
                                     }
                                 }
@@ -377,10 +366,11 @@ public struct SongsView: View {
                                     proxy.scrollTo(letter, anchor: .top)
                                 }
                             )
-                            .libraryScrollIndexPositioning()
+                            .libraryScrollIndexPositioning(.centered)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
                 }
                 #endif
             } else {
@@ -389,20 +379,12 @@ public struct SongsView: View {
                 // No SwiftUI ScrollView wrapper — avoids the fixed-frame height hack
                 // that was forcing all 1500+ rows to be laid out simultaneously.
                 VStack(spacing: EnsembleDesign.Spacing.none) {
-                    GenreChipBar(
-                        availableGenres: libraryVM.availableTrackGenres,
-                        selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
-                        excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
-                    )
+                    songsGenreChipBar
                     unsortedTrackListContent
                 }
                 #else
                 VStack(spacing: EnsembleDesign.Spacing.none) {
-                    GenreChipBar(
-                        availableGenres: libraryVM.availableTrackGenres,
-                        selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
-                        excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
-                    )
+                    songsGenreChipBar
                     unsortedTrackListContent
                 }
                 #endif
@@ -413,6 +395,14 @@ public struct SongsView: View {
         }
     }
 
+    private var songsGenreChipBar: some View {
+        GenreChipBar(
+            availableGenres: libraryVM.availableTrackGenres,
+            selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
+            excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
+        )
+    }
+
     private func usesLargeScreenSongBrowser(for size: CGSize) -> Bool {
         guard canShowLargeScreenSongBrowser else { return false }
         return size.width >= EnsembleDesign.Breakpoint.browseSplitMinimumWidth
@@ -421,12 +411,7 @@ public struct SongsView: View {
     @ViewBuilder
     private func largeScreenSongBrowserView(width: CGFloat) -> some View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
-            GenreChipBar(
-                availableGenres: libraryVM.availableTrackGenres,
-                selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
-                excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
-            )
-            .padding(.vertical, EnsembleScaffold.Chip.rowSpacing)
+            songsGenreChipBar
 
             if libraryVM.trackSortOption == .title {
                 largeScreenIndexedSongList(width: width)
@@ -649,7 +634,6 @@ public struct SongsView: View {
                     onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
                 )
                 .listRowBackground(Color.clear)
-                .hideListRowSeparator()
                 .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
             }
             #endif
@@ -753,7 +737,6 @@ public struct SongsView: View {
                     onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
                 )
                 .listRowBackground(Color.clear)
-                .hideListRowSeparator()
                 .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: true, showTrackNumbers: false))
             }
         }

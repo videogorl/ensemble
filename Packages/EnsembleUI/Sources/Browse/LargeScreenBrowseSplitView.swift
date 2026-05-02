@@ -68,9 +68,27 @@ public struct LargeScreenBrowseSplitView<
             if usesSplitLayout(for: geometry.size) {
                 splitLayout(for: geometry.size)
             } else {
-                compact
+                compactLayout
             }
         }
+    }
+
+    @ViewBuilder
+    private var compactLayout: some View {
+        if let selection {
+            compactSelectedDetail(selection)
+        } else {
+            compact
+        }
+    }
+
+    private func compactSelectedDetail(_ selection: Selection) -> some View {
+        detail(selection)
+            .id(selection.id)
+            .largeScreenBrowseDetailPane()
+            .modifier(CompactBrowseDetailBackButton {
+                self.selection = nil
+            })
     }
 
     @ViewBuilder
@@ -223,5 +241,24 @@ public struct LargeScreenPlaceholderView: View {
                 .foregroundColor(EnsembleDesign.Color.primaryText)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct CompactBrowseDetailBackButton: ViewModifier {
+    let clearSelection: () -> Void
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: clearSelection) {
+                        Label("Back", systemImage: EnsembleDesign.Icon.back)
+                    }
+                }
+            }
+        #else
+        content
+        #endif
     }
 }

@@ -274,47 +274,49 @@ public struct AlbumsView: View {
     }
 
     private var albumGridView: some View {
-        ScrollViewReader { proxy in
-            GeometryReader { geometry in
-                ZStack(alignment: .trailing) {
-                    ScrollView {
-                        GenreChipBar(
-                            availableGenres: libraryVM.availableAlbumGenres,
-                            selectedGenres: $libraryVM.albumsFilterOptions.selectedGenres,
-                            excludedGenres: $libraryVM.albumsFilterOptions.excludedGenres
-                        )
+        VStack(spacing: EnsembleDesign.Spacing.none) {
+            GenreChipBar(
+                availableGenres: libraryVM.availableAlbumGenres,
+                selectedGenres: $libraryVM.albumsFilterOptions.selectedGenres,
+                excludedGenres: $libraryVM.albumsFilterOptions.excludedGenres
+            )
 
-                        if isSortIndexed {
-                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(cachedAlbumSections) { section in
-                                    Section(header: sectionHeader(section.letter)) {
-                                        AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
-                                            .padding(.horizontal)
-                                            .id(section.letter)
+            ScrollViewReader { proxy in
+                GeometryReader { geometry in
+                    ZStack(alignment: .trailing) {
+                        ScrollView {
+                            if isSortIndexed {
+                                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                    ForEach(cachedAlbumSections) { section in
+                                        Section(header: sectionHeader(section.letter)) {
+                                            AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
+                                                .padding(.horizontal)
+                                                .id(section.letter)
+                                        }
                                     }
                                 }
-                            }
-                            .padding(.vertical)
-                        } else {
-                            AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
-                                .padding(.horizontal)
                                 .padding(.vertical)
+                            } else {
+                                AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
+                                    .padding(.horizontal)
+                                    .padding(.vertical)
+                            }
+                        }
+                        .miniPlayerBottomSpacing()
+                
+                        if isSortIndexed && !libraryVM.filteredAlbums.isEmpty && ScrollIndex.isVisible(forContainerWidth: geometry.size.width) {
+                            ScrollIndex(
+                                letters: cachedAlbumSections.map { $0.letter },
+                                currentLetter: .constant(nil),
+                                onLetterTap: { letter in
+                                    proxy.scrollTo(letter, anchor: .top)
+                                }
+                            )
+                            .libraryScrollIndexPositioning(.centered)
                         }
                     }
-                    .miniPlayerBottomSpacing()
-                
-                    if isSortIndexed && !libraryVM.filteredAlbums.isEmpty && ScrollIndex.isVisible(forContainerWidth: geometry.size.width) {
-                        ScrollIndex(
-                            letters: cachedAlbumSections.map { $0.letter },
-                            currentLetter: .constant(nil),
-                            onLetterTap: { letter in
-                                proxy.scrollTo(letter, anchor: .top)
-                            }
-                        )
-                        .libraryScrollIndexPositioning()
-                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }

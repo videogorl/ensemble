@@ -248,6 +248,27 @@ public enum EnsembleScaffold {
         public static let defaultColor = EnsembleDesign.Color.accent
     }
 
+    public enum UtilityScreen {
+        public static let contentMaxWidth = EnsembleDesign.Breakpoint.auxiliaryWindowMaxWidth
+        public static let outerHorizontalPadding = EnsembleDesign.Spacing.sheetOuterHorizontal
+        public static let outerVerticalPadding = EnsembleDesign.Spacing.sheetOuterVertical
+        public static let sectionSpacing = EnsembleDesign.Spacing.xl
+        public static let sectionHeaderHorizontalPadding = EnsembleDesign.Spacing.sm
+        public static let rowHorizontalPadding = EnsembleDesign.Spacing.lg
+        public static let rowVerticalPadding = EnsembleDesign.Spacing.compactControlVertical
+        public static let cardCornerRadius = EnsembleDesign.Radius.control
+        public static let cardStrokeWidth: CGFloat = 0.5
+        public static let dividerLeadingPadding = rowHorizontalPadding + UtilityRow.iconLaneWidth + TrackListLayoutMetrics.rowInterItemSpacing
+
+        public static var cardBackground: Color {
+            #if os(macOS)
+            Color(NSColor.controlBackgroundColor).opacity(0.72)
+            #else
+            Color.clear
+            #endif
+        }
+    }
+
     public enum LogViewer {
         public static let loadMoreButtonVerticalPadding = EnsembleDesign.Spacing.sm
         public static let lineVerticalPadding: CGFloat = 1

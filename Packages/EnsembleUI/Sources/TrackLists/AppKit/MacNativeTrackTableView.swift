@@ -28,10 +28,14 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         tableView.style = .plain
         tableView.rowSizeStyle = .custom
         tableView.intercellSpacing = NSSize(width: 0, height: 0)
+        tableView.gridStyleMask = [.solidHorizontalGridLineMask]
+        tableView.gridColor = NSColor.separatorColor.withAlphaComponent(0.45)
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.target = context.coordinator
         tableView.action = #selector(Coordinator.tableClicked(_:))
+        tableView.setDraggingSourceOperationMask(.copy, forLocal: true)
+        tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
 
         let column = NSTableColumn(identifier: .track)
         column.resizingMask = .autoresizingMask
@@ -221,6 +225,16 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 view.identifier = .bottomSpacer
                 return view
             }
+        }
+
+        func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+            guard row < rows.count,
+                  case let .track(track, _) = rows[row] else {
+                return nil
+            }
+
+            let fileURL = track.localFilePath.map(URL.init(fileURLWithPath:))
+            return MediaDragPayload.track(track).pasteboardItem(fallbackFileURL: fileURL)
         }
 
         func configure(view: NSView?, row: Int) {

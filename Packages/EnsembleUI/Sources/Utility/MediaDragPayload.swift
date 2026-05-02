@@ -1,6 +1,9 @@
 import EnsembleCore
 import Foundation
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 
 #if !os(watchOS)
 /// App-internal drag payload for media references. The payload carries stable
@@ -78,7 +81,7 @@ struct MediaDragPayload: Codable, Equatable {
 
     func itemProvider(fallbackFileURL: URL? = nil) -> NSItemProvider {
         let provider = fallbackFileURL.flatMap { NSItemProvider(contentsOf: $0) } ?? NSItemProvider()
-        if let data = try? JSONEncoder().encode(self) {
+        if let data = encodedData() {
             provider.registerDataRepresentation(
                 forTypeIdentifier: Self.typeIdentifier,
                 visibility: .all
@@ -90,6 +93,34 @@ struct MediaDragPayload: Codable, Equatable {
         provider.suggestedName = suggestedName
         return provider
     }
+
+    func encodedData() -> Data? {
+        try? JSONEncoder().encode(self)
+    }
+
+    #if os(macOS)
+    func pasteboardItem(fallbackFileURL: URL? = nil) -> NSPasteboardItem? {
+        let item = NSPasteboardItem()
+        var wroteRepresentation = false
+
+        if let data = encodedData() {
+            item.setData(data, forType: NSPasteboard.PasteboardType(Self.typeIdentifier))
+            wroteRepresentation = true
+        }
+
+        if let fallbackFileURL {
+            item.setString(fallbackFileURL.absoluteString, forType: .fileURL)
+            wroteRepresentation = true
+        }
+
+        if let suggestedName {
+            item.setString(suggestedName, forType: .string)
+            wroteRepresentation = true
+        }
+
+        return wroteRepresentation ? item : nil
+    }
+    #endif
 
     static func load(from providers: [NSItemProvider]) async -> MediaDragPayload? {
         for provider in providers where provider.hasItemConformingToTypeIdentifier(typeIdentifier) {

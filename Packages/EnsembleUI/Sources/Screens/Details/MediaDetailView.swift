@@ -913,7 +913,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 onAddToPlaylist: resolvedActions.onAddToPlaylist
             )
             .listRowBackground(Color.clear)
-            .hideListRowSeparator()
             .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: showArtwork, showTrackNumbers: showTrackNumbers))
         }
         #endif

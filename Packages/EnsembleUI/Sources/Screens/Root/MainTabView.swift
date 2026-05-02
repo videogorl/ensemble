@@ -1798,9 +1798,7 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private func sidebarPlaylistDragDropRow<Content: View>(_ content: Content, playlist: SidebarPlaylistItem) -> some View {
-        #if os(iOS)
-        content
-        #elseif !os(watchOS)
+        #if !os(watchOS)
         SidebarPlaylistDragDropHost(
             content: content,
             playlist: playlist,
@@ -1822,15 +1820,30 @@ public struct SidebarView: View {
         let libraryVM: LibraryViewModel
         let playlistsVM: PlaylistViewModel
         let nowPlayingVM: NowPlayingViewModel
+        @State private var isDropTargeted = false
 
         var body: some View {
             content
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .background(dropTargetBackground)
                 .onDrag {
                     sidebarPlaylistDragPayload(for: playlist).itemProvider()
                 }
-                .onDrop(of: MediaDragPayload.contentTypes, isTargeted: nil) { providers in
+                .onDrop(of: MediaDragPayload.contentTypes, isTargeted: $isDropTargeted) { providers in
                     handleSidebarPlaylistDrop(providers, onto: playlist)
                 }
+                #if os(macOS)
+                .help("Drop songs, albums, or playlists here to add tracks.")
+                #endif
+        }
+
+        private var dropTargetBackground: some View {
+            RoundedRectangle(
+                cornerRadius: EnsembleScaffold.BrowseSelection.cornerRadius,
+                style: .continuous
+            )
+            .fill(isDropTargeted ? EnsembleDesign.Color.accent.opacity(0.16) : Color.clear)
         }
 
         private func handleSidebarPlaylistDrop(_ providers: [NSItemProvider], onto playlist: SidebarPlaylistItem) -> Bool {
