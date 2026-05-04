@@ -608,6 +608,7 @@ public struct TrackListView: View {
 
                 if index < tracks.count - 1 {
                     Divider()
+                        .overlay(TrackListLayoutMetrics.dividerColor)
                         .padding(
                             .leading,
                             TrackListLayoutMetrics.contentLeadingInset(

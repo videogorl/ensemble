@@ -1782,22 +1782,16 @@ public struct SidebarView: View {
         }
 
         if playlist.isMerged {
-            sidebarPlaylistDragDropRow(
-                artworkLabel
-                    .tag(SidebarSelection.mergedPlaylist(title: playlist.title, isSmart: playlist.isSmart)),
-                playlist: playlist
-            )
+            sidebarPlaylistDropDestination(artworkLabel, playlist: playlist)
+                .tag(SidebarSelection.mergedPlaylist(title: playlist.title, isSmart: playlist.isSmart))
         } else {
-            sidebarPlaylistDragDropRow(
-                artworkLabel
-                    .tag(SidebarSelection.playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey)),
-                playlist: playlist
-            )
+            sidebarPlaylistDropDestination(artworkLabel, playlist: playlist)
+                .tag(SidebarSelection.playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey))
         }
     }
 
     @ViewBuilder
-    private func sidebarPlaylistDragDropRow<Content: View>(_ content: Content, playlist: SidebarPlaylistItem) -> some View {
+    private func sidebarPlaylistDropDestination<Content: View>(_ content: Content, playlist: SidebarPlaylistItem) -> some View {
         #if !os(watchOS)
         SidebarPlaylistDragDropHost(
             content: content,
@@ -1827,9 +1821,6 @@ public struct SidebarView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .background(dropTargetBackground)
-                .onDrag {
-                    sidebarPlaylistDragPayload(for: playlist).itemProvider()
-                }
                 .onDrop(of: MediaDragPayload.contentTypes, isTargeted: $isDropTargeted) { providers in
                     handleSidebarPlaylistDrop(providers, onto: playlist)
                 }
@@ -1848,11 +1839,13 @@ public struct SidebarView: View {
 
         private func handleSidebarPlaylistDrop(_ providers: [NSItemProvider], onto playlist: SidebarPlaylistItem) -> Bool {
             guard providers.contains(where: { $0.hasItemConformingToTypeIdentifier(MediaDragPayload.typeIdentifier) }) else {
+                EnsembleLogger.debug("Sidebar playlist drop ignored: unsupported provider for target=\(playlist.id)")
                 return false
             }
 
             Task { @MainActor in
                 guard let payload = await MediaDragPayload.load(from: providers) else {
+                    EnsembleLogger.debug("Sidebar playlist drop failed: payload unresolved for target=\(playlist.id)")
                     showSidebarDropToast(
                         style: .warning,
                         title: "Drop not supported",
@@ -1869,6 +1862,7 @@ public struct SidebarView: View {
         @MainActor
         private func performSidebarPlaylistDrop(_ payload: MediaDragPayload, onto sidebarPlaylist: SidebarPlaylistItem) async {
             guard !sidebarPlaylist.isMerged else {
+                EnsembleLogger.debug("Sidebar playlist drop rejected: merged target=\(sidebarPlaylist.id)")
                 showSidebarDropToast(
                     style: .warning,
                     title: "Choose a playlist",
@@ -1879,6 +1873,7 @@ public struct SidebarView: View {
             }
 
             guard let target = resolvedSidebarPlaylistTarget(sidebarPlaylist) else {
+                EnsembleLogger.debug("Sidebar playlist drop rejected: unresolved target=\(sidebarPlaylist.id)")
                 showSidebarDropToast(
                     style: .warning,
                     title: "Playlist unavailable",
@@ -1889,6 +1884,7 @@ public struct SidebarView: View {
             }
 
             guard !target.isSmart else {
+                EnsembleLogger.debug("Sidebar playlist drop rejected: smart target=\(target.id)")
                 showSidebarDropToast(
                     style: .warning,
                     title: "Smart playlist",
@@ -1898,14 +1894,29 @@ public struct SidebarView: View {
                 return
             }
 
-            guard let tracks = await resolveDroppedTracks(from: payload, targetPlaylist: target),
-                  !tracks.isEmpty else {
+            guard let resolvedTracks = await resolveDroppedTracks(from: payload, targetPlaylist: target) else {
+                return
+            }
+
+            let tracks = nowPlayingVM.tracks(resolvedTracks, compatibleWithServerSourceKey: target.sourceCompositeKey)
+            guard tracks.count == resolvedTracks.count else {
+                let firstRejected = resolvedTracks.first { rejected in
+                    !tracks.contains { trackIdentityMatches($0, rejected) }
+                }
+                showCrossSourceDropToast(
+                    itemTitle: firstRejected?.title ?? "That item",
+                    playlistTitle: target.title
+                )
                 return
             }
 
             do {
-                _ = try await nowPlayingVM.addTracks(tracks, to: target)
+                let outcome = try await nowPlayingVM.addTracksOptimistically(tracks, to: target)
+                EnsembleLogger.debug(
+                    "Sidebar playlist drop completed: target=\(target.id) tracks=\(tracks.count) outcome=\(String(describing: outcome))"
+                )
             } catch {
+                EnsembleLogger.debug("Sidebar playlist drop failed: target=\(target.id) error=\(error.localizedDescription)")
                 showSidebarDropToast(
                     style: .error,
                     title: "Couldn't add tracks",
@@ -1922,14 +1933,7 @@ public struct SidebarView: View {
             for item in payload.items {
                 switch item.kind {
                 case .track:
-                    guard let track = resolvedTrack(for: item) else {
-                        showUnresolvedDropToast(title: item.title)
-                        return nil
-                    }
-                    guard isSourceCompatible(track.sourceCompositeKey, with: targetPlaylist.sourceCompositeKey) else {
-                        showCrossSourceDropToast(itemTitle: track.title, playlistTitle: targetPlaylist.title)
-                        return nil
-                    }
+                    let track = resolvedTrack(for: item) ?? trackReference(for: item)
                     resolvedTracks.append(track)
 
                 case .album:
@@ -1946,10 +1950,6 @@ public struct SidebarView: View {
                     await detailVM.loadTracks()
                     guard !detailVM.tracks.isEmpty else {
                         showUnresolvedDropToast(title: album.title)
-                        return nil
-                    }
-                    guard detailVM.tracks.allSatisfy({ isSourceCompatible($0.sourceCompositeKey, with: targetPlaylist.sourceCompositeKey) }) else {
-                        showCrossSourceDropToast(itemTitle: album.title, playlistTitle: targetPlaylist.title)
                         return nil
                     }
                     resolvedTracks.append(contentsOf: detailVM.tracks)
@@ -1979,10 +1979,6 @@ public struct SidebarView: View {
                         showUnresolvedDropToast(title: sourcePlaylist.title)
                         return nil
                     }
-                    guard detailVM.tracks.allSatisfy({ isSourceCompatible($0.sourceCompositeKey, with: targetPlaylist.sourceCompositeKey) }) else {
-                        showCrossSourceDropToast(itemTitle: sourcePlaylist.title, playlistTitle: targetPlaylist.title)
-                        return nil
-                    }
                     resolvedTracks.append(contentsOf: detailVM.tracks)
                 }
             }
@@ -1998,29 +1994,6 @@ public struct SidebarView: View {
                 return nil
             }
             return uniqueTracks
-        }
-
-        private func sidebarPlaylistDragPayload(for item: SidebarPlaylistItem) -> MediaDragPayload {
-            if item.isMerged,
-               let displayPlaylist = playlistsVM.sortedDisplayPlaylists.first(where: { displayPlaylist in
-                   displayPlaylist.title == item.title && displayPlaylist.isSmart == item.isSmart
-               }) {
-                return .displayPlaylist(displayPlaylist)
-            }
-
-            if let playlist = resolvedSidebarPlaylistTarget(item) {
-                return .playlist(playlist)
-            }
-
-            return MediaDragPayload(items: [
-                MediaDragPayload.Item(
-                    kind: .playlist,
-                    id: item.playlistID,
-                    sourceKey: item.sourceKey,
-                    title: item.title,
-                    isSmartPlaylist: item.isSmart
-                )
-            ])
         }
 
         private func resolvedSidebarPlaylistTarget(_ item: SidebarPlaylistItem) -> Playlist? {
@@ -2050,6 +2023,15 @@ public struct SidebarView: View {
             uniqueMatch(in: playlistsVM.playlists, id: item.id, sourceKey: item.sourceKey) { playlist in
                 (playlist.id, playlist.sourceCompositeKey)
             }
+        }
+
+        private func trackReference(for item: MediaDragPayload.Item) -> Track {
+            Track(
+                id: item.id,
+                key: "",
+                title: item.title,
+                sourceCompositeKey: item.sourceKey
+            )
         }
 
         private func uniqueMatch<T>(
@@ -2082,8 +2064,8 @@ public struct SidebarView: View {
         }
 
         private func isSourceCompatible(_ itemSourceKey: String?, with targetSourceKey: String?) -> Bool {
-            guard let targetSourceKey = normalizedSourceKey(targetSourceKey) else { return true }
-            return normalizedSourceKey(itemSourceKey) == targetSourceKey
+            guard let targetServerKey = normalizedServerSourceKey(targetSourceKey) else { return true }
+            return normalizedServerSourceKey(itemSourceKey) == targetServerKey
         }
 
         private func uniqueTracksBySourceAndID(_ tracks: [Track]) -> [Track] {
@@ -2094,9 +2076,23 @@ public struct SidebarView: View {
             }
         }
 
+        private func trackIdentityMatches(_ lhs: Track, _ rhs: Track) -> Bool {
+            guard lhs.id == rhs.id else { return false }
+            let lhsSource = normalizedServerSourceKey(lhs.sourceCompositeKey)
+            let rhsSource = normalizedServerSourceKey(rhs.sourceCompositeKey)
+            return lhsSource == nil || rhsSource == nil || lhsSource == rhsSource
+        }
+
         private func normalizedSourceKey(_ sourceKey: String?) -> String? {
             let trimmed = sourceKey?.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed?.isEmpty == false ? trimmed : nil
+        }
+
+        private func normalizedServerSourceKey(_ sourceKey: String?) -> String? {
+            guard let normalized = normalizedSourceKey(sourceKey) else { return nil }
+            let parts = normalized.split(separator: ":")
+            guard parts.count >= 3 else { return normalized }
+            return "\(parts[0]):\(parts[1]):\(parts[2])"
         }
 
         private func showUnresolvedDropToast(title: String) {

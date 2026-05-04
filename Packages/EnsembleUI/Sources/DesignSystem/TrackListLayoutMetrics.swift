@@ -1,5 +1,10 @@
 import CoreGraphics
 import SwiftUI
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 public enum TrackListLayoutMetrics {
     public static let rowHorizontalPadding: CGFloat = EnsembleDesign.Spacing.rowHorizontal
@@ -31,6 +36,8 @@ public enum TrackListLayoutMetrics {
     public static let playingIndicatorDimension: CGFloat = 18
     public static let rowAccessoryGap: CGFloat = 8
     public static let rowTightAccessoryGap: CGFloat = 6
+    public static let dividerColor = EnsembleDesign.Color.divider
+    public static let nativeDividerAlpha: CGFloat = 0.45
     public static let unavailableOpacity = 0.45
     public static let primarySecondaryTextSpacing: CGFloat = EnsembleDesign.Spacing.xxs
     public static let defaultTitleTopPadding: CGFloat = 14
@@ -83,6 +90,16 @@ public enum TrackListLayoutMetrics {
             trailing: detailHorizontalPadding
         )
     }
+
+    #if os(iOS)
+    public static var nativeSeparatorColor: UIColor {
+        UIColor.separator.withAlphaComponent(nativeDividerAlpha)
+    }
+    #elseif os(macOS)
+    public static var nativeSeparatorColor: NSColor {
+        NSColor.separatorColor.withAlphaComponent(nativeDividerAlpha)
+    }
+    #endif
 
     public static func showsArtistMetadataColumn(for width: CGFloat?) -> Bool {
         guard let width else { return false }

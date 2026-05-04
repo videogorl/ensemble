@@ -29,7 +29,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         tableView.rowSizeStyle = .custom
         tableView.intercellSpacing = NSSize(width: 0, height: 0)
         tableView.gridStyleMask = [.solidHorizontalGridLineMask]
-        tableView.gridColor = NSColor.separatorColor.withAlphaComponent(0.45)
+        tableView.gridColor = TrackListLayoutMetrics.nativeSeparatorColor
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.target = context.coordinator

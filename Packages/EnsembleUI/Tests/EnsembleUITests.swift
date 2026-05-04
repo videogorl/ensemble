@@ -82,6 +82,14 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(insets.trailing, TrackListLayoutMetrics.detailHorizontalPadding)
     }
 
+    func testTrackListLayoutMetricsDividerTokens() {
+        XCTAssertEqual(TrackListLayoutMetrics.nativeDividerAlpha, 0.45)
+        _ = TrackListLayoutMetrics.dividerColor
+        #if os(iOS) || os(macOS)
+        _ = TrackListLayoutMetrics.nativeSeparatorColor
+        #endif
+    }
+
     func testScrollIndexCompactTrailingPaddingDoesNotOverlapViewportEdge() {
         XCTAssertGreaterThanOrEqual(EnsembleScaffold.ScrollIndex.compactTrailingPadding, 0)
     }

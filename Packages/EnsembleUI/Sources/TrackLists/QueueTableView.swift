@@ -314,6 +314,7 @@ public struct QueueTableView: UIViewRepresentable {
             bottom: 0,
             right: TrackListLayoutMetrics.detailHorizontalPadding
         )
+        tableView.separatorColor = TrackListLayoutMetrics.nativeSeparatorColor
         tableView.backgroundColor = .clear
         tableView.isScrollEnabled = true // Table manages its own scrolling
         tableView.dragInteractionEnabled = true

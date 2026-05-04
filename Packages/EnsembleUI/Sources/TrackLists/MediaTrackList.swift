@@ -623,6 +623,7 @@ public struct MediaTrackList: UIViewRepresentable {
             bottom: 0,
             right: 0
         )
+        tableView.separatorColor = TrackListLayoutMetrics.nativeSeparatorColor
         tableView.backgroundColor = .clear
         tableView.isScrollEnabled = managesOwnScrolling
 
