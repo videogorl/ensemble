@@ -220,7 +220,7 @@ All playlist mutations go through `SyncCoordinator`, which handles the server ca
 
 ## Adding Media Drag And Drop
 
-Use `MediaDragPayload` in `Packages/EnsembleUI/Sources/Utility/` for in-app drags involving tracks, albums, playlists, or merged display playlists. Drag sources should provide the app payload first and keep any existing platform fallback, such as downloaded file URLs, as a secondary provider.
+Use `MediaDragPayload` in `Packages/EnsembleUI/Sources/Utility/` for in-app drags involving tracks, albums, playlists, or merged display playlists. Track drag sources should use `MediaDragPayload.trackItemProvider(for:shareService:)` on iOS/iPadOS and `MediaDragPayload.trackPasteboardWriter(for:shareService:)` for native AppKit rows: both keep the app-specific payload internal for Ensemble drops, and expose the same prepared audio file URL used by Share File to external destinations such as Finder or Files. Do not expose the JSON fallback to external pasteboards.
 
 Playlist drops are copy/add operations only. Resolve albums and source playlists to tracks before mutating, reject smart or merged playlist targets with a toast, and reject unresolved or cross-source drops without changing playlist contents.
 

@@ -123,6 +123,15 @@ public final class ShareService: ObservableObject {
         }
     }
 
+    /// Prepare a local audio file URL for external drag destinations.
+    /// Uses the same renamed-temp/download behavior as the share sheet path.
+    public func prepareTrackFileURL(track: Track) async -> URL? {
+        guard case let .file(url, _) = await prepareTrackFilePayload(track: track) else {
+            return nil
+        }
+        return url
+    }
+
     /// Clean up temporary share files. Call after share sheet is dismissed.
     public func cleanupTempFiles() {
         do {

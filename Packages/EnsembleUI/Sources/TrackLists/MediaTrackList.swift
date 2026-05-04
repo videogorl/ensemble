@@ -884,6 +884,7 @@ public struct MediaTrackList: UIViewRepresentable {
             interactionModel: interactionModel,
             supplementalMetadataWidth: supplementalMetadataWidth,
             artworkLoader: dependencies.artworkLoader,
+            shareService: dependencies.shareService,
             toastCenter: dependencies.toastCenter,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
             isOffline: !dependencies.networkMonitor.isConnected,
@@ -928,6 +929,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var interactionModel: TrackRowInteractionModel
         var supplementalMetadataWidth: CGFloat?
         var artworkLoader: ArtworkLoaderProtocol
+        var shareService: ShareService
         var toastCenter: ToastCenter
         var trackAvailabilityResolver: TrackAvailabilityResolver
         var isOffline: Bool
@@ -971,6 +973,7 @@ public struct MediaTrackList: UIViewRepresentable {
             interactionModel: TrackRowInteractionModel,
             supplementalMetadataWidth: CGFloat?,
             artworkLoader: ArtworkLoaderProtocol,
+            shareService: ShareService,
             toastCenter: ToastCenter,
             trackAvailabilityResolver: TrackAvailabilityResolver,
             isOffline: Bool,
@@ -999,6 +1002,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.interactionModel = interactionModel
             self.supplementalMetadataWidth = supplementalMetadataWidth
             self.artworkLoader = artworkLoader
+            self.shareService = shareService
             self.toastCenter = toastCenter
             self.trackAvailabilityResolver = trackAvailabilityResolver
             self.isOffline = isOffline
@@ -1135,13 +1139,7 @@ public struct MediaTrackList: UIViewRepresentable {
 
         public func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
             guard let track = track(at: indexPath) else { return [] }
-            let fileURL = track.localFilePath.map(URL.init(fileURLWithPath:))
-            let provider = MediaDragPayload.track(track).itemProvider(fallbackFileURL: fileURL)
-            if let artist = track.artistName {
-                provider.suggestedName = "\(artist) - \(track.title)"
-            } else {
-                provider.suggestedName = track.title
-            }
+            let provider = MediaDragPayload.trackItemProvider(for: track, shareService: shareService)
             let dragItem = UIDragItem(itemProvider: provider)
             dragItem.localObject = track
             return [dragItem]

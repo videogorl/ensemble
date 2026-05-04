@@ -158,17 +158,10 @@ public struct TrackRow: View {
             Text("This permanently deletes \"\(track.title)\" from the Plex server and removes its local cache.")
         }
         #if !os(watchOS)
-        // App-internal drags use media references; downloaded tracks also keep
-        // a file representation for external drop targets.
+        // App-internal drags use media references; external drops request the
+        // same prepared audio file used by the Share File action.
         .onDrag {
-            let fileURL = track.localFilePath.map(URL.init(fileURLWithPath:))
-            let provider = MediaDragPayload.track(track).itemProvider(fallbackFileURL: fileURL)
-            if let artist = track.artistName {
-                provider.suggestedName = "\(artist) - \(track.title)"
-            } else {
-                provider.suggestedName = track.title
-            }
-            return provider
+            MediaDragPayload.trackItemProvider(for: track, shareService: deps.shareService)
         }
         #endif
         // Update cached availability when generation bumps (network/server/download change).

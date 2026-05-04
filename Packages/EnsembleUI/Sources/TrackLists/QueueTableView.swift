@@ -396,7 +396,8 @@ public struct QueueTableView: UIViewRepresentable {
             recentPlaylistTitle: recentPlaylistTitle,
             onRemoveFromQueue: onRemoveFromQueue,
             onMoveItem: onMoveItem,
-            artworkLoader: dependencies.artworkLoader
+            artworkLoader: dependencies.artworkLoader,
+            shareService: dependencies.shareService
         )
     }
 
@@ -420,6 +421,7 @@ public struct QueueTableView: UIViewRepresentable {
         var onRemoveFromQueue: (Int) -> Void
         var onMoveItem: (String, Int, Int) -> Void  // itemId, sourceIndex, destinationIndex
         var artworkLoader: ArtworkLoaderProtocol
+        var shareService: ShareService
 
         var sections: [QueueSection] = []
         weak var tableView: UITableView?
@@ -462,7 +464,8 @@ public struct QueueTableView: UIViewRepresentable {
             recentPlaylistTitle: String?,
             onRemoveFromQueue: @escaping (Int) -> Void,
             onMoveItem: @escaping (String, Int, Int) -> Void,
-            artworkLoader: ArtworkLoaderProtocol
+            artworkLoader: ArtworkLoaderProtocol,
+            shareService: ShareService
         ) {
             self.queueItems = queueItems
             self.history = history
@@ -481,6 +484,7 @@ public struct QueueTableView: UIViewRepresentable {
             self.onRemoveFromQueue = onRemoveFromQueue
             self.onMoveItem = onMoveItem
             self.artworkLoader = artworkLoader
+            self.shareService = shareService
             super.init()
             rebuildSections()
         }
@@ -682,7 +686,7 @@ public struct QueueTableView: UIViewRepresentable {
         public func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
             guard !showHistory else { return [] }
             let item = self.item(at: indexPath)
-            let itemProvider = MediaDragPayload.track(item.track).itemProvider()
+            let itemProvider = MediaDragPayload.trackItemProvider(for: item.track, shareService: shareService)
             itemProvider.registerObject(item.id as NSString, visibility: .ownProcess)
             let dragItem = UIDragItem(itemProvider: itemProvider)
             dragItem.localObject = item

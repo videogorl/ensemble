@@ -62,6 +62,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         context.coordinator.rowHeight = rowHeight
         context.coordinator.interactionModel = interactionModel
         context.coordinator.artworkLoader = dependencies.artworkLoader
+        context.coordinator.shareService = dependencies.shareService
         context.coordinator.toastCenter = dependencies.toastCenter
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
         context.coordinator.rebuildRows()
@@ -96,6 +97,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             rowHeight: rowHeight,
             interactionModel: interactionModel,
             artworkLoader: dependencies.artworkLoader,
+            shareService: dependencies.shareService,
             toastCenter: dependencies.toastCenter,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
             onTrackTap: onTrackTap
@@ -119,6 +121,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         var rowHeight: CGFloat
         var interactionModel: TrackRowInteractionModel
         var artworkLoader: ArtworkLoaderProtocol
+        var shareService: ShareService
         var toastCenter: ToastCenter
         var trackAvailabilityResolver: TrackAvailabilityResolver
         let onTrackTap: (Track, Int) -> Void
@@ -135,6 +138,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             rowHeight: CGFloat,
             interactionModel: TrackRowInteractionModel,
             artworkLoader: ArtworkLoaderProtocol,
+            shareService: ShareService,
             toastCenter: ToastCenter,
             trackAvailabilityResolver: TrackAvailabilityResolver,
             onTrackTap: @escaping (Track, Int) -> Void
@@ -148,6 +152,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             self.rowHeight = rowHeight
             self.interactionModel = interactionModel
             self.artworkLoader = artworkLoader
+            self.shareService = shareService
             self.toastCenter = toastCenter
             self.trackAvailabilityResolver = trackAvailabilityResolver
             self.onTrackTap = onTrackTap
@@ -233,8 +238,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 return nil
             }
 
-            let fileURL = track.localFilePath.map(URL.init(fileURLWithPath:))
-            return MediaDragPayload.track(track).pasteboardItem(fallbackFileURL: fileURL)
+            return MediaDragPayload.trackPasteboardWriter(for: track, shareService: shareService)
         }
 
         func configure(view: NSView?, row: Int) {
