@@ -402,7 +402,7 @@ public struct PlaylistsView: View {
     private var rootContent: some View {
         switch presentationMode {
         case .compactRoot:
-            playlistListView
+            adaptivePlaylistView
         case .selectionColumn:
             playlistSelectionList
         }
@@ -425,6 +425,38 @@ public struct PlaylistsView: View {
         } else {
             localSelectedPlaylist = displayPlaylist
         }
+    }
+
+    private var adaptivePlaylistView: some View {
+        LargeScreenBrowseSplitView(
+            selection: selectedPlaylistBinding,
+            configuration: .rootBrowse,
+            compact: {
+                playlistListView
+            },
+            sidebar: {
+                playlistSelectionList
+            },
+            detail: { displayPlaylist in
+                if displayPlaylist.isMerged {
+                    MergedPlaylistDetailLoader(
+                        title: displayPlaylist.title,
+                        isSmart: displayPlaylist.isSmart,
+                        nowPlayingVM: nowPlayingVM
+                    )
+                    .id(displayPlaylist.id)
+                } else {
+                    PlaylistDetailView(
+                        playlist: displayPlaylist.primaryPlaylist,
+                        nowPlayingVM: nowPlayingVM
+                    )
+                    .id(displayPlaylist.id)
+                }
+            },
+            placeholder: {
+                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.playlist, title: "Select a Playlist")
+            }
+        )
     }
 
     private var playlistSelectionList: some View {
@@ -585,16 +617,9 @@ public struct PlaylistsView: View {
 
     private func startOptimisticDelete(for playlist: Playlist) {
         guard !pendingDeletionPlaylistIDs.contains(playlist.id) else { return }
-        guard !playlist.isSmart else { return }
+        guard let start = deps.playlistMutationWorkflow.beginDelete(playlist: playlist) else { return }
 
-        let deletingToast = ToastPayload(
-            style: .info,
-            iconSystemName: EnsembleDesign.Icon.delete,
-            title: "Deleting \(playlist.title)...",
-            isPersistent: true,
-            dedupeKey: "playlist-delete-pending-\(playlist.id)",
-            showsActivityIndicator: true
-        )
+        let deletingToast = start.pendingToast
         deletingToastIDsByPlaylistID[playlist.id] = deletingToast.id
         deps.toastCenter.show(deletingToast)
 
@@ -605,35 +630,28 @@ public struct PlaylistsView: View {
         )
 
         Task {
-            let didDelete = await viewModel.deletePlaylist(playlist)
-            if didDelete {
+            do {
+                let result = try await deps.playlistMutationWorkflow.finishDelete(playlist: playlist)
+                if result.outcome == .queued {
+                    viewModel.applyOptimisticDelete(for: playlist)
+                }
                 DependencyContainer.shared.pinManager.unpin(id: playlist.id)
                 NotificationCenter.default.post(
                     name: .playlistDeletionSucceeded,
                     object: nil,
                     userInfo: ["playlistID": playlist.id]
                 )
-                deps.toastCenter.show(
-                    ToastPayload(
-                        style: .success,
-                        iconSystemName: EnsembleDesign.Icon.checkmark,
-                        title: "Deleted \(playlist.title)",
-                        dedupeKey: "playlist-delete-success-\(playlist.id)"
-                    )
-                )
-            } else {
+                deps.toastCenter.show(result.successToast)
+            } catch {
                 NotificationCenter.default.post(
                     name: .playlistDeletionFailed,
                     object: nil,
                     userInfo: ["playlistID": playlist.id]
                 )
                 deps.toastCenter.show(
-                    ToastPayload(
-                        style: .error,
-                        iconSystemName: EnsembleDesign.Icon.failure,
-                        title: "Could not delete \(playlist.title)",
-                        message: viewModel.error ?? "Try again later.",
-                        dedupeKey: "playlist-delete-error-\(playlist.id)"
+                    deps.playlistMutationWorkflow.deleteFailureToast(
+                        playlist: playlist,
+                        error: error
                     )
                 )
             }
@@ -711,50 +729,37 @@ public struct PlaylistsView: View {
 
 
     private func renamePlaylist(_ playlist: Playlist, to newTitle: String) {
-        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard let start = deps.playlistMutationWorkflow.beginRename(playlist: playlist, to: newTitle) else {
+            return
+        }
 
-        let renamingToast = ToastPayload(
-            style: .info,
-            iconSystemName: EnsembleDesign.Icon.edit,
-            title: "Renaming \(playlist.title)...",
-            isPersistent: true,
-            dedupeKey: "playlist-rename-pending-\(playlist.id)",
-            showsActivityIndicator: true
-        )
-        viewModel.applyOptimisticRename(for: playlist, newTitle: trimmed)
+        let renamingToast = start.pendingToast
+        viewModel.applyOptimisticRename(for: playlist, newTitle: start.trimmedTitle)
         deps.toastCenter.show(renamingToast)
 
         Task {
             do {
-                let outcome = try await deps.mutationCoordinator.renamePlaylist(playlist, to: trimmed)
-                if outcome == .completed {
+                let result = try await deps.playlistMutationWorkflow.finishRename(
+                    playlist: playlist,
+                    trimmedTitle: start.trimmedTitle
+                )
+                if result.outcome == .completed {
                     await viewModel.awaitRenamedPlaylistMaterialization(
                         for: playlist.id,
-                        expectedTitle: trimmed
+                        expectedTitle: start.trimmedTitle
                     )
-                    DependencyContainer.shared.pinManager.updateTitle(id: playlist.id, title: trimmed)
+                    DependencyContainer.shared.pinManager.updateTitle(id: playlist.id, title: start.trimmedTitle)
                 }
                 deps.toastCenter.dismiss(id: renamingToast.id)
-                deps.toastCenter.show(
-                    ToastPayload(
-                        style: outcome == .queued ? .info : .success,
-                        iconSystemName: outcome == .queued ? EnsembleDesign.Icon.recentPlaylist : EnsembleDesign.Icon.editCircleFilled,
-                        title: outcome == .queued ? "Rename queued — will sync when online" : "Renamed playlist",
-                        dedupeKey: "playlist-rename-success-\(playlist.id)"
-                    )
-                )
+                deps.toastCenter.show(result.successToast)
             } catch {
                 viewModel.clearOptimisticRename(for: playlist.id)
                 await viewModel.loadPlaylists()
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
-                    ToastPayload(
-                        style: .error,
-                        iconSystemName: EnsembleDesign.Icon.failure,
-                        title: "Could not rename playlist",
-                        message: error.localizedDescription,
-                        dedupeKey: "playlist-rename-error-\(playlist.id)"
+                    deps.playlistMutationWorkflow.renameFailureToast(
+                        playlist: playlist,
+                        error: error
                     )
                 )
             }
@@ -821,7 +826,7 @@ public struct PlaylistDetailView: View {
                     groupByDisc: false,
                     mediaType: .playlist,
                     genreChipContent: AnyView(
-                        GenreChipBar(
+                        GenreFilterHeader(
                             availableGenres: viewModel.availableGenres,
                             selectedGenres: $viewModel.filterOptions.selectedGenres,
                             excludedGenres: $viewModel.filterOptions.excludedGenres
@@ -920,58 +925,48 @@ public struct PlaylistDetailView: View {
                 initialText: viewModel.playlist.title,
                 actionTitle: "Save"
             ) { name in
-                let previousTitle = viewModel.playlist.title
                 let playlistID = viewModel.playlist.id
-                let renamingToast = ToastPayload(
-                    style: .info,
-                    iconSystemName: EnsembleDesign.Icon.edit,
-                    title: "Renaming \(previousTitle)...",
-                    isPersistent: true,
-                    dedupeKey: "playlist-rename-pending-\(playlistID)",
-                    showsActivityIndicator: true
-                )
+                guard let start = deps.playlistMutationWorkflow.beginRename(
+                    playlist: viewModel.playlist,
+                    to: name
+                ) else { return }
+                let renamingToast = start.pendingToast
                 deps.toastCenter.show(renamingToast)
                 NotificationCenter.default.post(
                     name: .playlistRenameStarted,
                     object: nil,
                     userInfo: [
                         "playlistID": playlistID,
-                        "newTitle": name
+                        "newTitle": start.trimmedTitle
                     ]
                 )
                 Task {
-                    let didRename = await viewModel.renamePlaylist(to: name)
-                    deps.toastCenter.dismiss(id: renamingToast.id)
-                    if didRename {
+                    do {
+                        let renameResult = try await viewModel.renamePlaylist(
+                            toTrimmedTitle: start.trimmedTitle,
+                            using: deps.playlistMutationWorkflow
+                        )
+                        deps.toastCenter.dismiss(id: renamingToast.id)
                         NotificationCenter.default.post(
                             name: .playlistRenameSucceeded,
                             object: nil,
                             userInfo: [
                                 "playlistID": playlistID,
-                                "newTitle": name
+                                "newTitle": start.trimmedTitle
                             ]
                         )
-                        deps.toastCenter.show(
-                            ToastPayload(
-                                style: .success,
-                                iconSystemName: EnsembleDesign.Icon.editCircleFilled,
-                                title: "Renamed playlist",
-                                dedupeKey: "playlist-rename-success-\(playlistID)"
-                            )
-                        )
-                    } else {
+                        deps.toastCenter.show(renameResult.successToast)
+                    } catch {
+                        deps.toastCenter.dismiss(id: renamingToast.id)
                         NotificationCenter.default.post(
                             name: .playlistRenameFailed,
                             object: nil,
                             userInfo: ["playlistID": playlistID]
                         )
                         deps.toastCenter.show(
-                            ToastPayload(
-                                style: .error,
-                                iconSystemName: EnsembleDesign.Icon.failure,
-                                title: "Could not rename playlist",
-                                message: viewModel.error ?? "Try again later.",
-                                dedupeKey: "playlist-rename-error-\(playlistID)"
+                            deps.playlistMutationWorkflow.renameFailureToast(
+                                playlist: viewModel.playlist,
+                                error: error
                             )
                         )
                     }
@@ -982,17 +977,12 @@ public struct PlaylistDetailView: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
                 guard !isDeletingPlaylist else { return }
+                guard let start = deps.playlistMutationWorkflow.beginDelete(
+                    playlist: viewModel.playlist
+                ) else { return }
                 isDeletingPlaylist = true
-                let playlistTitle = viewModel.playlist.title
                 let playlistID = viewModel.playlist.id
-                let deletingToast = ToastPayload(
-                    style: .info,
-                    iconSystemName: EnsembleDesign.Icon.delete,
-                    title: "Deleting \(playlistTitle)...",
-                    isPersistent: true,
-                    dedupeKey: "playlist-delete-pending-\(playlistID)",
-                    showsActivityIndicator: true
-                )
+                let deletingToast = start.pendingToast
                 deletingToastID = deletingToast.id
                 deps.toastCenter.show(deletingToast)
                 NotificationCenter.default.post(
@@ -1002,39 +992,36 @@ public struct PlaylistDetailView: View {
                 )
                 dismiss()
                 Task {
-                    let didDelete = await viewModel.deletePlaylist()
-                    isDeletingPlaylist = false
-                    if let deletingToastID {
-                        deps.toastCenter.dismiss(id: deletingToastID)
-                    }
-                    deletingToastID = nil
-                    if didDelete {
+                    do {
+                        let deleteResult = try await deps.playlistMutationWorkflow.finishDelete(
+                            playlist: viewModel.playlist
+                        )
+                        isDeletingPlaylist = false
+                        if let deletingToastID {
+                            deps.toastCenter.dismiss(id: deletingToastID)
+                        }
+                        deletingToastID = nil
                         NotificationCenter.default.post(
                             name: .playlistDeletionSucceeded,
                             object: nil,
                             userInfo: ["playlistID": playlistID]
                         )
-                        deps.toastCenter.show(
-                            ToastPayload(
-                                style: .success,
-                                iconSystemName: EnsembleDesign.Icon.checkmark,
-                                title: "Deleted \(playlistTitle)",
-                                dedupeKey: "playlist-delete-success-\(playlistID)"
-                            )
-                        )
-                    } else {
+                        deps.toastCenter.show(deleteResult.successToast)
+                    } catch {
+                        isDeletingPlaylist = false
+                        if let deletingToastID {
+                            deps.toastCenter.dismiss(id: deletingToastID)
+                        }
+                        deletingToastID = nil
                         NotificationCenter.default.post(
                             name: .playlistDeletionFailed,
                             object: nil,
                             userInfo: ["playlistID": playlistID]
                         )
                         deps.toastCenter.show(
-                            ToastPayload(
-                                style: .error,
-                                iconSystemName: EnsembleDesign.Icon.failure,
-                                title: "Could not delete \(playlistTitle)",
-                                message: viewModel.error ?? "Try again later.",
-                                dedupeKey: "playlist-delete-error-\(playlistID)"
+                            deps.playlistMutationWorkflow.deleteFailureToast(
+                                playlist: viewModel.playlist,
+                                error: error
                             )
                         )
                     }

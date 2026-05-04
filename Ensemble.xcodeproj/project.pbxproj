@@ -26,6 +26,8 @@
 		E0002005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E0002004 /* Assets.xcassets */; };
 		E0003001 /* EnsembleUI in Frameworks */ = {isa = PBXBuildFile; productRef = E0003000 /* EnsembleUI */; };
 		E0003003 /* EnsembleCore in Frameworks */ = {isa = PBXBuildFile; productRef = E0003002 /* EnsembleCore */; };
+		E0003005 /* EnsembleSiriShared in Frameworks */ = {isa = PBXBuildFile; productRef = E0003004 /* EnsembleSiriShared */; };
+		E0003006 /* EnsembleSiriShared in Frameworks */ = {isa = PBXBuildFile; productRef = E0003004 /* EnsembleSiriShared */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -83,6 +85,7 @@
 		E0004001 /* EnsembleCore */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleCore; path = Packages/EnsembleCore; sourceTree = "<group>"; };
 		E0004002 /* EnsembleUI */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleUI; path = Packages/EnsembleUI; sourceTree = "<group>"; };
 		E0004003 /* EnsemblePersistence */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsemblePersistence; path = Packages/EnsemblePersistence; sourceTree = "<group>"; };
+		E0004004 /* EnsembleSiriShared */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleSiriShared; path = Packages/EnsembleSiriShared; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -91,6 +94,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E0003001 /* EnsembleUI in Frameworks */,
+				E0003005 /* EnsembleSiriShared in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -106,6 +110,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E0003006 /* EnsembleSiriShared in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -155,6 +160,7 @@
 				E0004001 /* EnsembleCore */,
 				E0004002 /* EnsembleUI */,
 				E0004003 /* EnsemblePersistence */,
+				E0004004 /* EnsembleSiriShared */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -249,6 +255,7 @@
 			name = Ensemble;
 			packageProductDependencies = (
 				E0003000 /* EnsembleUI */,
+				E0003004 /* EnsembleSiriShared */,
 			);
 			productName = Ensemble;
 			productReference = E0000001 /* Ensemble.app */;
@@ -290,6 +297,7 @@
 			);
 			name = EnsembleSiriIntentsExtension;
 			packageProductDependencies = (
+				E0003004 /* EnsembleSiriShared */,
 			);
 			productName = EnsembleSiriIntentsExtension;
 			productReference = E0000003 /* EnsembleSiriIntentsExtension.appex */;
@@ -328,6 +336,7 @@
 			packageReferences = (
 				E0500000 /* XCLocalSwiftPackageReference "Packages/EnsembleUI" */,
 				E0500001 /* XCLocalSwiftPackageReference "Packages/EnsembleCore" */,
+				E0500002 /* XCLocalSwiftPackageReference "Packages/EnsembleSiriShared" */,
 			);
 			productRefGroup = E0100004 /* Products */;
 			projectDirPath = "";
@@ -828,16 +837,27 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/EnsembleCore;
 		};
+		E0500002 /* XCLocalSwiftPackageReference "Packages/EnsembleSiriShared" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/EnsembleSiriShared;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		E0003000 /* EnsembleUI */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = E0500000 /* XCLocalSwiftPackageReference "Packages/EnsembleUI" */;
 			productName = EnsembleUI;
 		};
 		E0003002 /* EnsembleCore */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = E0500001 /* XCLocalSwiftPackageReference "Packages/EnsembleCore" */;
 			productName = EnsembleCore;
+		};
+		E0003004 /* EnsembleSiriShared */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E0500002 /* XCLocalSwiftPackageReference "Packages/EnsembleSiriShared" */;
+			productName = EnsembleSiriShared;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

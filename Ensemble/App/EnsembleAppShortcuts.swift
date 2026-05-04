@@ -1,6 +1,7 @@
 #if os(iOS)
 import AppIntents
 import EnsembleCore
+import EnsembleSiriShared
 import Foundation
 import OSLog
 
@@ -13,57 +14,9 @@ private enum SiriAppShortcutLogger {
 }
 
 @available(iOS 16.0, *)
-private enum SiriPhraseSanitizer {
-    static let appNameSuffixes = [" ensemble music", " ensemble"]
-    static let trailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
-    static let leadingMediaTypePrefixes = [
-        "the playlist ", "playlist ", "the album ", "album ",
-        "the artist ", "artist ", "the song ", "song ",
-        "the track ", "track "
-    ]
-
-    static func normalized(_ value: String) -> String {
-        let base = value
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        var candidate = base
-        for suffix in appNameSuffixes where candidate.hasSuffix(suffix) {
-            candidate = String(candidate.dropLast(suffix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            break
-        }
-
-        candidate = trimTrailingConnectorWords(in: candidate)
-        candidate = stripLeadingMediaPrefix(in: candidate)
-        return candidate
-    }
-
-    private static func trimTrailingConnectorWords(in value: String) -> String {
-        var tokens = value.split(separator: " ").map(String.init)
-        while let last = tokens.last, trailingConnectorWords.contains(last) {
-            tokens.removeLast()
-        }
-        return tokens.joined(separator: " ")
-    }
-
-    private static func stripLeadingMediaPrefix(in value: String) -> String {
-        for prefix in leadingMediaTypePrefixes where value.hasPrefix(prefix) {
-            let stripped = String(value.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !stripped.isEmpty { return stripped }
-        }
-        return value
-    }
-}
-
-@available(iOS 16.0, *)
 private enum SiriIndexLookup {
-    private static let appGroupIdentifier = "group.com.videogorl.ensemble"
-    private static let filename = "siri-media-index.json"
+    private static let appGroupIdentifier = SiriSharedConstants.appGroupIdentifier
+    private static let filename = SiriSharedConstants.indexFilename
     private static let minimumMatchScore = 0.6
 
     static func fetchItems(kind: SiriMediaKind) -> [SiriMediaIndexItem] {
@@ -72,12 +25,15 @@ private enum SiriIndexLookup {
     }
 
     static func findItems(kind: SiriMediaKind, matching rawQuery: String, limit: Int = 10) -> [SiriMediaIndexItem] {
-        let query = SiriPhraseSanitizer.normalized(rawQuery)
+        let query = SiriPhraseNormalizer.normalized(rawQuery)
         guard !query.isEmpty else { return [] }
 
         let scored: [(item: SiriMediaIndexItem, score: Double)] = fetchItems(kind: kind)
             .compactMap { item in
-                let score = matchScore(query: query, candidate: SiriPhraseSanitizer.normalized(item.displayName))
+                let score = SiriMatchScorer.scoreMatch(
+                    query: query,
+                    candidate: SiriPhraseNormalizer.normalized(item.displayName)
+                )
                 guard score >= minimumMatchScore else { return nil }
                 return (item: item, score: score)
             }
@@ -111,69 +67,14 @@ private enum SiriIndexLookup {
         return try? JSONDecoder().decode(SiriMediaIndex.self, from: data)
     }
 
-    private static func matchScore(query: String, candidate: String) -> Double {
-        guard !query.isEmpty, !candidate.isEmpty else { return 0 }
-        if query == candidate { return 1.0 }
-        if candidate.hasPrefix(query) || query.hasPrefix(candidate) { return 0.85 }
-        if candidate.contains(query) || query.contains(candidate) { return 0.7 }
-
-        var score = 0.0
-        let overlap = tokenOverlapScore(query: query, candidate: candidate)
-        if overlap >= 0.67 {
-            score = max(score, 0.45 + overlap * 0.35)
-        }
-
-        // Handle Siri transcription drift for uncommon names (for example, "Faedom" -> "freedom").
-        let fuzzySimilarity = normalizedEditSimilarity(lhs: query, rhs: candidate)
-        if fuzzySimilarity >= 0.66 {
-            score = max(score, 0.35 + fuzzySimilarity * 0.4)
-        }
-        return score
-    }
-
-    private static func tokenOverlapScore(query: String, candidate: String) -> Double {
-        let queryTokens = Set(query.split(separator: " ").map(String.init))
-        let candidateTokens = Set(candidate.split(separator: " ").map(String.init))
-        guard !queryTokens.isEmpty, !candidateTokens.isEmpty else { return 0 }
-
-        let overlap = queryTokens.intersection(candidateTokens).count
-        let referenceCount = max(queryTokens.count, candidateTokens.count)
-        return Double(overlap) / Double(referenceCount)
-    }
-
-    private static func normalizedEditSimilarity(lhs: String, rhs: String) -> Double {
-        let lhsChars = Array(lhs)
-        let rhsChars = Array(rhs)
-        guard !lhsChars.isEmpty, !rhsChars.isEmpty else { return 0 }
-
-        var previous = Array(0...rhsChars.count)
-        for (lhsIndex, lhsChar) in lhsChars.enumerated() {
-            var current = [lhsIndex + 1]
-            current.reserveCapacity(rhsChars.count + 1)
-
-            for (rhsIndex, rhsChar) in rhsChars.enumerated() {
-                let insertion = current[rhsIndex] + 1
-                let deletion = previous[rhsIndex + 1] + 1
-                let substitution = previous[rhsIndex] + (lhsChar == rhsChar ? 0 : 1)
-                current.append(min(insertion, deletion, substitution))
-            }
-            previous = current
-        }
-
-        let distance = previous[rhsChars.count]
-        let baseline = max(lhsChars.count, rhsChars.count)
-        guard baseline > 0 else { return 0 }
-        return 1.0 - (Double(distance) / Double(baseline))
-    }
-
     private static func deduplicateEquivalentItems(_ items: [SiriMediaIndexItem]) -> [SiriMediaIndexItem] {
         var seenKeys = Set<String>()
         var results: [SiriMediaIndexItem] = []
         results.reserveCapacity(items.count)
 
         for item in items {
-            let displayKey = SiriPhraseSanitizer.normalized(item.displayName)
-            let secondaryKey = SiriPhraseSanitizer.normalized(item.secondaryText ?? "")
+            let displayKey = SiriPhraseNormalizer.normalized(item.displayName)
+            let secondaryKey = SiriPhraseNormalizer.normalized(item.secondaryText ?? "")
             let canonicalKey = "\(displayKey)|\(secondaryKey)"
             if seenKeys.insert(canonicalKey).inserted {
                 results.append(item)

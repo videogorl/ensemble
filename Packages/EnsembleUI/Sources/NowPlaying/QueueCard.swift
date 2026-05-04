@@ -4,12 +4,6 @@ import SwiftUI
 /// Right card displaying scrollable queue with pinned header and secondary controls
 /// Includes shuffle, repeat, autoplay buttons relocated from Controls card
 public struct QueueCard: View {
-    private struct PlaylistPickerPayload: Identifiable {
-        let id = UUID()
-        let tracks: [Track]
-        let title: String
-    }
-    
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
     private let isAlwaysVisible: Bool
@@ -18,7 +12,7 @@ public struct QueueCard: View {
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss
     
-    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     
     public init(
@@ -94,13 +88,7 @@ public struct QueueCard: View {
             }
             .padding(.bottom, EnsembleScaffold.NowPlaying.cardBottomPadding)
         }
-        .sheet(item: $playlistPickerPayload) { payload in
-            PlaylistPickerSheet(
-                nowPlayingVM: viewModel,
-                tracks: payload.tracks,
-                title: payload.title
-            )
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: viewModel)
         .task {
             await refreshLastPlaylistQuickTarget()
         }
@@ -192,11 +180,11 @@ public struct QueueCard: View {
                         presentPlaylistPicker(with: [track], title: "Add to Playlist")
                     },
                     onAddToRecentPlaylist: { track in
-                        guard let lastPlaylistQuickTarget,
-                              viewModel.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return }
-                        Task {
-                            _ = try? await viewModel.addTracks([track], to: lastPlaylistQuickTarget)
-                        }
+                        PlaylistActionPresentationHost.addToRecentPlaylist(
+                            [track],
+                            target: lastPlaylistQuickTarget,
+                            nowPlayingVM: viewModel
+                        )
                     },
                     onGoToAlbum: { track in
                         if let albumId = track.albumRatingKey {
@@ -209,8 +197,11 @@ public struct QueueCard: View {
                         }
                     },
                     canAddToRecentPlaylist: { track in
-                        guard let lastPlaylistQuickTarget else { return false }
-                        return viewModel.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0
+                        PlaylistActionPresentationHost.recentPlaylistTitle(
+                            for: [track],
+                            target: lastPlaylistQuickTarget,
+                            nowPlayingVM: viewModel
+                        ) != nil
                     },
                     recentPlaylistTitle: lastPlaylistQuickTarget?.title,
                     onRemoveFromQueue: { absoluteIndex in
@@ -352,57 +343,48 @@ public struct QueueCard: View {
     /// Context menu for queue items
     @ViewBuilder
     private func queueContextMenu(for item: QueueItem, at absoluteIndex: Int) -> some View {
-        sharedQueueContextMenuItems(for: item)
-        Divider()
-        Button(role: .destructive) { viewModel.removeFromQueue(at: absoluteIndex) } label: {
-            MediaActionLabel(kind: .removeFromQueue)
-        }
+        sharedQueueContextMenuItems(
+            for: item,
+            context: .queue(canRemove: true),
+            onRemoveFromQueue: {
+                viewModel.removeFromQueue(at: absoluteIndex)
+            }
+        )
     }
 
     /// Context menu for history items
     @ViewBuilder
     private func historyContextMenu(for item: QueueItem) -> some View {
-        sharedQueueContextMenuItems(for: item)
+        sharedQueueContextMenuItems(for: item, context: .history)
     }
 
     /// Shared queue/history actions keep menu wording aligned with media rows.
     @ViewBuilder
-    private func sharedQueueContextMenuItems(for item: QueueItem) -> some View {
-        Button { viewModel.playNext(item.track) } label: {
-            MediaActionLabel(kind: .playNext)
-        }
-        Button { viewModel.playLast(item.track) } label: {
-            MediaActionLabel(kind: .playLast)
-        }
-        Divider()
-        Button { presentPlaylistPicker(with: [item.track], title: "Add to Playlist") } label: {
-            MediaActionLabel(kind: .addToPlaylist)
-        }
-        if let lastPlaylistQuickTarget,
-           viewModel.compatibleTrackCount([item.track], for: lastPlaylistQuickTarget) > 0 {
-            Button {
-                Task {
-                    _ = try? await viewModel.addTracks([item.track], to: lastPlaylistQuickTarget)
+    private func sharedQueueContextMenuItems(
+        for item: QueueItem,
+        context: MediaMenuContext,
+        onRemoveFromQueue: (() -> Void)? = nil
+    ) -> some View {
+        TrackActionsContextMenu(
+            track: item.track,
+            nowPlayingVM: viewModel,
+            context: context,
+            recentPlaylistTarget: lastPlaylistQuickTarget,
+            onAddToPlaylist: {
+                presentPlaylistPicker(with: [item.track], title: "Add to Playlist")
+            },
+            onGoToAlbum: {
+                if let albumId = item.track.albumRatingKey {
+                    navigateFromNowPlaying(to: .album(id: albumId))
                 }
-            } label: {
-                MediaActionLabel(kind: .addToRecentPlaylist(lastPlaylistQuickTarget.title))
-            }
-        }
-        Divider()
-        if let albumId = item.track.albumRatingKey {
-            Button {
-                navigateFromNowPlaying(to: .album(id: albumId))
-            } label: {
-                MediaActionLabel(kind: .goToAlbum)
-            }
-        }
-        if let artistId = item.track.artistRatingKey {
-            Button {
-                navigateFromNowPlaying(to: .artist(id: artistId))
-            } label: {
-                MediaActionLabel(kind: .goToArtist)
-            }
-        }
+            },
+            onGoToArtist: {
+                if let artistId = item.track.artistRatingKey {
+                    navigateFromNowPlaying(to: .artist(id: artistId))
+                }
+            },
+            onRemoveFromQueue: onRemoveFromQueue
+        )
     }
     #endif
 
@@ -455,7 +437,10 @@ public struct QueueCard: View {
             lastPlaylistQuickTarget = nil
             return
         }
-        lastPlaylistQuickTarget = await viewModel.resolveLastPlaylistTarget(for: [currentTrack])
+        lastPlaylistQuickTarget = await PlaylistActionPresentationHost.resolveRecentPlaylistTarget(
+            for: [currentTrack],
+            nowPlayingVM: viewModel
+        )
     }
     
     private func presentPlaylistPicker(with tracks: [Track], title: String) {
@@ -471,7 +456,7 @@ public struct QueueCard: View {
             )
             return
         }
-        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
     }
 
     private func navigateFromNowPlaying(to destination: NavigationCoordinator.Destination) {

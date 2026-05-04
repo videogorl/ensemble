@@ -312,7 +312,7 @@ public struct InfoCard: View {
     private var playbackFileInfoRows: some View {
         let info = viewModel.currentPlaybackFileInfo()
         if let codec = info.codec {
-            let sizeText = info.fileSize.map { " · \(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file))" } ?? ""
+            let sizeText = info.fileSize.map { " · \(MediaFormatters.fileBytes($0))" } ?? ""
             infoRow(label: "Playing", value: "\(formatCodecName(codec))\(sizeText)")
         }
     }
@@ -321,7 +321,7 @@ public struct InfoCard: View {
     @ViewBuilder
     private var sourceFileInfoRow: some View {
         if let info = audioFileInfo, let codec = info.codec {
-            let sizeText = info.fileSize.map { " · \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))" } ?? ""
+            let sizeText = info.fileSize.map { " · \(MediaFormatters.fileBytes(Int64($0)))" } ?? ""
             infoRow(label: "Original", value: "\(formatCodecName(codec))\(sizeText)")
         }
     }

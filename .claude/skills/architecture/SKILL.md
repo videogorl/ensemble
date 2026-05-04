@@ -7,7 +7,7 @@ description: "Load before designing features, adding services, or touching multi
 
 ## Layered Module Architecture
 
-Four Swift Packages under `Packages/`:
+Five Swift Packages under `Packages/`:
 
 ```
 Layer 3: EnsembleUI (SwiftUI views & components)
@@ -15,6 +15,7 @@ Layer 3: EnsembleUI (SwiftUI views & components)
 Layer 2: EnsembleCore (ViewModels, services, domain models)
               |
 Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
+Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, extension, and Core)
 ```
 
 ## Package Details
@@ -57,9 +58,19 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `OfflineDownloadTargetRepository` -- Offline target metadata and target->track membership persistence
 - `ArtworkDownloadManager` -- Persistent artwork caching to local filesystem
 
+### EnsembleSiriShared (Siri Shared Rules)
+- **Location:** `Packages/EnsembleSiriShared/`
+- **Dependencies:** None
+- **Purpose:** Pure phrase normalization, query-variant generation, App Group constants, and fuzzy scoring shared by app App Intents, the Siri extension, and Core's in-app Siri execution. This target intentionally avoids CoreData, Intents, SwiftUI, and playback dependencies so the extension can link it directly.
+
+**Key Types:**
+- `SiriSharedConstants` -- App Group identifier and Siri index filename shared by app, extension, and Core.
+- `SiriPhraseNormalizer` -- Basic normalization plus app-suffix, connector-word, and media-type prefix stripping for Siri requests.
+- `SiriMatchScorer` -- Deterministic exact/prefix/contains/token-overlap/edit-distance scoring used for Siri candidate ranking.
+
 ### EnsembleCore (Business Logic Layer)
 - **Location:** `Packages/EnsembleCore/`
-- **Dependencies:** EnsembleAPI, EnsemblePersistence, Nuke
+- **Dependencies:** EnsembleAPI, EnsemblePersistence, EnsembleSiriShared, Nuke
 - **Purpose:** Services, ViewModels, domain models, dependency injection
 
 **Key Services:**
@@ -76,8 +87,13 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - Delegates health-refresh gating/coalescing to `RefreshOrchestrator` so foreground/network-triggered probes share one cooldown/staleness path
   - Delegates app-foreground and network-transition policy to `NetworkLifecycleController` so lifecycle events produce explicit refresh/invalidation plans before side effects run
   - Delegates API-client endpoint synchronization and registry observation to `ServerConnectionController` so sync flow no longer owns registry subscription tasks directly
+- `PlaylistActionService` -- Shared add-to-playlist source compatibility rules used by Now Playing and UI presentation wrappers; owns server-key normalization, cross-source filtering, dedupe, and source stamping for unknown-source tracks before playlist mutation calls
+- `PlaylistMutationWorkflow` -- Shared playlist rename/delete workflow used by playlist root, detail, sidebar/pinned, and merged-playlist batch surfaces; owns title trimming, mutation outcome routing, strict all-copy batch results, and pending/success/failure toast payload policy while views keep local navigation, confirmation, optimistic list state, and pin updates
+- `PlaylistDropResolver` / `MediaTrackResolver` -- Shared media drag/drop resolution for playlist copy/add flows; owns stable media-reference matching, album/playlist expansion policy, smart/merged target rejection, source compatibility, and track dedupe before UI calls playlist mutation APIs
+- `MediaFilterEngine` -- Shared library/detail/favorites filter rules with named configurations for intentional search-field and genre-filter differences across surfaces
 - `NavigationCoordinator` (@MainActor) -- Manages cross-view navigation state (artist/album deep links from NowPlayingView)
   - Maintains per-tab navigation paths (homePath, artistsPath, etc.)
+  - Owns reusable path snapshot/set helpers and destination-to-target-tab mapping; UI uses `NavigationCoordinator+Bindings` for SwiftUI path bindings instead of duplicating per-tab switches in root views
   - `visibleTabs: [TabItem]` -- Synced from MainTabView to enable fallback logic
   - `navigateFromNowPlaying()` -- Falls back to first visible tab when navigating from Search
   - `pendingNavigation` -- Deferred navigation executed after sheet dismissal
@@ -156,6 +172,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `ShareService` (@MainActor) -- Coordinates share payloads: link (song.link/Apple Music URL), text (fallback), or file (local download or temp download via Plex stream URL)
 - `MutationCoordinator` (@MainActor) -- Unified online/offline mutation queue for ratings, playlist changes, and scrobbles
 - `MetadataMutationService` -- Metadata edit coordination for tracks/albums/artists/playlists, plus invalidation notifications that refresh browse/detail surfaces
+- `MetadataMutationWorkflow` -- Shared track/album/artist metadata edit/delete workflow used by rows, cards, and album detail; owns edit-request construction and success/failure toast payload policy while views keep editor presentation, confirmation dialogs, and post-delete navigation
 - `SiriAffinityCoordinator` (@MainActor) -- Executes Siri love/dislike/remove-rating requests against the current track
 - `SiriAddToPlaylistCoordinator` (@MainActor) -- Executes Siri add-to-playlist requests and routes them through the optimistic mutation path
 - `SiriMediaUserContextManager` -- Persists recent Siri playback context to improve subsequent media resolution and ranking
@@ -164,6 +181,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
   - `Track` includes `streamId: Int?` -- Identifies audio stream for fetching loudness timeline data (waveform visualization)
 - `MusicSource` / `MusicSourceIdentifier` -- Multi-account source tracking
+- `MediaSourceIdentity` -- Shared parser/comparator for library-scoped and server-scoped source keys
+- `MediaFormatters` -- Shared track-clock, collection-duration, download-byte, file-byte, and log-byte formatting helpers used by domain models, ViewModels, and UI
 - `PlexAccountConfig` -- Account/server/library hierarchy for configuration (includes `PlexSubscription` on account, `PlexServerCapabilities` on server, `allowSync` on library)
 - `LibraryVisibilityProfile` -- Named profile of hidden source composite keys (non-destructive visibility filtering)
 - `FilterOptions` -- Comprehensive filtering with search, sort, genre/artist filters, year ranges, downloaded-only toggle
@@ -388,6 +407,7 @@ Dynamic home screen powered by Plex's hub system:
 ## Subsystem: Siri Media Intents (In-App-First)
 
 - Siri extension target (`EnsembleSiriIntentsExtension`) implements `INPlayMediaIntentHandling` for query resolution/disambiguation only.
+- Shared Siri phrase cleanup and fuzzy scoring live in `EnsembleSiriShared`; do not duplicate normalization, query-variant, App Group filename, token-overlap, or edit-distance helpers in app, extension, or Core files.
 - Extension reads `SiriMediaIndex` from the shared App Group container and ranks candidates deterministically:
   - Match quality: exact normalized > prefix > contains
   - Tie-breaks: last played > play count > track count > deterministic name/id
@@ -541,7 +561,7 @@ Server-backed playlist mutations with automatic local cache refresh:
 - `SyncCoordinator` orchestrates all mutations: `createPlaylist()`, `addTracksToPlaylist()`, `removeTrackFromPlaylist()`, `movePlaylistItem()`, `renamePlaylist()`
 - Smart playlists are read-only; all mutations throw `PlaylistMutationError.smartPlaylistReadOnly`
 - All successful mutations trigger server refresh + CoreData update for the affected source
-- UI entry points: `PlaylistActionSheets.swift` (shared add/create sheet), `NowPlayingViewModel` (queue snapshot, add current track), `PlaylistViewModel` (rename, reorder, remove), `MediaTrackList` (per-track add)
+- UI entry points: `PlaylistActionSheets.swift` (shared add/create sheet), `PlaylistActionPresentationHost` (sheet request and recent-playlist presentation helpers), `NowPlayingViewModel` (queue snapshot, add current track), `PlaylistViewModel` (rename, reorder, remove), `MediaTrackList` (per-track add)
 
 ## Subsystem: Gesture Actions
 
@@ -583,7 +603,7 @@ Universal link and audio file sharing for tracks and albums:
 3. **ShareSheetPresenter** (`EnsembleUI`) -- iOS 15-compatible `UIActivityViewController` wrapper with imperative presentation via topmost window scene. macOS uses `NSSharingServicePicker`.
 4. **ShareActions** (`EnsembleUI`) -- Static namespace bridging `ShareService` -> share sheet, with toast feedback for download progress and text fallback.
 5. **Context menu integration** -- "Share Link..." and "Share Audio File..." in `TrackRow`, `MediaTrackList`, and Now Playing ellipsis menu. "Share Link..." in `AlbumCard` context menu.
-6. **Drag and drop (iPad)** -- `TrackRow.onDrag` and `MediaTrackList` `UITableViewDragDelegate` provide `NSItemProvider` with audio file URL for downloaded tracks.
+6. **Drag and drop (iPad/macOS)** -- `MediaDragPayload` provides internal track/album/playlist references for Ensemble drop targets and file representations for external destinations. Playlist drop targets call Core `PlaylistDropResolver`; UI owns provider loading and toast presentation only.
 7. **MusicKit configuration** -- `com.apple.developer.music-kit` entitlement + `NSAppleMusicUsageDescription` in Info.plist. `#if canImport(MusicKit)` guard for watchOS 8.
 
 ## Subsystem: Mood-Based Browsing

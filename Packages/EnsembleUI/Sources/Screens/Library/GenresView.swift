@@ -64,7 +64,7 @@ public struct GenresView: View {
     private var rootContent: some View {
         switch presentationMode {
         case .compactRoot:
-            genreListView
+            adaptiveGenreView
         case .selectionColumn:
             genreSelectionList
         }
@@ -80,6 +80,33 @@ public struct GenresView: View {
         } else {
             localSelectedGenre = genre
         }
+    }
+
+    private var selectedGenreBinding: Binding<Genre?> {
+        Binding(
+            get: { selectedGenre },
+            set: { setSelectedGenre($0) }
+        )
+    }
+
+    private var adaptiveGenreView: some View {
+        LargeScreenBrowseSplitView(
+            selection: selectedGenreBinding,
+            configuration: .rootBrowse,
+            compact: {
+                genreListView
+            },
+            sidebar: {
+                genreSelectionList
+            },
+            detail: { genre in
+                GenreDetailContentView(libraryVM: libraryVM, genre: genre, nowPlayingVM: nowPlayingVM)
+                    .id(genre.id)
+            },
+            placeholder: {
+                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.genreEmpty, title: "Select a Genre")
+            }
+        )
     }
 
     private var loadingView: some View {

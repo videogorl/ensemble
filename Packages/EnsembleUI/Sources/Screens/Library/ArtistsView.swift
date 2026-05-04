@@ -88,7 +88,7 @@ public struct ArtistsView: View {
     private var rootContent: some View {
         switch presentationMode {
         case .compactRoot:
-            artistListView
+            adaptiveArtistView
         case .selectionColumn:
             artistSelectionList
         }
@@ -104,6 +104,33 @@ public struct ArtistsView: View {
         } else {
             localSelectedArtist = artist
         }
+    }
+
+    private var selectedArtistBinding: Binding<Artist?> {
+        Binding(
+            get: { selectedArtist },
+            set: { setSelectedArtist($0) }
+        )
+    }
+
+    private var adaptiveArtistView: some View {
+        LargeScreenBrowseSplitView(
+            selection: selectedArtistBinding,
+            configuration: .rootBrowse,
+            compact: {
+                artistListView
+            },
+            sidebar: {
+                artistSelectionList
+            },
+            detail: { artist in
+                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
+                    .id(artist.id)
+            },
+            placeholder: {
+                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.artist, title: "Select an Artist")
+            }
+        )
     }
 
     private var artistFilterButton: some View {
@@ -143,48 +170,46 @@ public struct ArtistsView: View {
     }
 
     private var artistSelectionList: some View {
-        ScrollViewReader { proxy in
-            GeometryReader { geometry in
-                ZStack(alignment: .trailing) {
-                    ScrollView {
-                        GenreChipBar(
-                            availableGenres: libraryVM.availableArtistGenres,
-                            selectedGenres: $libraryVM.artistsFilterOptions.selectedGenres,
-                            excludedGenres: $libraryVM.artistsFilterOptions.excludedGenres
-                        )
+        VStack(spacing: EnsembleDesign.Spacing.none) {
+            artistGenreChipBar
 
-                        if libraryVM.artistSortOption == .name {
-                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(cachedArtistSections) { section in
-                                    Section(header: sectionHeader(section.letter)) {
-                                        ForEach(section.artists) { artist in
-                                            artistSelectionRow(artist)
+            ScrollViewReader { proxy in
+                GeometryReader { geometry in
+                    ZStack(alignment: .trailing) {
+                        ScrollView {
+                            if libraryVM.artistSortOption == .name {
+                                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                    ForEach(cachedArtistSections) { section in
+                                        Section(header: sectionHeader(section.letter)) {
+                                            ForEach(section.artists) { artist in
+                                                artistSelectionRow(artist)
+                                            }
                                         }
+                                        .id(section.letter)
                                     }
-                                    .id(section.letter)
                                 }
-                            }
-                            .padding(.vertical)
-                        } else {
-                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(libraryVM.filteredArtists) { artist in
-                                    artistSelectionRow(artist)
+                                .padding(.vertical)
+                            } else {
+                                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                    ForEach(libraryVM.filteredArtists) { artist in
+                                        artistSelectionRow(artist)
+                                    }
                                 }
+                                .padding(.vertical)
                             }
-                            .padding(.vertical)
                         }
-                    }
-                    .miniPlayerBottomSpacing()
+                        .miniPlayerBottomSpacing()
 
-                    if shouldShowScrollIndex(width: geometry.size.width) {
-                        ScrollIndex(
-                            letters: cachedArtistSections.map { $0.letter },
-                            currentLetter: .constant(nil),
-                            onLetterTap: { letter in
-                                proxy.scrollTo(letter, anchor: .top)
-                            }
-                        )
-                        .libraryScrollIndexPositioning(.centered)
+                        if shouldShowScrollIndex(width: geometry.size.width) {
+                            ScrollIndex(
+                                letters: cachedArtistSections.map { $0.letter },
+                                currentLetter: .constant(nil),
+                                onLetterTap: { letter in
+                                    proxy.scrollTo(letter, anchor: .top)
+                                }
+                            )
+                            .libraryScrollIndexPositioning(.centered)
+                        }
                     }
                 }
             }
@@ -255,53 +280,59 @@ public struct ArtistsView: View {
     }
 
     private var artistListView: some View {
-        ScrollViewReader { proxy in
-            GeometryReader { geometry in
-                ZStack(alignment: .trailing) {
-                    ScrollView {
-                        GenreChipBar(
-                            availableGenres: libraryVM.availableArtistGenres,
-                            selectedGenres: $libraryVM.artistsFilterOptions.selectedGenres,
-                            excludedGenres: $libraryVM.artistsFilterOptions.excludedGenres
-                        )
+        VStack(spacing: EnsembleDesign.Spacing.none) {
+            artistGenreChipBar
 
-                        if libraryVM.artistSortOption == .name {
-                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(cachedArtistSections) { section in
-                                    Section(header: sectionHeader(section.letter)) {
-                                        ArtistGrid(
-                                            artists: section.artists,
-                                            nowPlayingVM: nowPlayingVM
-                                        )
-                                        .id(section.letter)
+            ScrollViewReader { proxy in
+                GeometryReader { geometry in
+                    ZStack(alignment: .trailing) {
+                        ScrollView {
+                            if libraryVM.artistSortOption == .name {
+                                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                    ForEach(cachedArtistSections) { section in
+                                        Section(header: sectionHeader(section.letter)) {
+                                            ArtistGrid(
+                                                artists: section.artists,
+                                                nowPlayingVM: nowPlayingVM
+                                            )
+                                            .id(section.letter)
+                                        }
                                     }
                                 }
+                                .padding(.vertical)
+                            } else {
+                                ArtistGrid(
+                                    artists: libraryVM.filteredArtists,
+                                    nowPlayingVM: nowPlayingVM
+                                )
+                                .padding(.vertical)
                             }
-                            .padding(.vertical)
-                        } else {
-                            ArtistGrid(
-                                artists: libraryVM.filteredArtists,
-                                nowPlayingVM: nowPlayingVM
+                        }
+                        .miniPlayerBottomSpacing()
+                
+                        if shouldShowScrollIndex(width: geometry.size.width) {
+                            ScrollIndex(
+                                letters: cachedArtistSections.map { $0.letter },
+                                currentLetter: .constant(nil),
+                                onLetterTap: { letter in
+                                    proxy.scrollTo(letter, anchor: .top)
+                                }
                             )
-                            .padding(.vertical)
+                            .libraryScrollIndexPositioning(.centered)
                         }
                     }
-                    .miniPlayerBottomSpacing()
-                
-                    if shouldShowScrollIndex(width: geometry.size.width) {
-                        ScrollIndex(
-                            letters: cachedArtistSections.map { $0.letter },
-                            currentLetter: .constant(nil),
-                            onLetterTap: { letter in
-                                proxy.scrollTo(letter, anchor: .top)
-                            }
-                        )
-                        .libraryScrollIndexPositioning()
-                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    private var artistGenreChipBar: some View {
+        GenreFilterHeader(
+            availableGenres: libraryVM.availableArtistGenres,
+            selectedGenres: $libraryVM.artistsFilterOptions.selectedGenres,
+            excludedGenres: $libraryVM.artistsFilterOptions.excludedGenres
+        )
     }
 
     private func shouldShowScrollIndex(width: CGFloat) -> Bool {
@@ -319,12 +350,6 @@ public struct ArtistsView: View {
 // MARK: - Artist Detail View
 
 public struct ArtistDetailView: View {
-    private struct PlaylistPickerPayload: Identifiable {
-        let id = UUID()
-        let tracks: [Track]
-        let title: String
-    }
-
     @StateObject private var viewModel: ArtistDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
 
@@ -339,7 +364,7 @@ public struct ArtistDetailView: View {
     @State private var nvmRecentPlaylistTitle: String?
     @State private var isBioExpanded = false
     @State private var artworkImage: UIImage?
-    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var showToolbarTitle = false
     @State private var artistHeaderWidth: CGFloat = 0
     @State private var favoritedTrackListWidth: CGFloat = 0
@@ -445,9 +470,7 @@ public struct ArtistDetailView: View {
             await viewModel.loadArtistDetail()
             await loadArtworkImage()
         }
-        .sheet(item: $playlistPickerPayload) { payload in
-            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
     }
 
     /// Toolbar menu with Pin/Unpin action for the artist
@@ -1048,35 +1071,15 @@ public struct ArtistDetailView: View {
     }
 
     private func presentPlaylistPicker(with tracks: [Track]) {
-        guard !tracks.isEmpty else { return }
-        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: "Add to Playlist")
+        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
     }
 
     private func addToRecentPlaylist(_ track: Track) {
-        guard recentPlaylistTitle(for: track) != nil else { return }
-        Task {
-            guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: [track]) else { return }
-            _ = try? await nowPlayingVM.addTracks([track], to: playlist)
-        }
+        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
     }
 
     private func recentPlaylistTitle(for track: Track) -> String? {
-        guard let target = nowPlayingVM.lastPlaylistTarget else { return nil }
-        let playlist = Playlist(
-            id: target.id,
-            key: "/playlists/\(target.id)",
-            title: target.title,
-            summary: nil,
-            isSmart: false,
-            trackCount: 0,
-            duration: 0,
-            compositePath: nil,
-            dateAdded: nil,
-            dateModified: nil,
-            lastPlayed: nil,
-            sourceCompositeKey: target.sourceCompositeKey
-        )
-        return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
+        PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
     }
 }
 

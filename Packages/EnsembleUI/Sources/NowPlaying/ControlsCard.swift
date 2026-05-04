@@ -8,12 +8,6 @@ import UIKit
 /// Center card displaying artwork, scrubber, playback controls, and secondary controls
 /// Extracts and refines existing NowPlayingView controls into standalone card
 public struct ControlsCard: View {
-    private struct PlaylistPickerPayload: Identifiable {
-        let id = UUID()
-        let tracks: [Track]
-        let title: String
-    }
-    
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
     @Environment(\.dependencies) private var deps
@@ -31,7 +25,7 @@ public struct ControlsCard: View {
     @State private var localProgress: Double = 0
     @State private var sliderWidth: CGFloat = 0
     @State private var lastScrubRate: Double = 1.0
-    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var showLoadingIndicator = false
     @State private var loadingDelayTask: Task<Void, Never>?
@@ -65,13 +59,7 @@ public struct ControlsCard: View {
                 emptyStateView(geometry: geometry)
             }
         }
-        .sheet(item: $playlistPickerPayload) { payload in
-            PlaylistPickerSheet(
-                nowPlayingVM: viewModel,
-                tracks: payload.tracks,
-                title: payload.title
-            )
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: viewModel)
         .task {
             await refreshLastPlaylistQuickTarget()
         }
@@ -302,7 +290,7 @@ public struct ControlsCard: View {
                 HStack {
                     Group {
                         if isDraggingSlider {
-                            Text(formatTime(localProgress * viewModel.scrubberDuration))
+                            Text(MediaFormatters.trackClock(localProgress * viewModel.scrubberDuration))
                         } else {
                             Text(viewModel.formattedCurrentTime)
                         }
@@ -321,7 +309,7 @@ public struct ControlsCard: View {
 
                     Group {
                         if isDraggingSlider {
-                            Text(formatTime((1 - localProgress) * viewModel.scrubberDuration))
+                            Text(MediaFormatters.trackClock((1 - localProgress) * viewModel.scrubberDuration))
                         } else {
                             Text(viewModel.formattedRemainingTime)
                         }
@@ -486,8 +474,8 @@ public struct ControlsCard: View {
             // Add to Playlist
             Button {
                 if let currentTrack = viewModel.currentTrack {
-                    playlistPickerPayload = PlaylistPickerPayload(
-                        tracks: [currentTrack],
+                    playlistActionRequest = PlaylistActionPresentationHost.request(
+                        for: [currentTrack],
                         title: "Add to Playlist"
                     )
                 }
@@ -536,16 +524,20 @@ public struct ControlsCard: View {
                     }
                 }
 
-                if let lastPlaylistQuickTarget {
-                    if let currentTrack = viewModel.currentTrack,
-                       viewModel.compatibleTrackCount([currentTrack], for: lastPlaylistQuickTarget) > 0 {
-                        Button {
-                            Task {
-                                _ = try? await viewModel.addTracks([currentTrack], to: lastPlaylistQuickTarget)
-                            }
-                        } label: {
-                            Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: EnsembleDesign.Icon.recentPlaylist)
-                        }
+                if let currentTrack = viewModel.currentTrack,
+                   let recentTitle = PlaylistActionPresentationHost.recentPlaylistTitle(
+                       for: [currentTrack],
+                       target: lastPlaylistQuickTarget,
+                       nowPlayingVM: viewModel
+                   ) {
+                    Button {
+                        PlaylistActionPresentationHost.addToRecentPlaylist(
+                            [currentTrack],
+                            target: lastPlaylistQuickTarget,
+                            nowPlayingVM: viewModel
+                        )
+                    } label: {
+                        Label("Add to \(recentTitle)", systemImage: EnsembleDesign.Icon.recentPlaylist)
                     }
                 }
             } label: {
@@ -595,7 +587,10 @@ public struct ControlsCard: View {
             lastPlaylistQuickTarget = nil
             return
         }
-        lastPlaylistQuickTarget = await viewModel.resolveLastPlaylistTarget(for: [currentTrack])
+        lastPlaylistQuickTarget = await PlaylistActionPresentationHost.resolveRecentPlaylistTarget(
+            for: [currentTrack],
+            nowPlayingVM: viewModel
+        )
     }
     
     private func presentPlaylistPicker(with tracks: [Track], title: String) {
@@ -611,7 +606,7 @@ public struct ControlsCard: View {
             )
             return
         }
-        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
     }
     
     private func getScrubRate(verticalDistance: CGFloat) -> Double {
@@ -639,9 +634,4 @@ public struct ControlsCard: View {
         }
     }
     
-    private func formatTime(_ time: TimeInterval) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
 }

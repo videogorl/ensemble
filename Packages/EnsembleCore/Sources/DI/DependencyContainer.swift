@@ -55,7 +55,9 @@ public final class DependencyContainer: @unchecked Sendable {
     public let offlineDownloadService: OfflineDownloadService
     public let lyricsService: LyricsService
     public let mutationCoordinator: MutationCoordinator
+    public let playlistMutationWorkflow: PlaylistMutationWorkflow
     public let metadataMutationService: MetadataMutationService
+    public let metadataMutationWorkflow: MetadataMutationWorkflow
     public let songLinkService: SongLinkService
     public let shareService: ShareService
     public let powerStateMonitor: PowerStateMonitor
@@ -153,7 +155,9 @@ public final class DependencyContainer: @unchecked Sendable {
         let offlineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinator
         let offlineDownloadService: OfflineDownloadService
         let mutationCoordinator: MutationCoordinator
+        let playlistMutationWorkflow: PlaylistMutationWorkflow
         let metadataMutationService: MetadataMutationService
+        let metadataMutationWorkflow: MetadataMutationWorkflow
     }
 
     private struct SiriBootstrap {
@@ -232,7 +236,9 @@ public final class DependencyContainer: @unchecked Sendable {
         offlineBackgroundExecutionCoordinator = mutation.offlineBackgroundExecutionCoordinator
         offlineDownloadService = mutation.offlineDownloadService
         mutationCoordinator = mutation.mutationCoordinator
+        playlistMutationWorkflow = mutation.playlistMutationWorkflow
         metadataMutationService = mutation.metadataMutationService
+        metadataMutationWorkflow = mutation.metadataMutationWorkflow
 
         siriMediaIndexStore = siri.siriMediaIndexStore
         siriPlaybackCoordinator = siri.siriPlaybackCoordinator
@@ -439,6 +445,9 @@ public final class DependencyContainer: @unchecked Sendable {
                 syncCoordinator: sync.syncCoordinator
             )
         }
+        let playlistMutationWorkflow = MainActor.assumeIsolated {
+            PlaylistMutationWorkflow(mutator: mutationCoordinator)
+        }
         let metadataMutationService = MainActor.assumeIsolated {
             MetadataMutationService(
                 libraryRepository: core.libraryRepository,
@@ -467,12 +476,17 @@ public final class DependencyContainer: @unchecked Sendable {
                 }
             )
         }
+        let metadataMutationWorkflow = MainActor.assumeIsolated {
+            MetadataMutationWorkflow(mutator: metadataMutationService)
+        }
 
         return MutationBootstrap(
             offlineBackgroundExecutionCoordinator: offlineBackgroundExecutionCoordinator,
             offlineDownloadService: offlineDownloadService,
             mutationCoordinator: mutationCoordinator,
-            metadataMutationService: metadataMutationService
+            playlistMutationWorkflow: playlistMutationWorkflow,
+            metadataMutationService: metadataMutationService,
+            metadataMutationWorkflow: metadataMutationWorkflow
         )
     }
 
@@ -1068,19 +1082,13 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         guard !userProfileStore.profile.isEmpty else {
-            guard !shouldKeepFirstConnectPending else {
-                syncSettingsManager.setProfileStatus(
-                    phase: .unknown,
-                    direction: nil,
-                    detail: "Waiting for iCloud profile during first-device sync."
-                )
-                return
-            }
-
+            let status = Self.missingProfileStatusForEmptyLocalProfile(
+                shouldKeepFirstConnectPending: shouldKeepFirstConnectPending
+            )
             syncSettingsManager.setProfileStatus(
-                phase: .noRecord,
-                direction: nil,
-                detail: "No profile found in iCloud yet."
+                phase: status.phase,
+                direction: status.direction,
+                detail: status.detail
             )
             return
         }
@@ -1550,6 +1558,24 @@ public final class DependencyContainer: @unchecked Sendable {
         default:
             return false
         }
+    }
+
+    static func missingProfileStatusForEmptyLocalProfile(
+        shouldKeepFirstConnectPending: Bool
+    ) -> SyncSettingsManager.ProfileSyncStatus {
+        if shouldKeepFirstConnectPending {
+            return SyncSettingsManager.ProfileSyncStatus(
+                phase: .unknown,
+                direction: nil,
+                detail: "Waiting for iCloud profile during first-device sync."
+            )
+        }
+
+        return SyncSettingsManager.ProfileSyncStatus(
+            phase: .unknown,
+            direction: nil,
+            detail: "No iCloud profile has been created yet."
+        )
     }
 
     static func shouldRetryFirstConnectForSources(

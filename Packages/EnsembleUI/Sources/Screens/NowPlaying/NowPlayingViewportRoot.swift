@@ -41,7 +41,7 @@ struct NowPlayingViewportRoot: View {
                 backgroundView
 
                 #if os(macOS)
-                SidebarToggleToolbarSuppressionBridge()
+                MacNowPlayingChromeCoordinatorBridge()
                     .frame(
                         width: EnsembleScaffold.NowPlaying.ToolbarSuppression.hostDimension,
                         height: EnsembleScaffold.NowPlaying.ToolbarSuppression.hostDimension
@@ -277,10 +277,10 @@ struct NowPlayingViewportRoot: View {
 }
 
 #if os(macOS)
-/// Hides live host toolbar items on the existing macOS window toolbar while viewport
-/// Now Playing is active. This avoids mutating titlebar visibility or replacing
-/// SwiftUI's managed toolbar instance.
-private struct SidebarToggleToolbarSuppressionBridge: NSViewRepresentable {
+/// Coordinates host window chrome while viewport Now Playing is active.
+/// Stores and restores toolbar item visibility plus resize constraints owned
+/// by the surrounding split-view shell.
+private struct MacNowPlayingChromeCoordinatorBridge: NSViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
@@ -304,6 +304,8 @@ private struct SidebarToggleToolbarSuppressionBridge: NSViewRepresentable {
         private weak var window: NSWindow?
         private var previousHiddenStates: [(item: NSToolbarItem, hidden: Bool)] = []
         private var previousViewHiddenStates: [(item: NSToolbarItem, hidden: Bool)] = []
+        private var previousContentMinSize: NSSize?
+        private var previousContentMaxSize: NSSize?
 
         func apply(to window: NSWindow?) {
             guard let window else { return }
@@ -312,6 +314,8 @@ private struct SidebarToggleToolbarSuppressionBridge: NSViewRepresentable {
                 restore()
                 self.window = window
             }
+
+            applyResizeConstraints(to: window)
 
             guard let toolbar = window.toolbar else { return }
 
@@ -340,6 +344,21 @@ private struct SidebarToggleToolbarSuppressionBridge: NSViewRepresentable {
             }
         }
 
+        private func applyResizeConstraints(to window: NSWindow) {
+            if previousContentMinSize == nil {
+                previousContentMinSize = window.contentMinSize
+                previousContentMaxSize = window.contentMaxSize
+            }
+
+            let nowPlayingMinSize = NSSize(
+                width: EnsembleScaffold.NowPlaying.viewportMacMinimumWindowWidth,
+                height: EnsembleScaffold.NowPlaying.viewportMacMinimumWindowHeight
+            )
+            if window.contentMinSize != nowPlayingMinSize {
+                window.contentMinSize = nowPlayingMinSize
+            }
+        }
+
         private func shouldHideToolbarItem(_ item: NSToolbarItem) -> Bool {
             let identifier = item.itemIdentifier
 
@@ -352,6 +371,15 @@ private struct SidebarToggleToolbarSuppressionBridge: NSViewRepresentable {
         }
 
         func restore() {
+            if let previousContentMinSize {
+                window?.contentMinSize = previousContentMinSize
+            }
+            if let previousContentMaxSize {
+                window?.contentMaxSize = previousContentMaxSize
+            }
+            previousContentMinSize = nil
+            previousContentMaxSize = nil
+
             if #available(macOS 15.0, *) {
                 for entry in previousHiddenStates {
                     entry.item.isHidden = entry.hidden

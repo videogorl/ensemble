@@ -115,21 +115,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
     // MARK: - Filter + Sort (static for background pipeline)
 
     private static func filterAndSort(_ tracks: [Track], sortOption: FavoritesSortOption, filterOptions: FilterOptions) -> [Track] {
-        var filtered = tracks
-
-        if !filterOptions.searchText.isEmpty {
-            let searchLower = filterOptions.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower) ||
-                ($0.artistName?.lowercased().contains(searchLower) ?? false) ||
-                ($0.albumName?.lowercased().contains(searchLower) ?? false)
-            }
-        }
-
-        if filterOptions.showDownloadedOnly {
-            filtered = filtered.filter { $0.isDownloaded }
-        }
-
+        let filtered = MediaFilterEngine.filterTracks(tracks, with: filterOptions, configuration: .favorites)
         return sortTracks(filtered, by: sortOption, direction: filterOptions.sortDirection)
     }
 

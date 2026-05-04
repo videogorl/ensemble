@@ -134,6 +134,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Hub section | region | Individual content hub with title and horizontal scroll | `HubSection` |
 | Hub section title | text | Bold title for each hub (e.g., "Recently Added") | `hub.title` |
 | Hub item card | control | Tappable card showing album/artist/track/playlist artwork and info | `HubItemCard` |
+| Hub item context menu | menu | Catalog-backed long-press menu for hub album/artist/playlist/track actions | `AlbumActionsContextMenu`, `ArtistActionsContextMenu`, `PlaylistActionsContextMenu`, `TrackActionsContextMenu` |
 | Hub item artwork | artwork | Square artwork thumbnail for hub items (140x140) | `ArtworkView` |
 | Hub item title | text | Primary title text on hub cards | `item.title` |
 | Hub item subtitle | text | Secondary text (artist name, year) on hub cards | `item.subtitle` |
@@ -791,7 +792,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Nothing playing state | state | Placeholder shown when no track is playing | `Nothing Playing` |
 | Swipe gesture | gesture | Horizontal swipe on track info for prev/next | `DragGesture` |
 | Pull up gesture | gesture | Vertical drag up to open full player | `onTap` |
-| Context menu | menu | Long-press menu with favorite, playlist, show now playing | `contextMenu` |
+| Context menu | menu | Long-press menu with shared track actions, playback toggles, and show now playing | `TrackActionsContextMenu`, `contextMenu` |
 | Floating style | state | Rounded pill shape with shadow (iOS 18+) | `isFloating` |
 
 ---

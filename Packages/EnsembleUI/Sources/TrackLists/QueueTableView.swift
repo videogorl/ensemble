@@ -314,6 +314,7 @@ public struct QueueTableView: UIViewRepresentable {
             bottom: 0,
             right: TrackListLayoutMetrics.detailHorizontalPadding
         )
+        tableView.separatorColor = TrackListLayoutMetrics.nativeSeparatorColor
         tableView.backgroundColor = .clear
         tableView.isScrollEnabled = true // Table manages its own scrolling
         tableView.dragInteractionEnabled = true
@@ -395,7 +396,8 @@ public struct QueueTableView: UIViewRepresentable {
             recentPlaylistTitle: recentPlaylistTitle,
             onRemoveFromQueue: onRemoveFromQueue,
             onMoveItem: onMoveItem,
-            artworkLoader: dependencies.artworkLoader
+            artworkLoader: dependencies.artworkLoader,
+            shareService: dependencies.shareService
         )
     }
 
@@ -419,6 +421,7 @@ public struct QueueTableView: UIViewRepresentable {
         var onRemoveFromQueue: (Int) -> Void
         var onMoveItem: (String, Int, Int) -> Void  // itemId, sourceIndex, destinationIndex
         var artworkLoader: ArtworkLoaderProtocol
+        var shareService: ShareService
 
         var sections: [QueueSection] = []
         weak var tableView: UITableView?
@@ -461,7 +464,8 @@ public struct QueueTableView: UIViewRepresentable {
             recentPlaylistTitle: String?,
             onRemoveFromQueue: @escaping (Int) -> Void,
             onMoveItem: @escaping (String, Int, Int) -> Void,
-            artworkLoader: ArtworkLoaderProtocol
+            artworkLoader: ArtworkLoaderProtocol,
+            shareService: ShareService
         ) {
             self.queueItems = queueItems
             self.history = history
@@ -480,6 +484,7 @@ public struct QueueTableView: UIViewRepresentable {
             self.onRemoveFromQueue = onRemoveFromQueue
             self.onMoveItem = onMoveItem
             self.artworkLoader = artworkLoader
+            self.shareService = shareService
             super.init()
             rebuildSections()
         }
@@ -654,21 +659,16 @@ public struct QueueTableView: UIViewRepresentable {
                 recentPlaylistTitle: self.recentPlaylistTitle
             )
             let resolvedActions = interactionModel.resolve(for: track)
-            let extraBottomActions: [UIAction]
-            if let absoluteIndex {
-                extraBottomActions = [
-                    UIAction(title: "Remove from Queue", image: UIImage(systemName: EnsembleDesign.Icon.delete), attributes: .destructive) { [weak self] _ in
-                        self?.onRemoveFromQueue(absoluteIndex)
-                    }
-                ]
-            } else {
-                extraBottomActions = []
-            }
 
             return NativeMediaTableActionBuilder.contextMenu(
                 for: track,
                 resolvedActions: resolvedActions,
-                extraBottomActions: extraBottomActions
+                context: absoluteIndex == nil ? .history : .queue(canRemove: true),
+                onRemoveFromQueue: absoluteIndex.map { index in
+                    { [weak self] in
+                        self?.onRemoveFromQueue(index)
+                    }
+                }
             )
         }
         
@@ -681,7 +681,8 @@ public struct QueueTableView: UIViewRepresentable {
         public func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
             guard !showHistory else { return [] }
             let item = self.item(at: indexPath)
-            let itemProvider = NSItemProvider(object: item.id as NSString)
+            let itemProvider = MediaDragPayload.trackItemProvider(for: item.track, shareService: shareService)
+            itemProvider.registerObject(item.id as NSString, visibility: .ownProcess)
             let dragItem = UIDragItem(itemProvider: itemProvider)
             dragItem.localObject = item
             return [dragItem]
@@ -692,7 +693,7 @@ public struct QueueTableView: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, dropSessionDidUpdate session: UIDropSession, withDestinationIndexPath destinationIndexPath: IndexPath?) -> UITableViewDropProposal {
-            guard let dest = destinationIndexPath, !showHistory else {
+            guard destinationIndexPath != nil, !showHistory else {
                 return UITableViewDropProposal(operation: .cancel)
             }
             return UITableViewDropProposal(operation: .move, intent: .insertAtDestinationIndexPath)
@@ -700,8 +701,6 @@ public struct QueueTableView: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, performDropWith coordinator: UITableViewDropCoordinator) {
             guard let destinationIndexPath = coordinator.destinationIndexPath,
-                  !showHistory,
-                  let sourceIndexPath = coordinator.items.first?.sourceIndexPath,
                   !showHistory else { return }
             
             // Extract source item from the drag item's localObject

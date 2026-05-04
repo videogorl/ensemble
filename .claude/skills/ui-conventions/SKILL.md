@@ -24,13 +24,14 @@ These are core design decisions that must be maintained throughout the app.
 - **NavigationCoordinator.Destination:** Use typed destinations (artist, album, playlist, view) for all deep links
 - **Pending navigation:** From sheets (like Now Playing), set `pendingNavigation` to defer until sheet dismisses
 - **Tab fallback:** If navigating from Search tab (or hidden tab), fall back via `visibleTabs.first ?? .home`
+- **Root path helpers:** Use `NavigationCoordinator.pathSnapshot(for:)`, `setPath(_:for:)`, and the EnsembleUI `pathBinding(for:)` extension instead of adding new per-tab switch statements in root views. Use `NavigationDestinationFactory` for tab/destination view routing, and use `NavigationCoordinator.targetTab(for:)` plus `SidebarSelection.selection(for:fallback:)` for destination-to-root selection mapping.
 
 ### iOS 15 Compatibility
 - **iOS 16+:** `NavigationStack` with `NavigationLink(value:)` and typed paths
 - **iOS 15:** `NestedNavigationLink` recursive pattern in `MainTabView.swift`
 - **Feature detection:** Always wrap iOS 16+ features in `@available(iOS 16.0, *)` checks
 - **Bottom spacing for mini player/tab bar:** Use `.miniPlayerBottomSpacing(...)` from `View+Extensions.swift` instead of ad-hoc per-screen spacer blocks
-- **Shared list spacing:** Use `TrackListLayoutMetrics` for standard row height, leading insets, divider alignment, and default mini-player clearance instead of repeating `68/54/16/140/70/52` across screens
+- **Shared list spacing:** Use `TrackListLayoutMetrics` for standard row height, leading insets, divider alignment/color, native separator color, and default mini-player clearance instead of repeating `68/54/16/140/70/52` or raw separator alpha across screens. SwiftUI `List` track rows should hide system row separators and draw `TrackListDivider` so Artist pages, Media Detail pages, and native table rows do not drift.
 - **Utility sheet spacing:** Reuse `TrackListLayoutMetrics.rowInterItemSpacing` and `rowHorizontalPadding` for compact sheet rows, drag-order surfaces, and lightweight action pickers instead of introducing standalone `12/16` spacing constants
 - **Now Playing utility spacing:** Inside Now Playing cards, keep compact metadata rows, empty states, page indicators, and queue/status affordances on `TrackListLayoutMetrics` spacing tokens unless the layout truly needs its own card-scale rhythm
 - **Detail gutter:** Treat the 40pt horizontal gutter used by Now Playing and queue surfaces as the app's premium detail inset. Reuse `TrackListLayoutMetrics.detailHorizontalPadding` and `utilityListRowInsets()` for downloads/settings/manual utility rows instead of hardcoding fresh edge values.
@@ -46,7 +47,7 @@ These are core design decisions that must be maintained throughout the app.
 - Root tab shells should own keyboard/search avoidance decisions. Child detail views should not inherit an active search or keyboard presenter from an offscreen tab.
 - Context-menu metadata editors are a separate case: use `phoneSafeAuxiliaryPresentation(...)` with a short dismissal delay so the menu teardown finishes before presentation begins.
 - Profile should present as a normal sheet again on iPhone.
-- Profile and Downloads should use the same single-column rhythm on macOS auxiliary windows as they do on iOS sheets. Host them through `MacAuxiliaryWindowScaffold` at about 420pt max width instead of adding a separate macOS header/chrome layer.
+- Profile and Downloads should use the same single-column rhythm on macOS auxiliary windows as they do on iOS sheets. Host them through `MacAuxiliaryWindowScaffold` at about 420pt max width, and compose macOS content with `EnsembleUtilityScreenScaffold`/`EnsembleUtilityCardSection` instead of raw `List` rows when the screen is menu-like.
 - Do not pre-hide root tab, mini-player, or searchable-header chrome for the entire auxiliary transition; only suppress root chrome for actual immersive modes or the remaining explicitly-isolated keyboard presenters.
 - The helper owns keyboard-editor registration timing; do not duplicate `beginKeyboardEditorPresentation()` or `endKeyboardEditorPresentation()` inside the editor view itself
 - Keyboard editors can use a local `NavigationStack`/`NavigationView` plus system toolbar actions for a native look whether they are hosted in a normal sheet or one of the remaining isolated presenters.
@@ -170,11 +171,17 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - macOS keeps existing interaction model (no custom swipe gesture layer in v1)
 
 ### Long-Press Menus
+- Shared media context-menu policy lives in `MediaMenuCatalog`. New track, album, artist, playlist, or merged-playlist menus should use the catalog for action order, section grouping, and destructive/editing gating; parent views should add only local handlers such as queue removal, MiniPlayer shuffle/repeat, or pinned unpin behavior.
+- Use `TrackActionsContextMenu` for standalone SwiftUI track cards/menus outside `TrackRow` or native table rows, including feed cards, mini-player long-press menus, and queue/history fallback rows. It renders the shared catalog and lets the parent inject only navigation, playlist-picker presentation, or removal handlers.
+- Add-to-playlist follow-up UI should be presented through `PlaylistActionPresentationHost` and `.playlistActionPresentation(request:nowPlayingVM:)`; menus and row actions should request the shared host instead of owning a local sheet payload.
 - Prefer `contextMenu` on album/artist/playlist cards/rows to mirror detail-view actions
 - Album menu: `Play`, `Shuffle`, `Play Next`, `Play Last`, `Radio`, `Add to Playlist…`, `Pin/Unpin`
 - Artist menu: `Play`, `Shuffle`, `Radio`, `Pin/Unpin`
 - Playlist menu (Playlists screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Pin/Unpin`, plus (for non-smart playlists) `Rename…`, `Edit Playlist`, `Delete`
 - Playlist menu (Search screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Pin/Unpin` (non-destructive only)
+
+### Genre Filters
+- Use `GenreFilterHeader` for browse and detail genre filter rows. Do not place `GenreChipBar` directly in screens; the header owns the shared spacing and optional supplementary content such as merged-playlist source chips.
 
 ## Visual Design
 
@@ -187,7 +194,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Large-screen browse splits should use `LargeScreenBrowseSplitView` with `EnsembleScaffold.BrowseSplit.Configuration` presets instead of repeating raw pane width, breakpoint, and resize-handle values per screen.
 - Media-style detail screens should keep header/list/action/shadow metrics under `EnsembleScaffold.DetailSurface` and render through `MediaDetailSurface` helpers rather than inventing parallel detail surface constants.
 - Artist detail's custom square/circular adaptive header should keep its specialized thresholds, hero dimensions, section rhythm, and overlay strengths under `EnsembleScaffold.ArtistDetail`.
-- macOS Profile/Downloads-style utility windows should use `MacAuxiliaryWindowScaffold` plus `EnsembleScaffold.AuxiliaryWindow.Configuration` presets so scene sizing and in-window content width stay in sync.
+- macOS Profile/Downloads-style utility windows should use `MacAuxiliaryWindowScaffold` plus `EnsembleScaffold.AuxiliaryWindow.Configuration` presets so scene sizing and in-window content width stay in sync. For menu-like rows, use `EnsembleUtilityScreenScaffold`, `EnsembleUtilityCardSection`, `EnsembleUtilityCardRow`, and `EnsembleUtilityCardDivider` so macOS uses quiet card sections instead of bordered `List` chrome.
 - Loading, empty, and error states should use `EnsembleStateScaffold`. Use the default full-screen presentation for standalone states and `.compactFooter` for track-list/table-footer states.
 - Library browse empty states that branch on cloud restore, missing sources, syncing, disabled libraries, or true empty content should use `EnsembleLibraryEmptyStateScaffold` instead of rebuilding that decision tree per screen.
 - Filled actions inside empty/loading/error states should use `EnsembleStateActionLabel`; account setup/authentication surfaces should use `EnsembleScaffold.AccountSetup` for PIN, card, row, and sheet sizing.

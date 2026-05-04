@@ -1,9 +1,20 @@
 import EnsembleCore
 import SwiftUI
 import Nuke
+#if os(iOS)
+import UIKit
+#endif
 #if os(macOS)
 import AppKit
 #endif
+
+private var supportsCustomMiniPlayerSwipeGestures: Bool {
+    #if os(iOS)
+    UIDevice.current.userInterfaceIdiom == .phone
+    #else
+    false
+    #endif
+}
 
 // MARK: - MiniPlayer
 
@@ -16,10 +27,9 @@ public struct MiniPlayer: View {
     let viewModel: NowPlayingViewModel
     let onTap: () -> Void
 
-    @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var verticalOffset: CGFloat = 0
-    @State private var showingPlaylistPicker = false
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
 
     private let isFloating: Bool
     private let showsWaveform: Bool
@@ -77,22 +87,12 @@ public struct MiniPlayer: View {
         }
         .contentShape(RoundedRectangle(cornerRadius: pillCornerRadius))
         .onTapGesture(perform: onTap)
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    // Vertical only for the whole player
-                    if value.translation.height < 0 {
-                        verticalOffset = value.translation.height * EnsembleScaffold.MiniPlayer.verticalSwipeRubberBandFactor
-                    }
-                }
-                .onEnded { value in
-                    if value.translation.height < -EnsembleScaffold.MiniPlayer.verticalOpenThreshold {
-                        onTap()
-                    }
-                    withAnimation(.spring()) {
-                        verticalOffset = 0
-                    }
-                }
+        .modifier(
+            MiniPlayerVerticalSwipeModifier(
+                isEnabled: supportsCustomMiniPlayerSwipeGestures,
+                verticalOffset: $verticalOffset,
+                onOpen: onTap
+            )
         )
         .padding(.horizontal, horizontalPadding)
         .padding(.bottom, isFloating ? EnsembleScaffold.MiniPlayer.floatingBottomPadding : EnsembleScaffold.MiniPlayer.inlineBottomPadding)
@@ -101,54 +101,24 @@ public struct MiniPlayer: View {
             // Context menu closures are evaluated lazily on long press,
             // so they read the live viewModel values without needing observation.
             if let track = viewModel.currentTrack {
-                Section {
-                    Button {
-                        Task { await viewModel.toggleTrackFavorite(track) }
-                    } label: {
-                        MediaActionLabel(
-                            kind: .favorite(
-                                isFavorited: viewModel.isTrackFavorited(track),
-                                usesFilledIcon: false
-                            )
-                        )
-                    }
-
-                    if let lastTarget = viewModel.lastPlaylistTarget {
-                        Button {
-                            Task {
-                                if let playlist = await viewModel.resolveLastPlaylistTarget() {
-                                    _ = try? await viewModel.addCurrentTrack(to: playlist)
-                                }
-                        }
-                    } label: {
-                        MediaActionLabel(kind: .addToRecentPlaylist(lastTarget.title))
-                    }
-                    }
-
-                    Button {
-                        showingPlaylistPicker = true
-                    } label: {
-                        MediaActionLabel(kind: .addToPlaylist)
-                    }
-                }
-
-                Section {
-                    if let albumId = track.albumRatingKey {
-                        Button {
+                TrackActionsContextMenu(
+                    track: track,
+                    nowPlayingVM: viewModel,
+                    context: .miniPlayer,
+                    onAddToPlaylist: {
+                        playlistActionRequest = PlaylistActionPresentationHost.request(for: [track])
+                    },
+                    onGoToAlbum: {
+                        if let albumId = track.albumRatingKey {
                             navigationCoordinator.navigate(to: .album(id: albumId))
-                        } label: {
-                            MediaActionLabel(kind: .goToAlbum)
                         }
-                    }
-
-                    if let artistId = track.artistRatingKey {
-                        Button {
+                    },
+                    onGoToArtist: {
+                        if let artistId = track.artistRatingKey {
                             navigationCoordinator.navigate(to: .artist(id: artistId))
-                        } label: {
-                            MediaActionLabel(kind: .goToArtist)
                         }
                     }
-                }
+                )
 
                 Section {
                     Button {
@@ -159,11 +129,7 @@ public struct MiniPlayer: View {
                 }
             }
         }
-        .sheet(isPresented: $showingPlaylistPicker) {
-            if let track = viewModel.currentTrack {
-                PlaylistPickerSheet(nowPlayingVM: viewModel, tracks: [track])
-            }
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: viewModel)
     }
 
     // MARK: - Pill Content
@@ -368,52 +334,99 @@ private struct MiniPlayerTrackInfo: View {
         .offset(x: dragOffset)
         .opacity(opacity)
         .contentShape(Rectangle())
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    // Horizontal only
-                    if abs(value.translation.width) > abs(value.translation.height) {
-                        dragOffset = value.translation.width
-                        opacity = 1.0 - min(
-                            abs(value.translation.width) / EnsembleScaffold.MiniPlayer.horizontalSwipeFadeDistance,
-                            EnsembleScaffold.MiniPlayer.horizontalSwipeMaximumFade
-                        )
-                    }
-                }
-                .onEnded { value in
-                    let threshold = EnsembleScaffold.MiniPlayer.horizontalSwipeThreshold
-                    if value.translation.width > threshold {
-                        withAnimation(.spring(response: 0.3)) {
-                            dragOffset = EnsembleScaffold.MiniPlayer.horizontalSwipeDismissOffset
-                            opacity = 0
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + EnsembleScaffold.MiniPlayer.horizontalSwipeResetDelay) {
-                            viewModel.previous()
-                            withAnimation(.spring(response: 0.3)) {
-                                dragOffset = 0
-                                opacity = 1.0
-                            }
-                        }
-                    } else if value.translation.width < -threshold {
-                        withAnimation(.spring(response: 0.3)) {
-                            dragOffset = -EnsembleScaffold.MiniPlayer.horizontalSwipeDismissOffset
-                            opacity = 0
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + EnsembleScaffold.MiniPlayer.horizontalSwipeResetDelay) {
-                            viewModel.next()
-                            withAnimation(.spring(response: 0.3)) {
-                                dragOffset = 0
-                                opacity = 1.0
-                            }
-                        }
-                    } else {
-                        withAnimation(.spring(response: 0.3)) {
-                            dragOffset = 0
-                            opacity = 1.0
-                        }
-                    }
-                }
+        .modifier(
+            MiniPlayerHorizontalSwipeModifier(
+                isEnabled: supportsCustomMiniPlayerSwipeGestures,
+                dragOffset: $dragOffset,
+                opacity: $opacity,
+                onPrevious: viewModel.previous,
+                onNext: viewModel.next
+            )
         )
+    }
+}
+
+private struct MiniPlayerVerticalSwipeModifier: ViewModifier {
+    let isEnabled: Bool
+    @Binding var verticalOffset: CGFloat
+    let onOpen: () -> Void
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if value.translation.height < 0 {
+                            verticalOffset = value.translation.height * EnsembleScaffold.MiniPlayer.verticalSwipeRubberBandFactor
+                        }
+                    }
+                    .onEnded { value in
+                        if value.translation.height < -EnsembleScaffold.MiniPlayer.verticalOpenThreshold {
+                            onOpen()
+                        }
+                        withAnimation(.spring()) {
+                            verticalOffset = 0
+                        }
+                    }
+            )
+        } else {
+            content
+        }
+    }
+}
+
+private struct MiniPlayerHorizontalSwipeModifier: ViewModifier {
+    let isEnabled: Bool
+    @Binding var dragOffset: CGFloat
+    @Binding var opacity: Double
+    let onPrevious: () -> Void
+    let onNext: () -> Void
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if abs(value.translation.width) > abs(value.translation.height) {
+                            dragOffset = value.translation.width
+                            opacity = 1.0 - min(
+                                abs(value.translation.width) / EnsembleScaffold.MiniPlayer.horizontalSwipeFadeDistance,
+                                EnsembleScaffold.MiniPlayer.horizontalSwipeMaximumFade
+                            )
+                        }
+                    }
+                    .onEnded { value in
+                        let threshold = EnsembleScaffold.MiniPlayer.horizontalSwipeThreshold
+                        if value.translation.width > threshold {
+                            dismissThenReset(offset: EnsembleScaffold.MiniPlayer.horizontalSwipeDismissOffset, action: onPrevious)
+                        } else if value.translation.width < -threshold {
+                            dismissThenReset(offset: -EnsembleScaffold.MiniPlayer.horizontalSwipeDismissOffset, action: onNext)
+                        } else {
+                            reset()
+                        }
+                    }
+            )
+        } else {
+            content
+        }
+    }
+
+    private func dismissThenReset(offset: CGFloat, action: @escaping () -> Void) {
+        withAnimation(.spring(response: 0.3)) {
+            dragOffset = offset
+            opacity = 0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + EnsembleScaffold.MiniPlayer.horizontalSwipeResetDelay) {
+            action()
+            reset()
+        }
+    }
+
+    private func reset() {
+        withAnimation(.spring(response: 0.3)) {
+            dragOffset = 0
+            opacity = 1.0
+        }
     }
 }
 
@@ -474,6 +487,10 @@ private struct MiniPlayerControls: View {
                             .font(EnsembleDesign.Typography.sectionTitle)
                     }
                 }
+                .frame(
+                    width: EnsembleScaffold.MiniPlayer.actionButtonDimension,
+                    height: EnsembleScaffold.MiniPlayer.actionButtonDimension
+                )
             }
             // Disable play when track not yet confirmed playable (e.g. pending health check)
             .disabled(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable)
@@ -496,17 +513,14 @@ private struct MiniPlayerControls: View {
 
 private struct MiniPlayerActionsMenuButton: View {
     @ObservedObject var viewModel: NowPlayingViewModel
+    @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showingActionsPopover = false
-    @State private var showingPlaylistPicker = false
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
 
     var body: some View {
         actionsButton
-            .sheet(isPresented: $showingPlaylistPicker) {
-                if let track = viewModel.currentTrack {
-                    PlaylistPickerSheet(nowPlayingVM: viewModel, tracks: [track])
-                }
-            }
+            .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: viewModel)
     }
 
     @ViewBuilder
@@ -529,46 +543,18 @@ private struct MiniPlayerActionsMenuButton: View {
         .accessibilityLabel("Track Actions")
         .popover(isPresented: $showingActionsPopover, arrowEdge: .bottom) {
             MiniPlayerActionsPopoverContent(
-                favoriteTitle: favoriteTitle,
-                favoriteSystemImage: favoriteSystemImage,
-                recentPlaylistTitle: viewModel.lastPlaylistTarget?.title,
-                showsAlbumNavigation: viewModel.currentTrack?.albumRatingKey != nil,
-                showsArtistNavigation: viewModel.currentTrack?.artistRatingKey != nil,
-                onFavorite: {
-                    showingActionsPopover = false
-                    toggleFavorite()
-                },
-                onAddToRecentPlaylist: {
-                    showingActionsPopover = false
-                    addToRecentPlaylist()
-                },
-                onAddToPlaylist: {
-                    showingActionsPopover = false
-                    showingPlaylistPicker = true
-                },
-                onGoToAlbum: {
-                    showingActionsPopover = false
-                    goToAlbum()
-                },
-                onGoToArtist: {
-                    showingActionsPopover = false
-                    goToArtist()
-                }
+                sections: menuSections,
+                state: menuState,
+                handlers: menuHandlers,
+                onAction: { showingActionsPopover = false }
             )
         }
         #elseif os(macOS)
         NativeMiniPlayerActionsMenuButton(
             isEnabled: viewModel.currentTrack != nil,
-            favoriteTitle: favoriteTitle,
-            favoriteSystemImage: favoriteSystemImage,
-            recentPlaylistTitle: viewModel.lastPlaylistTarget?.title,
-            showsAlbumNavigation: viewModel.currentTrack?.albumRatingKey != nil,
-            showsArtistNavigation: viewModel.currentTrack?.artistRatingKey != nil,
-            onFavorite: toggleFavorite,
-            onAddToRecentPlaylist: addToRecentPlaylist,
-            onAddToPlaylist: { showingPlaylistPicker = true },
-            onGoToAlbum: goToAlbum,
-            onGoToArtist: goToArtist
+            sections: menuSections,
+            state: menuState,
+            handlers: menuHandlers
         )
         .frame(
             width: EnsembleScaffold.MiniPlayer.actionButtonDimension,
@@ -578,14 +564,79 @@ private struct MiniPlayerActionsMenuButton: View {
         #endif
     }
 
-    private var favoriteTitle: String {
-        guard let track = viewModel.currentTrack else { return "Favorite" }
-        return viewModel.isTrackFavorited(track) ? "Unfavorite" : "Favorite"
+    private var currentTrackRecentPlaylistTitle: String? {
+        guard let track = viewModel.currentTrack else { return nil }
+        return PlaylistActionPresentationHost.recentPlaylistTitle(
+            for: [track],
+            nowPlayingVM: viewModel
+        )
     }
 
-    private var favoriteSystemImage: String {
-        guard let track = viewModel.currentTrack else { return EnsembleDesign.Icon.favorite }
-        return viewModel.isTrackFavorited(track) ? EnsembleDesign.Icon.favoriteRemove : EnsembleDesign.Icon.favorite
+    private var menuSections: [MediaMenuSection] {
+        guard let track = viewModel.currentTrack else { return [] }
+        return MediaMenuCatalog.sections(
+            for: .track,
+            context: .miniPlayer,
+            availability: MediaMenuAvailability(
+                hasRecentPlaylist: currentTrackRecentPlaylistTitle != nil,
+                canAddToRecentPlaylist: currentTrackRecentPlaylistTitle != nil,
+                canGoToAlbum: track.albumRatingKey != nil,
+                canGoToArtist: track.artistRatingKey != nil,
+                canShareLink: true,
+                canShareAudioFile: true,
+                canFavorite: true,
+                canDownload: false,
+                canPin: false,
+                canEditMetadata: false,
+                canDelete: false,
+                canRename: false,
+                canEditPlaylist: false,
+                canRemoveFromQueue: false
+            )
+        )
+    }
+
+    private var menuState: MediaMenuState {
+        guard let track = viewModel.currentTrack else {
+            return MediaMenuState(
+                recentPlaylistTitle: nil,
+                isShuffleEnabled: viewModel.isShuffleEnabled,
+                repeatMode: viewModel.repeatMode
+            )
+        }
+        return MediaMenuState(
+            recentPlaylistTitle: currentTrackRecentPlaylistTitle,
+            isFavorited: viewModel.isTrackFavorited(track),
+            isShuffleEnabled: viewModel.isShuffleEnabled,
+            repeatMode: viewModel.repeatMode
+        )
+    }
+
+    private var menuHandlers: MediaMenuHandlers {
+        MediaMenuHandlers(
+            toggleShuffle: toggleShuffle,
+            repeatAll: repeatAll,
+            repeatOne: repeatOne,
+            playNext: playNext,
+            playLast: playLast,
+            addToRecentPlaylist: addToRecentPlaylist,
+            addToPlaylist: requestPlaylistPicker,
+            goToAlbum: goToAlbum,
+            goToArtist: goToArtist,
+            favorite: toggleFavorite,
+            shareLink: shareTrackLink,
+            shareAudioFile: shareTrackFile
+        )
+    }
+
+    private func playNext() {
+        guard let track = viewModel.currentTrack else { return }
+        viewModel.playNext(track)
+    }
+
+    private func playLast() {
+        guard let track = viewModel.currentTrack else { return }
+        viewModel.playLast(track)
     }
 
     private func toggleFavorite() {
@@ -594,11 +645,25 @@ private struct MiniPlayerActionsMenuButton: View {
     }
 
     private func addToRecentPlaylist() {
-        Task {
-            if let playlist = await viewModel.resolveLastPlaylistTarget() {
-                _ = try? await viewModel.addCurrentTrack(to: playlist)
-            }
-        }
+        guard let track = viewModel.currentTrack else { return }
+        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: viewModel)
+    }
+
+    private func requestPlaylistPicker() {
+        guard let track = viewModel.currentTrack else { return }
+        playlistActionRequest = PlaylistActionPresentationHost.request(for: [track])
+    }
+
+    private func toggleShuffle() {
+        viewModel.toggleShuffle()
+    }
+
+    private func repeatAll() {
+        viewModel.setRepeatMode(.all)
+    }
+
+    private func repeatOne() {
+        viewModel.setRepeatMode(.one)
     }
 
     private func goToAlbum() {
@@ -610,46 +675,50 @@ private struct MiniPlayerActionsMenuButton: View {
         guard let artistId = viewModel.currentTrack?.artistRatingKey else { return }
         navigationCoordinator.navigate(to: .artist(id: artistId))
     }
+
+    private func shareTrackLink() {
+        guard let track = viewModel.currentTrack else { return }
+        ShareActions.shareTrackLink(track, deps: deps)
+    }
+
+    private func shareTrackFile() {
+        guard let track = viewModel.currentTrack else { return }
+        ShareActions.shareTrackFile(track, deps: deps)
+    }
 }
 
 #if os(iOS)
 private struct MiniPlayerActionsPopoverContent: View {
-    let favoriteTitle: String
-    let favoriteSystemImage: String
-    let recentPlaylistTitle: String?
-    let showsAlbumNavigation: Bool
-    let showsArtistNavigation: Bool
-    let onFavorite: () -> Void
-    let onAddToRecentPlaylist: () -> Void
-    let onAddToPlaylist: () -> Void
-    let onGoToAlbum: () -> Void
-    let onGoToArtist: () -> Void
+    let sections: [MediaMenuSection]
+    let state: MediaMenuState
+    let handlers: MediaMenuHandlers
+    let onAction: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-            actionButton(title: favoriteTitle, systemImage: favoriteSystemImage, action: onFavorite)
+            ForEach(renderableSections.indices, id: \.self) { index in
+                if index > 0 {
+                    Divider()
+                        .padding(.vertical, EnsembleScaffold.MiniPlayer.popoverDividerVerticalPadding)
+                }
 
-            if let recentPlaylistTitle {
-                actionButton(
-                    title: "Add to \(recentPlaylistTitle)",
-                    systemImage: EnsembleDesign.Icon.recentPlaylist,
-                    action: onAddToRecentPlaylist
-                )
-            }
-
-            actionButton(title: "Add to Playlist…", systemImage: EnsembleDesign.Icon.addToPlaylist, action: onAddToPlaylist)
-
-            if showsAlbumNavigation || showsArtistNavigation {
-                Divider()
-                    .padding(.vertical, EnsembleScaffold.MiniPlayer.popoverDividerVerticalPadding)
-            }
-
-            if showsAlbumNavigation {
-                actionButton(title: "Go to Album", systemImage: EnsembleDesign.Icon.album, action: onGoToAlbum)
-            }
-
-            if showsArtistNavigation {
-                actionButton(title: "Go to Artist", systemImage: EnsembleDesign.Icon.artist, action: onGoToArtist)
+                ForEach(renderableSections[index].actions, id: \.id) { descriptor in
+                    if let handler = handlers.handler(for: descriptor.id),
+                       let labelKind = descriptor.labelKind(state: state) {
+                        Button(role: descriptor.role == .destructive ? .destructive : nil) {
+                            onAction()
+                            handler()
+                        } label: {
+                            MediaActionLabel(kind: labelKind)
+                                .font(EnsembleDesign.Typography.popoverAction)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, EnsembleDesign.Spacing.popoverActionHorizontal)
+                                .padding(.vertical, EnsembleDesign.Spacing.popoverActionVertical)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
+                    }
+                }
             }
         }
         .padding(.vertical, EnsembleDesign.Spacing.sm)
@@ -660,31 +729,16 @@ private struct MiniPlayerActionsPopoverContent: View {
         )
     }
 
-    private func actionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(EnsembleDesign.Typography.popoverAction)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, EnsembleDesign.Spacing.popoverActionHorizontal)
-                .padding(.vertical, EnsembleDesign.Spacing.popoverActionVertical)
-        }
-        .buttonStyle(.plain)
-        .foregroundColor(EnsembleDesign.Color.primaryText)
+    private var renderableSections: [MediaMenuSection] {
+        MediaMenuCatalog.renderableSections(sections, state: state, handlers: handlers)
     }
 }
 #elseif os(macOS)
 private struct NativeMiniPlayerActionsMenuButton: NSViewRepresentable {
     let isEnabled: Bool
-    let favoriteTitle: String
-    let favoriteSystemImage: String
-    let recentPlaylistTitle: String?
-    let showsAlbumNavigation: Bool
-    let showsArtistNavigation: Bool
-    let onFavorite: () -> Void
-    let onAddToRecentPlaylist: () -> Void
-    let onAddToPlaylist: () -> Void
-    let onGoToAlbum: () -> Void
-    let onGoToArtist: () -> Void
+    let sections: [MediaMenuSection]
+    let state: MediaMenuState
+    let handlers: MediaMenuHandlers
 
     func makeNSView(context: Context) -> NSButton {
         let button = NSButton()
@@ -717,64 +771,16 @@ private struct NativeMiniPlayerActionsMenuButton: NSViewRepresentable {
         }
 
         @objc func showMenu(_ sender: NSButton) {
-            let menu = makeMenu()
-        menu.popUp(
-            positioning: nil,
-            at: NSPoint(x: sender.bounds.minX, y: sender.bounds.maxY + EnsembleScaffold.MiniPlayer.macMenuYOffset),
-            in: sender
-        )
-        }
-
-        private func makeMenu() -> NSMenu {
-            let menu = NSMenu()
-            menu.addItem(menuItem(title: parent.favoriteTitle, systemImage: parent.favoriteSystemImage, action: #selector(toggleFavorite(_:))))
-
-            if let recentPlaylistTitle = parent.recentPlaylistTitle {
-                menu.addItem(menuItem(title: "Add to \(recentPlaylistTitle)", systemImage: EnsembleDesign.Icon.recentPlaylist, action: #selector(addToRecentPlaylist(_:))))
-            }
-
-            menu.addItem(menuItem(title: "Add to Playlist…", systemImage: EnsembleDesign.Icon.addToPlaylist, action: #selector(addToPlaylist(_:))))
-
-            if parent.showsAlbumNavigation || parent.showsArtistNavigation {
-                menu.addItem(.separator())
-            }
-
-            if parent.showsAlbumNavigation {
-                menu.addItem(menuItem(title: "Go to Album", systemImage: EnsembleDesign.Icon.album, action: #selector(goToAlbum(_:))))
-            }
-
-            if parent.showsArtistNavigation {
-                menu.addItem(menuItem(title: "Go to Artist", systemImage: EnsembleDesign.Icon.artist, action: #selector(goToArtist(_:))))
-            }
-
-            return menu
-        }
-
-        private func menuItem(title: String, systemImage: String, action: Selector) -> NSMenuItem {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-            item.target = self
-            item.image = NSImage(systemSymbolName: systemImage, accessibilityDescription: nil)
-            return item
-        }
-
-        @objc private func toggleFavorite(_ sender: NSMenuItem) {
-            parent.onFavorite()
-        }
-
-        @objc private func addToRecentPlaylist(_ sender: NSMenuItem) {
-            parent.onAddToRecentPlaylist()
-        }
-
-        @objc private func addToPlaylist(_ sender: NSMenuItem) {
-            parent.onAddToPlaylist()
-        }
-
-        @objc private func goToAlbum(_ sender: NSMenuItem) {
-            parent.onGoToAlbum()
-        }
-
-        @objc private func goToArtist(_ sender: NSMenuItem) {
-            parent.onGoToArtist()
+            guard let menu = AppKitMediaMenuRenderer.contextMenu(
+                sections: parent.sections,
+                state: parent.state,
+                handlers: parent.handlers
+            ) else { return }
+            menu.popUp(
+                positioning: nil,
+                at: NSPoint(x: sender.bounds.minX, y: sender.bounds.maxY + EnsembleScaffold.MiniPlayer.macMenuYOffset),
+                in: sender
+            )
         }
     }
 }

@@ -28,6 +28,7 @@ ensemble/
 |   +-- investigations/
 |       +-- 2026-04-03-plex-hls-spike.md # Written verdict from the PMS music-HLS spike
 |       +-- 2026-04-14-repo-audit-baseline.md # Ranked audit findings + baseline verification notes
+|       +-- 2026-05-04-function-ownership-context-menu-audit.md # Shared function/menu ownership audit and migration order
 |
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/
@@ -60,6 +61,7 @@ ensemble/
 +-- Packages/                      # Swift Package modules
     +-- EnsembleAPI/              # Layer 1: Networking
     +-- EnsemblePersistence/      # Layer 1: Data persistence
+    +-- EnsembleSiriShared/       # Shared Siri normalization/scoring rules
     +-- EnsembleCore/             # Layer 2: Business logic
     +-- EnsembleUI/               # Layer 3: User interface
 ```
@@ -127,6 +129,16 @@ Tests/
 +-- OfflineDownloadTargetRepositoryTests.swift
 ```
 
+## EnsembleSiriShared (Siri Shared Rules)
+
+```
+Sources/
++-- SiriMatching.swift                 # App Group constants, phrase normalization, query variants, and fuzzy scoring
+
+Tests/
++-- SiriMatchingTests.swift            # Normalization, app suffix/prefix trimming, query variants, and fuzzy score coverage
+```
+
 ## EnsembleCore (Business Logic Layer)
 
 ```
@@ -137,6 +149,8 @@ Sources/
 |   +-- DisplayPlaylist.swift          # Merge-aware playlist wrapper (single or multi-server merged)
 |   +-- DomainModels.swift             # UI-facing models (Track, Album, Artist, Hub, etc.)
 |   +-- ModelMappers.swift             # CD* <-> Domain model conversions
+|   +-- MediaFormatters.swift          # Shared duration/byte display formatting helpers
+|   +-- MediaSourceIdentity.swift      # Shared source-key parsing and server-scope comparison helpers
 |   +-- MusicSource.swift              # Multi-account source identification
 |   +-- PlexAccountConfig.swift        # Account/server/library configuration + SyncableAccountCredential, SyncableServerCredential, SyncableLibraryRef models
 |   +-- SiriIntentPayload.swift        # Siri extension->app payload codec + schema
@@ -153,6 +167,10 @@ Sources/
 |   +-- LocalNetworkPermissionProbe.swift # Local-network permission prompt helper used during account onboarding
 |   +-- SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
 |   +-- PlaylistMutationController.swift # Playlist create/rename/delete/replace control-flow seam extracted from SyncCoordinator
+|   +-- PlaylistMutationWorkflow.swift # Shared playlist rename/delete mutation workflow, outcome, and toast payload policy
+|   +-- PlaylistActionService.swift    # Shared add-to-playlist source compatibility, default-server, dedupe, and source-stamping rules
+|   +-- PlaylistDropResolver.swift     # Shared media-reference resolver for playlist drag/drop copy-add flows
+|   +-- MediaFilterEngine.swift        # Shared media filter rules for library, detail, playlist, and favorites surfaces
 |   +-- SyncExecutionController.swift  # Full/incremental/startup sync execution seam extracted from SyncCoordinator
 |   +-- RefreshOrchestrator.swift      # Health-refresh gating, cooldown/staleness policy, and startup-health ownership extracted from SyncCoordinator
 |   +-- NetworkLifecycleController.swift # App-foreground and network-transition policy extracted from SyncCoordinator
@@ -215,6 +233,7 @@ Sources/
 |   +-- LyricsService.swift            # LRC parser, lyrics models (LyricsLine/ParsedLyrics/LyricsState), LyricsService fetch pipeline + offline sidecar
 |   +-- MutationCoordinator.swift      # Unified online/offline mutation queue for ratings, playlists, and scrobbles
 |   +-- MetadataMutationService.swift  # Metadata edit coordination + invalidation notifications for UI refresh
+|   +-- MetadataMutationWorkflow.swift # Shared track/album/artist metadata edit/delete workflow and toast payload policy
 |   +-- PersistentLogService.swift     # Persistent session logging with real-time file writes for TestFlight diagnostics
 |   +-- SiriAffinityCoordinator.swift  # In-app Siri love/dislike coordinator using the playback + mutation services
 |   +-- SiriAddToPlaylistCoordinator.swift # In-app Siri add-to-playlist coordinator with optimistic queueing
@@ -281,6 +300,14 @@ Tests/
 +-- SongLinkServiceTests.swift         # Song.link URL resolution + caching + fallback tests
 +-- ShareServiceTests.swift            # Share payload assembly + file detection tests
 +-- LyricsServiceTests.swift           # LRC parser timestamp parsing + line lookup coverage
++-- PlaylistActionServiceTests.swift  # Add-to-playlist source compatibility and dedupe coverage
++-- PlaylistDropResolverTests.swift   # Playlist drag/drop target validation, expansion, dedupe, and source rejection coverage
++-- PlaylistMutationWorkflowTests.swift # Shared playlist rename/delete workflow and toast payload coverage
++-- MetadataMutationWorkflowTests.swift # Shared metadata edit/delete workflow and toast payload coverage
++-- MediaFilterEngineTests.swift      # Shared media filter configurations and parity coverage
++-- MediaFormattersTests.swift        # Shared media duration/byte formatting coverage
++-- MediaSourceIdentityTests.swift    # Source-key parsing and server comparison coverage
++-- NavigationCoordinatorTests.swift  # Navigation destination target tabs, fallback, and path helper coverage
 +-- UserProfileTests.swift            # Unit tests for UserProfile model
 +-- SyncSettingsManagerTests.swift    # Unit tests for SyncSettingsManager toggle logic + dependency cascade
 +-- PinManagerSyncTests.swift         # Unit tests for PinManager merge logic (union, remote-wins conflict)
@@ -297,7 +324,7 @@ Sources/
 |   +-- ArtworkCornerRadius.swift
 |   +-- View+DesignModifiers.swift
 +-- Artwork/                         # Artwork loading, backgrounds, composites, and color extraction
-+-- Browse/                          # Browse split, filter sheet, genre chips, scroll index, refresh command bridge
++-- Browse/                          # Browse split, filter sheet, GenreFilterHeader/GenreChipBar, scroll index, refresh command bridge
 +-- Cards/                           # Album, artist, playlist, and genre cards
 +-- TrackLists/                      # SwiftUI/UIKit/AppKit track row and table backends
 |   +-- AppKit/
@@ -319,8 +346,15 @@ Sources/
 +-- Aurora/                          # Aurora background and Metal/Canvas renderers
 +-- Sheets/                          # Shared sheets and macOS auxiliary sheet/window scaffolds
 +-- Utility/                         # Shared rows, menus, toolbar/profile helpers, keyboard/chrome utilities
+|   +-- MediaDragPayload.swift        # Internal drag/drop payload for tracks, albums, playlists, and merged display playlists
+|   +-- MediaMenuCatalog.swift        # Shared context-menu action catalog, section policy, roles, and context gating
+|   +-- PlaylistActionPresentationHost.swift # Shared add-to-playlist sheet request + recent-playlist presentation helpers
+|   +-- EnsembleUtilityScreenScaffold.swift # Card-based macOS utility screen/section rows for Profile, Downloads, and future menu-like tools
 +-- Screens/
 |   +-- Root/                         # RootView, MainTabView, MoreView, auxiliary presentation routing
+|   |   +-- NavigationDestinationFactory.swift # Shared root tab/destination view factory used by iPhone tabs and iPad/macOS sidebar stacks
+|   |   +-- NavigationCoordinator+Bindings.swift # SwiftUI path bindings backed by NavigationCoordinator path helpers
+|   |   +-- SidebarSelection.swift    # Sidebar selection model and destination mapping for iPad/macOS root navigation
 |   +-- Library/                      # Songs, Artists, Albums, Genres, Playlists, Favorites, Mood
 |   +-- Details/                      # Media detail, merged playlist detail, async detail loaders
 |   +-- Discovery/                    # Home/Feed and Search
@@ -333,4 +367,5 @@ Sources/
 
 Tests/
 +-- EnsembleUITests.swift
++-- NavigationRootHelperTests.swift   # Sidebar destination mapping and NavigationCoordinator path binding coverage
 ```

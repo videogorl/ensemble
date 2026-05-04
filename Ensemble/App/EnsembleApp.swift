@@ -105,7 +105,7 @@ struct EnsembleApp: App {
             }
 
             #if os(iOS)
-            CommandMenu("View") {
+            CommandGroup(after: .toolbar) {
                 Button(focusedRefreshAction?.title ?? "Refresh") {
                     guard let action = focusedRefreshAction else { return }
                     Task { @MainActor in

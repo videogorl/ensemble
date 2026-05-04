@@ -180,6 +180,10 @@ public final class PlaylistViewModel: ObservableObject {
         }
     }
 
+    public func applyOptimisticDelete(for playlist: Playlist) {
+        playlists.removeAll { $0.id == playlist.id }
+    }
+
     public func createPlaylist(title: String, serverSourceKey: String) async -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -682,32 +686,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     // MARK: - Filter Application
     
     private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
-        var filtered = tracks
-
-        // Search text filter
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower) ||
-                ($0.artistName?.lowercased().contains(searchLower) ?? false) ||
-                ($0.albumName?.lowercased().contains(searchLower) ?? false)
-            }
-        }
-
-        // Genre filter (include and exclude)
-        if !options.selectedGenres.isEmpty {
-            filtered = filtered.filter { !options.selectedGenres.isDisjoint(with: $0.genres) }
-        }
-        if !options.excludedGenres.isEmpty {
-            filtered = filtered.filter { !$0.genres.isEmpty && options.excludedGenres.isDisjoint(with: $0.genres) }
-        }
-
-        // Downloaded only filter
-        if options.showDownloadedOnly {
-            filtered = filtered.filter { $0.isDownloaded }
-        }
-
-        return filtered
+        MediaFilterEngine.filterTracks(tracks, with: options, configuration: .playlistDetail)
     }
 
     @discardableResult
@@ -749,6 +728,46 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         }
     }
 
+    @discardableResult
+    public func renamePlaylist(
+        toTrimmedTitle trimmed: String,
+        using workflow: PlaylistMutationWorkflow,
+        scope: PlaylistMutationToastScope = .playlist
+    ) async throws -> PlaylistRenameWorkflowResult {
+        let previousPlaylist = playlist
+        playlist = Playlist(
+            id: playlist.id,
+            key: playlist.key,
+            title: trimmed,
+            summary: playlist.summary,
+            isSmart: playlist.isSmart,
+            trackCount: playlist.trackCount,
+            duration: playlist.duration,
+            compositePath: playlist.compositePath,
+            dateAdded: playlist.dateAdded,
+            dateModified: Date(),
+            lastPlayed: playlist.lastPlayed,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )
+        error = nil
+
+        do {
+            let result = try await workflow.finishRename(
+                playlist: playlist,
+                trimmedTitle: trimmed,
+                scope: scope
+            )
+            if result.outcome == .completed {
+                await loadTracks()
+            }
+            return result
+        } catch {
+            playlist = previousPlaylist
+            self.error = error.localizedDescription
+            throw error
+        }
+    }
+
     public func deletePlaylist() async -> Bool {
         do {
             try await mutationCoordinator.deletePlaylist(playlist)
@@ -760,7 +779,60 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     public func applyEditedTracksLocally(_ editedTracks: [Track]) {
-        shouldSkipNextLoadAfterLocalEdit = true
+        applyTrackSnapshot(editedTracks, skipNextLoadAfterLocalEdit: true)
+    }
+
+    @discardableResult
+    public func removeTrackFromPlaylist(_ track: Track, displayIndex: Int? = nil) async -> Bool {
+        guard !playlist.isSmart else {
+            error = PlaylistMutationError.smartPlaylistReadOnly.localizedDescription
+            return false
+        }
+        guard let removalIndex = playlistTrackIndex(for: track, displayIndex: displayIndex) else {
+            error = "Track is no longer in this playlist."
+            return false
+        }
+
+        let previousTracks = tracks
+        var editedTracks = tracks
+        editedTracks.remove(at: removalIndex)
+        applyTrackSnapshot(editedTracks, skipNextLoadAfterLocalEdit: true)
+
+        do {
+            try await mutationCoordinator.replacePlaylistContents(playlist, with: editedTracks)
+            Task {
+                // Refresh from cache once post-mutation sync catches up.
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                self.shouldSkipNextLoadAfterLocalEdit = false
+                await self.loadTracks()
+            }
+            return true
+        } catch {
+            applyTrackSnapshot(previousTracks, skipNextLoadAfterLocalEdit: false)
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
+    private func playlistTrackIndex(for track: Track, displayIndex: Int?) -> Int? {
+        if let displayIndex,
+           filteredTracks.indices.contains(displayIndex),
+           filteredTracks[displayIndex].id == track.id {
+            let precedingVisibleMatches = filteredTracks[..<displayIndex].filter { $0.id == track.id }.count
+            var seenMatches = 0
+            for (index, candidate) in tracks.enumerated() where candidate.id == track.id {
+                if seenMatches == precedingVisibleMatches {
+                    return index
+                }
+                seenMatches += 1
+            }
+        }
+
+        return tracks.firstIndex(where: { $0.id == track.id })
+    }
+
+    private func applyTrackSnapshot(_ editedTracks: [Track], skipNextLoadAfterLocalEdit: Bool) {
+        shouldSkipNextLoadAfterLocalEdit = skipNextLoadAfterLocalEdit
         tracks = editedTracks
         playlist = Playlist(
             id: playlist.id,
@@ -780,7 +852,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
     public func saveEditedTracks(_ editedTracks: [Track]) async {
         // Apply immediately so playlist detail reflects edits before network roundtrip.
-        applyEditedTracksLocally(editedTracks)
+        applyTrackSnapshot(editedTracks, skipNextLoadAfterLocalEdit: true)
 
         do {
             try await mutationCoordinator.replacePlaylistContents(playlist, with: editedTracks)

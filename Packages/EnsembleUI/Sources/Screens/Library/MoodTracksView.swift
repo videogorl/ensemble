@@ -8,12 +8,6 @@ import AppKit
 #endif
 
 public struct MoodTracksView: View {
-    private struct PlaylistPickerPayload: Identifiable {
-        let id = UUID()
-        let tracks: [Track]
-        let title: String
-    }
-
     let mood: Mood
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
@@ -22,7 +16,7 @@ public struct MoodTracksView: View {
     @State private var moodTracks: [Track] = []
     @State private var isLoading = true
     @State private var error: String?
-    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
 
     // Targeted observation state (pattern from MediaDetailView)
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
@@ -123,9 +117,7 @@ public struct MoodTracksView: View {
             let title = target?.title
             if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
         }
-        .sheet(item: $playlistPickerPayload) { payload in
-            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
     }
 
     // MARK: - Table Header (scrolls with tracks)
@@ -233,35 +225,15 @@ public struct MoodTracksView: View {
     }
 
     private func presentPlaylistPicker(with tracks: [Track]) {
-        guard !tracks.isEmpty else { return }
-        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: "Add to Playlist")
+        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
     }
 
     private func addToRecentPlaylist(_ track: Track) {
-        guard recentPlaylistTitle(for: track) != nil else { return }
-        Task {
-            guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: [track]) else { return }
-            _ = try? await nowPlayingVM.addTracks([track], to: playlist)
-        }
+        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
     }
 
     private func recentPlaylistTitle(for track: Track) -> String? {
-        guard let target = nowPlayingVM.lastPlaylistTarget else { return nil }
-        let playlist = Playlist(
-            id: target.id,
-            key: "/playlists/\(target.id)",
-            title: target.title,
-            summary: nil,
-            isSmart: false,
-            trackCount: 0,
-            duration: 0,
-            compositePath: nil,
-            dateAdded: nil,
-            dateModified: nil,
-            lastPlayed: nil,
-            sourceCompositeKey: target.sourceCompositeKey
-        )
-        return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
+        PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
     }
 
     private var trackInteractionModel: TrackRowInteractionModel {

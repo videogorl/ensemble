@@ -1,5 +1,16 @@
 import EnsembleCore
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
+
+private var supportsCustomTrackSwipeGestures: Bool {
+    #if os(iOS)
+    UIDevice.current.userInterfaceIdiom == .phone
+    #else
+    false
+    #endif
+}
 
 /// Reusable swipe container for track rows in ScrollView-based layouts.
 /// UIKit-backed tables use native `UISwipeActionsConfiguration` separately.
@@ -38,18 +49,22 @@ public struct TrackSwipeContainer<Content: View>: View {
 
     public var body: some View {
         #if os(iOS) || os(macOS)
-        ZStack {
-            backgroundActions
+        if supportsCustomTrackSwipeGestures {
+            ZStack {
+                backgroundActions
+                content
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(trackRowBackgroundColor)
+                    .contentShape(Rectangle())
+                    .offset(x: offset)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .clipped()
+            .highPriorityGesture(dragGesture)
+        } else {
             content
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(trackRowBackgroundColor)
-                .contentShape(Rectangle())
-                .offset(x: offset)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .clipped()
-        .highPriorityGesture(dragGesture)
         #else
         content
         #endif
@@ -76,6 +91,23 @@ public struct TrackSwipeContainer<Content: View>: View {
             guard let action else { return nil }
             return isActionSupported(action) ? action : nil
         }
+    }
+
+    private var resolvedSwipeActions: TrackRowInteractionModel.ResolvedActions {
+        TrackRowInteractionModel(
+            onPlayNext: onPlayNext.map { callback in { _ in callback() } },
+            onPlayLast: onPlayLast.map { callback in { _ in callback() } },
+            onAddToPlaylist: onAddToPlaylist.map { callback in { _ in callback() } },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
+            isTrackFavorited: { track in
+                nowPlayingVM.isTrackFavorited(track)
+            }
+        )
+        .resolve(for: track)
     }
 
     private var maxLeadingOffset: CGFloat {
@@ -162,9 +194,9 @@ public struct TrackSwipeContainer<Content: View>: View {
             }
         } label: {
             VStack(spacing: EnsembleScaffold.TrackSwipe.actionLabelSpacing) {
-                Image(systemName: actionIcon(for: action))
+                Image(systemName: TrackActionPresentation.systemImage(for: action, resolvedActions: resolvedSwipeActions))
                     .font(EnsembleScaffold.TrackSwipe.actionIconFont)
-                Text(actionTitle(for: action))
+                Text(TrackActionPresentation.title(for: action, resolvedActions: resolvedSwipeActions))
                     .font(EnsembleScaffold.TrackSwipe.actionTextFont)
                     .lineLimit(1)
             }
@@ -173,7 +205,7 @@ public struct TrackSwipeContainer<Content: View>: View {
         }
         .frame(width: actionWidth)
         .frame(maxHeight: .infinity)
-        .background(actionTint(for: action))
+        .background(TrackActionPresentation.tint(for: action, resolvedActions: resolvedSwipeActions))
         .contentShape(Rectangle())
     }
 
@@ -197,116 +229,37 @@ public struct TrackSwipeContainer<Content: View>: View {
     }
 
     private func isActionSupported(_ action: TrackSwipeAction) -> Bool {
-        switch action {
-        case .playNext:
-            return onPlayNext != nil
-        case .playLast:
-            return onPlayLast != nil
-        case .addToPlaylist:
-            return onAddToPlaylist != nil
-        case .favoriteToggle:
-            return true
-        }
-    }
-
-    private func actionTitle(for action: TrackSwipeAction) -> String {
-        switch action {
-        case .favoriteToggle:
-            return nowPlayingVM.isTrackFavorited(track) ? "Unfavorite" : "Favorite"
-        default:
-            return action.title
-        }
-    }
-
-    private func actionIcon(for action: TrackSwipeAction) -> String {
-        switch action {
-        case .favoriteToggle:
-            return nowPlayingVM.isTrackFavorited(track)
-                ? EnsembleDesign.Icon.favoriteRemoveFilled
-                : EnsembleDesign.Icon.favoriteFilled
-        default:
-            return action.systemImage
-        }
-    }
-
-    private func actionTint(for action: TrackSwipeAction) -> Color {
-        switch action {
-        case .favoriteToggle:
-            return nowPlayingVM.isTrackFavorited(track) ? .gray : .pink
-        default:
-            return action.tint
-        }
+        TrackActionPresentation.isSupported(action, resolvedActions: resolvedSwipeActions)
     }
 
     private func execute(_ action: TrackSwipeAction) {
         switch action {
-        case .playNext:
-            onPlayNext?()
-            showSwipeConfirmation(for: action, track: track)
-        case .playLast:
-            onPlayLast?()
-            showSwipeConfirmation(for: action, track: track)
-        case .addToPlaylist:
-            onAddToPlaylist?()
+        case .playNext, .playLast, .addToPlaylist:
+            TrackActionPresentation.execute(action, track: track, resolvedActions: resolvedSwipeActions)
             showSwipeConfirmation(for: action, track: track)
         case .favoriteToggle:
             let willFavorite = !nowPlayingVM.isTrackFavorited(track)
             showFavoriteLoadingToast(for: track, willFavorite: willFavorite)
-            Task {
-                await nowPlayingVM.toggleTrackFavorite(track)
-            }
+            TrackActionPresentation.execute(action, track: track, resolvedActions: resolvedSwipeActions)
         }
     }
 
     private func showSwipeConfirmation(for action: TrackSwipeAction, track: Track) {
-        switch action {
-        case .playNext:
-            toastCenter.show(
-                ToastPayload(
-                    style: .success,
-                    iconSystemName: "text.insert",
-                    title: "Play Next",
-                    message: "Added \(track.title).",
-                    dedupeKey: "swipe-play-next-\(track.id)"
-                )
-            )
-        case .playLast:
-            toastCenter.show(
-                ToastPayload(
-                    style: .success,
-                    iconSystemName: "text.append",
-                    title: "Play Last",
-                    message: "Queued \(track.title) for later.",
-                    dedupeKey: "swipe-play-last-\(track.id)"
-                )
-            )
-        case .addToPlaylist:
-            toastCenter.show(
-                ToastPayload(
-                    style: .info,
-                    iconSystemName: "text.badge.plus",
-                    title: "Add to Playlist…",
-                    message: "Choose a playlist to continue.",
-                    dedupeKey: "swipe-add-to-playlist-\(track.id)"
-                )
-            )
-        case .favoriteToggle:
-            break
+        if let toast = TrackActionPresentation.confirmationToast(
+            for: action,
+            track: track,
+            dedupeNamespace: "swipe"
+        ) {
+            toastCenter.show(toast)
         }
     }
 
     private func showFavoriteLoadingToast(for track: Track, willFavorite: Bool) {
         toastCenter.show(
-            ToastPayload(
-                style: .info,
-                iconSystemName: willFavorite
-                    ? EnsembleDesign.Icon.favoriteFilled
-                    : EnsembleDesign.Icon.favoriteRemoveFilled,
-                title: willFavorite ? "Adding to Favorites..." : "Removing from Favorites...",
-                message: track.title,
-                duration: 1.0,
-                dedupeKey: "favorite-toggle-loading-\(track.id)",
-                showsActivityIndicator: true
+            TrackActionPresentation.favoriteLoadingToast(
+                for: track,
+                willFavorite: willFavorite,
+                dedupeNamespace: "swipe"
             )
         )
     }

@@ -682,112 +682,18 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     private static func filterTracks(_ tracks: [Track], with options: FilterOptions) -> [Track] {
-        var filtered = tracks
-
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower) ||
-                ($0.artistName?.lowercased().contains(searchLower) ?? false) ||
-                ($0.albumName?.lowercased().contains(searchLower) ?? false)
-            }
-        }
-
-        if !options.selectedGenres.isEmpty {
-            filtered = filtered.filter { !options.selectedGenres.isDisjoint(with: $0.genres) }
-        }
-
-        if !options.excludedGenres.isEmpty {
-            filtered = filtered.filter { !$0.genres.isEmpty && options.excludedGenres.isDisjoint(with: $0.genres) }
-        }
-
-        if options.showDownloadedOnly {
-            filtered = filtered.filter { $0.isDownloaded }
-        }
-
-        return filtered
+        MediaFilterEngine.filterTracks(tracks, with: options, configuration: .library)
     }
 
     private static func filterArtists(_ artists: [Artist], with options: FilterOptions, albums: [Album] = []) -> [Artist] {
-        var filtered = artists
-
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter { $0.name.lowercased().contains(searchLower) }
-        }
-
-        // Genre filtering: build artist-to-genres map from albums
-        if !options.selectedGenres.isEmpty {
-            var artistGenres: [String: Set<String>] = [:]
-            for album in albums {
-                guard let artistKey = album.artistRatingKey, !album.genres.isEmpty else { continue }
-                artistGenres[artistKey, default: []].formUnion(album.genres)
-            }
-            filtered = filtered.filter { artist in
-                guard let genres = artistGenres[artist.id] else { return false }
-                return !options.selectedGenres.isDisjoint(with: genres)
-            }
-        }
-
-        if !options.excludedGenres.isEmpty {
-            var artistGenres: [String: Set<String>] = [:]
-            for album in albums {
-                guard let artistKey = album.artistRatingKey, !album.genres.isEmpty else { continue }
-                artistGenres[artistKey, default: []].formUnion(album.genres)
-            }
-            filtered = filtered.filter { artist in
-                guard let genres = artistGenres[artist.id], !genres.isEmpty else { return false }
-                return options.excludedGenres.isDisjoint(with: genres)
-            }
-        }
-
-        return filtered
+        MediaFilterEngine.filterArtists(artists, with: options, albums: albums)
     }
 
     private static func filterAlbums(_ albums: [Album], with options: FilterOptions) -> [Album] {
-        var filtered = albums
-
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower) ||
-                ($0.artistName?.lowercased().contains(searchLower) ?? false) ||
-                ($0.albumArtist?.lowercased().contains(searchLower) ?? false)
-            }
-        }
-
-        if !options.selectedGenres.isEmpty {
-            filtered = filtered.filter { !options.selectedGenres.isDisjoint(with: $0.genres) }
-        }
-
-        if !options.excludedGenres.isEmpty {
-            filtered = filtered.filter { !$0.genres.isEmpty && options.excludedGenres.isDisjoint(with: $0.genres) }
-        }
-
-        if let yearRange = options.yearRange {
-            filtered = filtered.filter {
-                guard let year = $0.year else { return false }
-                return yearRange.contains(year)
-            }
-        }
-
-        if !options.selectedArtists.isEmpty {
-            filtered = filtered.filter { album in
-                options.selectedArtists.contains(album.artistName ?? "") ||
-                options.selectedArtists.contains(album.albumArtist ?? "")
-            }
-        }
-
-        if options.hideSingles {
-            filtered = filtered.filter { $0.trackCount > 1 }
-        }
-
-        return filtered
+        MediaFilterEngine.filterAlbums(albums, with: options, configuration: .library)
     }
 
     private static func filterGenres(_ genres: [Genre], with options: FilterOptions) -> [Genre] {
-        guard !options.searchText.isEmpty else { return genres }
-        let searchLower = options.searchText.lowercased()
-        return genres.filter { $0.title.lowercased().contains(searchLower) }
+        MediaFilterEngine.filterGenres(genres, with: options)
     }
 }

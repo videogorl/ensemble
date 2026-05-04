@@ -17,6 +17,7 @@ public struct TrackRow: View {
     let onGoToArtist: (() -> Void)?
     let onShareLink: (() -> Void)?
     let onShareFile: (() -> Void)?
+    let onRemoveFromPlaylist: (() -> Void)?
     let isFavorited: Bool?
     let recentPlaylistTitle: String?
     let supplementalMetadataWidth: CGFloat?
@@ -42,6 +43,7 @@ public struct TrackRow: View {
         onGoToArtist: (() -> Void)? = nil,
         onShareLink: (() -> Void)? = nil,
         onShareFile: (() -> Void)? = nil,
+        onRemoveFromPlaylist: (() -> Void)? = nil,
         isFavorited: Bool? = nil,
         recentPlaylistTitle: String? = nil,
         supplementalMetadataWidth: CGFloat? = nil,
@@ -61,6 +63,7 @@ public struct TrackRow: View {
         self.onGoToArtist = onGoToArtist
         self.onShareLink = onShareLink
         self.onShareFile = onShareFile
+        self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.isFavorited = isFavorited
         self.recentPlaylistTitle = recentPlaylistTitle
         self.supplementalMetadataWidth = supplementalMetadataWidth
@@ -87,30 +90,21 @@ public struct TrackRow: View {
         .keyboardSafeEditorPresentation(isPresented: $isEditingMetadata) {
             MetadataEditSheet(kind: .track, currentTitle: track.title) { newTitle in
                 do {
-                    try await deps.metadataMutationService.editTrack(
+                    let result = try await deps.metadataMutationWorkflow.editTrack(
                         track,
-                        request: MetadataEditRequest(title: newTitle)
+                        title: newTitle
                     )
                     await MainActor.run {
-                        deps.toastCenter.show(
-                            ToastPayload(
-                                style: .success,
-                                iconSystemName: EnsembleDesign.Icon.checkmark,
-                                title: "Track updated",
-                                message: "\"\(newTitle)\" was saved to Plex.",
-                                dedupeKey: "track-edit-\(track.id)"
-                            )
-                        )
+                        deps.toastCenter.show(result.successToast)
                     }
                 } catch {
                     await MainActor.run {
                         deps.toastCenter.show(
-                            ToastPayload(
-                                style: .error,
-                                iconSystemName: EnsembleDesign.Icon.error,
-                                title: "Couldn't edit track",
-                                message: error.localizedDescription,
-                                dedupeKey: "track-edit-failed-\(track.id)"
+                            deps.metadataMutationWorkflow.editFailureToast(
+                                noun: "Track",
+                                itemID: track.id,
+                                error: error,
+                                scope: .track
                             )
                         )
                     }
@@ -126,27 +120,18 @@ public struct TrackRow: View {
             Button("Delete Track", role: .destructive) {
                 Task {
                     do {
-                        try await deps.metadataMutationService.deleteTrack(track)
+                        let result = try await deps.metadataMutationWorkflow.deleteTrack(track)
                         await MainActor.run {
-                            deps.toastCenter.show(
-                                ToastPayload(
-                                    style: .success,
-                                    iconSystemName: EnsembleDesign.Icon.deleteFilled,
-                                    title: "Track deleted",
-                                    message: "\"\(track.title)\" was removed from Plex.",
-                                    dedupeKey: "track-delete-\(track.id)"
-                                )
-                            )
+                            deps.toastCenter.show(result.successToast)
                         }
                     } catch {
                         await MainActor.run {
                             deps.toastCenter.show(
-                                ToastPayload(
-                                    style: .error,
-                                    iconSystemName: EnsembleDesign.Icon.error,
-                                    title: "Couldn't delete track",
-                                    message: error.localizedDescription,
-                                    dedupeKey: "track-delete-failed-\(track.id)"
+                                deps.metadataMutationWorkflow.deleteFailureToast(
+                                    noun: "Track",
+                                    itemID: track.id,
+                                    error: error,
+                                    scope: .track
                                 )
                             )
                         }
@@ -157,20 +142,11 @@ public struct TrackRow: View {
         } message: {
             Text("This permanently deletes \"\(track.title)\" from the Plex server and removes its local cache.")
         }
-        #if os(iOS)
-        // Drag and drop for downloaded tracks on iPad (Split View / Stage Manager)
-        .if(track.localFilePath != nil) { view in
-            view.onDrag {
-                guard let path = track.localFilePath else { return NSItemProvider() }
-                let fileURL = URL(fileURLWithPath: path)
-                let provider = NSItemProvider(contentsOf: fileURL) ?? NSItemProvider()
-                if let artist = track.artistName {
-                    provider.suggestedName = "\(artist) - \(track.title)"
-                } else {
-                    provider.suggestedName = track.title
-                }
-                return provider
-            }
+        #if !os(watchOS)
+        // App-internal drags use media references; external drops request the
+        // same prepared audio file used by the Share File action.
+        .onDrag {
+            MediaDragPayload.trackItemProvider(for: track, shareService: deps.shareService)
         }
         #endif
         // Update cached availability when generation bumps (network/server/download change).
@@ -304,86 +280,57 @@ public struct TrackRow: View {
 
     @ViewBuilder
     private var contextMenuItems: some View {
-        Section {
-            if let onPlayNext = onPlayNext {
-                Button(action: onPlayNext) {
-                    MediaActionLabel(kind: .playNext)
-                }
-            }
-            if let onPlayLast = onPlayLast {
-                Button(action: onPlayLast) {
-                    MediaActionLabel(kind: .playLast)
-                }
-            }
-        }
-
-        Section {
-            Button {
-                // Context-menu initiated editor presentation can be swallowed
-                // when triggered before the menu dismiss animation completes.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    DispatchQueue.main.async {
-                        isEditingMetadata = true
+        SwiftUIMediaMenuRenderer(
+            sections: MediaMenuCatalog.sections(
+                for: .track,
+                context: onRemoveFromPlaylist == nil ? .library : .playlistTrack(canRemove: true),
+                availability: MediaMenuAvailability(
+                    hasRecentPlaylist: onAddToRecentPlaylist != nil && recentPlaylistTitle != nil,
+                    canAddToRecentPlaylist: true,
+                    canGoToAlbum: onGoToAlbum != nil && track.albumRatingKey != nil,
+                    canGoToArtist: onGoToArtist != nil && track.artistRatingKey != nil,
+                    canShareLink: onShareLink != nil,
+                    canShareAudioFile: onShareFile != nil,
+                    canFavorite: onToggleFavorite != nil,
+                    canDownload: false,
+                    canPin: false,
+                    canEditMetadata: true,
+                    canDelete: true,
+                    canRename: false,
+                    canEditPlaylist: false,
+                    canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
+                    canRemoveFromQueue: false
+                )
+            ),
+            state: MediaMenuState(
+                recentPlaylistTitle: recentPlaylistTitle,
+                isFavorited: effectiveIsFavorited
+            ),
+            handlers: MediaMenuHandlers(
+                playNext: onPlayNext,
+                playLast: onPlayLast,
+                addToRecentPlaylist: onAddToRecentPlaylist,
+                addToPlaylist: onAddToPlaylist,
+                goToAlbum: onGoToAlbum,
+                goToArtist: onGoToArtist,
+                editMetadata: {
+                    // Context-menu initiated editor presentation can be swallowed
+                    // when triggered before the menu dismiss animation completes.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        DispatchQueue.main.async {
+                            isEditingMetadata = true
+                        }
                     }
+                },
+                favorite: onToggleFavorite,
+                shareLink: onShareLink,
+                shareAudioFile: onShareFile,
+                removeFromPlaylist: onRemoveFromPlaylist,
+                deleteTrack: {
+                    isConfirmingDelete = true
                 }
-            } label: {
-                MediaActionLabel(kind: .editMetadata)
-            }
-
-            if let onGoToAlbum = onGoToAlbum, track.albumRatingKey != nil {
-                Button(action: onGoToAlbum) {
-                    MediaActionLabel(kind: .goToAlbum)
-                }
-            }
-            if let onGoToArtist = onGoToArtist, track.artistRatingKey != nil {
-                Button(action: onGoToArtist) {
-                    MediaActionLabel(kind: .goToArtist)
-                }
-            }
-        }
-
-        Section {
-            if let onAddToRecentPlaylist = onAddToRecentPlaylist,
-               let recentPlaylistTitle {
-                Button(action: onAddToRecentPlaylist) {
-                    MediaActionLabel(kind: .addToRecentPlaylist(recentPlaylistTitle))
-                }
-            }
-            if let onAddToPlaylist = onAddToPlaylist {
-                Button(action: onAddToPlaylist) {
-                    MediaActionLabel(kind: .addToPlaylist)
-                }
-            }
-            if let onToggleFavorite = onToggleFavorite {
-                Button(action: onToggleFavorite) {
-                    MediaActionLabel(kind: .favorite(isFavorited: effectiveIsFavorited, usesFilledIcon: false))
-                }
-            }
-        }
-
-        // Share actions
-        if onShareLink != nil || onShareFile != nil {
-            Section {
-                if let onShareLink = onShareLink {
-                    Button(action: onShareLink) {
-                        MediaActionLabel(kind: .shareLink)
-                    }
-                }
-                if let onShareFile = onShareFile {
-                    Button(action: onShareFile) {
-                        MediaActionLabel(kind: .shareAudioFile)
-                    }
-                }
-            }
-        }
-
-        Section {
-            Button(role: .destructive) {
-                isConfirmingDelete = true
-            } label: {
-                MediaActionLabel(kind: .deleteTrack)
-            }
-        }
+            )
+        )
     }
 
     /// Whether this track is currently queued or actively downloading.
@@ -609,14 +556,10 @@ public struct TrackListView: View {
                 .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
 
                 if index < tracks.count - 1 {
-                    Divider()
-                        .padding(
-                            .leading,
-                            TrackListLayoutMetrics.contentLeadingInset(
-                                showArtwork: showArtwork,
-                                showTrackNumbers: showTrackNumbers
-                            )
-                        )
+                    TrackListDivider(
+                        showArtwork: showArtwork,
+                        showTrackNumbers: showTrackNumbers
+                    )
                 }
             }
         }
@@ -637,5 +580,22 @@ public struct TrackListView: View {
         if abs(supplementalMetadataWidth - newWidth) > 1 {
             supplementalMetadataWidth = newWidth
         }
+    }
+}
+
+struct TrackListDivider: View {
+    let showArtwork: Bool
+    let showTrackNumbers: Bool
+
+    var body: some View {
+        Divider()
+            .overlay(TrackListLayoutMetrics.dividerColor)
+            .padding(
+                .leading,
+                TrackListLayoutMetrics.contentLeadingInset(
+                    showArtwork: showArtwork,
+                    showTrackNumbers: showTrackNumbers
+                )
+            )
     }
 }

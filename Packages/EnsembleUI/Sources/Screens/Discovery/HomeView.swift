@@ -10,8 +10,7 @@ public struct HomeView: View {
     @State private var profileBackgroundImage: UIImage?
     // Targeted singleton observation: only fires when sync state changes (for empty state)
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
-    @State private var playlistPickerTracks: [Track]?
-    @Environment(\.dependencies) private var deps
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     
@@ -56,14 +55,7 @@ public struct HomeView: View {
         .sheet(isPresented: $viewModel.isEditingOrder) {
             HubOrderingSheet(viewModel: viewModel)
         }
-        .sheet(isPresented: Binding(
-            get: { playlistPickerTracks != nil },
-            set: { if !$0 { playlistPickerTracks = nil } }
-        )) {
-            if let tracks = playlistPickerTracks {
-                PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: tracks, title: "Add to Playlist")
-            }
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }
@@ -187,7 +179,7 @@ public struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.sectionSpacing) {
                 ForEach(viewModel.hubs) { hub in
-                    HubSection(hub: hub, nowPlayingVM: nowPlayingVM, playlistPickerTracks: $playlistPickerTracks)
+                    HubSection(hub: hub, nowPlayingVM: nowPlayingVM, playlistActionRequest: $playlistActionRequest)
                 }
             }
             .padding(.vertical)
@@ -224,7 +216,7 @@ public struct HomeView: View {
 struct HubSection: View {
     let hub: Hub
     let nowPlayingVM: NowPlayingViewModel
-    @Binding var playlistPickerTracks: [Track]?
+    @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
 
     var body: some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
@@ -238,7 +230,7 @@ struct HubSection: View {
                         HubItemCard(
                             item: item,
                             nowPlayingVM: nowPlayingVM,
-                            playlistPickerTracks: $playlistPickerTracks
+                            playlistActionRequest: $playlistActionRequest
                         )
                     }
                 }
@@ -286,13 +278,8 @@ struct HubSection: View {
 struct HubItemCard: View {
     let item: HubItem
     let nowPlayingVM: NowPlayingViewModel
-    @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    // Not @ObservedObject — pinManager publishes on every pin/unpin, which would
-    // re-render ALL HubItemCards on the home screen. Pin state is only read in the
-    // context menu, which SwiftUI evaluates on-demand when the menu opens.
-    private let pinManager = DependencyContainer.shared.pinManager
-    @Binding var playlistPickerTracks: [Track]?
+    @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
 
     private let artworkDimension = EnsembleScaffold.MediaCard.hubArtworkDimension
 
@@ -436,153 +423,42 @@ struct HubItemCard: View {
 
     @ViewBuilder
     private var albumContextMenu: some View {
-        Button {
-            withAlbumTracks { tracks in nowPlayingVM.play(tracks: tracks) }
-        } label: {
-            MediaActionLabel(kind: .play)
-        }
-
-        Button {
-            withAlbumTracks { tracks in nowPlayingVM.shufflePlay(tracks: tracks) }
-        } label: {
-            MediaActionLabel(kind: .shuffle)
-        }
-
-        Button {
-            withAlbumTracks { tracks in nowPlayingVM.playNext(tracks) }
-        } label: {
-            MediaActionLabel(kind: .playNext)
-        }
-
-        Button {
-            withAlbumTracks { tracks in nowPlayingVM.playLast(tracks) }
-        } label: {
-            MediaActionLabel(kind: .playLast)
-        }
-
-        Button {
-            withAlbumTracks { tracks in nowPlayingVM.enableRadio(tracks: tracks) }
-        } label: {
-            MediaActionLabel(kind: .radio)
-        }
-
-        Button {
-            withAlbumTracks { tracks in
-                playlistPickerTracks = tracks
+        AlbumActionsContextMenu(
+            album: resolvedAlbum,
+            nowPlayingVM: nowPlayingVM,
+            presentPlaylistPicker: { tracks, title in
+                playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+            },
+            toastNamespace: "hub-album-menu",
+            navigateToArtist: { artistId in
+                navigationCoordinator.push(
+                    .artist(id: artistId, sourceKey: item.sourceCompositeKey),
+                    in: navigationCoordinator.selectedTab
+                )
             }
-        } label: {
-            MediaActionLabel(kind: .addToPlaylist)
-        }
-
-        if let album = item.album {
-            let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
-            Button {
-                Task {
-                    await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
-                }
-            } label: {
-                MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
-            }
-
-            if let artistId = album.artistRatingKey {
-                Button {
-                    self.navigationCoordinator.push(
-                        .artist(id: artistId, sourceKey: item.sourceCompositeKey),
-                        in: self.navigationCoordinator.selectedTab
-                    )
-                } label: {
-                    MediaActionLabel(kind: .goToArtist)
-                }
-            }
-        }
-
-        if let recentTarget = nowPlayingVM.lastPlaylistTarget {
-            Button {
-                addToRecentPlaylist(expectedTitle: recentTarget.title)
-            } label: {
-                MediaActionLabel(kind: .addToRecentPlaylist(recentTarget.title))
-            }
-        }
-
-        pinButton
+        )
     }
 
     // MARK: Artist Context Menu
 
     @ViewBuilder
     private var artistContextMenu: some View {
-        Button {
-            withArtistTracks { tracks in nowPlayingVM.play(tracks: tracks) }
-        } label: {
-            MediaActionLabel(kind: .play)
-        }
-
-        Button {
-            withArtistTracks { tracks in nowPlayingVM.shufflePlay(tracks: tracks) }
-        } label: {
-            MediaActionLabel(kind: .shuffle)
-        }
-
-        Button {
-            withArtistTracks { tracks in nowPlayingVM.enableRadio(tracks: tracks) }
-        } label: {
-            MediaActionLabel(kind: .radio)
-        }
-
-        if let artist = item.artist {
-            let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
-            Button {
-                Task {
-                    await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
-                }
-            } label: {
-                MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
-            }
-        }
-
-        pinButton
+        ArtistActionsContextMenu(
+            artist: resolvedArtist,
+            nowPlayingVM: nowPlayingVM,
+            toastNamespace: "hub-artist-menu"
+        )
     }
 
     // MARK: Playlist Context Menu
 
     @ViewBuilder
     private var playlistContextMenu: some View {
-        Button {
-            withPlaylistTracks { tracks in nowPlayingVM.play(tracks: tracks) }
-        } label: {
-            MediaActionLabel(kind: .play)
-        }
-
-        Button {
-            withPlaylistTracks { tracks in nowPlayingVM.shufflePlay(tracks: tracks) }
-        } label: {
-            MediaActionLabel(kind: .shuffle)
-        }
-
-        Button {
-            withPlaylistTracks { tracks in nowPlayingVM.playNext(tracks) }
-        } label: {
-            MediaActionLabel(kind: .playNext)
-        }
-
-        Button {
-            withPlaylistTracks { tracks in nowPlayingVM.playLast(tracks) }
-        } label: {
-            MediaActionLabel(kind: .playLast)
-        }
-
-        if let playlist = item.playlist {
-            let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
-            Button {
-                Task {
-                    await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
-                }
-            } label: {
-                MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
-            }
-        }
-
-        pinButton
+        PlaylistActionsContextMenu(
+            playlist: resolvedPlaylist,
+            nowPlayingVM: nowPlayingVM,
+            toastNamespace: "hub-playlist-menu"
+        )
     }
 
     // MARK: Track Context Menu
@@ -590,99 +466,30 @@ struct HubItemCard: View {
     @ViewBuilder
     private var trackContextMenu: some View {
         let track = resolvedTrack
-
-        Button {
-            nowPlayingVM.playNext([track])
-        } label: {
-            MediaActionLabel(kind: .playNext)
-        }
-
-        Button {
-            nowPlayingVM.playLast([track])
-        } label: {
-            MediaActionLabel(kind: .playLast)
-        }
-
-        Button {
-            nowPlayingVM.enableRadio(tracks: [track])
-        } label: {
-            MediaActionLabel(kind: .radio)
-        }
-
-        Button {
-            playlistPickerTracks = [track]
-        } label: {
-            MediaActionLabel(kind: .addToPlaylist)
-        }
-
-        if let albumId = track.albumRatingKey {
-            Button {
-                self.navigationCoordinator.push(
-                    .album(id: albumId, sourceKey: track.sourceCompositeKey),
-                    in: self.navigationCoordinator.selectedTab
-                )
-            } label: {
-                MediaActionLabel(kind: .goToAlbum)
-            }
-        }
-
-        if let artistId = track.artistRatingKey {
-            Button {
-                self.navigationCoordinator.push(
-                    .artist(id: artistId, sourceKey: track.sourceCompositeKey),
-                    in: self.navigationCoordinator.selectedTab
-                )
-            } label: {
-                MediaActionLabel(kind: .goToArtist)
-            }
-        }
-
-        if let recentTarget = nowPlayingVM.lastPlaylistTarget {
-            Button {
-                Task {
-                    guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: [track]) else { return }
-                    _ = try? await nowPlayingVM.addTracks([track], to: playlist)
+        TrackActionsContextMenu(
+            track: track,
+            nowPlayingVM: nowPlayingVM,
+            context: .search,
+            onAddToPlaylist: {
+                playlistActionRequest = PlaylistActionPresentationHost.request(for: [track])
+            },
+            onGoToAlbum: {
+                if let albumId = track.albumRatingKey {
+                    navigationCoordinator.push(
+                        .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                        in: navigationCoordinator.selectedTab
+                    )
                 }
-            } label: {
-                MediaActionLabel(kind: .addToRecentPlaylist(recentTarget.title))
+            },
+            onGoToArtist: {
+                if let artistId = track.artistRatingKey {
+                    navigationCoordinator.push(
+                        .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                        in: navigationCoordinator.selectedTab
+                    )
+                }
             }
-        }
-
-        let isFavorited = nowPlayingVM.isTrackFavorited(track)
-        Button {
-            Task { await nowPlayingVM.setTrackFavorite(!isFavorited, for: track) }
-        } label: {
-            MediaActionLabel(kind: .favorite(isFavorited: isFavorited, usesFilledIcon: false))
-        }
-    }
-
-    // MARK: Shared Pin Button
-
-    @ViewBuilder
-    private var pinButton: some View {
-        let isPinned = pinManager.isPinned(id: item.id)
-        Button {
-            if isPinned {
-                pinManager.unpin(id: item.id)
-            } else {
-                let pinType: PinnedItemType = {
-                    switch item.type {
-                    case "album": return .album
-                    case "artist": return .artist
-                    case "playlist": return .playlist
-                    default: return .album
-                    }
-                }()
-                pinManager.pin(
-                    id: item.id,
-                    sourceKey: item.sourceCompositeKey,
-                    type: pinType,
-                    title: item.title
-                )
-            }
-        } label: {
-            MediaActionLabel(kind: .pin(isPinned: isPinned))
-        }
+        )
     }
 
     // MARK: - Track Resolution Helpers
@@ -699,120 +506,34 @@ struct HubItemCard: View {
         )
     }
 
-    private func withAlbumTracks(perform action: @escaping ([Track]) -> Void) {
-        Task {
-            let tracks = await resolveAlbumTracks()
-            guard !tracks.isEmpty else {
-                await MainActor.run {
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: .warning,
-                            iconSystemName: EnsembleDesign.Icon.error,
-                            title: "No tracks available",
-                            message: "Try again after the album finishes loading.",
-                            dedupeKey: "hub-album-empty-\(item.id)"
-                        )
-                    )
-                }
-                return
-            }
-            await MainActor.run { action(tracks) }
-        }
+    private var resolvedAlbum: Album {
+        item.album ?? Album(
+            id: item.id,
+            key: item.id,
+            title: item.title,
+            artistName: item.subtitle,
+            thumbPath: item.thumbPath,
+            sourceCompositeKey: item.sourceCompositeKey
+        )
     }
 
-    private func resolveAlbumTracks() async -> [Track] {
-        if let cached = try? await deps.libraryRepository.fetchTracks(forAlbum: item.id),
-           !cached.isEmpty {
-            return cached.map { Track(from: $0) }
-        }
-        return (try? await deps.syncCoordinator.getAlbumTracks(
-            albumId: item.id,
-            sourceKey: item.sourceCompositeKey
-        )) ?? []
+    private var resolvedArtist: Artist {
+        item.artist ?? Artist(
+            id: item.id,
+            key: item.id,
+            name: item.title,
+            thumbPath: item.thumbPath,
+            sourceCompositeKey: item.sourceCompositeKey
+        )
     }
 
-    private func withArtistTracks(perform action: @escaping ([Track]) -> Void) {
-        Task {
-            let tracks = await resolveArtistTracks()
-            guard !tracks.isEmpty else {
-                await MainActor.run {
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: .warning,
-                            iconSystemName: EnsembleDesign.Icon.error,
-                            title: "No tracks available",
-                            message: "Try again after the artist finishes loading.",
-                            dedupeKey: "hub-artist-empty-\(item.id)"
-                        )
-                    )
-                }
-                return
-            }
-            await MainActor.run { action(tracks) }
-        }
-    }
-
-    private func resolveArtistTracks() async -> [Track] {
-        if let cached = try? await deps.libraryRepository.fetchTracks(forArtist: item.id),
-           !cached.isEmpty {
-            return cached.map { Track(from: $0) }
-        }
-        return (try? await deps.syncCoordinator.getArtistTracks(
-            artistId: item.id,
-            sourceKey: item.sourceCompositeKey
-        )) ?? []
-    }
-
-    private func withPlaylistTracks(perform action: @escaping ([Track]) -> Void) {
-        Task {
-            let tracks = await resolvePlaylistTracks()
-            guard !tracks.isEmpty else {
-                await MainActor.run {
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: .warning,
-                            iconSystemName: EnsembleDesign.Icon.error,
-                            title: "No tracks available",
-                            message: "Try again after the playlist finishes syncing.",
-                            dedupeKey: "hub-playlist-empty-\(item.id)"
-                        )
-                    )
-                }
-                return
-            }
-            await MainActor.run { action(tracks) }
-        }
-    }
-
-    private func resolvePlaylistTracks() async -> [Track] {
-        if let cachedPlaylist = try? await deps.playlistRepository.fetchPlaylist(
-            ratingKey: item.id,
-            sourceCompositeKey: item.playlist?.sourceCompositeKey
-        ) {
-            return cachedPlaylist.tracksArray.map { Track(from: $0) }
-        }
-        return []
-    }
-
-    private func addToRecentPlaylist(expectedTitle: String) {
-        withAlbumTracks { tracks in
-            Task {
-                guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: tracks) else {
-                    await MainActor.run {
-                        deps.toastCenter.show(
-                            ToastPayload(
-                                style: .warning,
-                                iconSystemName: EnsembleDesign.Icon.error,
-                                title: "Can't add to \(expectedTitle)",
-                                message: "This album isn't compatible with that playlist.",
-                                dedupeKey: "hub-recent-playlist-\(item.id)"
-                            )
-                        )
-                    }
-                    return
-                }
-                _ = try? await nowPlayingVM.addTracks(tracks, to: playlist)
-            }
-        }
+    private var resolvedPlaylist: Playlist {
+        item.playlist ?? Playlist(
+            id: item.id,
+            key: item.id,
+            title: item.title,
+            compositePath: item.thumbPath,
+            sourceCompositeKey: item.sourceCompositeKey
+        )
     }
 }

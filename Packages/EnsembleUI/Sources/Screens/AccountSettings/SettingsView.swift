@@ -161,10 +161,7 @@ struct StorageSettingsView: View {
         Task {
             let manager = DependencyContainer.shared.downloadManager
             let size = try? await manager.getTotalDownloadSize()
-            let formatter = ByteCountFormatter()
-            formatter.allowedUnits = [.useMB, .useGB]
-            formatter.countStyle = .file
-            totalSize = formatter.string(fromByteCount: size ?? 0)
+            totalSize = MediaFormatters.bytes(size ?? 0)
         }
     }
 }

@@ -47,7 +47,7 @@ public struct DownloadManagerSettingsView: View {
             if let estimates = viewModel.sizeEstimates {
                 Section {
                     sizeRow(label: "Current on disk", size: estimates.actualBytes)
-                    sizeRow(label: "Original", size: estimates.highBytes, note: "> \(formatBytes(estimates.highBytes))")
+                    sizeRow(label: "Original", size: estimates.highBytes, note: "> \(MediaFormatters.bytes(estimates.highBytes))")
                     sizeRow(label: "High (320 kbps)", size: estimates.highBytes)
                     sizeRow(label: "Medium (192 kbps)", size: estimates.mediumBytes)
                     sizeRow(label: "Low (128 kbps)", size: estimates.lowBytes)
@@ -126,16 +126,9 @@ public struct DownloadManagerSettingsView: View {
                     .font(EnsembleDesign.Typography.cardSubtitle)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
             } else {
-                Text(formatBytes(size))
+                Text(MediaFormatters.bytes(size))
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
-    }
-
-    private func formatBytes(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useMB, .useGB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
     }
 }

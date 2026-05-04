@@ -16,4 +16,7 @@
    <FileRef
       location = "group:Packages/EnsemblePersistence">
    </FileRef>
+   <FileRef
+      location = "group:Packages/EnsembleSiriShared">
+   </FileRef>
 </Workspace>

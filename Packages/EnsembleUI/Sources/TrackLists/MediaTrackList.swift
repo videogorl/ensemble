@@ -488,6 +488,7 @@ public struct MediaTrackList: UIViewRepresentable {
     let onGoToArtist: ((Track) -> Void)?
     let onShareLink: ((Track) -> Void)?
     let onShareFile: ((Track) -> Void)?
+    let onRemoveFromPlaylist: ((Track, Int) -> Void)?
     let isTrackFavorited: ((Track) -> Bool)?
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
@@ -552,6 +553,7 @@ public struct MediaTrackList: UIViewRepresentable {
         onGoToArtist: ((Track) -> Void)? = nil,
         onShareLink: ((Track) -> Void)? = nil,
         onShareFile: ((Track) -> Void)? = nil,
+        onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         isTrackFavorited: ((Track) -> Bool)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
         recentPlaylistTitle: String? = nil,
@@ -581,6 +583,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.onGoToArtist = onGoToArtist
         self.onShareLink = onShareLink
         self.onShareFile = onShareFile
+        self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.isTrackFavorited = isTrackFavorited
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
@@ -623,6 +626,7 @@ public struct MediaTrackList: UIViewRepresentable {
             bottom: 0,
             right: 0
         )
+        tableView.separatorColor = TrackListLayoutMetrics.nativeSeparatorColor
         tableView.backgroundColor = .clear
         tableView.isScrollEnabled = managesOwnScrolling
 
@@ -749,6 +753,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.onGoToArtist = onGoToArtist
         context.coordinator.onShareLink = onShareLink
         context.coordinator.onShareFile = onShareFile
+        context.coordinator.onRemoveFromPlaylist = onRemoveFromPlaylist
         context.coordinator.isTrackFavorited = isTrackFavorited
         context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
@@ -850,7 +855,11 @@ public struct MediaTrackList: UIViewRepresentable {
                         isActivelyDownloading: context.coordinator.activeDownloadRatingKeys.contains(track.id),
                         isFavorited: context.coordinator.isTrackFavorited?(track) ?? (track.rating >= 8),
                         supplementalMetadataWidth: context.coordinator.supplementalMetadataWidth,
-                        menu: context.coordinator.makeContextMenu(for: track, resolvedActions: context.coordinator.interactionModel.resolve(for: track)),
+                        menu: context.coordinator.makeContextMenu(
+                            for: track,
+                            at: indexPath,
+                            resolvedActions: context.coordinator.interactionModel.resolve(for: track)
+                        ),
                         rowHeight: context.coordinator.rowHeight,
                         artworkLoader: dependencies.artworkLoader
                     )
@@ -877,12 +886,14 @@ public struct MediaTrackList: UIViewRepresentable {
             onGoToArtist: onGoToArtist,
             onShareLink: onShareLink,
             onShareFile: onShareFile,
+            onRemoveFromPlaylist: onRemoveFromPlaylist,
             isTrackFavorited: isTrackFavorited,
             canAddToRecentPlaylist: canAddToRecentPlaylist,
             recentPlaylistTitle: recentPlaylistTitle,
             interactionModel: interactionModel,
             supplementalMetadataWidth: supplementalMetadataWidth,
             artworkLoader: dependencies.artworkLoader,
+            shareService: dependencies.shareService,
             toastCenter: dependencies.toastCenter,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
             isOffline: !dependencies.networkMonitor.isConnected,
@@ -921,12 +932,14 @@ public struct MediaTrackList: UIViewRepresentable {
         var onGoToArtist: ((Track) -> Void)?
         var onShareLink: ((Track) -> Void)?
         var onShareFile: ((Track) -> Void)?
+        var onRemoveFromPlaylist: ((Track, Int) -> Void)?
         var isTrackFavorited: ((Track) -> Bool)?
         var canAddToRecentPlaylist: ((Track) -> Bool)?
         var recentPlaylistTitle: String?
         var interactionModel: TrackRowInteractionModel
         var supplementalMetadataWidth: CGFloat?
         var artworkLoader: ArtworkLoaderProtocol
+        var shareService: ShareService
         var toastCenter: ToastCenter
         var trackAvailabilityResolver: TrackAvailabilityResolver
         var isOffline: Bool
@@ -964,12 +977,14 @@ public struct MediaTrackList: UIViewRepresentable {
             onGoToArtist: ((Track) -> Void)?,
             onShareLink: ((Track) -> Void)?,
             onShareFile: ((Track) -> Void)?,
+            onRemoveFromPlaylist: ((Track, Int) -> Void)?,
             isTrackFavorited: ((Track) -> Bool)?,
             canAddToRecentPlaylist: ((Track) -> Bool)?,
             recentPlaylistTitle: String?,
             interactionModel: TrackRowInteractionModel,
             supplementalMetadataWidth: CGFloat?,
             artworkLoader: ArtworkLoaderProtocol,
+            shareService: ShareService,
             toastCenter: ToastCenter,
             trackAvailabilityResolver: TrackAvailabilityResolver,
             isOffline: Bool,
@@ -992,12 +1007,14 @@ public struct MediaTrackList: UIViewRepresentable {
             self.onGoToArtist = onGoToArtist
             self.onShareLink = onShareLink
             self.onShareFile = onShareFile
+            self.onRemoveFromPlaylist = onRemoveFromPlaylist
             self.isTrackFavorited = isTrackFavorited
             self.canAddToRecentPlaylist = canAddToRecentPlaylist
             self.recentPlaylistTitle = recentPlaylistTitle
             self.interactionModel = interactionModel
             self.supplementalMetadataWidth = supplementalMetadataWidth
             self.artworkLoader = artworkLoader
+            self.shareService = shareService
             self.toastCenter = toastCenter
             self.trackAvailabilityResolver = trackAvailabilityResolver
             self.isOffline = isOffline
@@ -1011,11 +1028,16 @@ public struct MediaTrackList: UIViewRepresentable {
         /// Protects against race conditions where UIKit requests cells for stale index paths
         /// after groupedTracks has been updated but before reloadData completes.
         private func track(at indexPath: IndexPath) -> Track? {
+            indexedTrack(at: indexPath)?.track
+        }
+
+        private func indexedTrack(at indexPath: IndexPath) -> (track: Track, index: Int)? {
             guard indexPath.section < groupedTracks.count,
                   indexPath.row < groupedTracks[indexPath.section].tracks.count else {
                 return nil
             }
-            return groupedTracks[indexPath.section].tracks[indexPath.row]
+            let index = groupedTracks[..<indexPath.section].reduce(0) { $0 + $1.tracks.count } + indexPath.row
+            return (groupedTracks[indexPath.section].tracks[indexPath.row], index)
         }
 
         public func numberOfSections(in tableView: UITableView) -> Int {
@@ -1042,7 +1064,7 @@ public struct MediaTrackList: UIViewRepresentable {
                 isActivelyDownloading: activeDownloadRatingKeys.contains(track.id),
                 isFavorited: isTrackFavorited?(track) ?? (track.rating >= 8),
                 supplementalMetadataWidth: supplementalMetadataWidth,
-                menu: makeContextMenu(for: track, resolvedActions: interactionModel.resolve(for: track)),
+                menu: makeContextMenu(for: track, at: indexPath, resolvedActions: interactionModel.resolve(for: track)),
                 rowHeight: rowHeight,
                 artworkLoader: artworkLoader
             )
@@ -1086,7 +1108,8 @@ public struct MediaTrackList: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
             tableView.deselectRow(at: indexPath, animated: true)
-            guard let track = track(at: indexPath) else { return }
+            guard let indexed = indexedTrack(at: indexPath) else { return }
+            let track = indexed.track
 
             let availability = trackAvailabilityResolver.availability(for: track)
             if !availability.canPlay {
@@ -1103,10 +1126,8 @@ public struct MediaTrackList: UIViewRepresentable {
                 }
                 return
             }
-            
-            // Find the global index in the full track list
-            let globalIndex = tracks.firstIndex(where: { $0.id == track.id }) ?? 0
-            onTrackTap(track, globalIndex)
+
+            onTrackTap(track, indexed.index)
         }
         
         public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
@@ -1116,7 +1137,7 @@ public struct MediaTrackList: UIViewRepresentable {
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
             guard let track = track(at: indexPath) else { return nil }
             let resolvedActions = interactionModel.resolve(for: track)
-            guard let menu = makeContextMenu(for: track, resolvedActions: resolvedActions) else { return nil }
+            guard let menu = makeContextMenu(for: track, at: indexPath, resolvedActions: resolvedActions) else { return nil }
 
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
                 menu
@@ -1125,23 +1146,27 @@ public struct MediaTrackList: UIViewRepresentable {
 
         func makeContextMenu(
             for track: Track,
+            at indexPath: IndexPath,
             resolvedActions: TrackRowInteractionModel.ResolvedActions
         ) -> UIMenu? {
-            NativeMediaTableActionBuilder.contextMenu(for: track, resolvedActions: resolvedActions)
+            let indexed = indexedTrack(at: indexPath)
+            return NativeMediaTableActionBuilder.contextMenu(
+                for: track,
+                resolvedActions: resolvedActions,
+                context: onRemoveFromPlaylist == nil ? .library : .playlistTrack(canRemove: true),
+                onRemoveFromPlaylist: indexed.flatMap { indexed in
+                    onRemoveFromPlaylist.map { callback in
+                        { callback(indexed.track, indexed.index) }
+                    }
+                }
+            )
         }
 
-        // MARK: - Drag Delegate (iPad drag-and-drop for downloaded tracks)
+        // MARK: - Drag Delegate (iPad drag-and-drop for media references)
 
         public func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
             guard let track = track(at: indexPath) else { return [] }
-            guard let path = track.localFilePath else { return [] }
-            let fileURL = URL(fileURLWithPath: path)
-            guard let provider = NSItemProvider(contentsOf: fileURL) else { return [] }
-            if let artist = track.artistName {
-                provider.suggestedName = "\(artist) - \(track.title)"
-            } else {
-                provider.suggestedName = track.title
-            }
+            let provider = MediaDragPayload.trackItemProvider(for: track, shareService: shareService)
             let dragItem = UIDragItem(itemProvider: provider)
             dragItem.localObject = track
             return [dragItem]
@@ -1150,6 +1175,7 @@ public struct MediaTrackList: UIViewRepresentable {
         // MARK: - Swipe Actions
 
         public func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+            guard UIDevice.current.userInterfaceIdiom == .phone else { return nil }
             guard let track = track(at: indexPath) else { return nil }
             let configured = DependencyContainer.shared.settingsManager.trackSwipeLayout.leading
             let actions = swipeActions(from: configured, track: track)
@@ -1161,6 +1187,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
 
         public func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+            guard UIDevice.current.userInterfaceIdiom == .phone else { return nil }
             guard let track = track(at: indexPath) else { return nil }
             let configured = DependencyContainer.shared.settingsManager.trackSwipeLayout.trailing
             let actions = swipeActions(from: configured, track: track)

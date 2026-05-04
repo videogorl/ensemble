@@ -57,12 +57,6 @@ public struct AlbumDetailMenuActions {
 // MARK: - Media Detail View
 
 public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
-    private struct PlaylistPickerPayload: Identifiable {
-        let id = UUID()
-        let tracks: [Track]
-        let title: String
-    }
-
     @ObservedObject var viewModel: ViewModel
     let nowPlayingVM: NowPlayingViewModel
 
@@ -89,7 +83,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var showFilterSheet = false
     @State private var showToolbarTitle = false
     @State private var showToolbarActions = false
-    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
     // Targeted NVM observation: only re-evaluate on track/playlist target changes
@@ -229,15 +223,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
             if gen != availabilityGeneration { availabilityGeneration = gen }
         }
-        .sheet(item: $playlistPickerPayload) { payload in
-            PlaylistPickerSheet(
-                nowPlayingVM: nowPlayingVM,
-                tracks: payload.tracks,
-                title: payload.title
-            )
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .task(id: quickTargetRefreshKey) {
-            lastPlaylistQuickTarget = await nowPlayingVM.resolveLastPlaylistTarget(for: viewModel.filteredTracks)
+            lastPlaylistQuickTarget = await PlaylistActionPresentationHost.resolveRecentPlaylistTarget(
+                for: viewModel.filteredTracks,
+                nowPlayingVM: nowPlayingVM
+            )
         }
         .task {
             await viewModel.loadTracks()
@@ -316,15 +307,19 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         MediaActionLabel(kind: .playLast)
                     }
 
-                    if let lastPlaylistQuickTarget {
-                        if nowPlayingVM.compatibleTrackCount(viewModel.filteredTracks, for: lastPlaylistQuickTarget) > 0 {
-                            Button {
-                                Task {
-                                    _ = try? await nowPlayingVM.addTracks(viewModel.filteredTracks, to: lastPlaylistQuickTarget)
-                                }
-                            } label: {
-                                MediaActionLabel(kind: .addToRecentPlaylist(lastPlaylistQuickTarget.title))
-                            }
+                    if let recentTitle = PlaylistActionPresentationHost.recentPlaylistTitle(
+                        for: viewModel.filteredTracks,
+                        target: lastPlaylistQuickTarget,
+                        nowPlayingVM: nowPlayingVM
+                    ) {
+                        Button {
+                            PlaylistActionPresentationHost.addToRecentPlaylist(
+                                viewModel.filteredTracks,
+                                target: lastPlaylistQuickTarget,
+                                nowPlayingVM: nowPlayingVM
+                            )
+                        } label: {
+                            MediaActionLabel(kind: .addToRecentPlaylist(recentTitle))
                         }
                     }
 
@@ -533,10 +528,91 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             return
         }
 
-        playlistPickerPayload = PlaylistPickerPayload(
-            tracks: tracks,
-            title: title
+        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+    }
+
+    private var playlistTrackRemovalHandler: ((Track, Int) -> Void)? {
+        if let playlistViewModel = viewModel as? PlaylistDetailViewModel,
+           !playlistViewModel.playlist.isSmart {
+            return { track, displayIndex in
+                removeTrackFromPlaylist(track, displayIndex: displayIndex, playlistViewModel: playlistViewModel)
+            }
+        }
+
+        if let mergedPlaylistViewModel = viewModel as? MergedPlaylistDetailViewModel,
+           !mergedPlaylistViewModel.displayPlaylist.isSmart {
+            return { track, displayIndex in
+                removeTrackFromMergedPlaylist(
+                    track,
+                    displayIndex: displayIndex,
+                    playlistViewModel: mergedPlaylistViewModel
+                )
+            }
+        }
+
+        return nil
+    }
+
+    private func removeTrackFromPlaylist(
+        _ track: Track,
+        displayIndex: Int,
+        playlistViewModel: PlaylistDetailViewModel
+    ) {
+        let pendingToast = ToastPayload(
+            style: .info,
+            iconSystemName: EnsembleDesign.Icon.removeFromPlaylist,
+            title: "Removing from Playlist…",
+            message: track.title,
+            isPersistent: true,
+            dedupeKey: "playlist-track-remove-pending-\(playlistViewModel.playlist.id)-\(track.id)",
+            showsActivityIndicator: true
         )
+        deps.toastCenter.show(pendingToast)
+
+        Task { @MainActor in
+            let didRemove = await playlistViewModel.removeTrackFromPlaylist(track, displayIndex: displayIndex)
+            deps.toastCenter.dismiss(id: pendingToast.id)
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: didRemove ? .success : .error,
+                    iconSystemName: didRemove ? EnsembleDesign.Icon.removeFromPlaylist : EnsembleDesign.Icon.error,
+                    title: didRemove ? "Removed from Playlist" : "Couldn’t Remove Track",
+                    message: didRemove ? nil : playlistViewModel.error,
+                    dedupeKey: "playlist-track-remove-result-\(playlistViewModel.playlist.id)-\(track.id)"
+                )
+            )
+        }
+    }
+
+    private func removeTrackFromMergedPlaylist(
+        _ track: Track,
+        displayIndex: Int,
+        playlistViewModel: MergedPlaylistDetailViewModel
+    ) {
+        let pendingToast = ToastPayload(
+            style: .info,
+            iconSystemName: EnsembleDesign.Icon.removeFromPlaylist,
+            title: "Removing from Playlist…",
+            message: track.title,
+            isPersistent: true,
+            dedupeKey: "merged-playlist-track-remove-pending-\(playlistViewModel.displayPlaylist.id)-\(track.id)",
+            showsActivityIndicator: true
+        )
+        deps.toastCenter.show(pendingToast)
+
+        Task { @MainActor in
+            let didRemove = await playlistViewModel.removeTrackFromPlaylist(track, displayIndex: displayIndex)
+            deps.toastCenter.dismiss(id: pendingToast.id)
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: didRemove ? .success : .error,
+                    iconSystemName: didRemove ? EnsembleDesign.Icon.removeFromPlaylist : EnsembleDesign.Icon.error,
+                    title: didRemove ? "Removed from Playlist" : "Couldn’t Remove Track",
+                    message: didRemove ? nil : playlistViewModel.error,
+                    dedupeKey: "merged-playlist-track-remove-result-\(playlistViewModel.displayPlaylist.id)-\(track.id)"
+                )
+            )
+        }
     }
 
     /// Base content without filter UI — shared between filtered and unfiltered modes.
@@ -582,6 +658,15 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     .listRowBackground(Color.clear)
                 } else {
                     tracksSection
+                }
+
+                if let additionalFooterContent {
+                    Section {
+                        additionalFooterContent
+                    }
+                    .hideListRowSeparator()
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
                 }
             }
             .listStyle(.plain)
@@ -650,7 +735,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             if let artistId = headerData.artistRatingKey {
                 Button {
                     navigationCoordinator.push(
-                        .artist(id: artistId),
+                        .artist(id: artistId, sourceKey: headerData.sourceKey),
                         in: navigationCoordinator.selectedTab
                     )
                 } label: {
@@ -806,11 +891,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 presentPlaylistPicker(with: [track], title: "Add to Playlist")
             },
             onAddToRecentPlaylist: { track in
-                guard let lastPlaylistQuickTarget,
-                      nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return }
-                Task {
-                    _ = try? await nowPlayingVM.addTracks([track], to: lastPlaylistQuickTarget)
-                }
+                PlaylistActionPresentationHost.addToRecentPlaylist(
+                    [track],
+                    target: lastPlaylistQuickTarget,
+                    nowPlayingVM: nowPlayingVM
+                )
             },
             onToggleFavorite: { track in
                 Task {
@@ -837,8 +922,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 nowPlayingVM.isTrackFavorited(track)
             },
             canAddToRecentPlaylist: { track in
-                guard let lastPlaylistQuickTarget else { return false }
-                return nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0
+                PlaylistActionPresentationHost.recentPlaylistTitle(
+                    for: [track],
+                    target: lastPlaylistQuickTarget,
+                    nowPlayingVM: nowPlayingVM
+                ) != nil
             },
             recentPlaylistTitle: lastPlaylistQuickTarget?.title
         )
@@ -868,7 +956,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }),
             searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
             interactionModel: trackInteractionModel,
-            supplementalMetadataWidth: trackListSupplementalMetadataWidth
+            supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+            onRemoveFromPlaylist: playlistTrackRemovalHandler
         ) { track, index in
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
@@ -876,25 +965,39 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         // macOS: List with native .swipeActions for trackpad two-finger swipe support
         ForEach(Array(viewModel.filteredTracks.enumerated()), id: \.element.id) { index, track in
             let resolvedActions = trackInteractionModel.resolve(for: track)
-            TrackRow(
-                track: track,
-                showArtwork: showArtwork,
-                showTrackNumber: showTrackNumbers,
-                isPlaying: track.id == currentTrackId,
-                onPlayNext: resolvedActions.onPlayNext,
-                onPlayLast: resolvedActions.onPlayLast,
-                onAddToPlaylist: resolvedActions.onAddToPlaylist,
-                onAddToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
-                onToggleFavorite: resolvedActions.onToggleFavorite,
-                onGoToAlbum: resolvedActions.onGoToAlbum,
-                onGoToArtist: resolvedActions.onGoToArtist,
-                onShareLink: resolvedActions.onShareLink,
-                onShareFile: resolvedActions.onShareFile,
-                isFavorited: resolvedActions.isFavorited,
-                recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
-                supplementalMetadataWidth: trackListSupplementalMetadataWidth
-            ) {
-                nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+            VStack(spacing: EnsembleDesign.Spacing.none) {
+                TrackRow(
+                    track: track,
+                    showArtwork: showArtwork,
+                    showTrackNumber: showTrackNumbers,
+                    isPlaying: track.id == currentTrackId,
+                    onPlayNext: resolvedActions.onPlayNext,
+                    onPlayLast: resolvedActions.onPlayLast,
+                    onAddToPlaylist: resolvedActions.onAddToPlaylist,
+                    onAddToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
+                    onToggleFavorite: resolvedActions.onToggleFavorite,
+                    onGoToAlbum: resolvedActions.onGoToAlbum,
+                    onGoToArtist: resolvedActions.onGoToArtist,
+                    onShareLink: resolvedActions.onShareLink,
+                    onShareFile: resolvedActions.onShareFile,
+                    onRemoveFromPlaylist: playlistTrackRemovalHandler.map { handler in
+                        { handler(track, index) }
+                    },
+                    isFavorited: resolvedActions.isFavorited,
+                    recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
+                    supplementalMetadataWidth: trackListSupplementalMetadataWidth
+                ) {
+                    nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+                }
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+                .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
+
+                if index < viewModel.filteredTracks.count - 1 {
+                    TrackListDivider(
+                        showArtwork: showArtwork,
+                        showTrackNumbers: showTrackNumbers
+                    )
+                }
             }
             .trackSwipeActions(
                 track: track,
@@ -904,8 +1007,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 onAddToPlaylist: resolvedActions.onAddToPlaylist
             )
             .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
             .hideListRowSeparator()
-            .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: showArtwork, showTrackNumbers: showTrackNumbers))
         }
         #endif
     }

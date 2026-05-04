@@ -191,22 +191,6 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     // MARK: - Filter Application
     
     private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
-        var filtered = tracks
-        
-        // Search text filter
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower) ||
-                ($0.artistName?.lowercased().contains(searchLower) ?? false)
-            }
-        }
-        
-        // Downloaded only filter
-        if options.showDownloadedOnly {
-            filtered = filtered.filter { $0.isDownloaded }
-        }
-        
-        return filtered
+        MediaFilterEngine.filterTracks(tracks, with: options, configuration: .albumDetail)
     }
 }

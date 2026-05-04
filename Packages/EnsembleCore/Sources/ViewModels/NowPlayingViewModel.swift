@@ -170,6 +170,7 @@ public final class NowPlayingViewModel: ObservableObject {
     private let navigationCoordinator: NavigationCoordinator
     private let toastCenter: ToastCenter
     private let mutationCoordinator: MutationCoordinator
+    private let playlistActionService = PlaylistActionService()
     private let trackAvailabilityResolver: TrackAvailabilityResolver
     private let lyricsService: LyricsService
     private var cancellables = Set<AnyCancellable>()
@@ -756,16 +757,16 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public var formattedCurrentTime: String {
-        formatTime(currentTime)
+        MediaFormatters.trackClock(currentTime)
     }
 
     public var formattedDuration: String {
-        formatTime(duration)
+        MediaFormatters.trackClock(duration)
     }
 
     public var formattedRemainingTime: String {
         let remaining = max(0, scrubberDuration - currentTime)
-        return "-" + formatTime(remaining)
+        return MediaFormatters.negativeTrackClock(remaining)
     }
     
     /// Queue split into sections for UI display
@@ -941,18 +942,7 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func defaultPlaylistServerSourceKey(for tracks: [Track]) -> String? {
-        // Prefer the source from the explicitly provided tracks first.
-        for track in tracks {
-            if let source = serverSourceKey(from: track.sourceCompositeKey) {
-                return source
-            }
-        }
-
-        if let currentTrack,
-           let source = serverSourceKey(from: currentTrack.sourceCompositeKey) {
-            return source
-        }
-        return nil
+        playlistActionService.defaultServerSourceKey(for: tracks, currentTrack: currentTrack)
     }
 
     public func resolveDefaultPlaylistServerSourceKey(for tracks: [Track]) async -> String? {
@@ -1156,44 +1146,15 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func compatibleTrackCount(_ tracks: [Track], for playlist: Playlist) -> Int {
-        guard let playlistServerSourceKey = playlist.sourceCompositeKey else { return 0 }
-        return tracks.reduce(0) { count, track in
-            guard let trackServerSourceKey = serverSourceKey(from: track.sourceCompositeKey) else {
-                // Unknown source should not hard-block selection; mutation flow resolves via cache lookup.
-                return count + 1
-            }
-            return count + (trackServerSourceKey == playlistServerSourceKey ? 1 : 0)
-        }
+        playlistActionService.compatibleTrackCount(tracks, for: playlist)
     }
 
     public func compatibleTrackCount(_ tracks: [Track], forServerSourceKey serverSourceKey: String?) -> Int {
-        guard let serverSourceKey else { return 0 }
-        return tracks.reduce(0) { count, track in
-            guard let trackServerSourceKey = self.serverSourceKey(from: track.sourceCompositeKey) else {
-                return count + 1
-            }
-            return count + (trackServerSourceKey == serverSourceKey ? 1 : 0)
-        }
+        playlistActionService.compatibleTrackCount(tracks, forServerSourceKey: serverSourceKey)
     }
 
     public func tracks(_ tracks: [Track], compatibleWithServerSourceKey serverSourceKey: String?) -> [Track] {
-        guard let serverSourceKey else { return [] }
-        var seen = Set<String>()
-        var filtered: [Track] = []
-        for track in tracks {
-            if let trackServerSourceKey = self.serverSourceKey(from: track.sourceCompositeKey),
-               trackServerSourceKey != serverSourceKey {
-                continue
-            }
-            guard !seen.contains(track.id) else { continue }
-            seen.insert(track.id)
-            if track.sourceCompositeKey == nil {
-                filtered.append(trackWithSourceCompositeKey(track, sourceCompositeKey: serverSourceKey))
-            } else {
-                filtered.append(track)
-            }
-        }
-        return filtered
+        playlistActionService.tracks(tracks, compatibleWithServerSourceKey: serverSourceKey)
     }
 
     /// Queue snapshot used by "Save current queue":
@@ -1245,6 +1206,14 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func cycleRepeatMode() {
         playbackService.cycleRepeatMode()
+    }
+
+    public func setRepeatMode(_ targetMode: RepeatMode) {
+        var attempts = 0
+        while playbackService.repeatMode != targetMode && attempts < RepeatMode.allCases.count {
+            playbackService.cycleRepeatMode()
+            attempts += 1
+        }
     }
 
     // MARK: - Autoplay & Radio
@@ -1500,45 +1469,8 @@ public final class NowPlayingViewModel: ObservableObject {
 
     // MARK: - Helpers
 
-    private func formatTime(_ time: TimeInterval) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-
     private func serverSourceKey(from sourceCompositeKey: String?) -> String? {
-        guard let sourceCompositeKey else { return nil }
-        let components = sourceCompositeKey.split(separator: ":")
-        guard components.count >= 3 else { return nil }
-        return "\(components[0]):\(components[1]):\(components[2])"
-    }
-
-    private func trackWithSourceCompositeKey(_ track: Track, sourceCompositeKey: String) -> Track {
-        Track(
-            id: track.id,
-            key: track.key,
-            title: track.title,
-            artistName: track.artistName,
-            albumName: track.albumName,
-            albumRatingKey: track.albumRatingKey,
-            artistRatingKey: track.artistRatingKey,
-            trackNumber: track.trackNumber,
-            discNumber: track.discNumber,
-            duration: track.duration,
-            thumbPath: track.thumbPath,
-            fallbackThumbPath: track.fallbackThumbPath,
-            fallbackRatingKey: track.fallbackRatingKey,
-            streamKey: track.streamKey,
-            streamId: track.streamId,
-            localFilePath: track.localFilePath,
-            dateAdded: track.dateAdded,
-            dateModified: track.dateModified,
-            lastPlayed: track.lastPlayed,
-            lastRatedAt: track.lastRatedAt,
-            rating: track.rating,
-            playCount: track.playCount,
-            sourceCompositeKey: sourceCompositeKey
-        )
+        MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey)
     }
 
     private func trackWithRating(_ track: Track, rating: Int) -> Track {

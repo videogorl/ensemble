@@ -184,44 +184,10 @@ public final class ArtistDetailViewModel: ObservableObject {
     // MARK: - Filter Application
 
     private func applyFilters(to albums: [Album], with options: FilterOptions) -> [Album] {
-        var filtered = albums
-
-        // Search text filter
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower)
-            }
-        }
-
-        // Year range filter
-        if let yearRange = options.yearRange {
-            filtered = filtered.filter {
-                guard let year = $0.year else { return false }
-                return yearRange.contains(year)
-            }
-        }
-
-        return filtered
+        MediaFilterEngine.filterAlbums(albums, with: options, configuration: .artistDetail)
     }
 
     private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
-        var filtered = tracks
-
-        // Search text filter
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower) ||
-                ($0.albumName?.lowercased().contains(searchLower) ?? false)
-            }
-        }
-
-        // Downloaded only filter
-        if options.showDownloadedOnly {
-            filtered = filtered.filter { $0.isDownloaded }
-        }
-
-        return filtered
+        MediaFilterEngine.filterTracks(tracks, with: options, configuration: .artistDetail)
     }
 }

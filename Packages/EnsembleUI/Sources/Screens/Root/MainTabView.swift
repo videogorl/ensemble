@@ -2,50 +2,6 @@ import EnsembleCore
 import Combine
 import SwiftUI
 
-// MARK: - Tab View Factory
-
-struct TabViewFactory {
-    @MainActor
-    @ViewBuilder
-    static func viewContent(
-        for tab: TabItem,
-        libraryVM: LibraryViewModel,
-        nowPlayingVM: NowPlayingViewModel,
-        searchVM: SearchViewModel,
-        isMoreRoot: Bool = false
-    ) -> some View {
-        if isMoreRoot {
-            MoreView(
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM
-            )
-        } else {
-            switch tab {
-            case .home:
-                HomeView(nowPlayingVM: nowPlayingVM)
-            case .songs:
-                SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .artists:
-                ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .albums:
-                AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .genres:
-                GenresView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .playlists:
-                PlaylistsView(nowPlayingVM: nowPlayingVM)
-            case .favorites:
-                FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .search:
-                SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM)
-            case .downloads:
-                DownloadsView(nowPlayingVM: nowPlayingVM)
-            case .settings:
-                SettingsView()
-            }
-        }
-    }
-}
-
 /// Main tab bar view for iPhone (5-tab classic iOS style)
 public struct MainTabView: View {
     @StateObject private var libraryVM: LibraryViewModel
@@ -392,7 +348,7 @@ public struct MainTabView: View {
         if navigationCoordinator.selectedTab == tag {
             EnsembleLogger.debug("🧭 Tab selection repeated tab=\(String(describing: tag))")
             // Already on this tab — pop to root or focus search
-            if !pathForTab(tag).isEmpty {
+            if !navigationCoordinator.pathSnapshot(for: tag).isEmpty {
                 navigationCoordinator.popToRoot(tab: tag)
             } else if tag == .search {
                 searchVM.requestFocus()
@@ -413,13 +369,13 @@ public struct MainTabView: View {
     private func tabRootView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
         Group {
             if #available(iOS 16.0, macOS 13.0, *) {
-                NavigationStack(path: pathBinding(for: tab)) {
+                NavigationStack(path: navigationCoordinator.pathBinding(for: tab)) {
                     tabContentView(for: tab, isMoreRoot: isMoreRoot)
                 }
             } else {
                 NavigationView {
                     // iOS 15 Fallback: Support nested navigation by passing the remaining path
-                    TabViewFactory.viewContent(
+                    NavigationDestinationFactory.tabContent(
                         for: tab,
                         libraryVM: libraryVM,
                         nowPlayingVM: nowPlayingVM,
@@ -430,7 +386,7 @@ public struct MainTabView: View {
                     .auroraBackgroundSupport()
                     .background(
                         NestedNavigationLink(
-                            path: pathForTab(tab),
+                            path: navigationCoordinator.pathSnapshot(for: tab),
                             tab: tab,
                             navigationCoordinator: navigationCoordinator,
                             destinationBuilder: destinationView
@@ -463,41 +419,11 @@ public struct MainTabView: View {
         }
     }
 
-    private func pathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
-        switch tab {
-        case .home: return $navigationCoordinator.homePath
-        case .songs: return $navigationCoordinator.songsPath
-        case .artists: return $navigationCoordinator.artistsPath
-        case .albums: return $navigationCoordinator.albumsPath
-        case .genres: return $navigationCoordinator.genresPath
-        case .playlists: return $navigationCoordinator.playlistsPath
-        case .favorites: return $navigationCoordinator.favoritesPath
-        case .search: return $navigationCoordinator.searchPath
-        case .downloads: return $navigationCoordinator.downloadsPath
-        case .settings: return $navigationCoordinator.settingsPath
-        }
-    }
-
-    private func pathForTab(_ tab: TabItem) -> [NavigationCoordinator.Destination] {
-        switch tab {
-        case .home: return navigationCoordinator.homePath
-        case .songs: return navigationCoordinator.songsPath
-        case .artists: return navigationCoordinator.artistsPath
-        case .albums: return navigationCoordinator.albumsPath
-        case .genres: return navigationCoordinator.genresPath
-        case .playlists: return navigationCoordinator.playlistsPath
-        case .favorites: return navigationCoordinator.favoritesPath
-        case .search: return navigationCoordinator.searchPath
-        case .downloads: return navigationCoordinator.downloadsPath
-        case .settings: return navigationCoordinator.settingsPath
-        }
-    }
-
     /// Tab content with navigation destinations registered for path-based push.
     @available(iOS 16.0, macOS 13.0, *)
     @ViewBuilder
     private func tabContentView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
-        TabViewFactory.viewContent(
+        NavigationDestinationFactory.tabContent(
             for: tab,
             libraryVM: libraryVM,
             nowPlayingVM: nowPlayingVM,
@@ -514,37 +440,19 @@ public struct MainTabView: View {
 
     @ViewBuilder
     private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
-        destinationContentView(for: destination)
-            .environment(\.showsProfileToolbar, false)
-    }
-
-    @ViewBuilder
-    private func destinationContentView(for destination: NavigationCoordinator.Destination) -> some View {
-        switch destination {
-        case .artist(let id, let sourceKey):
-            ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .album(let id, let sourceKey):
-            AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .playlist(let id, let sourceKey):
-            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .mergedPlaylist(let title, let isSmart):
-            MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM)
-        case .moodTracks(let mood):
-            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
-        case .view(let tab):
-            TabViewFactory.viewContent(
-                for: tab,
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                searchVM: searchVM,
-            )
-        }
+        NavigationDestinationFactory.destinationContent(
+            for: destination,
+            libraryVM: libraryVM,
+            nowPlayingVM: nowPlayingVM,
+            searchVM: searchVM
+        )
+        .environment(\.showsProfileToolbar, false)
     }
 
     private func shouldShowProfileButton(for tab: TabItem, isMoreRoot: Bool) -> Bool {
         #if os(iOS)
         guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
-        guard pathForTab(tab).isEmpty else { return false }
+        guard navigationCoordinator.pathSnapshot(for: tab).isEmpty else { return false }
         return isMoreRoot || barTabs.contains(tab)
         #else
         return false
@@ -660,13 +568,6 @@ public struct SidebarView: View {
         let compositePath: String?
     }
 
-    /// Sheet payload for sidebar album actions that need playlist selection.
-    private struct PlaylistPickerPayload: Identifiable {
-        let id = UUID()
-        let tracks: [Track]
-        let title: String
-    }
-
     @StateObject private var libraryVM: LibraryViewModel
     private let nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
@@ -687,28 +588,11 @@ public struct SidebarView: View {
         case detail
     }
 
-    private enum RootBrowseKind: Hashable {
-        case artists
-        case playlists
-        case genres
-
-        var tab: TabItem {
-            switch self {
-            case .artists: return .artists
-            case .playlists: return .playlists
-            case .genres: return .genres
-            }
-        }
-    }
-
     @State private var selection: SidebarSelection? = .library(.home)
-    @State private var selectedBrowseArtist: Artist?
-    @State private var selectedBrowsePlaylist: DisplayPlaylist?
-    @State private var selectedBrowseGenre: Genre?
     @State private var pinnedDetailPath: [NavigationCoordinator.Destination] = []
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var compactColumnPreference: CompactColumnPreference = .sidebar
-    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var playlistForEditSheet: Playlist?
     @State private var playlistPendingRename: Playlist?
     @State private var mergedPlaylistPendingRename: DisplayPlaylist?
@@ -771,38 +655,9 @@ public struct SidebarView: View {
 
         switch selection {
         case .library(let tab):
-            return sidebarPath(for: tab).isEmpty
+            return navigationCoordinator.pathSnapshot(for: tab).isEmpty
         case .playlist, .mergedPlaylist, .pin:
             return false
-        }
-    }
-
-    private var activeRootBrowseKind: RootBrowseKind? {
-        guard case .library(let tab) = selection else { return nil }
-        switch tab {
-        case .artists:
-            return .artists
-        case .playlists:
-            return .playlists
-        case .genres:
-            return .genres
-        default:
-            return nil
-        }
-    }
-
-    private func sidebarPath(for tab: TabItem) -> [NavigationCoordinator.Destination] {
-        switch tab {
-        case .home: return navigationCoordinator.homePath
-        case .songs: return navigationCoordinator.songsPath
-        case .artists: return navigationCoordinator.artistsPath
-        case .albums: return navigationCoordinator.albumsPath
-        case .genres: return navigationCoordinator.genresPath
-        case .playlists: return navigationCoordinator.playlistsPath
-        case .favorites: return navigationCoordinator.favoritesPath
-        case .search: return navigationCoordinator.searchPath
-        case .downloads: return navigationCoordinator.downloadsPath
-        case .settings: return navigationCoordinator.settingsPath
         }
     }
 
@@ -981,48 +836,42 @@ public struct SidebarView: View {
     }
 
     private func navigateFromPinnedMenu(to destination: NavigationCoordinator.Destination) {
-        selection = sidebarSelection(for: destination)
+        selection = SidebarSelection.selection(for: destination, fallback: selection)
         DispatchQueue.main.async {
-            navigationCoordinator.push(destination, in: targetTab(for: destination))
+            navigationCoordinator.push(destination, in: NavigationCoordinator.targetTab(for: destination))
         }
     }
 
     private func startPinnedPlaylistDelete(for playlist: Playlist) {
-        guard !playlist.isSmart else { return }
+        guard let start = deps.playlistMutationWorkflow.beginDelete(
+            playlist: playlist,
+            scope: .sidebarPlaylist
+        ) else { return }
 
-        let deletingToast = ToastPayload(
-            style: .info,
-            iconSystemName: "trash",
-            title: "Deleting \(playlist.title)...",
-            isPersistent: true,
-            dedupeKey: "sidebar-playlist-delete-pending-\(playlist.id)",
-            showsActivityIndicator: true
-        )
+        let deletingToast = start.pendingToast
         deps.toastCenter.show(deletingToast)
 
         Task {
-            let didDelete = await playlistsVM.deletePlaylist(playlist)
-            deps.toastCenter.dismiss(id: deletingToast.id)
+            do {
+                let result = try await deps.playlistMutationWorkflow.finishDelete(
+                    playlist: playlist,
+                    scope: .sidebarPlaylist
+                )
+                if result.outcome == .queued {
+                    playlistsVM.applyOptimisticDelete(for: playlist)
+                }
 
-            if didDelete {
                 handlePinnedSelectionRemoval(ids: [playlist.id], fallback: .library(.playlists))
                 pinManager.unpin(id: playlist.id)
+                deps.toastCenter.dismiss(id: deletingToast.id)
+                deps.toastCenter.show(result.successToast)
+            } catch {
+                deps.toastCenter.dismiss(id: deletingToast.id)
                 deps.toastCenter.show(
-                    ToastPayload(
-                        style: .success,
-                        iconSystemName: "checkmark.circle.fill",
-                        title: "Deleted \(playlist.title)",
-                        dedupeKey: "sidebar-playlist-delete-success-\(playlist.id)"
-                    )
-                )
-            } else {
-                deps.toastCenter.show(
-                    ToastPayload(
-                        style: .error,
-                        iconSystemName: "xmark.octagon.fill",
-                        title: "Could not delete \(playlist.title)",
-                        message: playlistsVM.error ?? "Try again later.",
-                        dedupeKey: "sidebar-playlist-delete-error-\(playlist.id)"
+                    deps.playlistMutationWorkflow.deleteFailureToast(
+                        playlist: playlist,
+                        error: error,
+                        scope: .sidebarPlaylist
                     )
                 )
             }
@@ -1030,48 +879,42 @@ public struct SidebarView: View {
     }
 
     private func renamePinnedPlaylist(_ playlist: Playlist, to newTitle: String) {
-        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard let start = deps.playlistMutationWorkflow.beginRename(
+            playlist: playlist,
+            to: newTitle,
+            scope: .sidebarPlaylist
+        ) else { return }
 
-        let renamingToast = ToastPayload(
-            style: .info,
-            iconSystemName: "pencil",
-            title: "Renaming \(playlist.title)...",
-            isPersistent: true,
-            dedupeKey: "sidebar-playlist-rename-pending-\(playlist.id)",
-            showsActivityIndicator: true
-        )
-        playlistsVM.applyOptimisticRename(for: playlist, newTitle: trimmed)
+        let renamingToast = start.pendingToast
+        playlistsVM.applyOptimisticRename(for: playlist, newTitle: start.trimmedTitle)
         deps.toastCenter.show(renamingToast)
 
         Task {
             do {
-                let outcome = try await deps.mutationCoordinator.renamePlaylist(playlist, to: trimmed)
-                if outcome == .completed {
-                    await playlistsVM.awaitRenamedPlaylistMaterialization(for: playlist.id, expectedTitle: trimmed)
-                    pinManager.updateTitle(id: playlist.id, title: trimmed)
+                let result = try await deps.playlistMutationWorkflow.finishRename(
+                    playlist: playlist,
+                    trimmedTitle: start.trimmedTitle,
+                    scope: .sidebarPlaylist
+                )
+                if result.outcome == .completed {
+                    await playlistsVM.awaitRenamedPlaylistMaterialization(
+                        for: playlist.id,
+                        expectedTitle: start.trimmedTitle
+                    )
+                    pinManager.updateTitle(id: playlist.id, title: start.trimmedTitle)
                 }
 
                 deps.toastCenter.dismiss(id: renamingToast.id)
-                deps.toastCenter.show(
-                    ToastPayload(
-                        style: outcome == .queued ? .info : .success,
-                        iconSystemName: outcome == .queued ? EnsembleDesign.Icon.recentPlaylist : EnsembleDesign.Icon.editCircleFilled,
-                        title: outcome == .queued ? "Rename queued — will sync when online" : "Renamed playlist",
-                        dedupeKey: "sidebar-playlist-rename-success-\(playlist.id)"
-                    )
-                )
+                deps.toastCenter.show(result.successToast)
             } catch {
                 playlistsVM.clearOptimisticRename(for: playlist.id)
                 await playlistsVM.loadPlaylists()
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
-                    ToastPayload(
-                        style: .error,
-                        iconSystemName: "xmark.octagon.fill",
-                        title: "Could not rename playlist",
-                        message: error.localizedDescription,
-                        dedupeKey: "sidebar-playlist-rename-error-\(playlist.id)"
+                    deps.playlistMutationWorkflow.renameFailureToast(
+                        playlist: playlist,
+                        error: error,
+                        scope: .sidebarPlaylist
                     )
                 )
             }
@@ -1099,9 +942,8 @@ public struct SidebarView: View {
             if !isShowing, let pending = navigationCoordinator.pendingNavigation {
                 navigationCoordinator.pendingNavigation = nil
                 // Switch sidebar to the matching section
-                let targetTab = self.targetTab(for: pending.destination)
-                self.selection = self.sidebarSelection(for: pending.destination)
-                self.prepareBrowseSelection(for: pending.destination)
+                let targetTab = NavigationCoordinator.targetTab(for: pending.destination)
+                self.selection = SidebarSelection.selection(for: pending.destination, fallback: self.selection)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                     navigationCoordinator.push(pending.destination, in: targetTab)
                 }
@@ -1133,9 +975,7 @@ public struct SidebarView: View {
                 onSave: request.onSave
             )
         }
-        .sheet(item: $playlistPickerPayload) { payload in
-            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .sheet(item: $playlistForEditSheet) { playlist in
             NavigationView {
                 PlaylistDetailView(
@@ -1360,128 +1200,21 @@ public struct SidebarView: View {
         }
     }
 
-    /// Map a navigation destination to the sidebar section that should be selected
-    private func sidebarSelection(for destination: NavigationCoordinator.Destination) -> SidebarSelection {
-        switch destination {
-        case .artist:
-            return .library(.artists)
-        case .album:
-            return .library(.albums)
-        case .playlist(let id, let sourceKey):
-            return .playlist(id: id, sourceKey: sourceKey)
-        case .mergedPlaylist(let title, let isSmart):
-            return .mergedPlaylist(title: title, isSmart: isSmart)
-        case .moodTracks:
-            return .library(.home)
-        case .view(let tab):
-            switch tab {
-            case .home, .songs, .artists, .albums, .genres, .playlists, .favorites, .search:
-                return .library(tab)
-            case .downloads, .settings:
-                return selection ?? .library(.home)
-            }
-        }
-    }
-
-    /// Map a navigation destination to the tab whose NavigationStack should receive the push
-    private func targetTab(for destination: NavigationCoordinator.Destination) -> TabItem {
-        switch destination {
-        case .artist: return .artists
-        case .album: return .albums
-        case .playlist, .mergedPlaylist: return .playlists
-        case .moodTracks: return .home
-        case .view(let tab): return tab
-        }
-    }
-
-    private var selectedBrowseArtistBinding: Binding<Artist?> {
-        Binding(
-            get: { selectedBrowseArtist },
-            set: { artist in
-                if selectedBrowseArtist?.id != artist?.id {
-                    navigationCoordinator.popToRoot(tab: .artists)
-                }
-                selectedBrowseArtist = artist
-                setCompactBrowseColumnAfterSelection(artist != nil)
-            }
-        )
-    }
-
-    private var selectedBrowsePlaylistBinding: Binding<DisplayPlaylist?> {
-        Binding(
-            get: { selectedBrowsePlaylist },
-            set: { playlist in
-                if selectedBrowsePlaylist?.id != playlist?.id {
-                    navigationCoordinator.popToRoot(tab: .playlists)
-                }
-                selectedBrowsePlaylist = playlist
-                setCompactBrowseColumnAfterSelection(playlist != nil)
-            }
-        )
-    }
-
-    private var selectedBrowseGenreBinding: Binding<Genre?> {
-        Binding(
-            get: { selectedBrowseGenre },
-            set: { genre in
-                if selectedBrowseGenre?.id != genre?.id {
-                    navigationCoordinator.popToRoot(tab: .genres)
-                }
-                selectedBrowseGenre = genre
-                setCompactBrowseColumnAfterSelection(genre != nil)
-            }
-        )
-    }
-
-    private func setCompactBrowseColumnAfterSelection(_: Bool) {
-        #if os(iOS)
-        if #available(iOS 17.0, *) {
-            compactColumnPreference = .detail
-        }
-        #endif
-    }
-
-    private func prepareBrowseSelection(for destination: NavigationCoordinator.Destination) {
-        switch destination {
-        case .artist(let id, let sourceKey):
-            selectedBrowseArtist = libraryVM.artists.first { artist in
-                artist.id == id && (sourceKey == nil || artist.sourceCompositeKey == sourceKey)
-            } ?? libraryVM.artists.first { $0.id == id }
-        case .playlist(let id, let sourceKey):
-            selectedBrowsePlaylist = playlistsVM.sortedDisplayPlaylists.first { displayPlaylist in
-                displayPlaylist.playlists.contains { playlist in
-                    playlist.id == id && (sourceKey == nil || playlist.sourceCompositeKey == sourceKey)
-                }
-            }
-        case .mergedPlaylist(let title, let isSmart):
-            selectedBrowsePlaylist = playlistsVM.sortedDisplayPlaylists.first {
-                $0.title == title && $0.isSmart == isSmart
-            }
-        case .moodTracks, .album, .view:
-            break
-        }
-    }
-
-    
     @ViewBuilder
     private var detailView: some View {
         Group {
-            if let browseKind = activeRootBrowseKind {
-                rootBrowseSectionNavigationStack(for: browseKind)
-            } else {
-                switch selection {
-                case .library(let tab):
-                    sidebarNavigationStack(for: tab)
-                case .playlist(let id, let sourceKey):
-                    playlistDetailNavigationStack(playlistID: id, sourceKey: sourceKey)
-                case .mergedPlaylist(let title, let isSmart):
-                    mergedPlaylistDetailNavigationStack(title: title, isSmart: isSmart)
-                case .pin(let id, let type):
-                    pinnedDetailNavigationStack(id: id, type: type)
-                case .none:
-                    // Fallback when nothing is selected — show Home
-                    sidebarNavigationStack(for: .home)
-                }
+            switch selection {
+            case .library(let tab):
+                sidebarNavigationStack(for: tab)
+            case .playlist(let id, let sourceKey):
+                playlistDetailNavigationStack(playlistID: id, sourceKey: sourceKey)
+            case .mergedPlaylist(let title, let isSmart):
+                mergedPlaylistDetailNavigationStack(title: title, isSmart: isSmart)
+            case .pin(let id, let type):
+                pinnedDetailNavigationStack(id: id, type: type)
+            case .none:
+                // Fallback when nothing is selected — show Home
+                sidebarNavigationStack(for: .home)
             }
         }
         .auroraBackgroundSupport()
@@ -1495,7 +1228,7 @@ public struct SidebarView: View {
     @ViewBuilder
     private func playlistDetailNavigationStack(playlistID: String, sourceKey: String?) -> some View {
         detailColumnNavigationHost {
-            NavigationStack(path: sidebarPathBinding(for: .playlists)) {
+            NavigationStack(path: navigationCoordinator.pathBinding(for: .playlists)) {
                 detailChromeRegistrationHost {
                     PlaylistDetailLoader(
                         playlistId: playlistID,
@@ -1505,7 +1238,7 @@ public struct SidebarView: View {
                 }
                 .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                     detailChromeRegistrationHost(
-                        priority: max(sidebarPath(for: .playlists).count, 1)
+                        priority: max(navigationCoordinator.pathSnapshot(for: .playlists).count, 1)
                     ) {
                         destinationView(for: destination)
                     }
@@ -1518,7 +1251,7 @@ public struct SidebarView: View {
     @ViewBuilder
     private func mergedPlaylistDetailNavigationStack(title: String, isSmart: Bool) -> some View {
         detailColumnNavigationHost {
-            NavigationStack(path: sidebarPathBinding(for: .playlists)) {
+            NavigationStack(path: navigationCoordinator.pathBinding(for: .playlists)) {
                 detailChromeRegistrationHost {
                     MergedPlaylistDetailLoader(
                         title: title,
@@ -1528,7 +1261,7 @@ public struct SidebarView: View {
                 }
                 .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                     detailChromeRegistrationHost(
-                        priority: max(sidebarPath(for: .playlists).count, 1)
+                        priority: max(navigationCoordinator.pathSnapshot(for: .playlists).count, 1)
                     ) {
                         destinationView(for: destination)
                     }
@@ -1544,26 +1277,11 @@ public struct SidebarView: View {
     @ViewBuilder
     private func sidebarNavigationStack(for tab: TabItem) -> some View {
         detailColumnNavigationHost {
-            NavigationStack(path: sidebarPathBinding(for: tab)) {
+            NavigationStack(path: navigationCoordinator.pathBinding(for: tab)) {
                 detailChromeRegistrationHost {
                     sidebarContentView(for: tab)
                 }
             }
-        }
-    }
-
-    private func sidebarPathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
-        switch tab {
-        case .home: return $navigationCoordinator.homePath
-        case .songs: return $navigationCoordinator.songsPath
-        case .artists: return $navigationCoordinator.artistsPath
-        case .albums: return $navigationCoordinator.albumsPath
-        case .genres: return $navigationCoordinator.genresPath
-        case .playlists: return $navigationCoordinator.playlistsPath
-        case .favorites: return $navigationCoordinator.favoritesPath
-        case .search: return $navigationCoordinator.searchPath
-        case .downloads: return $navigationCoordinator.downloadsPath
-        case .settings: return $navigationCoordinator.settingsPath
         }
     }
 
@@ -1588,14 +1306,21 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private func pinnedDetailRootView(id: String, type: PinnedItemType) -> some View {
+        let sourceKey = pinnedSourceKey(for: id)
         switch type {
         case .album:
-            AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
+            AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .artist:
-            ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
+            ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .playlist:
-            PlaylistDetailLoader(playlistId: id, playlistSourceKey: nil, nowPlayingVM: nowPlayingVM)
+            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         }
+    }
+
+    private func pinnedSourceKey(for id: String) -> String? {
+        let sourceKey = pinManager.pinnedItems.first(where: { $0.id == id })?.sourceCompositeKey
+        let trimmed = sourceKey?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     @ViewBuilder
@@ -1629,183 +1354,6 @@ public struct SidebarView: View {
                     priority: priority
                 )
             )
-        }
-    }
-
-    @ViewBuilder
-    private func rootBrowseContentColumn(for browseKind: RootBrowseKind) -> some View {
-        switch browseKind {
-        case .artists:
-            ArtistsView(
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                presentationMode: .selectionColumn,
-                selectedArtist: selectedBrowseArtistBinding
-            )
-        case .playlists:
-            PlaylistsView(
-                nowPlayingVM: nowPlayingVM,
-                viewModel: playlistsVM,
-                presentationMode: .selectionColumn,
-                selectedPlaylist: selectedBrowsePlaylistBinding
-            )
-        case .genres:
-            GenresView(
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                presentationMode: .selectionColumn,
-                selectedGenre: selectedBrowseGenreBinding
-            )
-        }
-    }
-
-    @ViewBuilder
-    private func rootBrowseDetailRoot(for browseKind: RootBrowseKind) -> some View {
-        switch browseKind {
-        case .artists:
-            if let artist = selectedBrowseArtist {
-                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
-                    .id(artist.id)
-            } else {
-                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.artist, title: "Select an Artist")
-            }
-        case .playlists:
-            if let displayPlaylist = selectedBrowsePlaylist {
-                if displayPlaylist.isMerged {
-                    MergedPlaylistDetailLoader(
-                        title: displayPlaylist.title,
-                        isSmart: displayPlaylist.isSmart,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                    .id(displayPlaylist.id)
-                } else {
-                    PlaylistDetailView(
-                        playlist: displayPlaylist.primaryPlaylist,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                    .id(displayPlaylist.id)
-                }
-            } else {
-                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.playlist, title: "Select a Playlist")
-            }
-        case .genres:
-            if let genre = selectedBrowseGenre {
-                GenreDetailContentView(libraryVM: libraryVM, genre: genre, nowPlayingVM: nowPlayingVM)
-                    .id(genre.id)
-            } else {
-                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.genreEmpty, title: "Select a Genre")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func rootBrowseSectionNavigationStack(for browseKind: RootBrowseKind) -> some View {
-        detailColumnNavigationHost {
-            NavigationStack(path: sidebarPathBinding(for: browseKind.tab)) {
-                detailChromeRegistrationHost {
-                    rootBrowseSectionHost(for: browseKind)
-                }
-                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                    detailChromeRegistrationHost(
-                        priority: max(sidebarPath(for: browseKind.tab).count, 1)
-                    ) {
-                        destinationView(for: destination)
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func rootBrowseSectionHost(for browseKind: RootBrowseKind) -> some View {
-        switch browseKind {
-        case .artists:
-            LargeScreenBrowseSplitView(
-                selection: selectedBrowseArtistBinding,
-                configuration: .rootBrowse,
-                compact: {
-                    rootBrowseCompactHost(for: browseKind)
-                },
-                sidebar: {
-                    rootBrowseContentColumn(for: browseKind)
-                },
-                detail: { _ in
-                    rootBrowseDetailRoot(for: browseKind)
-                },
-                placeholder: {
-                    rootBrowsePlaceholder(for: browseKind)
-                }
-            )
-        case .playlists:
-            LargeScreenBrowseSplitView(
-                selection: selectedBrowsePlaylistBinding,
-                configuration: .rootBrowse,
-                compact: {
-                    rootBrowseCompactHost(for: browseKind)
-                },
-                sidebar: {
-                    rootBrowseContentColumn(for: browseKind)
-                },
-                detail: { _ in
-                    rootBrowseDetailRoot(for: browseKind)
-                },
-                placeholder: {
-                    rootBrowsePlaceholder(for: browseKind)
-                }
-            )
-        case .genres:
-            LargeScreenBrowseSplitView(
-                selection: selectedBrowseGenreBinding,
-                configuration: .rootBrowse,
-                compact: {
-                    rootBrowseCompactHost(for: browseKind)
-                },
-                sidebar: {
-                    rootBrowseContentColumn(for: browseKind)
-                },
-                detail: { _ in
-                    rootBrowseDetailRoot(for: browseKind)
-                },
-                placeholder: {
-                    rootBrowsePlaceholder(for: browseKind)
-                }
-            )
-        }
-    }
-
-    @ViewBuilder
-    private func rootBrowseCompactHost(for browseKind: RootBrowseKind) -> some View {
-        switch browseKind {
-        case .artists:
-            if selectedBrowseArtist == nil {
-                rootBrowseContentColumn(for: browseKind)
-            } else {
-                rootBrowseDetailRoot(for: browseKind)
-            }
-        case .playlists:
-            if selectedBrowsePlaylist == nil {
-                rootBrowseContentColumn(for: browseKind)
-            } else {
-                rootBrowseDetailRoot(for: browseKind)
-            }
-        case .genres:
-            if selectedBrowseGenre == nil {
-                rootBrowseContentColumn(for: browseKind)
-            } else {
-                rootBrowseDetailRoot(for: browseKind)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func rootBrowsePlaceholder(for browseKind: RootBrowseKind) -> some View {
-        switch browseKind {
-        case .artists:
-            LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.artist, title: "Select an Artist")
-        case .playlists:
-            LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.playlist, title: "Select a Playlist")
-        case .genres:
-            LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.genreEmpty, title: "Select a Genre")
         }
     }
 
@@ -1864,12 +1412,17 @@ public struct SidebarView: View {
             if tab == .playlists {
                 PlaylistsView(nowPlayingVM: nowPlayingVM, viewModel: playlistsVM)
             } else {
-                TabViewFactory.viewContent(for: tab, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
+                NavigationDestinationFactory.tabContent(
+                    for: tab,
+                    libraryVM: libraryVM,
+                    nowPlayingVM: nowPlayingVM,
+                    searchVM: searchVM
+                )
             }
         }
         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
             detailChromeRegistrationHost(
-                priority: max(sidebarPath(for: tab).count, 1)
+                priority: max(navigationCoordinator.pathSnapshot(for: tab).count, 1)
             ) {
                 destinationView(for: destination)
             }
@@ -1928,11 +1481,16 @@ public struct SidebarView: View {
                     album: album,
                     nowPlayingVM: nowPlayingVM,
                     presentPlaylistPicker: { tracks, title in
-                        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
                     },
                     toastNamespace: "sidebar-album-menu",
                     navigateToArtist: { artistID in
-                        navigateFromPinnedMenu(to: .artist(id: artistID))
+                        navigateFromPinnedMenu(
+                            to: .artist(
+                                id: artistID,
+                                sourceKey: album.sourceCompositeKey ?? pinnedSourceKey(for: pinnedItem.id)
+                            )
+                        )
                     },
                     customPinAction: { isPinned in
                         if isPinned {
@@ -2010,25 +1568,21 @@ public struct SidebarView: View {
                     displayPlaylist: displayPlaylist,
                     nowPlayingVM: nowPlayingVM,
                     toastNamespace: "sidebar-merged-playlist-menu",
+                    context: .sidebar,
                     onRename: {
                         mergedPlaylistPendingRename = displayPlaylist
                     },
                     onDelete: {
                         mergedPlaylistPendingDelete = displayPlaylist
+                    },
+                    onUnpinAll: {
+                        handlePinnedSelectionRemoval(
+                            ids: Set(pinnedItems.map(\.id)),
+                            fallback: .library(.playlists)
+                        )
+                        pinManager.unpinAll(ids: Set(pinnedItems.map(\.id)))
                     }
                 )
-
-                Divider()
-
-                Button(role: .destructive) {
-                    handlePinnedSelectionRemoval(
-                        ids: Set(pinnedItems.map(\.id)),
-                        fallback: .library(.playlists)
-                    )
-                    pinManager.unpinAll(ids: Set(pinnedItems.map(\.id)))
-                } label: {
-                    Label("Unpin All", systemImage: EnsembleDesign.Icon.unpin)
-                }
             }
         }
     }
@@ -2052,55 +1606,240 @@ public struct SidebarView: View {
         }
 
         if playlist.isMerged {
-            artworkLabel
+            sidebarPlaylistDropDestination(artworkLabel, playlist: playlist)
                 .tag(SidebarSelection.mergedPlaylist(title: playlist.title, isSmart: playlist.isSmart))
         } else {
-            artworkLabel
+            sidebarPlaylistDropDestination(artworkLabel, playlist: playlist)
                 .tag(SidebarSelection.playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey))
         }
     }
 
     @ViewBuilder
-    private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
-        switch destination {
-        case .artist(let id, let sourceKey):
-            ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .album(let id, let sourceKey):
-            AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .playlist(let id, let sourceKey):
-            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .mergedPlaylist(let title, let isSmart):
-            MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM)
-        case .moodTracks(let mood):
-            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
-        case .view(let tab):
-            TabViewFactory.viewContent(
-                for: tab,
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                searchVM: searchVM
+    private func sidebarPlaylistDropDestination<Content: View>(_ content: Content, playlist: SidebarPlaylistItem) -> some View {
+        #if !os(watchOS)
+        SidebarPlaylistDragDropHost(
+            content: content,
+            playlist: playlist,
+            libraryVM: libraryVM,
+            playlistsVM: playlistsVM,
+            nowPlayingVM: nowPlayingVM
+        )
+        #else
+        content
+        #endif
+    }
+
+    #if !os(watchOS)
+    private struct SidebarPlaylistDragDropHost<Content: View>: View {
+        @Environment(\.dependencies) private var deps
+
+        let content: Content
+        let playlist: SidebarPlaylistItem
+        let libraryVM: LibraryViewModel
+        let playlistsVM: PlaylistViewModel
+        let nowPlayingVM: NowPlayingViewModel
+        private let playlistDropResolver = PlaylistDropResolver()
+        @State private var isDropTargeted = false
+
+        var body: some View {
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .background(dropTargetBackground)
+                .onDrop(of: MediaDragPayload.contentTypes, isTargeted: $isDropTargeted) { providers in
+                    handleSidebarPlaylistDrop(providers, onto: playlist)
+                }
+                #if os(macOS)
+                .help("Drop songs, albums, or playlists here to add tracks.")
+                #endif
+        }
+
+        private var dropTargetBackground: some View {
+            RoundedRectangle(
+                cornerRadius: EnsembleScaffold.BrowseSelection.cornerRadius,
+                style: .continuous
+            )
+            .fill(isDropTargeted ? EnsembleDesign.Color.accent.opacity(0.16) : Color.clear)
+        }
+
+        private func handleSidebarPlaylistDrop(_ providers: [NSItemProvider], onto playlist: SidebarPlaylistItem) -> Bool {
+            guard MediaDragPayload.canLoad(from: providers) else {
+                EnsembleLogger.debug(
+                    "Sidebar playlist drop ignored: unsupported provider for target=\(playlist.id) providerTypes=\(MediaDragPayload.debugRegisteredTypeIdentifiers(for: providers))"
+                )
+                return false
+            }
+
+            Task { @MainActor in
+                guard let payload = await MediaDragPayload.load(from: providers) else {
+                    EnsembleLogger.debug(
+                        "Sidebar playlist drop failed: payload unresolved for target=\(playlist.id) providerTypes=\(MediaDragPayload.debugRegisteredTypeIdentifiers(for: providers))"
+                    )
+                    showSidebarDropToast(
+                        style: .warning,
+                        title: "Drop not supported",
+                        message: "That item could not be resolved.",
+                        dedupeKey: "playlist-drop-unresolved-payload"
+                    )
+                    return
+                }
+                await performSidebarPlaylistDrop(payload, onto: playlist)
+            }
+            return true
+        }
+
+        @MainActor
+        private func performSidebarPlaylistDrop(_ payload: MediaDragPayload, onto sidebarPlaylist: SidebarPlaylistItem) async {
+            do {
+                let resolution = try await playlistDropResolver.resolve(
+                    references: payload.dropReferences,
+                    target: dropTargetReference(for: sidebarPlaylist),
+                    tracks: libraryVM.tracks,
+                    albums: libraryVM.albums,
+                    playlists: playlistsVM.playlists,
+                    loadAlbumTracks: { album in
+                        let detailVM = DependencyContainer.shared.makeAlbumDetailViewModel(album: album)
+                        await detailVM.loadTracks()
+                        return detailVM.tracks
+                    },
+                    loadPlaylistTracks: { playlist in
+                        let detailVM = DependencyContainer.shared.makePlaylistDetailViewModel(playlist: playlist)
+                        await detailVM.loadTracks()
+                        return detailVM.tracks
+                    }
+                )
+                let outcome = try await nowPlayingVM.addTracksOptimistically(
+                    resolution.tracks,
+                    to: resolution.targetPlaylist
+                )
+                EnsembleLogger.debug(
+                    "Sidebar playlist drop completed: target=\(resolution.targetPlaylist.id) tracks=\(resolution.tracks.count) outcome=\(String(describing: outcome))"
+                )
+            } catch let error as PlaylistDropResolutionError {
+                handleSidebarDropResolutionError(error, sidebarPlaylist: sidebarPlaylist)
+            } catch {
+                EnsembleLogger.debug("Sidebar playlist drop failed: target=\(sidebarPlaylist.playlistID) error=\(error.localizedDescription)")
+                showSidebarDropToast(
+                    style: .error,
+                    title: "Couldn't add tracks",
+                    message: error.localizedDescription,
+                    dedupeKey: "playlist-drop-add-failed-\(sidebarPlaylist.playlistID)"
+                )
+            }
+        }
+
+        private func dropTargetReference(for item: SidebarPlaylistItem) -> PlaylistDropTargetReference {
+            PlaylistDropTargetReference(
+                id: item.playlistID,
+                sourceKey: item.sourceKey,
+                title: item.title,
+                isSmart: item.isSmart,
+                isMerged: item.isMerged
+            )
+        }
+
+        private func handleSidebarDropResolutionError(
+            _ error: PlaylistDropResolutionError,
+            sidebarPlaylist: SidebarPlaylistItem
+        ) {
+            switch error {
+            case .mergedTarget:
+                EnsembleLogger.debug("Sidebar playlist drop rejected: merged target=\(sidebarPlaylist.id)")
+                showSidebarDropToast(
+                    style: .warning,
+                    title: "Choose a playlist",
+                    message: "Drop onto one editable playlist, not a merged group.",
+                    dedupeKey: "playlist-drop-merged-target"
+                )
+
+            case .unresolvedTarget:
+                EnsembleLogger.debug("Sidebar playlist drop rejected: unresolved target=\(sidebarPlaylist.id)")
+                showSidebarDropToast(
+                    style: .warning,
+                    title: "Playlist unavailable",
+                    message: "The destination playlist could not be resolved.",
+                    dedupeKey: "playlist-drop-target-unresolved-\(sidebarPlaylist.id)"
+                )
+
+            case .smartTarget:
+                EnsembleLogger.debug("Sidebar playlist drop rejected: smart target=\(sidebarPlaylist.playlistID)")
+                showSidebarDropToast(
+                    style: .warning,
+                    title: "Smart playlist",
+                    message: "Smart playlists cannot be edited manually.",
+                    dedupeKey: "playlist-drop-smart-target-\(sidebarPlaylist.playlistID)"
+                )
+
+            case .unresolvedItem(let title):
+                showUnresolvedDropToast(title: title)
+
+            case .smartSource(let title):
+                showSidebarDropToast(
+                    style: .warning,
+                    title: "Smart playlist",
+                    message: "Smart playlist tracks cannot be copied from a drag.",
+                    dedupeKey: "playlist-drop-smart-source-\(title)"
+                )
+
+            case .crossSource(let itemTitle, let playlistTitle):
+                showCrossSourceDropToast(itemTitle: itemTitle, playlistTitle: playlistTitle)
+
+            case .emptyDrop:
+                showSidebarDropToast(
+                    style: .warning,
+                    title: "Nothing to add",
+                    message: "No playable tracks were found in the drop.",
+                    dedupeKey: "playlist-drop-empty"
+                )
+            }
+        }
+
+        private func showUnresolvedDropToast(title: String) {
+            showSidebarDropToast(
+                style: .warning,
+                title: "Drop not added",
+                message: "\"\(title)\" could not be resolved in the local library.",
+                dedupeKey: "playlist-drop-unresolved-\(title)"
+            )
+        }
+
+        private func showCrossSourceDropToast(itemTitle: String, playlistTitle: String) {
+            showSidebarDropToast(
+                style: .warning,
+                title: "Different source",
+                message: "\"\(itemTitle)\" cannot be added to \"\(playlistTitle)\" from another source.",
+                dedupeKey: "playlist-drop-cross-source-\(itemTitle)-\(playlistTitle)"
+            )
+        }
+
+        private func showSidebarDropToast(
+            style: ToastStyle,
+            title: String,
+            message: String,
+            dedupeKey: String
+        ) {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: style,
+                    iconSystemName: style == .error ? "exclamationmark.triangle.fill" : "exclamationmark.triangle",
+                    title: title,
+                    message: message,
+                    dedupeKey: dedupeKey
+                )
             )
         }
     }
-}
 
-public enum SidebarSelection: Hashable {
-    case library(TabItem)
-    case playlist(id: String, sourceKey: String?)
-    case mergedPlaylist(title: String, isSmart: Bool)
-    case pin(id: String, type: PinnedItemType)
+    #endif
 
-    /// Map sidebar section to the corresponding TabItem for NavigationCoordinator sync.
-    /// Returns nil for pinned items which don't map to a standard tab.
-    var correspondingTab: TabItem? {
-        switch self {
-        case .library(let tab):
-            return tab
-        case .playlist, .mergedPlaylist:
-            return .playlists
-        case .pin:
-            return nil
-        }
+    @ViewBuilder
+    private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
+        NavigationDestinationFactory.destinationContent(
+            for: destination,
+            libraryVM: libraryVM,
+            nowPlayingVM: nowPlayingVM,
+            searchVM: searchVM
+        )
     }
 }
 

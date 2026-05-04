@@ -248,6 +248,27 @@ public enum EnsembleScaffold {
         public static let defaultColor = EnsembleDesign.Color.accent
     }
 
+    public enum UtilityScreen {
+        public static let contentMaxWidth = EnsembleDesign.Breakpoint.auxiliaryWindowMaxWidth
+        public static let outerHorizontalPadding = EnsembleDesign.Spacing.sheetOuterHorizontal
+        public static let outerVerticalPadding = EnsembleDesign.Spacing.sheetOuterVertical
+        public static let sectionSpacing = EnsembleDesign.Spacing.xl
+        public static let sectionHeaderHorizontalPadding = EnsembleDesign.Spacing.sm
+        public static let rowHorizontalPadding = EnsembleDesign.Spacing.lg
+        public static let rowVerticalPadding = EnsembleDesign.Spacing.compactControlVertical
+        public static let cardCornerRadius = EnsembleDesign.Radius.control
+        public static let cardStrokeWidth: CGFloat = 0.5
+        public static let dividerLeadingPadding = rowHorizontalPadding + UtilityRow.iconLaneWidth + TrackListLayoutMetrics.rowInterItemSpacing
+
+        public static var cardBackground: Color {
+            #if os(macOS)
+            Color(NSColor.controlBackgroundColor).opacity(0.72)
+            #else
+            Color.clear
+            #endif
+        }
+    }
+
     public enum LogViewer {
         public static let loadMoreButtonVerticalPadding = EnsembleDesign.Spacing.sm
         public static let lineVerticalPadding: CGFloat = 1
@@ -469,6 +490,8 @@ public enum EnsembleScaffold {
         public static let viewportSinglePanelMaxWidth: CGFloat = 560
         public static let viewportDualPanelMinimumWidth: CGFloat = 920
         public static let viewportDualPanelMinimumHeight: CGFloat = 620
+        public static let viewportMacMinimumWindowWidth: CGFloat = 760
+        public static let viewportMacMinimumWindowHeight: CGFloat = 560
         public static let viewportSinglePickerWidth: CGFloat = 390
         public static let viewportPickerWidth: CGFloat = 300
         public static let viewportMinimumPanelWidth: CGFloat = 320
@@ -547,7 +570,7 @@ public enum EnsembleScaffold {
         public static let letterWidth = EnsembleDesign.Spacing.xl
         public static let letterFont: Font = .system(size: 10, weight: .bold)
         public static let bottomLift: CGFloat = 6
-        public static let compactTrailingPadding: CGFloat = -2
+        public static let compactTrailingPadding = EnsembleDesign.Spacing.xxs
         public static let regularTrailingPadding = EnsembleDesign.Spacing.xxs
         public static let regularBottomPadding = EnsembleDesign.Spacing.lg
     }

@@ -1,6 +1,7 @@
 import XCTest
 @testable import EnsembleCore
 import EnsembleAPI
+import CoreData
 import EnsemblePersistence
 
 @MainActor
@@ -69,10 +70,25 @@ final class PlaylistDetailViewModelTests: XCTestCase {
     }
 
     private final class MockPlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
-        func fetchPlaylists() async throws -> [CDPlaylist] { [] }
-        func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist] { [] }
-        func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist? { nil }
-        func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? { nil }
+        var playlists: [String: CDPlaylist] = [:]
+
+        func fetchPlaylists() async throws -> [CDPlaylist] {
+            Array(playlists.values)
+        }
+
+        func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist] {
+            guard let sourceCompositeKey else { return Array(playlists.values) }
+            return playlists.values.filter { $0.sourceCompositeKey == sourceCompositeKey }
+        }
+
+        func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist? {
+            playlists[ratingKey]
+        }
+
+        func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? {
+            playlists[playlistKey(ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey)] ?? playlists[ratingKey]
+        }
+
         func searchPlaylists(query: String) async throws -> [CDPlaylist] { [] }
         func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist] { [] }
         func upsertPlaylist(ratingKey: String, key: String, title: String, summary: String?, compositePath: String?, isSmart: Bool, duration: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, sourceCompositeKey: String?) async throws -> CDPlaylist { throw MockError.unimplemented }
@@ -82,6 +98,10 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         func removeDuplicatePlaylists() async throws {}
         func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
         func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
+
+        func playlistKey(ratingKey: String, sourceCompositeKey: String?) -> String {
+            "\(sourceCompositeKey ?? "")|\(ratingKey)"
+        }
     }
 
     private final class MockArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
@@ -133,6 +153,24 @@ final class PlaylistDetailViewModelTests: XCTestCase {
                 ]
             )
         )
+        accountManager.addPlexAccount(
+            PlexAccountConfig(
+                id: "account-2",
+                displayTitle: "tester-2",
+                authToken: "auth-2",
+                servers: [
+                    PlexServerConfig(
+                        id: "server-2",
+                        name: "Server 2",
+                        url: "https://example-two.com",
+                        token: "token-2",
+                        libraries: [
+                            PlexLibraryConfig(id: "lib-2", key: "2", title: "Music", isEnabled: true)
+                        ]
+                    )
+                ]
+            )
+        )
 
         let networkMonitor = NetworkMonitor()
         let networkMonitorRef = networkMonitor
@@ -155,25 +193,91 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         )
     }
 
+    private func makePlaylist(
+        id: String = "playlist-1",
+        title: String? = nil,
+        isSmart: Bool = false,
+        sourceCompositeKey: String = "plex:account-1:server-1"
+    ) -> Playlist {
+        Playlist(
+            id: id,
+            key: "/playlists/\(id)",
+            title: title ?? (isSmart ? "Smart" : "Regular"),
+            summary: nil,
+            isSmart: isSmart,
+            trackCount: 2,
+            duration: 200,
+            compositePath: nil,
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            sourceCompositeKey: sourceCompositeKey
+        )
+    }
+
+    private func makeTrack(
+        id: String,
+        duration: TimeInterval = 100,
+        sourceCompositeKey: String = "plex:account-1:server-1:lib-1"
+    ) -> Track {
+        Track(
+            id: id,
+            key: "/library/metadata/\(id)",
+            title: id,
+            duration: duration,
+            sourceCompositeKey: sourceCompositeKey
+        )
+    }
+
+    private func makeCachedPlaylist(
+        _ playlist: Playlist,
+        tracks: [Track],
+        context: NSManagedObjectContext
+    ) -> CDPlaylist {
+        let cdPlaylist = CDPlaylist(context: context)
+        cdPlaylist.ratingKey = playlist.id
+        cdPlaylist.key = playlist.key
+        cdPlaylist.title = playlist.title
+        cdPlaylist.summary = playlist.summary
+        cdPlaylist.compositePath = playlist.compositePath
+        cdPlaylist.isSmart = playlist.isSmart
+        cdPlaylist.duration = Int64(playlist.duration * 1000)
+        cdPlaylist.trackCount = Int32(tracks.count)
+        cdPlaylist.dateAdded = playlist.dateAdded
+        cdPlaylist.dateModified = playlist.dateModified
+        cdPlaylist.lastPlayed = playlist.lastPlayed
+        cdPlaylist.sourceCompositeKey = playlist.sourceCompositeKey
+
+        let playlistTracks = tracks.enumerated().map { index, track in
+            let cdTrack = CDTrack(context: context)
+            cdTrack.ratingKey = track.id
+            cdTrack.key = track.key
+            cdTrack.title = track.title
+            cdTrack.artistName = track.artistName
+            cdTrack.albumName = track.albumName
+            cdTrack.trackNumber = Int32(track.trackNumber)
+            cdTrack.discNumber = Int32(track.discNumber)
+            cdTrack.duration = Int64(track.duration * 1000)
+            cdTrack.rating = Int16(track.rating)
+            cdTrack.playCount = Int32(track.playCount)
+            cdTrack.sourceCompositeKey = track.sourceCompositeKey
+
+            let playlistTrack = CDPlaylistTrack(context: context)
+            playlistTrack.order = Int32(index)
+            playlistTrack.playlist = cdPlaylist
+            playlistTrack.track = cdTrack
+            return playlistTrack
+        }
+        cdPlaylist.playlistTracks = NSSet(array: playlistTracks)
+        return cdPlaylist
+    }
+
     func testDeletePlaylistSuccessReturnsTrue() async {
         let syncCoordinator = makeSyncCoordinator()
         syncCoordinator.playlistDeleteHandlerForTesting = { _, _ in }
         syncCoordinator.refreshServerPlaylistsHandlerForTesting = { _ in }
 
-        let playlist = Playlist(
-            id: "playlist-1",
-            key: "/playlists/playlist-1",
-            title: "Regular",
-            summary: nil,
-            isSmart: false,
-            trackCount: 1,
-            duration: 100,
-            compositePath: nil,
-            dateAdded: nil,
-            dateModified: nil,
-            lastPlayed: nil,
-            sourceCompositeKey: "plex:account-1:server-1"
-        )
+        let playlist = makePlaylist()
 
         let viewModel = PlaylistDetailViewModel(
             playlist: playlist,
@@ -190,20 +294,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
     func testDeletePlaylistFailureSetsErrorAndReturnsFalse() async {
         let syncCoordinator = makeSyncCoordinator()
-        let smartPlaylist = Playlist(
-            id: "playlist-1",
-            key: "/playlists/playlist-1",
-            title: "Smart",
-            summary: nil,
-            isSmart: true,
-            trackCount: 1,
-            duration: 100,
-            compositePath: nil,
-            dateAdded: nil,
-            dateModified: nil,
-            lastPlayed: nil,
-            sourceCompositeKey: "plex:account-1:server-1"
-        )
+        let smartPlaylist = makePlaylist(isSmart: true)
 
         let viewModel = PlaylistDetailViewModel(
             playlist: smartPlaylist,
@@ -216,5 +307,158 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let didDelete = await viewModel.deletePlaylist()
         XCTAssertFalse(didDelete)
         XCTAssertEqual(viewModel.error, PlaylistMutationError.smartPlaylistReadOnly.localizedDescription)
+    }
+
+    func testRemoveTrackFromPlaylistReplacesContentsWithoutRemovedTrack() async {
+        let syncCoordinator = makeSyncCoordinator()
+        var replacedPlaylistID: String?
+        var replacedTrackIDs: [String] = []
+        var refreshedSourceKey: String?
+        syncCoordinator.playlistReplaceContentsHandlerForTesting = { _, playlistID, trackIDs, _ in
+            replacedPlaylistID = playlistID
+            replacedTrackIDs = trackIDs
+        }
+        syncCoordinator.refreshServerPlaylistsHandlerForTesting = { sourceKey in
+            refreshedSourceKey = sourceKey
+        }
+
+        let viewModel = PlaylistDetailViewModel(
+            playlist: makePlaylist(),
+            playlistRepository: MockPlaylistRepository(),
+            libraryRepository: MockLibraryRepository(),
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
+        )
+        viewModel.applyEditedTracksLocally([makeTrack(id: "track-1"), makeTrack(id: "track-2")])
+
+        let didRemove = await viewModel.removeTrackFromPlaylist(makeTrack(id: "track-1"), displayIndex: 0)
+
+        XCTAssertTrue(didRemove)
+        XCTAssertEqual(replacedPlaylistID, "playlist-1")
+        XCTAssertEqual(replacedTrackIDs, ["track-2"])
+        XCTAssertEqual(refreshedSourceKey, "plex:account-1:server-1")
+        XCTAssertEqual(viewModel.tracks.map(\.id), ["track-2"])
+        XCTAssertEqual(viewModel.playlist.trackCount, 1)
+    }
+
+    func testRemoveTrackFromSmartPlaylistFailsWithoutReplacingContents() async {
+        let syncCoordinator = makeSyncCoordinator()
+        var didReplace = false
+        syncCoordinator.playlistReplaceContentsHandlerForTesting = { _, _, _, _ in
+            didReplace = true
+        }
+
+        let viewModel = PlaylistDetailViewModel(
+            playlist: makePlaylist(isSmart: true),
+            playlistRepository: MockPlaylistRepository(),
+            libraryRepository: MockLibraryRepository(),
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
+        )
+        viewModel.applyEditedTracksLocally([makeTrack(id: "track-1")])
+
+        let didRemove = await viewModel.removeTrackFromPlaylist(makeTrack(id: "track-1"), displayIndex: 0)
+
+        XCTAssertFalse(didRemove)
+        XCTAssertFalse(didReplace)
+        XCTAssertEqual(viewModel.error, PlaylistMutationError.smartPlaylistReadOnly.localizedDescription)
+        XCTAssertEqual(viewModel.tracks.map(\.id), ["track-1"])
+    }
+
+    func testRemoveTrackFromMergedPlaylistReplacesOnlyMatchingServerPlaylist() async {
+        let syncCoordinator = makeSyncCoordinator()
+        var replacedPlaylistID: String?
+        var replacedTrackIDs: [String] = []
+        var replacedServerID: String?
+        var refreshedSourceKey: String?
+        syncCoordinator.playlistReplaceContentsHandlerForTesting = { _, playlistID, trackIDs, serverID in
+            replacedPlaylistID = playlistID
+            replacedTrackIDs = trackIDs
+            replacedServerID = serverID
+        }
+        syncCoordinator.refreshServerPlaylistsHandlerForTesting = { sourceKey in
+            refreshedSourceKey = sourceKey
+        }
+
+        let firstPlaylist = makePlaylist(
+            id: "playlist-a",
+            title: "Road",
+            sourceCompositeKey: "plex:account-1:server-1"
+        )
+        let secondPlaylist = makePlaylist(
+            id: "playlist-b",
+            title: "Road",
+            sourceCompositeKey: "plex:account-2:server-2"
+        )
+        let firstTracks = [
+            makeTrack(id: "server-1-track-1", sourceCompositeKey: "plex:account-1:server-1:lib-1"),
+            makeTrack(id: "server-1-track-2", sourceCompositeKey: "plex:account-1:server-1:lib-1")
+        ]
+        let secondTracks = [
+            makeTrack(id: "server-2-track-1", sourceCompositeKey: "plex:account-2:server-2:lib-2"),
+            makeTrack(id: "server-2-track-2", sourceCompositeKey: "plex:account-2:server-2:lib-2")
+        ]
+        let context = CoreDataStack.inMemory().viewContext
+        let playlistRepository = MockPlaylistRepository()
+        playlistRepository.playlists[playlistRepository.playlistKey(
+            ratingKey: firstPlaylist.id,
+            sourceCompositeKey: firstPlaylist.sourceCompositeKey
+        )] = makeCachedPlaylist(firstPlaylist, tracks: firstTracks, context: context)
+        playlistRepository.playlists[playlistRepository.playlistKey(
+            ratingKey: secondPlaylist.id,
+            sourceCompositeKey: secondPlaylist.sourceCompositeKey
+        )] = makeCachedPlaylist(secondPlaylist, tracks: secondTracks, context: context)
+
+        let viewModel = MergedPlaylistDetailViewModel(
+            displayPlaylist: .merged(title: "Road", isSmart: false, playlists: [firstPlaylist, secondPlaylist]),
+            playlistRepository: playlistRepository,
+            accountManager: AccountManager(keychain: TestKeychain()),
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
+        )
+        await viewModel.loadTracks()
+
+        let didRemove = await viewModel.removeTrackFromPlaylist(secondTracks[0], displayIndex: 1)
+
+        XCTAssertTrue(didRemove)
+        XCTAssertEqual(replacedPlaylistID, "playlist-b")
+        XCTAssertEqual(replacedTrackIDs, ["server-2-track-2"])
+        XCTAssertEqual(replacedServerID, "server-2")
+        XCTAssertEqual(refreshedSourceKey, "plex:account-2:server-2")
+        XCTAssertEqual(
+            viewModel.tracks.map(\.id),
+            ["server-1-track-1", "server-1-track-2", "server-2-track-2"]
+        )
+    }
+
+    func testRemoveTrackFromMergedPlaylistRejectsUnknownSourceAcrossMultiplePlaylists() async {
+        let syncCoordinator = makeSyncCoordinator()
+        var didReplace = false
+        syncCoordinator.playlistReplaceContentsHandlerForTesting = { _, _, _, _ in
+            didReplace = true
+        }
+
+        let viewModel = MergedPlaylistDetailViewModel(
+            displayPlaylist: .merged(
+                title: "Road",
+                isSmart: false,
+                playlists: [
+                    makePlaylist(id: "playlist-a", title: "Road", sourceCompositeKey: "plex:account-1:server-1"),
+                    makePlaylist(id: "playlist-b", title: "Road", sourceCompositeKey: "plex:account-2:server-2")
+                ]
+            ),
+            playlistRepository: MockPlaylistRepository(),
+            accountManager: AccountManager(keychain: TestKeychain()),
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
+        )
+
+        let didRemove = await viewModel.removeTrackFromPlaylist(
+            Track(id: "unknown", key: "/library/metadata/unknown", title: "Unknown")
+        )
+
+        XCTAssertFalse(didRemove)
+        XCTAssertFalse(didReplace)
+        XCTAssertEqual(viewModel.error, "Could not determine which server playlist owns this track.")
     }
 }
