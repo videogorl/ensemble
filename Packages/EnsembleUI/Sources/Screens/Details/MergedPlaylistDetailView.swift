@@ -91,27 +91,19 @@ public struct MergedPlaylistDetailView: View {
                 initialText: viewModel.displayPlaylist.title,
                 actionTitle: "Save"
             ) { name in
-                let count = viewModel.displayPlaylist.playlists.count
-                let renamingToast = ToastPayload(
-                    style: .info,
-                    iconSystemName: "pencil",
-                    title: "Renaming on \(count) server\(count == 1 ? "" : "s")...",
-                    isPersistent: true,
-                    dedupeKey: "merged-rename-\(viewModel.displayPlaylist.id)",
-                    showsActivityIndicator: true
-                )
+                guard let start = deps.playlistMutationWorkflow.beginRenameAll(
+                    displayPlaylist: viewModel.displayPlaylist,
+                    to: name
+                ) else { return }
+                let renamingToast = start.pendingToast
                 deps.toastCenter.show(renamingToast)
                 Task {
-                    let didRename = await viewModel.renameAll(to: name)
-                    deps.toastCenter.dismiss(id: renamingToast.id)
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: didRename ? .success : .error,
-                            iconSystemName: didRename ? EnsembleDesign.Icon.editCircleFilled : EnsembleDesign.Icon.failure,
-                            title: didRename ? "Renamed playlist" : "Could not rename playlist",
-                            dedupeKey: "merged-rename-result-\(viewModel.displayPlaylist.id)"
-                        )
+                    let result = await deps.playlistMutationWorkflow.finishRenameAll(
+                        displayPlaylist: viewModel.displayPlaylist,
+                        trimmedTitle: start.trimmedTitle
                     )
+                    deps.toastCenter.dismiss(id: renamingToast.id)
+                    deps.toastCenter.show(result.resultToast)
                 }
             }
         }
@@ -120,31 +112,20 @@ public struct MergedPlaylistDetailView: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete All", role: .destructive) {
                 guard !isDeletingPlaylist else { return }
+                guard let start = deps.playlistMutationWorkflow.beginDeleteAll(
+                    displayPlaylist: viewModel.displayPlaylist
+                ) else { return }
                 isDeletingPlaylist = true
-                let count = viewModel.displayPlaylist.playlists.count
-                let title = viewModel.displayPlaylist.title
-                let deletingToast = ToastPayload(
-                    style: .info,
-                    iconSystemName: "trash",
-                    title: "Deleting from \(count) server\(count == 1 ? "" : "s")...",
-                    isPersistent: true,
-                    dedupeKey: "merged-delete-\(viewModel.displayPlaylist.id)",
-                    showsActivityIndicator: true
-                )
+                let deletingToast = start.pendingToast
                 deps.toastCenter.show(deletingToast)
                 dismiss()
                 Task {
-                    let didDelete = await viewModel.deleteAll()
+                    let result = await deps.playlistMutationWorkflow.finishDeleteAll(
+                        displayPlaylist: viewModel.displayPlaylist
+                    )
                     isDeletingPlaylist = false
                     deps.toastCenter.dismiss(id: deletingToast.id)
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: didDelete ? .success : .error,
-                            iconSystemName: didDelete ? "checkmark.circle.fill" : "xmark.octagon.fill",
-                            title: didDelete ? "Deleted \(title)" : "Could not delete all copies",
-                            dedupeKey: "merged-delete-result-\(viewModel.displayPlaylist.id)"
-                        )
-                    )
+                    deps.toastCenter.show(result.resultToast)
                 }
             }
         } message: {

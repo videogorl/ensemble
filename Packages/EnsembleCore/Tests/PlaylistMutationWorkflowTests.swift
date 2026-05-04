@@ -8,24 +8,36 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
         var deleteOutcome: MutationOutcome = .completed
         var renameError: Error?
         var deleteError: Error?
+        var renameErrorIDs: Set<String> = []
+        var deleteErrorIDs: Set<String> = []
         private(set) var renamedPlaylistID: String?
+        private(set) var renamedPlaylistIDs: [String] = []
         private(set) var renamedTitle: String?
         private(set) var deletedPlaylistID: String?
+        private(set) var deletedPlaylistIDs: [String] = []
 
         func renamePlaylist(_ playlist: Playlist, to newTitle: String) async throws -> MutationOutcome {
+            if renameErrorIDs.contains(playlist.id) {
+                throw TestError.failed
+            }
             if let renameError {
                 throw renameError
             }
             renamedPlaylistID = playlist.id
+            renamedPlaylistIDs.append(playlist.id)
             renamedTitle = newTitle
             return renameOutcome
         }
 
         func deletePlaylist(_ playlist: Playlist) async throws -> MutationOutcome {
+            if deleteErrorIDs.contains(playlist.id) {
+                throw TestError.failed
+            }
             if let deleteError {
                 throw deleteError
             }
             deletedPlaylistID = playlist.id
+            deletedPlaylistIDs.append(playlist.id)
             return deleteOutcome
         }
     }
@@ -161,6 +173,49 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
         XCTAssertEqual(toast.dedupeKey, "playlist-delete-error-playlist-1")
     }
 
+    func testMergedRenameAllBuildsPendingAndStrictPartialResultToasts() async {
+        let stub = StubMutator()
+        stub.renameErrorIDs = ["playlist-2"]
+        let workflow = PlaylistMutationWorkflow(mutator: stub)
+        let displayPlaylist = makeDisplayPlaylist()
+
+        let start = workflow.beginRenameAll(displayPlaylist: displayPlaylist, to: "  New Mix  ")
+        let result = await workflow.finishRenameAll(
+            displayPlaylist: displayPlaylist,
+            trimmedTitle: start?.trimmedTitle ?? ""
+        )
+
+        XCTAssertEqual(start?.trimmedTitle, "New Mix")
+        XCTAssertEqual(start?.pendingToast.title, "Renaming on 2 servers...")
+        XCTAssertEqual(start?.pendingToast.dedupeKey, "merged-rename-display-1")
+        XCTAssertEqual(stub.renamedPlaylistIDs, ["playlist-1"])
+        XCTAssertFalse(result.completedAll)
+        XCTAssertEqual(result.succeededCount, 1)
+        XCTAssertEqual(result.totalCount, 2)
+        XCTAssertEqual(result.resultToast.style, .warning)
+        XCTAssertEqual(result.resultToast.title, "Renamed on 1/2 servers")
+        XCTAssertEqual(result.resultToast.dedupeKey, "merged-rename-result-display-1")
+    }
+
+    func testMergedDeleteAllRequiresEveryCopyToSucceed() async {
+        let stub = StubMutator()
+        stub.deleteErrorIDs = ["playlist-2"]
+        let workflow = PlaylistMutationWorkflow(mutator: stub)
+        let displayPlaylist = makeDisplayPlaylist(title: "Road Trip")
+
+        let start = workflow.beginDeleteAll(displayPlaylist: displayPlaylist)
+        let result = await workflow.finishDeleteAll(displayPlaylist: displayPlaylist)
+
+        XCTAssertEqual(start?.pendingToast.title, "Deleting from 2 servers...")
+        XCTAssertEqual(start?.pendingToast.dedupeKey, "merged-delete-display-1")
+        XCTAssertEqual(stub.deletedPlaylistIDs, ["playlist-1"])
+        XCTAssertFalse(result.completedAll)
+        XCTAssertEqual(result.resultToast.style, .error)
+        XCTAssertEqual(result.resultToast.title, "Could not delete all copies")
+        XCTAssertEqual(result.resultToast.message, "Deleted 1/2 copies.")
+        XCTAssertEqual(result.resultToast.dedupeKey, "merged-delete-result-display-1")
+    }
+
     private func makePlaylist(
         id: String = "playlist-1",
         title: String = "Playlist",
@@ -172,6 +227,21 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
             title: title,
             isSmart: isSmart,
             sourceCompositeKey: "plex:account-1:server-1"
+        )
+    }
+
+    private func makeDisplayPlaylist(
+        id: String = "display-1",
+        title: String = "Playlist"
+    ) -> DisplayPlaylist {
+        DisplayPlaylist(
+            id: id,
+            title: title,
+            isSmart: false,
+            playlists: [
+                makePlaylist(id: "playlist-1", title: title),
+                makePlaylist(id: "playlist-2", title: title)
+            ]
         )
     }
 }

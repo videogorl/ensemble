@@ -60,6 +60,22 @@ public struct PlaylistDeleteWorkflowResult {
     }
 }
 
+public struct PlaylistBatchMutationWorkflowResult {
+    public let succeededCount: Int
+    public let totalCount: Int
+    public let resultToast: ToastPayload
+
+    public var completedAll: Bool {
+        succeededCount == totalCount
+    }
+
+    public init(succeededCount: Int, totalCount: Int, resultToast: ToastPayload) {
+        self.succeededCount = succeededCount
+        self.totalCount = totalCount
+        self.resultToast = resultToast
+    }
+}
+
 /// Shared playlist mutation presentation workflow for root/sidebar/detail UI surfaces.
 ///
 /// The service owns normalization, the mutation call, and toast payload policy. Views still
@@ -197,6 +213,120 @@ public final class PlaylistMutationWorkflow {
         scope: PlaylistMutationToastScope = .playlist
     ) -> ToastPayload {
         deleteFailureToast(playlist: playlist, errorMessage: error.localizedDescription, scope: scope)
+    }
+
+    public func beginRenameAll(
+        displayPlaylist: DisplayPlaylist,
+        to proposedTitle: String
+    ) -> PlaylistRenameWorkflowStart? {
+        let trimmedTitle = proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { return nil }
+
+        let count = displayPlaylist.playlists.count
+        return PlaylistRenameWorkflowStart(
+            trimmedTitle: trimmedTitle,
+            pendingToast: ToastPayload(
+                style: .info,
+                iconSystemName: Icon.edit,
+                title: "Renaming on \(count) server\(count == 1 ? "" : "s")...",
+                isPersistent: true,
+                dedupeKey: "merged-rename-\(displayPlaylist.id)",
+                showsActivityIndicator: true
+            )
+        )
+    }
+
+    public func finishRenameAll(
+        displayPlaylist: DisplayPlaylist,
+        trimmedTitle: String
+    ) async -> PlaylistBatchMutationWorkflowResult {
+        var succeededCount = 0
+        for playlist in displayPlaylist.playlists {
+            do {
+                _ = try await mutator.renamePlaylist(playlist, to: trimmedTitle)
+                succeededCount += 1
+            } catch {
+                EnsembleLogger.debug("Merged playlist rename failed for \(playlist.id): \(error.localizedDescription)")
+            }
+        }
+
+        let totalCount = displayPlaylist.playlists.count
+        let style: ToastStyle
+        let icon: String
+        let title: String
+        let message: String?
+        if succeededCount == totalCount {
+            style = .success
+            icon = Icon.editSuccess
+            title = "Renamed playlist"
+            message = nil
+        } else if succeededCount > 0 {
+            style = .warning
+            icon = Icon.queued
+            title = "Renamed on \(succeededCount)/\(totalCount) servers"
+            message = "Some copies could not be renamed."
+        } else {
+            style = .error
+            icon = Icon.failure
+            title = "Could not rename playlist"
+            message = "No copies were renamed."
+        }
+
+        return PlaylistBatchMutationWorkflowResult(
+            succeededCount: succeededCount,
+            totalCount: totalCount,
+            resultToast: ToastPayload(
+                style: style,
+                iconSystemName: icon,
+                title: title,
+                message: message,
+                dedupeKey: "merged-rename-result-\(displayPlaylist.id)"
+            )
+        )
+    }
+
+    public func beginDeleteAll(displayPlaylist: DisplayPlaylist) -> PlaylistDeleteWorkflowStart? {
+        guard !displayPlaylist.isSmart else { return nil }
+
+        let count = displayPlaylist.playlists.count
+        return PlaylistDeleteWorkflowStart(
+            pendingToast: ToastPayload(
+                style: .info,
+                iconSystemName: Icon.delete,
+                title: "Deleting from \(count) server\(count == 1 ? "" : "s")...",
+                isPersistent: true,
+                dedupeKey: "merged-delete-\(displayPlaylist.id)",
+                showsActivityIndicator: true
+            )
+        )
+    }
+
+    public func finishDeleteAll(
+        displayPlaylist: DisplayPlaylist
+    ) async -> PlaylistBatchMutationWorkflowResult {
+        var succeededCount = 0
+        for playlist in displayPlaylist.playlists {
+            do {
+                _ = try await mutator.deletePlaylist(playlist)
+                succeededCount += 1
+            } catch {
+                EnsembleLogger.debug("Merged playlist delete failed for \(playlist.id): \(error.localizedDescription)")
+            }
+        }
+
+        let totalCount = displayPlaylist.playlists.count
+        let completedAll = succeededCount == totalCount
+        return PlaylistBatchMutationWorkflowResult(
+            succeededCount: succeededCount,
+            totalCount: totalCount,
+            resultToast: ToastPayload(
+                style: completedAll ? .success : .error,
+                iconSystemName: completedAll ? Icon.success : Icon.failure,
+                title: completedAll ? "Deleted \(displayPlaylist.title)" : "Could not delete all copies",
+                message: completedAll ? nil : "Deleted \(succeededCount)/\(totalCount) copies.",
+                dedupeKey: "merged-delete-result-\(displayPlaylist.id)"
+            )
+        )
     }
 
     private func dedupeKey(

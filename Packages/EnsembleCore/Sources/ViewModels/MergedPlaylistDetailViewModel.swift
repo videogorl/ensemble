@@ -18,21 +18,18 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     private let playlistRepository: PlaylistRepositoryProtocol
     private let accountManager: AccountManager
     private let syncCoordinator: SyncCoordinator
-    private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         displayPlaylist: DisplayPlaylist,
         playlistRepository: PlaylistRepositoryProtocol,
         accountManager: AccountManager,
-        syncCoordinator: SyncCoordinator,
-        mutationCoordinator: MutationCoordinator
+        syncCoordinator: SyncCoordinator
     ) {
         self.displayPlaylist = displayPlaylist
         self.playlistRepository = playlistRepository
         self.accountManager = accountManager
         self.syncCoordinator = syncCoordinator
-        self.mutationCoordinator = mutationCoordinator
         self.filterOptions = FilterPersistence.load(for: "MergedPlaylistDetail-\(displayPlaylist.title)")
 
         setupFilterPersistence()
@@ -163,51 +160,6 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
 
     private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
         MediaFilterEngine.filterTracks(tracks, with: options, configuration: .playlistDetail)
-    }
-
-    // MARK: - Mutation Operations
-
-    /// Renames all constituent playlists to the new title
-    @discardableResult
-    public func renameAll(to newTitle: String) async -> Bool {
-        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            error = "Playlist name cannot be empty."
-            return false
-        }
-
-        var successCount = 0
-        for playlist in displayPlaylist.playlists {
-            do {
-                _ = try await mutationCoordinator.renamePlaylist(playlist, to: trimmed)
-                successCount += 1
-            } catch {
-                EnsembleLogger.debug("📋 MergedPlaylistDetailVM: Failed to rename '\(playlist.title)' on \(playlist.sourceCompositeKey ?? "?"): \(error)")
-            }
-        }
-
-        if successCount == 0 {
-            self.error = "Failed to rename playlist on all servers."
-            return false
-        }
-        if successCount < displayPlaylist.playlists.count {
-            EnsembleLogger.debug("📋 MergedPlaylistDetailVM: Renamed on \(successCount)/\(displayPlaylist.playlists.count) servers")
-        }
-        return true
-    }
-
-    /// Deletes all constituent playlists
-    public func deleteAll() async -> Bool {
-        var allSucceeded = true
-        for playlist in displayPlaylist.playlists {
-            do {
-                try await mutationCoordinator.deletePlaylist(playlist)
-            } catch {
-                EnsembleLogger.debug("📋 MergedPlaylistDetailVM: Failed to delete '\(playlist.title)' on \(playlist.sourceCompositeKey ?? "?"): \(error)")
-                allSucceeded = false
-            }
-        }
-        return allSucceeded
     }
 
     /// Updates the display playlist (e.g., when merge state changes and constituents are refreshed)
