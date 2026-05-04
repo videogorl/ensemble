@@ -247,6 +247,7 @@ try await syncCoordinator.renamePlaylist(playlistKey: "12345", newTitle: "New Na
 - Smart playlists are read-only. All mutations on smart playlists throw `PlaylistMutationError.smartPlaylistReadOnly`. Guard for this before showing mutation UI.
 - After a successful mutation, `SyncCoordinator` automatically refreshes the affected playlist from the server and updates CoreData.
 - Use `PlaylistActionSheets.swift` for standard add-to-playlist / create-playlist UI — it wires up these calls consistently across the app.
+- Use `PlaylistActionService` or the `NowPlayingViewModel` compatibility wrappers before add-to-playlist mutations. They normalize library-scoped keys to server keys, reject known cross-server tracks, dedupe repeated tracks, and stamp unknown-source tracks with the selected server key for the mutation path.
 
 ## Adding Offline Download Targets (Library / Album / Artist / Playlist)
 

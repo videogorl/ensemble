@@ -156,6 +156,7 @@ Sources/
 |   +-- LocalNetworkPermissionProbe.swift # Local-network permission prompt helper used during account onboarding
 |   +-- SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
 |   +-- PlaylistMutationController.swift # Playlist create/rename/delete/replace control-flow seam extracted from SyncCoordinator
+|   +-- PlaylistActionService.swift    # Shared add-to-playlist source compatibility, default-server, dedupe, and source-stamping rules
 |   +-- SyncExecutionController.swift  # Full/incremental/startup sync execution seam extracted from SyncCoordinator
 |   +-- RefreshOrchestrator.swift      # Health-refresh gating, cooldown/staleness policy, and startup-health ownership extracted from SyncCoordinator
 |   +-- NetworkLifecycleController.swift # App-foreground and network-transition policy extracted from SyncCoordinator
@@ -284,6 +285,7 @@ Tests/
 +-- SongLinkServiceTests.swift         # Song.link URL resolution + caching + fallback tests
 +-- ShareServiceTests.swift            # Share payload assembly + file detection tests
 +-- LyricsServiceTests.swift           # LRC parser timestamp parsing + line lookup coverage
++-- PlaylistActionServiceTests.swift  # Add-to-playlist source compatibility and dedupe coverage
 +-- MediaFormattersTests.swift        # Shared media duration/byte formatting coverage
 +-- MediaSourceIdentityTests.swift    # Source-key parsing and server comparison coverage
 +-- UserProfileTests.swift            # Unit tests for UserProfile model

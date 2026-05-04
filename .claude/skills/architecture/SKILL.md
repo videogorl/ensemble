@@ -76,6 +76,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - Delegates health-refresh gating/coalescing to `RefreshOrchestrator` so foreground/network-triggered probes share one cooldown/staleness path
   - Delegates app-foreground and network-transition policy to `NetworkLifecycleController` so lifecycle events produce explicit refresh/invalidation plans before side effects run
   - Delegates API-client endpoint synchronization and registry observation to `ServerConnectionController` so sync flow no longer owns registry subscription tasks directly
+- `PlaylistActionService` -- Shared add-to-playlist source compatibility rules used by Now Playing and UI presentation wrappers; owns server-key normalization, cross-source filtering, dedupe, and source stamping for unknown-source tracks before playlist mutation calls
 - `NavigationCoordinator` (@MainActor) -- Manages cross-view navigation state (artist/album deep links from NowPlayingView)
   - Maintains per-tab navigation paths (homePath, artistsPath, etc.)
   - `visibleTabs: [TabItem]` -- Synced from MainTabView to enable fallback logic
