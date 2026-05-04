@@ -81,6 +81,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `MediaFilterEngine` -- Shared library/detail/favorites filter rules with named configurations for intentional search-field and genre-filter differences across surfaces
 - `NavigationCoordinator` (@MainActor) -- Manages cross-view navigation state (artist/album deep links from NowPlayingView)
   - Maintains per-tab navigation paths (homePath, artistsPath, etc.)
+  - Owns reusable path snapshot/set helpers and destination-to-target-tab mapping; UI uses `NavigationCoordinator+Bindings` for SwiftUI path bindings instead of duplicating per-tab switches in root views
   - `visibleTabs: [TabItem]` -- Synced from MainTabView to enable fallback logic
   - `navigateFromNowPlaying()` -- Falls back to first visible tab when navigating from Search
   - `pendingNavigation` -- Deferred navigation executed after sheet dismissal

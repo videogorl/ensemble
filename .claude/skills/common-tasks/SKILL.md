@@ -175,6 +175,8 @@ Rules:
 
 For new content types that need async hub-to-detail navigation:
 
+Before adding new root navigation glue, register typed destinations through `NavigationCoordinator.Destination`. Reuse `NavigationCoordinator.targetTab(for:)`, `pathSnapshot(for:)`, `setPath(_:for:)`, and EnsembleUI's `pathBinding(for:)` extension for per-tab stacks. On iPad/macOS sidebar roots, map destinations through `SidebarSelection.selection(for:fallback:)` so compact/regular split behavior stays consistent.
+
 ```swift
 struct MyDetailLoader: View {
     let itemId: String  // ratingKey from HubItem

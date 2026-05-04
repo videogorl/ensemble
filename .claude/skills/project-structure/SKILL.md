@@ -292,6 +292,7 @@ Tests/
 +-- MediaFilterEngineTests.swift      # Shared media filter configurations and parity coverage
 +-- MediaFormattersTests.swift        # Shared media duration/byte formatting coverage
 +-- MediaSourceIdentityTests.swift    # Source-key parsing and server comparison coverage
++-- NavigationCoordinatorTests.swift  # Navigation destination target tabs, fallback, and path helper coverage
 +-- UserProfileTests.swift            # Unit tests for UserProfile model
 +-- SyncSettingsManagerTests.swift    # Unit tests for SyncSettingsManager toggle logic + dependency cascade
 +-- PinManagerSyncTests.swift         # Unit tests for PinManager merge logic (union, remote-wins conflict)
@@ -335,6 +336,8 @@ Sources/
 |   +-- EnsembleUtilityScreenScaffold.swift # Card-based macOS utility screen/section rows for Profile, Downloads, and future menu-like tools
 +-- Screens/
 |   +-- Root/                         # RootView, MainTabView, MoreView, auxiliary presentation routing
+|   |   +-- NavigationCoordinator+Bindings.swift # SwiftUI path bindings backed by NavigationCoordinator path helpers
+|   |   +-- SidebarSelection.swift    # Sidebar selection model and destination mapping for iPad/macOS root navigation
 |   +-- Library/                      # Songs, Artists, Albums, Genres, Playlists, Favorites, Mood
 |   +-- Details/                      # Media detail, merged playlist detail, async detail loaders
 |   +-- Discovery/                    # Home/Feed and Search
@@ -347,4 +350,5 @@ Sources/
 
 Tests/
 +-- EnsembleUITests.swift
++-- NavigationRootHelperTests.swift   # Sidebar destination mapping and NavigationCoordinator path binding coverage
 ```

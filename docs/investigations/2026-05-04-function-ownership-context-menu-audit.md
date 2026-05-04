@@ -47,13 +47,16 @@ Date: 2026-05-04
 - `PlaylistActionService` owns add-to-playlist compatibility, dedupe, default-server selection, and unknown-source stamping. `NowPlayingViewModel` keeps compatibility wrappers for migrated call sites.
 - `PlaylistDropResolver` and `MediaTrackResolver` now own sidebar playlist drop resolution. `MainTabView.SidebarPlaylistDragDropHost` loads `MediaDragPayload`, converts it to Core `MediaDropItemReference`, maps resolver errors to toasts, and performs the final mutation only after Core returns a resolved target and compatible tracks.
 - `MediaFilterEngine` now owns shared track, album, artist, and genre filtering. ViewModels call named configurations to preserve intentional surface differences, such as album detail searching title/artist, artist detail searching title/album, favorites ignoring genre filters, and playlist/library tracks applying genre include/exclude filters.
+- `NavigationCoordinator` now owns target-tab mapping and per-tab path mutation helpers. EnsembleUI adds a path-binding adapter plus a standalone `SidebarSelection` mapper so MainTabView no longer duplicates these switches between phone tab stacks and large-screen sidebar detail stacks.
 
 ## Latest Verification
 
 - `swift test --package-path Packages/EnsembleCore --filter PlaylistDropResolverTests`: passed, 5 tests.
 - `swift test --package-path Packages/EnsembleCore --filter MediaFilterEngineTests`: passed, 6 tests.
-- `swift test --package-path Packages/EnsembleCore`: passed, 453 XCTest tests plus 4 Swift Testing tests.
-- `swift package clean --package-path Packages/EnsembleUI && swift test --package-path Packages/EnsembleUI`: passed, 34 tests.
+- `swift test --package-path Packages/EnsembleCore --filter NavigationCoordinatorTests`: passed, 5 tests.
+- `swift test --package-path Packages/EnsembleUI --filter NavigationRootHelperTests`: passed, 4 tests.
+- `swift test --package-path Packages/EnsembleCore`: passed on rerun, 458 XCTest tests plus 4 Swift Testing tests. First full run hit a transient XCTest signal after the new suite passed.
+- `swift test --package-path Packages/EnsembleUI`: passed, 38 tests.
 - `scripts/check_core_warning_budget.sh`: passed, 0 warnings.
 - `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,id=337648C1-407B-4DEF-BC7C-47E140168768' build`: passed for booted iPad (A16), iOS 26.4.1.
 - `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk macosx -destination 'platform=macOS,arch=arm64' build`: passed.

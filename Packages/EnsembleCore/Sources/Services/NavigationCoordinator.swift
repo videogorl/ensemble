@@ -85,6 +85,21 @@ public final class NavigationCoordinator: ObservableObject {
 
     public init() {}
 
+    public nonisolated static func targetTab(for destination: Destination) -> TabItem {
+        switch destination {
+        case .artist:
+            return .artists
+        case .album:
+            return .albums
+        case .playlist, .mergedPlaylist:
+            return .playlists
+        case .moodTracks:
+            return .home
+        case .view(let tab):
+            return tab
+        }
+    }
+
     public static func setActiveAuxiliaryCommandCoordinator(_ coordinator: NavigationCoordinator) {
         activeAuxiliaryCommandCoordinator = coordinator
     }
@@ -118,6 +133,25 @@ public final class NavigationCoordinator: ObservableObject {
         case .settings: settingsPath.append(destination)
         }
     }
+
+    public func pathSnapshot(for tab: TabItem) -> [Destination] {
+        path(for: tab)
+    }
+
+    public func setPath(_ path: [Destination], for tab: TabItem) {
+        switch tab {
+        case .home: homePath = path
+        case .songs: songsPath = path
+        case .artists: artistsPath = path
+        case .albums: albumsPath = path
+        case .genres: genresPath = path
+        case .playlists: playlistsPath = path
+        case .favorites: favoritesPath = path
+        case .search: searchPath = path
+        case .downloads: downloadsPath = path
+        case .settings: settingsPath = path
+        }
+    }
     
     /// Pop to root for a specific tab
     public func popToRoot(tab: TabItem) {
@@ -137,12 +171,7 @@ public final class NavigationCoordinator: ObservableObject {
     
     /// Request navigation immediately (using current tab or fallback)
     public func navigate(to destination: Destination) {
-        let targetTab: TabItem
-        if selectedTab == .search {
-            targetTab = visibleTabs.first ?? .home
-        } else {
-            targetTab = selectedTab
-        }
+        let targetTab = activeNavigationTab()
         selectedTab = targetTab
         push(destination, in: targetTab)
     }
@@ -150,13 +179,7 @@ public final class NavigationCoordinator: ObservableObject {
     /// Request navigation from NowPlaying sheet (handles dismiss-then-navigate)
     /// Uses current tab (or first visible if currently in Search)
     public func navigateFromNowPlaying(to destination: Destination) {
-        let targetTab: TabItem
-        if selectedTab == .search {
-            targetTab = visibleTabs.first ?? .home
-        } else {
-            targetTab = selectedTab
-        }
-        pendingNavigation = PendingNavigation(tab: targetTab, destination: destination)
+        pendingNavigation = PendingNavigation(tab: activeNavigationTab(), destination: destination)
     }
     
     /// Handle deep links by popping to root of the first visible tab and pushing the new destination
@@ -231,6 +254,13 @@ public final class NavigationCoordinator: ObservableObject {
     private func requestAuxiliaryPresentation(_ destination: AuxiliaryPresentation) {
         activeAuxiliaryPresentation = destination
         auxiliaryWindowRequest = AuxiliaryWindowRequest(destination: destination)
+    }
+
+    private func activeNavigationTab() -> TabItem {
+        if selectedTab == .search {
+            return visibleTabs.first ?? .home
+        }
+        return selectedTab
     }
 
     private func path(for tab: TabItem) -> [Destination] {

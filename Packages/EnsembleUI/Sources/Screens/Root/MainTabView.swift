@@ -392,7 +392,7 @@ public struct MainTabView: View {
         if navigationCoordinator.selectedTab == tag {
             EnsembleLogger.debug("🧭 Tab selection repeated tab=\(String(describing: tag))")
             // Already on this tab — pop to root or focus search
-            if !pathForTab(tag).isEmpty {
+            if !navigationCoordinator.pathSnapshot(for: tag).isEmpty {
                 navigationCoordinator.popToRoot(tab: tag)
             } else if tag == .search {
                 searchVM.requestFocus()
@@ -413,7 +413,7 @@ public struct MainTabView: View {
     private func tabRootView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
         Group {
             if #available(iOS 16.0, macOS 13.0, *) {
-                NavigationStack(path: pathBinding(for: tab)) {
+                NavigationStack(path: navigationCoordinator.pathBinding(for: tab)) {
                     tabContentView(for: tab, isMoreRoot: isMoreRoot)
                 }
             } else {
@@ -430,7 +430,7 @@ public struct MainTabView: View {
                     .auroraBackgroundSupport()
                     .background(
                         NestedNavigationLink(
-                            path: pathForTab(tab),
+                            path: navigationCoordinator.pathSnapshot(for: tab),
                             tab: tab,
                             navigationCoordinator: navigationCoordinator,
                             destinationBuilder: destinationView
@@ -460,36 +460,6 @@ public struct MainTabView: View {
                 .ignoresSafeArea(.all)
                 .allowsHitTesting(false)
             }
-        }
-    }
-
-    private func pathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
-        switch tab {
-        case .home: return $navigationCoordinator.homePath
-        case .songs: return $navigationCoordinator.songsPath
-        case .artists: return $navigationCoordinator.artistsPath
-        case .albums: return $navigationCoordinator.albumsPath
-        case .genres: return $navigationCoordinator.genresPath
-        case .playlists: return $navigationCoordinator.playlistsPath
-        case .favorites: return $navigationCoordinator.favoritesPath
-        case .search: return $navigationCoordinator.searchPath
-        case .downloads: return $navigationCoordinator.downloadsPath
-        case .settings: return $navigationCoordinator.settingsPath
-        }
-    }
-
-    private func pathForTab(_ tab: TabItem) -> [NavigationCoordinator.Destination] {
-        switch tab {
-        case .home: return navigationCoordinator.homePath
-        case .songs: return navigationCoordinator.songsPath
-        case .artists: return navigationCoordinator.artistsPath
-        case .albums: return navigationCoordinator.albumsPath
-        case .genres: return navigationCoordinator.genresPath
-        case .playlists: return navigationCoordinator.playlistsPath
-        case .favorites: return navigationCoordinator.favoritesPath
-        case .search: return navigationCoordinator.searchPath
-        case .downloads: return navigationCoordinator.downloadsPath
-        case .settings: return navigationCoordinator.settingsPath
         }
     }
 
@@ -544,7 +514,7 @@ public struct MainTabView: View {
     private func shouldShowProfileButton(for tab: TabItem, isMoreRoot: Bool) -> Bool {
         #if os(iOS)
         guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
-        guard pathForTab(tab).isEmpty else { return false }
+        guard navigationCoordinator.pathSnapshot(for: tab).isEmpty else { return false }
         return isMoreRoot || barTabs.contains(tab)
         #else
         return false
@@ -754,24 +724,9 @@ public struct SidebarView: View {
 
         switch selection {
         case .library(let tab):
-            return sidebarPath(for: tab).isEmpty
+            return navigationCoordinator.pathSnapshot(for: tab).isEmpty
         case .playlist, .mergedPlaylist, .pin:
             return false
-        }
-    }
-
-    private func sidebarPath(for tab: TabItem) -> [NavigationCoordinator.Destination] {
-        switch tab {
-        case .home: return navigationCoordinator.homePath
-        case .songs: return navigationCoordinator.songsPath
-        case .artists: return navigationCoordinator.artistsPath
-        case .albums: return navigationCoordinator.albumsPath
-        case .genres: return navigationCoordinator.genresPath
-        case .playlists: return navigationCoordinator.playlistsPath
-        case .favorites: return navigationCoordinator.favoritesPath
-        case .search: return navigationCoordinator.searchPath
-        case .downloads: return navigationCoordinator.downloadsPath
-        case .settings: return navigationCoordinator.settingsPath
         }
     }
 
@@ -950,9 +905,9 @@ public struct SidebarView: View {
     }
 
     private func navigateFromPinnedMenu(to destination: NavigationCoordinator.Destination) {
-        selection = sidebarSelection(for: destination)
+        selection = SidebarSelection.selection(for: destination, fallback: selection)
         DispatchQueue.main.async {
-            navigationCoordinator.push(destination, in: targetTab(for: destination))
+            navigationCoordinator.push(destination, in: NavigationCoordinator.targetTab(for: destination))
         }
     }
 
@@ -1068,8 +1023,8 @@ public struct SidebarView: View {
             if !isShowing, let pending = navigationCoordinator.pendingNavigation {
                 navigationCoordinator.pendingNavigation = nil
                 // Switch sidebar to the matching section
-                let targetTab = self.targetTab(for: pending.destination)
-                self.selection = self.sidebarSelection(for: pending.destination)
+                let targetTab = NavigationCoordinator.targetTab(for: pending.destination)
+                self.selection = SidebarSelection.selection(for: pending.destination, fallback: self.selection)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                     navigationCoordinator.push(pending.destination, in: targetTab)
                 }
@@ -1328,40 +1283,6 @@ public struct SidebarView: View {
         }
     }
 
-    /// Map a navigation destination to the sidebar section that should be selected
-    private func sidebarSelection(for destination: NavigationCoordinator.Destination) -> SidebarSelection {
-        switch destination {
-        case .artist:
-            return .library(.artists)
-        case .album:
-            return .library(.albums)
-        case .playlist(let id, let sourceKey):
-            return .playlist(id: id, sourceKey: sourceKey)
-        case .mergedPlaylist(let title, let isSmart):
-            return .mergedPlaylist(title: title, isSmart: isSmart)
-        case .moodTracks:
-            return .library(.home)
-        case .view(let tab):
-            switch tab {
-            case .home, .songs, .artists, .albums, .genres, .playlists, .favorites, .search:
-                return .library(tab)
-            case .downloads, .settings:
-                return selection ?? .library(.home)
-            }
-        }
-    }
-
-    /// Map a navigation destination to the tab whose NavigationStack should receive the push
-    private func targetTab(for destination: NavigationCoordinator.Destination) -> TabItem {
-        switch destination {
-        case .artist: return .artists
-        case .album: return .albums
-        case .playlist, .mergedPlaylist: return .playlists
-        case .moodTracks: return .home
-        case .view(let tab): return tab
-        }
-    }
-
     @ViewBuilder
     private var detailView: some View {
         Group {
@@ -1390,7 +1311,7 @@ public struct SidebarView: View {
     @ViewBuilder
     private func playlistDetailNavigationStack(playlistID: String, sourceKey: String?) -> some View {
         detailColumnNavigationHost {
-            NavigationStack(path: sidebarPathBinding(for: .playlists)) {
+            NavigationStack(path: navigationCoordinator.pathBinding(for: .playlists)) {
                 detailChromeRegistrationHost {
                     PlaylistDetailLoader(
                         playlistId: playlistID,
@@ -1400,7 +1321,7 @@ public struct SidebarView: View {
                 }
                 .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                     detailChromeRegistrationHost(
-                        priority: max(sidebarPath(for: .playlists).count, 1)
+                        priority: max(navigationCoordinator.pathSnapshot(for: .playlists).count, 1)
                     ) {
                         destinationView(for: destination)
                     }
@@ -1413,7 +1334,7 @@ public struct SidebarView: View {
     @ViewBuilder
     private func mergedPlaylistDetailNavigationStack(title: String, isSmart: Bool) -> some View {
         detailColumnNavigationHost {
-            NavigationStack(path: sidebarPathBinding(for: .playlists)) {
+            NavigationStack(path: navigationCoordinator.pathBinding(for: .playlists)) {
                 detailChromeRegistrationHost {
                     MergedPlaylistDetailLoader(
                         title: title,
@@ -1423,7 +1344,7 @@ public struct SidebarView: View {
                 }
                 .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                     detailChromeRegistrationHost(
-                        priority: max(sidebarPath(for: .playlists).count, 1)
+                        priority: max(navigationCoordinator.pathSnapshot(for: .playlists).count, 1)
                     ) {
                         destinationView(for: destination)
                     }
@@ -1439,26 +1360,11 @@ public struct SidebarView: View {
     @ViewBuilder
     private func sidebarNavigationStack(for tab: TabItem) -> some View {
         detailColumnNavigationHost {
-            NavigationStack(path: sidebarPathBinding(for: tab)) {
+            NavigationStack(path: navigationCoordinator.pathBinding(for: tab)) {
                 detailChromeRegistrationHost {
                     sidebarContentView(for: tab)
                 }
             }
-        }
-    }
-
-    private func sidebarPathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
-        switch tab {
-        case .home: return $navigationCoordinator.homePath
-        case .songs: return $navigationCoordinator.songsPath
-        case .artists: return $navigationCoordinator.artistsPath
-        case .albums: return $navigationCoordinator.albumsPath
-        case .genres: return $navigationCoordinator.genresPath
-        case .playlists: return $navigationCoordinator.playlistsPath
-        case .favorites: return $navigationCoordinator.favoritesPath
-        case .search: return $navigationCoordinator.searchPath
-        case .downloads: return $navigationCoordinator.downloadsPath
-        case .settings: return $navigationCoordinator.settingsPath
         }
     }
 
@@ -1594,7 +1500,7 @@ public struct SidebarView: View {
         }
         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
             detailChromeRegistrationHost(
-                priority: max(sidebarPath(for: tab).count, 1)
+                priority: max(navigationCoordinator.pathSnapshot(for: tab).count, 1)
             ) {
                 destinationView(for: destination)
             }
@@ -2024,26 +1930,6 @@ public struct SidebarView: View {
                 nowPlayingVM: nowPlayingVM,
                 searchVM: searchVM
             )
-        }
-    }
-}
-
-public enum SidebarSelection: Hashable {
-    case library(TabItem)
-    case playlist(id: String, sourceKey: String?)
-    case mergedPlaylist(title: String, isSmart: Bool)
-    case pin(id: String, type: PinnedItemType)
-
-    /// Map sidebar section to the corresponding TabItem for NavigationCoordinator sync.
-    /// Returns nil for pinned items which don't map to a standard tab.
-    var correspondingTab: TabItem? {
-        switch self {
-        case .library(let tab):
-            return tab
-        case .playlist, .mergedPlaylist:
-            return .playlists
-        case .pin:
-            return nil
         }
     }
 }
