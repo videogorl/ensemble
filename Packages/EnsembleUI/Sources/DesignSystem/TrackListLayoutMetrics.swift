@@ -37,7 +37,7 @@ public enum TrackListLayoutMetrics {
     public static let rowAccessoryGap: CGFloat = 8
     public static let rowTightAccessoryGap: CGFloat = 6
     public static let dividerColor = EnsembleDesign.Color.divider
-    public static let nativeDividerAlpha: CGFloat = 0.45
+    public static let nativeDividerAlpha: CGFloat = 0.18
     public static let unavailableOpacity = 0.45
     public static let primarySecondaryTextSpacing: CGFloat = EnsembleDesign.Spacing.xxs
     public static let defaultTitleTopPadding: CGFloat = 14
@@ -93,11 +93,11 @@ public enum TrackListLayoutMetrics {
 
     #if os(iOS)
     public static var nativeSeparatorColor: UIColor {
-        UIColor.separator.withAlphaComponent(nativeDividerAlpha)
+        UIColor.secondaryLabel.withAlphaComponent(nativeDividerAlpha)
     }
     #elseif os(macOS)
     public static var nativeSeparatorColor: NSColor {
-        NSColor.separatorColor.withAlphaComponent(nativeDividerAlpha)
+        NSColor.secondaryLabelColor.withAlphaComponent(nativeDividerAlpha)
     }
     #endif
 

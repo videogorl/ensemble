@@ -24,8 +24,10 @@ struct MediaDragPayload: Codable, Equatable {
     }
 
     static let typeIdentifier = "com.videogorl.ensemble.media-drag-payload"
-    static let contentType = UTType(exportedAs: typeIdentifier, conformingTo: .data)
-    static let contentTypes: [UTType] = [contentType]
+    static let contentType = UTType(exportedAs: typeIdentifier)
+    static let jsonContentType = UTType.json
+    static let contentTypes: [UTType] = [contentType, jsonContentType]
+    private static let acceptedTypeIdentifiers = [typeIdentifier, UTType.json.identifier]
 
     let items: [Item]
 
@@ -89,6 +91,13 @@ struct MediaDragPayload: Codable, Equatable {
                 completion(data, nil)
                 return nil
             }
+            provider.registerDataRepresentation(
+                forTypeIdentifier: Self.jsonContentType.identifier,
+                visibility: .all
+            ) { completion in
+                completion(data, nil)
+                return nil
+            }
         }
         provider.suggestedName = suggestedName
         return provider
@@ -105,6 +114,7 @@ struct MediaDragPayload: Codable, Equatable {
 
         if let data = encodedData() {
             item.setData(data, forType: NSPasteboard.PasteboardType(Self.typeIdentifier))
+            item.setData(data, forType: NSPasteboard.PasteboardType(Self.jsonContentType.identifier))
             wroteRepresentation = true
         }
 
@@ -122,22 +132,42 @@ struct MediaDragPayload: Codable, Equatable {
     }
     #endif
 
-    static func load(from providers: [NSItemProvider]) async -> MediaDragPayload? {
-        for provider in providers where provider.hasItemConformingToTypeIdentifier(typeIdentifier) {
-            guard let data = await loadData(from: provider),
-                  let payload = try? JSONDecoder().decode(MediaDragPayload.self, from: data) else {
-                continue
+    static func canLoad(from providers: [NSItemProvider]) -> Bool {
+        providers.contains { provider in
+            acceptedTypeIdentifiers.contains { typeIdentifier in
+                providerSupportsType(provider, typeIdentifier: typeIdentifier)
             }
-            return payload
+        }
+    }
+
+    static func debugRegisteredTypeIdentifiers(for providers: [NSItemProvider]) -> String {
+        let identifiers = providers.flatMap(\.registeredTypeIdentifiers)
+        return identifiers.isEmpty ? "none" : identifiers.joined(separator: ",")
+    }
+
+    static func load(from providers: [NSItemProvider]) async -> MediaDragPayload? {
+        for provider in providers {
+            for typeIdentifier in acceptedTypeIdentifiers where providerSupportsType(provider, typeIdentifier: typeIdentifier) {
+                guard let data = await loadData(from: provider, typeIdentifier: typeIdentifier),
+                      let payload = try? JSONDecoder().decode(MediaDragPayload.self, from: data) else {
+                    continue
+                }
+                return payload
+            }
         }
         return nil
     }
 
-    private static func loadData(from provider: NSItemProvider) async -> Data? {
+    private static func providerSupportsType(_ provider: NSItemProvider, typeIdentifier: String) -> Bool {
+        provider.registeredTypeIdentifiers.contains(typeIdentifier) ||
+            provider.hasItemConformingToTypeIdentifier(typeIdentifier)
+    }
+
+    private static func loadData(from provider: NSItemProvider, typeIdentifier: String) async -> Data? {
         await withCheckedContinuation { continuation in
             provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, error in
                 if let error {
-                    EnsembleLogger.debug("MediaDragPayload load failed: \(error.localizedDescription)")
+                    EnsembleLogger.debug("MediaDragPayload load failed for type=\(typeIdentifier): \(error.localizedDescription)")
                 }
                 continuation.resume(returning: data)
             }

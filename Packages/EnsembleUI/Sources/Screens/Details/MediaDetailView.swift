@@ -885,25 +885,36 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         // macOS: List with native .swipeActions for trackpad two-finger swipe support
         ForEach(Array(viewModel.filteredTracks.enumerated()), id: \.element.id) { index, track in
             let resolvedActions = trackInteractionModel.resolve(for: track)
-            TrackRow(
-                track: track,
-                showArtwork: showArtwork,
-                showTrackNumber: showTrackNumbers,
-                isPlaying: track.id == currentTrackId,
-                onPlayNext: resolvedActions.onPlayNext,
-                onPlayLast: resolvedActions.onPlayLast,
-                onAddToPlaylist: resolvedActions.onAddToPlaylist,
-                onAddToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
-                onToggleFavorite: resolvedActions.onToggleFavorite,
-                onGoToAlbum: resolvedActions.onGoToAlbum,
-                onGoToArtist: resolvedActions.onGoToArtist,
-                onShareLink: resolvedActions.onShareLink,
-                onShareFile: resolvedActions.onShareFile,
-                isFavorited: resolvedActions.isFavorited,
-                recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
-                supplementalMetadataWidth: trackListSupplementalMetadataWidth
-            ) {
-                nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+            VStack(spacing: EnsembleDesign.Spacing.none) {
+                TrackRow(
+                    track: track,
+                    showArtwork: showArtwork,
+                    showTrackNumber: showTrackNumbers,
+                    isPlaying: track.id == currentTrackId,
+                    onPlayNext: resolvedActions.onPlayNext,
+                    onPlayLast: resolvedActions.onPlayLast,
+                    onAddToPlaylist: resolvedActions.onAddToPlaylist,
+                    onAddToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
+                    onToggleFavorite: resolvedActions.onToggleFavorite,
+                    onGoToAlbum: resolvedActions.onGoToAlbum,
+                    onGoToArtist: resolvedActions.onGoToArtist,
+                    onShareLink: resolvedActions.onShareLink,
+                    onShareFile: resolvedActions.onShareFile,
+                    isFavorited: resolvedActions.isFavorited,
+                    recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
+                    supplementalMetadataWidth: trackListSupplementalMetadataWidth
+                ) {
+                    nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+                }
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+                .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
+
+                if index < viewModel.filteredTracks.count - 1 {
+                    TrackListDivider(
+                        showArtwork: showArtwork,
+                        showTrackNumbers: showTrackNumbers
+                    )
+                }
             }
             .trackSwipeActions(
                 track: track,
@@ -913,7 +924,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 onAddToPlaylist: resolvedActions.onAddToPlaylist
             )
             .listRowBackground(Color.clear)
-            .listRowInsets(TrackListLayoutMetrics.rowInsets(showArtwork: showArtwork, showTrackNumbers: showTrackNumbers))
+            .listRowInsets(EdgeInsets())
+            .hideListRowSeparator()
         }
         #endif
     }

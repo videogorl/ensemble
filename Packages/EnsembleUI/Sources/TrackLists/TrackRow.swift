@@ -607,15 +607,10 @@ public struct TrackListView: View {
                 .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
 
                 if index < tracks.count - 1 {
-                    Divider()
-                        .overlay(TrackListLayoutMetrics.dividerColor)
-                        .padding(
-                            .leading,
-                            TrackListLayoutMetrics.contentLeadingInset(
-                                showArtwork: showArtwork,
-                                showTrackNumbers: showTrackNumbers
-                            )
-                        )
+                    TrackListDivider(
+                        showArtwork: showArtwork,
+                        showTrackNumbers: showTrackNumbers
+                    )
                 }
             }
         }
@@ -636,5 +631,22 @@ public struct TrackListView: View {
         if abs(supplementalMetadataWidth - newWidth) > 1 {
             supplementalMetadataWidth = newWidth
         }
+    }
+}
+
+struct TrackListDivider: View {
+    let showArtwork: Bool
+    let showTrackNumbers: Bool
+
+    var body: some View {
+        Divider()
+            .overlay(TrackListLayoutMetrics.dividerColor)
+            .padding(
+                .leading,
+                TrackListLayoutMetrics.contentLeadingInset(
+                    showArtwork: showArtwork,
+                    showTrackNumbers: showTrackNumbers
+                )
+            )
     }
 }

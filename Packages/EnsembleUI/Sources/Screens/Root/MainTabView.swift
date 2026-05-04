@@ -1838,14 +1838,18 @@ public struct SidebarView: View {
         }
 
         private func handleSidebarPlaylistDrop(_ providers: [NSItemProvider], onto playlist: SidebarPlaylistItem) -> Bool {
-            guard providers.contains(where: { $0.hasItemConformingToTypeIdentifier(MediaDragPayload.typeIdentifier) }) else {
-                EnsembleLogger.debug("Sidebar playlist drop ignored: unsupported provider for target=\(playlist.id)")
+            guard MediaDragPayload.canLoad(from: providers) else {
+                EnsembleLogger.debug(
+                    "Sidebar playlist drop ignored: unsupported provider for target=\(playlist.id) providerTypes=\(MediaDragPayload.debugRegisteredTypeIdentifiers(for: providers))"
+                )
                 return false
             }
 
             Task { @MainActor in
                 guard let payload = await MediaDragPayload.load(from: providers) else {
-                    EnsembleLogger.debug("Sidebar playlist drop failed: payload unresolved for target=\(playlist.id)")
+                    EnsembleLogger.debug(
+                        "Sidebar playlist drop failed: payload unresolved for target=\(playlist.id) providerTypes=\(MediaDragPayload.debugRegisteredTypeIdentifiers(for: providers))"
+                    )
                     showSidebarDropToast(
                         style: .warning,
                         title: "Drop not supported",

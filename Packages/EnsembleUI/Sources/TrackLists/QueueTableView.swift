@@ -682,7 +682,8 @@ public struct QueueTableView: UIViewRepresentable {
         public func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
             guard !showHistory else { return [] }
             let item = self.item(at: indexPath)
-            let itemProvider = NSItemProvider(object: item.id as NSString)
+            let itemProvider = MediaDragPayload.track(item.track).itemProvider()
+            itemProvider.registerObject(item.id as NSString, visibility: .ownProcess)
             let dragItem = UIDragItem(itemProvider: itemProvider)
             dragItem.localObject = item
             return [dragItem]

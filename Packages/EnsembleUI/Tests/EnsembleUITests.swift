@@ -1,6 +1,7 @@
 import XCTest
 @testable import EnsembleUI
 import EnsembleCore
+import UniformTypeIdentifiers
 
 final class EnsembleUITests: XCTestCase {
     func testMediaDragPayloadPreservesTrackIdentity() throws {
@@ -30,6 +31,33 @@ final class EnsembleUITests: XCTestCase {
         )
         let expected = MediaDragPayload.playlist(playlist)
         let provider = expected.itemProvider()
+
+        let decoded = await MediaDragPayload.load(from: [provider])
+
+        XCTAssertEqual(decoded, expected)
+    }
+
+    func testMediaDragPayloadProviderAdvertisesCustomAndJSONTypes() {
+        let track = Track(id: "track-1", key: "/tracks/1", title: "Track")
+        let provider = MediaDragPayload.track(track).itemProvider()
+
+        XCTAssertTrue(provider.hasItemConformingToTypeIdentifier(MediaDragPayload.typeIdentifier))
+        XCTAssertTrue(provider.hasItemConformingToTypeIdentifier(UTType.json.identifier))
+        XCTAssertTrue(MediaDragPayload.canLoad(from: [provider]))
+    }
+
+    func testMediaDragPayloadLoadsJSONFallback() async throws {
+        let track = Track(id: "track-1", key: "/tracks/1", title: "Track")
+        let expected = MediaDragPayload.track(track)
+        let encoded = try XCTUnwrap(expected.encodedData())
+        let provider = NSItemProvider()
+        provider.registerDataRepresentation(
+            forTypeIdentifier: UTType.json.identifier,
+            visibility: .all
+        ) { completion in
+            completion(encoded, nil)
+            return nil
+        }
 
         let decoded = await MediaDragPayload.load(from: [provider])
 
@@ -83,7 +111,7 @@ final class EnsembleUITests: XCTestCase {
     }
 
     func testTrackListLayoutMetricsDividerTokens() {
-        XCTAssertEqual(TrackListLayoutMetrics.nativeDividerAlpha, 0.45)
+        XCTAssertEqual(TrackListLayoutMetrics.nativeDividerAlpha, 0.18)
         _ = TrackListLayoutMetrics.dividerColor
         #if os(iOS) || os(macOS)
         _ = TrackListLayoutMetrics.nativeSeparatorColor
