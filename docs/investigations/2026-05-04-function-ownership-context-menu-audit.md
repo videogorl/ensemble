@@ -50,7 +50,7 @@ This checklist is intentionally kept in-repo so the remaining work survives cont
 - [x] Extract remaining root navigation/destination helpers from `MainTabView` into reusable EnsembleUI helpers, then migrate call sites.
 - [x] Delete obsolete compatibility wrappers and duplicate helpers only after all call sites route through shared services.
 - [x] Update project guidance (`architecture`, `project-structure`, `common-tasks`, `ui-conventions`, and this investigation) after the final shape lands.
-- [ ] Final verification: `swift test --package-path Packages/EnsembleCore`, `swift test --package-path Packages/EnsembleUI`, `swift test --package-path Packages/EnsembleSiriShared`, `scripts/check_core_warning_budget.sh`, iPad simulator build, macOS build, and simulator smoke evidence.
+- [x] Final verification: `swift test --package-path Packages/EnsembleCore`, `swift test --package-path Packages/EnsembleUI`, `swift test --package-path Packages/EnsembleSiriShared`, `scripts/check_core_warning_budget.sh`, iPad simulator build, macOS build, and simulator smoke evidence.
 
 ## Implementation Notes
 
@@ -67,18 +67,11 @@ This checklist is intentionally kept in-repo so the remaining work survives cont
 
 ## Latest Verification
 
-- `swift test --package-path Packages/EnsembleCore --filter PlaylistDropResolverTests`: passed, 5 tests.
-- `swift test --package-path Packages/EnsembleCore --filter MediaFilterEngineTests`: passed, 6 tests.
-- `swift test --package-path Packages/EnsembleCore --filter NavigationCoordinatorTests`: passed, 5 tests.
-- `swift test --package-path Packages/EnsembleUI --filter NavigationRootHelperTests`: passed, 4 tests.
+- `swift test --package-path Packages/EnsembleCore`: passed on standalone rerun, 479 XCTest tests plus 4 Swift Testing tests. An earlier parallel Core/UI/SiriShared run reported 2 Core failures, but the isolated Core rerun passed without source changes.
+- `swift test --package-path Packages/EnsembleUI`: passed, 40 tests.
 - `swift test --package-path Packages/EnsembleSiriShared`: passed, 4 tests.
-- `swift test --package-path Packages/EnsembleCore --filter SiriPlaybackCoordinatorTests`: passed, 8 tests.
-- `swift test --package-path Packages/EnsembleCore --filter PlaylistMutationWorkflowTests`: passed, 10 tests.
-- `swift test --package-path Packages/EnsembleUI --filter Playlist`: passed, 6 selected playlist/menu tests.
-- `swift test --package-path Packages/EnsembleCore --filter MetadataMutationWorkflowTests`: passed, 6 tests.
-- `swift package clean --package-path Packages/EnsembleUI && swift test --package-path Packages/EnsembleUI --filter MediaMenuCatalog`: passed, 8 selected menu tests after refreshing the UI package graph for the new Core source file.
-- `swift test --package-path Packages/EnsembleCore`: passed, 474 XCTest tests plus 4 Swift Testing tests.
-- `swift test --package-path Packages/EnsembleUI`: passed, 38 tests.
 - `scripts/check_core_warning_budget.sh`: passed, 0 warnings.
-- `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPad (A16)' build`: passed for iPad (A16), iOS 26.4.1.
+- `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPad (A16)' clean build`: passed for iPad (A16), iOS 26.4.1. The first incremental iPad build failed on a stale Xcode module interface for `MediaFormatters.logBytes`; clean build rebuilt the package graph, and the following plain iPad build also passed.
+- `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPad (A16)' build`: passed after the clean build.
 - `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk macosx -destination 'platform=macOS' build`: passed.
+- iPad simulator smoke: installed and launched `com.videogorl.ensemble` on `iPad (A16)`; Feed rendered without launch crash. Screenshots: `/Users/felicity/Developer/projects/ensemble-logs/after/ipad-launch-smoke-2026-05-04.png`, `/Users/felicity/Developer/projects/ensemble-logs/after/ipad-mini-player-menu-2026-05-04-second.png`.
