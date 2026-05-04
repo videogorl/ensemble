@@ -172,6 +172,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 ### Long-Press Menus
 - Shared media context-menu policy lives in `MediaMenuCatalog`. New track, album, artist, playlist, or merged-playlist menus should use the catalog for action order, section grouping, and destructive/editing gating; parent views should add only local handlers such as queue removal, MiniPlayer shuffle/repeat, or pinned unpin behavior.
+- Use `TrackActionsContextMenu` for standalone SwiftUI track cards/menus outside `TrackRow` or native table rows, including feed cards, mini-player long-press menus, and queue/history fallback rows. It renders the shared catalog and lets the parent inject only navigation, playlist-picker presentation, or removal handlers.
 - Add-to-playlist follow-up UI should be presented through `PlaylistActionPresentationHost` and `.playlistActionPresentation(request:nowPlayingVM:)`; menus and row actions should request the shared host instead of owning a local sheet payload.
 - Prefer `contextMenu` on album/artist/playlist cards/rows to mirror detail-view actions
 - Album menu: `Play`, `Shuffle`, `Play Next`, `Play Last`, `Radio`, `Add to Playlist…`, `Pin/Unpin`

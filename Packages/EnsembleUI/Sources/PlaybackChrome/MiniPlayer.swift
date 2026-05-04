@@ -101,85 +101,24 @@ public struct MiniPlayer: View {
             // Context menu closures are evaluated lazily on long press,
             // so they read the live viewModel values without needing observation.
             if let track = viewModel.currentTrack {
-                Section {
-                    Button {
-                        Task { await viewModel.toggleTrackFavorite(track) }
-                    } label: {
-                        MediaActionLabel(
-                            kind: .favorite(
-                                isFavorited: viewModel.isTrackFavorited(track),
-                                usesFilledIcon: false
-                            )
-                        )
-                    }
-
-                    if let recentTitle = PlaylistActionPresentationHost.recentPlaylistTitle(
-                        for: [track],
-                        nowPlayingVM: viewModel
-                    ) {
-                        Button {
-                            PlaylistActionPresentationHost.addToRecentPlaylist(
-                                [track],
-                                nowPlayingVM: viewModel
-                            )
-                        } label: {
-                            MediaActionLabel(kind: .addToRecentPlaylist(recentTitle))
-                        }
-                    }
-
-                    Button {
+                TrackActionsContextMenu(
+                    track: track,
+                    nowPlayingVM: viewModel,
+                    context: .miniPlayer,
+                    onAddToPlaylist: {
                         playlistActionRequest = PlaylistActionPresentationHost.request(for: [track])
-                    } label: {
-                        MediaActionLabel(kind: .addToPlaylist)
-                    }
-                }
-
-                Section {
-                    if let albumId = track.albumRatingKey {
-                        Button {
+                    },
+                    onGoToAlbum: {
+                        if let albumId = track.albumRatingKey {
                             navigationCoordinator.navigate(to: .album(id: albumId))
-                        } label: {
-                            MediaActionLabel(kind: .goToAlbum)
                         }
-                    }
-
-                    if let artistId = track.artistRatingKey {
-                        Button {
+                    },
+                    onGoToArtist: {
+                        if let artistId = track.artistRatingKey {
                             navigationCoordinator.navigate(to: .artist(id: artistId))
-                        } label: {
-                            MediaActionLabel(kind: .goToArtist)
                         }
                     }
-                }
-
-                Section {
-                    Button {
-                        viewModel.toggleShuffle()
-                    } label: {
-                        Label(
-                            viewModel.isShuffleEnabled ? "Turn Shuffle Off" : "Turn Shuffle On",
-                            systemImage: EnsembleDesign.Icon.shuffle
-                        )
-                    }
-
-                    Button {
-                        viewModel.setRepeatMode(.all)
-                    } label: {
-                        Label(
-                            viewModel.repeatMode == .all ? "Repeat On" : "Repeat",
-                            systemImage: RepeatMode.all.icon
-                        )
-                    }
-
-                    Button {
-                        viewModel.setRepeatMode(.one)
-                    } label: {
-                        Label(
-                            viewModel.repeatMode == .one ? "Repeat One On" : "Repeat One",
-                            systemImage: RepeatMode.one.icon
-                        )
-                    }
-                }
+                )
 
                 Section {
                     Button {

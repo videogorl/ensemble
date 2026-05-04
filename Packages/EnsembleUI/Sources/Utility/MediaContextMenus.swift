@@ -1,6 +1,134 @@
 import EnsembleCore
 import SwiftUI
 
+/// Shared track actions used by standalone media cards, feed rows, mini player, and fallback queue rows.
+struct TrackActionsContextMenu: View {
+    let track: Track
+    let nowPlayingVM: NowPlayingViewModel
+    var context: MediaMenuContext = .search
+    var recentPlaylistTarget: Playlist? = nil
+    var onAddToPlaylist: (() -> Void)? = nil
+    var onGoToAlbum: (() -> Void)? = nil
+    var onGoToArtist: (() -> Void)? = nil
+    var onRemoveFromQueue: (() -> Void)? = nil
+    var onRemoveFromPlaylist: (() -> Void)? = nil
+    var onEditMetadata: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
+
+    @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+
+    var body: some View {
+        let recentTitle = recentPlaylistTarget.map { target in
+            PlaylistActionPresentationHost.recentPlaylistTitle(
+                for: [track],
+                target: target,
+                nowPlayingVM: nowPlayingVM
+            )
+        } ?? PlaylistActionPresentationHost.recentPlaylistTitle(
+            for: [track],
+            nowPlayingVM: nowPlayingVM
+        )
+
+        SwiftUIMediaMenuRenderer(
+            sections: MediaMenuCatalog.sections(
+                for: .track,
+                context: context,
+                availability: MediaMenuAvailability(
+                    hasRecentPlaylist: recentTitle != nil,
+                    canAddToRecentPlaylist: recentTitle != nil,
+                    canGoToAlbum: track.albumRatingKey != nil,
+                    canGoToArtist: track.artistRatingKey != nil,
+                    canShareLink: true,
+                    canShareAudioFile: true,
+                    canFavorite: true,
+                    canDownload: false,
+                    canPin: false,
+                    canEditMetadata: onEditMetadata != nil,
+                    canDelete: onDelete != nil,
+                    canRename: false,
+                    canEditPlaylist: false,
+                    canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
+                    canRemoveFromQueue: onRemoveFromQueue != nil
+                )
+            ),
+            state: MediaMenuState(
+                recentPlaylistTitle: recentTitle,
+                isFavorited: nowPlayingVM.isTrackFavorited(track),
+                isShuffleEnabled: nowPlayingVM.isShuffleEnabled,
+                repeatMode: nowPlayingVM.repeatMode
+            ),
+            handlers: MediaMenuHandlers(
+                toggleShuffle: {
+                    nowPlayingVM.toggleShuffle()
+                },
+                repeatAll: {
+                    nowPlayingVM.setRepeatMode(.all)
+                },
+                repeatOne: {
+                    nowPlayingVM.setRepeatMode(.one)
+                },
+                playNext: {
+                    nowPlayingVM.playNext(track)
+                },
+                playLast: {
+                    nowPlayingVM.playLast(track)
+                },
+                addToRecentPlaylist: {
+                    if let recentPlaylistTarget {
+                        PlaylistActionPresentationHost.addToRecentPlaylist(
+                            [track],
+                            target: recentPlaylistTarget,
+                            nowPlayingVM: nowPlayingVM
+                        )
+                    } else {
+                        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
+                    }
+                },
+                addToPlaylist: onAddToPlaylist,
+                goToAlbum: {
+                    if let onGoToAlbum {
+                        onGoToAlbum()
+                    } else if let albumId = track.albumRatingKey {
+                        navigationCoordinator.push(
+                            .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                            in: navigationCoordinator.selectedTab
+                        )
+                    }
+                },
+                goToArtist: {
+                    if let onGoToArtist {
+                        onGoToArtist()
+                    } else if let artistId = track.artistRatingKey {
+                        navigationCoordinator.push(
+                            .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                            in: navigationCoordinator.selectedTab
+                        )
+                    }
+                },
+                editMetadata: onEditMetadata,
+                favorite: {
+                    Task {
+                        await nowPlayingVM.setTrackFavorite(
+                            !nowPlayingVM.isTrackFavorited(track),
+                            for: track
+                        )
+                    }
+                },
+                shareLink: {
+                    ShareActions.shareTrackLink(track, deps: deps)
+                },
+                shareAudioFile: {
+                    ShareActions.shareTrackFile(track, deps: deps)
+                },
+                removeFromPlaylist: onRemoveFromPlaylist,
+                removeFromQueue: onRemoveFromQueue,
+                deleteTrack: onDelete
+            )
+        )
+    }
+}
+
 /// Shared album actions used by album grids, search results, and pinned sidebar rows.
 struct AlbumActionsContextMenu: View {
     let album: Album
@@ -20,8 +148,13 @@ struct AlbumActionsContextMenu: View {
         let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
         let isPinned = pinManager.isPinned(id: album.id)
         let recentTarget = nowPlayingVM.lastPlaylistTarget
-        let addToRecentPlaylist: (() -> Void)? = recentTarget.map { target in
-            { addAlbumToRecentPlaylist(album, expectedTitle: target.title) }
+        let recentPlaylistTitle = recentTarget.flatMap { target in
+            nowPlayingVM.compatibleTrackCount([album.sourceProbeTrack], forServerSourceKey: target.sourceCompositeKey) > 0
+                ? target.title
+                : nil
+        }
+        let addToRecentPlaylist: (() -> Void)? = recentPlaylistTitle.map { title in
+            { addAlbumToRecentPlaylist(album, expectedTitle: title) }
         }
         let goToArtist: (() -> Void)? = album.artistRatingKey.map { artistId in
             { openArtist(artistId) }
@@ -32,7 +165,7 @@ struct AlbumActionsContextMenu: View {
                 for: .album,
                 context: .library,
                 availability: MediaMenuAvailability(
-                    hasRecentPlaylist: recentTarget != nil,
+                    hasRecentPlaylist: recentPlaylistTitle != nil,
                     canAddToRecentPlaylist: addToRecentPlaylist != nil,
                     canGoToAlbum: false,
                     canGoToArtist: goToArtist != nil,
@@ -49,7 +182,7 @@ struct AlbumActionsContextMenu: View {
                 )
             ),
             state: MediaMenuState(
-                recentPlaylistTitle: recentTarget?.title,
+                recentPlaylistTitle: recentPlaylistTitle,
                 isDownloaded: isDownloaded,
                 isPinned: isPinned
             ),
@@ -537,5 +670,20 @@ struct MergedPlaylistActionsContextMenu: View {
                 action(interleaved)
             }
         }
+    }
+}
+
+private extension Album {
+    var sourceProbeTrack: Track {
+        Track(
+            id: id,
+            key: key,
+            title: title,
+            artistName: artistName,
+            albumRatingKey: id,
+            artistRatingKey: artistRatingKey,
+            thumbPath: thumbPath,
+            sourceCompositeKey: sourceCompositeKey
+        )
     }
 }
