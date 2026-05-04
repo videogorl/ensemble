@@ -2,50 +2,6 @@ import EnsembleCore
 import Combine
 import SwiftUI
 
-// MARK: - Tab View Factory
-
-struct TabViewFactory {
-    @MainActor
-    @ViewBuilder
-    static func viewContent(
-        for tab: TabItem,
-        libraryVM: LibraryViewModel,
-        nowPlayingVM: NowPlayingViewModel,
-        searchVM: SearchViewModel,
-        isMoreRoot: Bool = false
-    ) -> some View {
-        if isMoreRoot {
-            MoreView(
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM
-            )
-        } else {
-            switch tab {
-            case .home:
-                HomeView(nowPlayingVM: nowPlayingVM)
-            case .songs:
-                SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .artists:
-                ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .albums:
-                AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .genres:
-                GenresView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .playlists:
-                PlaylistsView(nowPlayingVM: nowPlayingVM)
-            case .favorites:
-                FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .search:
-                SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM)
-            case .downloads:
-                DownloadsView(nowPlayingVM: nowPlayingVM)
-            case .settings:
-                SettingsView()
-            }
-        }
-    }
-}
-
 /// Main tab bar view for iPhone (5-tab classic iOS style)
 public struct MainTabView: View {
     @StateObject private var libraryVM: LibraryViewModel
@@ -419,7 +375,7 @@ public struct MainTabView: View {
             } else {
                 NavigationView {
                     // iOS 15 Fallback: Support nested navigation by passing the remaining path
-                    TabViewFactory.viewContent(
+                    NavigationDestinationFactory.tabContent(
                         for: tab,
                         libraryVM: libraryVM,
                         nowPlayingVM: nowPlayingVM,
@@ -467,7 +423,7 @@ public struct MainTabView: View {
     @available(iOS 16.0, macOS 13.0, *)
     @ViewBuilder
     private func tabContentView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
-        TabViewFactory.viewContent(
+        NavigationDestinationFactory.tabContent(
             for: tab,
             libraryVM: libraryVM,
             nowPlayingVM: nowPlayingVM,
@@ -484,31 +440,13 @@ public struct MainTabView: View {
 
     @ViewBuilder
     private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
-        destinationContentView(for: destination)
-            .environment(\.showsProfileToolbar, false)
-    }
-
-    @ViewBuilder
-    private func destinationContentView(for destination: NavigationCoordinator.Destination) -> some View {
-        switch destination {
-        case .artist(let id, let sourceKey):
-            ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .album(let id, let sourceKey):
-            AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .playlist(let id, let sourceKey):
-            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .mergedPlaylist(let title, let isSmart):
-            MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM)
-        case .moodTracks(let mood):
-            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
-        case .view(let tab):
-            TabViewFactory.viewContent(
-                for: tab,
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                searchVM: searchVM,
-            )
-        }
+        NavigationDestinationFactory.destinationContent(
+            for: destination,
+            libraryVM: libraryVM,
+            nowPlayingVM: nowPlayingVM,
+            searchVM: searchVM
+        )
+        .environment(\.showsProfileToolbar, false)
     }
 
     private func shouldShowProfileButton(for tab: TabItem, isMoreRoot: Bool) -> Bool {
@@ -1474,7 +1412,12 @@ public struct SidebarView: View {
             if tab == .playlists {
                 PlaylistsView(nowPlayingVM: nowPlayingVM, viewModel: playlistsVM)
             } else {
-                TabViewFactory.viewContent(for: tab, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
+                NavigationDestinationFactory.tabContent(
+                    for: tab,
+                    libraryVM: libraryVM,
+                    nowPlayingVM: nowPlayingVM,
+                    searchVM: searchVM
+                )
             }
         }
         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
@@ -1891,25 +1834,12 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
-        switch destination {
-        case .artist(let id, let sourceKey):
-            ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .album(let id, let sourceKey):
-            AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .playlist(let id, let sourceKey):
-            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .mergedPlaylist(let title, let isSmart):
-            MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM)
-        case .moodTracks(let mood):
-            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
-        case .view(let tab):
-            TabViewFactory.viewContent(
-                for: tab,
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                searchVM: searchVM
-            )
-        }
+        NavigationDestinationFactory.destinationContent(
+            for: destination,
+            libraryVM: libraryVM,
+            nowPlayingVM: nowPlayingVM,
+            searchVM: searchVM
+        )
     }
 }
 
