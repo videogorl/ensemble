@@ -296,4 +296,108 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertNil(resolved.recentPlaylistTitle)
         XCTAssertFalse(resolved.isFavorited)
     }
+
+    func testMediaMenuCatalogTrackLibraryContextIncludesBaseAndEditingActions() {
+        let sections = MediaMenuCatalog.sections(
+            for: .track,
+            context: .library,
+            availability: .full
+        )
+
+        XCTAssertEqual(sections.ids, [.playback, .playlist, .navigation, .sharing, .management])
+        XCTAssertEqual(sections.actions(in: .playback), [.playNext, .playLast])
+        XCTAssertEqual(sections.actions(in: .playlist), [.addToRecentPlaylist, .addToPlaylist, .favorite])
+        XCTAssertEqual(sections.actions(in: .navigation), [.goToAlbum, .goToArtist])
+        XCTAssertEqual(sections.actions(in: .sharing), [.shareLink, .shareAudioFile])
+        XCTAssertEqual(sections.actions(in: .management), [.editMetadata, .deleteTrack])
+        XCTAssertEqual(sections.role(for: .deleteTrack), .destructive)
+    }
+
+    func testMediaMenuCatalogTrackMiniPlayerAddsTransportWithoutEditing() {
+        let sections = MediaMenuCatalog.sections(
+            for: .track,
+            context: .miniPlayer,
+            availability: .full
+        )
+
+        XCTAssertEqual(sections.actions(in: .transport), [.toggleShuffle, .repeatAll, .repeatOne])
+        XCTAssertNil(sections.first { $0.id == .management })
+        XCTAssertEqual(sections.role(for: .deleteTrack), nil)
+    }
+
+    func testMediaMenuCatalogQueueAndHistoryTrackContextsDivergeOnlyForRemoval() {
+        let queue = MediaMenuCatalog.sections(
+            for: .track,
+            context: .queue(canRemove: true),
+            availability: .full
+        )
+        let history = MediaMenuCatalog.sections(
+            for: .track,
+            context: .history,
+            availability: .full
+        )
+
+        XCTAssertEqual(queue.actions(in: .destructive), [.removeFromQueue])
+        XCTAssertEqual(queue.role(for: .removeFromQueue), .destructive)
+        XCTAssertNil(history.first { $0.id == .destructive })
+        XCTAssertEqual(queue.actions(in: .playback), history.actions(in: .playback))
+        XCTAssertEqual(queue.actions(in: .playlist), history.actions(in: .playlist))
+    }
+
+    func testMediaMenuCatalogSearchPlaylistIsNonDestructive() {
+        let sections = MediaMenuCatalog.sections(
+            for: .playlist(isSmart: false),
+            context: .search,
+            availability: .full
+        )
+
+        XCTAssertEqual(sections.ids, [.playback, .offline])
+        XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .playNext, .playLast])
+        XCTAssertEqual(sections.actions(in: .offline), [.download, .pin])
+        XCTAssertNil(sections.first { $0.id == .management })
+    }
+
+    func testMediaMenuCatalogLibraryPlaylistManagementExcludesSmartPlaylists() {
+        let regular = MediaMenuCatalog.sections(
+            for: .playlist(isSmart: false),
+            context: .library,
+            availability: .full
+        )
+        let smart = MediaMenuCatalog.sections(
+            for: .playlist(isSmart: true),
+            context: .library,
+            availability: .full
+        )
+
+        XCTAssertEqual(regular.actions(in: .management), [.rename, .editPlaylist, .deletePlaylist])
+        XCTAssertEqual(regular.role(for: .deletePlaylist), .destructive)
+        XCTAssertNil(smart.first { $0.id == .management })
+    }
+
+    func testMediaMenuCatalogPinnedMergedPlaylistAddsUnpinAll() {
+        let sections = MediaMenuCatalog.sections(
+            for: .mergedPlaylist(isSmart: false),
+            context: .pinned,
+            availability: .full
+        )
+
+        XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .playNext, .playLast])
+        XCTAssertEqual(sections.actions(in: .pinning), [.unpinAll])
+        XCTAssertEqual(sections.role(for: .unpinAll), .destructive)
+        XCTAssertEqual(sections.actions(in: .management), [.renameAll, .deleteAll])
+    }
+}
+
+private extension Array where Element == MediaMenuSection {
+    var ids: [MediaMenuSectionID] {
+        map(\.id)
+    }
+
+    func actions(in sectionID: MediaMenuSectionID) -> [MediaMenuActionID] {
+        first { $0.id == sectionID }?.actions.map(\.id) ?? []
+    }
+
+    func role(for actionID: MediaMenuActionID) -> MediaMenuActionDescriptor.Role? {
+        flatMap(\.actions).first { $0.id == actionID }?.role
+    }
 }

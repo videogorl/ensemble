@@ -28,6 +28,7 @@ ensemble/
 |   +-- investigations/
 |       +-- 2026-04-03-plex-hls-spike.md # Written verdict from the PMS music-HLS spike
 |       +-- 2026-04-14-repo-audit-baseline.md # Ranked audit findings + baseline verification notes
+|       +-- 2026-05-04-function-ownership-context-menu-audit.md # Shared function/menu ownership audit and migration order
 |
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/
@@ -320,6 +321,7 @@ Sources/
 +-- Sheets/                          # Shared sheets and macOS auxiliary sheet/window scaffolds
 +-- Utility/                         # Shared rows, menus, toolbar/profile helpers, keyboard/chrome utilities
 |   +-- MediaDragPayload.swift        # Internal drag/drop payload for tracks, albums, playlists, and merged display playlists
+|   +-- MediaMenuCatalog.swift        # Shared context-menu action catalog, section policy, roles, and context gating
 |   +-- EnsembleUtilityScreenScaffold.swift # Card-based macOS utility screen/section rows for Profile, Downloads, and future menu-like tools
 +-- Screens/
 |   +-- Root/                         # RootView, MainTabView, MoreView, auxiliary presentation routing

@@ -170,6 +170,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - macOS keeps existing interaction model (no custom swipe gesture layer in v1)
 
 ### Long-Press Menus
+- Shared media context-menu policy lives in `MediaMenuCatalog`. New track, album, artist, playlist, or merged-playlist menus should use the catalog for action order, section grouping, and destructive/editing gating; parent views should add only local handlers such as queue removal, MiniPlayer shuffle/repeat, or pinned unpin behavior.
 - Prefer `contextMenu` on album/artist/playlist cards/rows to mirror detail-view actions
 - Album menu: `Play`, `Shuffle`, `Play Next`, `Play Last`, `Radio`, `Add to Playlist…`, `Pin/Unpin`
 - Artist menu: `Play`, `Shuffle`, `Radio`, `Pin/Unpin`
