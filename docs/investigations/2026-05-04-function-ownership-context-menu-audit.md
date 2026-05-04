@@ -49,6 +49,7 @@ Date: 2026-05-04
 - `MediaFilterEngine` now owns shared track, album, artist, and genre filtering. ViewModels call named configurations to preserve intentional surface differences, such as album detail searching title/artist, artist detail searching title/album, favorites ignoring genre filters, and playlist/library tracks applying genre include/exclude filters.
 - `NavigationCoordinator` now owns target-tab mapping and per-tab path mutation helpers. EnsembleUI adds a path-binding adapter plus a standalone `SidebarSelection` mapper so MainTabView no longer duplicates these switches between phone tab stacks and large-screen sidebar detail stacks.
 - `EnsembleSiriShared` now owns Siri App Group/index constants, phrase normalization/query variants, and fuzzy scoring. App App Intents, AppDelegate fallback handling, Siri extension handlers, `SiriMediaIndexStore`, and `SiriPlaybackCoordinator` route through it instead of carrying local token-overlap/edit-distance/normalization implementations.
+- `PlaylistMutationWorkflow` now owns playlist rename/delete title normalization, mutation outcome routing, and pending/success/failure toast payload policy. Playlist root rows, playlist detail actions, and sidebar pinned playlist actions route through the workflow while retaining local confirmation, optimistic list state, navigation dismissal, and pin updates in the owning view.
 
 ## Latest Verification
 
@@ -58,7 +59,9 @@ Date: 2026-05-04
 - `swift test --package-path Packages/EnsembleUI --filter NavigationRootHelperTests`: passed, 4 tests.
 - `swift test --package-path Packages/EnsembleSiriShared`: passed, 4 tests.
 - `swift test --package-path Packages/EnsembleCore --filter SiriPlaybackCoordinatorTests`: passed, 8 tests.
-- `swift test --package-path Packages/EnsembleCore`: passed on rerun, 458 XCTest tests plus 4 Swift Testing tests. First full run hit a transient XCTest signal after the new suite passed.
+- `swift test --package-path Packages/EnsembleCore --filter PlaylistMutationWorkflowTests`: passed, 8 tests.
+- `swift test --package-path Packages/EnsembleUI --filter Playlist`: passed, 6 selected playlist/menu tests.
+- `swift test --package-path Packages/EnsembleCore`: passed, 466 XCTest tests plus 4 Swift Testing tests.
 - `swift test --package-path Packages/EnsembleUI`: passed, 38 tests.
 - `scripts/check_core_warning_budget.sh`: passed, 0 warnings.
 - `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPad (A16)' build`: passed for iPad (A16), iOS 26.4.1.

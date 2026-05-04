@@ -180,6 +180,10 @@ public final class PlaylistViewModel: ObservableObject {
         }
     }
 
+    public func applyOptimisticDelete(for playlist: Playlist) {
+        playlists.removeAll { $0.id == playlist.id }
+    }
+
     public func createPlaylist(title: String, serverSourceKey: String) async -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -721,6 +725,46 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             playlist = previousPlaylist
             self.error = error.localizedDescription
             return false
+        }
+    }
+
+    @discardableResult
+    public func renamePlaylist(
+        toTrimmedTitle trimmed: String,
+        using workflow: PlaylistMutationWorkflow,
+        scope: PlaylistMutationToastScope = .playlist
+    ) async throws -> PlaylistRenameWorkflowResult {
+        let previousPlaylist = playlist
+        playlist = Playlist(
+            id: playlist.id,
+            key: playlist.key,
+            title: trimmed,
+            summary: playlist.summary,
+            isSmart: playlist.isSmart,
+            trackCount: playlist.trackCount,
+            duration: playlist.duration,
+            compositePath: playlist.compositePath,
+            dateAdded: playlist.dateAdded,
+            dateModified: Date(),
+            lastPlayed: playlist.lastPlayed,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )
+        error = nil
+
+        do {
+            let result = try await workflow.finishRename(
+                playlist: playlist,
+                trimmedTitle: trimmed,
+                scope: scope
+            )
+            if result.outcome == .completed {
+                await loadTracks()
+            }
+            return result
+        } catch {
+            playlist = previousPlaylist
+            self.error = error.localizedDescription
+            throw error
         }
     }
 

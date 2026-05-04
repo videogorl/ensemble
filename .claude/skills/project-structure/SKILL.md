@@ -167,6 +167,7 @@ Sources/
 |   +-- LocalNetworkPermissionProbe.swift # Local-network permission prompt helper used during account onboarding
 |   +-- SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
 |   +-- PlaylistMutationController.swift # Playlist create/rename/delete/replace control-flow seam extracted from SyncCoordinator
+|   +-- PlaylistMutationWorkflow.swift # Shared playlist rename/delete mutation workflow, outcome, and toast payload policy
 |   +-- PlaylistActionService.swift    # Shared add-to-playlist source compatibility, default-server, dedupe, and source-stamping rules
 |   +-- PlaylistDropResolver.swift     # Shared media-reference resolver for playlist drag/drop copy-add flows
 |   +-- MediaFilterEngine.swift        # Shared media filter rules for library, detail, playlist, and favorites surfaces
@@ -300,6 +301,7 @@ Tests/
 +-- LyricsServiceTests.swift           # LRC parser timestamp parsing + line lookup coverage
 +-- PlaylistActionServiceTests.swift  # Add-to-playlist source compatibility and dedupe coverage
 +-- PlaylistDropResolverTests.swift   # Playlist drag/drop target validation, expansion, dedupe, and source rejection coverage
++-- PlaylistMutationWorkflowTests.swift # Shared playlist rename/delete workflow and toast payload coverage
 +-- MediaFilterEngineTests.swift      # Shared media filter configurations and parity coverage
 +-- MediaFormattersTests.swift        # Shared media duration/byte formatting coverage
 +-- MediaSourceIdentityTests.swift    # Source-key parsing and server comparison coverage

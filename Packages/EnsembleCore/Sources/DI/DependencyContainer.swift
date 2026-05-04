@@ -55,6 +55,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let offlineDownloadService: OfflineDownloadService
     public let lyricsService: LyricsService
     public let mutationCoordinator: MutationCoordinator
+    public let playlistMutationWorkflow: PlaylistMutationWorkflow
     public let metadataMutationService: MetadataMutationService
     public let songLinkService: SongLinkService
     public let shareService: ShareService
@@ -153,6 +154,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let offlineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinator
         let offlineDownloadService: OfflineDownloadService
         let mutationCoordinator: MutationCoordinator
+        let playlistMutationWorkflow: PlaylistMutationWorkflow
         let metadataMutationService: MetadataMutationService
     }
 
@@ -232,6 +234,7 @@ public final class DependencyContainer: @unchecked Sendable {
         offlineBackgroundExecutionCoordinator = mutation.offlineBackgroundExecutionCoordinator
         offlineDownloadService = mutation.offlineDownloadService
         mutationCoordinator = mutation.mutationCoordinator
+        playlistMutationWorkflow = mutation.playlistMutationWorkflow
         metadataMutationService = mutation.metadataMutationService
 
         siriMediaIndexStore = siri.siriMediaIndexStore
@@ -439,6 +442,9 @@ public final class DependencyContainer: @unchecked Sendable {
                 syncCoordinator: sync.syncCoordinator
             )
         }
+        let playlistMutationWorkflow = MainActor.assumeIsolated {
+            PlaylistMutationWorkflow(mutator: mutationCoordinator)
+        }
         let metadataMutationService = MainActor.assumeIsolated {
             MetadataMutationService(
                 libraryRepository: core.libraryRepository,
@@ -472,6 +478,7 @@ public final class DependencyContainer: @unchecked Sendable {
             offlineBackgroundExecutionCoordinator: offlineBackgroundExecutionCoordinator,
             offlineDownloadService: offlineDownloadService,
             mutationCoordinator: mutationCoordinator,
+            playlistMutationWorkflow: playlistMutationWorkflow,
             metadataMutationService: metadataMutationService
         )
     }

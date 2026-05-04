@@ -912,41 +912,35 @@ public struct SidebarView: View {
     }
 
     private func startPinnedPlaylistDelete(for playlist: Playlist) {
-        guard !playlist.isSmart else { return }
+        guard let start = deps.playlistMutationWorkflow.beginDelete(
+            playlist: playlist,
+            scope: .sidebarPlaylist
+        ) else { return }
 
-        let deletingToast = ToastPayload(
-            style: .info,
-            iconSystemName: "trash",
-            title: "Deleting \(playlist.title)...",
-            isPersistent: true,
-            dedupeKey: "sidebar-playlist-delete-pending-\(playlist.id)",
-            showsActivityIndicator: true
-        )
+        let deletingToast = start.pendingToast
         deps.toastCenter.show(deletingToast)
 
         Task {
-            let didDelete = await playlistsVM.deletePlaylist(playlist)
-            deps.toastCenter.dismiss(id: deletingToast.id)
+            do {
+                let result = try await deps.playlistMutationWorkflow.finishDelete(
+                    playlist: playlist,
+                    scope: .sidebarPlaylist
+                )
+                if result.outcome == .queued {
+                    playlistsVM.applyOptimisticDelete(for: playlist)
+                }
 
-            if didDelete {
                 handlePinnedSelectionRemoval(ids: [playlist.id], fallback: .library(.playlists))
                 pinManager.unpin(id: playlist.id)
+                deps.toastCenter.dismiss(id: deletingToast.id)
+                deps.toastCenter.show(result.successToast)
+            } catch {
+                deps.toastCenter.dismiss(id: deletingToast.id)
                 deps.toastCenter.show(
-                    ToastPayload(
-                        style: .success,
-                        iconSystemName: "checkmark.circle.fill",
-                        title: "Deleted \(playlist.title)",
-                        dedupeKey: "sidebar-playlist-delete-success-\(playlist.id)"
-                    )
-                )
-            } else {
-                deps.toastCenter.show(
-                    ToastPayload(
-                        style: .error,
-                        iconSystemName: "xmark.octagon.fill",
-                        title: "Could not delete \(playlist.title)",
-                        message: playlistsVM.error ?? "Try again later.",
-                        dedupeKey: "sidebar-playlist-delete-error-\(playlist.id)"
+                    deps.playlistMutationWorkflow.deleteFailureToast(
+                        playlist: playlist,
+                        error: error,
+                        scope: .sidebarPlaylist
                     )
                 )
             }
@@ -954,48 +948,42 @@ public struct SidebarView: View {
     }
 
     private func renamePinnedPlaylist(_ playlist: Playlist, to newTitle: String) {
-        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard let start = deps.playlistMutationWorkflow.beginRename(
+            playlist: playlist,
+            to: newTitle,
+            scope: .sidebarPlaylist
+        ) else { return }
 
-        let renamingToast = ToastPayload(
-            style: .info,
-            iconSystemName: "pencil",
-            title: "Renaming \(playlist.title)...",
-            isPersistent: true,
-            dedupeKey: "sidebar-playlist-rename-pending-\(playlist.id)",
-            showsActivityIndicator: true
-        )
-        playlistsVM.applyOptimisticRename(for: playlist, newTitle: trimmed)
+        let renamingToast = start.pendingToast
+        playlistsVM.applyOptimisticRename(for: playlist, newTitle: start.trimmedTitle)
         deps.toastCenter.show(renamingToast)
 
         Task {
             do {
-                let outcome = try await deps.mutationCoordinator.renamePlaylist(playlist, to: trimmed)
-                if outcome == .completed {
-                    await playlistsVM.awaitRenamedPlaylistMaterialization(for: playlist.id, expectedTitle: trimmed)
-                    pinManager.updateTitle(id: playlist.id, title: trimmed)
+                let result = try await deps.playlistMutationWorkflow.finishRename(
+                    playlist: playlist,
+                    trimmedTitle: start.trimmedTitle,
+                    scope: .sidebarPlaylist
+                )
+                if result.outcome == .completed {
+                    await playlistsVM.awaitRenamedPlaylistMaterialization(
+                        for: playlist.id,
+                        expectedTitle: start.trimmedTitle
+                    )
+                    pinManager.updateTitle(id: playlist.id, title: start.trimmedTitle)
                 }
 
                 deps.toastCenter.dismiss(id: renamingToast.id)
-                deps.toastCenter.show(
-                    ToastPayload(
-                        style: outcome == .queued ? .info : .success,
-                        iconSystemName: outcome == .queued ? EnsembleDesign.Icon.recentPlaylist : EnsembleDesign.Icon.editCircleFilled,
-                        title: outcome == .queued ? "Rename queued — will sync when online" : "Renamed playlist",
-                        dedupeKey: "sidebar-playlist-rename-success-\(playlist.id)"
-                    )
-                )
+                deps.toastCenter.show(result.successToast)
             } catch {
                 playlistsVM.clearOptimisticRename(for: playlist.id)
                 await playlistsVM.loadPlaylists()
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
-                    ToastPayload(
-                        style: .error,
-                        iconSystemName: "xmark.octagon.fill",
-                        title: "Could not rename playlist",
-                        message: error.localizedDescription,
-                        dedupeKey: "sidebar-playlist-rename-error-\(playlist.id)"
+                    deps.playlistMutationWorkflow.renameFailureToast(
+                        playlist: playlist,
+                        error: error,
+                        scope: .sidebarPlaylist
                     )
                 )
             }
