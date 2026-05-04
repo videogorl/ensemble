@@ -478,6 +478,6 @@ final class SyncExecutionController {
     }
 
     private func serverSourceKey(for source: MusicSourceIdentifier) -> String {
-        "\(source.type.rawValue):\(source.accountId):\(source.serverId)"
+        MediaSourceIdentity.serverSourceKey(for: source)
     }
 }

@@ -138,6 +138,8 @@ Sources/
 |   +-- DisplayPlaylist.swift          # Merge-aware playlist wrapper (single or multi-server merged)
 |   +-- DomainModels.swift             # UI-facing models (Track, Album, Artist, Hub, etc.)
 |   +-- ModelMappers.swift             # CD* <-> Domain model conversions
+|   +-- MediaFormatters.swift          # Shared duration/byte display formatting helpers
+|   +-- MediaSourceIdentity.swift      # Shared source-key parsing and server-scope comparison helpers
 |   +-- MusicSource.swift              # Multi-account source identification
 |   +-- PlexAccountConfig.swift        # Account/server/library configuration + SyncableAccountCredential, SyncableServerCredential, SyncableLibraryRef models
 |   +-- SiriIntentPayload.swift        # Siri extension->app payload codec + schema
@@ -282,6 +284,8 @@ Tests/
 +-- SongLinkServiceTests.swift         # Song.link URL resolution + caching + fallback tests
 +-- ShareServiceTests.swift            # Share payload assembly + file detection tests
 +-- LyricsServiceTests.swift           # LRC parser timestamp parsing + line lookup coverage
++-- MediaFormattersTests.swift        # Shared media duration/byte formatting coverage
++-- MediaSourceIdentityTests.swift    # Source-key parsing and server comparison coverage
 +-- UserProfileTests.swift            # Unit tests for UserProfile model
 +-- SyncSettingsManagerTests.swift    # Unit tests for SyncSettingsManager toggle logic + dependency cascade
 +-- PinManagerSyncTests.swift         # Unit tests for PinManager merge logic (union, remote-wins conflict)

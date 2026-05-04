@@ -756,16 +756,16 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public var formattedCurrentTime: String {
-        formatTime(currentTime)
+        MediaFormatters.trackClock(currentTime)
     }
 
     public var formattedDuration: String {
-        formatTime(duration)
+        MediaFormatters.trackClock(duration)
     }
 
     public var formattedRemainingTime: String {
         let remaining = max(0, scrubberDuration - currentTime)
-        return "-" + formatTime(remaining)
+        return MediaFormatters.negativeTrackClock(remaining)
     }
     
     /// Queue split into sections for UI display
@@ -1508,17 +1508,8 @@ public final class NowPlayingViewModel: ObservableObject {
 
     // MARK: - Helpers
 
-    private func formatTime(_ time: TimeInterval) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-
     private func serverSourceKey(from sourceCompositeKey: String?) -> String? {
-        guard let sourceCompositeKey else { return nil }
-        let components = sourceCompositeKey.split(separator: ":")
-        guard components.count >= 3 else { return nil }
-        return "\(components[0]):\(components[1]):\(components[2])"
+        MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey)
     }
 
     private func trackWithSourceCompositeKey(_ track: Track, sourceCompositeKey: String) -> Track {

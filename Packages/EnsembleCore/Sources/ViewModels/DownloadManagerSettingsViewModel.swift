@@ -33,10 +33,7 @@ public struct QualitySizeEstimates {
     }
 
     private static func formatBytes(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useMB, .useGB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
+        MediaFormatters.bytes(bytes)
     }
 }
 

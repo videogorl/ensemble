@@ -1856,9 +1856,7 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private static func serverSourceKey(fromLibrarySourceKey sourceCompositeKey: String) -> String? {
-        let parts = sourceCompositeKey.split(separator: ":")
-        guard parts.count >= 3 else { return nil }
-        return "\(parts[0]):\(parts[1]):\(parts[2])"
+        MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey)
     }
 
     public static func targetKey(

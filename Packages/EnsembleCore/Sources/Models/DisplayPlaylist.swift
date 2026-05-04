@@ -45,13 +45,7 @@ public struct DisplayPlaylist: Identifiable, Equatable {
 
     /// Formatted total duration string
     public var formattedDuration: String {
-        let totalSeconds = Int(duration)
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        if hours > 0 {
-            return "\(hours) hr \(minutes) min"
-        }
-        return "\(minutes) min"
+        MediaFormatters.collectionDuration(duration)
     }
 
     // MARK: - Initialization

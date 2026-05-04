@@ -1504,10 +1504,7 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Convert a library-level source key (`plex:account:server:library`) into server-level key (`plex:account:server`).
     private func serverSourceKey(from sourceCompositeKey: String?) -> String? {
-        guard let sourceCompositeKey else { return nil }
-        let components = sourceCompositeKey.split(separator: ":")
-        guard components.count >= 3 else { return nil }
-        return "\(components[0]):\(components[1]):\(components[2])"
+        MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey)
     }
 
     private func parseServerSourceKey(_ key: String) -> ParsedServerSource? {

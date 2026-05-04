@@ -136,9 +136,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
     }
 
     public var formattedDuration: String {
-        let minutes = Int(duration) / 60
-        let seconds = Int(duration) % 60
-        return String(format: "%d:%02d", minutes, seconds)
+        MediaFormatters.trackClock(duration)
     }
 
     private static func normalizedTrackTitle(
@@ -492,12 +490,7 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
     }
 
     public var formattedDuration: String {
-        let hours = Int(duration) / 3600
-        let minutes = (Int(duration) % 3600) / 60
-        if hours > 0 {
-            return "\(hours) hr \(minutes) min"
-        }
-        return "\(minutes) min"
+        MediaFormatters.collectionDuration(duration)
     }
 
     // Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
