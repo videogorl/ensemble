@@ -96,8 +96,9 @@ final class EnsembleUITests: XCTestCase {
             externalFileProvider: { tempURL }
         )
 
-        XCTAssertEqual(provider.suggestedName, "05. Track - Artist.mp3")
+        XCTAssertEqual(provider.suggestedName, "05. Track - Artist")
         XCTAssertTrue(provider.hasItemConformingToTypeIdentifier(UTType.audio.identifier))
+        XCTAssertTrue(provider.hasItemConformingToTypeIdentifier(UTType(filenameExtension: "mp3")!.identifier))
         let decoded = await MediaDragPayload.load(from: [provider])
         XCTAssertEqual(decoded, MediaDragPayload.track(track))
     }
@@ -113,8 +114,9 @@ final class EnsembleUITests: XCTestCase {
 
         let provider = MediaDragPayload.trackItemProvider(for: track)
 
-        XCTAssertEqual(provider.suggestedName, "Lossless - Artist.flac")
+        XCTAssertEqual(provider.suggestedName, "Lossless - Artist")
         XCTAssertTrue(provider.hasItemConformingToTypeIdentifier(UTType.audio.identifier))
+        XCTAssertTrue(provider.hasItemConformingToTypeIdentifier(UTType(filenameExtension: "flac")!.identifier))
         XCTAssertTrue(MediaDragPayload.canLoad(from: [provider]))
     }
 

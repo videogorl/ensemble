@@ -98,7 +98,7 @@ struct MediaDragPayload: Codable, Equatable {
             externalFileProvider: externalFileProvider,
             externalFileTypeIdentifier: fileTypeIdentifier(for: exportMetadata)
         )
-        provider.suggestedName = exportMetadata.fileName
+        provider.suggestedName = exportMetadata.sanitizedBaseName
         return provider
     }
 
