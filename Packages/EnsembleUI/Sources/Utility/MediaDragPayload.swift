@@ -82,30 +82,37 @@ struct MediaDragPayload: Codable, Equatable {
     }
 
     static func trackItemProvider(for track: Track, shareService: ShareService) -> NSItemProvider {
+        trackItemProvider(for: track) { [shareService, track] in
+            await shareService.prepareTrackFileURL(track: track)
+        }
+    }
+
+    static func trackItemProvider(
+        for track: Track,
+        externalFileProvider: (@MainActor () async -> URL?)? = nil
+    ) -> NSItemProvider {
         let fileURL = track.localFilePath.map(URL.init(fileURLWithPath:))
+        let exportMetadata = TrackFileExportMetadata(track: track)
         let provider = MediaDragPayload.track(track).itemProvider(
             fallbackFileURL: fileURL,
-            externalFileProvider: { [shareService, track] in
-                await shareService.prepareTrackFileURL(track: track)
-            }
+            externalFileProvider: externalFileProvider,
+            externalFileTypeIdentifier: fileTypeIdentifier(for: exportMetadata)
         )
-        if let artist = track.artistName {
-            provider.suggestedName = "\(artist) - \(track.title)"
-        } else {
-            provider.suggestedName = track.title
-        }
+        provider.suggestedName = exportMetadata.fileName
         return provider
     }
 
     func itemProvider(
         fallbackFileURL: URL? = nil,
-        externalFileProvider: (@MainActor () async -> URL?)? = nil
+        externalFileProvider: (@MainActor () async -> URL?)? = nil,
+        externalFileTypeIdentifier: String = UTType.audio.identifier
     ) -> NSItemProvider {
         let provider = NSItemProvider()
         registerExternalFileRepresentation(
             on: provider,
             fallbackFileURL: fallbackFileURL,
-            externalFileProvider: externalFileProvider
+            externalFileProvider: externalFileProvider,
+            fileTypeIdentifier: externalFileTypeIdentifier
         )
 
         if let data = encodedData() {
@@ -135,10 +142,11 @@ struct MediaDragPayload: Codable, Equatable {
     #if os(macOS)
     static func trackPasteboardWriter(for track: Track, shareService: ShareService) -> NSPasteboardWriting? {
         let fileURL = track.localFilePath.map(URL.init(fileURLWithPath:))
+        let exportMetadata = TrackFileExportMetadata(track: track)
         return MediaDragPayload.track(track).filePromisePasteboardWriter(
             fallbackFileURL: fileURL,
-            promisedFileName: promisedTrackFileName(for: track, fallbackFileURL: fileURL),
-            fileTypeIdentifier: promisedTrackFileTypeIdentifier(fallbackFileURL: fileURL),
+            promisedFileName: exportMetadata.fileName,
+            fileTypeIdentifier: fileTypeIdentifier(for: exportMetadata),
             fileURLProvider: { [shareService, track] in
                 await shareService.prepareTrackFileURL(track: track)
             }
@@ -220,12 +228,13 @@ struct MediaDragPayload: Codable, Equatable {
     private func registerExternalFileRepresentation(
         on provider: NSItemProvider,
         fallbackFileURL: URL?,
-        externalFileProvider: (@MainActor () async -> URL?)?
+        externalFileProvider: (@MainActor () async -> URL?)?,
+        fileTypeIdentifier: String
     ) {
         guard fallbackFileURL != nil || externalFileProvider != nil else { return }
 
         provider.registerFileRepresentation(
-            forTypeIdentifier: UTType.audio.identifier,
+            forTypeIdentifier: fileTypeIdentifier,
             fileOptions: [],
             visibility: .all
         ) { completion in
@@ -271,37 +280,11 @@ struct MediaDragPayload: Codable, Equatable {
         )
     }
 
-    #if os(macOS)
-    private static func promisedTrackFileName(for track: Track, fallbackFileURL: URL?) -> String {
-        var name = ""
-        if track.trackNumber > 0 {
-            name += String(format: "%02d. ", track.trackNumber)
-        }
-        name += track.title
-        if let artist = track.artistName {
-            name += " - \(artist)"
-        }
-
-        let ext = fallbackFileURL.flatMap { url in
-            url.pathExtension.isEmpty ? nil : url.pathExtension
-        } ?? "mp3"
-        return sanitizedFilename(name).appending(".\(ext)")
+    private static func fileTypeIdentifier(for exportMetadata: TrackFileExportMetadata) -> String {
+        UTType(filenameExtension: exportMetadata.fileExtension)?.identifier ??
+            UTType(filenameExtension: "mp3")?.identifier ??
+            UTType.audio.identifier
     }
-
-    private static func promisedTrackFileTypeIdentifier(fallbackFileURL: URL?) -> String {
-        if let ext = fallbackFileURL?.pathExtension,
-           !ext.isEmpty,
-           let type = UTType(filenameExtension: ext) {
-            return type.identifier
-        }
-        return UTType(filenameExtension: "mp3")?.identifier ?? UTType.audio.identifier
-    }
-
-    private static func sanitizedFilename(_ name: String) -> String {
-        let invalidChars = CharacterSet(charactersIn: "/\\:*?\"<>|")
-        return name.components(separatedBy: invalidChars).joined(separator: "_")
-    }
-    #endif
 
     private static func loadData(from provider: NSItemProvider, typeIdentifier: String) async -> Data? {
         await withCheckedContinuation { continuation in

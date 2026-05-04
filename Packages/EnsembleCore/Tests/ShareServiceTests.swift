@@ -112,6 +112,66 @@ final class ShareServiceTests: XCTestCase {
         XCTAssertNil(track.localFilePath)
     }
 
+    func testTrackFileExportMetadataDefaultsExtensionlessTrackToMP3() {
+        let track = Track(
+            id: "1",
+            key: "/library/metadata/1",
+            title: "Extensionless",
+            artistName: "Artist",
+            trackNumber: 5,
+            localFilePath: "/tmp/cache/audio-file"
+        )
+
+        let metadata = TrackFileExportMetadata(track: track)
+
+        XCTAssertEqual(metadata.fileExtension, "mp3")
+        XCTAssertEqual(metadata.fileName, "05. Extensionless - Artist.mp3")
+    }
+
+    func testTrackFileExportMetadataPrefersLocalExtension() {
+        let track = Track(
+            id: "1",
+            key: "/library/metadata/1",
+            title: "Lossless",
+            artistName: "Artist",
+            streamKey: "/library/parts/1/file.mp3",
+            localFilePath: "/tmp/cache/audio-file.FLAC"
+        )
+
+        let metadata = TrackFileExportMetadata(track: track)
+
+        XCTAssertEqual(metadata.fileExtension, "flac")
+        XCTAssertEqual(metadata.fileName, "Lossless - Artist.flac")
+    }
+
+    func testTrackFileExportMetadataFallsBackToStreamExtension() {
+        let track = Track(
+            id: "1",
+            key: "/library/metadata/1",
+            title: "Remote",
+            streamKey: "/library/parts/1/Remote%20Track.m4a?download=1"
+        )
+
+        let metadata = TrackFileExportMetadata(track: track)
+
+        XCTAssertEqual(metadata.fileExtension, "m4a")
+        XCTAssertEqual(metadata.fileName, "Remote.m4a")
+    }
+
+    func testTrackFileExportMetadataSanitizesFilename() {
+        let track = Track(
+            id: "1",
+            key: "/library/metadata/1",
+            title: "A/B:C?",
+            artistName: "Artist|Name",
+            streamKey: "/library/parts/1/file.mp3"
+        )
+
+        let metadata = TrackFileExportMetadata(track: track)
+
+        XCTAssertEqual(metadata.fileName, "A_B_C_ - Artist_Name.mp3")
+    }
+
     // MARK: - NoOp Searcher Fallback
 
     func testNoOpSearcher_producesTextFallback() async {

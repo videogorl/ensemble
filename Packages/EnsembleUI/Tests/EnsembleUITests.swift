@@ -78,6 +78,46 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: loadedURL.path))
     }
 
+    func testTrackItemProviderDefaultsExtensionlessExportNameToMP3() async throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try Data("audio".utf8).write(to: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let track = Track(
+            id: "track-1",
+            key: "/tracks/1",
+            title: "Track",
+            artistName: "Artist",
+            trackNumber: 5
+        )
+        let provider = MediaDragPayload.trackItemProvider(
+            for: track,
+            externalFileProvider: { tempURL }
+        )
+
+        XCTAssertEqual(provider.suggestedName, "05. Track - Artist.mp3")
+        XCTAssertTrue(provider.hasItemConformingToTypeIdentifier(UTType.audio.identifier))
+        let decoded = await MediaDragPayload.load(from: [provider])
+        XCTAssertEqual(decoded, MediaDragPayload.track(track))
+    }
+
+    func testTrackItemProviderKeepsLocalFileExtensionInSuggestedName() {
+        let track = Track(
+            id: "track-1",
+            key: "/tracks/1",
+            title: "Lossless",
+            artistName: "Artist",
+            localFilePath: "/tmp/cache/lossless.FLAC"
+        )
+
+        let provider = MediaDragPayload.trackItemProvider(for: track)
+
+        XCTAssertEqual(provider.suggestedName, "Lossless - Artist.flac")
+        XCTAssertTrue(provider.hasItemConformingToTypeIdentifier(UTType.audio.identifier))
+        XCTAssertTrue(MediaDragPayload.canLoad(from: [provider]))
+    }
+
     func testMediaDragPayloadLoadsJSONFallback() async throws {
         let track = Track(id: "track-1", key: "/tracks/1", title: "Track")
         let expected = MediaDragPayload.track(track)
@@ -124,11 +164,18 @@ final class EnsembleUITests: XCTestCase {
         let types = writer.writableTypes(for: pasteboard)
         let customType = NSPasteboard.PasteboardType(MediaDragPayload.typeIdentifier)
         let promiseContentType = NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-content-type")
+        let promisedFileNameType = NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-name")
+        let promisedSuggestedFileNameType = NSPasteboard.PasteboardType("com.apple.pasteboard.promised-suggested-file-name")
 
         XCTAssertTrue(types.contains(customType))
         XCTAssertTrue(types.contains(promiseContentType))
         XCTAssertFalse(types.contains(NSPasteboard.PasteboardType(UTType.json.identifier)))
         XCTAssertFalse(types.contains(.string))
+        XCTAssertTrue(
+            [promisedFileNameType, promisedSuggestedFileNameType].contains { type in
+                writer.pasteboardPropertyList(forType: type) as? String == "Track.mp3"
+            }
+        )
 
         let data = try XCTUnwrap(writer.pasteboardPropertyList(forType: customType) as? Data)
         let decoded = try JSONDecoder().decode(MediaDragPayload.self, from: data)
