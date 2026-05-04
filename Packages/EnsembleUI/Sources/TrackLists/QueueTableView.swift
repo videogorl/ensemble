@@ -659,21 +659,16 @@ public struct QueueTableView: UIViewRepresentable {
                 recentPlaylistTitle: self.recentPlaylistTitle
             )
             let resolvedActions = interactionModel.resolve(for: track)
-            let extraBottomActions: [UIAction]
-            if let absoluteIndex {
-                extraBottomActions = [
-                    UIAction(title: "Remove from Queue", image: UIImage(systemName: EnsembleDesign.Icon.delete), attributes: .destructive) { [weak self] _ in
-                        self?.onRemoveFromQueue(absoluteIndex)
-                    }
-                ]
-            } else {
-                extraBottomActions = []
-            }
 
             return NativeMediaTableActionBuilder.contextMenu(
                 for: track,
                 resolvedActions: resolvedActions,
-                extraBottomActions: extraBottomActions
+                context: absoluteIndex == nil ? .history : .queue(canRemove: true),
+                onRemoveFromQueue: absoluteIndex.map { index in
+                    { [weak self] in
+                        self?.onRemoveFromQueue(index)
+                    }
+                }
             )
         }
         

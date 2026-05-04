@@ -295,86 +295,55 @@ public struct TrackRow: View {
 
     @ViewBuilder
     private var contextMenuItems: some View {
-        Section {
-            if let onPlayNext = onPlayNext {
-                Button(action: onPlayNext) {
-                    MediaActionLabel(kind: .playNext)
-                }
-            }
-            if let onPlayLast = onPlayLast {
-                Button(action: onPlayLast) {
-                    MediaActionLabel(kind: .playLast)
-                }
-            }
-        }
-
-        Section {
-            Button {
-                // Context-menu initiated editor presentation can be swallowed
-                // when triggered before the menu dismiss animation completes.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    DispatchQueue.main.async {
-                        isEditingMetadata = true
+        SwiftUIMediaMenuRenderer(
+            sections: MediaMenuCatalog.sections(
+                for: .track,
+                context: .library,
+                availability: MediaMenuAvailability(
+                    hasRecentPlaylist: onAddToRecentPlaylist != nil && recentPlaylistTitle != nil,
+                    canAddToRecentPlaylist: true,
+                    canGoToAlbum: onGoToAlbum != nil && track.albumRatingKey != nil,
+                    canGoToArtist: onGoToArtist != nil && track.artistRatingKey != nil,
+                    canShareLink: onShareLink != nil,
+                    canShareAudioFile: onShareFile != nil,
+                    canFavorite: onToggleFavorite != nil,
+                    canDownload: false,
+                    canPin: false,
+                    canEditMetadata: true,
+                    canDelete: true,
+                    canRename: false,
+                    canEditPlaylist: false,
+                    canRemoveFromQueue: false
+                )
+            ),
+            state: MediaMenuState(
+                recentPlaylistTitle: recentPlaylistTitle,
+                isFavorited: effectiveIsFavorited
+            ),
+            handlers: MediaMenuHandlers(
+                playNext: onPlayNext,
+                playLast: onPlayLast,
+                addToRecentPlaylist: onAddToRecentPlaylist,
+                addToPlaylist: onAddToPlaylist,
+                goToAlbum: onGoToAlbum,
+                goToArtist: onGoToArtist,
+                editMetadata: {
+                    // Context-menu initiated editor presentation can be swallowed
+                    // when triggered before the menu dismiss animation completes.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        DispatchQueue.main.async {
+                            isEditingMetadata = true
+                        }
                     }
+                },
+                favorite: onToggleFavorite,
+                shareLink: onShareLink,
+                shareAudioFile: onShareFile,
+                deleteTrack: {
+                    isConfirmingDelete = true
                 }
-            } label: {
-                MediaActionLabel(kind: .editMetadata)
-            }
-
-            if let onGoToAlbum = onGoToAlbum, track.albumRatingKey != nil {
-                Button(action: onGoToAlbum) {
-                    MediaActionLabel(kind: .goToAlbum)
-                }
-            }
-            if let onGoToArtist = onGoToArtist, track.artistRatingKey != nil {
-                Button(action: onGoToArtist) {
-                    MediaActionLabel(kind: .goToArtist)
-                }
-            }
-        }
-
-        Section {
-            if let onAddToRecentPlaylist = onAddToRecentPlaylist,
-               let recentPlaylistTitle {
-                Button(action: onAddToRecentPlaylist) {
-                    MediaActionLabel(kind: .addToRecentPlaylist(recentPlaylistTitle))
-                }
-            }
-            if let onAddToPlaylist = onAddToPlaylist {
-                Button(action: onAddToPlaylist) {
-                    MediaActionLabel(kind: .addToPlaylist)
-                }
-            }
-            if let onToggleFavorite = onToggleFavorite {
-                Button(action: onToggleFavorite) {
-                    MediaActionLabel(kind: .favorite(isFavorited: effectiveIsFavorited, usesFilledIcon: false))
-                }
-            }
-        }
-
-        // Share actions
-        if onShareLink != nil || onShareFile != nil {
-            Section {
-                if let onShareLink = onShareLink {
-                    Button(action: onShareLink) {
-                        MediaActionLabel(kind: .shareLink)
-                    }
-                }
-                if let onShareFile = onShareFile {
-                    Button(action: onShareFile) {
-                        MediaActionLabel(kind: .shareAudioFile)
-                    }
-                }
-            }
-        }
-
-        Section {
-            Button(role: .destructive) {
-                isConfirmingDelete = true
-            } label: {
-                MediaActionLabel(kind: .deleteTrack)
-            }
-        }
+            )
+        )
     }
 
     /// Whether this track is currently queued or actively downloading.

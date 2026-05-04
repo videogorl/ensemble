@@ -1,3 +1,4 @@
+import EnsembleCore
 import SwiftUI
 
 /// Shared labels for media actions so menus, swipe actions, and toolbar-adjacent controls
@@ -6,6 +7,9 @@ struct MediaActionLabel: View {
     enum Kind {
         case play
         case shuffle
+        case toggleShuffle(isEnabled: Bool)
+        case repeatAll(isEnabled: Bool)
+        case repeatOne(isEnabled: Bool)
         case radio
         case playNext
         case playLast
@@ -21,6 +25,7 @@ struct MediaActionLabel: View {
         case removeDownloads
         case favorite(isFavorited: Bool, usesFilledIcon: Bool)
         case pin(isPinned: Bool)
+        case unpinAll
         case shareLink
         case shareAudioFile
         case removeFromQueue
@@ -43,6 +48,12 @@ struct MediaActionLabel: View {
             return "Play"
         case .shuffle:
             return "Shuffle"
+        case .toggleShuffle(let isEnabled):
+            return isEnabled ? "Turn Shuffle Off" : "Turn Shuffle On"
+        case .repeatAll(let isEnabled):
+            return isEnabled ? "Repeat On" : "Repeat"
+        case .repeatOne(let isEnabled):
+            return isEnabled ? "Repeat One On" : "Repeat One"
         case .radio:
             return "Radio"
         case .playNext:
@@ -73,6 +84,8 @@ struct MediaActionLabel: View {
             return isFavorited ? "Unfavorite" : "Favorite"
         case .pin(let isPinned):
             return isPinned ? "Unpin" : "Pin"
+        case .unpinAll:
+            return "Unpin All"
         case .shareLink:
             return "Share Link…"
         case .shareAudioFile:
@@ -96,8 +109,12 @@ struct MediaActionLabel: View {
         switch kind {
         case .play:
             return EnsembleDesign.Icon.play
-        case .shuffle:
+        case .shuffle, .toggleShuffle:
             return EnsembleDesign.Icon.shuffle
+        case .repeatAll:
+            return RepeatMode.all.icon
+        case .repeatOne:
+            return RepeatMode.one.icon
         case .radio:
             return EnsembleDesign.Icon.radio
         case .playNext:
@@ -129,6 +146,8 @@ struct MediaActionLabel: View {
             return isFavorited ? EnsembleDesign.Icon.favoriteRemove : EnsembleDesign.Icon.favorite
         case .pin(let isPinned):
             return isPinned ? EnsembleDesign.Icon.unpin : EnsembleDesign.Icon.pin
+        case .unpinAll:
+            return EnsembleDesign.Icon.unpin
         case .shareLink:
             return EnsembleDesign.Icon.shareLink
         case .shareAudioFile:

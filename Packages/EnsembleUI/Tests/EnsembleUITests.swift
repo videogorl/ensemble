@@ -386,6 +386,95 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(sections.role(for: .unpinAll), .destructive)
         XCTAssertEqual(sections.actions(in: .management), [.renameAll, .deleteAll])
     }
+
+    func testTrackActionPresentationUsesSharedFavoriteState() {
+        let track = Track(id: "track-1", key: "/tracks/1", title: "Track")
+        let resolved = TrackRowInteractionModel(
+            onPlayNext: { _ in },
+            onToggleFavorite: { _ in },
+            isTrackFavorited: { _ in true }
+        )
+        .resolve(for: track)
+
+        XCTAssertTrue(TrackActionPresentation.isSupported(.playNext, resolvedActions: resolved))
+        XCTAssertTrue(TrackActionPresentation.isSupported(.favoriteToggle, resolvedActions: resolved))
+        XCTAssertEqual(TrackActionPresentation.title(for: .favoriteToggle, resolvedActions: resolved), "Unfavorite")
+        XCTAssertEqual(
+            TrackActionPresentation.systemImage(for: .favoriteToggle, resolvedActions: resolved),
+            EnsembleDesign.Icon.favoriteRemoveFilled
+        )
+        XCTAssertEqual(
+            TrackActionPresentation.confirmationToast(for: .playNext, track: track, dedupeNamespace: "test")?.dedupeKey,
+            "test-swipe-play-next-track-1"
+        )
+    }
+
+    #if os(macOS)
+    func testAppKitTrackContextMenuUsesSharedCatalogOrder() throws {
+        let track = Track(
+            id: "track-1",
+            key: "/tracks/1",
+            title: "Track",
+            artistName: "Artist",
+            albumName: "Album",
+            albumRatingKey: "album-1",
+            artistRatingKey: "artist-1"
+        )
+        let resolved = TrackRowInteractionModel(
+            onPlayNext: { _ in },
+            onPlayLast: { _ in },
+            onAddToPlaylist: { _ in },
+            onAddToRecentPlaylist: { _ in },
+            onToggleFavorite: { _ in },
+            onGoToAlbum: { _ in },
+            onGoToArtist: { _ in },
+            onShareLink: { _ in },
+            onShareFile: { _ in },
+            isTrackFavorited: { _ in false },
+            recentPlaylistTitle: "Road Trip"
+        )
+        .resolve(for: track)
+
+        let menu = try XCTUnwrap(NativeMediaTableActionBuilder.contextMenu(for: track, resolvedActions: resolved))
+        let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+
+        XCTAssertEqual(
+            titles,
+            [
+                "Play Next",
+                "Play Last",
+                "Add to Road Trip",
+                "Add to Playlist…",
+                "Favorite",
+                "Go to Album",
+                "Go to Artist",
+                "Share Link…",
+                "Share Audio File…"
+            ]
+        )
+    }
+
+    func testAppKitQueueContextMenuAddsRemoveFromQueueThroughCatalog() throws {
+        let track = Track(id: "track-1", key: "/tracks/1", title: "Track")
+        let resolved = TrackRowInteractionModel(
+            onPlayNext: { _ in },
+            onPlayLast: { _ in }
+        )
+        .resolve(for: track)
+
+        let menu = try XCTUnwrap(
+            NativeMediaTableActionBuilder.contextMenu(
+                for: track,
+                resolvedActions: resolved,
+                context: .queue(canRemove: true),
+                onRemoveFromQueue: {}
+            )
+        )
+        let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+
+        XCTAssertEqual(titles, ["Play Next", "Play Last", "Remove from Queue"])
+    }
+    #endif
 }
 
 private extension Array where Element == MediaMenuSection {
