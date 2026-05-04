@@ -846,14 +846,17 @@
 /* Begin XCSwiftPackageProductDependency section */
 		E0003000 /* EnsembleUI */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = E0500000 /* XCLocalSwiftPackageReference "Packages/EnsembleUI" */;
 			productName = EnsembleUI;
 		};
 		E0003002 /* EnsembleCore */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = E0500001 /* XCLocalSwiftPackageReference "Packages/EnsembleCore" */;
 			productName = EnsembleCore;
 		};
 		E0003004 /* EnsembleSiriShared */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = E0500002 /* XCLocalSwiftPackageReference "Packages/EnsembleSiriShared" */;
 			productName = EnsembleSiriShared;
 		};
 /* End XCSwiftPackageProductDependency section */
