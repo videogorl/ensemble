@@ -158,6 +158,7 @@ Sources/
 |   +-- PlaylistMutationController.swift # Playlist create/rename/delete/replace control-flow seam extracted from SyncCoordinator
 |   +-- PlaylistActionService.swift    # Shared add-to-playlist source compatibility, default-server, dedupe, and source-stamping rules
 |   +-- PlaylistDropResolver.swift     # Shared media-reference resolver for playlist drag/drop copy-add flows
+|   +-- MediaFilterEngine.swift        # Shared media filter rules for library, detail, playlist, and favorites surfaces
 |   +-- SyncExecutionController.swift  # Full/incremental/startup sync execution seam extracted from SyncCoordinator
 |   +-- RefreshOrchestrator.swift      # Health-refresh gating, cooldown/staleness policy, and startup-health ownership extracted from SyncCoordinator
 |   +-- NetworkLifecycleController.swift # App-foreground and network-transition policy extracted from SyncCoordinator
@@ -288,6 +289,7 @@ Tests/
 +-- LyricsServiceTests.swift           # LRC parser timestamp parsing + line lookup coverage
 +-- PlaylistActionServiceTests.swift  # Add-to-playlist source compatibility and dedupe coverage
 +-- PlaylistDropResolverTests.swift   # Playlist drag/drop target validation, expansion, dedupe, and source rejection coverage
++-- MediaFilterEngineTests.swift      # Shared media filter configurations and parity coverage
 +-- MediaFormattersTests.swift        # Shared media duration/byte formatting coverage
 +-- MediaSourceIdentityTests.swift    # Source-key parsing and server comparison coverage
 +-- UserProfileTests.swift            # Unit tests for UserProfile model

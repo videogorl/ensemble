@@ -682,32 +682,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     // MARK: - Filter Application
     
     private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
-        var filtered = tracks
-
-        // Search text filter
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower) ||
-                ($0.artistName?.lowercased().contains(searchLower) ?? false) ||
-                ($0.albumName?.lowercased().contains(searchLower) ?? false)
-            }
-        }
-
-        // Genre filter (include and exclude)
-        if !options.selectedGenres.isEmpty {
-            filtered = filtered.filter { !options.selectedGenres.isDisjoint(with: $0.genres) }
-        }
-        if !options.excludedGenres.isEmpty {
-            filtered = filtered.filter { !$0.genres.isEmpty && options.excludedGenres.isDisjoint(with: $0.genres) }
-        }
-
-        // Downloaded only filter
-        if options.showDownloadedOnly {
-            filtered = filtered.filter { $0.isDownloaded }
-        }
-
-        return filtered
+        MediaFilterEngine.filterTracks(tracks, with: options, configuration: .playlistDetail)
     }
 
     @discardableResult

@@ -204,15 +204,16 @@ struct MyDetailLoader: View {
 // In ViewModel
 @Published var filterOptions = FilterOptions()
 
-var filteredItems: [Item] {
-    items.filter { filterOptions.matches($0) }
-         .sorted(by: filterOptions.sortComparator)
+var filteredTracks: [Track] {
+    MediaFilterEngine.filterTracks(items, with: filterOptions, configuration: .library)
 }
 
 // Load/save persisted filters
-FilterPersistence.load(key: "myViewFilter")
-FilterPersistence.save(filterOptions, key: "myViewFilter")
+FilterPersistence.load(for: "MyView")
+FilterPersistence.save(filterOptions, for: "MyView")
 ```
+
+Use `MediaFilterEngine` instead of reimplementing search, genre, download, year, or artist filters in views or ViewModels. Pick an existing named configuration (`.library`, `.playlistDetail`, `.favorites`, `.albumDetail`, `.artistDetail`) or add a tested configuration when a surface intentionally differs. Keep expensive filtering/sorting out of SwiftUI body computation; cache results through a Combine pipeline when the source list can be large.
 
 ## Working with Playlist Mutations
 

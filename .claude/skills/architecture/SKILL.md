@@ -78,6 +78,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - Delegates API-client endpoint synchronization and registry observation to `ServerConnectionController` so sync flow no longer owns registry subscription tasks directly
 - `PlaylistActionService` -- Shared add-to-playlist source compatibility rules used by Now Playing and UI presentation wrappers; owns server-key normalization, cross-source filtering, dedupe, and source stamping for unknown-source tracks before playlist mutation calls
 - `PlaylistDropResolver` / `MediaTrackResolver` -- Shared media drag/drop resolution for playlist copy/add flows; owns stable media-reference matching, album/playlist expansion policy, smart/merged target rejection, source compatibility, and track dedupe before UI calls playlist mutation APIs
+- `MediaFilterEngine` -- Shared library/detail/favorites filter rules with named configurations for intentional search-field and genre-filter differences across surfaces
 - `NavigationCoordinator` (@MainActor) -- Manages cross-view navigation state (artist/album deep links from NowPlayingView)
   - Maintains per-tab navigation paths (homePath, artistsPath, etc.)
   - `visibleTabs: [TabItem]` -- Synced from MainTabView to enable fallback logic
