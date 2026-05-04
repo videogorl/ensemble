@@ -1,29 +1,14 @@
+import EnsembleSiriShared
 import Foundation
 import Intents
 import os
 
 public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
-    private static let appGroupIdentifier = "group.com.videogorl.ensemble"
-    private static let indexFilename = "siri-media-index.json"
     private static let activityType = "com.videogorl.ensemble.siri.playmedia"
     private static let payloadUserInfoKey = "siriPlaybackPayload"
     private static let currentPayloadSchemaVersion = 1
     private static let disambiguationThreshold = 0.1
     private static let payloadResolutionThreshold = 0.66
-    private static let appNameSuffixes = [" ensemble music", " ensemble"]
-    private static let trailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
-    private static let leadingMediaTypePrefixes = [
-        "the playlist ",
-        "playlist ",
-        "the album ",
-        "album ",
-        "the artist ",
-        "artist ",
-        "the song ",
-        "song ",
-        "the track ",
-        "track "
-    ]
     private let logger = Logger(
         subsystem: "com.videogorl.ensemble.siri-intents",
         category: "PlayMediaIntentHandler"
@@ -118,7 +103,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
     private func writePendingPayloadToAppGroup(_ payload: SiriPayloadIdentifier) {
         guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
+            forSecurityApplicationGroupIdentifier: SiriSharedConstants.appGroupIdentifier
         ) else {
             os_log(.error, "SIRI_EXT: Failed to get App Group container")
             return
@@ -361,29 +346,11 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     private func scoreMatch(queries: [String], candidate: String) -> Double {
-        queries.reduce(0) { best, query in
-            max(best, scoreMatch(query: query, candidate: candidate))
-        }
+        SiriMatchScorer.scoreMatch(queries: queries, candidate: candidate)
     }
 
     private func scoreMatch(query: String, candidate: String) -> Double {
-        guard !query.isEmpty, !candidate.isEmpty else { return 0 }
-        if candidate == query { return 1.0 } // exact normalized
-        if candidate.hasPrefix(query) || query.hasPrefix(candidate) { return 0.84 } // prefix on either side
-        if candidate.contains(query) || query.contains(candidate) { return 0.7 } // containment on either side
-
-        var score = 0.0
-        let overlap = tokenOverlapScore(query: query, candidate: candidate)
-        if overlap >= 0.67 {
-            score = max(score, 0.45 + overlap * 0.35)
-        }
-
-        let fuzzySimilarity = normalizedEditSimilarity(lhs: query, rhs: candidate)
-        if fuzzySimilarity >= 0.66 {
-            score = max(score, 0.35 + fuzzySimilarity * 0.4)
-        }
-
-        return score
+        SiriMatchScorer.scoreMatch(query: query, candidate: candidate)
     }
 
     private func kindsFor(mediaType: INMediaItemType) -> Set<String> {
@@ -594,105 +561,15 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     private func normalize(_ raw: String) -> String {
-        raw
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        SiriPhraseNormalizer.basic(raw)
     }
 
     private func normalizedQueryVariants(for raw: String) -> [String] {
-        let base = normalize(raw)
-        guard !base.isEmpty else { return [] }
-
-        var variants = Set<String>()
-        variants.insert(base)
-        variants.insert(strippingLeadingMediaTypePrefix(from: base))
-        let trimmedBase = trimTrailingConnectorWords(in: base)
-        variants.insert(trimmedBase)
-        variants.insert(strippingLeadingMediaTypePrefix(from: trimmedBase))
-
-        for suffix in Self.appNameSuffixes where base.hasSuffix(suffix) {
-            let trimmed = base.dropLast(suffix.count).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            variants.insert(trimTrailingConnectorWords(in: trimmed))
-            variants.insert(
-                strippingLeadingMediaTypePrefix(
-                    from: trimTrailingConnectorWords(in: trimmed)
-                )
-            )
-        }
-
-        return variants
-            .filter { !$0.isEmpty }
-            .sorted { lhs, rhs in
-                if lhs.count != rhs.count {
-                    return lhs.count < rhs.count
-                }
-                return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
-            }
+        SiriPhraseNormalizer.queryVariants(for: raw)
     }
 
     private func bestQueryVariant(from raw: String) -> String? {
-        normalizedQueryVariants(for: raw).first
-    }
-
-    private func trimTrailingConnectorWords(in value: String) -> String {
-        var tokens = value.split(separator: " ").map(String.init)
-        while let last = tokens.last, Self.trailingConnectorWords.contains(last) {
-            tokens.removeLast()
-        }
-        return tokens.joined(separator: " ")
-    }
-
-    private func strippingLeadingMediaTypePrefix(from value: String) -> String {
-        for prefix in Self.leadingMediaTypePrefixes where value.hasPrefix(prefix) {
-            let stripped = value.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !stripped.isEmpty {
-                return stripped
-            }
-        }
-        return value
-    }
-
-    /// Scores overlap based on shared query/candidate tokens.
-    private func tokenOverlapScore(query: String, candidate: String) -> Double {
-        let queryTokens = Set(query.split(separator: " ").map(String.init))
-        let candidateTokens = Set(candidate.split(separator: " ").map(String.init))
-        guard !queryTokens.isEmpty, !candidateTokens.isEmpty else { return 0 }
-
-        let overlap = queryTokens.intersection(candidateTokens).count
-        let referenceCount = max(queryTokens.count, candidateTokens.count)
-        return Double(overlap) / Double(referenceCount)
-    }
-
-    /// Uses edit-distance similarity so Siri transcript drift can still map to indexed entities.
-    private func normalizedEditSimilarity(lhs: String, rhs: String) -> Double {
-        let lhsChars = Array(lhs)
-        let rhsChars = Array(rhs)
-        guard !lhsChars.isEmpty, !rhsChars.isEmpty else { return 0 }
-
-        var previous = Array(0...rhsChars.count)
-        for (lhsIndex, lhsChar) in lhsChars.enumerated() {
-            var current = [lhsIndex + 1]
-            current.reserveCapacity(rhsChars.count + 1)
-
-            for (rhsIndex, rhsChar) in rhsChars.enumerated() {
-                let insertion = current[rhsIndex] + 1
-                let deletion = previous[rhsIndex + 1] + 1
-                let substitution = previous[rhsIndex] + (lhsChar == rhsChar ? 0 : 1)
-                current.append(min(insertion, deletion, substitution))
-            }
-
-            previous = current
-        }
-
-        let distance = previous.last ?? max(lhsChars.count, rhsChars.count)
-        let normalizer = max(lhsChars.count, rhsChars.count)
-        return 1 - (Double(distance) / Double(normalizer))
+        SiriPhraseNormalizer.bestQueryVariant(for: raw)
     }
 }
 

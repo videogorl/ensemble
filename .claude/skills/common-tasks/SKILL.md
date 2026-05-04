@@ -297,22 +297,27 @@ Use these patterns when extending gesture actions:
 
 Use this flow for Siri phrases like "play track/album/artist/playlist ... on Ensemble":
 
-1. Keep extension logic thin in `EnsembleSiriIntentsExtension/PlayMediaIntentHandler.swift`:
+1. Use `EnsembleSiriShared` for all Siri phrase normalization and fuzzy scoring:
+   - `SiriSharedConstants` owns the App Group identifier and Siri index filename.
+   - `SiriPhraseNormalizer` owns basic normalization, app-name suffix trimming, connector-word trimming, media-type prefix stripping, and query variants.
+   - `SiriMatchScorer` owns exact/prefix/contains/token-overlap/edit-distance scoring.
+   - Do not add new local `normalize`, `scoreMatch`, token-overlap, or edit-distance implementations in app, extension, or Core code; add shared tests in `Packages/EnsembleSiriShared/Tests/` instead.
+2. Keep extension logic thin in `EnsembleSiriIntentsExtension/PlayMediaIntentHandler.swift`:
    - Resolve candidates from `SiriMediaIndexStore` data.
    - Rank deterministically (exact normalized > prefix > contains + tie-breakers).
    - Return disambiguation when confidence is close.
    - Return `.handleInApp` only; never execute playback in the extension.
-2. Encode handoff payload with `SiriPlaybackActivityCodec` (`SiriIntentPayload.swift`) and include schema version.
-3. Route in app lifecycle via `AppDelegate.application(_:continue:restorationHandler:)`.
-4. Execute playback in `SiriPlaybackCoordinator`:
+3. Encode handoff payload with `SiriPlaybackActivityCodec` (`SiriIntentPayload.swift`) and include schema version.
+4. Route in app lifecycle via `AppDelegate.application(_:continue:restorationHandler:)`.
+5. Execute playback in `SiriPlaybackCoordinator`:
    - `executePlayTrack(request:)`
    - `executePlayAlbum(request:)`
    - `executePlayArtist(request:)`
    - `executePlayPlaylist(request:)`
-5. Use repository precision-search APIs for Siri matching (`LibraryRepository`/`PlaylistRepository`), scoped to enabled source keys.
-6. Keep index fresh by posting `SiriMediaIndexNotifications.postRebuildRequest(...)` after sync/account configuration changes.
-7. Add App Intents fallback for album/playlist in app target (`EnsembleAppShortcutsProvider`) so phrase routing still reaches Ensemble when SiriKit media-domain handoff misses.
-8. After index availability checks/rebuilds at launch, call `EnsembleAppShortcutsProvider.updateAppShortcutParameters()` (iOS 16+) to refresh Siri shortcut parameter vocabulary.
+6. Use repository precision-search APIs for Siri matching (`LibraryRepository`/`PlaylistRepository`), scoped to enabled source keys.
+7. Keep index fresh by posting `SiriMediaIndexNotifications.postRebuildRequest(...)` after sync/account configuration changes.
+8. Add App Intents fallback for album/playlist in app target (`EnsembleAppShortcutsProvider`) so phrase routing still reaches Ensemble when SiriKit media-domain handoff misses.
+9. After index availability checks/rebuilds at launch, call `EnsembleAppShortcutsProvider.updateAppShortcutParameters()` (iOS 16+) to refresh Siri shortcut parameter vocabulary.
 
 Coordinator usage pattern:
 ```swift

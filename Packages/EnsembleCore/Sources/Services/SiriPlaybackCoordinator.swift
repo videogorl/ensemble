@@ -1,3 +1,4 @@
+import EnsembleSiriShared
 import EnsemblePersistence
 import Foundation
 
@@ -42,21 +43,7 @@ public enum SiriPlaybackCoordinatorError: Error, LocalizedError, Equatable {
 /// Executes Siri media play requests inside the main app process.
 @MainActor
 public final class SiriPlaybackCoordinator {
-    private static let appNameSuffixes = [" ensemble music", " ensemble"]
     private static let favoritesPlaylistNames: Set<String> = ["favorites", "favourites"]
-    private static let trailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
-    private static let leadingMediaTypePrefixes = [
-        "the playlist ",
-        "playlist ",
-        "the album ",
-        "album ",
-        "the artist ",
-        "artist ",
-        "the song ",
-        "song ",
-        "the track ",
-        "track "
-    ]
 
     private let accountManager: AccountManager
     private let libraryRepository: LibraryRepositoryProtocol
@@ -636,124 +623,23 @@ public final class SiriPlaybackCoordinator {
     }
 
     private func normalize(_ value: String?) -> String? {
-        guard let value else { return nil }
-        return value
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        SiriPhraseNormalizer.basic(value)
     }
 
     private func normalizedQueryVariants(for value: String?) -> [String] {
-        guard let base = normalize(value), !base.isEmpty else { return [] }
-
-        var variants = Set<String>()
-        variants.insert(base)
-        variants.insert(strippingLeadingMediaTypePrefix(from: base))
-        variants.insert(trimTrailingConnectorWords(in: base))
-        variants.insert(strippingLeadingMediaTypePrefix(from: trimTrailingConnectorWords(in: base)))
-
-        for suffix in Self.appNameSuffixes where base.hasSuffix(suffix) {
-            let trimmed = base.dropLast(suffix.count).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            variants.insert(trimTrailingConnectorWords(in: trimmed))
-            variants.insert(strippingLeadingMediaTypePrefix(from: trimTrailingConnectorWords(in: trimmed)))
-        }
-
-        return variants
-            .filter { !$0.isEmpty }
-            .sorted { lhs, rhs in
-                if lhs.count != rhs.count {
-                    return lhs.count < rhs.count
-                }
-                return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
-            }
+        SiriPhraseNormalizer.queryVariants(for: value)
     }
 
     private func bestQueryVariant(for value: String?) -> String? {
-        normalizedQueryVariants(for: value).first
-    }
-
-    private func trimTrailingConnectorWords(in value: String) -> String {
-        var tokens = value.split(separator: " ").map(String.init)
-        while let last = tokens.last, Self.trailingConnectorWords.contains(last) {
-            tokens.removeLast()
-        }
-        return tokens.joined(separator: " ")
-    }
-
-    private func strippingLeadingMediaTypePrefix(from value: String) -> String {
-        for prefix in Self.leadingMediaTypePrefixes where value.hasPrefix(prefix) {
-            let stripped = value.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !stripped.isEmpty {
-                return stripped
-            }
-        }
-        return value
+        SiriPhraseNormalizer.bestQueryVariant(for: value)
     }
 
     private func matchScore(queries: [String], candidate: String) -> Double {
-        queries.reduce(0) { bestScore, query in
-            max(bestScore, matchScore(query: query, candidate: candidate))
-        }
+        SiriMatchScorer.scoreMatch(queries: queries, candidate: candidate)
     }
 
     private func matchScore(query: String, candidate: String) -> Double {
-        guard !query.isEmpty, !candidate.isEmpty else { return 0 }
-        if candidate == query { return 1.0 }
-        if candidate.hasPrefix(query) || query.hasPrefix(candidate) { return 0.84 }
-        if candidate.contains(query) || query.contains(candidate) { return 0.7 }
-
-        var score = 0.0
-        let overlap = tokenOverlapScore(query: query, candidate: candidate)
-        if overlap >= 0.67 {
-            score = max(score, 0.45 + overlap * 0.35)
-        }
-
-        let similarity = normalizedEditSimilarity(lhs: query, rhs: candidate)
-        if similarity >= 0.66 {
-            score = max(score, 0.35 + similarity * 0.4)
-        }
-
-        return score
-    }
-
-    private func tokenOverlapScore(query: String, candidate: String) -> Double {
-        let queryTokens = Set(query.split(separator: " ").map(String.init))
-        let candidateTokens = Set(candidate.split(separator: " ").map(String.init))
-        guard !queryTokens.isEmpty, !candidateTokens.isEmpty else { return 0 }
-
-        let overlap = queryTokens.intersection(candidateTokens).count
-        let referenceCount = max(queryTokens.count, candidateTokens.count)
-        return Double(overlap) / Double(referenceCount)
-    }
-
-    private func normalizedEditSimilarity(lhs: String, rhs: String) -> Double {
-        let lhsChars = Array(lhs)
-        let rhsChars = Array(rhs)
-        guard !lhsChars.isEmpty, !rhsChars.isEmpty else { return 0 }
-
-        var previous = Array(0...rhsChars.count)
-        for (lhsIndex, lhsChar) in lhsChars.enumerated() {
-            var current = [lhsIndex + 1]
-            current.reserveCapacity(rhsChars.count + 1)
-
-            for (rhsIndex, rhsChar) in rhsChars.enumerated() {
-                let insertion = current[rhsIndex] + 1
-                let deletion = previous[rhsIndex + 1] + 1
-                let substitution = previous[rhsIndex] + (lhsChar == rhsChar ? 0 : 1)
-                current.append(min(insertion, deletion, substitution))
-            }
-
-            previous = current
-        }
-
-        let distance = previous.last ?? max(lhsChars.count, rhsChars.count)
-        let normalizer = max(lhsChars.count, rhsChars.count)
-        return 1 - (Double(distance) / Double(normalizer))
+        SiriMatchScorer.scoreMatch(query: query, candidate: candidate)
     }
 
     private func trimmedNonEmpty(_ value: String?) -> String? {

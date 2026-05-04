@@ -1,3 +1,4 @@
+import EnsembleSiriShared
 import EnsemblePersistence
 import Foundation
 
@@ -23,8 +24,8 @@ public enum SiriMediaIndexNotifications {
 /// Persists and refreshes the Siri media index in the shared App Group container.
 @MainActor
 public final class SiriMediaIndexStore {
-    private static let appGroupIdentifier = "group.com.videogorl.ensemble"
-    private static let filename = "siri-media-index.json"
+    private static let appGroupIdentifier = SiriSharedConstants.appGroupIdentifier
+    private static let filename = SiriSharedConstants.indexFilename
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
@@ -186,14 +187,4 @@ public final class SiriMediaIndexStore {
             .appendingPathComponent(Self.filename)
     }
 
-    private static func normalize(_ raw: String) -> String {
-        raw
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-    }
 }

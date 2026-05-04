@@ -61,6 +61,7 @@ ensemble/
 +-- Packages/                      # Swift Package modules
     +-- EnsembleAPI/              # Layer 1: Networking
     +-- EnsemblePersistence/      # Layer 1: Data persistence
+    +-- EnsembleSiriShared/       # Shared Siri normalization/scoring rules
     +-- EnsembleCore/             # Layer 2: Business logic
     +-- EnsembleUI/               # Layer 3: User interface
 ```
@@ -126,6 +127,16 @@ Tests/
 +-- PlaylistRepositoryTests.swift
 +-- DownloadManagerTests.swift
 +-- OfflineDownloadTargetRepositoryTests.swift
+```
+
+## EnsembleSiriShared (Siri Shared Rules)
+
+```
+Sources/
++-- SiriMatching.swift                 # App Group constants, phrase normalization, query variants, and fuzzy scoring
+
+Tests/
++-- SiriMatchingTests.swift            # Normalization, app suffix/prefix trimming, query variants, and fuzzy score coverage
 ```
 
 ## EnsembleCore (Business Logic Layer)

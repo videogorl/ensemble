@@ -6,6 +6,7 @@ import Intents
 import os
 import UIKit
 import EnsembleCore
+import EnsembleSiriShared
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     /// Process-level launch timestamp for TTFMP measurement
@@ -28,21 +29,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     /// isn't overwritten by the previous session's queue.
     fileprivate var hasPendingSiriIntent = false
 
-    private static let siriAppNameSuffixes = [" ensemble music", " ensemble"]
-    private static let siriTrailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
-    private static let siriLeadingMediaTypePrefixes = [
-        "the playlist ",
-        "playlist ",
-        "the album ",
-        "album ",
-        "the artist ",
-        "artist ",
-        "the song ",
-        "song ",
-        "the track ",
-        "track "
-    ]
-    private static let appGroupIdentifier = "group.com.videogorl.ensemble"
+    private static let appGroupIdentifier = SiriSharedConstants.appGroupIdentifier
     private static let pendingPlaybackFilename = "siri-pending-playback.json"
     private static let pendingAffinityFilename = "siri-pending-affinity.json"
     private static let pendingAddToPlaylistFilename = "siri-pending-addtoplaylist.json"
@@ -188,8 +175,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             // to let the audio session activate and route selection complete.
             // Sync at .utility priority won't compete meaningfully with the Siri audio
             // path which runs at default/userInitiated priority.
-            let appGroup = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.videogorl.ensemble")
-            let pendingFile = appGroup?.appendingPathComponent("siri-pending-playback.json")
+            let appGroup = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier)
+            let pendingFile = appGroup?.appendingPathComponent(Self.pendingPlaybackFilename)
             let hasPendingSiri = pendingFile.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
 
             if hasPendingSiri {
@@ -738,43 +725,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     private func normalizedSiriQuery(_ value: String) -> String {
-        let normalized = value
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        for suffix in Self.siriAppNameSuffixes where normalized.hasSuffix(suffix) {
-            let trimmed = normalized.dropLast(suffix.count).trimmingCharacters(in: .whitespacesAndNewlines)
-            return strippingLeadingMediaTypePrefix(
-                from: trimTrailingConnectorWords(in: trimmed)
-            )
-        }
-
-        return strippingLeadingMediaTypePrefix(
-            from: trimTrailingConnectorWords(in: normalized)
-        )
-    }
-
-    private func trimTrailingConnectorWords(in value: String) -> String {
-        var tokens = value.split(separator: " ").map(String.init)
-        while let last = tokens.last, Self.siriTrailingConnectorWords.contains(last) {
-            tokens.removeLast()
-        }
-        return tokens.joined(separator: " ")
-    }
-
-    private func strippingLeadingMediaTypePrefix(from value: String) -> String {
-        for prefix in Self.siriLeadingMediaTypePrefixes where value.hasPrefix(prefix) {
-            let stripped = value.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !stripped.isEmpty {
-                return stripped
-            }
-        }
-        return value
+        SiriPhraseNormalizer.normalized(value)
     }
 
     private func inferredSiriMediaKind(from query: String?) -> SiriMediaKind? {
@@ -1187,21 +1138,6 @@ private enum SiriPlaybackExecutionGate {
 
 /// Handles INPlayMediaIntent when iOS routes it directly to the app (handleInApp path on iOS 18+)
 final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
-    private static let siriAppNameSuffixes = [" ensemble music", " ensemble"]
-    private static let siriTrailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
-    private static let siriLeadingMediaTypePrefixes = [
-        "the playlist ",
-        "playlist ",
-        "the album ",
-        "album ",
-        "the artist ",
-        "artist ",
-        "the song ",
-        "song ",
-        "the track ",
-        "track "
-    ]
-
     func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         os_log(.default, "SIRI_APP: InAppPlayMediaIntentHandler.handle() called")
 
@@ -1344,43 +1280,7 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     private func normalizedSiriQuery(_ value: String) -> String {
-        let normalized = value
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        for suffix in Self.siriAppNameSuffixes where normalized.hasSuffix(suffix) {
-            let trimmed = normalized.dropLast(suffix.count).trimmingCharacters(in: .whitespacesAndNewlines)
-            return strippingLeadingMediaTypePrefix(
-                from: trimTrailingConnectorWords(in: trimmed)
-            )
-        }
-
-        return strippingLeadingMediaTypePrefix(
-            from: trimTrailingConnectorWords(in: normalized)
-        )
-    }
-
-    private func trimTrailingConnectorWords(in value: String) -> String {
-        var tokens = value.split(separator: " ").map(String.init)
-        while let last = tokens.last, Self.siriTrailingConnectorWords.contains(last) {
-            tokens.removeLast()
-        }
-        return tokens.joined(separator: " ")
-    }
-
-    private func strippingLeadingMediaTypePrefix(from value: String) -> String {
-        for prefix in Self.siriLeadingMediaTypePrefixes where value.hasPrefix(prefix) {
-            let stripped = value.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !stripped.isEmpty {
-                return stripped
-            }
-        }
-        return value
+        SiriPhraseNormalizer.normalized(value)
     }
 
     private func inferredSiriMediaKind(from query: String?) -> SiriMediaKind? {

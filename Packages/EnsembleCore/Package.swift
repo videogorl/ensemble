@@ -18,6 +18,7 @@ let package = Package(
     dependencies: [
         .package(path: "../EnsembleAPI"),
         .package(path: "../EnsemblePersistence"),
+        .package(path: "../EnsembleSiriShared"),
         .package(url: "https://github.com/kean/Nuke.git", from: "12.0.0"),
     ],
     targets: [
@@ -26,6 +27,7 @@ let package = Package(
             dependencies: [
                 "EnsembleAPI",
                 "EnsemblePersistence",
+                "EnsembleSiriShared",
                 "Nuke",
             ],
             path: "Sources"

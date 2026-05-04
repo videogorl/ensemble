@@ -48,6 +48,7 @@ Date: 2026-05-04
 - `PlaylistDropResolver` and `MediaTrackResolver` now own sidebar playlist drop resolution. `MainTabView.SidebarPlaylistDragDropHost` loads `MediaDragPayload`, converts it to Core `MediaDropItemReference`, maps resolver errors to toasts, and performs the final mutation only after Core returns a resolved target and compatible tracks.
 - `MediaFilterEngine` now owns shared track, album, artist, and genre filtering. ViewModels call named configurations to preserve intentional surface differences, such as album detail searching title/artist, artist detail searching title/album, favorites ignoring genre filters, and playlist/library tracks applying genre include/exclude filters.
 - `NavigationCoordinator` now owns target-tab mapping and per-tab path mutation helpers. EnsembleUI adds a path-binding adapter plus a standalone `SidebarSelection` mapper so MainTabView no longer duplicates these switches between phone tab stacks and large-screen sidebar detail stacks.
+- `EnsembleSiriShared` now owns Siri App Group/index constants, phrase normalization/query variants, and fuzzy scoring. App App Intents, AppDelegate fallback handling, Siri extension handlers, `SiriMediaIndexStore`, and `SiriPlaybackCoordinator` route through it instead of carrying local token-overlap/edit-distance/normalization implementations.
 
 ## Latest Verification
 
@@ -55,8 +56,10 @@ Date: 2026-05-04
 - `swift test --package-path Packages/EnsembleCore --filter MediaFilterEngineTests`: passed, 6 tests.
 - `swift test --package-path Packages/EnsembleCore --filter NavigationCoordinatorTests`: passed, 5 tests.
 - `swift test --package-path Packages/EnsembleUI --filter NavigationRootHelperTests`: passed, 4 tests.
+- `swift test --package-path Packages/EnsembleSiriShared`: passed, 4 tests.
+- `swift test --package-path Packages/EnsembleCore --filter SiriPlaybackCoordinatorTests`: passed, 8 tests.
 - `swift test --package-path Packages/EnsembleCore`: passed on rerun, 458 XCTest tests plus 4 Swift Testing tests. First full run hit a transient XCTest signal after the new suite passed.
 - `swift test --package-path Packages/EnsembleUI`: passed, 38 tests.
 - `scripts/check_core_warning_budget.sh`: passed, 0 warnings.
-- `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,id=337648C1-407B-4DEF-BC7C-47E140168768' build`: passed for booted iPad (A16), iOS 26.4.1.
-- `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk macosx -destination 'platform=macOS,arch=arm64' build`: passed.
+- `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPad (A16)' build`: passed for iPad (A16), iOS 26.4.1.
+- `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk macosx -destination 'platform=macOS' build`: passed.

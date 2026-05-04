@@ -1,9 +1,10 @@
+import EnsembleSiriShared
 import Foundation
 import Intents
 import os
 
 public final class UpdateMediaAffinityIntentHandler: NSObject, INUpdateMediaAffinityIntentHandling {
-    private static let appGroupIdentifier = "group.com.videogorl.ensemble"
+    private static let appGroupIdentifier = SiriSharedConstants.appGroupIdentifier
     private static let pendingFilename = "siri-pending-affinity.json"
     private static let darwinNotificationName = "com.videogorl.ensemble.siri.pendingAffinity"
 

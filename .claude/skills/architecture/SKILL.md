@@ -7,7 +7,7 @@ description: "Load before designing features, adding services, or touching multi
 
 ## Layered Module Architecture
 
-Four Swift Packages under `Packages/`:
+Five Swift Packages under `Packages/`:
 
 ```
 Layer 3: EnsembleUI (SwiftUI views & components)
@@ -15,6 +15,7 @@ Layer 3: EnsembleUI (SwiftUI views & components)
 Layer 2: EnsembleCore (ViewModels, services, domain models)
               |
 Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
+Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, extension, and Core)
 ```
 
 ## Package Details
@@ -57,9 +58,19 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `OfflineDownloadTargetRepository` -- Offline target metadata and target->track membership persistence
 - `ArtworkDownloadManager` -- Persistent artwork caching to local filesystem
 
+### EnsembleSiriShared (Siri Shared Rules)
+- **Location:** `Packages/EnsembleSiriShared/`
+- **Dependencies:** None
+- **Purpose:** Pure phrase normalization, query-variant generation, App Group constants, and fuzzy scoring shared by app App Intents, the Siri extension, and Core's in-app Siri execution. This target intentionally avoids CoreData, Intents, SwiftUI, and playback dependencies so the extension can link it directly.
+
+**Key Types:**
+- `SiriSharedConstants` -- App Group identifier and Siri index filename shared by app, extension, and Core.
+- `SiriPhraseNormalizer` -- Basic normalization plus app-suffix, connector-word, and media-type prefix stripping for Siri requests.
+- `SiriMatchScorer` -- Deterministic exact/prefix/contains/token-overlap/edit-distance scoring used for Siri candidate ranking.
+
 ### EnsembleCore (Business Logic Layer)
 - **Location:** `Packages/EnsembleCore/`
-- **Dependencies:** EnsembleAPI, EnsemblePersistence, Nuke
+- **Dependencies:** EnsembleAPI, EnsemblePersistence, EnsembleSiriShared, Nuke
 - **Purpose:** Services, ViewModels, domain models, dependency injection
 
 **Key Services:**
@@ -394,6 +405,7 @@ Dynamic home screen powered by Plex's hub system:
 ## Subsystem: Siri Media Intents (In-App-First)
 
 - Siri extension target (`EnsembleSiriIntentsExtension`) implements `INPlayMediaIntentHandling` for query resolution/disambiguation only.
+- Shared Siri phrase cleanup and fuzzy scoring live in `EnsembleSiriShared`; do not duplicate normalization, query-variant, App Group filename, token-overlap, or edit-distance helpers in app, extension, or Core files.
 - Extension reads `SiriMediaIndex` from the shared App Group container and ranks candidates deterministically:
   - Match quality: exact normalized > prefix > contains
   - Tie-breaks: last played > play count > track count > deterministic name/id
