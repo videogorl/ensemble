@@ -44,17 +44,17 @@ Date: 2026-05-04
 
 This checklist is intentionally kept in-repo so the remaining work survives context compaction and future sessions can resume without reconstructing the plan from chat history.
 
-- [ ] Extract `PlaylistActionPresentationHost` in EnsembleUI and migrate repeated `presentPlaylistPicker` / `addToRecentPlaylist` call sites in Songs, Artists, Favorites, Mood, Search, StageFlow, Queue, Controls, MiniPlayer, and detail surfaces.
-- [ ] Complete the context-menu parity sweep for remaining custom surfaces: MiniPlayer, ControlsCard, QueueCard, HomeView, SearchView, and any card/search pinned wrappers that still build actions outside `MediaMenuCatalog`.
-- [ ] Replace remaining local duration/byte formatters with `MediaFormatters` or document intentional one-off display formatting.
-- [ ] Extract remaining root navigation/destination helpers from `MainTabView` into reusable EnsembleUI helpers, then migrate call sites.
-- [ ] Delete obsolete compatibility wrappers and duplicate helpers only after all call sites route through shared services.
-- [ ] Update project guidance (`architecture`, `project-structure`, `common-tasks`, `ui-conventions`, and this investigation) after the final shape lands.
+- [x] Extract `PlaylistActionPresentationHost` in EnsembleUI and migrate repeated `presentPlaylistPicker` / `addToRecentPlaylist` call sites in Songs, Artists, Favorites, Mood, Search, StageFlow, Queue, Controls, MiniPlayer, and detail surfaces.
+- [x] Complete the context-menu parity sweep for remaining custom surfaces: MiniPlayer, ControlsCard, QueueCard, HomeView, SearchView, and any card/search pinned wrappers that still build actions outside `MediaMenuCatalog`.
+- [x] Replace remaining local duration/byte formatters with `MediaFormatters` or document intentional one-off display formatting.
+- [x] Extract remaining root navigation/destination helpers from `MainTabView` into reusable EnsembleUI helpers, then migrate call sites.
+- [x] Delete obsolete compatibility wrappers and duplicate helpers only after all call sites route through shared services.
+- [x] Update project guidance (`architecture`, `project-structure`, `common-tasks`, `ui-conventions`, and this investigation) after the final shape lands.
 - [ ] Final verification: `swift test --package-path Packages/EnsembleCore`, `swift test --package-path Packages/EnsembleUI`, `swift test --package-path Packages/EnsembleSiriShared`, `scripts/check_core_warning_budget.sh`, iPad simulator build, macOS build, and simulator smoke evidence.
 
 ## Implementation Notes
 
-- Track context menus now route through `MediaMenuCatalog`; native AppKit table menu parity is covered by `testAppKitTrackContextMenuUsesSharedCatalogOrder`.
+- Track context menus now route through `MediaMenuCatalog`; native AppKit table menu parity is covered by `testAppKitTrackContextMenuUsesSharedCatalogOrder`. The MiniPlayer action button also uses the catalog and platform renderers instead of maintaining a separate hard-coded action list.
 - Album, artist, playlist, and merged playlist wrappers now consume catalog sections while keeping existing wrapper call sites.
 - `PlaylistActionService` owns add-to-playlist compatibility, dedupe, default-server selection, and unknown-source stamping. `NowPlayingViewModel` keeps compatibility wrappers for migrated call sites.
 - `PlaylistDropResolver` and `MediaTrackResolver` now own sidebar playlist drop resolution. `MainTabView.SidebarPlaylistDragDropHost` loads `MediaDragPayload`, converts it to Core `MediaDropItemReference`, maps resolver errors to toasts, and performs the final mutation only after Core returns a resolved target and compatible tracks.

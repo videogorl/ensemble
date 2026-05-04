@@ -259,6 +259,19 @@ enum MediaMenuCatalog {
         }
     }
 
+    static func renderableSections(
+        _ sections: [MediaMenuSection],
+        state: MediaMenuState,
+        handlers: MediaMenuHandlers
+    ) -> [MediaMenuSection] {
+        sections.compactMap { section in
+            let actions = section.actions.filter { descriptor in
+                handlers.handler(for: descriptor.id) != nil && descriptor.label(state: state) != nil
+            }
+            return actions.isEmpty ? nil : MediaMenuSection(id: section.id, actions: actions)
+        }
+    }
+
     private static func trackSections(
         context: MediaMenuContext,
         availability: MediaMenuAvailability
@@ -622,12 +635,7 @@ struct SwiftUIMediaMenuRenderer: View {
     }
 
     private var renderableSections: [MediaMenuSection] {
-        sections.compactMap { section in
-            let actions = section.actions.filter { descriptor in
-                handlers.handler(for: descriptor.id) != nil && descriptor.label(state: state) != nil
-            }
-            return actions.isEmpty ? nil : MediaMenuSection(id: section.id, actions: actions)
-        }
+        MediaMenuCatalog.renderableSections(sections, state: state, handlers: handlers)
     }
 }
 
@@ -638,7 +646,7 @@ enum UIKitMediaMenuRenderer {
         state: MediaMenuState,
         handlers: MediaMenuHandlers
     ) -> UIMenu? {
-        let children = renderableSections(sections, state: state, handlers: handlers).map { section in
+        let children = MediaMenuCatalog.renderableSections(sections, state: state, handlers: handlers).map { section in
             UIMenu(
                 title: "",
                 options: .displayInline,
@@ -658,19 +666,6 @@ enum UIKitMediaMenuRenderer {
 
         return children.isEmpty ? nil : UIMenu(children: children)
     }
-
-    private static func renderableSections(
-        _ sections: [MediaMenuSection],
-        state: MediaMenuState,
-        handlers: MediaMenuHandlers
-    ) -> [MediaMenuSection] {
-        sections.compactMap { section in
-            let actions = section.actions.filter { descriptor in
-                handlers.handler(for: descriptor.id) != nil && descriptor.label(state: state) != nil
-            }
-            return actions.isEmpty ? nil : MediaMenuSection(id: section.id, actions: actions)
-        }
-    }
 }
 #endif
 
@@ -683,7 +678,7 @@ enum AppKitMediaMenuRenderer {
     ) -> NSMenu? {
         let menu = NSMenu()
 
-        for section in renderableSections(sections, state: state, handlers: handlers) {
+        for section in MediaMenuCatalog.renderableSections(sections, state: state, handlers: handlers) {
             addSeparatorIfNeeded(to: menu)
             for descriptor in section.actions {
                 guard let handler = handlers.handler(for: descriptor.id),
@@ -695,19 +690,6 @@ enum AppKitMediaMenuRenderer {
         }
 
         return menu.items.isEmpty ? nil : menu
-    }
-
-    private static func renderableSections(
-        _ sections: [MediaMenuSection],
-        state: MediaMenuState,
-        handlers: MediaMenuHandlers
-    ) -> [MediaMenuSection] {
-        sections.compactMap { section in
-            let actions = section.actions.filter { descriptor in
-                handlers.handler(for: descriptor.id) != nil && descriptor.label(state: state) != nil
-            }
-            return actions.isEmpty ? nil : MediaMenuSection(id: section.id, actions: actions)
-        }
     }
 
     private static func addSeparatorIfNeeded(to menu: NSMenu) {

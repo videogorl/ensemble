@@ -513,6 +513,7 @@ private struct MiniPlayerControls: View {
 
 private struct MiniPlayerActionsMenuButton: View {
     @ObservedObject var viewModel: NowPlayingViewModel
+    @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showingActionsPopover = false
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -542,65 +543,18 @@ private struct MiniPlayerActionsMenuButton: View {
         .accessibilityLabel("Track Actions")
         .popover(isPresented: $showingActionsPopover, arrowEdge: .bottom) {
             MiniPlayerActionsPopoverContent(
-                favoriteTitle: favoriteTitle,
-                favoriteSystemImage: favoriteSystemImage,
-                recentPlaylistTitle: currentTrackRecentPlaylistTitle,
-                isShuffleEnabled: viewModel.isShuffleEnabled,
-                repeatMode: viewModel.repeatMode,
-                showsAlbumNavigation: viewModel.currentTrack?.albumRatingKey != nil,
-                showsArtistNavigation: viewModel.currentTrack?.artistRatingKey != nil,
-                onFavorite: {
-                    showingActionsPopover = false
-                    toggleFavorite()
-                },
-                onAddToRecentPlaylist: {
-                    showingActionsPopover = false
-                    addToRecentPlaylist()
-                },
-                onAddToPlaylist: {
-                    showingActionsPopover = false
-                    requestPlaylistPicker()
-                },
-                onToggleShuffle: {
-                    showingActionsPopover = false
-                    toggleShuffle()
-                },
-                onRepeatAll: {
-                    showingActionsPopover = false
-                    repeatAll()
-                },
-                onRepeatOne: {
-                    showingActionsPopover = false
-                    repeatOne()
-                },
-                onGoToAlbum: {
-                    showingActionsPopover = false
-                    goToAlbum()
-                },
-                onGoToArtist: {
-                    showingActionsPopover = false
-                    goToArtist()
-                }
+                sections: menuSections,
+                state: menuState,
+                handlers: menuHandlers,
+                onAction: { showingActionsPopover = false }
             )
         }
         #elseif os(macOS)
         NativeMiniPlayerActionsMenuButton(
             isEnabled: viewModel.currentTrack != nil,
-            favoriteTitle: favoriteTitle,
-            favoriteSystemImage: favoriteSystemImage,
-            recentPlaylistTitle: currentTrackRecentPlaylistTitle,
-            isShuffleEnabled: viewModel.isShuffleEnabled,
-            repeatMode: viewModel.repeatMode,
-            showsAlbumNavigation: viewModel.currentTrack?.albumRatingKey != nil,
-            showsArtistNavigation: viewModel.currentTrack?.artistRatingKey != nil,
-            onFavorite: toggleFavorite,
-            onAddToRecentPlaylist: addToRecentPlaylist,
-            onAddToPlaylist: requestPlaylistPicker,
-            onToggleShuffle: toggleShuffle,
-            onRepeatAll: repeatAll,
-            onRepeatOne: repeatOne,
-            onGoToAlbum: goToAlbum,
-            onGoToArtist: goToArtist
+            sections: menuSections,
+            state: menuState,
+            handlers: menuHandlers
         )
         .frame(
             width: EnsembleScaffold.MiniPlayer.actionButtonDimension,
@@ -610,22 +564,79 @@ private struct MiniPlayerActionsMenuButton: View {
         #endif
     }
 
-    private var favoriteTitle: String {
-        guard let track = viewModel.currentTrack else { return "Favorite" }
-        return viewModel.isTrackFavorited(track) ? "Unfavorite" : "Favorite"
-    }
-
-    private var favoriteSystemImage: String {
-        guard let track = viewModel.currentTrack else { return EnsembleDesign.Icon.favorite }
-        return viewModel.isTrackFavorited(track) ? EnsembleDesign.Icon.favoriteRemove : EnsembleDesign.Icon.favorite
-    }
-
     private var currentTrackRecentPlaylistTitle: String? {
         guard let track = viewModel.currentTrack else { return nil }
         return PlaylistActionPresentationHost.recentPlaylistTitle(
             for: [track],
             nowPlayingVM: viewModel
         )
+    }
+
+    private var menuSections: [MediaMenuSection] {
+        guard let track = viewModel.currentTrack else { return [] }
+        return MediaMenuCatalog.sections(
+            for: .track,
+            context: .miniPlayer,
+            availability: MediaMenuAvailability(
+                hasRecentPlaylist: currentTrackRecentPlaylistTitle != nil,
+                canAddToRecentPlaylist: currentTrackRecentPlaylistTitle != nil,
+                canGoToAlbum: track.albumRatingKey != nil,
+                canGoToArtist: track.artistRatingKey != nil,
+                canShareLink: true,
+                canShareAudioFile: true,
+                canFavorite: true,
+                canDownload: false,
+                canPin: false,
+                canEditMetadata: false,
+                canDelete: false,
+                canRename: false,
+                canEditPlaylist: false,
+                canRemoveFromQueue: false
+            )
+        )
+    }
+
+    private var menuState: MediaMenuState {
+        guard let track = viewModel.currentTrack else {
+            return MediaMenuState(
+                recentPlaylistTitle: nil,
+                isShuffleEnabled: viewModel.isShuffleEnabled,
+                repeatMode: viewModel.repeatMode
+            )
+        }
+        return MediaMenuState(
+            recentPlaylistTitle: currentTrackRecentPlaylistTitle,
+            isFavorited: viewModel.isTrackFavorited(track),
+            isShuffleEnabled: viewModel.isShuffleEnabled,
+            repeatMode: viewModel.repeatMode
+        )
+    }
+
+    private var menuHandlers: MediaMenuHandlers {
+        MediaMenuHandlers(
+            toggleShuffle: toggleShuffle,
+            repeatAll: repeatAll,
+            repeatOne: repeatOne,
+            playNext: playNext,
+            playLast: playLast,
+            addToRecentPlaylist: addToRecentPlaylist,
+            addToPlaylist: requestPlaylistPicker,
+            goToAlbum: goToAlbum,
+            goToArtist: goToArtist,
+            favorite: toggleFavorite,
+            shareLink: shareTrackLink,
+            shareAudioFile: shareTrackFile
+        )
+    }
+
+    private func playNext() {
+        guard let track = viewModel.currentTrack else { return }
+        viewModel.playNext(track)
+    }
+
+    private func playLast() {
+        guard let track = viewModel.currentTrack else { return }
+        viewModel.playLast(track)
     }
 
     private func toggleFavorite() {
@@ -664,70 +675,50 @@ private struct MiniPlayerActionsMenuButton: View {
         guard let artistId = viewModel.currentTrack?.artistRatingKey else { return }
         navigationCoordinator.navigate(to: .artist(id: artistId))
     }
+
+    private func shareTrackLink() {
+        guard let track = viewModel.currentTrack else { return }
+        ShareActions.shareTrackLink(track, deps: deps)
+    }
+
+    private func shareTrackFile() {
+        guard let track = viewModel.currentTrack else { return }
+        ShareActions.shareTrackFile(track, deps: deps)
+    }
 }
 
 #if os(iOS)
 private struct MiniPlayerActionsPopoverContent: View {
-    let favoriteTitle: String
-    let favoriteSystemImage: String
-    let recentPlaylistTitle: String?
-    let isShuffleEnabled: Bool
-    let repeatMode: RepeatMode
-    let showsAlbumNavigation: Bool
-    let showsArtistNavigation: Bool
-    let onFavorite: () -> Void
-    let onAddToRecentPlaylist: () -> Void
-    let onAddToPlaylist: () -> Void
-    let onToggleShuffle: () -> Void
-    let onRepeatAll: () -> Void
-    let onRepeatOne: () -> Void
-    let onGoToAlbum: () -> Void
-    let onGoToArtist: () -> Void
+    let sections: [MediaMenuSection]
+    let state: MediaMenuState
+    let handlers: MediaMenuHandlers
+    let onAction: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-            actionButton(title: favoriteTitle, systemImage: favoriteSystemImage, action: onFavorite)
+            ForEach(renderableSections.indices, id: \.self) { index in
+                if index > 0 {
+                    Divider()
+                        .padding(.vertical, EnsembleScaffold.MiniPlayer.popoverDividerVerticalPadding)
+                }
 
-            if let recentPlaylistTitle {
-                actionButton(
-                    title: "Add to \(recentPlaylistTitle)",
-                    systemImage: EnsembleDesign.Icon.recentPlaylist,
-                    action: onAddToRecentPlaylist
-                )
-            }
-
-            actionButton(title: "Add to Playlist…", systemImage: EnsembleDesign.Icon.addToPlaylist, action: onAddToPlaylist)
-
-            Divider()
-                .padding(.vertical, EnsembleScaffold.MiniPlayer.popoverDividerVerticalPadding)
-
-            actionButton(
-                title: isShuffleEnabled ? "Turn Shuffle Off" : "Turn Shuffle On",
-                systemImage: EnsembleDesign.Icon.shuffle,
-                action: onToggleShuffle
-            )
-            actionButton(
-                title: repeatMode == .all ? "Repeat On" : "Repeat",
-                systemImage: RepeatMode.all.icon,
-                action: onRepeatAll
-            )
-            actionButton(
-                title: repeatMode == .one ? "Repeat One On" : "Repeat One",
-                systemImage: RepeatMode.one.icon,
-                action: onRepeatOne
-            )
-
-            if showsAlbumNavigation || showsArtistNavigation {
-                Divider()
-                    .padding(.vertical, EnsembleScaffold.MiniPlayer.popoverDividerVerticalPadding)
-            }
-
-            if showsAlbumNavigation {
-                actionButton(title: "Go to Album", systemImage: EnsembleDesign.Icon.album, action: onGoToAlbum)
-            }
-
-            if showsArtistNavigation {
-                actionButton(title: "Go to Artist", systemImage: EnsembleDesign.Icon.artist, action: onGoToArtist)
+                ForEach(renderableSections[index].actions, id: \.id) { descriptor in
+                    if let handler = handlers.handler(for: descriptor.id),
+                       let labelKind = descriptor.labelKind(state: state) {
+                        Button(role: descriptor.role == .destructive ? .destructive : nil) {
+                            onAction()
+                            handler()
+                        } label: {
+                            MediaActionLabel(kind: labelKind)
+                                .font(EnsembleDesign.Typography.popoverAction)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, EnsembleDesign.Spacing.popoverActionHorizontal)
+                                .padding(.vertical, EnsembleDesign.Spacing.popoverActionVertical)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
+                    }
+                }
             }
         }
         .padding(.vertical, EnsembleDesign.Spacing.sm)
@@ -738,36 +729,16 @@ private struct MiniPlayerActionsPopoverContent: View {
         )
     }
 
-    private func actionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(EnsembleDesign.Typography.popoverAction)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, EnsembleDesign.Spacing.popoverActionHorizontal)
-                .padding(.vertical, EnsembleDesign.Spacing.popoverActionVertical)
-        }
-        .buttonStyle(.plain)
-        .foregroundColor(EnsembleDesign.Color.primaryText)
+    private var renderableSections: [MediaMenuSection] {
+        MediaMenuCatalog.renderableSections(sections, state: state, handlers: handlers)
     }
 }
 #elseif os(macOS)
 private struct NativeMiniPlayerActionsMenuButton: NSViewRepresentable {
     let isEnabled: Bool
-    let favoriteTitle: String
-    let favoriteSystemImage: String
-    let recentPlaylistTitle: String?
-    let isShuffleEnabled: Bool
-    let repeatMode: RepeatMode
-    let showsAlbumNavigation: Bool
-    let showsArtistNavigation: Bool
-    let onFavorite: () -> Void
-    let onAddToRecentPlaylist: () -> Void
-    let onAddToPlaylist: () -> Void
-    let onToggleShuffle: () -> Void
-    let onRepeatAll: () -> Void
-    let onRepeatOne: () -> Void
-    let onGoToAlbum: () -> Void
-    let onGoToArtist: () -> Void
+    let sections: [MediaMenuSection]
+    let state: MediaMenuState
+    let handlers: MediaMenuHandlers
 
     func makeNSView(context: Context) -> NSButton {
         let button = NSButton()
@@ -800,92 +771,16 @@ private struct NativeMiniPlayerActionsMenuButton: NSViewRepresentable {
         }
 
         @objc func showMenu(_ sender: NSButton) {
-            let menu = makeMenu()
-        menu.popUp(
-            positioning: nil,
-            at: NSPoint(x: sender.bounds.minX, y: sender.bounds.maxY + EnsembleScaffold.MiniPlayer.macMenuYOffset),
-            in: sender
-        )
-        }
-
-        private func makeMenu() -> NSMenu {
-            let menu = NSMenu()
-            menu.addItem(menuItem(title: parent.favoriteTitle, systemImage: parent.favoriteSystemImage, action: #selector(toggleFavorite(_:))))
-
-            if let recentPlaylistTitle = parent.recentPlaylistTitle {
-                menu.addItem(menuItem(title: "Add to \(recentPlaylistTitle)", systemImage: EnsembleDesign.Icon.recentPlaylist, action: #selector(addToRecentPlaylist(_:))))
-            }
-
-            menu.addItem(menuItem(title: "Add to Playlist…", systemImage: EnsembleDesign.Icon.addToPlaylist, action: #selector(addToPlaylist(_:))))
-            menu.addItem(.separator())
-            menu.addItem(menuItem(
-                title: parent.isShuffleEnabled ? "Turn Shuffle Off" : "Turn Shuffle On",
-                systemImage: EnsembleDesign.Icon.shuffle,
-                action: #selector(toggleShuffle(_:))
-            ))
-            menu.addItem(menuItem(
-                title: parent.repeatMode == .all ? "Repeat On" : "Repeat",
-                systemImage: RepeatMode.all.icon,
-                action: #selector(repeatAll(_:))
-            ))
-            menu.addItem(menuItem(
-                title: parent.repeatMode == .one ? "Repeat One On" : "Repeat One",
-                systemImage: RepeatMode.one.icon,
-                action: #selector(repeatOne(_:))
-            ))
-
-            if parent.showsAlbumNavigation || parent.showsArtistNavigation {
-                menu.addItem(.separator())
-            }
-
-            if parent.showsAlbumNavigation {
-                menu.addItem(menuItem(title: "Go to Album", systemImage: EnsembleDesign.Icon.album, action: #selector(goToAlbum(_:))))
-            }
-
-            if parent.showsArtistNavigation {
-                menu.addItem(menuItem(title: "Go to Artist", systemImage: EnsembleDesign.Icon.artist, action: #selector(goToArtist(_:))))
-            }
-
-            return menu
-        }
-
-        private func menuItem(title: String, systemImage: String, action: Selector) -> NSMenuItem {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-            item.target = self
-            item.image = NSImage(systemSymbolName: systemImage, accessibilityDescription: nil)
-            return item
-        }
-
-        @objc private func toggleFavorite(_ sender: NSMenuItem) {
-            parent.onFavorite()
-        }
-
-        @objc private func addToRecentPlaylist(_ sender: NSMenuItem) {
-            parent.onAddToRecentPlaylist()
-        }
-
-        @objc private func addToPlaylist(_ sender: NSMenuItem) {
-            parent.onAddToPlaylist()
-        }
-
-        @objc private func toggleShuffle(_ sender: NSMenuItem) {
-            parent.onToggleShuffle()
-        }
-
-        @objc private func repeatAll(_ sender: NSMenuItem) {
-            parent.onRepeatAll()
-        }
-
-        @objc private func repeatOne(_ sender: NSMenuItem) {
-            parent.onRepeatOne()
-        }
-
-        @objc private func goToAlbum(_ sender: NSMenuItem) {
-            parent.onGoToAlbum()
-        }
-
-        @objc private func goToArtist(_ sender: NSMenuItem) {
-            parent.onGoToArtist()
+            guard let menu = AppKitMediaMenuRenderer.contextMenu(
+                sections: parent.sections,
+                state: parent.state,
+                handlers: parent.handlers
+            ) else { return }
+            menu.popUp(
+                positioning: nil,
+                at: NSPoint(x: sender.bounds.minX, y: sender.bounds.maxY + EnsembleScaffold.MiniPlayer.macMenuYOffset),
+                in: sender
+            )
         }
     }
 }
