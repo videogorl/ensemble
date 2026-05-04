@@ -154,7 +154,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 ### System Integration
 - Leverage native SwiftUI components and iOS system features (e.g., `AVRoutePickerView` for AirPlay, `MPRemoteCommandCenter` for lock screen)
-- Views should adapt to platform idioms (tab bar on iPhone, sidebar on iPad/macOS)
+- Views should adapt to platform idioms (tab bar on iPhone, sidebar on iPad/macOS) through shared policy helpers such as `EnsemblePlatformFeaturePolicy` when the same feature can render natively in multiple ways.
 - Respect safe areas unless deliberately edge-to-edge (like CoverFlow)
 
 ### Toast Presentation
@@ -194,7 +194,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Large-screen browse splits should use `LargeScreenBrowseSplitView` with `EnsembleScaffold.BrowseSplit.Configuration` presets instead of repeating raw pane width, breakpoint, and resize-handle values per screen.
 - Media-style detail screens should keep header/list/action/shadow metrics under `EnsembleScaffold.DetailSurface` and render through `MediaDetailSurface` helpers rather than inventing parallel detail surface constants.
 - Artist detail's custom square/circular adaptive header should keep its specialized thresholds, hero dimensions, section rhythm, and overlay strengths under `EnsembleScaffold.ArtistDetail`.
-- macOS Profile/Downloads-style utility windows should use `MacAuxiliaryWindowScaffold` plus `EnsembleScaffold.AuxiliaryWindow.Configuration` presets so scene sizing and in-window content width stay in sync. For menu-like rows, use `EnsembleUtilityScreenScaffold`, `EnsembleUtilityCardSection`, `EnsembleUtilityCardRow`, and `EnsembleUtilityCardDivider` so macOS uses quiet card sections instead of bordered `List` chrome.
+- macOS Profile/Downloads-style utility windows should use `MacAuxiliaryWindowScaffold` plus `EnsembleScaffold.AuxiliaryWindow.Configuration` presets so scene sizing and in-window content width stay in sync. For menu-like rows, use `EnsembleAdaptiveUtilityScaffold` when a screen needs iOS grouped-list and macOS card-section variants; use `EnsembleUtilityScreenScaffold`, `EnsembleUtilityCardSection`, `EnsembleUtilityCardRow`, and `EnsembleUtilityCardDivider` for the macOS card body so macOS avoids bordered `List` chrome.
 - Loading, empty, and error states should use `EnsembleStateScaffold`. Use the default full-screen presentation for standalone states and `.compactFooter` for track-list/table-footer states.
 - Library browse empty states that branch on cloud restore, missing sources, syncing, disabled libraries, or true empty content should use `EnsembleLibraryEmptyStateScaffold` instead of rebuilding that decision tree per screen.
 - Filled actions inside empty/loading/error states should use `EnsembleStateActionLabel`; account setup/authentication surfaces should use `EnsembleScaffold.AccountSetup` for PIN, card, row, and sheet sizing.

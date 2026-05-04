@@ -635,7 +635,7 @@ public struct PlaylistsView: View {
                 if result.outcome == .queued {
                     viewModel.applyOptimisticDelete(for: playlist)
                 }
-                DependencyContainer.shared.pinManager.unpin(id: playlist.id)
+                deps.pinMutationWorkflow.unpin(id: playlist.id)
                 NotificationCenter.default.post(
                     name: .playlistDeletionSucceeded,
                     object: nil,
@@ -748,7 +748,7 @@ public struct PlaylistsView: View {
                         for: playlist.id,
                         expectedTitle: start.trimmedTitle
                     )
-                    DependencyContainer.shared.pinManager.updateTitle(id: playlist.id, title: start.trimmedTitle)
+                    deps.pinMutationWorkflow.updateTitle(id: playlist.id, title: start.trimmedTitle)
                 }
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(result.successToast)

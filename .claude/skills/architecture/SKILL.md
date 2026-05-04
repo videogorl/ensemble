@@ -88,7 +88,9 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
   - Delegates app-foreground and network-transition policy to `NetworkLifecycleController` so lifecycle events produce explicit refresh/invalidation plans before side effects run
   - Delegates API-client endpoint synchronization and registry observation to `ServerConnectionController` so sync flow no longer owns registry subscription tasks directly
 - `PlaylistActionService` -- Shared add-to-playlist source compatibility rules used by Now Playing and UI presentation wrappers; owns server-key normalization, cross-source filtering, dedupe, and source stamping for unknown-source tracks before playlist mutation calls
-- `PlaylistMutationWorkflow` -- Shared playlist rename/delete workflow used by playlist root, detail, sidebar/pinned, and merged-playlist batch surfaces; owns title trimming, mutation outcome routing, strict all-copy batch results, and pending/success/failure toast payload policy while views keep local navigation, confirmation, optimistic list state, and pin updates
+- `PlaylistMutationWorkflow` -- Shared playlist add/create/rename/delete workflow used by Now Playing, playlist root, detail, sidebar/pinned, and merged-playlist batch surfaces; owns playlist mutation outcome routing and toast payload policy while views keep local navigation, confirmation, optimistic list state, and pin updates
+- `TrackRatingMutationWorkflow` -- Shared favorite/rating mutation policy used by NowPlayingViewModel; owns queued/success/failure toast payloads while Now Playing keeps immediate optimistic rating state and local cache updates
+- `PinMutationWorkflow` -- Shared local pin/unpin/batch/reorder policy used by context menus, detail headers, sidebar, and pinned surfaces; pin feedback is intentionally silent because pins are local reversible preferences
 - `PlaylistDropResolver` / `MediaTrackResolver` -- Shared media drag/drop resolution for playlist copy/add flows; owns stable media-reference matching, album/playlist expansion policy, smart/merged target rejection, source compatibility, and track dedupe before UI calls playlist mutation APIs
 - `MediaFilterEngine` -- Shared library/detail/favorites filter rules with named configurations for intentional search-field and genre-filter differences across surfaces
 - `NavigationCoordinator` (@MainActor) -- Manages cross-view navigation state (artist/album deep links from NowPlayingView)
@@ -157,6 +159,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
   - Delegates debounced `downloadsDidChange` fan-out, view-context refresh routing, and queue-completion toast presentation to `OfflineDownloadNotificationBridge` so queue/target logic stays separate from UI-facing notifications
   - Runs `OfflineDownloadCleanupCoordinator` during startup and healing refreshes to remove completed downloads whose track files no longer belong to any offline target membership
   - Delegates direct-download, download-queue, file validation, completion recovery, and per-track post-completion work to `DownloadTransferExecutor` so retry policy and target-refresh logic stay in the façade
+- `DownloadMutationWorkflow` -- Shared user-initiated download mutation boundary for favorites/library/album/artist/playlist target toggles, target removal, remove-all, and pause/resume actions. `OfflineDownloadService` remains the queue and target owner; views and view models route user actions through the workflow so feedback policy can stay centralized.
 - `DownloadQueueCoordinator` (@MainActor) -- Sole owner of offline queue task lifecycle, worker fan-out, background wakeup handling, and queue wind-down/restart decisions
 - `DownloadRetryPolicy` (@MainActor) -- Stateful transfer retry accounting and direct-original fallback gating for offline downloads
 - `DownloadTargetReconciler` -- Resolves offline target memberships, queues missing downloads, and deletes orphaned download files when targets change
@@ -202,7 +205,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - **Purpose:** All SwiftUI views and reusable components
 
 **Key Views:**
-- `RootView` -- Adapts by platform: tab navigation on iPhone, sidebar on iPad/macOS; also owns the root aurora layer, the single shared mini player overlay, and the scene-local navigation/Now Playing coordinators. On iPadOS/macOS, `SidebarView` keeps one stable app sidebar/detail shell and hosts Artists, Playlists, and Genres browse-list/detail splits inside the detail host.
+- `RootView` -- Adapts through `EnsemblePlatformFeaturePolicy`: tab navigation on iPhone/unsupported split-view platforms, sidebar on iPad/macOS when the OS supports the split shell; also owns the root aurora layer, the single shared mini player overlay, and the scene-local navigation/Now Playing coordinators. On iPadOS/macOS, `SidebarView` keeps one stable app sidebar/detail shell and hosts Artists, Playlists, and Genres browse-list/detail splits inside the detail host.
 - `MiniPlayer` -- Persistent compact player overlay across all screens
 - `MediaDetailView` -- Unified detail view using `MediaDetailViewModelProtocol` (supports Artist, Album, Playlist, Favorites)
 - `ArtworkView` -- Local-first artwork loading with automatic fallback to network
@@ -603,7 +606,7 @@ Universal link and audio file sharing for tracks and albums:
 3. **ShareSheetPresenter** (`EnsembleUI`) -- iOS 15-compatible `UIActivityViewController` wrapper with imperative presentation via topmost window scene. macOS uses `NSSharingServicePicker`.
 4. **ShareActions** (`EnsembleUI`) -- Static namespace bridging `ShareService` -> share sheet, with toast feedback for download progress and text fallback.
 5. **Context menu integration** -- "Share Link..." and "Share Audio File..." in `TrackRow`, `MediaTrackList`, and Now Playing ellipsis menu. "Share Link..." in `AlbumCard` context menu.
-6. **Drag and drop (iPad/macOS)** -- `MediaDragPayload` provides internal track/album/playlist references for Ensemble drop targets and file representations for external destinations. Playlist drop targets call Core `PlaylistDropResolver`; UI owns provider loading and toast presentation only.
+6. **Drag and drop (iPad/macOS)** -- `MediaDragPayload` provides internal track/album/playlist references for Ensemble drop targets and file representations for external track destinations. `MediaDragExportPolicy` owns copy-vs-move and external file-promise defaults: tracks can copy to playlists/Finder, queue rows can move only inside the queue, albums/playlists are in-app payloads only. Playlist drop targets call Core `PlaylistDropResolver`; UI owns provider loading and toast presentation only.
 7. **MusicKit configuration** -- `com.apple.developer.music-kit` entitlement + `NSAppleMusicUsageDescription` in Info.plist. `#if canImport(MusicKit)` guard for watchOS 8.
 
 ## Subsystem: Mood-Based Browsing

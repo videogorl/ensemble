@@ -170,7 +170,9 @@ public final class NowPlayingViewModel: ObservableObject {
     private let navigationCoordinator: NavigationCoordinator
     private let toastCenter: ToastCenter
     private let mutationCoordinator: MutationCoordinator
+    private let playlistMutationWorkflow: PlaylistMutationWorkflow
     private let playlistActionService = PlaylistActionService()
+    private let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
     private let trackAvailabilityResolver: TrackAvailabilityResolver
     private let lyricsService: LyricsService
     private var cancellables = Set<AnyCancellable>()
@@ -193,6 +195,8 @@ public final class NowPlayingViewModel: ObservableObject {
         navigationCoordinator: NavigationCoordinator,
         toastCenter: ToastCenter,
         mutationCoordinator: MutationCoordinator,
+        playlistMutationWorkflow: PlaylistMutationWorkflow? = nil,
+        trackRatingMutationWorkflow: TrackRatingMutationWorkflow? = nil,
         trackAvailabilityResolver: TrackAvailabilityResolver,
         lyricsService: LyricsService
     ) {
@@ -202,6 +206,8 @@ public final class NowPlayingViewModel: ObservableObject {
         self.navigationCoordinator = navigationCoordinator
         self.toastCenter = toastCenter
         self.mutationCoordinator = mutationCoordinator
+        self.playlistMutationWorkflow = playlistMutationWorkflow ?? PlaylistMutationWorkflow(mutator: mutationCoordinator)
+        self.trackRatingMutationWorkflow = trackRatingMutationWorkflow ?? TrackRatingMutationWorkflow(mutator: mutationCoordinator)
         self.trackAvailabilityResolver = trackAvailabilityResolver
         self.lyricsService = lyricsService
         self.lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
@@ -987,56 +993,13 @@ public final class NowPlayingViewModel: ObservableObject {
         isPlaylistMutationInProgress = true
         defer { isPlaylistMutationInProgress = false }
 
-        // Route through MutationCoordinator — handles offline queuing automatically
-        let (resultOrNil, outcome) = try await mutationCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
-        if outcome == .queued {
-            toastCenter.show(
-                ToastPayload(
-                    style: .info,
-                    iconSystemName: "clock.arrow.circlepath",
-                    title: "Queued for \(playlist.title)",
-                    message: "Will be added when back online.",
-                    dedupeKey: "playlist-add-queued-\(playlist.id)"
-                )
-            )
-            return PlaylistMutationResult(addedCount: 0, skippedCount: 0)
-        }
-
-        let result = resultOrNil ?? PlaylistMutationResult(addedCount: 0, skippedCount: 0)
-        await MainActor.run {
-            if result.skippedCount > 0 {
-                self.toastCenter.show(
-                    ToastPayload(
-                        style: .warning,
-                        iconSystemName: "exclamationmark.triangle.fill",
-                        title: "Added to \(playlist.title)",
-                        message: "Added \(result.addedCount), skipped \(result.skippedCount) incompatible.",
-                        tapHandler: { [weak self] in
-                            self?.navigationCoordinator.navigateFromNowPlaying(
-                                to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
-                            )
-                        },
-                        dedupeKey: "playlist-add-\(playlist.id)"
-                    )
-                )
-            } else {
-                self.toastCenter.show(
-                    ToastPayload(
-                        style: .success,
-                        iconSystemName: "checkmark.circle.fill",
-                        title: "Added to \(playlist.title)",
-                        message: result.addedCount == 1 ? "1 track added." : "\(result.addedCount) tracks added.",
-                        tapHandler: { [weak self] in
-                            self?.navigationCoordinator.navigateFromNowPlaying(
-                                to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
-                            )
-                        },
-                        dedupeKey: "playlist-add-\(playlist.id)"
-                    )
-                )
-            }
-        }
-        return result
+        let workflowResult = try await playlistMutationWorkflow.addTracks(
+            tracks,
+            to: playlist,
+            tapHandler: playlistToastTapHandler(for: playlist)
+        )
+        toastCenter.show(workflowResult.toast)
+        return workflowResult.mutationResult
     }
 
     /// Optimistic playlist-add path for interactive add-to-playlist UI surfaces.
@@ -1047,37 +1010,13 @@ public final class NowPlayingViewModel: ObservableObject {
             throw PlaylistMutationError.emptySelection
         }
 
-        let outcome = try await mutationCoordinator.enqueuePlaylistAddOptimistically(tracks, playlist: playlist)
-        let addedCount = tracks.count
-
-        if outcome == .queued {
-            toastCenter.show(
-                ToastPayload(
-                    style: .info,
-                    iconSystemName: "clock.arrow.circlepath",
-                    title: "Queued for \(playlist.title)",
-                    message: "Will be added when back online.",
-                    dedupeKey: "playlist-add-queued-\(playlist.id)"
-                )
-            )
-        } else {
-            toastCenter.show(
-                ToastPayload(
-                    style: .success,
-                    iconSystemName: "checkmark.circle.fill",
-                    title: "Added to \(playlist.title)",
-                    message: addedCount == 1 ? "1 track queued for sync." : "\(addedCount) tracks queued for sync.",
-                    tapHandler: { [weak self] in
-                        self?.navigationCoordinator.navigateFromNowPlaying(
-                            to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
-                        )
-                    },
-                    dedupeKey: "playlist-add-optimistic-\(playlist.id)"
-                )
-            )
-        }
-
-        return outcome
+        let workflowResult = try await playlistMutationWorkflow.addTracksOptimistically(
+            tracks,
+            to: playlist,
+            tapHandler: playlistToastTapHandler(for: playlist)
+        )
+        toastCenter.show(workflowResult.toast)
+        return workflowResult.outcome
     }
 
     public func createPlaylist(
@@ -1091,35 +1030,13 @@ public final class NowPlayingViewModel: ObservableObject {
         isPlaylistMutationInProgress = true
         defer { isPlaylistMutationInProgress = false }
 
-        let result = try await mutationCoordinator.createPlaylist(
+        let workflowResult = try await playlistMutationWorkflow.createPlaylist(
             title: title,
             tracks: tracks,
             serverSourceKey: serverSourceKey
         )
-        await MainActor.run {
-            if result.skippedCount > 0 {
-                self.toastCenter.show(
-                    ToastPayload(
-                        style: .warning,
-                        iconSystemName: "plus.circle.fill",
-                        title: "Created \(title)",
-                        message: "Added \(result.addedCount), skipped \(result.skippedCount).",
-                        dedupeKey: "playlist-create-\(title.lowercased())"
-                    )
-                )
-            } else {
-                self.toastCenter.show(
-                    ToastPayload(
-                        style: .success,
-                        iconSystemName: "plus.circle.fill",
-                        title: "Created \(title)",
-                        message: result.addedCount == 1 ? "1 track added." : "\(result.addedCount) tracks added.",
-                        dedupeKey: "playlist-create-\(title.lowercased())"
-                    )
-                )
-            }
-        }
-        return result
+        toastCenter.show(workflowResult.toast)
+        return workflowResult.mutationResult
     }
 
     public func resolveLastPlaylistTarget() async -> Playlist? {
@@ -1274,14 +1191,7 @@ public final class NowPlayingViewModel: ObservableObject {
         let plexRating: Int? = isFavorite ? 10 : nil
         let optimisticRating = isFavorite ? 10 : 0
         let previousRating = trackDisplayRating(for: track)
-        let loadingToast = ToastPayload(
-            style: .info,
-            iconSystemName: "heart.fill",
-            title: isFavorite ? "Adding to Favorites..." : "Removing from Favorites...",
-            isPersistent: true,
-            dedupeKey: "favorite-toggle-loading-\(track.id)",
-            showsActivityIndicator: true
-        )
+        let loadingToast = trackRatingMutationWorkflow.beginFavoriteUpdate(track: track, isFavorite: isFavorite)
         toastCenter.show(loadingToast)
         defer { toastCenter.dismiss(id: loadingToast.id) }
 
@@ -1291,23 +1201,17 @@ public final class NowPlayingViewModel: ObservableObject {
             try await storeTrackRating(trackId: track.id, rating: optimisticRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: optimisticRating)
 
-            // Route through MutationCoordinator — handles offline queuing automatically
-            if let trackRatingMutationHandlerForTesting {
-                try await trackRatingMutationHandlerForTesting(track, plexRating)
-            } else {
-                let outcome = try await mutationCoordinator.rateTrack(track, rating: plexRating)
-                if outcome == .queued {
-                    toastCenter.show(
-                        ToastPayload(
-                            style: .info,
-                            iconSystemName: isFavorite ? "heart.fill" : "heart.slash.fill",
-                            title: isFavorite ? "Saved — will sync when online" : "Removed — will sync when online",
-                            message: track.title,
-                            dedupeKey: "favorite-toggle-queued-\(track.id)-\(isFavorite ? 1 : 0)"
-                        )
-                    )
-                    return
+            let outcome = try await performTrackRatingMutation(track, rating: plexRating)
+            let workflowResult = trackRatingMutationWorkflow.finishFavoriteUpdate(
+                track: track,
+                isFavorite: isFavorite,
+                outcome: outcome
+            )
+            if workflowResult.outcome == .queued {
+                if let toast = workflowResult.toast {
+                    toastCenter.show(toast)
                 }
+                return
             }
 
             if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
@@ -1318,30 +1222,16 @@ public final class NowPlayingViewModel: ObservableObject {
                 optimisticTrackRatings[track.id] = optimisticRating
             }
 
-            toastCenter.show(
-                ToastPayload(
-                    style: .success,
-                    iconSystemName: isFavorite ? "heart.fill" : "heart.slash.fill",
-                    title: isFavorite ? "Added to Favorites" : "Removed from Favorites",
-                    message: track.title,
-                    dedupeKey: "favorite-toggle-success-\(track.id)-\(isFavorite ? 1 : 0)"
-                )
-            )
+            if let toast = workflowResult.toast {
+                toastCenter.show(toast)
+            }
         } catch {
             // Roll back optimistic state if server mutation fails.
             optimisticTrackRatings[track.id] = previousRating
             try? await storeTrackRating(trackId: track.id, rating: previousRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: previousRating)
 
-            toastCenter.show(
-                ToastPayload(
-                    style: .error,
-                    iconSystemName: "xmark.octagon.fill",
-                    title: "Could not update favorite",
-                    message: error.localizedDescription,
-                    dedupeKey: "favorite-toggle-error-\(track.id)"
-                )
-            )
+            toastCenter.show(trackRatingMutationWorkflow.favoriteFailureToast(track: track, error: error))
             EnsembleLogger.debug("Failed to set favorite state: \(error)")
         }
     }
@@ -1388,24 +1278,18 @@ public final class NowPlayingViewModel: ObservableObject {
             try await storeTrackRating(trackId: track.id, rating: nextDisplayRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: nextDisplayRating)
 
-            // Route through MutationCoordinator — handles offline queuing automatically
-            if let trackRatingMutationHandlerForTesting {
-                try await trackRatingMutationHandlerForTesting(track, nextPlexRating)
-            } else {
-                let outcome = try await mutationCoordinator.rateTrack(track, rating: nextPlexRating)
-                if outcome == .queued {
-                    toastCenter.show(
-                        ToastPayload(
-                            style: .info,
-                            iconSystemName: newRating.icon,
-                            title: "Rating saved — will sync when online",
-                            message: track.title,
-                            dedupeKey: "rating-toggle-queued-\(track.id)"
-                        )
-                    )
-                    isUpdatingRating = false
-                    return
+            let outcome = try await performTrackRatingMutation(track, rating: nextPlexRating)
+            let workflowResult = trackRatingMutationWorkflow.finishRatingUpdate(
+                track: track,
+                newRating: newRating,
+                outcome: outcome
+            )
+            if workflowResult.outcome == .queued {
+                if let toast = workflowResult.toast {
+                    toastCenter.show(toast)
                 }
+                isUpdatingRating = false
+                return
             }
 
             if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
@@ -1426,6 +1310,7 @@ public final class NowPlayingViewModel: ObservableObject {
             currentRating = TrackRating.from(rating: previousRating)
             try? await storeTrackRating(trackId: track.id, rating: previousRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: previousRating)
+            toastCenter.show(trackRatingMutationWorkflow.ratingFailureToast(track: track, error: error))
         }
     }
     
@@ -1468,6 +1353,23 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     // MARK: - Helpers
+
+    private func playlistToastTapHandler(for playlist: Playlist) -> (() -> Void) {
+        { [weak self] in
+            self?.navigationCoordinator.navigateFromNowPlaying(
+                to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
+            )
+        }
+    }
+
+    private func performTrackRatingMutation(_ track: Track, rating: Int?) async throws -> MutationOutcome {
+        if let trackRatingMutationHandlerForTesting {
+            try await trackRatingMutationHandlerForTesting(track, rating)
+            return .completed
+        }
+
+        return try await trackRatingMutationWorkflow.mutate(track, rating: rating)
+    }
 
     private func serverSourceKey(from sourceCompositeKey: String?) -> String? {
         MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey)

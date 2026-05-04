@@ -48,6 +48,7 @@ public final class PinnedViewModel: ObservableObject {
     @Published public var draggingPinId: String?
 
     private let pinManager: PinManager
+    private let pinMutationWorkflow: PinMutationWorkflow
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private var cancellables = Set<AnyCancellable>()
@@ -55,10 +56,12 @@ public final class PinnedViewModel: ObservableObject {
 
     public init(
         pinManager: PinManager,
+        pinMutationWorkflow: PinMutationWorkflow? = nil,
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol
     ) {
         self.pinManager = pinManager
+        self.pinMutationWorkflow = pinMutationWorkflow ?? PinMutationWorkflow(pinManager: pinManager)
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
 
@@ -183,7 +186,7 @@ public final class PinnedViewModel: ObservableObject {
         resolvedPins.move(fromOffsets: source, toOffset: destination)
         // Persist the new order to PinManager
         let ids = resolvedPins.map { $0.pinnedItem.id }
-        pinManager.reorder(ids: ids)
+        pinMutationWorkflow.reorder(ids: ids)
         isMoving = false
     }
 
@@ -204,22 +207,22 @@ public final class PinnedViewModel: ObservableObject {
     public func persistOrder() {
         isMoving = true
         let ids = resolvedPins.map { $0.pinnedItem.id }
-        pinManager.reorder(ids: ids)
+        pinMutationWorkflow.reorder(ids: ids)
         isMoving = false
     }
 
     /// Unpin an item by its ID
     public func unpin(id: String) {
-        pinManager.unpin(id: id)
+        pinMutationWorkflow.unpin(id: id)
     }
 
     /// Unpin all items in a resolved pin (handles merged playlists with multiple IDs)
     public func unpinAll(_ pin: ResolvedPin) {
         let ids = pin.allPinnedIds
         if ids.count > 1 {
-            pinManager.unpinAll(ids: ids)
+            pinMutationWorkflow.unpinAll(ids: ids)
         } else if let id = ids.first {
-            pinManager.unpin(id: id)
+            pinMutationWorkflow.unpin(id: id)
         }
     }
 }

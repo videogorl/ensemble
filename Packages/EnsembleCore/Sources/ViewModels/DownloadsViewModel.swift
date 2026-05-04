@@ -57,6 +57,7 @@ public final class DownloadsViewModel: ObservableObject {
     @Published public private(set) var libraryTogglesInProgress: Set<String> = []
 
     private let offlineDownloadService: OfflineDownloadService
+    private let downloadMutationWorkflow: DownloadMutationWorkflow
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let mutationCoordinator: MutationCoordinator
@@ -66,6 +67,7 @@ public final class DownloadsViewModel: ObservableObject {
 
     public init(
         offlineDownloadService: OfflineDownloadService,
+        downloadMutationWorkflow: DownloadMutationWorkflow? = nil,
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
         mutationCoordinator: MutationCoordinator,
@@ -73,6 +75,7 @@ public final class DownloadsViewModel: ObservableObject {
         downloadManager: DownloadManagerProtocol
     ) {
         self.offlineDownloadService = offlineDownloadService
+        self.downloadMutationWorkflow = downloadMutationWorkflow ?? DownloadMutationWorkflow(mutator: offlineDownloadService)
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.mutationCoordinator = mutationCoordinator
@@ -147,18 +150,18 @@ public final class DownloadsViewModel: ObservableObject {
     }
 
     public func removeDownloadTarget(key: String) async {
-        await offlineDownloadService.removeTarget(key: key)
+        await downloadMutationWorkflow.removeTarget(key: key)
         await refresh()
     }
 
     /// Pauses the download queue — active downloads are stopped and marked paused.
     public func pauseQueue() async {
-        await offlineDownloadService.pauseQueue()
+        await downloadMutationWorkflow.pauseQueue()
     }
 
     /// Resumes a paused download queue.
     public func resumeQueue() async {
-        await offlineDownloadService.resumeQueue()
+        await downloadMutationWorkflow.resumeQueue()
     }
 
     /// Whether a library-level download target exists for the given sourceCompositeKey
@@ -169,7 +172,7 @@ public final class DownloadsViewModel: ObservableObject {
     /// Toggle library-level download on or off
     public func setLibraryEnabled(sourceCompositeKey: String, title: String, isEnabled: Bool) async {
         libraryTogglesInProgress.insert(sourceCompositeKey)
-        await offlineDownloadService.setLibraryDownloadEnabled(
+        await downloadMutationWorkflow.setLibraryDownloadEnabled(
             sourceCompositeKey: sourceCompositeKey,
             displayName: title,
             isEnabled: isEnabled

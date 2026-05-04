@@ -479,16 +479,13 @@ public struct ArtistDetailView: View {
         let isDownloaded = dependencies.offlineDownloadService.isArtistDownloadEnabled(viewModel.artist)
         return Menu {
             Button {
-                if isPinned {
-                    pinManager.unpin(id: viewModel.artist.id)
-                } else {
-                    pinManager.pin(
-                        id: viewModel.artist.id,
-                        sourceKey: viewModel.artist.sourceCompositeKey ?? "",
-                        type: .artist,
-                        title: viewModel.artist.name
-                    )
-                }
+                dependencies.pinMutationWorkflow.togglePin(
+                    id: viewModel.artist.id,
+                    sourceKey: viewModel.artist.sourceCompositeKey ?? "",
+                    type: .artist,
+                    title: viewModel.artist.name,
+                    isPinned: isPinned
+                )
             } label: {
                 if isPinned {
                     Label("Unpin", systemImage: EnsembleDesign.Icon.unpin)
@@ -499,7 +496,7 @@ public struct ArtistDetailView: View {
 
             Button {
                 Task {
-                    await dependencies.offlineDownloadService.setArtistDownloadEnabled(
+                    await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
                         viewModel.artist,
                         isEnabled: !isDownloaded
                     )

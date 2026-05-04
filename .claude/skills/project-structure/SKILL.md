@@ -168,9 +168,11 @@ Sources/
 |   +-- LocalNetworkPermissionProbe.swift # Local-network permission prompt helper used during account onboarding
 |   +-- SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
 |   +-- PlaylistMutationController.swift # Playlist create/rename/delete/replace control-flow seam extracted from SyncCoordinator
-|   +-- PlaylistMutationWorkflow.swift # Shared playlist rename/delete mutation workflow, outcome, and toast payload policy
+|   +-- PlaylistMutationWorkflow.swift # Shared playlist add/create/rename/delete mutation workflow, outcome, and toast payload policy
 |   +-- PlaylistActionService.swift    # Shared add-to-playlist source compatibility, default-server, dedupe, and source-stamping rules
 |   +-- PlaylistDropResolver.swift     # Shared media-reference resolver for playlist drag/drop copy-add flows
+|   +-- PinMutationWorkflow.swift      # Shared local pin/unpin/batch/reorder mutation policy with silent toast policy
+|   +-- TrackRatingMutationWorkflow.swift # Shared favorite/rating mutation toast and queued/error policy
 |   +-- MediaFilterEngine.swift        # Shared media filter rules for library, detail, playlist, and favorites surfaces
 |   +-- SyncExecutionController.swift  # Full/incremental/startup sync execution seam extracted from SyncCoordinator
 |   +-- RefreshOrchestrator.swift      # Health-refresh gating, cooldown/staleness policy, and startup-health ownership extracted from SyncCoordinator
@@ -208,6 +210,7 @@ Sources/
 |   +-- HubOrderManager.swift          # User-customizable hub section ordering
 |   +-- BackgroundSyncScheduler.swift  # iOS BGAppRefreshTask scheduling for background sync
 |   +-- OfflineDownloadService.swift   # Target-based offline queue, reconciliation, progress tracking, and healing orchestration
+|   +-- DownloadMutationWorkflow.swift # Shared user-initiated download target/queue mutation boundary
 |   +-- DownloadQueueCoordinator.swift # Sole owner of offline queue task lifecycle and worker orchestration
 |   +-- OfflineDownloadCleanupCoordinator.swift # Best-effort orphaned-download cleanup for completed files that no longer have any offline target membership
 |   +-- DownloadRetryPolicy.swift      # Stateful offline retry and direct-fallback policy
@@ -283,6 +286,7 @@ Tests/
 +-- ServerConnectionControllerTests.swift # Registry-update processing and API-client endpoint synchronization coverage
 +-- PlexWebSocketCoordinatorTests.swift # Aggregate WebSocket availability callback coverage
 +-- OfflineDownloadServicePolicyTests.swift # Playback/background download work-mode policy coverage
++-- DownloadMutationWorkflowTests.swift # Shared download target/queue mutation workflow coverage
 +-- DownloadQueueCoordinatorTests.swift # Queue lifecycle ownership, background wakeup, and restart coverage
 +-- DownloadRetryPolicyTests.swift # Transfer retry accounting and direct-fallback gating coverage
 +-- DownloadTargetReconcilerTests.swift # Target membership resolution and orphan cleanup coverage
@@ -303,7 +307,9 @@ Tests/
 +-- LyricsServiceTests.swift           # LRC parser timestamp parsing + line lookup coverage
 +-- PlaylistActionServiceTests.swift  # Add-to-playlist source compatibility and dedupe coverage
 +-- PlaylistDropResolverTests.swift   # Playlist drag/drop target validation, expansion, dedupe, and source rejection coverage
-+-- PlaylistMutationWorkflowTests.swift # Shared playlist rename/delete workflow and toast payload coverage
++-- PlaylistMutationWorkflowTests.swift # Shared playlist add/create/rename/delete workflow and toast payload coverage
++-- PinMutationWorkflowTests.swift    # Shared pin/unpin/batch/reorder policy coverage
++-- TrackRatingMutationWorkflowTests.swift # Shared favorite/rating toast and queued/error policy coverage
 +-- MetadataMutationWorkflowTests.swift # Shared metadata edit/delete workflow and toast payload coverage
 +-- MediaFilterEngineTests.swift      # Shared media filter configurations and parity coverage
 +-- MediaFormattersTests.swift        # Shared media duration/byte formatting coverage
@@ -348,9 +354,11 @@ Sources/
 +-- Sheets/                          # Shared sheets and macOS auxiliary sheet/window scaffolds
 +-- Utility/                         # Shared rows, menus, toolbar/profile helpers, keyboard/chrome utilities
 |   +-- MediaDragPayload.swift        # Internal drag/drop payload for tracks, albums, playlists, and merged display playlists
+|   +-- MediaDragExportPolicy.swift   # Drag/drop copy-vs-move and external file-promise policy matrix
 |   +-- MediaMenuCatalog.swift        # Shared context-menu action catalog, section policy, roles, and context gating
+|   +-- EnsemblePlatformFeaturePolicy.swift # Platform feature/rendering policy for root shell, mini-player menus, native lists, and utility scaffolds
 |   +-- PlaylistActionPresentationHost.swift # Shared add-to-playlist sheet request + recent-playlist presentation helpers
-|   +-- EnsembleUtilityScreenScaffold.swift # Card-based macOS utility screen/section rows for Profile, Downloads, and future menu-like tools
+|   +-- EnsembleUtilityScreenScaffold.swift # Adaptive utility scaffold plus card-based macOS screen/section rows for menu-like tools
 +-- Screens/
 |   +-- Root/                         # RootView, MainTabView, MoreView, auxiliary presentation routing
 |   |   +-- NavigationDestinationFactory.swift # Shared root tab/destination view factory used by iPhone tabs and iPad/macOS sidebar stacks
@@ -369,4 +377,5 @@ Sources/
 Tests/
 +-- EnsembleUITests.swift
 +-- NavigationRootHelperTests.swift   # Sidebar destination mapping and NavigationCoordinator path binding coverage
++-- PlatformAndDragPolicyTests.swift # Platform feature policy and drag/export default matrix coverage
 ```

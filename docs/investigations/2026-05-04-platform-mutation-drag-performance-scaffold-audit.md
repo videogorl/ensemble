@@ -75,3 +75,26 @@ The implementation rule is: same feature, same rules, platform-native rendering.
 4. Add drag/export policy tests before changing drag behavior.
 5. Add observation projections only after baseline trace capture identifies the highest invalidation sources.
 6. Add the adaptive utility scaffold and migrate menu-like screens in small, visually verifiable batches.
+
+## 2026-05-04 Implementation Pass
+
+| Area | Completed in this pass | Remaining gate |
+|---|---|---|
+| Platform parity | Added `EnsemblePlatformFeaturePolicy` for root shell, mini-player menu renderer, native track-list backend, and utility scaffold rules. `RootView` now routes through this policy while preserving platform-native `MainTabView`/`SidebarView` renderers and OS availability fallbacks. | Commands still need to consume the same policy/action matrix in a follow-up. iPad portrait simulator presents the split shell collapsed to the detail column; full-width sidebar interaction still needs landscape/macOS visual capture. |
+| Mutation workflows | Expanded `PlaylistMutationWorkflow` to own add/create toast policy. Added `TrackRatingMutationWorkflow`, `PinMutationWorkflow`, and `DownloadMutationWorkflow`; routed Now Playing favorites/rating, playlist add/create, pin actions, and user download actions through those workflows. | Download workflow currently centralizes action ownership but preserves the existing mostly-silent user feedback policy. Add explicit user-action toasts only after product copy is agreed. |
+| Drag/drop/export | Added `MediaDragExportPolicy` and UI tests for track copy export, album/playlist in-app-only support, queue move-only behavior, and unsupported file promises. Existing `PlaylistDropResolverTests` cover expansion, dedupe, smart/merged/unresolved/cross-source rejection. | The policy is documented/tested but only partially wired into existing drag providers because current behavior already matches the matrix. Any future drag surface should consume this policy directly. |
+| SwiftUI performance | Captured a simulator startup runtime baseline with `scripts/capture_runtime_baseline.sh`; startup health checks completed in 1.13s and startup sync completed in the captured log. | No Instruments before/after traces were captured in this pass. Observation projections for Root, Detail, Now Playing, Artists, Playlists, and MiniPlayer remain gated on Time Profiler/SwiftUI invalidation evidence. |
+| Utility scaffolds | Added `EnsembleAdaptiveUtilityScaffold` for grouped iOS lists and macOS utility card sections. Migrated Audio Quality, Connection Security, and Storage settings subviews as the first scaffold consumers. | Filters, Logs, account detail, playlist create/edit, and text input still need separate visual migration passes. |
+
+## 2026-05-04 Verification Results
+
+| Gate | Result |
+|---|---|
+| Core tests | Passed: `swift test --package-path Packages/EnsembleCore` (490 XCTest cases + 4 Swift Testing cases). |
+| UI tests | Passed: `swift test --package-path Packages/EnsembleUI` (42 XCTest cases). |
+| Core warning budget | Passed: `scripts/check_core_warning_budget.sh` reported 0 Core warnings against budget 0. |
+| iPhone workspace build | Passed: `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'id=64431A29-844A-4897-961B-562E7529138F' build -quiet`. |
+| iPad workspace build | Passed on iOS 15.5 simulator: `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'id=309C07A5-D6FF-4C11-8C59-620DE8DF07BF' build -quiet`. |
+| macOS workspace build | Passed: `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=macOS,arch=arm64' build -quiet`. |
+| Simulator smoke | iPhone 17 Pro simulator launched, navigated More -> Downloads, verified utility content, and toggled mini-player Play/Pause. iPad simulator launched to the Feed detail column under the split-shell policy. Screenshots: `/tmp/ensemble-iphone-downloads-smoke.png`, `/tmp/ensemble-ipad-feed-smoke.png`. |
+| Runtime baseline | Captured to `/tmp/ensemble-runtime-baseline-2026-05-04`; persistent session log and OS log were copied there. |

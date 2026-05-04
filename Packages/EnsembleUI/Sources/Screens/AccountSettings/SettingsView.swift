@@ -35,37 +35,61 @@ struct AudioQualitySettingsView: View {
     @AppStorage("downloadQuality") private var downloadQuality = "high"
 
     var body: some View {
-        List {
-            Section {
-                Picker("Streaming Quality", selection: $streamingQuality) {
-                    Text("Original").tag("original")
-                    Text("High (320 kbps)").tag("high")
-                    Text("Medium (192 kbps)").tag("medium")
-                    Text("Low (128 kbps)").tag("low")
+        EnsembleAdaptiveUtilityScaffold(title: "Audio Quality") {
+            List {
+                Section {
+                    streamingQualityPicker
+                } header: {
+                    EnsembleUtilitySectionHeader("Streaming")
+                } footer: {
+                    Text("Lower quality uses less data when streaming over cellular.")
                 }
-            } header: {
-                EnsembleUtilitySectionHeader("Streaming")
-            } footer: {
-                Text("Lower quality uses less data when streaming over cellular.")
+
+                Section {
+                    downloadQualityPicker
+                } header: {
+                    EnsembleUtilitySectionHeader("Downloads")
+                } footer: {
+                    Text("Higher quality downloads use more storage space.")
+                }
+            }
+        } regularContent: {
+            EnsembleUtilityCardSection(
+                "Streaming",
+                footer: "Lower quality uses less data when streaming over cellular."
+            ) {
+                EnsembleUtilityCardRow {
+                    streamingQualityPicker
+                }
             }
 
-            Section {
-                Picker("Download Quality", selection: $downloadQuality) {
-                    Text("Original").tag("original")
-                    Text("High (320 kbps)").tag("high")
-                    Text("Medium (192 kbps)").tag("medium")
-                    Text("Low (128 kbps)").tag("low")
+            EnsembleUtilityCardSection(
+                "Downloads",
+                footer: "Higher quality downloads use more storage space."
+            ) {
+                EnsembleUtilityCardRow {
+                    downloadQualityPicker
                 }
-            } header: {
-                EnsembleUtilitySectionHeader("Downloads")
-            } footer: {
-                Text("Higher quality downloads use more storage space.")
             }
         }
-        .navigationTitle("Audio Quality")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
+    }
+
+    private var streamingQualityPicker: some View {
+        Picker("Streaming Quality", selection: $streamingQuality) {
+            Text("Original").tag("original")
+            Text("High (320 kbps)").tag("high")
+            Text("Medium (192 kbps)").tag("medium")
+            Text("Low (128 kbps)").tag("low")
+        }
+    }
+
+    private var downloadQualityPicker: some View {
+        Picker("Download Quality", selection: $downloadQuality) {
+            Text("Original").tag("original")
+            Text("High (320 kbps)").tag("high")
+            Text("Medium (192 kbps)").tag("medium")
+            Text("Low (128 kbps)").tag("low")
+        }
     }
 }
 
@@ -77,28 +101,39 @@ struct ConnectionPolicySettingsView: View {
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
 
     var body: some View {
-        List {
-            Section {
-                Picker("Allow Insecure Connections", selection: policyBinding) {
-                    ForEach(AllowInsecureConnectionsPolicy.allCases, id: \.rawValue) { policy in
-                        VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
-                            Text(policy.title)
-                            Text(policy.subtitle)
-                                .font(EnsembleDesign.Typography.rowSecondary)
-                                .foregroundColor(EnsembleDesign.Color.secondaryText)
-                        }
-                        .tag(policy)
-                    }
+        EnsembleAdaptiveUtilityScaffold(title: "Connection Security") {
+            List {
+                Section {
+                    policyPicker
+                } footer: {
+                    Text("Changing this setting rebuilds server connection candidates and refreshes provider routing.")
                 }
-                .pickerStyle(.inline)
-            } footer: {
-                Text("Changing this setting rebuilds server connection candidates and refreshes provider routing.")
+            }
+        } regularContent: {
+            EnsembleUtilityCardSection(
+                nil,
+                footer: "Changing this setting rebuilds server connection candidates and refreshes provider routing."
+            ) {
+                EnsembleUtilityCardRow {
+                    policyPicker
+                }
             }
         }
-        .navigationTitle("Connection Security")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
+    }
+
+    private var policyPicker: some View {
+        Picker("Allow Insecure Connections", selection: policyBinding) {
+            ForEach(AllowInsecureConnectionsPolicy.allCases, id: \.rawValue) { policy in
+                VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
+                    Text(policy.title)
+                    Text(policy.subtitle)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+                .tag(policy)
+            }
+        }
+        .pickerStyle(.inline)
     }
 
     private var policyBinding: Binding<AllowInsecureConnectionsPolicy> {
@@ -120,30 +155,34 @@ struct StorageSettingsView: View {
     @State private var showingClearAlert = false
 
     var body: some View {
-        List {
-            Section {
-                HStack {
-                    Text("Downloaded Music")
-                    Spacer()
-                    Text(totalSize)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+        EnsembleAdaptiveUtilityScaffold(title: "Storage") {
+            List {
+                Section {
+                    downloadedMusicRow
+                }
+
+                Section {
+                    clearDownloadsButton
+                } footer: {
+                    Text("This will remove all downloaded music from your device. You can re-download music anytime.")
+                }
+            }
+        } regularContent: {
+            EnsembleUtilityCardSection {
+                EnsembleUtilityCardRow {
+                    downloadedMusicRow
                 }
             }
 
-            Section {
-                Button(role: .destructive) {
-                    showingClearAlert = true
-                } label: {
-                    Text("Clear All Downloads")
+            EnsembleUtilityCardSection(
+                nil,
+                footer: "This will remove all downloaded music from your device. You can re-download music anytime."
+            ) {
+                EnsembleUtilityCardRow {
+                    clearDownloadsButton
                 }
-            } footer: {
-                Text("This will remove all downloaded music from your device. You can re-download music anytime.")
             }
         }
-        .navigationTitle("Storage")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
         .alert("Clear Downloads", isPresented: $showingClearAlert) {
             Button("Cancel", role: .cancel) {}
             Button("Clear All", role: .destructive) {
@@ -154,6 +193,23 @@ struct StorageSettingsView: View {
         }
         .onAppear {
             calculateStorage()
+        }
+    }
+
+    private var downloadedMusicRow: some View {
+        HStack {
+            Text("Downloaded Music")
+            Spacer()
+            Text(totalSize)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+        }
+    }
+
+    private var clearDownloadsButton: some View {
+        Button(role: .destructive) {
+            showingClearAlert = true
+        } label: {
+            Text("Clear All Downloads")
         }
     }
 

@@ -36,6 +36,39 @@ public struct EnsembleUtilityScreenScaffold<Content: View>: View {
     }
 }
 
+/// Adaptive wrapper for utility screens that should keep grouped-list chrome on iOS
+/// and quiet card sections inside macOS auxiliary windows.
+public struct EnsembleAdaptiveUtilityScaffold<CompactContent: View, RegularContent: View>: View {
+    private let title: String
+    private let compactContent: CompactContent
+    private let regularContent: RegularContent
+
+    public init(
+        title: String,
+        @ViewBuilder compactContent: () -> CompactContent,
+        @ViewBuilder regularContent: () -> RegularContent
+    ) {
+        self.title = title
+        self.compactContent = compactContent()
+        self.regularContent = regularContent()
+    }
+
+    public var body: some View {
+        #if os(macOS)
+        EnsembleUtilityScreenScaffold(title: title) {
+            regularContent
+        }
+        .navigationTitle(title)
+        #else
+        compactContent
+            .navigationTitle(title)
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+        #endif
+    }
+}
+
 /// A macOS-friendly utility section with an optional title and footer.
 public struct EnsembleUtilityCardSection<Content: View>: View {
     private let title: String?
