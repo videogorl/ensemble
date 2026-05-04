@@ -40,6 +40,18 @@ Date: 2026-05-04
 4. Extract playlist action and track-resolution services, then remove duplicated helper methods.
 5. Extract source identity, filters, formatters, Siri shared code, and mutation workflows in separate commits.
 
+## Remaining Implementation Harness
+
+This checklist is intentionally kept in-repo so the remaining work survives context compaction and future sessions can resume without reconstructing the plan from chat history.
+
+- [ ] Extract `PlaylistActionPresentationHost` in EnsembleUI and migrate repeated `presentPlaylistPicker` / `addToRecentPlaylist` call sites in Songs, Artists, Favorites, Mood, Search, StageFlow, Queue, Controls, MiniPlayer, and detail surfaces.
+- [ ] Complete the context-menu parity sweep for remaining custom surfaces: MiniPlayer, ControlsCard, QueueCard, HomeView, SearchView, and any card/search pinned wrappers that still build actions outside `MediaMenuCatalog`.
+- [ ] Replace remaining local duration/byte formatters with `MediaFormatters` or document intentional one-off display formatting.
+- [ ] Extract remaining root navigation/destination helpers from `MainTabView` into reusable EnsembleUI helpers, then migrate call sites.
+- [ ] Delete obsolete compatibility wrappers and duplicate helpers only after all call sites route through shared services.
+- [ ] Update project guidance (`architecture`, `project-structure`, `common-tasks`, `ui-conventions`, and this investigation) after the final shape lands.
+- [ ] Final verification: `swift test --package-path Packages/EnsembleCore`, `swift test --package-path Packages/EnsembleUI`, `swift test --package-path Packages/EnsembleSiriShared`, `scripts/check_core_warning_budget.sh`, iPad simulator build, macOS build, and simulator smoke evidence.
+
 ## Implementation Notes
 
 - Track context menus now route through `MediaMenuCatalog`; native AppKit table menu parity is covered by `testAppKitTrackContextMenuUsesSharedCatalogOrder`.
