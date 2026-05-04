@@ -31,6 +31,10 @@ struct MediaDragPayload: Codable, Equatable {
 
     let items: [Item]
 
+    var dropReferences: [MediaDropItemReference] {
+        items.map(\.dropReference)
+    }
+
     static func track(_ track: Track) -> MediaDragPayload {
         MediaDragPayload(items: [
             Item(
@@ -303,6 +307,31 @@ struct MediaDragPayload: Codable, Equatable {
             return first.title
         }
         return "\(items.count) media items"
+    }
+}
+
+private extension MediaDragPayload.Item {
+    var dropReference: MediaDropItemReference {
+        MediaDropItemReference(
+            kind: kind.dropReferenceKind,
+            id: id,
+            sourceKey: sourceKey,
+            title: title,
+            isSmartPlaylist: isSmartPlaylist
+        )
+    }
+}
+
+private extension MediaDragPayload.Kind {
+    var dropReferenceKind: MediaDropItemReference.Kind {
+        switch self {
+        case .track:
+            return .track
+        case .album:
+            return .album
+        case .playlist:
+            return .playlist
+        }
     }
 }
 

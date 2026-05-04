@@ -222,7 +222,7 @@ All playlist mutations go through `SyncCoordinator`, which handles the server ca
 
 Use `MediaDragPayload` in `Packages/EnsembleUI/Sources/Utility/` for in-app drags involving tracks, albums, playlists, or merged display playlists. Track drag sources should use `MediaDragPayload.trackItemProvider(for:shareService:)` on iOS/iPadOS and `MediaDragPayload.trackPasteboardWriter(for:shareService:)` for native AppKit rows: both keep the app-specific payload internal for Ensemble drops, and expose the same prepared audio file URL and `TrackFileExportMetadata` export naming used by Share File to external destinations such as Finder or Files. Do not expose the JSON fallback to external pasteboards.
 
-Playlist drops are copy/add operations only. Resolve albums and source playlists to tracks before mutating, reject smart or merged playlist targets with a toast, and reject unresolved or cross-source drops without changing playlist contents.
+Playlist drops are copy/add operations only. UI surfaces should load `MediaDragPayload`, pass `payload.dropReferences` into Core `PlaylistDropResolver`, then present toasts for `PlaylistDropResolutionError`. Do not duplicate media matching, source compatibility, album/playlist expansion, or dedupe in views. Reject smart or merged playlist targets, unresolved items, and cross-source drops without changing playlist contents.
 
 ```swift
 let syncCoordinator = DependencyContainer.shared.syncCoordinator
@@ -248,6 +248,7 @@ try await syncCoordinator.renamePlaylist(playlistKey: "12345", newTitle: "New Na
 - After a successful mutation, `SyncCoordinator` automatically refreshes the affected playlist from the server and updates CoreData.
 - Use `PlaylistActionSheets.swift` for standard add-to-playlist / create-playlist UI — it wires up these calls consistently across the app.
 - Use `PlaylistActionService` or the `NowPlayingViewModel` compatibility wrappers before add-to-playlist mutations. They normalize library-scoped keys to server keys, reject known cross-server tracks, dedupe repeated tracks, and stamp unknown-source tracks with the selected server key for the mutation path.
+- Use `PlaylistDropResolver` for drag/drop playlist copy-add flows. It returns the resolved target playlist and compatible tracks; the view should only call `addTracksOptimistically(_:to:)` and map resolver errors to user feedback.
 
 ## Adding Offline Download Targets (Library / Album / Artist / Playlist)
 

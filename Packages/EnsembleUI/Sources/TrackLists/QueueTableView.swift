@@ -693,7 +693,7 @@ public struct QueueTableView: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, dropSessionDidUpdate session: UIDropSession, withDestinationIndexPath destinationIndexPath: IndexPath?) -> UITableViewDropProposal {
-            guard let dest = destinationIndexPath, !showHistory else {
+            guard destinationIndexPath != nil, !showHistory else {
                 return UITableViewDropProposal(operation: .cancel)
             }
             return UITableViewDropProposal(operation: .move, intent: .insertAtDestinationIndexPath)
@@ -701,8 +701,6 @@ public struct QueueTableView: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, performDropWith coordinator: UITableViewDropCoordinator) {
             guard let destinationIndexPath = coordinator.destinationIndexPath,
-                  !showHistory,
-                  let sourceIndexPath = coordinator.items.first?.sourceIndexPath,
                   !showHistory else { return }
             
             // Extract source item from the drag item's localObject

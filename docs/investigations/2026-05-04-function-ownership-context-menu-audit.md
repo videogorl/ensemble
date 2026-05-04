@@ -39,3 +39,19 @@ Date: 2026-05-04
 3. Make album/artist/playlist wrappers consume catalog sections while preserving existing wrapper call sites.
 4. Extract playlist action and track-resolution services, then remove duplicated helper methods.
 5. Extract source identity, filters, formatters, Siri shared code, and mutation workflows in separate commits.
+
+## Implementation Notes
+
+- Track context menus now route through `MediaMenuCatalog`; native AppKit table menu parity is covered by `testAppKitTrackContextMenuUsesSharedCatalogOrder`.
+- Album, artist, playlist, and merged playlist wrappers now consume catalog sections while keeping existing wrapper call sites.
+- `PlaylistActionService` owns add-to-playlist compatibility, dedupe, default-server selection, and unknown-source stamping. `NowPlayingViewModel` keeps compatibility wrappers for migrated call sites.
+- `PlaylistDropResolver` and `MediaTrackResolver` now own sidebar playlist drop resolution. `MainTabView.SidebarPlaylistDragDropHost` loads `MediaDragPayload`, converts it to Core `MediaDropItemReference`, maps resolver errors to toasts, and performs the final mutation only after Core returns a resolved target and compatible tracks.
+
+## Latest Verification
+
+- `swift test --package-path Packages/EnsembleCore --filter PlaylistDropResolverTests`: passed, 5 tests.
+- `swift test --package-path Packages/EnsembleCore`: passed, 447 XCTest tests plus 4 Swift Testing tests.
+- `swift test --package-path Packages/EnsembleUI`: passed, 34 tests.
+- `scripts/check_core_warning_budget.sh`: passed, 0 warnings.
+- `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,id=337648C1-407B-4DEF-BC7C-47E140168768' build`: passed for booted iPad (A16), iOS 26.4.1.
+- `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk macosx -destination 'platform=macOS,arch=arm64' build`: passed.

@@ -77,6 +77,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - Delegates app-foreground and network-transition policy to `NetworkLifecycleController` so lifecycle events produce explicit refresh/invalidation plans before side effects run
   - Delegates API-client endpoint synchronization and registry observation to `ServerConnectionController` so sync flow no longer owns registry subscription tasks directly
 - `PlaylistActionService` -- Shared add-to-playlist source compatibility rules used by Now Playing and UI presentation wrappers; owns server-key normalization, cross-source filtering, dedupe, and source stamping for unknown-source tracks before playlist mutation calls
+- `PlaylistDropResolver` / `MediaTrackResolver` -- Shared media drag/drop resolution for playlist copy/add flows; owns stable media-reference matching, album/playlist expansion policy, smart/merged target rejection, source compatibility, and track dedupe before UI calls playlist mutation APIs
 - `NavigationCoordinator` (@MainActor) -- Manages cross-view navigation state (artist/album deep links from NowPlayingView)
   - Maintains per-tab navigation paths (homePath, artistsPath, etc.)
   - `visibleTabs: [TabItem]` -- Synced from MainTabView to enable fallback logic
@@ -586,7 +587,7 @@ Universal link and audio file sharing for tracks and albums:
 3. **ShareSheetPresenter** (`EnsembleUI`) -- iOS 15-compatible `UIActivityViewController` wrapper with imperative presentation via topmost window scene. macOS uses `NSSharingServicePicker`.
 4. **ShareActions** (`EnsembleUI`) -- Static namespace bridging `ShareService` -> share sheet, with toast feedback for download progress and text fallback.
 5. **Context menu integration** -- "Share Link..." and "Share Audio File..." in `TrackRow`, `MediaTrackList`, and Now Playing ellipsis menu. "Share Link..." in `AlbumCard` context menu.
-6. **Drag and drop (iPad)** -- `TrackRow.onDrag` and `MediaTrackList` `UITableViewDragDelegate` provide `NSItemProvider` with audio file URL for downloaded tracks.
+6. **Drag and drop (iPad/macOS)** -- `MediaDragPayload` provides internal track/album/playlist references for Ensemble drop targets and file representations for external destinations. Playlist drop targets call Core `PlaylistDropResolver`; UI owns provider loading and toast presentation only.
 7. **MusicKit configuration** -- `com.apple.developer.music-kit` entitlement + `NSAppleMusicUsageDescription` in Info.plist. `#if canImport(MusicKit)` guard for watchOS 8.
 
 ## Subsystem: Mood-Based Browsing
