@@ -348,6 +348,7 @@ Sources/
 +-- Utility/                         # Shared rows, menus, toolbar/profile helpers, keyboard/chrome utilities
 |   +-- MediaDragPayload.swift        # Internal drag/drop payload for tracks, albums, playlists, and merged display playlists
 |   +-- MediaMenuCatalog.swift        # Shared context-menu action catalog, section policy, roles, and context gating
+|   +-- PlaylistActionPresentationHost.swift # Shared add-to-playlist sheet request + recent-playlist presentation helpers
 |   +-- EnsembleUtilityScreenScaffold.swift # Card-based macOS utility screen/section rows for Profile, Downloads, and future menu-like tools
 +-- Screens/
 |   +-- Root/                         # RootView, MainTabView, MoreView, auxiliary presentation routing

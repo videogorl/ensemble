@@ -57,12 +57,6 @@ public struct AlbumDetailMenuActions {
 // MARK: - Media Detail View
 
 public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
-    private struct PlaylistPickerPayload: Identifiable {
-        let id = UUID()
-        let tracks: [Track]
-        let title: String
-    }
-
     @ObservedObject var viewModel: ViewModel
     let nowPlayingVM: NowPlayingViewModel
 
@@ -89,7 +83,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var showFilterSheet = false
     @State private var showToolbarTitle = false
     @State private var showToolbarActions = false
-    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
     // Targeted NVM observation: only re-evaluate on track/playlist target changes
@@ -229,15 +223,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
             if gen != availabilityGeneration { availabilityGeneration = gen }
         }
-        .sheet(item: $playlistPickerPayload) { payload in
-            PlaylistPickerSheet(
-                nowPlayingVM: nowPlayingVM,
-                tracks: payload.tracks,
-                title: payload.title
-            )
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .task(id: quickTargetRefreshKey) {
-            lastPlaylistQuickTarget = await nowPlayingVM.resolveLastPlaylistTarget(for: viewModel.filteredTracks)
+            lastPlaylistQuickTarget = await PlaylistActionPresentationHost.resolveRecentPlaylistTarget(
+                for: viewModel.filteredTracks,
+                nowPlayingVM: nowPlayingVM
+            )
         }
         .task {
             await viewModel.loadTracks()
@@ -316,15 +307,19 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         MediaActionLabel(kind: .playLast)
                     }
 
-                    if let lastPlaylistQuickTarget {
-                        if nowPlayingVM.compatibleTrackCount(viewModel.filteredTracks, for: lastPlaylistQuickTarget) > 0 {
-                            Button {
-                                Task {
-                                    _ = try? await nowPlayingVM.addTracks(viewModel.filteredTracks, to: lastPlaylistQuickTarget)
-                                }
-                            } label: {
-                                MediaActionLabel(kind: .addToRecentPlaylist(lastPlaylistQuickTarget.title))
-                            }
+                    if let recentTitle = PlaylistActionPresentationHost.recentPlaylistTitle(
+                        for: viewModel.filteredTracks,
+                        target: lastPlaylistQuickTarget,
+                        nowPlayingVM: nowPlayingVM
+                    ) {
+                        Button {
+                            PlaylistActionPresentationHost.addToRecentPlaylist(
+                                viewModel.filteredTracks,
+                                target: lastPlaylistQuickTarget,
+                                nowPlayingVM: nowPlayingVM
+                            )
+                        } label: {
+                            MediaActionLabel(kind: .addToRecentPlaylist(recentTitle))
                         }
                     }
 
@@ -533,10 +528,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             return
         }
 
-        playlistPickerPayload = PlaylistPickerPayload(
-            tracks: tracks,
-            title: title
-        )
+        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
     }
 
     private var playlistTrackRemovalHandler: ((Track, Int) -> Void)? {
@@ -899,11 +891,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 presentPlaylistPicker(with: [track], title: "Add to Playlist")
             },
             onAddToRecentPlaylist: { track in
-                guard let lastPlaylistQuickTarget,
-                      nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return }
-                Task {
-                    _ = try? await nowPlayingVM.addTracks([track], to: lastPlaylistQuickTarget)
-                }
+                PlaylistActionPresentationHost.addToRecentPlaylist(
+                    [track],
+                    target: lastPlaylistQuickTarget,
+                    nowPlayingVM: nowPlayingVM
+                )
             },
             onToggleFavorite: { track in
                 Task {
@@ -930,8 +922,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 nowPlayingVM.isTrackFavorited(track)
             },
             canAddToRecentPlaylist: { track in
-                guard let lastPlaylistQuickTarget else { return false }
-                return nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0
+                PlaylistActionPresentationHost.recentPlaylistTitle(
+                    for: [track],
+                    target: lastPlaylistQuickTarget,
+                    nowPlayingVM: nowPlayingVM
+                ) != nil
             },
             recentPlaylistTitle: lastPlaylistQuickTarget?.title
         )

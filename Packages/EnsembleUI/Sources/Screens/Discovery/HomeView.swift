@@ -10,7 +10,7 @@ public struct HomeView: View {
     @State private var profileBackgroundImage: UIImage?
     // Targeted singleton observation: only fires when sync state changes (for empty state)
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
-    @State private var playlistPickerTracks: [Track]?
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
@@ -56,14 +56,7 @@ public struct HomeView: View {
         .sheet(isPresented: $viewModel.isEditingOrder) {
             HubOrderingSheet(viewModel: viewModel)
         }
-        .sheet(isPresented: Binding(
-            get: { playlistPickerTracks != nil },
-            set: { if !$0 { playlistPickerTracks = nil } }
-        )) {
-            if let tracks = playlistPickerTracks {
-                PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: tracks, title: "Add to Playlist")
-            }
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }
@@ -187,7 +180,7 @@ public struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.sectionSpacing) {
                 ForEach(viewModel.hubs) { hub in
-                    HubSection(hub: hub, nowPlayingVM: nowPlayingVM, playlistPickerTracks: $playlistPickerTracks)
+                    HubSection(hub: hub, nowPlayingVM: nowPlayingVM, playlistActionRequest: $playlistActionRequest)
                 }
             }
             .padding(.vertical)
@@ -224,7 +217,7 @@ public struct HomeView: View {
 struct HubSection: View {
     let hub: Hub
     let nowPlayingVM: NowPlayingViewModel
-    @Binding var playlistPickerTracks: [Track]?
+    @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
 
     var body: some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
@@ -238,7 +231,7 @@ struct HubSection: View {
                         HubItemCard(
                             item: item,
                             nowPlayingVM: nowPlayingVM,
-                            playlistPickerTracks: $playlistPickerTracks
+                            playlistActionRequest: $playlistActionRequest
                         )
                     }
                 }
@@ -292,7 +285,7 @@ struct HubItemCard: View {
     // re-render ALL HubItemCards on the home screen. Pin state is only read in the
     // context menu, which SwiftUI evaluates on-demand when the menu opens.
     private let pinManager = DependencyContainer.shared.pinManager
-    @Binding var playlistPickerTracks: [Track]?
+    @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
 
     private let artworkDimension = EnsembleScaffold.MediaCard.hubArtworkDimension
 
@@ -468,7 +461,7 @@ struct HubItemCard: View {
 
         Button {
             withAlbumTracks { tracks in
-                playlistPickerTracks = tracks
+                playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
             }
         } label: {
             MediaActionLabel(kind: .addToPlaylist)
@@ -496,7 +489,8 @@ struct HubItemCard: View {
             }
         }
 
-        if let recentTarget = nowPlayingVM.lastPlaylistTarget {
+        if let recentTarget = nowPlayingVM.lastPlaylistTarget,
+           nowPlayingVM.compatibleTrackCount([resolvedTrack], forServerSourceKey: recentTarget.sourceCompositeKey) > 0 {
             Button {
                 addToRecentPlaylist(expectedTitle: recentTarget.title)
             } label: {
@@ -610,7 +604,7 @@ struct HubItemCard: View {
         }
 
         Button {
-            playlistPickerTracks = [track]
+            playlistActionRequest = PlaylistActionPresentationHost.request(for: [track])
         } label: {
             MediaActionLabel(kind: .addToPlaylist)
         }
@@ -637,14 +631,14 @@ struct HubItemCard: View {
             }
         }
 
-        if let recentTarget = nowPlayingVM.lastPlaylistTarget {
+        if let recentTitle = PlaylistActionPresentationHost.recentPlaylistTitle(
+            for: [track],
+            nowPlayingVM: nowPlayingVM
+        ) {
             Button {
-                Task {
-                    guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: [track]) else { return }
-                    _ = try? await nowPlayingVM.addTracks([track], to: playlist)
-                }
+                PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
             } label: {
-                MediaActionLabel(kind: .addToRecentPlaylist(recentTarget.title))
+                MediaActionLabel(kind: .addToRecentPlaylist(recentTitle))
             }
         }
 
@@ -797,7 +791,10 @@ struct HubItemCard: View {
     private func addToRecentPlaylist(expectedTitle: String) {
         withAlbumTracks { tracks in
             Task {
-                guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: tracks) else {
+                guard let playlist = await PlaylistActionPresentationHost.resolveRecentPlaylistTarget(
+                    for: tracks,
+                    nowPlayingVM: nowPlayingVM
+                ) else {
                     await MainActor.run {
                         deps.toastCenter.show(
                             ToastPayload(
@@ -811,7 +808,11 @@ struct HubItemCard: View {
                     }
                     return
                 }
-                _ = try? await nowPlayingVM.addTracks(tracks, to: playlist)
+                PlaylistActionPresentationHost.addToRecentPlaylist(
+                    tracks,
+                    target: playlist,
+                    nowPlayingVM: nowPlayingVM
+                )
             }
         }
     }

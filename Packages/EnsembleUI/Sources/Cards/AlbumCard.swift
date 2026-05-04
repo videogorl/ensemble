@@ -115,12 +115,6 @@ public struct AlbumCard: View {
 // MARK: - Album Grid
 
 public struct AlbumGrid: View {
-    fileprivate struct PlaylistPickerPayload: Identifiable {
-        let id = UUID()
-        let tracks: [Track]
-        let title: String
-    }
-
     let albums: [Album]
     let nowPlayingVM: NowPlayingViewModel
     let onAlbumTap: ((Album) -> Void)?
@@ -128,7 +122,7 @@ public struct AlbumGrid: View {
 
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
-    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var pendingAlbumDeletion: Album?
 
     public init(
@@ -156,7 +150,7 @@ public struct AlbumGrid: View {
                             album: album,
                             nowPlayingVM: nowPlayingVM,
                             presentPlaylistPicker: { tracks, title in
-                                playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                                playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
                             },
                             onEditMetadata: {
                                 presentAlbumMetadataEditor(album)
@@ -179,7 +173,7 @@ public struct AlbumGrid: View {
                             album: album,
                             nowPlayingVM: nowPlayingVM,
                             presentPlaylistPicker: { tracks, title in
-                                playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                                playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
                             },
                             onEditMetadata: {
                                 presentAlbumMetadataEditor(album)
@@ -192,9 +186,7 @@ public struct AlbumGrid: View {
                 }
             }
         }
-        .sheet(item: $playlistPickerPayload) { payload in
-            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .confirmationDialog(
             "Delete Album?",
             isPresented: Binding(

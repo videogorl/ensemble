@@ -561,7 +561,7 @@ Server-backed playlist mutations with automatic local cache refresh:
 - `SyncCoordinator` orchestrates all mutations: `createPlaylist()`, `addTracksToPlaylist()`, `removeTrackFromPlaylist()`, `movePlaylistItem()`, `renamePlaylist()`
 - Smart playlists are read-only; all mutations throw `PlaylistMutationError.smartPlaylistReadOnly`
 - All successful mutations trigger server refresh + CoreData update for the affected source
-- UI entry points: `PlaylistActionSheets.swift` (shared add/create sheet), `NowPlayingViewModel` (queue snapshot, add current track), `PlaylistViewModel` (rename, reorder, remove), `MediaTrackList` (per-track add)
+- UI entry points: `PlaylistActionSheets.swift` (shared add/create sheet), `PlaylistActionPresentationHost` (sheet request and recent-playlist presentation helpers), `NowPlayingViewModel` (queue snapshot, add current track), `PlaylistViewModel` (rename, reorder, remove), `MediaTrackList` (per-track add)
 
 ## Subsystem: Gesture Actions
 

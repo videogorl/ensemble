@@ -158,7 +158,10 @@ struct AlbumActionsContextMenu: View {
     private func addAlbumToRecentPlaylist(_ album: Album, expectedTitle: String) {
         withAlbumTracks(album) { tracks in
             Task {
-                guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: tracks) else {
+                guard let playlist = await PlaylistActionPresentationHost.resolveRecentPlaylistTarget(
+                    for: tracks,
+                    nowPlayingVM: nowPlayingVM
+                ) else {
                     await MainActor.run {
                         deps.toastCenter.show(
                             ToastPayload(
@@ -173,7 +176,11 @@ struct AlbumActionsContextMenu: View {
                     return
                 }
 
-                _ = try? await nowPlayingVM.addTracks(tracks, to: playlist)
+                PlaylistActionPresentationHost.addToRecentPlaylist(
+                    tracks,
+                    target: playlist,
+                    nowPlayingVM: nowPlayingVM
+                )
             }
         }
     }

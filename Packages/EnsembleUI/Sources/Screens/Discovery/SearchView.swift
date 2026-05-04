@@ -5,12 +5,6 @@ import UIKit
 #endif
 
 public struct SearchView: View {
-    fileprivate struct PlaylistPickerPayload: Identifiable {
-        let id = UUID()
-        let tracks: [Track]
-        let title: String
-    }
-
     @StateObject private var viewModel: SearchViewModel
     let nowPlayingVM: NowPlayingViewModel
     @FocusState private var isSearchFieldFocused: Bool
@@ -19,7 +13,7 @@ public struct SearchView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var isPinnedExpanded = false
     @State private var isEditingPins = false
-    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     // Targeted singleton observation for empty/no-results states
     @State private var hasAnySources = DependencyContainer.shared.accountManager.hasAnySources
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
@@ -112,9 +106,7 @@ public struct SearchView: View {
                 collapseSearchPresentation()
             }
         }
-        .sheet(item: $playlistPickerPayload) { payload in
-            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .onAppear {
             isSearchTabActive = navigationCoordinator.selectedTab == .search
             isSearchPathEmpty = navigationCoordinator.searchPath.isEmpty
@@ -249,7 +241,7 @@ public struct SearchView: View {
                             .buttonStyle(.plain)
                             .contextMenu {
                                 AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                                    playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                                    playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
                                 }
                             }
                         } else {
@@ -261,7 +253,7 @@ public struct SearchView: View {
                             .buttonStyle(.plain)
                             .contextMenu {
                                 AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                                    playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                                    playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
                                 }
                             }
                         }
@@ -433,7 +425,7 @@ public struct SearchView: View {
                     .buttonStyle(.plain)
                     .contextMenu {
                         AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                            playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                            playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
                         }
                     }
                 } else {
@@ -445,7 +437,7 @@ public struct SearchView: View {
                     .buttonStyle(.plain)
                     .contextMenu {
                         AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                            playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                            playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
                         }
                     }
                 }
@@ -854,7 +846,7 @@ public struct SearchView: View {
                         })
                         .contextMenu {
                             AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                                playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                                playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
                             }
                         }
                     } else {
@@ -869,7 +861,7 @@ public struct SearchView: View {
                         })
                         .contextMenu {
                             AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                                playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                                playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
                             }
                         }
                     }
@@ -1028,35 +1020,15 @@ public struct SearchView: View {
     }
 
     private func presentPlaylistPicker(with tracks: [Track]) {
-        guard !tracks.isEmpty else { return }
-        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: "Add to Playlist")
+        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
     }
 
     private func addToRecentPlaylist(_ track: Track) {
-        guard recentPlaylistTitle(for: track) != nil else { return }
-        Task {
-            guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: [track]) else { return }
-            _ = try? await nowPlayingVM.addTracks([track], to: playlist)
-        }
+        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
     }
 
     private func recentPlaylistTitle(for track: Track) -> String? {
-        guard let target = nowPlayingVM.lastPlaylistTarget else { return nil }
-        let playlist = Playlist(
-            id: target.id,
-            key: "/playlists/\(target.id)",
-            title: target.title,
-            summary: nil,
-            isSmart: false,
-            trackCount: 0,
-            duration: 0,
-            compositePath: nil,
-            dateAdded: nil,
-            dateModified: nil,
-            lastPlayed: nil,
-            sourceCompositeKey: target.sourceCompositeKey
-        )
-        return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
+        PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
     }
 
     

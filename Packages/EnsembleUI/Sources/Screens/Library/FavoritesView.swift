@@ -10,12 +10,6 @@ import AppKit
 /// View showing favorited/loved tracks (rated 4+ stars)
 /// Offline-first hub that displays tracks from CoreData across all servers and libraries
 public struct FavoritesView: View {
-    private struct PlaylistPickerPayload: Identifiable {
-        let id = UUID()
-        let tracks: [Track]
-        let title: String
-    }
-
     @StateObject private var viewModel: FavoritesViewModel
     let nowPlayingVM: NowPlayingViewModel
     // Targeted singleton observation for empty state only
@@ -24,7 +18,7 @@ public struct FavoritesView: View {
     @State private var hasEnabledLibrariesState = false
     @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
     @State private var showFilterSheet = false
-    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     // Targeted NVM observation: only re-evaluate when track/playlist target changes
     @State private var currentTrackId: String?
     @State private var nvmRecentPlaylistTitle: String?
@@ -98,9 +92,7 @@ public struct FavoritesView: View {
                 filterOptions: $viewModel.filterOptions
             )
         }
-        .sheet(item: $playlistPickerPayload) { payload in
-            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
     }
     
     private var moreMenu: some View {
@@ -339,34 +331,14 @@ public struct FavoritesView: View {
     }
 
     private func presentPlaylistPicker(with tracks: [Track]) {
-        guard !tracks.isEmpty else { return }
-        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: "Add to Playlist")
+        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
     }
 
     private func addToRecentPlaylist(_ track: Track) {
-        guard recentPlaylistTitle(for: track) != nil else { return }
-        Task {
-            guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: [track]) else { return }
-            _ = try? await nowPlayingVM.addTracks([track], to: playlist)
-        }
+        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
     }
 
     private func recentPlaylistTitle(for track: Track) -> String? {
-        guard let target = nowPlayingVM.lastPlaylistTarget else { return nil }
-        let playlist = Playlist(
-            id: target.id,
-            key: "/playlists/\(target.id)",
-            title: target.title,
-            summary: nil,
-            isSmart: false,
-            trackCount: 0,
-            duration: 0,
-            compositePath: nil,
-            dateAdded: nil,
-            dateModified: nil,
-            lastPlayed: nil,
-            sourceCompositeKey: target.sourceCompositeKey
-        )
-        return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
+        PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
     }
 }

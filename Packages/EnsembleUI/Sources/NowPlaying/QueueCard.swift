@@ -4,12 +4,6 @@ import SwiftUI
 /// Right card displaying scrollable queue with pinned header and secondary controls
 /// Includes shuffle, repeat, autoplay buttons relocated from Controls card
 public struct QueueCard: View {
-    private struct PlaylistPickerPayload: Identifiable {
-        let id = UUID()
-        let tracks: [Track]
-        let title: String
-    }
-    
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
     private let isAlwaysVisible: Bool
@@ -18,7 +12,7 @@ public struct QueueCard: View {
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss
     
-    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     
     public init(
@@ -94,13 +88,7 @@ public struct QueueCard: View {
             }
             .padding(.bottom, EnsembleScaffold.NowPlaying.cardBottomPadding)
         }
-        .sheet(item: $playlistPickerPayload) { payload in
-            PlaylistPickerSheet(
-                nowPlayingVM: viewModel,
-                tracks: payload.tracks,
-                title: payload.title
-            )
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: viewModel)
         .task {
             await refreshLastPlaylistQuickTarget()
         }
@@ -192,11 +180,11 @@ public struct QueueCard: View {
                         presentPlaylistPicker(with: [track], title: "Add to Playlist")
                     },
                     onAddToRecentPlaylist: { track in
-                        guard let lastPlaylistQuickTarget,
-                              viewModel.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return }
-                        Task {
-                            _ = try? await viewModel.addTracks([track], to: lastPlaylistQuickTarget)
-                        }
+                        PlaylistActionPresentationHost.addToRecentPlaylist(
+                            [track],
+                            target: lastPlaylistQuickTarget,
+                            nowPlayingVM: viewModel
+                        )
                     },
                     onGoToAlbum: { track in
                         if let albumId = track.albumRatingKey {
@@ -209,8 +197,11 @@ public struct QueueCard: View {
                         }
                     },
                     canAddToRecentPlaylist: { track in
-                        guard let lastPlaylistQuickTarget else { return false }
-                        return viewModel.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0
+                        PlaylistActionPresentationHost.recentPlaylistTitle(
+                            for: [track],
+                            target: lastPlaylistQuickTarget,
+                            nowPlayingVM: viewModel
+                        ) != nil
                     },
                     recentPlaylistTitle: lastPlaylistQuickTarget?.title,
                     onRemoveFromQueue: { absoluteIndex in
@@ -378,14 +369,19 @@ public struct QueueCard: View {
         Button { presentPlaylistPicker(with: [item.track], title: "Add to Playlist") } label: {
             MediaActionLabel(kind: .addToPlaylist)
         }
-        if let lastPlaylistQuickTarget,
-           viewModel.compatibleTrackCount([item.track], for: lastPlaylistQuickTarget) > 0 {
+        if let title = PlaylistActionPresentationHost.recentPlaylistTitle(
+            for: [item.track],
+            target: lastPlaylistQuickTarget,
+            nowPlayingVM: viewModel
+        ) {
             Button {
-                Task {
-                    _ = try? await viewModel.addTracks([item.track], to: lastPlaylistQuickTarget)
-                }
+                PlaylistActionPresentationHost.addToRecentPlaylist(
+                    [item.track],
+                    target: lastPlaylistQuickTarget,
+                    nowPlayingVM: viewModel
+                )
             } label: {
-                MediaActionLabel(kind: .addToRecentPlaylist(lastPlaylistQuickTarget.title))
+                MediaActionLabel(kind: .addToRecentPlaylist(title))
             }
         }
         Divider()
@@ -455,7 +451,10 @@ public struct QueueCard: View {
             lastPlaylistQuickTarget = nil
             return
         }
-        lastPlaylistQuickTarget = await viewModel.resolveLastPlaylistTarget(for: [currentTrack])
+        lastPlaylistQuickTarget = await PlaylistActionPresentationHost.resolveRecentPlaylistTarget(
+            for: [currentTrack],
+            nowPlayingVM: viewModel
+        )
     }
     
     private func presentPlaylistPicker(with tracks: [Track], title: String) {
@@ -471,7 +470,7 @@ public struct QueueCard: View {
             )
             return
         }
-        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
     }
 
     private func navigateFromNowPlaying(to destination: NavigationCoordinator.Destination) {

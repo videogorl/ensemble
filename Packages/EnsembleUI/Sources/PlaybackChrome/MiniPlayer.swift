@@ -27,10 +27,9 @@ public struct MiniPlayer: View {
     let viewModel: NowPlayingViewModel
     let onTap: () -> Void
 
-    @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var verticalOffset: CGFloat = 0
-    @State private var showingPlaylistPicker = false
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
 
     private let isFloating: Bool
     private let showsWaveform: Bool
@@ -114,20 +113,22 @@ public struct MiniPlayer: View {
                         )
                     }
 
-                    if let lastTarget = viewModel.lastPlaylistTarget {
+                    if let recentTitle = PlaylistActionPresentationHost.recentPlaylistTitle(
+                        for: [track],
+                        nowPlayingVM: viewModel
+                    ) {
                         Button {
-                            Task {
-                                if let playlist = await viewModel.resolveLastPlaylistTarget() {
-                                    _ = try? await viewModel.addCurrentTrack(to: playlist)
-                                }
+                            PlaylistActionPresentationHost.addToRecentPlaylist(
+                                [track],
+                                nowPlayingVM: viewModel
+                            )
+                        } label: {
+                            MediaActionLabel(kind: .addToRecentPlaylist(recentTitle))
                         }
-                    } label: {
-                        MediaActionLabel(kind: .addToRecentPlaylist(lastTarget.title))
-                    }
                     }
 
                     Button {
-                        showingPlaylistPicker = true
+                        playlistActionRequest = PlaylistActionPresentationHost.request(for: [track])
                     } label: {
                         MediaActionLabel(kind: .addToPlaylist)
                     }
@@ -189,11 +190,7 @@ public struct MiniPlayer: View {
                 }
             }
         }
-        .sheet(isPresented: $showingPlaylistPicker) {
-            if let track = viewModel.currentTrack {
-                PlaylistPickerSheet(nowPlayingVM: viewModel, tracks: [track])
-            }
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: viewModel)
     }
 
     // MARK: - Pill Content
@@ -579,15 +576,11 @@ private struct MiniPlayerActionsMenuButton: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showingActionsPopover = false
-    @State private var showingPlaylistPicker = false
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
 
     var body: some View {
         actionsButton
-            .sheet(isPresented: $showingPlaylistPicker) {
-                if let track = viewModel.currentTrack {
-                    PlaylistPickerSheet(nowPlayingVM: viewModel, tracks: [track])
-                }
-            }
+            .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: viewModel)
     }
 
     @ViewBuilder
@@ -612,7 +605,7 @@ private struct MiniPlayerActionsMenuButton: View {
             MiniPlayerActionsPopoverContent(
                 favoriteTitle: favoriteTitle,
                 favoriteSystemImage: favoriteSystemImage,
-                recentPlaylistTitle: viewModel.lastPlaylistTarget?.title,
+                recentPlaylistTitle: currentTrackRecentPlaylistTitle,
                 isShuffleEnabled: viewModel.isShuffleEnabled,
                 repeatMode: viewModel.repeatMode,
                 showsAlbumNavigation: viewModel.currentTrack?.albumRatingKey != nil,
@@ -627,7 +620,7 @@ private struct MiniPlayerActionsMenuButton: View {
                 },
                 onAddToPlaylist: {
                     showingActionsPopover = false
-                    showingPlaylistPicker = true
+                    requestPlaylistPicker()
                 },
                 onToggleShuffle: {
                     showingActionsPopover = false
@@ -656,14 +649,14 @@ private struct MiniPlayerActionsMenuButton: View {
             isEnabled: viewModel.currentTrack != nil,
             favoriteTitle: favoriteTitle,
             favoriteSystemImage: favoriteSystemImage,
-            recentPlaylistTitle: viewModel.lastPlaylistTarget?.title,
+            recentPlaylistTitle: currentTrackRecentPlaylistTitle,
             isShuffleEnabled: viewModel.isShuffleEnabled,
             repeatMode: viewModel.repeatMode,
             showsAlbumNavigation: viewModel.currentTrack?.albumRatingKey != nil,
             showsArtistNavigation: viewModel.currentTrack?.artistRatingKey != nil,
             onFavorite: toggleFavorite,
             onAddToRecentPlaylist: addToRecentPlaylist,
-            onAddToPlaylist: { showingPlaylistPicker = true },
+            onAddToPlaylist: requestPlaylistPicker,
             onToggleShuffle: toggleShuffle,
             onRepeatAll: repeatAll,
             onRepeatOne: repeatOne,
@@ -688,17 +681,27 @@ private struct MiniPlayerActionsMenuButton: View {
         return viewModel.isTrackFavorited(track) ? EnsembleDesign.Icon.favoriteRemove : EnsembleDesign.Icon.favorite
     }
 
+    private var currentTrackRecentPlaylistTitle: String? {
+        guard let track = viewModel.currentTrack else { return nil }
+        return PlaylistActionPresentationHost.recentPlaylistTitle(
+            for: [track],
+            nowPlayingVM: viewModel
+        )
+    }
+
     private func toggleFavorite() {
         guard let track = viewModel.currentTrack else { return }
         Task { await viewModel.toggleTrackFavorite(track) }
     }
 
     private func addToRecentPlaylist() {
-        Task {
-            if let playlist = await viewModel.resolveLastPlaylistTarget() {
-                _ = try? await viewModel.addCurrentTrack(to: playlist)
-            }
-        }
+        guard let track = viewModel.currentTrack else { return }
+        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: viewModel)
+    }
+
+    private func requestPlaylistPicker() {
+        guard let track = viewModel.currentTrack else { return }
+        playlistActionRequest = PlaylistActionPresentationHost.request(for: [track])
     }
 
     private func toggleShuffle() {

@@ -630,13 +630,6 @@ public struct SidebarView: View {
         let compositePath: String?
     }
 
-    /// Sheet payload for sidebar album actions that need playlist selection.
-    private struct PlaylistPickerPayload: Identifiable {
-        let id = UUID()
-        let tracks: [Track]
-        let title: String
-    }
-
     @StateObject private var libraryVM: LibraryViewModel
     private let nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
@@ -661,7 +654,7 @@ public struct SidebarView: View {
     @State private var pinnedDetailPath: [NavigationCoordinator.Destination] = []
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var compactColumnPreference: CompactColumnPreference = .sidebar
-    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var playlistForEditSheet: Playlist?
     @State private var playlistPendingRename: Playlist?
     @State private var mergedPlaylistPendingRename: DisplayPlaylist?
@@ -1044,9 +1037,7 @@ public struct SidebarView: View {
                 onSave: request.onSave
             )
         }
-        .sheet(item: $playlistPickerPayload) { payload in
-            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
-        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .sheet(item: $playlistForEditSheet) { playlist in
             NavigationView {
                 PlaylistDetailView(
@@ -1547,7 +1538,7 @@ public struct SidebarView: View {
                     album: album,
                     nowPlayingVM: nowPlayingVM,
                     presentPlaylistPicker: { tracks, title in
-                        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+                        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
                     },
                     toastNamespace: "sidebar-album-menu",
                     navigateToArtist: { artistID in
