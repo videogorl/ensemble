@@ -121,10 +121,7 @@ struct TrackDownloadRowView: View {
         case .paused: return "Paused"
         case .completed:
             if row.fileSize > 0 {
-                let formatter = ByteCountFormatter()
-                formatter.allowedUnits = [.useMB, .useGB]
-                formatter.countStyle = .file
-                let size = formatter.string(fromByteCount: row.fileSize)
+                let size = MediaFormatters.bytes(row.fileSize)
                 // Show stored quality when it differs from the current setting
                 if let suffix = qualitySuffix {
                     return "\(size) · \(suffix)"

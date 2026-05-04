@@ -390,8 +390,8 @@ public struct DownloadsView: View {
     }
 
     private func librarySizeText(for library: LibraryDownloadSummary) -> String {
-        let downloadedSize = formatBytes(library.downloadedBytes)
-        let estimatedSize = formatBytes(library.estimatedTotalBytes)
+        let downloadedSize = MediaFormatters.bytes(library.downloadedBytes)
+        let estimatedSize = MediaFormatters.bytes(library.estimatedTotalBytes)
 
         if library.downloadedTrackCount > 0 {
             return "\(downloadedSize) / ~\(estimatedSize)"
@@ -545,12 +545,6 @@ public struct DownloadsView: View {
         .ensembleMaterial(.floatingControl, cornerRadius: EnsembleDesign.Radius.card)
     }
 
-    private func formatBytes(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useMB, .useGB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
-    }
 }
 
 // MARK: - Supporting Row Views
@@ -610,7 +604,7 @@ private struct DownloadedItemRow: View {
     }
 
     private var metadataText: String {
-        let size = formatBytes(item.downloadedBytes)
+        let size = MediaFormatters.bytes(item.downloadedBytes)
         if item.totalTrackCount > 0 {
             if item.status == .completed {
                 return "\(item.completedTrackCount) \(trackLabel(for: item.completedTrackCount)) \u{2022} \(size)"
@@ -652,12 +646,6 @@ private struct DownloadedItemRow: View {
         }
     }
 
-    private func formatBytes(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useMB, .useGB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
-    }
 }
 
 // PendingChangesRow is now a shared component in Components/PendingChangesRow.swift

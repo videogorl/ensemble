@@ -24,16 +24,12 @@ public struct QualitySizeEstimates {
     /// Formatted display string for a given quality key
     public func formattedSize(for quality: String) -> String {
         switch quality {
-        case "high": return Self.formatBytes(highBytes)
-        case "medium": return Self.formatBytes(mediumBytes)
-        case "low": return Self.formatBytes(lowBytes)
-        case "original": return "> \(Self.formatBytes(highBytes))"
-        default: return Self.formatBytes(actualBytes)
+        case "high": return MediaFormatters.bytes(highBytes)
+        case "medium": return MediaFormatters.bytes(mediumBytes)
+        case "low": return MediaFormatters.bytes(lowBytes)
+        case "original": return "> \(MediaFormatters.bytes(highBytes))"
+        default: return MediaFormatters.bytes(actualBytes)
         }
-    }
-
-    private static func formatBytes(_ bytes: Int64) -> String {
-        MediaFormatters.bytes(bytes)
     }
 }
 

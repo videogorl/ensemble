@@ -290,7 +290,7 @@ public struct ControlsCard: View {
                 HStack {
                     Group {
                         if isDraggingSlider {
-                            Text(formatTime(localProgress * viewModel.scrubberDuration))
+                            Text(MediaFormatters.trackClock(localProgress * viewModel.scrubberDuration))
                         } else {
                             Text(viewModel.formattedCurrentTime)
                         }
@@ -309,7 +309,7 @@ public struct ControlsCard: View {
 
                     Group {
                         if isDraggingSlider {
-                            Text(formatTime((1 - localProgress) * viewModel.scrubberDuration))
+                            Text(MediaFormatters.trackClock((1 - localProgress) * viewModel.scrubberDuration))
                         } else {
                             Text(viewModel.formattedRemainingTime)
                         }
@@ -634,9 +634,4 @@ public struct ControlsCard: View {
         }
     }
     
-    private func formatTime(_ time: TimeInterval) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
 }

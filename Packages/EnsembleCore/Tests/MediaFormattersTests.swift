@@ -38,4 +38,9 @@ final class MediaFormattersTests: XCTestCase {
         XCTAssertFalse(value.isEmpty)
         XCTAssertTrue(value.localizedCaseInsensitiveContains("MB"))
     }
+
+    func testSpecializedByteFormattersKeepExpectedUnits() {
+        XCTAssertFalse(MediaFormatters.fileBytes(512).isEmpty)
+        XCTAssertTrue(MediaFormatters.logBytes(1_024).localizedCaseInsensitiveContains("KB"))
+    }
 }

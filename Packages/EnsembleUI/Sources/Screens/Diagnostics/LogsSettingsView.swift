@@ -112,9 +112,6 @@ private struct LogSessionRow: View {
     }
 
     private var formattedSize: String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useKB, .useMB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: session.fileSize)
+        MediaFormatters.logBytes(session.fileSize)
     }
 }

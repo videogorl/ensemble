@@ -172,7 +172,7 @@ public struct CompactTrackRow: View {
 
             Spacer()
 
-            Text(formatDuration(track.duration))
+            Text(MediaFormatters.trackClock(track.duration))
                 .font(EnsembleDesign.Typography.rowSecondary)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
@@ -207,10 +207,4 @@ public struct CompactTrackRow: View {
         }
     }
 
-    private func formatDuration(_ seconds: TimeInterval) -> String {
-        let totalSeconds = Int(seconds)
-        let mins = totalSeconds / 60
-        let secs = totalSeconds % 60
-        return String(format: "%d:%02d", mins, secs)
-    }
 }

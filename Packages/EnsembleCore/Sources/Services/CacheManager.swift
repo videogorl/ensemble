@@ -26,7 +26,7 @@ public struct CacheInfo {
     }
     
     public var formattedSize: String {
-        ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+        MediaFormatters.fileBytes(size)
     }
 }
 
@@ -208,6 +208,6 @@ public final class CacheManager: ObservableObject {
     }
     
     public var formattedTotalSize: String {
-        ByteCountFormatter.string(fromByteCount: totalCacheSize, countStyle: .file)
+        MediaFormatters.fileBytes(totalCacheSize)
     }
 }

@@ -217,6 +217,8 @@ FilterPersistence.save(filterOptions, for: "MyView")
 
 Use `MediaFilterEngine` instead of reimplementing search, genre, download, year, or artist filters in views or ViewModels. Pick an existing named configuration (`.library`, `.playlistDetail`, `.favorites`, `.albumDetail`, `.artistDetail`) or add a tested configuration when a surface intentionally differs. Keep expensive filtering/sorting out of SwiftUI body computation; cache results through a Combine pipeline when the source list can be large.
 
+Use `MediaFormatters` instead of local `ByteCountFormatter`, minute/second, or collection-duration helpers. `bytes(_:)` is for download estimates/progress, `fileBytes(_:)` is for ordinary file-size display, `logBytes(_:)` is for diagnostic log sizes, and `trackClock(_:)`/`collectionDuration(_:)` cover media durations.
+
 ## Working with Playlist Mutations
 
 All playlist mutations go through `SyncCoordinator`, which handles the server call and then refreshes the local CoreData cache automatically.

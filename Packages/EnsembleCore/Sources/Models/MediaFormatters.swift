@@ -29,4 +29,15 @@ public enum MediaFormatters {
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
     }
+
+    public static func fileBytes(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    public static func logBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
 }

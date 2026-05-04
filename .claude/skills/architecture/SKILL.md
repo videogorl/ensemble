@@ -182,7 +182,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
   - `Track` includes `streamId: Int?` -- Identifies audio stream for fetching loudness timeline data (waveform visualization)
 - `MusicSource` / `MusicSourceIdentifier` -- Multi-account source tracking
 - `MediaSourceIdentity` -- Shared parser/comparator for library-scoped and server-scoped source keys
-- `MediaFormatters` -- Shared duration and byte-count formatting helpers used by domain models and ViewModels
+- `MediaFormatters` -- Shared track-clock, collection-duration, download-byte, file-byte, and log-byte formatting helpers used by domain models, ViewModels, and UI
 - `PlexAccountConfig` -- Account/server/library hierarchy for configuration (includes `PlexSubscription` on account, `PlexServerCapabilities` on server, `allowSync` on library)
 - `LibraryVisibilityProfile` -- Named profile of hidden source composite keys (non-destructive visibility filtering)
 - `FilterOptions` -- Comprehensive filtering with search, sort, genre/artist filters, year ranges, downloaded-only toggle

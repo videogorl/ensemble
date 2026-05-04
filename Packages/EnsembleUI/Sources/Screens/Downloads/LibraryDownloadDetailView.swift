@@ -232,7 +232,7 @@ struct LibraryDownloadDetailView: View {
     // MARK: - Helpers
 
     private var headerSubtitle: String {
-        let size = formattedBytes(viewModel.liveDownloadedBytes)
+        let size = MediaFormatters.bytes(viewModel.liveDownloadedBytes)
         let count = viewModel.liveTotalCount
         if count > 0 {
             let noun = count == 1 ? "track" : "tracks"
@@ -260,10 +260,4 @@ struct LibraryDownloadDetailView: View {
         }
     }
 
-    private func formattedBytes(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useMB, .useGB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
-    }
 }
