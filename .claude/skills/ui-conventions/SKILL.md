@@ -177,6 +177,9 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Playlist menu (Playlists screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Pin/Unpin`, plus (for non-smart playlists) `Rename…`, `Edit Playlist`, `Delete`
 - Playlist menu (Search screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Pin/Unpin` (non-destructive only)
 
+### Genre Filters
+- Use `GenreFilterHeader` for browse and detail genre filter rows. Do not place `GenreChipBar` directly in screens; the header owns the shared spacing and optional supplementary content such as merged-playlist source chips.
+
 ## Visual Design
 
 ### Design Tokens And Adaptive Patterns

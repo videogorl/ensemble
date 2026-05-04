@@ -302,7 +302,7 @@ Sources/
 |   +-- ArtworkCornerRadius.swift
 |   +-- View+DesignModifiers.swift
 +-- Artwork/                         # Artwork loading, backgrounds, composites, and color extraction
-+-- Browse/                          # Browse split, filter sheet, genre chips, scroll index, refresh command bridge
++-- Browse/                          # Browse split, filter sheet, GenreFilterHeader/GenreChipBar, scroll index, refresh command bridge
 +-- Cards/                           # Album, artist, playlist, and genre cards
 +-- TrackLists/                      # SwiftUI/UIKit/AppKit track row and table backends
 |   +-- AppKit/

@@ -396,7 +396,7 @@ public struct SongsView: View {
     }
 
     private var songsGenreChipBar: some View {
-        GenreChipBar(
+        GenreFilterHeader(
             availableGenres: libraryVM.availableTrackGenres,
             selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
             excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres

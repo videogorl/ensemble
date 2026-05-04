@@ -35,16 +35,15 @@ public struct MergedPlaylistDetailView: View {
             groupByDisc: false,
             mediaType: .playlist,
             genreChipContent: AnyView(
-                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.sm) {
+                GenreFilterHeader(
+                    availableGenres: viewModel.availableGenres,
+                    selectedGenres: $viewModel.filterOptions.selectedGenres,
+                    excludedGenres: $viewModel.filterOptions.excludedGenres
+                ) {
                     // Source server chips — shows which servers this merge pulls from
                     if !viewModel.sourceServerNames.isEmpty {
                         sourceServerChips
                     }
-                    GenreChipBar(
-                        availableGenres: viewModel.availableGenres,
-                        selectedGenres: $viewModel.filterOptions.selectedGenres,
-                        excludedGenres: $viewModel.filterOptions.excludedGenres
-                    )
                 }
             ),
             playlistMenuActions: PlaylistDetailMenuActions(

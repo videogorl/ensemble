@@ -19,125 +19,99 @@ struct AlbumActionsContextMenu: View {
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
         let isPinned = pinManager.isPinned(id: album.id)
-
-        Button {
-            withAlbumTracks(album) { tracks in
-                nowPlayingVM.play(tracks: tracks)
-            }
-        } label: {
-            MediaActionLabel(kind: .play)
+        let recentTarget = nowPlayingVM.lastPlaylistTarget
+        let addToRecentPlaylist: (() -> Void)? = recentTarget.map { target in
+            { addAlbumToRecentPlaylist(album, expectedTitle: target.title) }
+        }
+        let goToArtist: (() -> Void)? = album.artistRatingKey.map { artistId in
+            { openArtist(artistId) }
         }
 
-        Button {
-            withAlbumTracks(album) { tracks in
-                nowPlayingVM.shufflePlay(tracks: tracks)
-            }
-        } label: {
-            MediaActionLabel(kind: .shuffle)
-        }
-
-        Button {
-            withAlbumTracks(album) { tracks in
-                nowPlayingVM.enableRadio(tracks: tracks)
-            }
-        } label: {
-            MediaActionLabel(kind: .radio)
-        }
-
-        Divider()
-
-        Button {
-            withAlbumTracks(album) { tracks in
-                nowPlayingVM.playNext(tracks)
-            }
-        } label: {
-            MediaActionLabel(kind: .playNext)
-        }
-
-        Button {
-            withAlbumTracks(album) { tracks in
-                nowPlayingVM.playLast(tracks)
-            }
-        } label: {
-            MediaActionLabel(kind: .playLast)
-        }
-
-        if let recentTarget = nowPlayingVM.lastPlaylistTarget {
-            Button {
-                addAlbumToRecentPlaylist(album, expectedTitle: recentTarget.title)
-            } label: {
-                MediaActionLabel(kind: .addToRecentPlaylist(recentTarget.title))
-            }
-        }
-
-        Button {
-            withAlbumTracks(album) { tracks in
-                presentPlaylistPicker(tracks, "Add Album to Playlist")
-            }
-        } label: {
-            MediaActionLabel(kind: .addToPlaylist)
-        }
-
-        Divider()
-
-        if let artistId = album.artistRatingKey {
-            Button {
-                openArtist(artistId)
-            } label: {
-                MediaActionLabel(kind: .goToArtist)
-            }
-        }
-
-        Button {
-            ShareActions.shareAlbumLink(album, deps: deps)
-        } label: {
-            MediaActionLabel(kind: .shareLink)
-        }
-
-        Divider()
-
-        Button {
-            Task {
-                await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
-            }
-        } label: {
-            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
-        }
-
-        Button {
-            if let customPinAction {
-                customPinAction(isPinned)
-            } else if isPinned {
-                pinManager.unpin(id: album.id)
-            } else {
-                pinManager.pin(
-                    id: album.id,
-                    sourceKey: album.sourceCompositeKey ?? "",
-                    type: .album,
-                    title: album.title
+        SwiftUIMediaMenuRenderer(
+            sections: MediaMenuCatalog.sections(
+                for: .album,
+                context: .library,
+                availability: MediaMenuAvailability(
+                    hasRecentPlaylist: recentTarget != nil,
+                    canAddToRecentPlaylist: addToRecentPlaylist != nil,
+                    canGoToAlbum: false,
+                    canGoToArtist: goToArtist != nil,
+                    canShareLink: true,
+                    canShareAudioFile: false,
+                    canFavorite: false,
+                    canDownload: true,
+                    canPin: true,
+                    canEditMetadata: onEditMetadata != nil,
+                    canDelete: onDelete != nil,
+                    canRename: false,
+                    canEditPlaylist: false,
+                    canRemoveFromQueue: false
                 )
-            }
-        } label: {
-            MediaActionLabel(kind: .pin(isPinned: isPinned))
-        }
-
-        if let onEditMetadata {
-            Button {
-                onEditMetadata()
-            } label: {
-                MediaActionLabel(kind: .editMetadata)
-            }
-        }
-
-        if let onDelete {
-            Divider()
-
-            Button(role: .destructive) {
-                onDelete()
-            } label: {
-                MediaActionLabel(kind: .deleteAlbum)
-            }
-        }
+            ),
+            state: MediaMenuState(
+                recentPlaylistTitle: recentTarget?.title,
+                isDownloaded: isDownloaded,
+                isPinned: isPinned
+            ),
+            handlers: MediaMenuHandlers(
+                play: {
+                    withAlbumTracks(album) { tracks in
+                        nowPlayingVM.play(tracks: tracks)
+                    }
+                },
+                shuffle: {
+                    withAlbumTracks(album) { tracks in
+                        nowPlayingVM.shufflePlay(tracks: tracks)
+                    }
+                },
+                radio: {
+                    withAlbumTracks(album) { tracks in
+                        nowPlayingVM.enableRadio(tracks: tracks)
+                    }
+                },
+                playNext: {
+                    withAlbumTracks(album) { tracks in
+                        nowPlayingVM.playNext(tracks)
+                    }
+                },
+                playLast: {
+                    withAlbumTracks(album) { tracks in
+                        nowPlayingVM.playLast(tracks)
+                    }
+                },
+                addToRecentPlaylist: addToRecentPlaylist,
+                addToPlaylist: {
+                    withAlbumTracks(album) { tracks in
+                        presentPlaylistPicker(tracks, "Add Album to Playlist")
+                    }
+                },
+                goToArtist: goToArtist,
+                editMetadata: onEditMetadata,
+                download: {
+                    Task {
+                        await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
+                    }
+                },
+                pin: {
+                    if let customPinAction {
+                        customPinAction(isPinned)
+                    } else if isPinned {
+                        pinManager.unpin(id: album.id)
+                    } else {
+                        pinManager.pin(
+                            id: album.id,
+                            sourceKey: album.sourceCompositeKey ?? "",
+                            type: .album,
+                            title: album.title
+                        )
+                    }
+                },
+                shareLink: {
+                    ShareActions.shareAlbumLink(album, deps: deps)
+                },
+                deleteAlbum: onDelete
+            )
+        )
     }
 
     private func openArtist(_ artistId: String) {
@@ -218,64 +192,71 @@ struct ArtistActionsContextMenu: View {
 
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
-
-        Button {
-            withArtistTracks(artist) { tracks in
-                nowPlayingVM.play(tracks: tracks)
-            }
-        } label: {
-            MediaActionLabel(kind: .play)
-        }
-
-        Button {
-            withArtistTracks(artist) { tracks in
-                nowPlayingVM.shufflePlay(tracks: tracks)
-            }
-        } label: {
-            MediaActionLabel(kind: .shuffle)
-        }
-
-        Button {
-            withArtistTracks(artist) { tracks in
-                nowPlayingVM.enableRadio(tracks: tracks)
-            }
-        } label: {
-            MediaActionLabel(kind: .radio)
-        }
-
-        Button {
-            Task {
-                await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
-            }
-        } label: {
-            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
-        }
-
         let isPinned = pinManager.isPinned(id: artist.id)
-        Button {
-            if let customPinAction {
-                customPinAction(isPinned)
-            } else if isPinned {
-                pinManager.unpin(id: artist.id)
-            } else {
-                pinManager.pin(
-                    id: artist.id,
-                    sourceKey: artist.sourceCompositeKey ?? "",
-                    type: .artist,
-                    title: artist.name
-                )
-            }
-        } label: {
-            MediaActionLabel(kind: .pin(isPinned: isPinned))
-        }
 
-        if let onEditMetadata {
-            Button {
-                onEditMetadata()
-            } label: {
-                MediaActionLabel(kind: .editMetadata)
-            }
-        }
+        SwiftUIMediaMenuRenderer(
+            sections: MediaMenuCatalog.sections(
+                for: .artist,
+                context: .library,
+                availability: MediaMenuAvailability(
+                    hasRecentPlaylist: false,
+                    canAddToRecentPlaylist: false,
+                    canGoToAlbum: false,
+                    canGoToArtist: false,
+                    canShareLink: false,
+                    canShareAudioFile: false,
+                    canFavorite: false,
+                    canDownload: true,
+                    canPin: true,
+                    canEditMetadata: onEditMetadata != nil,
+                    canDelete: false,
+                    canRename: false,
+                    canEditPlaylist: false,
+                    canRemoveFromQueue: false
+                )
+            ),
+            state: MediaMenuState(
+                isDownloaded: isDownloaded,
+                isPinned: isPinned
+            ),
+            handlers: MediaMenuHandlers(
+                play: {
+                    withArtistTracks(artist) { tracks in
+                        nowPlayingVM.play(tracks: tracks)
+                    }
+                },
+                shuffle: {
+                    withArtistTracks(artist) { tracks in
+                        nowPlayingVM.shufflePlay(tracks: tracks)
+                    }
+                },
+                radio: {
+                    withArtistTracks(artist) { tracks in
+                        nowPlayingVM.enableRadio(tracks: tracks)
+                    }
+                },
+                editMetadata: onEditMetadata,
+                download: {
+                    Task {
+                        await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
+                    }
+                },
+                pin: {
+                    if let customPinAction {
+                        customPinAction(isPinned)
+                    } else if isPinned {
+                        pinManager.unpin(id: artist.id)
+                    } else {
+                        pinManager.pin(
+                            id: artist.id,
+                            sourceKey: artist.sourceCompositeKey ?? "",
+                            type: .artist,
+                            title: artist.name
+                        )
+                    }
+                }
+            )
+        )
     }
 
     private func withArtistTracks(_ artist: Artist, perform action: @escaping ([Track]) -> Void) {
@@ -326,90 +307,78 @@ struct PlaylistActionsContextMenu: View {
 
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.play(tracks: tracks)
-            }
-        } label: {
-            MediaActionLabel(kind: .play)
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.shufflePlay(tracks: tracks)
-            }
-        } label: {
-            MediaActionLabel(kind: .shuffle)
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.playNext(tracks)
-            }
-        } label: {
-            MediaActionLabel(kind: .playNext)
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.playLast(tracks)
-            }
-        } label: {
-            MediaActionLabel(kind: .playLast)
-        }
-
-        Button {
-            Task {
-                await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
-            }
-        } label: {
-            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
-        }
-
         let isPinned = pinManager.isPinned(id: playlist.id)
-        Button {
-            if let customPinAction {
-                customPinAction(isPinned)
-            } else if isPinned {
-                pinManager.unpin(id: playlist.id)
-            } else {
-                pinManager.pin(
-                    id: playlist.id,
-                    sourceKey: playlist.sourceCompositeKey ?? "",
-                    type: .playlist,
-                    title: playlist.title
+
+        SwiftUIMediaMenuRenderer(
+            sections: MediaMenuCatalog.sections(
+                for: .playlist(isSmart: playlist.isSmart),
+                context: .library,
+                availability: MediaMenuAvailability(
+                    hasRecentPlaylist: false,
+                    canAddToRecentPlaylist: false,
+                    canGoToAlbum: false,
+                    canGoToArtist: false,
+                    canShareLink: false,
+                    canShareAudioFile: false,
+                    canFavorite: false,
+                    canDownload: true,
+                    canPin: true,
+                    canEditMetadata: false,
+                    canDelete: onDelete != nil,
+                    canRename: onRename != nil,
+                    canEditPlaylist: onEdit != nil,
+                    canRemoveFromQueue: false
                 )
-            }
-        } label: {
-            MediaActionLabel(kind: .pin(isPinned: isPinned))
-        }
-
-        if !playlist.isSmart {
-            if let onRename {
-                Button {
-                    onRename()
-                } label: {
-                    MediaActionLabel(kind: .rename)
-                }
-            }
-
-            if let onEdit {
-                Button {
-                    onEdit()
-                } label: {
-                    MediaActionLabel(kind: .editPlaylist)
-                }
-            }
-
-            if let onDelete {
-                Button(role: .destructive) {
-                    onDelete()
-                } label: {
-                    MediaActionLabel(kind: .deletePlaylist)
-                }
-            }
-        }
+            ),
+            state: MediaMenuState(
+                isDownloaded: isDownloaded,
+                isPinned: isPinned
+            ),
+            handlers: MediaMenuHandlers(
+                play: {
+                    withPlaylistTracks(playlist) { tracks in
+                        nowPlayingVM.play(tracks: tracks)
+                    }
+                },
+                shuffle: {
+                    withPlaylistTracks(playlist) { tracks in
+                        nowPlayingVM.shufflePlay(tracks: tracks)
+                    }
+                },
+                playNext: {
+                    withPlaylistTracks(playlist) { tracks in
+                        nowPlayingVM.playNext(tracks)
+                    }
+                },
+                playLast: {
+                    withPlaylistTracks(playlist) { tracks in
+                        nowPlayingVM.playLast(tracks)
+                    }
+                },
+                rename: onRename,
+                editPlaylist: onEdit,
+                download: {
+                    Task {
+                        await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
+                    }
+                },
+                pin: {
+                    if let customPinAction {
+                        customPinAction(isPinned)
+                    } else if isPinned {
+                        pinManager.unpin(id: playlist.id)
+                    } else {
+                        pinManager.pin(
+                            id: playlist.id,
+                            sourceKey: playlist.sourceCompositeKey ?? "",
+                            type: .playlist,
+                            title: playlist.title
+                        )
+                    }
+                },
+                deletePlaylist: onDelete
+            )
+        )
     }
 
     private func withPlaylistTracks(_ playlist: Playlist, perform action: @escaping ([Track]) -> Void) {
@@ -451,83 +420,80 @@ struct MergedPlaylistActionsContextMenu: View {
     let displayPlaylist: DisplayPlaylist
     let nowPlayingVM: NowPlayingViewModel
     var toastNamespace: String = "merged-playlist-menu"
+    var context: MediaMenuContext = .library
     var onRename: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
+    var onUnpinAll: (() -> Void)? = nil
 
     @Environment(\.dependencies) private var deps
 
     var body: some View {
-        Button {
-            withMergedTracks { tracks in
-                nowPlayingVM.play(tracks: tracks)
+        let isDownloaded = isAnyConstituentDownloaded
+        let downloadAll: (() -> Void)? = isDownloaded ? nil : {
+            Task {
+                for playlist in displayPlaylist.playlists {
+                    await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: true)
+                }
             }
-        } label: {
-            MediaActionLabel(kind: .play)
         }
-
-        Button {
-            withMergedTracks { tracks in
-                nowPlayingVM.shufflePlay(tracks: tracks)
+        let removeDownloads: (() -> Void)? = isDownloaded ? {
+            Task {
+                for playlist in displayPlaylist.playlists {
+                    await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: false)
+                }
             }
-        } label: {
-            MediaActionLabel(kind: .shuffle)
-        }
+        } : nil
 
-        Button {
-            withMergedTracks { tracks in
-                nowPlayingVM.playNext(tracks)
-            }
-        } label: {
-            MediaActionLabel(kind: .playNext)
-        }
-
-        Button {
-            withMergedTracks { tracks in
-                nowPlayingVM.playLast(tracks)
-            }
-        } label: {
-            MediaActionLabel(kind: .playLast)
-        }
-
-        if isAnyConstituentDownloaded {
-            Button {
-                Task {
-                    for playlist in displayPlaylist.playlists {
-                        await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: false)
+        SwiftUIMediaMenuRenderer(
+            sections: MediaMenuCatalog.sections(
+                for: .mergedPlaylist(isSmart: displayPlaylist.isSmart),
+                context: context,
+                availability: MediaMenuAvailability(
+                    hasRecentPlaylist: false,
+                    canAddToRecentPlaylist: false,
+                    canGoToAlbum: false,
+                    canGoToArtist: false,
+                    canShareLink: false,
+                    canShareAudioFile: false,
+                    canFavorite: false,
+                    canDownload: true,
+                    canPin: false,
+                    canEditMetadata: false,
+                    canDelete: onDelete != nil,
+                    canRename: onRename != nil,
+                    canEditPlaylist: false,
+                    canRemoveFromQueue: false
+                )
+            ),
+            state: MediaMenuState(isDownloaded: isDownloaded),
+            handlers: MediaMenuHandlers(
+                play: {
+                    withMergedTracks { tracks in
+                        nowPlayingVM.play(tracks: tracks)
                     }
-                }
-            } label: {
-                MediaActionLabel(kind: .removeDownloads)
-            }
-        } else {
-            Button {
-                Task {
-                    for playlist in displayPlaylist.playlists {
-                        await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: true)
+                },
+                shuffle: {
+                    withMergedTracks { tracks in
+                        nowPlayingVM.shufflePlay(tracks: tracks)
                     }
-                }
-            } label: {
-                MediaActionLabel(kind: .downloadAll)
-            }
-        }
-
-        if !displayPlaylist.isSmart {
-            if let onRename {
-                Button {
-                    onRename()
-                } label: {
-                    MediaActionLabel(kind: .renameAll)
-                }
-            }
-
-            if let onDelete {
-                Button(role: .destructive) {
-                    onDelete()
-                } label: {
-                    MediaActionLabel(kind: .deleteAll)
-                }
-            }
-        }
+                },
+                playNext: {
+                    withMergedTracks { tracks in
+                        nowPlayingVM.playNext(tracks)
+                    }
+                },
+                playLast: {
+                    withMergedTracks { tracks in
+                        nowPlayingVM.playLast(tracks)
+                    }
+                },
+                renameAll: onRename,
+                downloadAll: downloadAll,
+                removeDownloads: removeDownloads,
+                unpinAll: onUnpinAll,
+                deleteAll: onDelete
+            )
+        )
     }
 
     private var isAnyConstituentDownloaded: Bool {

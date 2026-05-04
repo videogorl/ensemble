@@ -2,6 +2,56 @@ import SwiftUI
 
 // MARK: - Genre Chip Bar
 
+/// Standard header wrapper for browse/detail genre filters.
+/// Keep screen-specific surfaces using this wrapper instead of positioning
+/// `GenreChipBar` directly so spacing stays consistent across media types.
+public struct GenreFilterHeader<Supplementary: View>: View {
+    let availableGenres: [String]
+    @Binding var selectedGenres: Set<String>
+    @Binding var excludedGenres: Set<String>
+    let supplementary: Supplementary
+
+    public init(
+        availableGenres: [String],
+        selectedGenres: Binding<Set<String>>,
+        excludedGenres: Binding<Set<String>>,
+        @ViewBuilder supplementary: () -> Supplementary
+    ) {
+        self.availableGenres = availableGenres
+        self._selectedGenres = selectedGenres
+        self._excludedGenres = excludedGenres
+        self.supplementary = supplementary()
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.sm) {
+            supplementary
+            GenreChipBar(
+                availableGenres: availableGenres,
+                selectedGenres: $selectedGenres,
+                excludedGenres: $excludedGenres
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+public extension GenreFilterHeader where Supplementary == EmptyView {
+    init(
+        availableGenres: [String],
+        selectedGenres: Binding<Set<String>>,
+        excludedGenres: Binding<Set<String>>
+    ) {
+        self.init(
+            availableGenres: availableGenres,
+            selectedGenres: selectedGenres,
+            excludedGenres: excludedGenres
+        ) {
+            EmptyView()
+        }
+    }
+}
+
 /// Horizontal scrollable chip bar for quick genre filtering.
 /// Renders whenever there is at least one available genre.
 /// Three-state toggle: tap to include → tap to exclude → tap to clear.

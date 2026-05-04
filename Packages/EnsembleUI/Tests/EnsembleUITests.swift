@@ -344,6 +344,35 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(queue.actions(in: .playlist), history.actions(in: .playlist))
     }
 
+    func testMediaMenuCatalogAlbumLibraryContextIncludesSharedActions() {
+        let sections = MediaMenuCatalog.sections(
+            for: .album,
+            context: .library,
+            availability: .full
+        )
+
+        XCTAssertEqual(sections.ids, [.playback, .playlist, .navigation, .sharing, .offline, .management])
+        XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .radio, .playNext, .playLast])
+        XCTAssertEqual(sections.actions(in: .playlist), [.addToRecentPlaylist, .addToPlaylist])
+        XCTAssertEqual(sections.actions(in: .navigation), [.goToArtist])
+        XCTAssertEqual(sections.actions(in: .offline), [.download, .pin])
+        XCTAssertEqual(sections.actions(in: .management), [.editMetadata, .deleteAlbum])
+        XCTAssertEqual(sections.role(for: .deleteAlbum), .destructive)
+    }
+
+    func testMediaMenuCatalogArtistSearchContextKeepsSafeBaseActionsOnly() {
+        let sections = MediaMenuCatalog.sections(
+            for: .artist,
+            context: .search,
+            availability: .full
+        )
+
+        XCTAssertEqual(sections.ids, [.playback, .offline])
+        XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .radio])
+        XCTAssertEqual(sections.actions(in: .offline), [.download, .pin])
+        XCTAssertNil(sections.first { $0.id == .management })
+    }
+
     func testMediaMenuCatalogSearchPlaylistIsNonDestructive() {
         let sections = MediaMenuCatalog.sections(
             for: .playlist(isSmart: false),

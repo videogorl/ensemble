@@ -328,7 +328,7 @@ public struct ArtistsView: View {
     }
 
     private var artistGenreChipBar: some View {
-        GenreChipBar(
+        GenreFilterHeader(
             availableGenres: libraryVM.availableArtistGenres,
             selectedGenres: $libraryVM.artistsFilterOptions.selectedGenres,
             excludedGenres: $libraryVM.artistsFilterOptions.excludedGenres

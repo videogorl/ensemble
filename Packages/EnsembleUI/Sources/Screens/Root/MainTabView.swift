@@ -1740,25 +1740,21 @@ public struct SidebarView: View {
                     displayPlaylist: displayPlaylist,
                     nowPlayingVM: nowPlayingVM,
                     toastNamespace: "sidebar-merged-playlist-menu",
+                    context: .sidebar,
                     onRename: {
                         mergedPlaylistPendingRename = displayPlaylist
                     },
                     onDelete: {
                         mergedPlaylistPendingDelete = displayPlaylist
+                    },
+                    onUnpinAll: {
+                        handlePinnedSelectionRemoval(
+                            ids: Set(pinnedItems.map(\.id)),
+                            fallback: .library(.playlists)
+                        )
+                        pinManager.unpinAll(ids: Set(pinnedItems.map(\.id)))
                     }
                 )
-
-                Divider()
-
-                Button(role: .destructive) {
-                    handlePinnedSelectionRemoval(
-                        ids: Set(pinnedItems.map(\.id)),
-                        fallback: .library(.playlists)
-                    )
-                    pinManager.unpinAll(ids: Set(pinnedItems.map(\.id)))
-                } label: {
-                    Label("Unpin All", systemImage: EnsembleDesign.Icon.unpin)
-                }
             }
         }
     }

@@ -275,7 +275,7 @@ public struct AlbumsView: View {
 
     private var albumGridView: some View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
-            GenreChipBar(
+            GenreFilterHeader(
                 availableGenres: libraryVM.availableAlbumGenres,
                 selectedGenres: $libraryVM.albumsFilterOptions.selectedGenres,
                 excludedGenres: $libraryVM.albumsFilterOptions.excludedGenres

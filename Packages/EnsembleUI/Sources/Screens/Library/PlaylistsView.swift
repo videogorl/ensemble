@@ -853,7 +853,7 @@ public struct PlaylistDetailView: View {
                     groupByDisc: false,
                     mediaType: .playlist,
                     genreChipContent: AnyView(
-                        GenreChipBar(
+                        GenreFilterHeader(
                             availableGenres: viewModel.availableGenres,
                             selectedGenres: $viewModel.filterOptions.selectedGenres,
                             excludedGenres: $viewModel.filterOptions.excludedGenres
