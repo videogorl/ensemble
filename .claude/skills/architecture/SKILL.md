@@ -172,6 +172,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `ShareService` (@MainActor) -- Coordinates share payloads: link (song.link/Apple Music URL), text (fallback), or file (local download or temp download via Plex stream URL)
 - `MutationCoordinator` (@MainActor) -- Unified online/offline mutation queue for ratings, playlist changes, and scrobbles
 - `MetadataMutationService` -- Metadata edit coordination for tracks/albums/artists/playlists, plus invalidation notifications that refresh browse/detail surfaces
+- `MetadataMutationWorkflow` -- Shared track/album/artist metadata edit/delete workflow used by rows, cards, and album detail; owns edit-request construction and success/failure toast payload policy while views keep editor presentation, confirmation dialogs, and post-delete navigation
 - `SiriAffinityCoordinator` (@MainActor) -- Executes Siri love/dislike/remove-rating requests against the current track
 - `SiriAddToPlaylistCoordinator` (@MainActor) -- Executes Siri add-to-playlist requests and routes them through the optimistic mutation path
 - `SiriMediaUserContextManager` -- Persists recent Siri playback context to improve subsequent media resolution and ranking

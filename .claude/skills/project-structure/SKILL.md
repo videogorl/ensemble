@@ -233,6 +233,7 @@ Sources/
 |   +-- LyricsService.swift            # LRC parser, lyrics models (LyricsLine/ParsedLyrics/LyricsState), LyricsService fetch pipeline + offline sidecar
 |   +-- MutationCoordinator.swift      # Unified online/offline mutation queue for ratings, playlists, and scrobbles
 |   +-- MetadataMutationService.swift  # Metadata edit coordination + invalidation notifications for UI refresh
+|   +-- MetadataMutationWorkflow.swift # Shared track/album/artist metadata edit/delete workflow and toast payload policy
 |   +-- PersistentLogService.swift     # Persistent session logging with real-time file writes for TestFlight diagnostics
 |   +-- SiriAffinityCoordinator.swift  # In-app Siri love/dislike coordinator using the playback + mutation services
 |   +-- SiriAddToPlaylistCoordinator.swift # In-app Siri add-to-playlist coordinator with optimistic queueing
@@ -302,6 +303,7 @@ Tests/
 +-- PlaylistActionServiceTests.swift  # Add-to-playlist source compatibility and dedupe coverage
 +-- PlaylistDropResolverTests.swift   # Playlist drag/drop target validation, expansion, dedupe, and source rejection coverage
 +-- PlaylistMutationWorkflowTests.swift # Shared playlist rename/delete workflow and toast payload coverage
++-- MetadataMutationWorkflowTests.swift # Shared metadata edit/delete workflow and toast payload coverage
 +-- MediaFilterEngineTests.swift      # Shared media filter configurations and parity coverage
 +-- MediaFormattersTests.swift        # Shared media duration/byte formatting coverage
 +-- MediaSourceIdentityTests.swift    # Source-key parsing and server comparison coverage

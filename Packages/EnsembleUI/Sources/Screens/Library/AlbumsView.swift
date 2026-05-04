@@ -400,30 +400,22 @@ public struct AlbumDetailView: View {
                             currentTitle: album.title
                         ) { newTitle in
                             do {
-                                try await deps.metadataMutationService.editAlbum(
+                                let result = try await deps.metadataMutationWorkflow.editAlbum(
                                     album,
-                                    request: MetadataEditRequest(title: newTitle)
+                                    title: newTitle,
+                                    scope: .albumDetail
                                 )
                                 await MainActor.run {
-                                    deps.toastCenter.show(
-                                        ToastPayload(
-                                            style: .success,
-                                            iconSystemName: EnsembleDesign.Icon.checkmark,
-                                            title: "Album updated",
-                                            message: "\"\(newTitle)\" was saved to Plex.",
-                                            dedupeKey: "album-detail-edit-\(album.id)"
-                                        )
-                                    )
+                                    deps.toastCenter.show(result.successToast)
                                 }
                             } catch {
                                 await MainActor.run {
                                     deps.toastCenter.show(
-                                        ToastPayload(
-                                            style: .error,
-                                            iconSystemName: EnsembleDesign.Icon.error,
-                                            title: "Couldn't edit album",
-                                            message: error.localizedDescription,
-                                            dedupeKey: "album-detail-edit-failed-\(album.id)"
+                                        deps.metadataMutationWorkflow.editFailureToast(
+                                            noun: "Album",
+                                            itemID: album.id,
+                                            error: error,
+                                            scope: .albumDetail
                                         )
                                     )
                                 }
@@ -454,28 +446,22 @@ public struct AlbumDetailView: View {
             Button("Delete Album", role: .destructive) {
                 Task {
                     do {
-                        try await deps.metadataMutationService.deleteAlbum(album)
+                        let result = try await deps.metadataMutationWorkflow.deleteAlbum(
+                            album,
+                            scope: .albumDetail
+                        )
                         await MainActor.run {
-                            deps.toastCenter.show(
-                                ToastPayload(
-                                    style: .success,
-                                    iconSystemName: EnsembleDesign.Icon.deleteFilled,
-                                    title: "Album deleted",
-                                    message: "\"\(album.title)\" was removed from Plex.",
-                                    dedupeKey: "album-detail-delete-\(album.id)"
-                                )
-                            )
+                            deps.toastCenter.show(result.successToast)
                             dismiss()
                         }
                     } catch {
                         await MainActor.run {
                             deps.toastCenter.show(
-                                ToastPayload(
-                                    style: .error,
-                                    iconSystemName: EnsembleDesign.Icon.error,
-                                    title: "Couldn't delete album",
-                                    message: error.localizedDescription,
-                                    dedupeKey: "album-detail-delete-failed-\(album.id)"
+                                deps.metadataMutationWorkflow.deleteFailureToast(
+                                    noun: "Album",
+                                    itemID: album.id,
+                                    error: error,
+                                    scope: .albumDetail
                                 )
                             )
                         }

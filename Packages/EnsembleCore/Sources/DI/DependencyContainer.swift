@@ -57,6 +57,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let mutationCoordinator: MutationCoordinator
     public let playlistMutationWorkflow: PlaylistMutationWorkflow
     public let metadataMutationService: MetadataMutationService
+    public let metadataMutationWorkflow: MetadataMutationWorkflow
     public let songLinkService: SongLinkService
     public let shareService: ShareService
     public let powerStateMonitor: PowerStateMonitor
@@ -156,6 +157,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let mutationCoordinator: MutationCoordinator
         let playlistMutationWorkflow: PlaylistMutationWorkflow
         let metadataMutationService: MetadataMutationService
+        let metadataMutationWorkflow: MetadataMutationWorkflow
     }
 
     private struct SiriBootstrap {
@@ -236,6 +238,7 @@ public final class DependencyContainer: @unchecked Sendable {
         mutationCoordinator = mutation.mutationCoordinator
         playlistMutationWorkflow = mutation.playlistMutationWorkflow
         metadataMutationService = mutation.metadataMutationService
+        metadataMutationWorkflow = mutation.metadataMutationWorkflow
 
         siriMediaIndexStore = siri.siriMediaIndexStore
         siriPlaybackCoordinator = siri.siriPlaybackCoordinator
@@ -473,13 +476,17 @@ public final class DependencyContainer: @unchecked Sendable {
                 }
             )
         }
+        let metadataMutationWorkflow = MainActor.assumeIsolated {
+            MetadataMutationWorkflow(mutator: metadataMutationService)
+        }
 
         return MutationBootstrap(
             offlineBackgroundExecutionCoordinator: offlineBackgroundExecutionCoordinator,
             offlineDownloadService: offlineDownloadService,
             mutationCoordinator: mutationCoordinator,
             playlistMutationWorkflow: playlistMutationWorkflow,
-            metadataMutationService: metadataMutationService
+            metadataMutationService: metadataMutationService,
+            metadataMutationWorkflow: metadataMutationWorkflow
         )
     }
 

@@ -87,30 +87,21 @@ public struct TrackRow: View {
         .keyboardSafeEditorPresentation(isPresented: $isEditingMetadata) {
             MetadataEditSheet(kind: .track, currentTitle: track.title) { newTitle in
                 do {
-                    try await deps.metadataMutationService.editTrack(
+                    let result = try await deps.metadataMutationWorkflow.editTrack(
                         track,
-                        request: MetadataEditRequest(title: newTitle)
+                        title: newTitle
                     )
                     await MainActor.run {
-                        deps.toastCenter.show(
-                            ToastPayload(
-                                style: .success,
-                                iconSystemName: EnsembleDesign.Icon.checkmark,
-                                title: "Track updated",
-                                message: "\"\(newTitle)\" was saved to Plex.",
-                                dedupeKey: "track-edit-\(track.id)"
-                            )
-                        )
+                        deps.toastCenter.show(result.successToast)
                     }
                 } catch {
                     await MainActor.run {
                         deps.toastCenter.show(
-                            ToastPayload(
-                                style: .error,
-                                iconSystemName: EnsembleDesign.Icon.error,
-                                title: "Couldn't edit track",
-                                message: error.localizedDescription,
-                                dedupeKey: "track-edit-failed-\(track.id)"
+                            deps.metadataMutationWorkflow.editFailureToast(
+                                noun: "Track",
+                                itemID: track.id,
+                                error: error,
+                                scope: .track
                             )
                         )
                     }
@@ -126,27 +117,18 @@ public struct TrackRow: View {
             Button("Delete Track", role: .destructive) {
                 Task {
                     do {
-                        try await deps.metadataMutationService.deleteTrack(track)
+                        let result = try await deps.metadataMutationWorkflow.deleteTrack(track)
                         await MainActor.run {
-                            deps.toastCenter.show(
-                                ToastPayload(
-                                    style: .success,
-                                    iconSystemName: EnsembleDesign.Icon.deleteFilled,
-                                    title: "Track deleted",
-                                    message: "\"\(track.title)\" was removed from Plex.",
-                                    dedupeKey: "track-delete-\(track.id)"
-                                )
-                            )
+                            deps.toastCenter.show(result.successToast)
                         }
                     } catch {
                         await MainActor.run {
                             deps.toastCenter.show(
-                                ToastPayload(
-                                    style: .error,
-                                    iconSystemName: EnsembleDesign.Icon.error,
-                                    title: "Couldn't delete track",
-                                    message: error.localizedDescription,
-                                    dedupeKey: "track-delete-failed-\(track.id)"
+                                deps.metadataMutationWorkflow.deleteFailureToast(
+                                    noun: "Track",
+                                    itemID: track.id,
+                                    error: error,
+                                    scope: .track
                                 )
                             )
                         }

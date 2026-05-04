@@ -251,6 +251,7 @@ try await syncCoordinator.renamePlaylist(playlistKey: "12345", newTitle: "New Na
 - After a successful mutation, `SyncCoordinator` automatically refreshes the affected playlist from the server and updates CoreData.
 - Use `PlaylistActionSheets.swift` for standard add-to-playlist / create-playlist UI — it wires up these calls consistently across the app.
 - Use `PlaylistMutationWorkflow` for playlist rename/delete UI. It returns pending/success/failure toast payloads and mutation outcomes; views should only handle confirmations, local optimistic state, navigation dismissal, and pin/sidebar updates.
+- Use `MetadataMutationWorkflow` for track, album, and artist metadata edit/delete UI. It builds `MetadataEditRequest`, calls the mutation service, and returns standardized toast payloads; views should only own editor presentation, confirmation dialogs, and post-delete navigation.
 - Use `PlaylistActionService` or the `NowPlayingViewModel` compatibility wrappers before add-to-playlist mutations. They normalize library-scoped keys to server keys, reject known cross-server tracks, dedupe repeated tracks, and stamp unknown-source tracks with the selected server key for the mutation path.
 - Use `PlaylistDropResolver` for drag/drop playlist copy-add flows. It returns the resolved target playlist and compatible tracks; the view should only call `addTracksOptimistically(_:to:)` and map resolver errors to user feedback.
 
