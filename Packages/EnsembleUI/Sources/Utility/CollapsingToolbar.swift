@@ -46,6 +46,7 @@ struct CollapsingToolbarTitleModifier: ViewModifier {
     let title: String
     let threshold: CGFloat  // maxY value below which toolbar title appears
     @Binding var showToolbarTitle: Bool
+    let showToolbarBackground: Binding<Bool>?
 
     private var shouldEnableCollapsingToolbarTitle: Bool {
         #if os(macOS)
@@ -79,10 +80,10 @@ struct CollapsingToolbarTitleModifier: ViewModifier {
                     }
                     #if os(iOS)
                     // iOS 16+: use SwiftUI toolbarBackground (respects iOS 26 Liquid Glass)
-                    .modifier(ToolbarBackgroundModifier(isTransparent: !showToolbarTitle))
+                    .modifier(ToolbarBackgroundModifier(isTransparent: !toolbarBackgroundIsVisible))
                     // iOS 15 fallback: UIKit appearance configurator
                     .background(
-                        NavigationBarAppearanceConfigurator(isTransparent: !showToolbarTitle)
+                        NavigationBarAppearanceConfigurator(isTransparent: !toolbarBackgroundIsVisible)
                     )
                     #endif
             } else {
@@ -92,6 +93,10 @@ struct CollapsingToolbarTitleModifier: ViewModifier {
                     }
             }
         }
+    }
+
+    private var toolbarBackgroundIsVisible: Bool {
+        showToolbarBackground?.wrappedValue ?? showToolbarTitle
     }
 }
 
@@ -231,12 +236,14 @@ extension View {
     func collapsingToolbarTitle(
         _ title: String,
         threshold: CGFloat = 0,
-        showToolbarTitle: Binding<Bool>
+        showToolbarTitle: Binding<Bool>,
+        showToolbarBackground: Binding<Bool>? = nil
     ) -> some View {
         self.modifier(CollapsingToolbarTitleModifier(
             title: title,
             threshold: threshold,
-            showToolbarTitle: showToolbarTitle
+            showToolbarTitle: showToolbarTitle,
+            showToolbarBackground: showToolbarBackground
         ))
     }
 }

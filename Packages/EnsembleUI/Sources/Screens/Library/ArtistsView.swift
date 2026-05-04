@@ -349,6 +349,31 @@ public struct ArtistsView: View {
 
 // MARK: - Artist Detail View
 
+private struct ArtistHeroToolbarBackgroundPreferenceKey: PreferenceKey {
+    static var defaultValue = false
+
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = value || nextValue()
+    }
+}
+
+private struct ArtistDetailScrollEdgeEffectModifier: ViewModifier {
+    let isHidden: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            content.scrollEdgeEffectHidden(isHidden, for: .top)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
 public struct ArtistDetailView: View {
     @StateObject private var viewModel: ArtistDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
@@ -366,6 +391,7 @@ public struct ArtistDetailView: View {
     @State private var artworkImage: UIImage?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var showToolbarTitle = false
+    @State private var showToolbarBackground = false
     @State private var artistHeaderWidth: CGFloat = 0
     @State private var favoritedTrackListWidth: CGFloat = 0
     @Environment(\.openURL) private var openURL
@@ -412,6 +438,7 @@ public struct ArtistDetailView: View {
                 }
             }
         }
+        .modifier(ArtistDetailScrollEdgeEffectModifier(isHidden: !showToolbarBackground))
         .coordinateSpace(name: "artistDetailScroll")
         .ignoresSafeArea(edges: .top)
         // Background gradient as background modifier so it extends behind safe areas
@@ -430,7 +457,8 @@ public struct ArtistDetailView: View {
         .collapsingToolbarTitle(
             viewModel.artist.name,
             threshold: 0,
-            showToolbarTitle: $showToolbarTitle
+            showToolbarTitle: $showToolbarTitle,
+            showToolbarBackground: $showToolbarBackground
         )
         .navigationTitle("")
         #if os(iOS)
@@ -450,6 +478,13 @@ public struct ArtistDetailView: View {
         }
         .modifier(ArtistDetailToolbarBleedModifier())
         .miniPlayerBottomSpacing()
+        .onPreferenceChange(ArtistHeroToolbarBackgroundPreferenceKey.self) { shouldShowBackground in
+            if shouldShowBackground != showToolbarBackground {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showToolbarBackground = shouldShowBackground
+                }
+            }
+        }
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
         }
@@ -664,6 +699,7 @@ public struct ArtistDetailView: View {
             let globalMinY = geometry.frame(in: .global).minY
             let overscroll = max(globalMinY, 0)
             let artworkHeight = bannerHeight + geometry.safeAreaInsets.top + overscroll
+            let isHeroPastToolbar = Self.isHeroPastToolbar(geometry)
 
             ZStack(alignment: .bottom) {
                 // Artist artwork — uses artworkImage directly instead of ArtworkView
@@ -727,8 +763,21 @@ public struct ArtistDetailView: View {
                 .padding()
                 .offset(y: -overscroll)
             }
+            .preference(
+                key: ArtistHeroToolbarBackgroundPreferenceKey.self,
+                value: isHeroPastToolbar
+            )
         }
         .aspectRatio(1, contentMode: .fit)
+    }
+
+    private static func isHeroPastToolbar(_ geometry: GeometryProxy) -> Bool {
+        #if os(iOS)
+        let revealY = geometry.safeAreaInsets.top + EnsembleScaffold.ArtistDetail.toolbarChromeRevealHeight
+        return geometry.frame(in: .global).maxY <= revealY
+        #else
+        return false
+        #endif
     }
 
     // MARK: - Action Buttons
