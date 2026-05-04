@@ -18,13 +18,14 @@ enum MediaMenuContext: Equatable {
     case sidebar
     case miniPlayer
     case nowPlayingControls
+    case playlistTrack(canRemove: Bool)
     case queue(canRemove: Bool)
     case history
     case stageFlow
 
     var allowsTrackEditing: Bool {
         switch self {
-        case .library, .detail:
+        case .library, .detail, .playlistTrack:
             return true
         case .search, .pinned, .sidebar, .miniPlayer, .nowPlayingControls, .queue, .history, .stageFlow:
             return false
@@ -35,7 +36,7 @@ enum MediaMenuContext: Equatable {
         switch self {
         case .library, .detail, .pinned, .sidebar:
             return true
-        case .search, .miniPlayer, .nowPlayingControls, .queue, .history, .stageFlow:
+        case .search, .miniPlayer, .nowPlayingControls, .playlistTrack, .queue, .history, .stageFlow:
             return false
         }
     }
@@ -76,6 +77,7 @@ enum MediaMenuActionID: String, Equatable, Hashable {
     case unpinAll
     case shareLink
     case shareAudioFile
+    case removeFromPlaylist
     case removeFromQueue
     case deleteTrack
     case deleteAlbum
@@ -145,6 +147,7 @@ struct MediaMenuHandlers {
     var unpinAll: (() -> Void)?
     var shareLink: (() -> Void)?
     var shareAudioFile: (() -> Void)?
+    var removeFromPlaylist: (() -> Void)?
     var removeFromQueue: (() -> Void)?
     var deleteTrack: (() -> Void)?
     var deleteAlbum: (() -> Void)?
@@ -177,6 +180,7 @@ struct MediaMenuHandlers {
         case .unpinAll: return unpinAll
         case .shareLink: return shareLink
         case .shareAudioFile: return shareAudioFile
+        case .removeFromPlaylist: return removeFromPlaylist
         case .removeFromQueue: return removeFromQueue
         case .deleteTrack: return deleteTrack
         case .deleteAlbum: return deleteAlbum
@@ -202,6 +206,7 @@ struct MediaMenuAvailability: Equatable {
     var canDelete = true
     var canRename = true
     var canEditPlaylist = true
+    var canRemoveFromPlaylist = true
     var canRemoveFromQueue = true
 
     static let full = MediaMenuAvailability(
@@ -218,6 +223,7 @@ struct MediaMenuAvailability: Equatable {
         canDelete: true,
         canRename: true,
         canEditPlaylist: true,
+        canRemoveFromPlaylist: true,
         canRemoveFromQueue: true
     )
 }
@@ -291,6 +297,10 @@ enum MediaMenuCatalog {
 
         if case .miniPlayer = context {
             sections.append(section(.transport, [.toggleShuffle, .repeatAll, .repeatOne]))
+        }
+
+        if case .playlistTrack(let canRemove) = context, canRemove, availability.canRemoveFromPlaylist {
+            sections.append(section(.destructive, [.removeFromPlaylist], role: .destructive))
         }
 
         if case .queue(let canRemove) = context, canRemove, availability.canRemoveFromQueue {
@@ -536,6 +546,8 @@ extension MediaMenuActionDescriptor {
             return MediaMenuLabel(title: "Share Link…", systemImage: EnsembleDesign.Icon.shareLink)
         case .shareAudioFile:
             return MediaMenuLabel(title: "Share Audio File…", systemImage: EnsembleDesign.Icon.shareAudioFile)
+        case .removeFromPlaylist:
+            return MediaMenuLabel(title: "Remove from Playlist", systemImage: EnsembleDesign.Icon.removeFromPlaylist)
         case .removeFromQueue:
             return MediaMenuLabel(title: "Remove from Queue", systemImage: EnsembleDesign.Icon.removeCircle)
         case .deleteTrack:
@@ -577,6 +589,7 @@ extension MediaMenuActionDescriptor {
         case .unpinAll: return .unpinAll
         case .shareLink: return .shareLink
         case .shareAudioFile: return .shareAudioFile
+        case .removeFromPlaylist: return .removeFromPlaylist
         case .removeFromQueue: return .removeFromQueue
         case .deleteTrack: return .deleteTrack
         case .deleteAlbum: return .deleteAlbum

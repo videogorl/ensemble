@@ -121,6 +121,7 @@ public final class SyncCoordinator: ObservableObject {
     private static let lastPlaylistTargetsByServerKey = "NowPlaying.LastPlaylist.ByServer"
     private var lastPlaylistTargetsByServer: [String: LastPlaylistTarget]
     internal var playlistDeleteHandlerForTesting: ((PlexAPIClient, String) async throws -> Void)?
+    internal var playlistReplaceContentsHandlerForTesting: ((PlexAPIClient, String, [String], String) async throws -> Void)?
     internal var refreshServerPlaylistsHandlerForTesting: ((String) async -> Void)?
     internal var nowProviderForTesting: () -> Date = { Date() }
     /// Backoff for repeated playlist artwork failures to avoid retrying the same bad payload every sync.
@@ -686,13 +687,17 @@ public final class SyncCoordinator: ObservableObject {
             throw PlaylistMutationError.invalidSource
         }
 
-        try await apiClient.clearPlaylistItems(playlistId: playlistId)
-        if !trackIDs.isEmpty {
-            try await apiClient.addItemsToPlaylist(
-                playlistId: playlistId,
-                trackRatingKeys: trackIDs,
-                serverIdentifier: server.serverId
-            )
+        if let playlistReplaceContentsHandlerForTesting {
+            try await playlistReplaceContentsHandlerForTesting(apiClient, playlistId, trackIDs, server.serverId)
+        } else {
+            try await apiClient.clearPlaylistItems(playlistId: playlistId)
+            if !trackIDs.isEmpty {
+                try await apiClient.addItemsToPlaylist(
+                    playlistId: playlistId,
+                    trackRatingKeys: trackIDs,
+                    serverIdentifier: server.serverId
+                )
+            }
         }
     }
 

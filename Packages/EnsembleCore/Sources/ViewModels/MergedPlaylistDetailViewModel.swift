@@ -18,18 +18,22 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     private let playlistRepository: PlaylistRepositoryProtocol
     private let accountManager: AccountManager
     private let syncCoordinator: SyncCoordinator
+    private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
+    private var shouldSkipNextLoadAfterLocalEdit = false
 
     public init(
         displayPlaylist: DisplayPlaylist,
         playlistRepository: PlaylistRepositoryProtocol,
         accountManager: AccountManager,
-        syncCoordinator: SyncCoordinator
+        syncCoordinator: SyncCoordinator,
+        mutationCoordinator: MutationCoordinator
     ) {
         self.displayPlaylist = displayPlaylist
         self.playlistRepository = playlistRepository
         self.accountManager = accountManager
         self.syncCoordinator = syncCoordinator
+        self.mutationCoordinator = mutationCoordinator
         self.filterOptions = FilterPersistence.load(for: "MergedPlaylistDetail-\(displayPlaylist.title)")
 
         setupFilterPersistence()
@@ -95,6 +99,11 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
 
     /// Loads tracks from all constituent playlists and interleaves them round-robin
     public func loadTracks() async {
+        if shouldSkipNextLoadAfterLocalEdit {
+            shouldSkipNextLoadAfterLocalEdit = false
+            return
+        }
+
         isLoading = true
         error = nil
 
@@ -147,6 +156,50 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         applyFilters(to: tracks, with: filterOptions)
     }
 
+    @discardableResult
+    public func removeTrackFromPlaylist(_ track: Track, displayIndex: Int? = nil) async -> Bool {
+        guard !displayPlaylist.isSmart else {
+            error = PlaylistMutationError.smartPlaylistReadOnly.localizedDescription
+            return false
+        }
+
+        let selectedTrack = selectedTrack(for: track, displayIndex: displayIndex)
+        guard let targetPlaylist = playlistOwningTrack(selectedTrack) else {
+            error = "Could not determine which server playlist owns this track."
+            return false
+        }
+
+        let targetTracks = tracksForPlaylistSource(targetPlaylist)
+        guard let removalIndex = playlistTrackIndex(for: selectedTrack, displayIndex: displayIndex, in: targetTracks),
+              let mergedIndex = mergedTrackIndex(for: selectedTrack, displayIndex: displayIndex) else {
+            error = "Track is no longer in this playlist."
+            return false
+        }
+
+        let previousTracks = tracks
+        var editedTargetTracks = targetTracks
+        editedTargetTracks.remove(at: removalIndex)
+
+        shouldSkipNextLoadAfterLocalEdit = true
+        tracks.remove(at: mergedIndex)
+
+        do {
+            try await mutationCoordinator.replacePlaylistContents(targetPlaylist, with: editedTargetTracks)
+            Task {
+                // Refresh from cache once the source playlist mutation has synced back.
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                self.shouldSkipNextLoadAfterLocalEdit = false
+                await self.loadTracks()
+            }
+            return true
+        } catch {
+            tracks = previousTracks
+            shouldSkipNextLoadAfterLocalEdit = false
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
     public var totalDuration: String {
         let total = filteredTracks.reduce(0) { $0 + $1.duration }
         let minutes = Int(total) / 60
@@ -160,6 +213,80 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
 
     private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
         MediaFilterEngine.filterTracks(tracks, with: options, configuration: .playlistDetail)
+    }
+
+    private func selectedTrack(for track: Track, displayIndex: Int?) -> Track {
+        guard let displayIndex, filteredTracks.indices.contains(displayIndex) else {
+            return track
+        }
+        return filteredTracks[displayIndex]
+    }
+
+    private func playlistOwningTrack(_ track: Track) -> Playlist? {
+        guard let trackServerSourceKey = MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey) else {
+            return displayPlaylist.playlists.count == 1 ? displayPlaylist.primaryPlaylist : nil
+        }
+
+        let matches = displayPlaylist.playlists.filter { playlist in
+            MediaSourceIdentity.serverSourceKey(from: playlist.sourceCompositeKey) == trackServerSourceKey
+        }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    private func tracksForPlaylistSource(_ playlist: Playlist) -> [Track] {
+        guard let playlistServerSourceKey = MediaSourceIdentity.serverSourceKey(from: playlist.sourceCompositeKey) else {
+            return []
+        }
+        return tracks.filter { track in
+            MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey) == playlistServerSourceKey
+        }
+    }
+
+    private func playlistTrackIndex(for track: Track, displayIndex: Int?, in targetTracks: [Track]) -> Int? {
+        if let displayIndex, filteredTracks.indices.contains(displayIndex) {
+            let selected = filteredTracks[displayIndex]
+            let precedingVisibleMatches = filteredTracks[..<displayIndex]
+                .filter { sameTrackIdentity($0, selected) }
+                .count
+            var seenMatches = 0
+            for (index, candidate) in targetTracks.enumerated() where sameTrackIdentity(candidate, selected) {
+                if seenMatches == precedingVisibleMatches {
+                    return index
+                }
+                seenMatches += 1
+            }
+        }
+
+        return targetTracks.firstIndex { sameTrackIdentity($0, track) }
+    }
+
+    private func mergedTrackIndex(for track: Track, displayIndex: Int?) -> Int? {
+        if let displayIndex, filteredTracks.indices.contains(displayIndex) {
+            let selected = filteredTracks[displayIndex]
+            let precedingVisibleMatches = filteredTracks[..<displayIndex]
+                .filter { sameTrackIdentity($0, selected) }
+                .count
+            var seenMatches = 0
+            for (index, candidate) in tracks.enumerated()
+                where sameTrackIdentity(candidate, selected) && trackPassesCurrentFilters(candidate) {
+                if seenMatches == precedingVisibleMatches {
+                    return index
+                }
+                seenMatches += 1
+            }
+        }
+
+        return tracks.firstIndex { sameTrackIdentity($0, track) }
+    }
+
+    private func sameTrackIdentity(_ lhs: Track, _ rhs: Track) -> Bool {
+        lhs.id == rhs.id &&
+            MediaSourceIdentity.serverSourceKey(from: lhs.sourceCompositeKey) ==
+            MediaSourceIdentity.serverSourceKey(from: rhs.sourceCompositeKey)
+    }
+
+    private func trackPassesCurrentFilters(_ track: Track) -> Bool {
+        !applyFilters(to: [track], with: filterOptions).isEmpty
     }
 
     /// Updates the display playlist (e.g., when merge state changes and constituents are refreshed)

@@ -146,9 +146,10 @@ enum NativeMediaTableActionBuilder {
         for track: Track,
         resolvedActions: TrackRowInteractionModel.ResolvedActions,
         context: MediaMenuContext = .library,
+        onRemoveFromPlaylist: (() -> Void)? = nil,
         onRemoveFromQueue: (() -> Void)? = nil
     ) -> UIMenu? {
-        guard resolvedActions.hasContextMenu || onRemoveFromQueue != nil else { return nil }
+        guard resolvedActions.hasContextMenu || onRemoveFromPlaylist != nil || onRemoveFromQueue != nil else { return nil }
 
         return UIKitMediaMenuRenderer.contextMenu(
             sections: MediaMenuCatalog.sections(
@@ -157,6 +158,7 @@ enum NativeMediaTableActionBuilder {
                 availability: availability(
                     for: track,
                     resolvedActions: resolvedActions,
+                    onRemoveFromPlaylist: onRemoveFromPlaylist,
                     onRemoveFromQueue: onRemoveFromQueue
                 )
             ),
@@ -166,6 +168,7 @@ enum NativeMediaTableActionBuilder {
             ),
             handlers: handlers(
                 for: resolvedActions,
+                onRemoveFromPlaylist: onRemoveFromPlaylist,
                 onRemoveFromQueue: onRemoveFromQueue
             )
         )
@@ -174,6 +177,7 @@ enum NativeMediaTableActionBuilder {
     private static func availability(
         for track: Track,
         resolvedActions: TrackRowInteractionModel.ResolvedActions,
+        onRemoveFromPlaylist: (() -> Void)?,
         onRemoveFromQueue: (() -> Void)?
     ) -> MediaMenuAvailability {
         MediaMenuAvailability(
@@ -190,12 +194,14 @@ enum NativeMediaTableActionBuilder {
             canDelete: false,
             canRename: false,
             canEditPlaylist: false,
+            canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
             canRemoveFromQueue: onRemoveFromQueue != nil
         )
     }
 
     private static func handlers(
         for resolvedActions: TrackRowInteractionModel.ResolvedActions,
+        onRemoveFromPlaylist: (() -> Void)?,
         onRemoveFromQueue: (() -> Void)?
     ) -> MediaMenuHandlers {
         MediaMenuHandlers(
@@ -208,6 +214,7 @@ enum NativeMediaTableActionBuilder {
             favorite: resolvedActions.onToggleFavorite,
             shareLink: resolvedActions.onShareLink,
             shareAudioFile: resolvedActions.onShareFile,
+            removeFromPlaylist: onRemoveFromPlaylist,
             removeFromQueue: onRemoveFromQueue
         )
     }
@@ -221,9 +228,10 @@ enum NativeMediaTableActionBuilder {
         for track: Track,
         resolvedActions: TrackRowInteractionModel.ResolvedActions,
         context: MediaMenuContext = .library,
+        onRemoveFromPlaylist: (() -> Void)? = nil,
         onRemoveFromQueue: (() -> Void)? = nil
     ) -> NSMenu? {
-        guard resolvedActions.hasContextMenu || onRemoveFromQueue != nil else { return nil }
+        guard resolvedActions.hasContextMenu || onRemoveFromPlaylist != nil || onRemoveFromQueue != nil else { return nil }
 
         return AppKitMediaMenuRenderer.contextMenu(
             sections: MediaMenuCatalog.sections(
@@ -232,6 +240,7 @@ enum NativeMediaTableActionBuilder {
                 availability: availability(
                     for: track,
                     resolvedActions: resolvedActions,
+                    onRemoveFromPlaylist: onRemoveFromPlaylist,
                     onRemoveFromQueue: onRemoveFromQueue
                 )
             ),
@@ -241,6 +250,7 @@ enum NativeMediaTableActionBuilder {
             ),
             handlers: handlers(
                 for: resolvedActions,
+                onRemoveFromPlaylist: onRemoveFromPlaylist,
                 onRemoveFromQueue: onRemoveFromQueue
             )
         )
@@ -249,6 +259,7 @@ enum NativeMediaTableActionBuilder {
     private static func availability(
         for track: Track,
         resolvedActions: TrackRowInteractionModel.ResolvedActions,
+        onRemoveFromPlaylist: (() -> Void)?,
         onRemoveFromQueue: (() -> Void)?
     ) -> MediaMenuAvailability {
         MediaMenuAvailability(
@@ -265,12 +276,14 @@ enum NativeMediaTableActionBuilder {
             canDelete: false,
             canRename: false,
             canEditPlaylist: false,
+            canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
             canRemoveFromQueue: onRemoveFromQueue != nil
         )
     }
 
     private static func handlers(
         for resolvedActions: TrackRowInteractionModel.ResolvedActions,
+        onRemoveFromPlaylist: (() -> Void)?,
         onRemoveFromQueue: (() -> Void)?
     ) -> MediaMenuHandlers {
         MediaMenuHandlers(
@@ -283,6 +296,7 @@ enum NativeMediaTableActionBuilder {
             favorite: resolvedActions.onToggleFavorite,
             shareLink: resolvedActions.onShareLink,
             shareAudioFile: resolvedActions.onShareFile,
+            removeFromPlaylist: onRemoveFromPlaylist,
             removeFromQueue: onRemoveFromQueue
         )
     }

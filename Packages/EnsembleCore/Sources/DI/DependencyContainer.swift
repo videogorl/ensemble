@@ -1676,7 +1676,8 @@ public final class DependencyContainer: @unchecked Sendable {
             displayPlaylist: displayPlaylist,
             playlistRepository: playlistRepository,
             accountManager: accountManager,
-            syncCoordinator: syncCoordinator
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: mutationCoordinator
         )
     }
 

@@ -344,6 +344,19 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(queue.actions(in: .playlist), history.actions(in: .playlist))
     }
 
+    func testMediaMenuCatalogPlaylistTrackAddsRemoveFromPlaylist() {
+        let sections = MediaMenuCatalog.sections(
+            for: .track,
+            context: .playlistTrack(canRemove: true),
+            availability: .full
+        )
+
+        XCTAssertEqual(sections.actions(in: .destructive), [.removeFromPlaylist])
+        XCTAssertEqual(sections.role(for: .removeFromPlaylist), .destructive)
+        XCTAssertEqual(sections.actions(in: .playback), [.playNext, .playLast])
+        XCTAssertEqual(sections.actions(in: .management), [.editMetadata, .deleteTrack])
+    }
+
     func testMediaMenuCatalogAlbumLibraryContextIncludesSharedActions() {
         let sections = MediaMenuCatalog.sections(
             for: .album,
@@ -502,6 +515,27 @@ final class EnsembleUITests: XCTestCase {
         let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
 
         XCTAssertEqual(titles, ["Play Next", "Play Last", "Remove from Queue"])
+    }
+
+    func testAppKitPlaylistTrackContextMenuAddsRemoveFromPlaylistThroughCatalog() throws {
+        let track = Track(id: "track-1", key: "/tracks/1", title: "Track")
+        let resolved = TrackRowInteractionModel(
+            onPlayNext: { _ in },
+            onPlayLast: { _ in }
+        )
+        .resolve(for: track)
+
+        let menu = try XCTUnwrap(
+            NativeMediaTableActionBuilder.contextMenu(
+                for: track,
+                resolvedActions: resolved,
+                context: .playlistTrack(canRemove: true),
+                onRemoveFromPlaylist: {}
+            )
+        )
+        let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+
+        XCTAssertEqual(titles, ["Play Next", "Play Last", "Remove from Playlist"])
     }
     #endif
 }

@@ -28,6 +28,7 @@ struct MediaActionLabel: View {
         case unpinAll
         case shareLink
         case shareAudioFile
+        case removeFromPlaylist
         case removeFromQueue
         case deleteTrack
         case deleteAlbum
@@ -90,6 +91,8 @@ struct MediaActionLabel: View {
             return "Share Link…"
         case .shareAudioFile:
             return "Share Audio File…"
+        case .removeFromPlaylist:
+            return "Remove from Playlist"
         case .removeFromQueue:
             return "Remove from Queue"
         case .deleteTrack:
@@ -152,6 +155,8 @@ struct MediaActionLabel: View {
             return EnsembleDesign.Icon.shareLink
         case .shareAudioFile:
             return EnsembleDesign.Icon.shareAudioFile
+        case .removeFromPlaylist:
+            return EnsembleDesign.Icon.removeFromPlaylist
         case .removeFromQueue:
             return EnsembleDesign.Icon.removeCircle
         case .deleteTrack, .deleteAlbum, .deletePlaylist, .deleteAll:

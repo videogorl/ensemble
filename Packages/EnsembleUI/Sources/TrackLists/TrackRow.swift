@@ -17,6 +17,7 @@ public struct TrackRow: View {
     let onGoToArtist: (() -> Void)?
     let onShareLink: (() -> Void)?
     let onShareFile: (() -> Void)?
+    let onRemoveFromPlaylist: (() -> Void)?
     let isFavorited: Bool?
     let recentPlaylistTitle: String?
     let supplementalMetadataWidth: CGFloat?
@@ -42,6 +43,7 @@ public struct TrackRow: View {
         onGoToArtist: (() -> Void)? = nil,
         onShareLink: (() -> Void)? = nil,
         onShareFile: (() -> Void)? = nil,
+        onRemoveFromPlaylist: (() -> Void)? = nil,
         isFavorited: Bool? = nil,
         recentPlaylistTitle: String? = nil,
         supplementalMetadataWidth: CGFloat? = nil,
@@ -61,6 +63,7 @@ public struct TrackRow: View {
         self.onGoToArtist = onGoToArtist
         self.onShareLink = onShareLink
         self.onShareFile = onShareFile
+        self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.isFavorited = isFavorited
         self.recentPlaylistTitle = recentPlaylistTitle
         self.supplementalMetadataWidth = supplementalMetadataWidth
@@ -280,7 +283,7 @@ public struct TrackRow: View {
         SwiftUIMediaMenuRenderer(
             sections: MediaMenuCatalog.sections(
                 for: .track,
-                context: .library,
+                context: onRemoveFromPlaylist == nil ? .library : .playlistTrack(canRemove: true),
                 availability: MediaMenuAvailability(
                     hasRecentPlaylist: onAddToRecentPlaylist != nil && recentPlaylistTitle != nil,
                     canAddToRecentPlaylist: true,
@@ -295,6 +298,7 @@ public struct TrackRow: View {
                     canDelete: true,
                     canRename: false,
                     canEditPlaylist: false,
+                    canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
                     canRemoveFromQueue: false
                 )
             ),
@@ -321,6 +325,7 @@ public struct TrackRow: View {
                 favorite: onToggleFavorite,
                 shareLink: onShareLink,
                 shareAudioFile: onShareFile,
+                removeFromPlaylist: onRemoveFromPlaylist,
                 deleteTrack: {
                     isConfirmingDelete = true
                 }
