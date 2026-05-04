@@ -98,3 +98,31 @@ The implementation rule is: same feature, same rules, platform-native rendering.
 | macOS workspace build | Passed: `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=macOS,arch=arm64' build -quiet`. |
 | Simulator smoke | iPhone 17 Pro simulator launched, navigated More -> Downloads, verified utility content, and toggled mini-player Play/Pause. iPad simulator launched to the Feed detail column under the split-shell policy. Screenshots: `/tmp/ensemble-iphone-downloads-smoke.png`, `/tmp/ensemble-ipad-feed-smoke.png`. |
 | Runtime baseline | Captured to `/tmp/ensemble-runtime-baseline-2026-05-04`; persistent session log and OS log were copied there. |
+
+## 2026-05-04 Simulator Profiling Follow-Up
+
+Simulator passes were completed as a short-term substitute for device Instruments evidence. These files are `sample` process stack captures, not Instruments `.trace` bundles, and should not be used as the final before/after performance gate.
+
+Direct simulator-routed `xctrace` remains blocked in this environment. The SwiftUI template reported simulator instrument support failures in earlier runs, while later SwiftUI and Time Profiler simulator attach attempts hung during stop/finalization and produced invalid trace bundles that could not be exported with `xcrun xctrace export --toc` (`Document Missing Template Error`). Host-side `xctrace` recording against ordinary macOS processes succeeded, so the blocker appears specific to simulator device-routed recording rather than the local Xcode CLI installation.
+
+| Pass | Device/runtime | Flow covered | Evidence | Footprint | Notes |
+|---|---|---|---|---|---|
+| Root, tabs, utility screen, mini player | iPhone 17 Pro, iOS 26.2 simulator | Albums screen -> More -> Downloads -> mini-player Play/Pause | `/tmp/ensemble-instruments-2026-05-04/exports/iphone-root-tabs-mini.sample.txt` | 144.2M current / 152.6M peak | Captures `RootView`, `MainTabView`, `DownloadsView`, `DownloadsViewModel`, SwiftUI list/layout, and mini-player control interaction. |
+| Detail and Now Playing | iPhone 17 Pro, iOS 26.2 simulator | Album open -> Now Playing presentation -> Now Playing scroll/control interaction | `/tmp/ensemble-instruments-2026-05-04/exports/iphone-detail-nowplaying.sample.txt` | 162.5M current / 164.1M peak | Captures `MediaDetailSurface`, `MediaTrackList`, native table menu construction, and Now Playing presentation path. |
+| Detail scrolling | iPhone 17 Pro, iOS 26.2 simulator | Album detail track list and metadata scroll | `/tmp/ensemble-instruments-2026-05-04/exports/iphone-detail-scroll.sample.txt` | 151.6M current / 164.1M peak | Repeated symbols include `CollapsingToolbar.TitleOffsetTracker`, `MediaTrackList`, `TrackTableViewCell`, SwiftUI `ViewGraph`, and `AttributeGraph`. |
+| Artists | iPhone 17 Pro, iOS 26.2 simulator | More -> Artists -> artist grid scroll | `/tmp/ensemble-instruments-2026-05-04/exports/iphone-artists-list.sample.txt` | 182.8M current / 184.8M peak | Captures `ArtistGrid`, `ArtistCard`, artwork cache lookups, Aurora renderer frames, lazy grid layout, and `AttributeGraph` churn. |
+| Playlists | iPhone 17 Pro, iOS 26.2 simulator | Playlists list scroll -> playlist detail open/scroll | `/tmp/ensemble-instruments-2026-05-04/exports/iphone-playlists-list-detail.sample.txt` | 198.6M current / 200.5M peak | Captures `PlaylistsView`, `PlaylistRow`, `PlaylistDetailViewModel`, `PlaylistRepository`, and native track table/menu paths. |
+| iPad feed/detail/mini | iPad (A16), iOS 26.4 simulator | Feed scroll -> album detail open -> detail scroll with mini player visible | `/tmp/ensemble-instruments-2026-05-04/exports/ipad-feed-detail-mini.sample.txt` | 113.2M current / 117.2M peak | Covers regular-width iPad portrait rendering, but the sidebar was collapsed/not visible in this orientation. A landscape/sidebar-specific capture is still required. |
+| iOS 15 compatibility smoke | iPhone 13, iOS 15.5 simulator | Launch to empty library state | `/tmp/ensemble-instruments-2026-05-04/screenshots/ios15-empty-state.png` | Not sampled | The simulator has no configured music source, so it only proves launch/empty-state compatibility for this pass. |
+
+Additional screenshots:
+
+- `/tmp/ensemble-instruments-2026-05-04/screenshots/iphone-playlists-detail.png`
+- `/tmp/ensemble-instruments-2026-05-04/screenshots/ipad-detail-mini.png`
+
+Simulator-pass conclusions:
+
+1. No crash or obvious layout break was observed in the iPhone root, Downloads, Artists, Playlists, album detail, Now Playing, mini-player, iPad feed/detail, or iOS 15 empty-state flows covered above.
+2. The largest observed simulator process footprint was the iPhone playlist pass at 200.5M peak, which is acceptable as a simulator smoke result but not a substitute for low-memory hardware measurement.
+3. The stack samples repeatedly point at SwiftUI `ViewGraph`/`AttributeGraph`, native table cell/menu construction, `CollapsingToolbar` geometry tracking, lazy grid layout, and artwork/Aurora rendering as the areas to prioritize when real Instruments traces are available.
+4. Before/after performance acceptance still requires device or reliable simulator Instruments traces for Root, Detail, Now Playing, Artists, Playlists, and MiniPlayer. The simulator `sample` files only support triage and flow coverage.
