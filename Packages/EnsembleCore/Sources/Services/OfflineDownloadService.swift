@@ -16,8 +16,6 @@ public struct OfflineDownloadTargetSnapshot: Identifiable {
     public let completedTrackCount: Int
     public let downloadedBytes: Int64
     public let progress: Float
-    /// Number of completed tracks whose download quality differs from the current setting
-    public let qualityMismatchCount: Int
     /// Number of tracks in a failed state
     public let failedTrackCount: Int
 
@@ -25,10 +23,7 @@ public struct OfflineDownloadTargetSnapshot: Identifiable {
         totalTrackCount > 0 && completedTrackCount >= totalTrackCount
     }
 
-    /// True when this target has actionable issues a refresh could resolve
-    public var needsRefresh: Bool {
-        qualityMismatchCount > 0 || failedTrackCount > 0
-    }
+    public var hasFailedTracks: Bool { failedTrackCount > 0 }
 }
 
 public struct OfflineDownloadQualityRefreshResult: Sendable {
@@ -137,7 +132,6 @@ public final class OfflineDownloadService: ObservableObject {
     private var lastObservedSyncBySource: [String: Date] = [:]
 
     private var downloadedBytesByTargetKey: [String: Int64] = [:]
-    private var qualityMismatchByTargetKey: [String: Int] = [:]
     private var failedTracksByTargetKey: [String: Int] = [:]
 
     /// Coalesces expensive target progress refreshes so queue/network churn
@@ -548,55 +542,71 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
-    /// Refresh a single target: reconcile memberships, re-queue quality-mismatched and failed downloads
-    public func refreshTarget(key: String) async {
+    /// Re-download completed tracks in a target whose stored quality differs from
+    /// the current download quality setting. Failed tracks remain owned by retry.
+    public func redownloadTargetAtCurrentQuality(key: String) async -> OfflineDownloadQualityRefreshResult {
         do {
-            // Re-reconcile memberships (adds new tracks, drops orphans)
             try await reconcileTarget(key: key)
 
-            // Re-queue completed downloads whose quality doesn't match the current setting
             let desiredQuality = currentDownloadQuality()
             let references = try await targetRepository.fetchTrackReferences(targetKey: key)
+            let downloadsByKey = try await downloadManager.fetchDownloadsBatch(forReferences: references)
+            var requeuedCount = 0
+
             for ref in references {
-                guard let download = try? await downloadManager.fetchDownload(
-                    forTrackRatingKey: ref.trackRatingKey,
-                    sourceCompositeKey: ref.trackSourceCompositeKey
-                ) else { continue }
+                let lookupKey = "\(ref.trackSourceCompositeKey)|\(ref.trackRatingKey)"
 
-                let status = download.downloadStatus
-
-                // Re-queue quality-mismatched completed downloads
-                if status == .completed,
-                   let existing = download.quality, existing != desiredQuality {
+                guard let download = downloadsByKey[lookupKey] else {
                     _ = try await downloadManager.createDownload(
                         forTrackRatingKey: ref.trackRatingKey,
                         sourceCompositeKey: ref.trackSourceCompositeKey,
                         quality: desiredQuality
                     )
+                    requeuedCount += 1
                     continue
                 }
 
-                // Retry failed downloads
-                if status == .failed {
-                    try await downloadManager.deleteDownload(
-                        forTrackRatingKey: ref.trackRatingKey,
-                        sourceCompositeKey: ref.trackSourceCompositeKey
-                    )
-                    _ = try await downloadManager.createDownload(
-                        forTrackRatingKey: ref.trackRatingKey,
-                        sourceCompositeKey: ref.trackSourceCompositeKey,
+                let currentQuality = download.quality ?? "original"
+                guard currentQuality != desiredQuality else { continue }
+
+                switch download.downloadStatus {
+                case .completed:
+                    try await downloadManager.requeueDownload(download.objectID, quality: desiredQuality)
+                    requeuedCount += 1
+                case .pending, .downloading, .paused:
+                    try await downloadManager.updateDownloadStatus(
+                        download.objectID,
+                        status: download.downloadStatus,
                         quality: desiredQuality
                     )
+                case .failed:
+                    continue
                 }
             }
 
-            await refreshAllTargetProgresses()
-            startQueueIfNeeded()
+            if requeuedCount > 0 {
+                await refreshAllTargetProgresses()
+                startQueueIfNeeded()
 
-            let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
-            backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
+                let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
+                backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
+                notificationBridge.notifyDownloadsChangedImmediately()
+            } else {
+                await refreshTargetProgress(forTargetKey: key)
+                await refreshTargetSnapshots()
+            }
+
+            EnsembleLogger.debug(
+                "🔄 Redownload target at current quality: key=\(key) quality=\(desiredQuality) requeued=\(requeuedCount)"
+            )
+
+            return OfflineDownloadQualityRefreshResult(
+                requeuedCount: requeuedCount,
+                skippedUnsupportedCount: 0
+            )
         } catch {
-            EnsembleLogger.debug("❌ OfflineDownloadService: Failed refreshing target \(key): \(error.localizedDescription)")
+            EnsembleLogger.debug("❌ OfflineDownloadService: Failed redownloading target \(key): \(error.localizedDescription)")
+            return OfflineDownloadQualityRefreshResult(requeuedCount: 0, skippedUnsupportedCount: 0)
         }
     }
 
@@ -636,115 +646,6 @@ public final class OfflineDownloadService: ObservableObject {
             EnsembleLogger.debug(
                 "❌ Retry download failed: track=\(trackRatingKey) source=\(sourceCompositeKey ?? "nil") reason=\(error.localizedDescription)"
             )
-        }
-    }
-
-    /// Re-queue completed downloads that do not match the current quality setting.
-    /// Returns a summary including re-queued tracks and tracks skipped due to known
-    /// server-side transcode limitations.
-    public func requeueCompletedDownloadsForCurrentQuality() async -> OfflineDownloadQualityRefreshResult {
-        do {
-            let desiredQuality = currentDownloadQuality()
-            let completedDownloads = try await downloadManager.fetchCompletedDownloads()
-            var requeuedCount = 0
-
-            for download in completedDownloads {
-                guard let track = download.track,
-                      let sourceCompositeKey = track.sourceCompositeKey else {
-                    continue
-                }
-
-                let currentQuality = download.quality ?? "original"
-                guard currentQuality != desiredQuality else { continue }
-
-                let reference = OfflineTrackReference(
-                    trackRatingKey: track.ratingKey,
-                    trackSourceCompositeKey: sourceCompositeKey
-                )
-
-                // Only refresh downloads still referenced by at least one active target.
-                guard try await targetRepository.hasAnyMembership(for: reference) else {
-                    continue
-                }
-
-                _ = try await downloadManager.createDownload(
-                    forTrackRatingKey: track.ratingKey,
-                    sourceCompositeKey: sourceCompositeKey,
-                    quality: desiredQuality
-                )
-                requeuedCount += 1
-            }
-
-            // Update quality on pending/downloading downloads that have the wrong quality.
-            // Without this, workers pick up stale-quality downloads from a previous
-            // re-queue before the new quality was set.
-            let allDownloads = try await downloadManager.fetchDownloads()
-            for download in allDownloads where download.downloadStatus == .pending || download.downloadStatus == .downloading {
-                let dlQuality = download.quality ?? "original"
-                if dlQuality != desiredQuality {
-                    try? await downloadManager.updateDownloadStatus(
-                        download.objectID,
-                        status: download.downloadStatus,
-                        quality: desiredQuality
-                    )
-                }
-            }
-
-            // Also retry all failed downloads
-            var retriedCount = 0
-            for download in allDownloads where download.downloadStatus == .failed {
-                guard let track = download.track,
-                      let sourceCompositeKey = track.sourceCompositeKey else {
-                    continue
-                }
-
-                let reference = OfflineTrackReference(
-                    trackRatingKey: track.ratingKey,
-                    trackSourceCompositeKey: sourceCompositeKey
-                )
-                guard try await targetRepository.hasAnyMembership(for: reference) else {
-                    continue
-                }
-
-                try await downloadManager.deleteDownload(
-                    forTrackRatingKey: track.ratingKey,
-                    sourceCompositeKey: sourceCompositeKey
-                )
-                _ = try await downloadManager.createDownload(
-                    forTrackRatingKey: track.ratingKey,
-                    sourceCompositeKey: sourceCompositeKey,
-                    quality: desiredQuality
-                )
-                retriedCount += 1
-            }
-
-            let totalRequeued = requeuedCount + retriedCount
-            if totalRequeued > 0 {
-                await refreshAllTargetProgresses()
-                startQueueIfNeeded()
-                let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
-                backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(
-                    pendingTrackCount: pendingCount
-                )
-            }
-
-            EnsembleLogger.debug(
-                "🔄 Refresh: re-queued \(requeuedCount) quality-mismatched + \(retriedCount) failed downloads (targetQuality=\(desiredQuality))"
-            )
-
-            if totalRequeued > 0 {
-                notificationBridge.notifyDownloadsChangedImmediately()
-            }
-
-            return OfflineDownloadQualityRefreshResult(
-                requeuedCount: totalRequeued,
-                skippedUnsupportedCount: 0
-            )
-        } catch {
-            EnsembleLogger.debug(
-                "❌ Failed re-queueing downloads for refresh: \(error.localizedDescription)"
-            )
-            return OfflineDownloadQualityRefreshResult(requeuedCount: 0, skippedUnsupportedCount: 0)
         }
     }
 
@@ -1375,7 +1276,6 @@ public final class OfflineDownloadService: ObservableObject {
             let fetched = try await targetRepository.fetchTargets()
             let existingTargetKeys = Set(fetched.map(\.key))
             downloadedBytesByTargetKey = downloadedBytesByTargetKey.filter { existingTargetKeys.contains($0.key) }
-            qualityMismatchByTargetKey = qualityMismatchByTargetKey.filter { existingTargetKeys.contains($0.key) }
             failedTracksByTargetKey = failedTracksByTargetKey.filter { existingTargetKeys.contains($0.key) }
             targets = fetched.map {
                 OfflineDownloadTargetSnapshot(
@@ -1390,7 +1290,6 @@ public final class OfflineDownloadService: ObservableObject {
                     completedTrackCount: Int($0.completedTrackCount),
                     downloadedBytes: downloadedBytesByTargetKey[$0.key] ?? 0,
                     progress: $0.progress,
-                    qualityMismatchCount: qualityMismatchByTargetKey[$0.key] ?? 0,
                     failedTrackCount: failedTracksByTargetKey[$0.key] ?? 0
                 )
             }
@@ -1494,7 +1393,6 @@ public final class OfflineDownloadService: ObservableObject {
                 let existingTarget = try? await targetRepository.fetchTarget(key: targetKey)
                 if let existing = existingTarget, existing.totalTrackCount > 0 {
                     downloadedBytesByTargetKey[targetKey] = 0
-                    qualityMismatchByTargetKey[targetKey] = 0
                     failedTracksByTargetKey[targetKey] = 0
                     try await targetRepository.updateTarget(
                         key: targetKey,
@@ -1510,7 +1408,6 @@ public final class OfflineDownloadService: ObservableObject {
                 } else {
                     // Genuinely empty target (newly created or all tracks removed)
                     downloadedBytesByTargetKey[targetKey] = 0
-                    qualityMismatchByTargetKey[targetKey] = 0
                     failedTracksByTargetKey[targetKey] = 0
                     try await targetRepository.updateTarget(
                         key: targetKey,
@@ -1528,13 +1425,11 @@ public final class OfflineDownloadService: ObservableObject {
             // instead of N individual queries (was O(N) queries per target refresh)
             let downloadsByKey = try await downloadManager.fetchDownloadsBatch(forReferences: references)
 
-            let desiredQuality = currentDownloadQuality()
             var completed = 0
             var downloading = 0
             var pending = 0
             var paused = 0
             var failed = 0
-            var qualityMismatch = 0
             var firstFailure: String?
             var downloadedBytes: Int64 = 0
 
@@ -1549,13 +1444,6 @@ public final class OfflineDownloadService: ObservableObject {
                 case .completed:
                     completed += 1
                     downloadedBytes += max(download.fileSize, 0)
-                    // Only count as mismatch when existing quality is LOWER than desired.
-                    // A fallback to "original" when the user wants "medium" is fine — the
-                    // file exceeds the request and shouldn't show the refresh indicator.
-                    if let quality = download.quality,
-                       !DownloadManager.qualitySatisfies(existing: quality, desired: desiredQuality) {
-                        qualityMismatch += 1
-                    }
                 case .downloading:
                     downloading += 1
                 case .pending:
@@ -1595,7 +1483,6 @@ public final class OfflineDownloadService: ObservableObject {
                 lastError: firstFailure
             )
             downloadedBytesByTargetKey[targetKey] = downloadedBytes
-            qualityMismatchByTargetKey[targetKey] = qualityMismatch
             failedTracksByTargetKey[targetKey] = failed
         } catch {
             EnsembleLogger.debug("❌ Failed refreshing target progress for \(targetKey): \(error.localizedDescription)")

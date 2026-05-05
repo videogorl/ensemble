@@ -9,13 +9,6 @@ struct TrackDownloadRowView: View {
     let currentQuality: String
     let onRetry: () -> Void
 
-    /// Whether this completed download's quality is LOWER than the current setting.
-    /// Files at higher quality (e.g. original when setting is medium) are not mismatched.
-    private var isQualityMismatched: Bool {
-        guard row.status == .completed, let quality = row.downloadedQuality else { return false }
-        return !DownloadManager.qualitySatisfies(existing: quality, desired: currentQuality)
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.chipVertical) {
             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
@@ -48,13 +41,6 @@ struct TrackDownloadRowView: View {
                 }
 
                 Spacer()
-
-                // Quality mismatch indicator
-                if isQualityMismatched {
-                    Image(systemName: EnsembleDesign.Icon.refreshCycle)
-                        .font(EnsembleDesign.Typography.cardSubtitle)
-                        .foregroundColor(EnsembleDesign.Color.warning)
-                }
 
                 // Status chip or retry button
                 if row.status == .failed {

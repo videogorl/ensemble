@@ -66,6 +66,39 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertNotNil(remainingB)
     }
 
+    func testRequeueDownloadResetsTransientStateButPreservesCompletedFile() async throws {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let downloadManager = DownloadManager(coreDataStack: stack)
+
+        try await seedTrack(ratingKey: "200", sourceCompositeKey: sourceA, repository: libraryRepository)
+        let download = try await downloadManager.createDownload(
+            forTrackRatingKey: "200",
+            sourceCompositeKey: sourceA,
+            quality: "high"
+        )
+
+        try await downloadManager.completeDownload(
+            download.objectID,
+            filePath: "old-file.mp3",
+            fileSize: 42,
+            quality: "high"
+        )
+        try await downloadManager.failDownload(download.objectID, error: "previous failure")
+
+        try await downloadManager.requeueDownload(download.objectID, quality: "low")
+
+        let fetched = try await downloadManager.fetchDownload(forTrackRatingKey: "200", sourceCompositeKey: sourceA)
+        let requeued = try XCTUnwrap(fetched)
+        XCTAssertEqual(requeued.downloadStatus, .pending)
+        XCTAssertEqual(requeued.quality, "low")
+        XCTAssertEqual(requeued.progress, 0)
+        XCTAssertNil(requeued.error)
+        XCTAssertNil(requeued.completedAt)
+        XCTAssertEqual(requeued.filePath, "old-file.mp3")
+        XCTAssertEqual(requeued.track?.localFilePath, "old-file.mp3")
+    }
+
     private func seedTrack(
         ratingKey: String,
         sourceCompositeKey: String,
