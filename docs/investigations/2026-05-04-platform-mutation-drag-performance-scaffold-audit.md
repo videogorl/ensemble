@@ -237,3 +237,24 @@ Notes:
 1. The first post-policy iPhone simulator build failed because runtime `if` branches inside `.commands` require `CommandsBuilder.buildIf`, which is iOS 16+. The command scene was adjusted to keep compile-time command groups unconditional while routing action/disabled state through `EnsemblePlatformFeaturePolicy`, and the rerun passed.
 2. iPhone 6s/A9 profiling remains deliberately skipped for this pass at user request.
 3. Interactive physical-device testing through the iPhone Mirroring app is available for follow-up visual checks, but this pass only used the connected iPhone 16 Pro as a build/profiling target.
+
+## 2026-05-05 iPhone 16 Pro Mirroring Functional Pass
+
+This pass used the physical iPhone 16 Pro through the iPhone Mirroring app after Xcode finished copying device symbols. The installed app was verified against the built `Debug-iphoneos` bundle before testing: both reported `CFBundleShortVersionString=0.3.0` and `CFBundleVersion=202605041324.8890`. The preserved on-device account, Feed, playback, and Downloads state therefore came from the existing app container, not from an older binary.
+
+| Gate | Evidence | Result |
+|---|---|---|
+| Install/current build | `devicectl device install app` installed `/Users/felicity/Library/Developer/Xcode/DerivedData/Ensemble-cqxsxbopnyxjvscnoctemoxmzxvh/Build/Products/Debug-iphoneos/Ensemble.app`; `devicectl device info apps` reported `com.videogorl.ensemble` version `0.3.0 (202605041324.8890)`. | Passed. The current binary was installed and launched on the physical iPhone 16 Pro. |
+| Feed launch from preserved/cache state | On first mirrored launch, `Lissy's Feed` rendered immediately with Feed sections and the mini-player visible. | Passed functional smoke. This confirms no blank startup on the preserved physical-device state; it is not a clean-container cache-only proof. |
+| Downloads recovery UI | More -> Downloads opened successfully. Existing failed targets rendered with progress and retry affordances; `Minibar: Music` showed `295 of 296 tracks - Failed` with failed item `Christmas in June`. | Passed visual smoke for download detail/retry surfaces on hardware. |
+| Failed download retry behavior | Tapping Retry moved the failed item through a queued retry attempt and back to Failed with `Transfer incomplete after 3 attempts`. | Passed recovery-state smoke. The retry did not leave the item or target stuck in `.downloading` or indefinite queued state. |
+| Background/foreground recovery | Ensemble was sent to the background by launching Phone, then foregrounded again without termination. Logs show `Scene phase changed to background`, later `Scene phase changed to active`, `BackgroundRefreshCoordinator: foreground freshness skipped by cooldown`, `Offline download recovery sweep started reason=foreground`, and `Offline download recovery sweep finished reason=foreground resume=true recoveredStatus=pending`. | Passed foreground recovery smoke. Recovery hooks ran and the UI returned to the same download detail state. |
+| External activation / Siri-adjacent entry | The app registers URL scheme `ensemble`, user activity `com.videogorl.ensemble.siri.playmedia`, and App Shortcuts for Play Album and Play Playlist. Launching with `--payload-url ensemble:///playlist/physical-pass-placeholder` hit `SIRI_APP: onOpenURL called with: ensemble:///playlist/physical-pass-placeholder`. | Passed external URL activation. True voice Siri invocation remains a manual physical-device gate because iPhone Mirroring does not provide a reliable voice/Siri automation path from this environment. |
+| Evidence artifacts | Device log: `/tmp/ensemble-iphone16pro-mirroring-pass.log`. Screenshot after activation/foreground return: `/tmp/ensemble-iphone16pro-more-after-url.png`. | Artifacts captured outside the repository; copy into a release evidence bundle if long-term retention is needed. |
+
+Mirroring-pass conclusions:
+
+1. The current build was installed; the familiar UI state came from retained device data.
+2. Physical foreground recovery exercised the new shared background refresh and offline download recovery seams, and the recovery sweep completed cleanly.
+3. Download retry failure remained bounded and user-visible rather than wedging the target in an active state.
+4. A true Siri voice/App Shortcut execution pass still needs either manual invocation on the physical device or a reliable Shortcuts/Siri automation harness; this pass verified registration and URL activation only.
