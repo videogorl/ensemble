@@ -240,11 +240,11 @@ Notes:
 
 ## 2026-05-05 iPhone 16 Pro Mirroring Functional Pass
 
-This pass used the physical iPhone 16 Pro through the iPhone Mirroring app after Xcode finished copying device symbols. The installed app was verified against the built `Debug-iphoneos` bundle before testing: both reported `CFBundleShortVersionString=0.3.0` and `CFBundleVersion=202605041324.8890`. The preserved on-device account, Feed, playback, and Downloads state therefore came from the existing app container, not from an older binary.
+This pass used the physical iPhone 16 Pro through the iPhone Mirroring app after Xcode finished copying device symbols. The first install verification matched the stale `Debug-iphoneos` product at `CFBundleVersion=202605041324.8890`; that proved only that the installed device binary matched the stale DerivedData product, not that a fresh local build had been installed. After fixing the build-number phase, the app was rebuilt, reinstalled, and relaunched with `CFBundleShortVersionString=0.3.0` and `CFBundleVersion=202605050956.4450`. The preserved on-device account, Feed, playback, and Downloads state came from the existing app container.
 
 | Gate | Evidence | Result |
 |---|---|---|
-| Install/current build | `devicectl device install app` installed `/Users/felicity/Library/Developer/Xcode/DerivedData/Ensemble-cqxsxbopnyxjvscnoctemoxmzxvh/Build/Products/Debug-iphoneos/Ensemble.app`; `devicectl device info apps` reported `com.videogorl.ensemble` version `0.3.0 (202605041324.8890)`. | Passed. The current binary was installed and launched on the physical iPhone 16 Pro. |
+| Install/current build | `devicectl device install app` installed `/Users/felicity/Library/Developer/Xcode/DerivedData/Ensemble-cqxsxbopnyxjvscnoctemoxmzxvh/Build/Products/Debug-iphoneos/Ensemble.app`; after the versioning fix, `devicectl device info apps` reported `com.videogorl.ensemble` version `0.3.0 (202605050956.4450)`. | Passed after correction. The fresh local binary was installed and launched on the physical iPhone 16 Pro. |
 | Feed launch from preserved/cache state | On first mirrored launch, `Lissy's Feed` rendered immediately with Feed sections and the mini-player visible. | Passed functional smoke. This confirms no blank startup on the preserved physical-device state; it is not a clean-container cache-only proof. |
 | Downloads recovery UI | More -> Downloads opened successfully. Existing failed targets rendered with progress and retry affordances; `Minibar: Music` showed `295 of 296 tracks - Failed` with failed item `Christmas in June`. | Passed visual smoke for download detail/retry surfaces on hardware. |
 | Failed download retry behavior | Tapping Retry moved the failed item through a queued retry attempt and back to Failed with `Transfer incomplete after 3 attempts`. | Passed recovery-state smoke. The retry did not leave the item or target stuck in `.downloading` or indefinite queued state. |
@@ -254,7 +254,7 @@ This pass used the physical iPhone 16 Pro through the iPhone Mirroring app after
 
 Mirroring-pass conclusions:
 
-1. The current build was installed; the familiar UI state came from retained device data.
+1. The first Mirroring pass used a stale build-number product. The corrected install used fresh build `202605050956.4450`; the familiar UI state came from retained device data.
 2. Physical foreground recovery exercised the new shared background refresh and offline download recovery seams, and the recovery sweep completed cleanly.
 3. Download retry failure remained bounded and user-visible rather than wedging the target in an active state.
 4. A true Siri voice/App Shortcut execution pass still needs either manual invocation on the physical device or a reliable Shortcuts/Siri automation harness; this pass verified registration and URL activation only.
