@@ -41,12 +41,6 @@
 	<array>
 		<dict>
 			<key>INAlternativeAppName</key>
-			<string>Ensemble</string>
-			<key>INAlternativeAppNamePronunciationHint</key>
-			<string>ahn-sahm-bul</string>
-		</dict>
-		<dict>
-			<key>INAlternativeAppName</key>
 			<string>Ensemble Music</string>
 			<key>INAlternativeAppNamePronunciationHint</key>
 			<string>ahn-sahm-bul myoo-zik</string>
