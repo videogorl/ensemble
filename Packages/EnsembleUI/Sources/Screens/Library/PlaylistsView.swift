@@ -371,7 +371,16 @@ public struct PlaylistsView: View {
     }
 
     private var loadingView: some View {
-        EnsembleStateScaffold(kind: .loading, title: "Loading playlists…")
+        List {
+            ForEach(0..<8, id: \.self) { _ in
+                PlaylistLoadingRow()
+            }
+        }
+        .listStyle(.plain)
+        .redacted(reason: .placeholder)
+        .disabled(true)
+        .accessibilityLabel("Loading playlists")
+        .miniPlayerBottomSpacing()
     }
 
     private var emptyView: some View {
@@ -783,6 +792,31 @@ private struct PlaylistsNewButton: View {
             Label("New Playlist", systemImage: EnsembleDesign.Icon.add)
         }
         .disabled(syncCoordinator.isOffline)
+    }
+}
+
+/// Stable placeholder rows for the first playlist load. This avoids a full
+/// blank-state-to-list view swap when cached playlists arrive a moment later.
+private struct PlaylistLoadingRow: View {
+    var body: some View {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+            RoundedRectangle(cornerRadius: ArtworkCornerRadius.square(for: .small), style: .continuous)
+                .fill(EnsembleDesign.Color.secondaryText.opacity(0.16))
+                .frame(width: 48, height: 48)
+
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
+                RoundedRectangle(cornerRadius: EnsembleDesign.Radius.compactControl, style: .continuous)
+                    .fill(EnsembleDesign.Color.primaryText.opacity(0.16))
+                    .frame(width: 180, height: 14)
+
+                RoundedRectangle(cornerRadius: EnsembleDesign.Radius.compactControl, style: .continuous)
+                    .fill(EnsembleDesign.Color.secondaryText.opacity(0.14))
+                    .frame(width: 92, height: 12)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, EnsembleDesign.Spacing.xs)
     }
 }
 

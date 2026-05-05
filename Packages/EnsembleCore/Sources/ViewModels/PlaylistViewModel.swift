@@ -5,10 +5,16 @@ import Foundation
 @MainActor
 public final class PlaylistViewModel: ObservableObject {
     private static let optimisticCreatePrefix = "creating:"
+    private static var lastGoodPlaylistsSnapshot: [Playlist] = []
+
+    static func resetLastGoodSnapshotForTesting() {
+        lastGoodPlaylistsSnapshot = []
+    }
 
     @Published public private(set) var playlists: [Playlist] = []
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
+    @Published public private(set) var isShowingStaleSnapshot = false
     @Published public var playlistSortOption: PlaylistSortOption = .title {
         didSet {
             filterOptions.sortBy = playlistSortOption.rawValue
@@ -66,6 +72,8 @@ public final class PlaylistViewModel: ObservableObject {
             self.playlistSortOption = savedSort
         }
 
+        seedFromLastGoodSnapshotIfAvailable()
+
         // Save filter options when they change
         setupFilterPersistence()
 
@@ -113,7 +121,7 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     public func loadPlaylists() async {
-        await reloadPlaylists(showLoading: true)
+        await reloadPlaylists(showLoading: playlists.isEmpty)
     }
 
     /// Sync playlists from server, then reload from cache
@@ -359,7 +367,7 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     private func reloadPlaylists(showLoading: Bool) async {
-        if showLoading {
+        if showLoading && playlists.isEmpty {
             isLoading = true
         }
         error = nil
@@ -376,19 +384,60 @@ public final class PlaylistViewModel: ObservableObject {
             // CoreData can return empty mid-sync while records are being rebuilt,
             // or return partial records with empty titles before the full sync commits.
             let hasDegradedData = merged.contains { $0.title.isEmpty }
-            if (merged.isEmpty || hasDegradedData) && !playlists.isEmpty {
+            if merged.isEmpty && isShowingStaleSnapshot {
+                publishPlaylistsIfChanged([])
+                nameCollisionTitles = []
+                isShowingStaleSnapshot = false
+            } else if (merged.isEmpty || hasDegradedData) && !playlists.isEmpty {
                 EnsembleLogger.debug("📋 PlaylistViewModel: skipping degraded reload (\(merged.count) playlists, \(merged.filter { $0.title.isEmpty }.count) empty titles, preserving \(self.playlists.count) existing)")
             } else {
-                playlists = merged
+                publishPlaylistsIfChanged(merged)
                 nameCollisionTitles = DisplayPlaylist.detectNameCollisions(merged)
+                updateLastGoodSnapshotIfNeeded(merged)
             }
         } catch {
             self.error = error.localizedDescription
         }
 
-        if showLoading {
+        if showLoading && isLoading {
             isLoading = false
         }
+    }
+
+    private func seedFromLastGoodSnapshotIfAvailable() {
+        let snapshot = Self.lastGoodPlaylistsSnapshot
+        guard !snapshot.isEmpty else { return }
+        playlists = snapshot
+        filteredPlaylists = Self.filterPlaylists(
+            Self.sortPlaylists(
+                snapshot,
+                by: playlistSortOption,
+                ascending: filterOptions.sortDirection == .ascending
+            ),
+            searchText: filterOptions.searchText
+        )
+        sortedPlaylists = Self.sortPlaylists(
+            snapshot,
+            by: playlistSortOption,
+            ascending: filterOptions.sortDirection == .ascending
+        )
+        displayPlaylists = DisplayPlaylist.group(filteredPlaylists, merge: isMergeEnabled)
+        sortedDisplayPlaylists = DisplayPlaylist.group(sortedPlaylists, merge: isMergeEnabled)
+        nameCollisionTitles = DisplayPlaylist.detectNameCollisions(snapshot)
+        isShowingStaleSnapshot = true
+    }
+
+    private func updateLastGoodSnapshotIfNeeded(_ playlists: [Playlist]) {
+        guard !playlists.isEmpty, !playlists.contains(where: { $0.title.isEmpty }) else { return }
+        if Self.lastGoodPlaylistsSnapshot != playlists {
+            Self.lastGoodPlaylistsSnapshot = playlists
+        }
+        isShowingStaleSnapshot = false
+    }
+
+    private func publishPlaylistsIfChanged(_ nextPlaylists: [Playlist]) {
+        guard playlists != nextPlaylists else { return }
+        playlists = nextPlaylists
     }
 
     private func awaitCreatedPlaylistMaterialization(title: String, serverSourceKey: String) async {
@@ -620,13 +669,23 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
                 sourceCompositeKey: playlist.sourceCompositeKey
             ) {
                 // Refresh playlist metadata from cache so title/count stays current after edits.
-                playlist = Playlist(from: cachedPlaylist)
                 let loadedTracks = cachedPlaylist.tracksArray
-                tracks = loadedTracks.map { Track(from: $0) }
+                let nextPlaylist = Playlist(from: cachedPlaylist)
+                let nextTracks = loadedTracks.map { Track(from: $0) }
+                playlist = nextPlaylist
+                if shouldPublishTrackSnapshot(nextTracks, cachedTrackCount: Int(cachedPlaylist.trackCount)) {
+                    tracks = nextTracks
+                } else {
+                    EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': preserving \(self.tracks.count) tracks during empty intermediate reload")
+                }
                 let ptCount = (cachedPlaylist.playlistTracks as? Set<AnyHashable>)?.count ?? -1
                 EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': trackCount=\(cachedPlaylist.trackCount), playlistTracks=\(ptCount), tracksArray=\(loadedTracks.count), tracks=\(tracks.count)")
             } else {
-                tracks = []
+                if tracks.isEmpty {
+                    tracks = []
+                } else {
+                    EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': preserving \(self.tracks.count) tracks while cached playlist is temporarily unavailable")
+                }
             }
         } catch {
             self.error = error.localizedDescription
@@ -687,6 +746,17 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     
     private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
         MediaFilterEngine.filterTracks(tracks, with: options, configuration: .playlistDetail)
+    }
+
+    private func shouldPublishTrackSnapshot(_ nextTracks: [Track], cachedTrackCount: Int) -> Bool {
+        if !nextTracks.isEmpty || tracks.isEmpty {
+            return true
+        }
+
+        // A zero-track playlist is valid only when the cached metadata agrees.
+        // During playlist refreshes CoreData can briefly expose relationships
+        // before tracks are wired, which should not blank an already visible list.
+        return cachedTrackCount == 0
     }
 
     @discardableResult

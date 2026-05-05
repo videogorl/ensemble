@@ -175,6 +175,7 @@ The same pattern applies to any protocol in the codebase:
 - `LibraryRepositoryProtocol` → mock for ViewModel/service tests
 - `PlaylistRepositoryProtocol` → mock for playlist mutation tests
 - `HubRepositoryProtocol` → mock for HomeViewModel / hub tests; cover `HomeFeedCachedSnapshot` source cleanup, last-good preservation, and stale metadata in `HubRepositorySnapshotTests`
+- `PlaylistRepositoryProtocol` → mock for playlist browse/detail stability; cover last-good PlaylistViewModel seeding, transient empty reload preservation, stale seed clearing when cache is truly empty, and playlist-detail track preservation during intermediate empty relationship reloads
 - `BackgroundRefreshCoordinating` / `BackgroundRefreshCoordinator` → use closure seams to test app refresh, iOS 15 foreground fallback, cooldown, cancellation/error collection, and Feed/Siri sequencing without constructing the app container
 - `OfflineDownloadBackgroundCoordinating` / `OfflineBackgroundExecutionCoordinator` → test background URLSession completion-handler lifecycle, iOS 26 continued-processing request/progress seams where injectable, macOS sleep/wake hooks, and service recovery sweeps that prevent stale `.downloading` records
 

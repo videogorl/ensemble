@@ -202,6 +202,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 **Key ViewModels:**
 - `NowPlayingViewModel` -- Playback, queue, lyrics, artwork, rating, and playlist action coordinator. It exposes focused `playbackProjection`, `queueProjection`, `artworkProjection`, `lyricsProjection`, and `ratingProjection` objects for SwiftUI surfaces that need state without subscribing to every Now Playing mutation.
 - `TrackActionDispatching` -- Main-actor action seam for browse rows/cards/native tables. `NowPlayingViewModel` conforms, so high-volume UI can dispatch playback, queue, favorite, and playlist actions through the protocol while observing only row-local state or focused projections.
+- `PlaylistViewModel` -- Playlist browse root state. It keeps a process-local last-good playlist snapshot, suppresses degraded empty/partial reload publishes over an already visible list, and exposes stale-snapshot state so Playlists can avoid jumpy blank-to-list transitions while cached CoreData results settle.
 - `PinnedViewModel` -- Fetches `PinnedItem` CoreData records and resolves them into full domain objects
 
 ### EnsembleUI (Presentation Layer)
