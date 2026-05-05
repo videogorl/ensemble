@@ -216,3 +216,24 @@ Verification:
 - Passed: `swift test --package-path Packages/EnsembleUI --filter PlatformAndDragPolicyTests`
 - Passed: `swift test --package-path Packages/EnsembleUI`
 - Passed: `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
+
+## 2026-05-05 Final Build And Smoke Gate
+
+| Gate | Result |
+|---|---|
+| Core Data model | Passed: `scripts/compile_coredata_model.sh` |
+| Persistence tests | Passed: `swift test --package-path Packages/EnsemblePersistence` (7 XCTest cases) |
+| Core tests | Passed: `swift test --package-path Packages/EnsembleCore` (509 XCTest cases + 4 Swift Testing cases) |
+| UI tests | Passed: `swift test --package-path Packages/EnsembleUI` (42 XCTest cases) |
+| Core warning budget | Passed: `scripts/check_core_warning_budget.sh` with 0 warnings against 0-warning budget |
+| iPhone simulator build | Passed: `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build` |
+| iPad simulator build | Passed: `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=26.4.1' build` |
+| macOS build | Passed: `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=macOS,arch=arm64' build` |
+| Physical iPhone 16 Pro build | Passed: `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'id=00008140-00023030117B001C' build` |
+| Simulator smoke | Passed: installed and launched on iPhone 17 Pro simulator (`64431A29-844A-4897-961B-562E7529138F`). Feed rendered immediately from cached content; More navigation and Downloads utility layout rendered without an obvious visual break. Screenshots: `/tmp/ensemble-policy-smoke-iphone17pro-root.png`, `/tmp/ensemble-policy-smoke-iphone17pro-downloads.png`. |
+
+Notes:
+
+1. The first post-policy iPhone simulator build failed because runtime `if` branches inside `.commands` require `CommandsBuilder.buildIf`, which is iOS 16+. The command scene was adjusted to keep compile-time command groups unconditional while routing action/disabled state through `EnsemblePlatformFeaturePolicy`, and the rerun passed.
+2. iPhone 6s/A9 profiling remains deliberately skipped for this pass at user request.
+3. Interactive physical-device testing through the iPhone Mirroring app is available for follow-up visual checks, but this pass only used the connected iPhone 16 Pro as a build/profiling target.
