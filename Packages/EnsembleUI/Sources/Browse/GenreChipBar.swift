@@ -33,7 +33,6 @@ public struct GenreFilterHeader<Supplementary: View>: View {
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(EnsembleDesign.Color.windowSurface)
     }
 }
 
