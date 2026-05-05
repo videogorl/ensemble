@@ -314,9 +314,10 @@ Use these patterns when extending gesture actions:
 2. Ensure layout sanitization prevents duplicate assignments and malformed persisted payloads.
 3. For SwiftUI track rows, wrap row content in `TrackSwipeContainer` and pass closures for play next/last, add-to-playlist, and favorite toggle.
 4. For detail track tables, map the same actions in `MediaTrackList` via `leadingSwipeActionsConfigurationForRowAt` / `trailingSwipeActionsConfigurationForRowAt`.
-5. For favorite mutations, call `NowPlayingViewModel.toggleTrackFavorite(_:)` or `setTrackFavorite(_:for:)` so server rating + local cache stay consistent.
-6. For context menus, define the allowed action set in `MediaMenuCatalog` and render it through `SwiftUIMediaMenuRenderer`, `UIKitMediaMenuRenderer`, or `AppKitMediaMenuRenderer`. For standalone SwiftUI track cards/menus, use `TrackActionsContextMenu`. Parent views should add only scoped actions such as queue removal, pin/unpin, edit/delete, shuffle/repeat, playlist-picker presentation, or playlist management.
-7. If action opens follow-up UI, keep ellipsis in labels (`Add to Playlist…`, `Rename…`).
+5. For high-volume track rows/cards/tables, accept `TrackActionDispatching` for playback/queue/favorite/playlist commands and observe `NowPlayingRatingProjection` or row-local state instead of the full `NowPlayingViewModel`.
+6. For favorite mutations, call `NowPlayingViewModel.toggleTrackFavorite(_:)`, `setTrackFavorite(_:for:)`, or the matching `TrackActionDispatching` method so server rating + local cache stay consistent.
+7. For context menus, define the allowed action set in `MediaMenuCatalog` and render it through `SwiftUIMediaMenuRenderer`, `UIKitMediaMenuRenderer`, or `AppKitMediaMenuRenderer`. For standalone SwiftUI track cards/menus, use `TrackActionsContextMenu`. Parent views should add only scoped actions such as queue removal, pin/unpin, edit/delete, shuffle/repeat, playlist-picker presentation, or playlist management.
+8. If action opens follow-up UI, keep ellipsis in labels (`Add to Playlist…`, `Rename…`).
 
 ## Adding or Updating Siri Media Play Intents (In-App-First)
 

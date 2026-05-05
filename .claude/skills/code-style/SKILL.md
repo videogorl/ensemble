@@ -108,6 +108,8 @@ let viewModel: SomeViewModel  // not @ObservedObject
 }
 ```
 
+For Now Playing surfaces, prefer the focused projections (`playbackProjection`, `queueProjection`, `artworkProjection`, `lyricsProjection`, `ratingProjection`) or `TrackActionDispatching` over observing the full `NowPlayingViewModel`. Keep the full model only where the view truly needs cross-cutting state or mutation methods.
+
 **When NOT to apply:** Short-lived modals with small view trees (<20 rows, <5s lifetime). The PlaylistPickerSheet revert (5 workaround commits -> full revert) proved the complexity cost exceeds performance benefit for these cases.
 
 ### Combine Pipeline Caching

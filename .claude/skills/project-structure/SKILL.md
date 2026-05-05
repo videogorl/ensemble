@@ -260,6 +260,8 @@ Sources/
 |   +-- MergedPlaylistDetailViewModel.swift # ViewModel for merged playlist detail (interleaved tracks, rename/delete all)
 |   +-- MusicSourceAccountDetailViewModel.swift
 |   +-- NowPlayingViewModel.swift
+|   +-- NowPlayingProjections.swift     # Focused playback, queue, artwork, lyrics, and rating projections for low-churn UI observation
+|   +-- TrackActionDispatching.swift    # Action-dispatch protocol for track rows/cards/tables that should not observe the full Now Playing model
 |   +-- DownloadManagerSettingsViewModel.swift # Settings manager list for offline targets
 |   +-- DownloadTargetDetailViewModel.swift # Per-track detail for a single download target
 |   +-- LibraryDownloadDetailViewModel.swift # All downloads for a library (by sourceCompositeKey)

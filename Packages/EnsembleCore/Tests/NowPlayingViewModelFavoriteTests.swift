@@ -95,6 +95,15 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             playbackStateSubject.send(state)
         }
 
+        func setQueue(_ queue: [QueueItem], currentIndex: Int) {
+            queueSubject.send(queue)
+            queueIndexSubject.send(currentIndex)
+        }
+
+        func setHistory(_ history: [QueueItem]) {
+            historySubject.send(history)
+        }
+
         func setCurrentTime(_ time: TimeInterval) {
             currentTimeSubject.send(time)
             presentationTimeSubject.send(time)
@@ -300,20 +309,29 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             syncCoordinator: syncCoordinator
         )
 
+        let viewModel = NowPlayingViewModel(
+            playbackService: playbackService,
+            syncCoordinator: syncCoordinator,
+            libraryRepository: libraryRepository,
+            navigationCoordinator: NavigationCoordinator(),
+            toastCenter: ToastCenter(),
+            mutationCoordinator: mutationCoordinator,
+            trackAvailabilityResolver: trackAvailabilityResolver,
+            lyricsService: lyricsService
+        )
+        viewModel.isArtworkLoadingEnabledForTesting = false
+
         return (
-            NowPlayingViewModel(
-                playbackService: playbackService,
-                syncCoordinator: syncCoordinator,
-                libraryRepository: libraryRepository,
-                navigationCoordinator: NavigationCoordinator(),
-                toastCenter: ToastCenter(),
-                mutationCoordinator: mutationCoordinator,
-                trackAvailabilityResolver: trackAvailabilityResolver,
-                lyricsService: lyricsService
-            ),
+            viewModel,
             playbackService,
             lyricsService
         )
+    }
+
+    private func waitForProjectionPropagation() async {
+        await Task.yield()
+        try? await Task.sleep(nanoseconds: 25_000_000)
+        await Task.yield()
     }
 
     func testSetTrackFavoriteUsesLovedRating() async {
@@ -383,7 +401,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         viewModel.trackRatingStoreHandlerForTesting = { _, _ in }
 
         playback.setCurrentTrack(track)
-        await Task.yield()
+        await waitForProjectionPropagation()
         viewModel.currentRating = .loved
 
         await viewModel.toggleRatingForTesting()
@@ -396,7 +414,6 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         let viewModel = viewModelTuple.viewModel
         let playback = viewModelTuple.playbackService
         let lyricsService = viewModelTuple.lyricsService
-        let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 100)
         let lyrics = ParsedLyrics(
             lines: [
                 LyricsLine(timestamp: 10, text: "Line 1"),
@@ -405,14 +422,15 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             isTimed: true
         )
 
-        playback.setCurrentTrack(track)
         playback.setDuration(100)
         playback.setPlaybackState(.playing)
+        try? await Task.sleep(nanoseconds: 25_000_000)
         lyricsService.setLyricsStateForTesting(.available(lyrics))
         playback.setCurrentTime(20)
         playback.setPresentationTime(18.5)
 
-        await Task.yield()
+        try? await Task.sleep(nanoseconds: 25_000_000)
+        await waitForProjectionPropagation()
 
         XCTAssertEqual(viewModel.currentTime, 20, accuracy: 0.001)
         XCTAssertEqual(viewModel.currentLyricsLineIndex, 0)
@@ -428,7 +446,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         playback.setPlaybackState(.playing)
         playback.setCurrentTime(100)
 
-        await Task.yield()
+        await waitForProjectionPropagation()
 
         // When currentTime == duration, progress pins at 1.0 and remaining shows -0:00
         XCTAssertEqual(viewModel.progress, 1.0, accuracy: 0.001)
@@ -445,9 +463,101 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         playback.setPlaybackState(.playing)
         playback.setCurrentTime(50)
 
-        await Task.yield()
+        await waitForProjectionPropagation()
 
         // scrubberDuration should match the playback duration exactly
         XCTAssertEqual(viewModel.scrubberDuration, 200, accuracy: 0.001)
+    }
+
+    func testPlaybackProjectionTracksFocusedPlaybackState() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playback = viewModelTuple.playbackService
+        let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 120)
+        var progressValues: [Double] = []
+
+        let cancellable = viewModel.playbackProjection.progressPublisher
+            .sink { progressValues.append($0) }
+
+        playback.setCurrentTrack(track)
+        playback.setDuration(120)
+        playback.setPlaybackState(.playing)
+        playback.setCurrentTime(30)
+
+        await waitForProjectionPropagation()
+
+        XCTAssertEqual(viewModel.playbackProjection.currentTrack, track)
+        XCTAssertEqual(viewModel.playbackProjection.playbackState, .playing)
+        XCTAssertTrue(viewModel.playbackProjection.isPlaying)
+        XCTAssertEqual(viewModel.playbackProjection.duration, 120, accuracy: 0.001)
+        XCTAssertEqual(viewModel.playbackProjection.progress, 0.25, accuracy: 0.001)
+        XCTAssertEqual(progressValues.last ?? -1, 0.25, accuracy: 0.001)
+
+        cancellable.cancel()
+    }
+
+    func testQueueProjectionTracksQueueAndHistory() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playback = viewModelTuple.playbackService
+        let first = Track(id: "1", key: "/library/metadata/1", title: "First")
+        let second = Track(id: "2", key: "/library/metadata/2", title: "Second")
+        let queue = [
+            QueueItem(id: "queue-1", track: first),
+            QueueItem(id: "queue-2", track: second)
+        ]
+        let history = [QueueItem(id: "history-1", track: first)]
+
+        playback.setQueue(queue, currentIndex: 1)
+        playback.setHistory(history)
+
+        try? await Task.sleep(nanoseconds: 25_000_000)
+        await waitForProjectionPropagation()
+
+        XCTAssertEqual(viewModel.queueProjection.queue, queue)
+        XCTAssertEqual(viewModel.queueProjection.currentQueueIndex, 1)
+        XCTAssertEqual(viewModel.queueProjection.currentQueueItem?.id, "queue-2")
+        XCTAssertEqual(viewModel.queueProjection.playbackHistory, history)
+    }
+
+    func testRatingProjectionTracksOptimisticFavoriteState() async {
+        let viewModel = makeViewModel().viewModel
+        let track = Track(id: "1", key: "/library/metadata/1", title: "Test")
+
+        viewModel.trackRatingMutationHandlerForTesting = { _, _ in }
+        viewModel.trackRatingStoreHandlerForTesting = { _, _ in }
+
+        XCTAssertFalse(viewModel.ratingProjection.isTrackFavorited(track))
+
+        await viewModel.setTrackFavorite(true, for: track)
+        await waitForProjectionPropagation()
+
+        XCTAssertTrue(viewModel.ratingProjection.isTrackFavorited(track))
+    }
+
+    func testLyricsProjectionTracksCurrentLine() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playback = viewModelTuple.playbackService
+        let lyricsService = viewModelTuple.lyricsService
+        let lyrics = ParsedLyrics(
+            lines: [
+                LyricsLine(timestamp: 10, text: "Line 1"),
+                LyricsLine(timestamp: 20, text: "Line 2")
+            ],
+            isTimed: true
+        )
+
+        playback.setDuration(100)
+        try? await Task.sleep(nanoseconds: 25_000_000)
+        lyricsService.setLyricsStateForTesting(.available(lyrics))
+        playback.setPresentationTime(10.1)
+
+        try? await Task.sleep(nanoseconds: 25_000_000)
+        await waitForProjectionPropagation()
+
+        XCTAssertTrue(viewModel.lyricsProjection.lyricsState.isAvailable)
+        XCTAssertEqual(viewModel.lyricsProjection.currentLyricsLineIndex, 0)
+        XCTAssertEqual(viewModel.lyricsProjection.lyricsScrollTargetIndex, 0)
     }
 }

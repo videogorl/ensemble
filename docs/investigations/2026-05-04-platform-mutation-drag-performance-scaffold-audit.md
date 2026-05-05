@@ -187,3 +187,17 @@ Verification:
 Verification:
 
 - Passed: `swift test --package-path Packages/EnsembleCore` (505 XCTest cases + 4 Swift Testing cases)
+
+## 2026-05-05 Now Playing Projection Pass
+
+| Area | Completed in this pass | Remaining gate |
+|---|---|---|
+| Focused projections | Added `NowPlayingPlaybackProjection`, `NowPlayingQueueProjection`, `NowPlayingArtworkProjection`, `NowPlayingLyricsProjection`, and `NowPlayingRatingProjection`. `NowPlayingViewModel` keeps them synchronized with playback, queue, artwork, lyrics, availability, progress, waveform, shuffle/repeat, and optimistic rating updates. | Migrate remaining Now Playing cards, root/detail browse rows, Artists, Playlists, and Songs surfaces where traces still show broad `NowPlayingViewModel` invalidation. |
+| Action seam | Added `TrackActionDispatching` and conformed `NowPlayingViewModel`, giving row/card/native table surfaces a playback/queue/favorite/playlist command interface that does not require observing the whole model. | Convert high-volume row factories to accept the protocol plus rating/current-track projections in the next browse-list pass. |
+| MiniPlayer migration | MiniPlayer track info, controls, waveform, action menu, and material background now observe playback/artwork/rating projections. The full model is retained only as an action dispatcher for transport, playlist, favorite, navigation, and share commands. | Run the full `scripts/capture_performance_gate.sh` after broader row/card migrations to compare `MiniPlayer`, `RootView`, `MergedEnvironment`, and `ChildEnvironment<( NowPlayingViewModel) -> Void>` rows against the iPhone 16 Pro baseline. |
+| Test coverage | Added projection coverage for playback state/progress, queue/history, optimistic favorite state, and lyrics line propagation. | Add UI-level regression coverage if card-level projection migrations change view construction or bindings. |
+
+Verification:
+
+- Passed: `swift test --package-path Packages/EnsembleCore --filter NowPlayingViewModelFavoriteTests`
+- Passed: `swift test --package-path Packages/EnsembleUI --filter MiniPlayer`

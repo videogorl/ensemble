@@ -200,6 +200,8 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `SiriMediaIndex` / `SiriMediaIndexItem` -- Compact index records used by extension-side lookup/ranking
 
 **Key ViewModels:**
+- `NowPlayingViewModel` -- Playback, queue, lyrics, artwork, rating, and playlist action coordinator. It exposes focused `playbackProjection`, `queueProjection`, `artworkProjection`, `lyricsProjection`, and `ratingProjection` objects for SwiftUI surfaces that need state without subscribing to every Now Playing mutation.
+- `TrackActionDispatching` -- Main-actor action seam for browse rows/cards/native tables. `NowPlayingViewModel` conforms, so high-volume UI can dispatch playback, queue, favorite, and playlist actions through the protocol while observing only row-local state or focused projections.
 - `PinnedViewModel` -- Fetches `PinnedItem` CoreData records and resolves them into full domain objects
 
 ### EnsembleUI (Presentation Layer)
@@ -209,7 +211,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 
 **Key Views:**
 - `RootView` -- Adapts through `EnsemblePlatformFeaturePolicy`: tab navigation on iPhone/unsupported split-view platforms, sidebar on iPad/macOS when the OS supports the split shell; also owns the root aurora layer, the single shared mini player overlay, and the scene-local navigation/Now Playing coordinators. On iPadOS/macOS, `SidebarView` keeps one stable app sidebar/detail shell and hosts Artists, Playlists, and Genres browse-list/detail splits inside the detail host.
-- `MiniPlayer` -- Persistent compact player overlay across all screens
+- `MiniPlayer` -- Persistent compact player overlay across all screens. Its track, controls, waveform, menu, and background slices observe focused Now Playing projections and keep the full `NowPlayingViewModel` only for action dispatch.
 - `MediaDetailView` -- Unified detail view using `MediaDetailViewModelProtocol` (supports Artist, Album, Playlist, Favorites)
 - `ArtworkView` -- Local-first artwork loading with automatic fallback to network
 - `HomeView` -- Hub-based home screen with horizontally-scrolling sections
