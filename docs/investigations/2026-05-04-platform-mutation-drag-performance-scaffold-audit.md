@@ -158,6 +158,10 @@ Verification:
 
 - Passed: `bash -n scripts/capture_performance_gate.sh`
 - Passed: `scripts/capture_performance_gate.sh --help`
+- Partial physical-device pass: `scripts/capture_performance_gate.sh --platform device --device "Felicity's iPhone 16 Pro" --destination "id=00008140-00023030117B001C" --flows all --templates "Time Profiler,SwiftUI" --configuration Debug --no-build --no-launch --non-interactive --output-dir /tmp/ensemble-performance-gate-iphone16pro-20260505-1009`
+- Output: `/tmp/ensemble-performance-gate-iphone16pro-20260505-1009/manifest.json` with trace bundles and per-flow metrics for Root, Detail, Now Playing, Artists, Playlists, MiniPlayer, Feed launch, Feed refresh, and Downloads queue.
+- Limitation: physical-device `xcrun xctrace export` on Xcode 26.4.1 / iOS 26.5 segfaulted for several table exports; the gate still wrote `.trace` bundles and JSON metrics where exports succeeded. `downloads-queue/SwiftUI` returned non-zero with `Timed out waiting for device to boot: Felicity's iPhone 16 Pro (26.5)`.
+- Notable trace signal: Root Time Profiler exported 0 hang-risk rows, 0 potential-hang rows, thermal `Nominal`, 5,739 runloop rows, and top app-symbol mentions in `OfflineDownloadService`, `HomeViewModel`, `HomeHubLoader`, `BackgroundRefreshCoordinator`, and `RootView`. Artists SwiftUI exported one 255.91 ms main-thread microhang; Root, Feed launch, MiniPlayer, and Playlists SwiftUI exported 0 hitch rows where hitch tables were available.
 
 ## 2026-05-05 Feed Stability And Refresh Pass
 
@@ -258,3 +262,22 @@ Mirroring-pass conclusions:
 2. Physical foreground recovery exercised the new shared background refresh and offline download recovery seams, and the recovery sweep completed cleanly.
 3. Download retry failure remained bounded and user-visible rather than wedging the target in an active state.
 4. A true Siri voice/App Shortcut execution pass still needs either manual invocation on the physical device or a reliable Shortcuts/Siri automation harness; this pass verified registration and URL activation only.
+
+## 2026-05-05 iPhone 16 Pro Fresh Download Follow-Up
+
+After the first failed retry, the same fresh local build `0.3.0 (202605050956.4450)` was reinstalled and relaunched on the physical iPhone 16 Pro, then the Downloads flow was retried with a different playlist because the failing `Christmas in June` track appears to be corrupt or truncated on the Plex side.
+
+| Gate | Evidence | Result |
+|---|---|---|
+| Final installed build | `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'id=00008140-00023030117B001C' build`; `devicectl device install app`; `devicectl device info apps` reported `com.videogorl.ensemble` version `0.3.0 (202605050956.4450)`. The app and embedded Siri extension plists both reported the same short version and bundle version before install. | Passed. The device is running the current local product, not the earlier stale DerivedData product. |
+| Feed and Playlists readiness | Feed rendered preserved content immediately. Playlists initially needed a short load window, then showed user playlists including `working music`, `learn to play`, and `instrumental mode`. | Passed. The earlier empty-looking Playlists state was a load timing issue, not a functional failure. |
+| Known-bad track retry | Retrying `Christmas in June` submitted iOS 26 continued-processing work and failed after bounded retry/fallback with truncation detection rather than getting stuck. | Passed as a recovery-state test, but not as a content-success test. Treat this track as a Plex/source-data issue until the server file is replaced or reanalyzed. |
+| Alternate playlist download | Opened `learn to play`, used the playlist action menu's `Download`, and observed the target in Downloads as `Downloaded`, `1 track - 8.2 MB`. | Passed. This confirms the download queue can still complete successfully on physical hardware with a different source target. |
+| Log hygiene follow-up | Download URL logging was redacted after the first fresh pass so future logs no longer emit token-bearing Plex download URLs from universal/direct download construction or transfer attempts. | Passed by code review and package build. The earlier local log `/tmp/ensemble-iphone16pro-freshbuild-pass.log` was captured before redaction and should be treated as local-only sensitive evidence. |
+| Evidence artifacts | Screenshots: `/tmp/ensemble-iphone16pro-fresh-download-failed.png`, `/tmp/ensemble-iphone16pro-fresh-learn-to-play-download.png`. Device log: `/tmp/ensemble-iphone16pro-freshbuild-pass.log` (local-only; captured before URL redaction). | Artifacts captured outside the repository; keep the screenshots if a release evidence bundle is needed, but do not publish the raw pre-redaction log. |
+
+Fresh follow-up conclusions:
+
+1. The downloads subsystem recovered cleanly from a likely source-corrupt track and completed a separate playlist download on the same physical device build.
+2. The foreground/background hooks and iOS 26 continued-processing path were exercised during the failed retry; a longer known-good playlist is still useful for a sleep/background-duration stress pass.
+3. Future diagnostic logs should no longer expose Plex access tokens through download URL strings.
