@@ -126,3 +126,22 @@ Simulator-pass conclusions:
 2. The largest observed simulator process footprint was the iPhone playlist pass at 200.5M peak, which is acceptable as a simulator smoke result but not a substitute for low-memory hardware measurement.
 3. The stack samples repeatedly point at SwiftUI `ViewGraph`/`AttributeGraph`, native table cell/menu construction, `CollapsingToolbar` geometry tracking, lazy grid layout, and artwork/Aurora rendering as the areas to prioritize when real Instruments traces are available.
 4. Before/after performance acceptance still requires device or reliable simulator Instruments traces for Root, Detail, Now Playing, Artists, Playlists, and MiniPlayer. The simulator `sample` files only support triage and flow coverage.
+
+## 2026-05-05 Physical Device Profiling Follow-Up
+
+Physical iPhone 16 Pro profiling is now available after Xcode completed device symbol setup. iPhone 6s profiling is skipped for this pass at user request; any pre-skip captures are not part of the acceptance gate below.
+
+| Pass | Device/runtime | Template | Flow covered | Trace/export | Result |
+|---|---|---|---|---|---|
+| Feed, detail, Now Playing | iPhone 16 Pro, iOS 26.5, process `Ensemble (3555)` | Time Profiler | Feed -> album detail -> detail scroll -> mini player -> Now Playing -> playlist-add toast path | `/tmp/ensemble-device-instruments-2026-05-05/traces/iphone16pro-feed-detail-nowplaying-time.trace`; export `/tmp/ensemble-device-instruments-2026-05-05/exports/iphone16pro-feed-detail-nowplaying-time-deep/time-sample.xml` | 46.10s run, thermal `Fair`, 0 hang-risk rows, 0 potential-hang rows, 12,148 runloop rows, 56 GCD perf rows. The deep time-sample export succeeded, but app frames remained mostly address-based, so this pass is useful for hangs/thermal/timing and less useful for app-symbol CPU attribution. |
+| Artists and Playlists | iPhone 16 Pro, iOS 26.5, process `Ensemble (3555)` | Time Profiler | Artists tab scroll -> Playlists tab -> More tab | `/tmp/ensemble-device-instruments-2026-05-05/traces/iphone16pro-artists-playlists-time.trace` | 41.15s run, thermal `Fair`, 0 potential-hang rows, 24,952 runloop rows, 7 GCD perf rows. Some lifecycle/hang-risk table exports failed with Instruments compatibility warnings, but the potential-hang table exported cleanly and was empty. |
+| Browse SwiftUI invalidation | iPhone 16 Pro, iOS 26.5, process `Ensemble (3555)` | SwiftUI | Album detail back navigation -> Feed scroll | `/tmp/ensemble-device-instruments-2026-05-05/traces/iphone16pro-browse-swiftui.trace`; exports in `/tmp/ensemble-device-instruments-2026-05-05/exports/iphone16pro-browse-swiftui/` | 25.90s run, 0 hang-risk rows, 0 potential-hang rows, 10,901 runloop rows. Hitch exports were empty (`hitches*.xml` all 0 rows). SwiftUI export tables were substantial: 40,566 update rows, 91,661 full-cause rows, 84,294 cause rows, 45,809 change rows, and 24,639 update-group rows. |
+
+SwiftUI row-level evidence from `swiftui-updates.xml` supports keeping the observation-projection work in scope even though the device pass did not record hangs or hitches. The update rows mention `MergedEnvironment` 8,287 times, `GeometryReader<ModifiedContent>.Child` 2,676 times, `RootView` 2,578 times, `ChildEnvironment<( NowPlayingViewModel) -> Void>` 2,489 times, `TabView` 499 times, `MainTabView` 464 times, `MiniPlayer` 260 times, and `MiniPlayerVerticalSwipeModifier` 46 times. `swiftui-full-causes.xml` also includes `AttributeInvalidatingSubscriber.invalidateAttribute()` rows, which ties part of the trace to Combine/SwiftUI observation invalidation rather than pure layout-only churn.
+
+Physical-device conclusions:
+
+1. The iPhone 16 Pro traces did not show Instruments hang or hitch evidence for the covered flows, and thermal state stayed `Fair` during the Time Profiler runs.
+2. The SwiftUI trace still confirms broad root/environment/mini-player update participation during normal browse navigation, so projection models for playback, queue, artwork, lyrics, and rating remain the correct before/after refactor gate.
+3. The current physical baseline is not yet an A9/2GB-memory baseline. The iPhone 6s should be profiled later when explicitly requested, using the same Root, Detail, Now Playing, Artists, Playlists, and MiniPlayer flows.
+4. The first 16 Pro pass exercised the playlist-add toast path and added the currently playing track `Outro` to `Music video ideas`. No further mutation actions were used in the physical profiling passes.
