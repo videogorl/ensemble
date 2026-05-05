@@ -201,3 +201,18 @@ Verification:
 
 - Passed: `swift test --package-path Packages/EnsembleCore --filter NowPlayingViewModelFavoriteTests`
 - Passed: `swift test --package-path Packages/EnsembleUI --filter MiniPlayer`
+
+## 2026-05-05 Policy, Scaffold, And Drag Wiring Pass
+
+| Area | Completed in this pass | Remaining gate |
+|---|---|---|
+| Command policy | `EnsemblePlatformFeaturePolicy` now exposes `commandPolicy` and the app command scene consumes it for Settings, refresh, macOS sidebar command removal, and macOS Playback menu availability. Platform-specific `CommandGroup` renderers remain native while feature availability comes from the shared matrix. | Workspace build on iPhone/iPad/macOS still needs to confirm command availability on each platform shell. |
+| Utility scaffold migration | Migrated `FilterSheet`, `LogsSettingsView`, `MusicSourceAccountDetailView`, `TextInputView`, playlist create, and playlist edit flows to `EnsembleAdaptiveUtilityScaffold`. iOS keeps grouped `Form`/`List` behavior; macOS gets utility card sections, including explicit playlist edit move/delete controls where swipe editing is not the native card affordance. | Simulator/macOS visual smoke should cover Filters, Logs, account detail, playlist create/edit, and text input sheets before declaring the scaffold audit closed. |
+| Drag provider policy | Track, album, playlist, and merged-playlist drag providers now route through `MediaDragExportPolicy`. Tracks remain internal payload plus external file promise copy; albums/playlists remain app-internal payloads only with file export unsupported by policy. | Native table and sidebar drop behavior already routes through existing resolver tests; future drag surfaces should call `MediaDragExportPolicy.itemProvider`/`pasteboardWriter` directly. |
+| Test coverage | Extended `PlatformAndDragPolicyTests` for command-policy flags; focused UI package test compile validates the scaffold migrations type-check. | Full UI package test and workspace builds are pending the final verification phase. |
+
+Verification:
+
+- Passed: `swift test --package-path Packages/EnsembleUI --filter PlatformAndDragPolicyTests`
+- Passed: `swift test --package-path Packages/EnsembleUI`
+- Passed: `xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`

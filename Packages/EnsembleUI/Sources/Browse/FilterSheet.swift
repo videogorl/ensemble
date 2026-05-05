@@ -56,150 +56,8 @@ public struct FilterSheet: View {
     #if os(macOS)
     private var macOSBody: some View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xl) {
-                    Text("Filters")
-                        .font(EnsembleDesign.Typography.sectionTitle)
-
-                    macOSToggleSection(
-                        title: "Availability",
-                        footer: nil
-                    ) {
-                        Toggle("Downloaded Only", isOn: $filterOptions.showDownloadedOnly)
-                    }
-
-                    if showHideSingles {
-                        macOSToggleSection(
-                            title: "Albums",
-                            footer: "Hide albums with only one track"
-                        ) {
-                            Toggle("Hide Singles", isOn: $filterOptions.hideSingles)
-                        }
-                    }
-
-                    if showYearFilter {
-                        macOSToggleSection(
-                            title: "Year",
-                            footer: nil
-                        ) {
-                            if let yearRange = filterOptions.yearRange {
-                                HStack {
-                                    Text("Current Range")
-                                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                                    Spacer()
-                                    Text("\(yearRange.lowerBound) - \(yearRange.upperBound)")
-                                }
-
-                                Button("Clear Year Range") {
-                                    filterOptions.yearRange = nil
-                                    minYear = ""
-                                    maxYear = ""
-                                }
-                                .foregroundColor(EnsembleDesign.Color.destructive)
-                            } else {
-                                HStack(alignment: .top, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                                    VStack(alignment: .leading, spacing: EnsembleScaffold.FilterSheet.macFieldLabelSpacing) {
-                                        Text("Min Year")
-                                            .font(EnsembleDesign.Typography.cardSubtitle)
-                                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                                        TextField("Min Year", text: $minYear)
-                                            .textFieldStyle(.roundedBorder)
-                                    }
-
-                                    VStack(alignment: .leading, spacing: EnsembleScaffold.FilterSheet.macFieldLabelSpacing) {
-                                        Text("Max Year")
-                                            .font(EnsembleDesign.Typography.cardSubtitle)
-                                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                                        TextField("Max Year", text: $maxYear)
-                                            .textFieldStyle(.roundedBorder)
-                                    }
-                                }
-
-                                Button("Apply Year Range") {
-                                    applyYearRange()
-                                }
-                                .disabled(minYear.isEmpty || maxYear.isEmpty)
-                            }
-                        }
-                    }
-
-                    if showArtistFilter && !availableArtists.isEmpty {
-                        macOSToggleSection(
-                            title: "Artists",
-                            footer: nil
-                        ) {
-                            if filterOptions.selectedArtists.isEmpty {
-                                Text("No artist filters applied")
-                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            } else {
-                                HStack {
-                                    Text("Selected")
-                                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                                    Spacer()
-                                    Text("\(filterOptions.selectedArtists.count)")
-                                }
-                            }
-
-                            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                                Button(filterOptions.selectedArtists.isEmpty ? "Select Artists…" : "Edit Selection…") {
-                                    showingArtistSelection = true
-                                }
-
-                                if !filterOptions.selectedArtists.isEmpty {
-                                    Button("Clear") {
-                                        filterOptions.selectedArtists.removeAll()
-                                    }
-                                    .foregroundColor(EnsembleDesign.Color.destructive)
-                                }
-                            }
-                        }
-                    }
-
-                    if showGenreFilter && !availableGenres.isEmpty {
-                        macOSToggleSection(
-                            title: "Genres",
-                            footer: nil
-                        ) {
-                            if filterOptions.selectedGenres.isEmpty {
-                                Text("No genre filters applied")
-                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            } else {
-                                HStack {
-                                    Text("Selected")
-                                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                                    Spacer()
-                                    Text("\(filterOptions.selectedGenres.count)")
-                                }
-                            }
-
-                            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                                Button(filterOptions.selectedGenres.isEmpty ? "Select Genres…" : "Edit Selection…") {
-                                    showingGenreSelection = true
-                                }
-
-                                if !filterOptions.selectedGenres.isEmpty {
-                                    Button("Clear") {
-                                        filterOptions.selectedGenres.removeAll()
-                                    }
-                                    .foregroundColor(EnsembleDesign.Color.destructive)
-                                }
-                            }
-                        }
-                    }
-
-                    if filterOptions.hasActiveFilters {
-                        Button("Clear All Filters") {
-                            filterOptions.clearFilters()
-                            minYear = ""
-                            maxYear = ""
-                        }
-                        .foregroundColor(EnsembleDesign.Color.destructive)
-                    }
-                }
-                .frame(maxWidth: EnsembleScaffold.FilterSheet.macContentMaxWidth, alignment: .leading)
-                .padding(.horizontal, EnsembleDesign.Spacing.sheetOuterHorizontal)
-                .padding(.vertical, EnsembleDesign.Spacing.sheetOuterVertical)
-                .frame(maxWidth: .infinity, alignment: .top)
+            EnsembleUtilityScreenScaffold(title: "Filters") {
+                macOSFilterSections
             }
 
             Divider()
@@ -233,6 +91,79 @@ public struct FilterSheet: View {
                     selectedGenres: $filterOptions.selectedGenres,
                     availableGenres: availableGenres
                 )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var macOSFilterSections: some View {
+        macOSToggleSection(
+            title: "Availability",
+            footer: nil
+        ) {
+            Toggle("Downloaded Only", isOn: $filterOptions.showDownloadedOnly)
+        }
+
+        if showHideSingles {
+            macOSToggleSection(
+                title: "Albums",
+                footer: "Hide albums with only one track"
+            ) {
+                Toggle("Hide Singles", isOn: $filterOptions.hideSingles)
+            }
+        }
+
+        if showYearFilter {
+            macOSToggleSection(
+                title: "Year",
+                footer: nil
+            ) {
+                yearFilterMacContent
+            }
+        }
+
+        if showArtistFilter && !availableArtists.isEmpty {
+            macOSToggleSection(
+                title: "Artists",
+                footer: nil
+            ) {
+                selectionSummaryContent(
+                    emptyTitle: "No artist filters applied",
+                    selectedCount: filterOptions.selectedArtists.count,
+                    selectTitle: filterOptions.selectedArtists.isEmpty ? "Select Artists…" : "Edit Selection…",
+                    clearTitle: "Clear",
+                    onSelect: { showingArtistSelection = true },
+                    onClear: { filterOptions.selectedArtists.removeAll() }
+                )
+            }
+        }
+
+        if showGenreFilter && !availableGenres.isEmpty {
+            macOSToggleSection(
+                title: "Genres",
+                footer: nil
+            ) {
+                selectionSummaryContent(
+                    emptyTitle: "No genre filters applied",
+                    selectedCount: filterOptions.selectedGenres.count,
+                    selectTitle: filterOptions.selectedGenres.isEmpty ? "Select Genres…" : "Edit Selection…",
+                    clearTitle: "Clear",
+                    onSelect: { showingGenreSelection = true },
+                    onClear: { filterOptions.selectedGenres.removeAll() }
+                )
+            }
+        }
+
+        if filterOptions.hasActiveFilters {
+            EnsembleUtilityCardSection {
+                EnsembleUtilityCardRow {
+                    Button("Clear All Filters") {
+                        filterOptions.clearFilters()
+                        minYear = ""
+                        maxYear = ""
+                    }
+                    .foregroundColor(EnsembleDesign.Color.destructive)
+                }
             }
         }
     }
@@ -479,24 +410,88 @@ public struct FilterSheet: View {
         footer: String?,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-            Text(title)
-                .font(EnsembleDesign.Typography.actionLabel)
-
-            content()
-
-            if let footer {
-                Text(footer)
-                    .font(EnsembleDesign.Typography.cardSubtitle)
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+        EnsembleUtilityCardSection(title, footer: footer) {
+            EnsembleUtilityCardRow {
+                VStack(alignment: .leading, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                    content()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(EnsembleDesign.Spacing.sheetSectionPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: EnsembleDesign.Radius.sectionCard, style: .continuous)
-                .fill(Color.primary.opacity(EnsembleScaffold.FilterSheet.sectionBackgroundOpacity))
-        )
+    }
+
+    @ViewBuilder
+    private var yearFilterMacContent: some View {
+        if let yearRange = filterOptions.yearRange {
+            HStack {
+                Text("Current Range")
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+                Spacer()
+                Text("\(yearRange.lowerBound) - \(yearRange.upperBound)")
+            }
+
+            Button("Clear Year Range") {
+                filterOptions.yearRange = nil
+                minYear = ""
+                maxYear = ""
+            }
+            .foregroundColor(EnsembleDesign.Color.destructive)
+        } else {
+            HStack(alignment: .top, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                VStack(alignment: .leading, spacing: EnsembleScaffold.FilterSheet.macFieldLabelSpacing) {
+                    Text("Min Year")
+                        .font(EnsembleDesign.Typography.cardSubtitle)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    TextField("Min Year", text: $minYear)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                VStack(alignment: .leading, spacing: EnsembleScaffold.FilterSheet.macFieldLabelSpacing) {
+                    Text("Max Year")
+                        .font(EnsembleDesign.Typography.cardSubtitle)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    TextField("Max Year", text: $maxYear)
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
+
+            Button("Apply Year Range") {
+                applyYearRange()
+            }
+            .disabled(minYear.isEmpty || maxYear.isEmpty)
+        }
+    }
+
+    private func selectionSummaryContent(
+        emptyTitle: String,
+        selectedCount: Int,
+        selectTitle: String,
+        clearTitle: String,
+        onSelect: @escaping () -> Void,
+        onClear: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+            if selectedCount == 0 {
+                Text(emptyTitle)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+            } else {
+                HStack {
+                    Text("Selected")
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    Spacer()
+                    Text("\(selectedCount)")
+                }
+            }
+
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                Button(selectTitle, action: onSelect)
+
+                if selectedCount > 0 {
+                    Button(clearTitle, action: onClear)
+                        .foregroundColor(EnsembleDesign.Color.destructive)
+                }
+            }
+        }
     }
 
     @ViewBuilder

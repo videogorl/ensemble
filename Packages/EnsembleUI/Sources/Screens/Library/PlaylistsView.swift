@@ -1080,31 +1080,97 @@ public struct PlaylistDetailView: View {
     }
 
     private var inlinePlaylistEditor: some View {
-        List {
-            ForEach(editedTracks, id: \.id) { track in
-                HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                    ArtworkView(track: track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
-                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                        Text(track.title)
-                        Text(track.artistName ?? "")
-                            .font(EnsembleDesign.Typography.rowSecondary)
+        EnsembleAdaptiveUtilityScaffold(title: viewModel.playlist.title) {
+            List {
+                ForEach(editedTracks, id: \.id) { track in
+                    editableTrackSummary(track)
+                }
+                .onMove { source, destination in
+                    editedTracks.move(fromOffsets: source, toOffset: destination)
+                }
+                .onDelete { offsets in
+                    editedTracks.remove(atOffsets: offsets)
+                }
+            }
+            .listStyle(.plain)
+            #if os(iOS)
+            .environment(\.editMode, .constant(.active))
+            #endif
+        } regularContent: {
+            EnsembleUtilityCardSection {
+                if editedTracks.isEmpty {
+                    EnsembleUtilityCardRow {
+                        Text("No tracks in this playlist.")
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    }
+                } else {
+                    ForEach(Array(editedTracks.enumerated()), id: \.element.id) { index, track in
+                        EnsembleUtilityCardRow {
+                            editableTrackCardRow(track, index: index)
+                        }
+
+                        if track.id != editedTracks.last?.id {
+                            EnsembleUtilityCardDivider()
+                        }
                     }
                 }
             }
-            .onMove { source, destination in
-                editedTracks.move(fromOffsets: source, toOffset: destination)
-            }
-            .onDelete { offsets in
-                editedTracks.remove(atOffsets: offsets)
+        }
+        .miniPlayerBottomSpacing(TrackListLayoutMetrics.compactMiniPlayerBottomSpacing)
+    }
+
+    private func editableTrackSummary(_ track: Track) -> some View {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+            ArtworkView(track: track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
+                Text(track.title)
+                Text(track.artistName ?? "")
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
-        .listStyle(.plain)
-        .navigationTitle(viewModel.playlist.title)
-        #if os(iOS)
-        .environment(\.editMode, .constant(.active))
-        #endif
-        .miniPlayerBottomSpacing(TrackListLayoutMetrics.compactMiniPlayerBottomSpacing)
+    }
+
+    private func editableTrackCardRow(_ track: Track, index: Int) -> some View {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+            editableTrackSummary(track)
+
+            Spacer()
+
+            HStack(spacing: EnsembleDesign.Spacing.xs) {
+                Button {
+                    moveEditedTrack(from: index, to: max(0, index - 1))
+                } label: {
+                    Image(systemName: EnsembleDesign.Icon.chevronUp)
+                }
+                .disabled(index == 0)
+                .accessibilityLabel("Move Track Up")
+
+                Button {
+                    moveEditedTrack(from: index, to: min(editedTracks.count - 1, index + 1))
+                } label: {
+                    Image(systemName: EnsembleDesign.Icon.chevronDown)
+                }
+                .disabled(index >= editedTracks.count - 1)
+                .accessibilityLabel("Move Track Down")
+
+                Button(role: .destructive) {
+                    editedTracks.remove(at: index)
+                } label: {
+                    Image(systemName: EnsembleDesign.Icon.delete)
+                }
+                .accessibilityLabel("Remove Track")
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    private func moveEditedTrack(from sourceIndex: Int, to destinationIndex: Int) {
+        guard editedTracks.indices.contains(sourceIndex),
+              editedTracks.indices.contains(destinationIndex),
+              sourceIndex != destinationIndex else { return }
+        let track = editedTracks.remove(at: sourceIndex)
+        editedTracks.insert(track, at: destinationIndex)
     }
 }
 
@@ -1168,49 +1234,13 @@ private struct CreatePlaylistView: View {
     }
 
     private var formContent: some View {
-        Form {
-            Section {
-                TextField("Playlist name", text: $playlistName)
-                    .focused($isFocused)
-                    .submitLabel(serverOptions.count <= 1 ? .done : .next)
-                    .onSubmit {
-                        if serverOptions.count <= 1 { submit() }
-                    }
+        EnsembleAdaptiveUtilityScaffold(title: "New Playlist") {
+            Form {
+                compactCreateRows
             }
-
-            if serverOptions.count > 1 {
-                Section {
-                    ForEach(serverOptions) { option in
-                        Button {
-                            if selectedServerIDs.contains(option.id) {
-                                selectedServerIDs.remove(option.id)
-                            } else {
-                                selectedServerIDs.insert(option.id)
-                            }
-                        } label: {
-                            HStack {
-                                Text(option.name)
-                                    .foregroundColor(EnsembleDesign.Color.primaryText)
-                                Spacer()
-                                if selectedServerIDs.contains(option.id) {
-                                    Image(systemName: EnsembleDesign.Icon.selectionCheckmark)
-                                        .foregroundColor(EnsembleDesign.Color.accent)
-                                }
-                            }
-                        }
-                    }
-                } header: {
-                    Text("Servers")
-                } footer: {
-                    Text("Select which servers to create this playlist on.")
-                }
-            }
+        } regularContent: {
+            regularCreateSections
         }
-        .navigationTitle("New Playlist")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)
-        #endif
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismissAfterKeyboard() }
@@ -1219,6 +1249,96 @@ private struct CreatePlaylistView: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Create") { submit() }
                     .disabled(isCreateDisabled)
+            }
+        }
+        #if os(iOS)
+        .navigationBarBackButtonHidden(true)
+        #endif
+    }
+
+    @ViewBuilder
+    private var compactCreateRows: some View {
+        Section {
+            playlistNameField
+        }
+
+        if serverOptions.count > 1 {
+            Section {
+                compactServerSelectionRows
+            } header: {
+                Text("Servers")
+            } footer: {
+                Text("Select which servers to create this playlist on.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var regularCreateSections: some View {
+        EnsembleUtilityCardSection {
+            EnsembleUtilityCardRow {
+                playlistNameField
+            }
+        }
+
+        if serverOptions.count > 1 {
+            EnsembleUtilityCardSection(
+                "Servers",
+                footer: "Select which servers to create this playlist on."
+            ) {
+                serverSelectionRows(cardRows: true)
+            }
+        }
+    }
+
+    private var playlistNameField: some View {
+        TextField("Playlist name", text: $playlistName)
+            .focused($isFocused)
+            .submitLabel(serverOptions.count <= 1 ? .done : .next)
+            .onSubmit {
+                if serverOptions.count <= 1 { submit() }
+            }
+            #if os(macOS)
+            .textFieldStyle(.roundedBorder)
+            #endif
+    }
+
+    private var compactServerSelectionRows: some View {
+        serverSelectionRows(cardRows: false)
+    }
+
+    @ViewBuilder
+    private func serverSelectionRows(cardRows: Bool) -> some View {
+        ForEach(serverOptions) { option in
+            if cardRows {
+                EnsembleUtilityCardRow {
+                    serverSelectionButton(for: option)
+                }
+                if option.id != serverOptions.last?.id {
+                    EnsembleUtilityCardDivider()
+                }
+            } else {
+                serverSelectionButton(for: option)
+            }
+        }
+    }
+
+    private func serverSelectionButton(for option: PlaylistServerOption) -> some View {
+        Button {
+            if selectedServerIDs.contains(option.id) {
+                selectedServerIDs.remove(option.id)
+            } else {
+                selectedServerIDs.insert(option.id)
+            }
+        } label: {
+            HStack {
+                Text(option.name)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
+                Spacer()
+                if selectedServerIDs.contains(option.id) {
+                    Image(systemName: EnsembleDesign.Icon.selectionCheckmark)
+                        .foregroundColor(EnsembleDesign.Color.accent)
+                }
             }
         }
     }

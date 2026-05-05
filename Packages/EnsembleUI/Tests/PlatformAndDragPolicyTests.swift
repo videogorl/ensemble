@@ -12,6 +12,9 @@ final class PlatformAndDragPolicyTests: XCTestCase {
         XCTAssertEqual(phone.miniPlayerMenuRenderer, .compactButtons)
         XCTAssertEqual(phone.nativeTrackListBackend, .compactRows)
         XCTAssertFalse(phone.usesUtilityCardScaffold)
+        XCTAssertTrue(phone.commandPolicy.providesSettingsShortcut)
+        XCTAssertTrue(phone.commandPolicy.providesRefreshCommand)
+        XCTAssertFalse(phone.commandPolicy.removesSystemSidebarCommand)
 
         let iPad = EnsemblePlatformFeaturePolicy.resolve(
             family: .iPad,
@@ -31,6 +34,8 @@ final class PlatformAndDragPolicyTests: XCTestCase {
         XCTAssertEqual(mac.miniPlayerMenuRenderer, .appKitMenu)
         XCTAssertEqual(mac.nativeTrackListBackend, .appKitTable)
         XCTAssertTrue(mac.usesUtilityCardScaffold)
+        XCTAssertTrue(mac.commandPolicy.removesSystemSidebarCommand)
+        XCTAssertTrue(mac.commandPolicy.providesPlaybackCommandMenu)
     }
 
     func testDragExportPolicyDefaults() {

@@ -361,9 +361,9 @@ Sources/
 +-- Sheets/                          # Shared sheets and macOS auxiliary sheet/window scaffolds
 +-- Utility/                         # Shared rows, menus, toolbar/profile helpers, keyboard/chrome utilities
 |   +-- MediaDragPayload.swift        # Internal drag/drop payload for tracks, albums, playlists, and merged display playlists
-|   +-- MediaDragExportPolicy.swift   # Drag/drop copy-vs-move and external file-promise policy matrix
+|   +-- MediaDragExportPolicy.swift   # Drag/drop copy-vs-move and external file-promise policy matrix plus provider/writer helpers
 |   +-- MediaMenuCatalog.swift        # Shared context-menu action catalog, section policy, roles, and context gating
-|   +-- EnsemblePlatformFeaturePolicy.swift # Platform feature/rendering policy for root shell, mini-player menus, native lists, and utility scaffolds
+|   +-- EnsemblePlatformFeaturePolicy.swift # Platform feature/rendering policy for root shell, commands, mini-player menus, native lists, and utility scaffolds
 |   +-- PlaylistActionPresentationHost.swift # Shared add-to-playlist sheet request + recent-playlist presentation helpers
 |   +-- EnsembleUtilityScreenScaffold.swift # Adaptive utility scaffold plus card-based macOS screen/section rows for menu-like tools
 +-- Screens/

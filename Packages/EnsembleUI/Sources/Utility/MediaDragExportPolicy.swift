@@ -1,4 +1,8 @@
 import Foundation
+import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 
 #if !os(watchOS)
 enum MediaDragDestination: Equatable {
@@ -35,5 +39,42 @@ struct MediaDragExportPolicy {
             return false
         }
     }
+
+    static func itemProvider(
+        for payload: MediaDragPayload,
+        fallbackFileURL: URL? = nil,
+        externalFileProvider: (@MainActor () async -> URL?)? = nil,
+        externalFileTypeIdentifier: String = UTType.audio.identifier
+    ) -> NSItemProvider {
+        let kind = payload.primaryKind
+        let canPromiseExternalFile = kind.map(supportsExternalFilePromise(for:)) ?? false
+        return payload.itemProvider(
+            fallbackFileURL: canPromiseExternalFile ? fallbackFileURL : nil,
+            externalFileProvider: canPromiseExternalFile ? externalFileProvider : nil,
+            externalFileTypeIdentifier: externalFileTypeIdentifier
+        )
+    }
+
+    #if os(macOS)
+    static func pasteboardWriter(
+        for payload: MediaDragPayload,
+        fallbackFileURL: URL? = nil,
+        promisedFileName: String,
+        fileTypeIdentifier: String,
+        fileURLProvider: (@MainActor () async -> URL?)? = nil
+    ) -> NSPasteboardWriting? {
+        let kind = payload.primaryKind
+        let canPromiseExternalFile = kind.map(supportsExternalFilePromise(for:)) ?? false
+        if canPromiseExternalFile {
+            return payload.filePromisePasteboardWriter(
+                fallbackFileURL: fallbackFileURL,
+                promisedFileName: promisedFileName,
+                fileTypeIdentifier: fileTypeIdentifier,
+                fileURLProvider: fileURLProvider
+            )
+        }
+        return payload.pasteboardItem()
+    }
+    #endif
 }
 #endif

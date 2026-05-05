@@ -11,24 +11,21 @@ public struct LogsSettingsView: View {
     public init() {}
 
     public var body: some View {
+        EnsembleAdaptiveUtilityScaffold(title: "Logs") {
+            compactList
+        } regularContent: {
+            regularSections
+        }
+        .onAppear {
+            logService.loadSessions()
+        }
+    }
+
+    private var compactList: some View {
         List {
             // Toggle section
             Section {
-                Toggle(isOn: $isLoggingEnabled) {
-                    HStack {
-                        Image(systemName: EnsembleDesign.Icon.logsVerified)
-                            .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
-                        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxs) {
-                            Text("Persistent Logging")
-                            Text("When enabled, app logs are saved each session. Useful for diagnosing issues.")
-                                .font(EnsembleDesign.Typography.rowSecondary)
-                                .foregroundColor(EnsembleDesign.Color.secondaryText)
-                        }
-                    }
-                }
-                .onChange(of: isLoggingEnabled) { newValue in
-                    logService.isEnabled = newValue
-                }
+                persistentLoggingToggle
             }
 
             // Sessions list
@@ -77,12 +74,89 @@ public struct LogsSettingsView: View {
         #else
         .listStyle(.inset)
         #endif
-        .navigationTitle("Logs")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .onAppear {
-            logService.loadSessions()
+    }
+
+    @ViewBuilder
+    private var regularSections: some View {
+        EnsembleUtilityCardSection {
+            EnsembleUtilityCardRow {
+                persistentLoggingToggle
+            }
+        }
+
+        EnsembleUtilityCardSection("Sessions") {
+            if logService.sessions.isEmpty {
+                EnsembleUtilityCardRow {
+                    Text("No log sessions yet.")
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .font(EnsembleDesign.Typography.stateMessage)
+                }
+            } else {
+                ForEach(logService.sessions) { session in
+                    EnsembleUtilityCardRow {
+                        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                            NavigationLink {
+                                LogDetailView(session: session)
+                            } label: {
+                                LogSessionRow(session: session)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+
+                            Button(role: .destructive) {
+                                logService.deleteSession(session)
+                            } label: {
+                                Image(systemName: EnsembleDesign.Icon.delete)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Delete Log Session")
+                        }
+                    }
+
+                    if session.id != logService.sessions.last?.id {
+                        EnsembleUtilityCardDivider()
+                    }
+                }
+            }
+        }
+
+        if !logService.sessions.isEmpty {
+            EnsembleUtilityCardSection {
+                EnsembleUtilityCardRow {
+                    deleteAllButton
+                }
+            }
+        }
+    }
+
+    private var persistentLoggingToggle: some View {
+        Toggle(isOn: $isLoggingEnabled) {
+            HStack {
+                Image(systemName: EnsembleDesign.Icon.logsVerified)
+                    .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
+                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxs) {
+                    Text("Persistent Logging")
+                    Text("When enabled, app logs are saved each session. Useful for diagnosing issues.")
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+            }
+        }
+        .onChange(of: isLoggingEnabled) { newValue in
+            logService.isEnabled = newValue
+        }
+    }
+
+    private var deleteAllButton: some View {
+        Button(role: .destructive) {
+            logService.deleteAllSessions()
+        } label: {
+            HStack {
+                Image(systemName: EnsembleDesign.Icon.delete)
+                    .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
+                Text("Delete All Sessions")
+                    .foregroundColor(EnsembleDesign.Color.destructive)
+            }
         }
     }
 }

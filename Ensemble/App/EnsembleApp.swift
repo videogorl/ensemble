@@ -97,23 +97,26 @@ struct EnsembleApp: App {
             // Settings shortcut (⌘,) — macOS app menu + iPadOS keyboard shortcut overlay
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
+                    guard EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesSettingsShortcut else { return }
                     NavigationCoordinator.openProfileFromActiveScene(
                         fallback: DependencyContainer.shared.navigationCoordinator
                     )
                 }
                 .keyboardShortcut(",", modifiers: .command)
+                .disabled(!EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesSettingsShortcut)
             }
 
             #if os(iOS)
             CommandGroup(after: .toolbar) {
                 Button(focusedRefreshAction?.title ?? "Refresh") {
-                    guard let action = focusedRefreshAction else { return }
+                    guard EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesRefreshCommand,
+                          let action = focusedRefreshAction else { return }
                     Task { @MainActor in
                         await action.perform()
                     }
                 }
                 .keyboardShortcut("r", modifiers: .command)
-                .disabled(focusedRefreshAction == nil)
+                .disabled(focusedRefreshAction == nil || !EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesRefreshCommand)
             }
             #endif
 
@@ -124,20 +127,24 @@ struct EnsembleApp: App {
 
             CommandGroup(after: .sidebar) {
                 Button(focusedRefreshAction?.title ?? "Refresh") {
-                    guard let action = focusedRefreshAction else { return }
+                    guard EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesRefreshCommand,
+                          let action = focusedRefreshAction else { return }
                     Task { @MainActor in
                         await action.perform()
                     }
                 }
                 .keyboardShortcut("r", modifiers: .command)
-                .disabled(focusedRefreshAction == nil)
+                .disabled(focusedRefreshAction == nil || !EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesRefreshCommand)
             }
 
             CommandMenu("Playback") {
                 Button("Play/Pause") {
-                    MacPlaybackShortcut.togglePlaybackIfAllowed()
+                    if EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesPlaybackCommandMenu {
+                        MacPlaybackShortcut.togglePlaybackIfAllowed()
+                    }
                 }
                 .keyboardShortcut(.space, modifiers: [])
+                .disabled(!EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesPlaybackCommandMenu)
             }
             #endif
         }

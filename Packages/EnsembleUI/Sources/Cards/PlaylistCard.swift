@@ -34,7 +34,7 @@ public struct PlaylistCard: View {
         }
         #if !os(watchOS)
         .onDrag {
-            MediaDragPayload.playlist(playlist).itemProvider()
+            MediaDragExportPolicy.itemProvider(for: MediaDragPayload.playlist(playlist))
         }
         #endif
     }
@@ -166,7 +166,7 @@ public struct PlaylistRow: View {
         .opacity(isDisabled ? 0.55 : 1.0)
         #if !os(watchOS)
         .onDrag {
-            MediaDragPayload.displayPlaylist(displayPlaylist).itemProvider()
+            MediaDragExportPolicy.itemProvider(for: MediaDragPayload.displayPlaylist(displayPlaylist))
         }
         #endif
     }

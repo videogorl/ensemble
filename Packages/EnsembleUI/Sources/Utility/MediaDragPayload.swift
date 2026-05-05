@@ -31,6 +31,10 @@ struct MediaDragPayload: Codable, Equatable {
 
     let items: [Item]
 
+    var primaryKind: Kind? {
+        items.first?.kind
+    }
+
     var dropReferences: [MediaDropItemReference] {
         items.map(\.dropReference)
     }
@@ -97,7 +101,8 @@ struct MediaDragPayload: Codable, Equatable {
     ) -> NSItemProvider {
         let fileURL = track.localFilePath.map(URL.init(fileURLWithPath:))
         let exportMetadata = TrackFileExportMetadata(track: track)
-        let provider = MediaDragPayload.track(track).itemProvider(
+        let provider = MediaDragExportPolicy.itemProvider(
+            for: MediaDragPayload.track(track),
             fallbackFileURL: fileURL,
             externalFileProvider: externalFileProvider,
             externalFileTypeIdentifier: fileTypeIdentifier(for: exportMetadata)
@@ -147,7 +152,8 @@ struct MediaDragPayload: Codable, Equatable {
     static func trackPasteboardWriter(for track: Track, shareService: ShareService) -> NSPasteboardWriting? {
         let fileURL = track.localFilePath.map(URL.init(fileURLWithPath:))
         let exportMetadata = TrackFileExportMetadata(track: track)
-        return MediaDragPayload.track(track).filePromisePasteboardWriter(
+        return MediaDragExportPolicy.pasteboardWriter(
+            for: MediaDragPayload.track(track),
             fallbackFileURL: fileURL,
             promisedFileName: exportMetadata.fileName,
             fileTypeIdentifier: fileTypeIdentifier(for: exportMetadata),
