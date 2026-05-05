@@ -274,51 +274,55 @@ public struct AlbumsView: View {
     }
 
     private var albumGridView: some View {
-        VStack(spacing: EnsembleDesign.Spacing.none) {
-            GenreFilterHeader(
-                availableGenres: libraryVM.availableAlbumGenres,
-                selectedGenres: $libraryVM.albumsFilterOptions.selectedGenres,
-                excludedGenres: $libraryVM.albumsFilterOptions.excludedGenres
-            )
-
-            ScrollViewReader { proxy in
-                GeometryReader { geometry in
-                    ZStack(alignment: .trailing) {
-                        ScrollView {
-                            if isSortIndexed {
-                                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                    ForEach(cachedAlbumSections) { section in
-                                        Section(header: sectionHeader(section.letter)) {
-                                            AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
-                                                .padding(.horizontal)
-                                                .id(section.letter)
+        ScrollViewReader { proxy in
+            GeometryReader { geometry in
+                ZStack(alignment: .trailing) {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
+                            Section(header: albumGenreChipBar) {
+                                if isSortIndexed {
+                                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                        ForEach(cachedAlbumSections) { section in
+                                            Section(header: sectionHeader(section.letter)) {
+                                                AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
+                                                    .padding(.horizontal)
+                                                    .id(section.letter)
+                                            }
                                         }
                                     }
-                                }
-                                .padding(.vertical)
-                            } else {
-                                AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
-                                    .padding(.horizontal)
                                     .padding(.vertical)
+                                } else {
+                                    AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
+                                        .padding(.horizontal)
+                                        .padding(.vertical)
+                                }
                             }
                         }
-                        .miniPlayerBottomSpacing()
-                
-                        if isSortIndexed && !libraryVM.filteredAlbums.isEmpty && ScrollIndex.isVisible(forContainerWidth: geometry.size.width) {
-                            ScrollIndex(
-                                letters: cachedAlbumSections.map { $0.letter },
-                                currentLetter: .constant(nil),
-                                onLetterTap: { letter in
-                                    proxy.scrollTo(letter, anchor: .top)
-                                }
-                            )
-                            .libraryScrollIndexPositioning(.centered)
-                        }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .miniPlayerBottomSpacing()
+            
+                    if isSortIndexed && !libraryVM.filteredAlbums.isEmpty && ScrollIndex.isVisible(forContainerWidth: geometry.size.width) {
+                        ScrollIndex(
+                            letters: cachedAlbumSections.map { $0.letter },
+                            currentLetter: .constant(nil),
+                            onLetterTap: { letter in
+                                proxy.scrollTo(letter, anchor: .top)
+                            }
+                        )
+                        .libraryScrollIndexPositioning(.centered)
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    private var albumGenreChipBar: some View {
+        GenreFilterHeader(
+            availableGenres: libraryVM.availableAlbumGenres,
+            selectedGenres: $libraryVM.albumsFilterOptions.selectedGenres,
+            excludedGenres: $libraryVM.albumsFilterOptions.excludedGenres
+        )
     }
 
     private func sectionHeader(_ letter: String) -> some View {

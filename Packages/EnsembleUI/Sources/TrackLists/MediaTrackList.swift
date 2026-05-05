@@ -516,6 +516,10 @@ public struct MediaTrackList: UIViewRepresentable {
     /// Scrolls naturally with the table while preserving full cell recycling.
     /// Used by MediaDetailView to scroll album art + action buttons with the track list.
     let tableHeaderContent: AnyView?
+    /// Optional SwiftUI content to embed as the first UITableView section header.
+    /// Sticks to the top of self-scrolling tables while keeping UIKit's pan/search
+    /// handling on the table view.
+    let tableSectionHeaderContent: AnyView?
     /// Optional SwiftUI content to embed as the UITableView's `tableFooterView`.
     /// Used to show loading/empty indicators below the track list while keeping
     /// the header (chips + artwork + buttons) structurally identical across all states.
@@ -540,6 +544,7 @@ public struct MediaTrackList: UIViewRepresentable {
         bottomContentInset: CGFloat = 0,
         rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
         tableHeaderContent: AnyView? = nil,
+        tableSectionHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
         interactionModel: TrackRowInteractionModel? = nil,
@@ -571,6 +576,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.bottomContentInset = bottomContentInset
         self.rowHeight = rowHeight
         self.tableHeaderContent = tableHeaderContent
+        self.tableSectionHeaderContent = tableSectionHeaderContent
         self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
         self.supplementalMetadataWidth = supplementalMetadataWidth
@@ -672,6 +678,16 @@ public struct MediaTrackList: UIViewRepresentable {
             context.coordinator.headerHostingController = hostingController
         }
 
+        // Install optional sticky SwiftUI section header. This is intentionally a
+        // section header rather than a sibling SwiftUI view so the table view owns
+        // vertical gestures that reveal navigation search.
+        if let tableSectionHeaderContent {
+            let sectionHeaderHost = UIHostingController(rootView: tableSectionHeaderContent)
+            sectionHeaderHost.view.backgroundColor = .clear
+            context.coordinator.sectionHeaderHostingController = sectionHeaderHost
+            context.coordinator.updateSectionHeaderHeight(for: tableView)
+        }
+
         // Install optional SwiftUI table footer (loading/empty indicators).
         // Only set tableFooterView when the content has real height — an empty
         // hosting controller can interfere with bottomContentInset scroll-behind.
@@ -766,6 +782,14 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.activeDownloadRatingKeys = activeDownloadRatingKeys
         context.coordinator.rowHeight = rowHeight
         context.coordinator.lastAvailabilityGeneration = availabilityGeneration
+
+        if let sectionHeaderHost = context.coordinator.sectionHeaderHostingController,
+           tableView.bounds.width > 0 {
+            if let tableSectionHeaderContent {
+                sectionHeaderHost.rootView = tableSectionHeaderContent
+            }
+            context.coordinator.updateSectionHeaderHeight(for: tableView)
+        }
 
         // Reload data immediately after updating groupedTracks to keep UIKit's geometry
         // in sync with the backing data. Previously there was a ~85 line gap between the
@@ -948,6 +972,9 @@ public struct MediaTrackList: UIViewRepresentable {
         var lastAvailabilityGeneration: UInt64 = 0
         /// Retains the UIHostingController used for the table header view
         var headerHostingController: UIHostingController<AnyView>?
+        /// Retains the UIHostingController used for the sticky section header view
+        var sectionHeaderHostingController: UIHostingController<AnyView>?
+        var sectionHeaderHeight: CGFloat = 0
         /// Retains the UIHostingController used for the table footer view
         var footerHostingController: UIHostingController<AnyView>?
         /// Pending search binding — set before the table is in a window, consumed
@@ -1076,6 +1103,10 @@ public struct MediaTrackList: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+            if section == 0, let sectionHeaderHostingController {
+                return sectionHeaderHostingController.view
+            }
+
             guard section < groupedTracks.count, let disc = groupedTracks[section].disc else { return nil }
             
             let headerView = UIView()
@@ -1099,6 +1130,9 @@ public struct MediaTrackList: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
             guard section < groupedTracks.count else { return 0 }
+            if section == 0, sectionHeaderHostingController != nil {
+                return sectionHeaderHeight
+            }
             return groupedTracks[section].disc != nil ? 40 : 0
         }
 
@@ -1132,6 +1166,31 @@ public struct MediaTrackList: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
             rowHeight
+        }
+
+        func updateSectionHeaderHeight(for tableView: UITableView) {
+            guard let sectionHeaderView = sectionHeaderHostingController?.view else {
+                sectionHeaderHeight = 0
+                return
+            }
+
+            let targetWidth = tableView.bounds.width > 0 ? tableView.bounds.width : UIScreen.main.bounds.width
+            let fittingSize = sectionHeaderView.systemLayoutSizeFitting(
+                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            )
+            let newHeight = max(fittingSize.height, 1)
+            sectionHeaderView.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: newHeight))
+            if abs(sectionHeaderHeight - newHeight) > 1 {
+                sectionHeaderHeight = newHeight
+                if tableView.window != nil {
+                    tableView.beginUpdates()
+                    tableView.endUpdates()
+                }
+            } else {
+                sectionHeaderHeight = newHeight
+            }
         }
         
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {

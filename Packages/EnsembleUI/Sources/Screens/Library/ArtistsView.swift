@@ -170,46 +170,46 @@ public struct ArtistsView: View {
     }
 
     private var artistSelectionList: some View {
-        VStack(spacing: EnsembleDesign.Spacing.none) {
-            artistGenreChipBar
-
-            ScrollViewReader { proxy in
-                GeometryReader { geometry in
-                    ZStack(alignment: .trailing) {
-                        ScrollView {
-                            if libraryVM.artistSortOption == .name {
-                                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                    ForEach(cachedArtistSections) { section in
-                                        Section(header: sectionHeader(section.letter)) {
-                                            ForEach(section.artists) { artist in
-                                                artistSelectionRow(artist)
+        ScrollViewReader { proxy in
+            GeometryReader { geometry in
+                ZStack(alignment: .trailing) {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
+                            Section(header: artistGenreChipBar) {
+                                if libraryVM.artistSortOption == .name {
+                                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                        ForEach(cachedArtistSections) { section in
+                                            Section(header: sectionHeader(section.letter)) {
+                                                ForEach(section.artists) { artist in
+                                                    artistSelectionRow(artist)
+                                                }
                                             }
+                                            .id(section.letter)
                                         }
-                                        .id(section.letter)
                                     }
-                                }
-                                .padding(.vertical)
-                            } else {
-                                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                    ForEach(libraryVM.filteredArtists) { artist in
-                                        artistSelectionRow(artist)
+                                    .padding(.vertical)
+                                } else {
+                                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                        ForEach(libraryVM.filteredArtists) { artist in
+                                            artistSelectionRow(artist)
+                                        }
                                     }
+                                    .padding(.vertical)
                                 }
-                                .padding(.vertical)
                             }
                         }
-                        .miniPlayerBottomSpacing()
+                    }
+                    .miniPlayerBottomSpacing()
 
-                        if shouldShowScrollIndex(width: geometry.size.width) {
-                            ScrollIndex(
-                                letters: cachedArtistSections.map { $0.letter },
-                                currentLetter: .constant(nil),
-                                onLetterTap: { letter in
-                                    proxy.scrollTo(letter, anchor: .top)
-                                }
-                            )
-                            .libraryScrollIndexPositioning(.centered)
-                        }
+                    if shouldShowScrollIndex(width: geometry.size.width) {
+                        ScrollIndex(
+                            letters: cachedArtistSections.map { $0.letter },
+                            currentLetter: .constant(nil),
+                            onLetterTap: { letter in
+                                proxy.scrollTo(letter, anchor: .top)
+                            }
+                        )
+                        .libraryScrollIndexPositioning(.centered)
                     }
                 }
             }
@@ -280,49 +280,49 @@ public struct ArtistsView: View {
     }
 
     private var artistListView: some View {
-        VStack(spacing: EnsembleDesign.Spacing.none) {
-            artistGenreChipBar
-
-            ScrollViewReader { proxy in
-                GeometryReader { geometry in
-                    ZStack(alignment: .trailing) {
-                        ScrollView {
-                            if libraryVM.artistSortOption == .name {
-                                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                    ForEach(cachedArtistSections) { section in
-                                        Section(header: sectionHeader(section.letter)) {
-                                            ArtistGrid(
-                                                artists: section.artists,
-                                                nowPlayingVM: nowPlayingVM
-                                            )
-                                            .id(section.letter)
+        ScrollViewReader { proxy in
+            GeometryReader { geometry in
+                ZStack(alignment: .trailing) {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
+                            Section(header: artistGenreChipBar) {
+                                if libraryVM.artistSortOption == .name {
+                                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                        ForEach(cachedArtistSections) { section in
+                                            Section(header: sectionHeader(section.letter)) {
+                                                ArtistGrid(
+                                                    artists: section.artists,
+                                                    nowPlayingVM: nowPlayingVM
+                                                )
+                                                .id(section.letter)
+                                            }
                                         }
                                     }
+                                    .padding(.vertical)
+                                } else {
+                                    ArtistGrid(
+                                        artists: libraryVM.filteredArtists,
+                                        nowPlayingVM: nowPlayingVM
+                                    )
+                                    .padding(.vertical)
                                 }
-                                .padding(.vertical)
-                            } else {
-                                ArtistGrid(
-                                    artists: libraryVM.filteredArtists,
-                                    nowPlayingVM: nowPlayingVM
-                                )
-                                .padding(.vertical)
                             }
                         }
-                        .miniPlayerBottomSpacing()
-                
-                        if shouldShowScrollIndex(width: geometry.size.width) {
-                            ScrollIndex(
-                                letters: cachedArtistSections.map { $0.letter },
-                                currentLetter: .constant(nil),
-                                onLetterTap: { letter in
-                                    proxy.scrollTo(letter, anchor: .top)
-                                }
-                            )
-                            .libraryScrollIndexPositioning(.centered)
-                        }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .miniPlayerBottomSpacing()
+            
+                    if shouldShowScrollIndex(width: geometry.size.width) {
+                        ScrollIndex(
+                            letters: cachedArtistSections.map { $0.letter },
+                            currentLetter: .constant(nil),
+                            onLetterTap: { letter in
+                                proxy.scrollTo(letter, anchor: .top)
+                            }
+                        )
+                        .libraryScrollIndexPositioning(.centered)
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }

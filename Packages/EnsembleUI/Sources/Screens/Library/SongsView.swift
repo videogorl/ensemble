@@ -269,29 +269,29 @@ public struct SongsView: View {
             if libraryVM.trackSortOption == .title {
                 #if os(iOS)
                 // Indexed mode: ScrollView + LazyVStack for section headers + scroll index
-                VStack(spacing: EnsembleDesign.Spacing.none) {
-                    songsGenreChipBar
-
-                    ScrollViewReader { proxy in
-                        ZStack(alignment: .trailing) {
-                            ScrollView {
-                                indexedTrackListContent
-                            }
-                            .miniPlayerBottomSpacing()
-
-                            if !libraryVM.filteredTracks.isEmpty && ScrollIndex.isVisible(forContainerWidth: width) {
-                                ScrollIndex(
-                                    letters: libraryVM.trackSections.map { $0.letter },
-                                    currentLetter: .constant(nil),
-                                    onLetterTap: { letter in
-                                        proxy.scrollTo(letter, anchor: .top)
-                                    }
-                                )
-                                .libraryScrollIndexPositioning(.centered)
+                ScrollViewReader { proxy in
+                    ZStack(alignment: .trailing) {
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
+                                Section(header: songsGenreChipBar) {
+                                    indexedTrackListContent
+                                }
                             }
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .miniPlayerBottomSpacing()
+
+                        if !libraryVM.filteredTracks.isEmpty && ScrollIndex.isVisible(forContainerWidth: width) {
+                            ScrollIndex(
+                                letters: libraryVM.trackSections.map { $0.letter },
+                                currentLetter: .constant(nil),
+                                onLetterTap: { letter in
+                                    proxy.scrollTo(letter, anchor: .top)
+                                }
+                            )
+                            .libraryScrollIndexPositioning(.centered)
+                        }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 #else
                 // macOS indexed mode: List with Section headers + native swipe actions
@@ -372,10 +372,7 @@ public struct SongsView: View {
                 // Non-indexed mode: UITableView manages its own scrolling directly.
                 // No SwiftUI ScrollView wrapper — avoids the fixed-frame height hack
                 // that was forcing all 1500+ rows to be laid out simultaneously.
-                VStack(spacing: EnsembleDesign.Spacing.none) {
-                    songsGenreChipBar
-                    unsortedTrackListContent
-                }
+                unsortedTrackListContent
                 #else
                 VStack(spacing: EnsembleDesign.Spacing.none) {
                     songsGenreChipBar
@@ -644,6 +641,7 @@ public struct SongsView: View {
             activeDownloadRatingKeys: activeDownloadRatingKeys,
             managesOwnScrolling: true,
             bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+            tableSectionHeaderContent: AnyView(songsGenreChipBar),
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
             },
