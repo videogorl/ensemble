@@ -248,9 +248,7 @@ extension PlexAPIClient {
             queryItems: queryItems
         )
 
-        #if DEBUG
-        EnsembleLogger.debug("✅ Created universal download URL (no decision): \(url)")
-        #endif
+        EnsembleLogger.debug("✅ Created universal download URL (no decision): ratingKey=\(ratingKey) quality=\(quality.rawValue)")
 
         return url
     }

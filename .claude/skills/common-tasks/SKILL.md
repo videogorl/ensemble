@@ -112,15 +112,29 @@ Task {
 // Load hubs from Plex API
 let hubs = try await deps.syncCoordinator.fetchHubs(for: sourceKey)
 
-// Save hubs to CoreData for offline access
-try await deps.hubRepository.saveHubs(hubs)
+// Save a last-good Feed snapshot for offline-first launch.
+let snapshot = HomeFeedCachedSnapshot(
+    sourceScopeKey: "plex:account:server",
+    sourceName: "Editing Music",
+    fetchedAt: Date(),
+    refreshReason: "network",
+    freshnessState: .fresh,
+    isLastGood: true,
+    hubs: hubs
+)
+try await deps.hubRepository.saveHomeFeedSnapshot(snapshot)
 
 // Load cached hubs
-let cachedHubs = try await deps.hubRepository.fetchHubs()
+let cachedSnapshot = try await deps.hubRepository.fetchLatestHomeFeedSnapshot(sourceScopeKey: "plex:account:server")
 
 // Clear all cached hubs
 try await deps.hubRepository.deleteAllHubs()
 ```
+
+Rules:
+- Feed refresh should use `HomeHubLoader` or `BackgroundRefreshCoordinator`, not a transient `HomeViewModel`.
+- Do not save empty network hub results over the last-good snapshot.
+- Use `saveHubs(_:)`/`fetchHubs()` only for legacy compatibility; new Feed freshness work should use `HomeFeedCachedSnapshot`.
 
 ## Adding Hub Support to New Content Types
 
@@ -227,7 +241,7 @@ All playlist mutations go through `SyncCoordinator`, which handles the server ca
 
 Use `MediaDragPayload` in `Packages/EnsembleUI/Sources/Utility/` for in-app drags involving tracks, albums, playlists, or merged display playlists. Track drag sources should use `MediaDragPayload.trackItemProvider(for:shareService:)` on iOS/iPadOS and `MediaDragPayload.trackPasteboardWriter(for:shareService:)` for native AppKit rows: both keep the app-specific payload internal for Ensemble drops, and expose the same prepared audio file URL and `TrackFileExportMetadata` export naming used by Share File to external destinations such as Finder or Files. Do not expose the JSON fallback to external pasteboards.
 
-Playlist drops are copy/add operations only. UI surfaces should load `MediaDragPayload`, pass `payload.dropReferences` into Core `PlaylistDropResolver`, then present toasts for `PlaylistDropResolutionError`. Do not duplicate media matching, source compatibility, album/playlist expansion, or dedupe in views. Reject smart or merged playlist targets, unresolved items, and cross-source drops without changing playlist contents.
+Playlist drops are copy/add operations only. UI drag providers should route through `MediaDragExportPolicy` so track drags keep internal payload plus external file-promise copy support while album/playlist drags stay app-internal only. Drop surfaces should load `MediaDragPayload`, pass `payload.dropReferences` into Core `PlaylistDropResolver`, then present toasts for `PlaylistDropResolutionError`. Do not duplicate media matching, source compatibility, album/playlist expansion, or dedupe in views. Reject smart or merged playlist targets, unresolved items, and cross-source drops without changing playlist contents.
 
 ```swift
 let syncCoordinator = DependencyContainer.shared.syncCoordinator
@@ -280,6 +294,12 @@ Use this flow for target-based offline support:
    - wire `SyncCoordinator.onPlaylistRefreshCompleted` for playlist-target refresh
 6. Respect download quality by reading `downloadQuality` and passing mapped `StreamingQuality` into stream URL generation.
 
+Background/recovery rules:
+- Keep `OfflineDownloadService` as the queue and target source of truth. Platform events must route through `OfflineDownloadBackgroundCoordinating`; do not start queue work directly from `AppDelegate`, macOS delegates, or URLSession callbacks.
+- iOS background URLSession wakeups call `handleBackgroundURLSessionEvents(identifier:completionHandler:)`; the completion handler must run only after download recovery/healing and target progress refresh complete.
+- macOS sleep should pause in-flight bookkeeping as resumable/paused, not failed. Wake/foreground should run the same recovery sweep and then resume eligible pending work under network/user/Low Power policy.
+- Stale `.downloading` records from a previous process/session must be normalized to `.pending` or `.paused`; never leave them stuck in `.downloading`.
+
 UI integration rules:
 - Settings manager entry point remains `SettingsView` -> `DownloadManagerSettingsView` (do not repurpose `DownloadsView`).
 - Use `OfflineServersView` for library-wide toggles; only include sync-enabled libraries.
@@ -294,9 +314,10 @@ Use these patterns when extending gesture actions:
 2. Ensure layout sanitization prevents duplicate assignments and malformed persisted payloads.
 3. For SwiftUI track rows, wrap row content in `TrackSwipeContainer` and pass closures for play next/last, add-to-playlist, and favorite toggle.
 4. For detail track tables, map the same actions in `MediaTrackList` via `leadingSwipeActionsConfigurationForRowAt` / `trailingSwipeActionsConfigurationForRowAt`.
-5. For favorite mutations, call `NowPlayingViewModel.toggleTrackFavorite(_:)` or `setTrackFavorite(_:for:)` so server rating + local cache stay consistent.
-6. For context menus, define the allowed action set in `MediaMenuCatalog` and render it through `SwiftUIMediaMenuRenderer`, `UIKitMediaMenuRenderer`, or `AppKitMediaMenuRenderer`. For standalone SwiftUI track cards/menus, use `TrackActionsContextMenu`. Parent views should add only scoped actions such as queue removal, pin/unpin, edit/delete, shuffle/repeat, playlist-picker presentation, or playlist management.
-7. If action opens follow-up UI, keep ellipsis in labels (`Add to Playlist…`, `Rename…`).
+5. For high-volume track rows/cards/tables, accept `TrackActionDispatching` for playback/queue/favorite/playlist commands and observe `NowPlayingRatingProjection` or row-local state instead of the full `NowPlayingViewModel`.
+6. For favorite mutations, call `NowPlayingViewModel.toggleTrackFavorite(_:)`, `setTrackFavorite(_:for:)`, or the matching `TrackActionDispatching` method so server rating + local cache stay consistent.
+7. For context menus, define the allowed action set in `MediaMenuCatalog` and render it through `SwiftUIMediaMenuRenderer`, `UIKitMediaMenuRenderer`, or `AppKitMediaMenuRenderer`. For standalone SwiftUI track cards/menus, use `TrackActionsContextMenu`. Parent views should add only scoped actions such as queue removal, pin/unpin, edit/delete, shuffle/repeat, playlist-picker presentation, or playlist management.
+8. If action opens follow-up UI, keep ellipsis in labels (`Add to Playlist…`, `Rename…`).
 
 ## Adding or Updating Siri Media Play Intents (In-App-First)
 

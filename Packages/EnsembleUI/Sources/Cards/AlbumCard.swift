@@ -106,7 +106,7 @@ public struct AlbumCard: View {
         .multilineTextAlignment(.leading)
         #if !os(watchOS)
         .onDrag {
-            MediaDragPayload.album(album).itemProvider()
+            MediaDragExportPolicy.itemProvider(for: MediaDragPayload.album(album))
         }
         #endif
     }

@@ -76,7 +76,7 @@ public struct MiniPlayer: View {
             } else {
                 // iOS 15–25 fallback: handcrafted material stack approximating glass.
                 pillContent
-                    .background(MiniPlayerBackground(viewModel: viewModel, pillCornerRadius: pillCornerRadius))
+                    .background(MiniPlayerBackground(artworkProjection: viewModel.artworkProjection, pillCornerRadius: pillCornerRadius))
                     .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
                     .shadow(
                         color: materialRole.shadowColor,
@@ -138,6 +138,7 @@ public struct MiniPlayer: View {
     /// The parent body (above) doesn't re-evaluate when NVM publishes.
     private var pillContent: some View {
         MiniPlayerTrackInfo(
+            playbackProjection: viewModel.playbackProjection,
             viewModel: viewModel,
             showsWaveform: showsWaveform,
             waveformColor: waveformColor,
@@ -154,7 +155,8 @@ public struct MiniPlayer: View {
 /// re-renders on NVM changes — the parent MiniPlayer body (gestures, background,
 /// context menu) stays untouched.
 private struct MiniPlayerTrackInfo: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    @ObservedObject var playbackProjection: NowPlayingPlaybackProjection
+    let viewModel: NowPlayingViewModel
     let showsWaveform: Bool
     let waveformColor: Color
     let namespace: Namespace.ID?
@@ -175,7 +177,7 @@ private struct MiniPlayerTrackInfo: View {
     var body: some View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
             // Error banner (if playback failed)
-            if case .failed(let errorMessage) = viewModel.playbackState {
+            if case .failed(let errorMessage) = playbackProjection.playbackState {
                 HStack(spacing: EnsembleDesign.Spacing.sm) {
                     Image(systemName: EnsembleDesign.Icon.error)
                         .font(EnsembleDesign.Typography.rowSecondary)
@@ -200,7 +202,7 @@ private struct MiniPlayerTrackInfo: View {
                 .background(EnsembleDesign.Color.warning)
             }
 
-            if let track = viewModel.currentTrack {
+            if let track = playbackProjection.currentTrack {
                 Group {
                     if showsWaveform {
                         largeScreenTrackRow(for: track)
@@ -243,7 +245,10 @@ private struct MiniPlayerTrackInfo: View {
 
             Spacer(minLength: EnsembleDesign.Spacing.none)
 
-            MiniPlayerControls(viewModel: viewModel)
+            MiniPlayerControls(
+                playbackProjection: playbackProjection,
+                viewModel: viewModel
+            )
                 .layoutPriority(0.4)
         }
     }
@@ -272,12 +277,13 @@ private struct MiniPlayerTrackInfo: View {
                     .frame(width: trackLaneWidth, alignment: .leading)
 
                 MiniPlayerWaveform(
-                    viewModel: viewModel,
+                    playbackProjection: playbackProjection,
                     waveformColor: waveformColor
                 )
                 .frame(width: waveformLaneWidth, height: EnsembleScaffold.MiniPlayer.waveformHeight)
 
                 MiniPlayerControls(
+                    playbackProjection: playbackProjection,
                     viewModel: viewModel,
                     showsPreviousButton: showsExpandedControls,
                     showsActionsMenu: showsExpandedControls
@@ -431,27 +437,32 @@ private struct MiniPlayerHorizontalSwipeModifier: ViewModifier {
 }
 
 private struct MiniPlayerWaveform: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    @ObservedObject var playbackProjection: NowPlayingPlaybackProjection
     let waveformColor: Color
     @State private var waveformHeights: [Double] = []
     @State private var playbackProgress: Double = 0
+    @State private var bufferedProgress: Double = 0
 
     var body: some View {
         WaveformView(
             progress: playbackProgress,
-            bufferedProgress: viewModel.bufferedProgress,
+            bufferedProgress: bufferedProgress,
             color: waveformColor,
             heights: waveformHeights
         )
         .opacity(EnsembleScaffold.MiniPlayer.waveformOpacity)
         .onAppear {
-            playbackProgress = viewModel.progress
+            playbackProgress = playbackProjection.progress
+            bufferedProgress = playbackProjection.bufferedProgress
         }
-        .onReceive(viewModel.waveformHeightsPublisher) { heights in
+        .onReceive(playbackProjection.waveformPublisher) { heights in
             waveformHeights = heights
         }
-        .onReceive(viewModel.progressPublisher) { progress in
+        .onReceive(playbackProjection.progressPublisher) { progress in
             playbackProgress = progress
+        }
+        .onReceive(playbackProjection.bufferedProgressPublisher) { progress in
+            bufferedProgress = progress
         }
     }
 }
@@ -462,7 +473,8 @@ private struct MiniPlayerWaveform: View {
 /// playbackState/isPlaying/isCurrentTrackPlayable — only these small controls
 /// re-render on state changes, not the entire MiniPlayer body.
 private struct MiniPlayerControls: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    @ObservedObject var playbackProjection: NowPlayingPlaybackProjection
+    let viewModel: NowPlayingViewModel
     var showsPreviousButton = false
     var showsActionsMenu = false
 
@@ -478,12 +490,12 @@ private struct MiniPlayerControls: View {
             Button(action: viewModel.togglePlayPause) {
                 ZStack {
                     // Show spinner when loading or buffering
-                    if viewModel.playbackState == .loading || viewModel.playbackState == .buffering {
+                    if playbackProjection.playbackState == .loading || playbackProjection.playbackState == .buffering {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .primary))
                             .scaleEffect(EnsembleScaffold.MiniPlayer.controlLoadingScale)
                     } else {
-                        Image(systemName: viewModel.isPlaying ? EnsembleDesign.Icon.pause : EnsembleDesign.Icon.play)
+                        Image(systemName: playbackProjection.isPlaying ? EnsembleDesign.Icon.pause : EnsembleDesign.Icon.play)
                             .font(EnsembleDesign.Typography.sectionTitle)
                     }
                 }
@@ -493,8 +505,8 @@ private struct MiniPlayerControls: View {
                 )
             }
             // Disable play when track not yet confirmed playable (e.g. pending health check)
-            .disabled(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable)
-            .opacity(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable ? EnsembleScaffold.MiniPlayer.unavailableControlOpacity : 1.0)
+            .disabled(!playbackProjection.isPlaying && !playbackProjection.isCurrentTrackPlayable)
+            .opacity(!playbackProjection.isPlaying && !playbackProjection.isCurrentTrackPlayable ? EnsembleScaffold.MiniPlayer.unavailableControlOpacity : 1.0)
 
             Button(action: viewModel.next) {
                 Image(systemName: EnsembleDesign.Icon.next)
@@ -502,7 +514,11 @@ private struct MiniPlayerControls: View {
             }
 
             if showsActionsMenu {
-                MiniPlayerActionsMenuButton(viewModel: viewModel)
+                MiniPlayerActionsMenuButton(
+                    playbackProjection: playbackProjection,
+                    ratingProjection: viewModel.ratingProjection,
+                    viewModel: viewModel
+                )
             }
         }
         .foregroundColor(EnsembleDesign.Color.primaryText)
@@ -512,7 +528,9 @@ private struct MiniPlayerControls: View {
 }
 
 private struct MiniPlayerActionsMenuButton: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    @ObservedObject var playbackProjection: NowPlayingPlaybackProjection
+    @ObservedObject var ratingProjection: NowPlayingRatingProjection
+    let viewModel: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showingActionsPopover = false
@@ -527,7 +545,7 @@ private struct MiniPlayerActionsMenuButton: View {
     private var actionsButton: some View {
         #if os(iOS)
         Button {
-            showingActionsPopover = viewModel.currentTrack != nil
+            showingActionsPopover = playbackProjection.currentTrack != nil
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActions)
                 .font(EnsembleDesign.Typography.overflowIcon)
@@ -539,7 +557,7 @@ private struct MiniPlayerActionsMenuButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(viewModel.currentTrack == nil)
+        .disabled(playbackProjection.currentTrack == nil)
         .accessibilityLabel("Track Actions")
         .popover(isPresented: $showingActionsPopover, arrowEdge: .bottom) {
             MiniPlayerActionsPopoverContent(
@@ -551,7 +569,7 @@ private struct MiniPlayerActionsMenuButton: View {
         }
         #elseif os(macOS)
         NativeMiniPlayerActionsMenuButton(
-            isEnabled: viewModel.currentTrack != nil,
+            isEnabled: playbackProjection.currentTrack != nil,
             sections: menuSections,
             state: menuState,
             handlers: menuHandlers
@@ -565,7 +583,7 @@ private struct MiniPlayerActionsMenuButton: View {
     }
 
     private var currentTrackRecentPlaylistTitle: String? {
-        guard let track = viewModel.currentTrack else { return nil }
+        guard let track = playbackProjection.currentTrack else { return nil }
         return PlaylistActionPresentationHost.recentPlaylistTitle(
             for: [track],
             nowPlayingVM: viewModel
@@ -573,7 +591,7 @@ private struct MiniPlayerActionsMenuButton: View {
     }
 
     private var menuSections: [MediaMenuSection] {
-        guard let track = viewModel.currentTrack else { return [] }
+        guard let track = playbackProjection.currentTrack else { return [] }
         return MediaMenuCatalog.sections(
             for: .track,
             context: .miniPlayer,
@@ -597,18 +615,18 @@ private struct MiniPlayerActionsMenuButton: View {
     }
 
     private var menuState: MediaMenuState {
-        guard let track = viewModel.currentTrack else {
+        guard let track = playbackProjection.currentTrack else {
             return MediaMenuState(
                 recentPlaylistTitle: nil,
-                isShuffleEnabled: viewModel.isShuffleEnabled,
-                repeatMode: viewModel.repeatMode
+                isShuffleEnabled: playbackProjection.isShuffleEnabled,
+                repeatMode: playbackProjection.repeatMode
             )
         }
         return MediaMenuState(
             recentPlaylistTitle: currentTrackRecentPlaylistTitle,
-            isFavorited: viewModel.isTrackFavorited(track),
-            isShuffleEnabled: viewModel.isShuffleEnabled,
-            repeatMode: viewModel.repeatMode
+            isFavorited: ratingProjection.isTrackFavorited(track),
+            isShuffleEnabled: playbackProjection.isShuffleEnabled,
+            repeatMode: playbackProjection.repeatMode
         )
     }
 
@@ -630,27 +648,27 @@ private struct MiniPlayerActionsMenuButton: View {
     }
 
     private func playNext() {
-        guard let track = viewModel.currentTrack else { return }
+        guard let track = playbackProjection.currentTrack else { return }
         viewModel.playNext(track)
     }
 
     private func playLast() {
-        guard let track = viewModel.currentTrack else { return }
+        guard let track = playbackProjection.currentTrack else { return }
         viewModel.playLast(track)
     }
 
     private func toggleFavorite() {
-        guard let track = viewModel.currentTrack else { return }
+        guard let track = playbackProjection.currentTrack else { return }
         Task { await viewModel.toggleTrackFavorite(track) }
     }
 
     private func addToRecentPlaylist() {
-        guard let track = viewModel.currentTrack else { return }
+        guard let track = playbackProjection.currentTrack else { return }
         PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: viewModel)
     }
 
     private func requestPlaylistPicker() {
-        guard let track = viewModel.currentTrack else { return }
+        guard let track = playbackProjection.currentTrack else { return }
         playlistActionRequest = PlaylistActionPresentationHost.request(for: [track])
     }
 
@@ -667,22 +685,22 @@ private struct MiniPlayerActionsMenuButton: View {
     }
 
     private func goToAlbum() {
-        guard let albumId = viewModel.currentTrack?.albumRatingKey else { return }
+        guard let albumId = playbackProjection.currentTrack?.albumRatingKey else { return }
         navigationCoordinator.navigate(to: .album(id: albumId))
     }
 
     private func goToArtist() {
-        guard let artistId = viewModel.currentTrack?.artistRatingKey else { return }
+        guard let artistId = playbackProjection.currentTrack?.artistRatingKey else { return }
         navigationCoordinator.navigate(to: .artist(id: artistId))
     }
 
     private func shareTrackLink() {
-        guard let track = viewModel.currentTrack else { return }
+        guard let track = playbackProjection.currentTrack else { return }
         ShareActions.shareTrackLink(track, deps: deps)
     }
 
     private func shareTrackFile() {
-        guard let track = viewModel.currentTrack else { return }
+        guard let track = playbackProjection.currentTrack else { return }
         ShareActions.shareTrackFile(track, deps: deps)
     }
 }
@@ -791,7 +809,7 @@ private struct NativeMiniPlayerActionsMenuButton: NSViewRepresentable {
 /// Handcrafted material background used on iOS 15–25. Owns @ObservedObject so
 /// the blur + material stack only re-renders here, not as part of MiniPlayer's body.
 private struct MiniPlayerBackground: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    @ObservedObject var artworkProjection: NowPlayingArtworkProjection
     let pillCornerRadius: CGFloat
 
     @Environment(\.colorScheme) private var colorScheme
@@ -799,12 +817,12 @@ private struct MiniPlayerBackground: View {
 
     var body: some View {
         ZStack {
-            if viewModel.currentTrack != nil {
+            if artworkProjection.currentTrack != nil {
                 // Animation ensures smooth cross-fade between artwork backgrounds.
                 // DO NOT REMOVE THIS — it prevents jarring swaps and flickering.
                 BlurredArtworkBackground(
-                    image: viewModel.artworkImage,
-                    preBlurredImage: viewModel.blurredArtworkImage,
+                    image: artworkProjection.artworkImage,
+                    preBlurredImage: artworkProjection.blurredArtworkImage,
                     blurRadius: EnsembleScaffold.MiniPlayer.backgroundBlurRadius,
                     contrast: EnsembleScaffold.MiniPlayer.backgroundContrast,
                     saturation: EnsembleScaffold.MiniPlayer.backgroundSaturation,
@@ -821,7 +839,7 @@ private struct MiniPlayerBackground: View {
                         #endif
                     }()
                 )
-                .animation(.easeInOut(duration: EnsembleScaffold.MiniPlayer.backgroundAnimationDuration), value: viewModel.artworkImage)
+                .animation(.easeInOut(duration: EnsembleScaffold.MiniPlayer.backgroundAnimationDuration), value: artworkProjection.artworkImage)
                 .clipped()
                 .allowsHitTesting(false)
             }

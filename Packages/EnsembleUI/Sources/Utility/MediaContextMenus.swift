@@ -222,20 +222,19 @@ struct AlbumActionsContextMenu: View {
                 editMetadata: onEditMetadata,
                 download: {
                     Task {
-                        await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
+                        await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
                     }
                 },
                 pin: {
                     if let customPinAction {
                         customPinAction(isPinned)
-                    } else if isPinned {
-                        pinManager.unpin(id: album.id)
                     } else {
-                        pinManager.pin(
+                        deps.pinMutationWorkflow.togglePin(
                             id: album.id,
                             sourceKey: album.sourceCompositeKey ?? "",
                             type: .album,
-                            title: album.title
+                            title: album.title,
+                            isPinned: isPinned
                         )
                     }
                 },
@@ -378,20 +377,19 @@ struct ArtistActionsContextMenu: View {
                 editMetadata: onEditMetadata,
                 download: {
                     Task {
-                        await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
+                        await deps.downloadMutationWorkflow.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
                     }
                 },
                 pin: {
                     if let customPinAction {
                         customPinAction(isPinned)
-                    } else if isPinned {
-                        pinManager.unpin(id: artist.id)
                     } else {
-                        pinManager.pin(
+                        deps.pinMutationWorkflow.togglePin(
                             id: artist.id,
                             sourceKey: artist.sourceCompositeKey ?? "",
                             type: .artist,
-                            title: artist.name
+                            title: artist.name,
+                            isPinned: isPinned
                         )
                     }
                 }
@@ -499,20 +497,19 @@ struct PlaylistActionsContextMenu: View {
                 editPlaylist: onEdit,
                 download: {
                     Task {
-                        await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
+                        await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
                     }
                 },
                 pin: {
                     if let customPinAction {
                         customPinAction(isPinned)
-                    } else if isPinned {
-                        pinManager.unpin(id: playlist.id)
                     } else {
-                        pinManager.pin(
+                        deps.pinMutationWorkflow.togglePin(
                             id: playlist.id,
                             sourceKey: playlist.sourceCompositeKey ?? "",
                             type: .playlist,
-                            title: playlist.title
+                            title: playlist.title,
+                            isPinned: isPinned
                         )
                     }
                 },
@@ -572,14 +569,14 @@ struct MergedPlaylistActionsContextMenu: View {
         let downloadAll: (() -> Void)? = isDownloaded ? nil : {
             Task {
                 for playlist in displayPlaylist.playlists {
-                    await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: true)
+                    await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(playlist, isEnabled: true)
                 }
             }
         }
         let removeDownloads: (() -> Void)? = isDownloaded ? {
             Task {
                 for playlist in displayPlaylist.playlists {
-                    await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: false)
+                    await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(playlist, isEnabled: false)
                 }
             }
         } : nil

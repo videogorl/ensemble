@@ -125,7 +125,10 @@ public final class NowPlayingViewModel: ObservableObject {
     private let _currentLyricsLineIndex = CurrentValueSubject<Int?, Never>(nil)
     public var currentLyricsLineIndex: Int? {
         get { _currentLyricsLineIndex.value }
-        set { _currentLyricsLineIndex.send(newValue) }
+        set {
+            _currentLyricsLineIndex.send(newValue)
+            lyricsProjection.updateCurrentLyricsLineIndex(newValue)
+        }
     }
     public var currentLyricsLineIndexPublisher: AnyPublisher<Int?, Never> {
         _currentLyricsLineIndex.eraseToAnyPublisher()
@@ -135,7 +138,10 @@ public final class NowPlayingViewModel: ObservableObject {
     private let _lyricsScrollTargetIndex = CurrentValueSubject<Int?, Never>(nil)
     public var lyricsScrollTargetIndex: Int? {
         get { _lyricsScrollTargetIndex.value }
-        set { _lyricsScrollTargetIndex.send(newValue) }
+        set {
+            _lyricsScrollTargetIndex.send(newValue)
+            lyricsProjection.updateLyricsScrollTargetIndex(newValue)
+        }
     }
     public var lyricsScrollTargetIndexPublisher: AnyPublisher<Int?, Never> {
         _lyricsScrollTargetIndex.eraseToAnyPublisher()
@@ -145,7 +151,10 @@ public final class NowPlayingViewModel: ObservableObject {
     private let _instrumentalProgress = CurrentValueSubject<Double?, Never>(nil)
     public var instrumentalProgress: Double? {
         get { _instrumentalProgress.value }
-        set { _instrumentalProgress.send(newValue) }
+        set {
+            _instrumentalProgress.send(newValue)
+            lyricsProjection.updateInstrumentalProgress(newValue)
+        }
     }
     public var instrumentalProgressPublisher: AnyPublisher<Double?, Never> {
         _instrumentalProgress.eraseToAnyPublisher()
@@ -170,10 +179,18 @@ public final class NowPlayingViewModel: ObservableObject {
     private let navigationCoordinator: NavigationCoordinator
     private let toastCenter: ToastCenter
     private let mutationCoordinator: MutationCoordinator
+    private let playlistMutationWorkflow: PlaylistMutationWorkflow
     private let playlistActionService = PlaylistActionService()
+    private let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
     private let trackAvailabilityResolver: TrackAvailabilityResolver
     private let lyricsService: LyricsService
     private var cancellables = Set<AnyCancellable>()
+
+    public let playbackProjection = NowPlayingPlaybackProjection()
+    public let queueProjection = NowPlayingQueueProjection()
+    public let artworkProjection = NowPlayingArtworkProjection()
+    public let lyricsProjection: NowPlayingLyricsProjection
+    public let ratingProjection = NowPlayingRatingProjection()
 
     // Artwork loading state
     private var artworkLoadTask: Task<Void, Never>?
@@ -183,6 +200,7 @@ public final class NowPlayingViewModel: ObservableObject {
     // Track if we're currently updating the rating to prevent overwriting
     private var isUpdatingRating = false
     private var favoriteUpdatesInFlight = Set<String>()
+    internal var isArtworkLoadingEnabledForTesting = true
     internal var trackRatingMutationHandlerForTesting: ((Track, Int?) async throws -> Void)?
     internal var trackRatingStoreHandlerForTesting: ((String, Int) async throws -> Void)?
 
@@ -193,6 +211,8 @@ public final class NowPlayingViewModel: ObservableObject {
         navigationCoordinator: NavigationCoordinator,
         toastCenter: ToastCenter,
         mutationCoordinator: MutationCoordinator,
+        playlistMutationWorkflow: PlaylistMutationWorkflow? = nil,
+        trackRatingMutationWorkflow: TrackRatingMutationWorkflow? = nil,
         trackAvailabilityResolver: TrackAvailabilityResolver,
         lyricsService: LyricsService
     ) {
@@ -202,8 +222,11 @@ public final class NowPlayingViewModel: ObservableObject {
         self.navigationCoordinator = navigationCoordinator
         self.toastCenter = toastCenter
         self.mutationCoordinator = mutationCoordinator
+        self.playlistMutationWorkflow = playlistMutationWorkflow ?? PlaylistMutationWorkflow(mutator: mutationCoordinator)
+        self.trackRatingMutationWorkflow = trackRatingMutationWorkflow ?? TrackRatingMutationWorkflow(mutator: mutationCoordinator)
         self.trackAvailabilityResolver = trackAvailabilityResolver
         self.lyricsService = lyricsService
+        self.lyricsProjection = NowPlayingLyricsProjection(isInstrumentalModeSupported: InstrumentalModeCapability.isSupported)
         self.lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
         setupBindings()
     }
@@ -211,36 +234,73 @@ public final class NowPlayingViewModel: ObservableObject {
     private func setupBindings() {
         playbackService.currentTrackPublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$currentTrack)
+            .sink { [weak self] track in
+                guard let self else { return }
+                self.currentTrack = track
+                self.playbackProjection.updateCurrentTrack(track)
+                self.artworkProjection.updateCurrentTrack(track)
+                self.ratingProjection.updateCurrentTrack(
+                    track,
+                    displayRating: track.map { self.trackDisplayRating(for: $0) }
+                )
+            }
+            .store(in: &cancellables)
 
         playbackService.playbackStatePublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$playbackState)
+            .sink { [weak self] state in
+                self?.playbackState = state
+                self?.playbackProjection.updatePlaybackState(state)
+            }
+            .store(in: &cancellables)
 
         playbackService.queuePublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$queue)
+            .sink { [weak self] queue in
+                guard let self else { return }
+                self.queue = queue
+                self.queueProjection.updateQueue(queue)
+                self.queueProjection.updateQueueSections(self.playbackService.queueSections)
+            }
+            .store(in: &cancellables)
 
         playbackService.currentQueueIndexPublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$currentQueueIndex)
+            .sink { [weak self] index in
+                self?.currentQueueIndex = index
+                self?.queueProjection.updateCurrentQueueIndex(index)
+            }
+            .store(in: &cancellables)
 
         playbackService.historyPublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$playbackHistory)
+            .sink { [weak self] history in
+                self?.playbackHistory = history
+                self?.queueProjection.updatePlaybackHistory(history)
+            }
+            .store(in: &cancellables)
 
         playbackService.shufflePublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$isShuffleEnabled)
+            .sink { [weak self] isEnabled in
+                self?.isShuffleEnabled = isEnabled
+                self?.playbackProjection.updateShuffle(isEnabled)
+            }
+            .store(in: &cancellables)
 
         playbackService.repeatModePublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$repeatMode)
+            .sink { [weak self] mode in
+                self?.repeatMode = mode
+                self?.playbackProjection.updateRepeatMode(mode)
+            }
+            .store(in: &cancellables)
         
         playbackService.waveformPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] heights in
                 self?.waveformHeights = heights
+                self?.playbackProjection.updateWaveformHeights(heights)
             }
             .store(in: &cancellables)
 
@@ -277,12 +337,98 @@ public final class NowPlayingViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] track in
                 guard let self else { return }
+                self.playbackProjection.updateCurrentTrack(track)
+                self.artworkProjection.updateCurrentTrack(track)
+                self.ratingProjection.updateCurrentTrack(
+                    track,
+                    displayRating: track.map { self.trackDisplayRating(for: $0) }
+                )
                 if track == nil {
                     self.duration = 0
                 } else {
                     self.duration = self.playbackService.duration
                 }
-                self._progress.send(self.progress)
+                self.publishPlaybackProjectionSnapshot()
+                self.publishCurrentTrackAvailability()
+            }
+            .store(in: &cancellables)
+
+        $playbackState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                self?.playbackProjection.updatePlaybackState(state)
+            }
+            .store(in: &cancellables)
+
+        $queue
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] queue in
+                guard let self else { return }
+                self.queueProjection.updateQueue(queue)
+                self.queueProjection.updateQueueSections(self.playbackService.queueSections)
+            }
+            .store(in: &cancellables)
+
+        $currentQueueIndex
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] index in
+                self?.queueProjection.updateCurrentQueueIndex(index)
+            }
+            .store(in: &cancellables)
+
+        $playbackHistory
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] history in
+                self?.queueProjection.updatePlaybackHistory(history)
+            }
+            .store(in: &cancellables)
+
+        $isShuffleEnabled
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isEnabled in
+                self?.playbackProjection.updateShuffle(isEnabled)
+            }
+            .store(in: &cancellables)
+
+        $repeatMode
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] mode in
+                self?.playbackProjection.updateRepeatMode(mode)
+            }
+            .store(in: &cancellables)
+
+        $showHistory
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isShowing in
+                self?.queueProjection.updateShowHistory(isShowing)
+            }
+            .store(in: &cancellables)
+
+        $artworkImage
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] image in
+                self?.artworkProjection.updateArtworkImage(image)
+            }
+            .store(in: &cancellables)
+
+        $blurredArtworkImage
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] image in
+                self?.artworkProjection.updateBlurredArtworkImage(image)
+            }
+            .store(in: &cancellables)
+
+        $currentRating
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] rating in
+                self?.ratingProjection.updateCurrentRating(rating)
+            }
+            .store(in: &cancellables)
+
+        $optimisticTrackRatings
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] ratings in
+                self?.ratingProjection.updateDisplayRatings(ratings)
             }
             .store(in: &cancellables)
 
@@ -296,7 +442,7 @@ public final class NowPlayingViewModel: ObservableObject {
                 if abs(self.duration - latestDuration) > 0.05 {
                     self.duration = latestDuration
                 }
-                self._progress.send(self.progress)
+                self.publishPlaybackProjectionSnapshot()
             }
             .store(in: &cancellables)
         
@@ -317,6 +463,12 @@ public final class NowPlayingViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] track in
                 guard let self = self else { return }
+                guard self.isArtworkLoadingEnabledForTesting else {
+                    self.artworkLoadTask?.cancel()
+                    self.artworkImage = nil
+                    self.blurredArtworkImage = nil
+                    return
+                }
                 if let track = track {
                     self.loadArtworkImage(for: track)
                 } else {
@@ -331,6 +483,13 @@ public final class NowPlayingViewModel: ObservableObject {
         trackAvailabilityResolver.$availabilityGeneration
             .receive(on: DispatchQueue.main)
             .assign(to: &$availabilityGeneration)
+
+        $availabilityGeneration
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.publishCurrentTrackAvailability()
+            }
+            .store(in: &cancellables)
 
         // Load lyrics when track changes
         $currentTrack
@@ -388,6 +547,55 @@ public final class NowPlayingViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$lyricsSource)
 
+        $lyricsState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                self?.lyricsProjection.updateLyricsState(state)
+            }
+            .store(in: &cancellables)
+
+        $lyricsSource
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] source in
+                self?.lyricsProjection.updateLyricsSource(source)
+            }
+            .store(in: &cancellables)
+
+        $instrumentalGapAfterIndices
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] indices in
+                self?.lyricsProjection.updateInstrumentalGapAfterIndices(indices)
+            }
+            .store(in: &cancellables)
+
+        $hasIntroInstrumentalGap
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] hasGap in
+                self?.lyricsProjection.updateHasIntroInstrumentalGap(hasGap)
+            }
+            .store(in: &cancellables)
+
+        $hasOutroInstrumentalGap
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] hasGap in
+                self?.lyricsProjection.updateHasOutroInstrumentalGap(hasGap)
+            }
+            .store(in: &cancellables)
+
+        $isUserScrollingLyrics
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isScrolling in
+                self?.lyricsProjection.updateUserScrollingLyrics(isScrolling)
+            }
+            .store(in: &cancellables)
+
+        $isInstrumentalModeActive
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isActive in
+                self?.lyricsProjection.updateInstrumentalModeActive(isActive)
+            }
+            .store(in: &cancellables)
+
         // Track active lyrics line based on playback time.
         // Uses slight anticipation so lyrics appear just before the vocal.
         playbackService.presentationTimePublisher
@@ -398,6 +606,21 @@ public final class NowPlayingViewModel: ObservableObject {
                 self.applyLyricsPosition(lyrics: lyrics, time: time)
             }
             .store(in: &cancellables)
+    }
+
+    private func publishPlaybackProjectionSnapshot() {
+        let latestProgress = progress
+        _progress.send(latestProgress)
+        playbackProjection.updateDuration(scrubberDuration)
+        playbackProjection.updateProgress(
+            latestProgress,
+            bufferedProgress: bufferedProgress,
+            currentTime: currentTime
+        )
+    }
+
+    private func publishCurrentTrackAvailability() {
+        playbackProjection.updatePlaybackAvailability(isCurrentTrackPlayable)
     }
 
     // MARK: - Lyrics Helpers
@@ -987,56 +1210,13 @@ public final class NowPlayingViewModel: ObservableObject {
         isPlaylistMutationInProgress = true
         defer { isPlaylistMutationInProgress = false }
 
-        // Route through MutationCoordinator — handles offline queuing automatically
-        let (resultOrNil, outcome) = try await mutationCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
-        if outcome == .queued {
-            toastCenter.show(
-                ToastPayload(
-                    style: .info,
-                    iconSystemName: "clock.arrow.circlepath",
-                    title: "Queued for \(playlist.title)",
-                    message: "Will be added when back online.",
-                    dedupeKey: "playlist-add-queued-\(playlist.id)"
-                )
-            )
-            return PlaylistMutationResult(addedCount: 0, skippedCount: 0)
-        }
-
-        let result = resultOrNil ?? PlaylistMutationResult(addedCount: 0, skippedCount: 0)
-        await MainActor.run {
-            if result.skippedCount > 0 {
-                self.toastCenter.show(
-                    ToastPayload(
-                        style: .warning,
-                        iconSystemName: "exclamationmark.triangle.fill",
-                        title: "Added to \(playlist.title)",
-                        message: "Added \(result.addedCount), skipped \(result.skippedCount) incompatible.",
-                        tapHandler: { [weak self] in
-                            self?.navigationCoordinator.navigateFromNowPlaying(
-                                to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
-                            )
-                        },
-                        dedupeKey: "playlist-add-\(playlist.id)"
-                    )
-                )
-            } else {
-                self.toastCenter.show(
-                    ToastPayload(
-                        style: .success,
-                        iconSystemName: "checkmark.circle.fill",
-                        title: "Added to \(playlist.title)",
-                        message: result.addedCount == 1 ? "1 track added." : "\(result.addedCount) tracks added.",
-                        tapHandler: { [weak self] in
-                            self?.navigationCoordinator.navigateFromNowPlaying(
-                                to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
-                            )
-                        },
-                        dedupeKey: "playlist-add-\(playlist.id)"
-                    )
-                )
-            }
-        }
-        return result
+        let workflowResult = try await playlistMutationWorkflow.addTracks(
+            tracks,
+            to: playlist,
+            tapHandler: playlistToastTapHandler(for: playlist)
+        )
+        toastCenter.show(workflowResult.toast)
+        return workflowResult.mutationResult
     }
 
     /// Optimistic playlist-add path for interactive add-to-playlist UI surfaces.
@@ -1047,37 +1227,13 @@ public final class NowPlayingViewModel: ObservableObject {
             throw PlaylistMutationError.emptySelection
         }
 
-        let outcome = try await mutationCoordinator.enqueuePlaylistAddOptimistically(tracks, playlist: playlist)
-        let addedCount = tracks.count
-
-        if outcome == .queued {
-            toastCenter.show(
-                ToastPayload(
-                    style: .info,
-                    iconSystemName: "clock.arrow.circlepath",
-                    title: "Queued for \(playlist.title)",
-                    message: "Will be added when back online.",
-                    dedupeKey: "playlist-add-queued-\(playlist.id)"
-                )
-            )
-        } else {
-            toastCenter.show(
-                ToastPayload(
-                    style: .success,
-                    iconSystemName: "checkmark.circle.fill",
-                    title: "Added to \(playlist.title)",
-                    message: addedCount == 1 ? "1 track queued for sync." : "\(addedCount) tracks queued for sync.",
-                    tapHandler: { [weak self] in
-                        self?.navigationCoordinator.navigateFromNowPlaying(
-                            to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
-                        )
-                    },
-                    dedupeKey: "playlist-add-optimistic-\(playlist.id)"
-                )
-            )
-        }
-
-        return outcome
+        let workflowResult = try await playlistMutationWorkflow.addTracksOptimistically(
+            tracks,
+            to: playlist,
+            tapHandler: playlistToastTapHandler(for: playlist)
+        )
+        toastCenter.show(workflowResult.toast)
+        return workflowResult.outcome
     }
 
     public func createPlaylist(
@@ -1091,35 +1247,13 @@ public final class NowPlayingViewModel: ObservableObject {
         isPlaylistMutationInProgress = true
         defer { isPlaylistMutationInProgress = false }
 
-        let result = try await mutationCoordinator.createPlaylist(
+        let workflowResult = try await playlistMutationWorkflow.createPlaylist(
             title: title,
             tracks: tracks,
             serverSourceKey: serverSourceKey
         )
-        await MainActor.run {
-            if result.skippedCount > 0 {
-                self.toastCenter.show(
-                    ToastPayload(
-                        style: .warning,
-                        iconSystemName: "plus.circle.fill",
-                        title: "Created \(title)",
-                        message: "Added \(result.addedCount), skipped \(result.skippedCount).",
-                        dedupeKey: "playlist-create-\(title.lowercased())"
-                    )
-                )
-            } else {
-                self.toastCenter.show(
-                    ToastPayload(
-                        style: .success,
-                        iconSystemName: "plus.circle.fill",
-                        title: "Created \(title)",
-                        message: result.addedCount == 1 ? "1 track added." : "\(result.addedCount) tracks added.",
-                        dedupeKey: "playlist-create-\(title.lowercased())"
-                    )
-                )
-            }
-        }
-        return result
+        toastCenter.show(workflowResult.toast)
+        return workflowResult.mutationResult
     }
 
     public func resolveLastPlaylistTarget() async -> Playlist? {
@@ -1274,14 +1408,7 @@ public final class NowPlayingViewModel: ObservableObject {
         let plexRating: Int? = isFavorite ? 10 : nil
         let optimisticRating = isFavorite ? 10 : 0
         let previousRating = trackDisplayRating(for: track)
-        let loadingToast = ToastPayload(
-            style: .info,
-            iconSystemName: "heart.fill",
-            title: isFavorite ? "Adding to Favorites..." : "Removing from Favorites...",
-            isPersistent: true,
-            dedupeKey: "favorite-toggle-loading-\(track.id)",
-            showsActivityIndicator: true
-        )
+        let loadingToast = trackRatingMutationWorkflow.beginFavoriteUpdate(track: track, isFavorite: isFavorite)
         toastCenter.show(loadingToast)
         defer { toastCenter.dismiss(id: loadingToast.id) }
 
@@ -1291,23 +1418,17 @@ public final class NowPlayingViewModel: ObservableObject {
             try await storeTrackRating(trackId: track.id, rating: optimisticRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: optimisticRating)
 
-            // Route through MutationCoordinator — handles offline queuing automatically
-            if let trackRatingMutationHandlerForTesting {
-                try await trackRatingMutationHandlerForTesting(track, plexRating)
-            } else {
-                let outcome = try await mutationCoordinator.rateTrack(track, rating: plexRating)
-                if outcome == .queued {
-                    toastCenter.show(
-                        ToastPayload(
-                            style: .info,
-                            iconSystemName: isFavorite ? "heart.fill" : "heart.slash.fill",
-                            title: isFavorite ? "Saved — will sync when online" : "Removed — will sync when online",
-                            message: track.title,
-                            dedupeKey: "favorite-toggle-queued-\(track.id)-\(isFavorite ? 1 : 0)"
-                        )
-                    )
-                    return
+            let outcome = try await performTrackRatingMutation(track, rating: plexRating)
+            let workflowResult = trackRatingMutationWorkflow.finishFavoriteUpdate(
+                track: track,
+                isFavorite: isFavorite,
+                outcome: outcome
+            )
+            if workflowResult.outcome == .queued {
+                if let toast = workflowResult.toast {
+                    toastCenter.show(toast)
                 }
+                return
             }
 
             if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
@@ -1318,30 +1439,16 @@ public final class NowPlayingViewModel: ObservableObject {
                 optimisticTrackRatings[track.id] = optimisticRating
             }
 
-            toastCenter.show(
-                ToastPayload(
-                    style: .success,
-                    iconSystemName: isFavorite ? "heart.fill" : "heart.slash.fill",
-                    title: isFavorite ? "Added to Favorites" : "Removed from Favorites",
-                    message: track.title,
-                    dedupeKey: "favorite-toggle-success-\(track.id)-\(isFavorite ? 1 : 0)"
-                )
-            )
+            if let toast = workflowResult.toast {
+                toastCenter.show(toast)
+            }
         } catch {
             // Roll back optimistic state if server mutation fails.
             optimisticTrackRatings[track.id] = previousRating
             try? await storeTrackRating(trackId: track.id, rating: previousRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: previousRating)
 
-            toastCenter.show(
-                ToastPayload(
-                    style: .error,
-                    iconSystemName: "xmark.octagon.fill",
-                    title: "Could not update favorite",
-                    message: error.localizedDescription,
-                    dedupeKey: "favorite-toggle-error-\(track.id)"
-                )
-            )
+            toastCenter.show(trackRatingMutationWorkflow.favoriteFailureToast(track: track, error: error))
             EnsembleLogger.debug("Failed to set favorite state: \(error)")
         }
     }
@@ -1388,24 +1495,18 @@ public final class NowPlayingViewModel: ObservableObject {
             try await storeTrackRating(trackId: track.id, rating: nextDisplayRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: nextDisplayRating)
 
-            // Route through MutationCoordinator — handles offline queuing automatically
-            if let trackRatingMutationHandlerForTesting {
-                try await trackRatingMutationHandlerForTesting(track, nextPlexRating)
-            } else {
-                let outcome = try await mutationCoordinator.rateTrack(track, rating: nextPlexRating)
-                if outcome == .queued {
-                    toastCenter.show(
-                        ToastPayload(
-                            style: .info,
-                            iconSystemName: newRating.icon,
-                            title: "Rating saved — will sync when online",
-                            message: track.title,
-                            dedupeKey: "rating-toggle-queued-\(track.id)"
-                        )
-                    )
-                    isUpdatingRating = false
-                    return
+            let outcome = try await performTrackRatingMutation(track, rating: nextPlexRating)
+            let workflowResult = trackRatingMutationWorkflow.finishRatingUpdate(
+                track: track,
+                newRating: newRating,
+                outcome: outcome
+            )
+            if workflowResult.outcome == .queued {
+                if let toast = workflowResult.toast {
+                    toastCenter.show(toast)
                 }
+                isUpdatingRating = false
+                return
             }
 
             if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
@@ -1426,6 +1527,7 @@ public final class NowPlayingViewModel: ObservableObject {
             currentRating = TrackRating.from(rating: previousRating)
             try? await storeTrackRating(trackId: track.id, rating: previousRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: previousRating)
+            toastCenter.show(trackRatingMutationWorkflow.ratingFailureToast(track: track, error: error))
         }
     }
     
@@ -1468,6 +1570,23 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     // MARK: - Helpers
+
+    private func playlistToastTapHandler(for playlist: Playlist) -> (() -> Void) {
+        { [weak self] in
+            self?.navigationCoordinator.navigateFromNowPlaying(
+                to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
+            )
+        }
+    }
+
+    private func performTrackRatingMutation(_ track: Track, rating: Int?) async throws -> MutationOutcome {
+        if let trackRatingMutationHandlerForTesting {
+            try await trackRatingMutationHandlerForTesting(track, rating)
+            return .completed
+        }
+
+        return try await trackRatingMutationWorkflow.mutate(track, rating: rating)
+    }
 
     private func serverSourceKey(from sourceCompositeKey: String?) -> String? {
         MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey)

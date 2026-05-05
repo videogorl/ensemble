@@ -361,21 +361,26 @@ public struct RootView: View {
 
     @ViewBuilder
     private var mainContentView: some View {
-        #if os(iOS)
-        if #available(iOS 16.0, *), UIDevice.current.userInterfaceIdiom == .pad {
-            SidebarView(nowPlayingVM: nowPlayingVM)
-        } else {
+        switch EnsemblePlatformFeaturePolicy.currentRootNavigationShell {
+        case .sidebar:
+            #if os(iOS)
+            if #available(iOS 16.0, *) {
+                SidebarView(nowPlayingVM: nowPlayingVM)
+            } else {
+                MainTabView(nowPlayingVM: nowPlayingVM)
+            }
+            #elseif os(macOS)
+            if #available(macOS 13.0, *) {
+                SidebarView(nowPlayingVM: nowPlayingVM)
+            } else {
+                MainTabView(nowPlayingVM: nowPlayingVM)
+            }
+            #else
+            MainTabView(nowPlayingVM: nowPlayingVM)
+            #endif
+        case .tabs:
             MainTabView(nowPlayingVM: nowPlayingVM)
         }
-        #elseif os(macOS)
-        if #available(macOS 13.0, *) {
-            SidebarView(nowPlayingVM: nowPlayingVM)
-        } else {
-            MainTabView(nowPlayingVM: nowPlayingVM)
-        }
-        #else
-        MainTabView(nowPlayingVM: nowPlayingVM)
-        #endif
     }
 
     private var presentedNowPlayingViewModel: NowPlayingViewModel {

@@ -362,6 +362,32 @@ extension CDMood {
     }
 }
 
+// MARK: - CDHomeFeedSnapshot
+
+@objc(CDHomeFeedSnapshot)
+public class CDHomeFeedSnapshot: NSManagedObject {
+    @NSManaged public var id: String
+    @NSManaged public var sourceScopeKey: String?
+    @NSManaged public var sourceName: String?
+    @NSManaged public var createdAt: Date?
+    @NSManaged public var fetchedAt: Date?
+    @NSManaged public var refreshReason: String?
+    @NSManaged public var freshnessState: String?
+    @NSManaged public var schemaVersion: Int16
+    @NSManaged public var isLastGood: Bool
+    @NSManaged public var hubs: NSOrderedSet?
+}
+
+extension CDHomeFeedSnapshot {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDHomeFeedSnapshot> {
+        return NSFetchRequest<CDHomeFeedSnapshot>(entityName: "CDHomeFeedSnapshot")
+    }
+
+    public var hubsArray: [CDHub] {
+        return hubs?.array as? [CDHub] ?? []
+    }
+}
+
 // MARK: - CDHub
 
 @objc(CDHub)
@@ -369,8 +395,10 @@ public class CDHub: NSManagedObject {
     @NSManaged public var id: String
     @NSManaged public var title: String
     @NSManaged public var type: String
+    @NSManaged public var context: String?
     @NSManaged public var order: Int16
     @NSManaged public var items: NSOrderedSet?
+    @NSManaged public var snapshot: CDHomeFeedSnapshot?
 }
 
 extension CDHub {

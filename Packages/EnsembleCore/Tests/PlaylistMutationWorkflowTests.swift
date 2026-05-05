@@ -6,6 +6,10 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
     private final class StubMutator: PlaylistMutationWorkflowMutating {
         var renameOutcome: MutationOutcome = .completed
         var deleteOutcome: MutationOutcome = .completed
+        var addOutcome: MutationOutcome = .completed
+        var optimisticAddOutcome: MutationOutcome = .completed
+        var addResult: PlaylistMutationResult? = PlaylistMutationResult(addedCount: 1, skippedCount: 0)
+        var createResult = PlaylistMutationResult(addedCount: 1, skippedCount: 0)
         var renameError: Error?
         var deleteError: Error?
         var renameErrorIDs: Set<String> = []
@@ -15,6 +19,40 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
         private(set) var renamedTitle: String?
         private(set) var deletedPlaylistID: String?
         private(set) var deletedPlaylistIDs: [String] = []
+        private(set) var addedPlaylistID: String?
+        private(set) var addedTrackIDs: [String] = []
+        private(set) var optimisticAddedPlaylistID: String?
+        private(set) var createdPlaylistTitle: String?
+        private(set) var createdPlaylistServerSourceKey: String?
+
+        func addTracksToPlaylist(
+            _ tracks: [Track],
+            playlist: Playlist
+        ) async throws -> (PlaylistMutationResult?, MutationOutcome) {
+            addedPlaylistID = playlist.id
+            addedTrackIDs = tracks.map(\.id)
+            return (addResult, addOutcome)
+        }
+
+        func enqueuePlaylistAddOptimistically(
+            _ tracks: [Track],
+            playlist: Playlist
+        ) async throws -> MutationOutcome {
+            optimisticAddedPlaylistID = playlist.id
+            addedTrackIDs = tracks.map(\.id)
+            return optimisticAddOutcome
+        }
+
+        func createPlaylist(
+            title: String,
+            tracks: [Track],
+            serverSourceKey: String
+        ) async throws -> PlaylistMutationResult {
+            createdPlaylistTitle = title
+            createdPlaylistServerSourceKey = serverSourceKey
+            addedTrackIDs = tracks.map(\.id)
+            return createResult
+        }
 
         func renamePlaylist(_ playlist: Playlist, to newTitle: String) async throws -> MutationOutcome {
             if renameErrorIDs.contains(playlist.id) {
@@ -67,6 +105,88 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
         XCTAssertEqual(start?.pendingToast.dedupeKey, "sidebar-playlist-rename-pending-playlist-1")
         XCTAssertTrue(start?.pendingToast.isPersistent == true)
         XCTAssertTrue(start?.pendingToast.showsActivityIndicator == true)
+    }
+
+    func testAddTracksBuildsSuccessToastAndTapHandler() async throws {
+        let stub = StubMutator()
+        stub.addResult = PlaylistMutationResult(addedCount: 2, skippedCount: 0)
+        let workflow = PlaylistMutationWorkflow(mutator: stub)
+        let playlist = makePlaylist(title: "Road Trip")
+        var didTap = false
+
+        let result = try await workflow.addTracks(
+            [makeTrack(id: "track-1"), makeTrack(id: "track-2")],
+            to: playlist,
+            tapHandler: { didTap = true }
+        )
+
+        XCTAssertEqual(stub.addedPlaylistID, playlist.id)
+        XCTAssertEqual(stub.addedTrackIDs, ["track-1", "track-2"])
+        XCTAssertEqual(result.mutationResult.addedCount, 2)
+        XCTAssertEqual(result.toast.style, .success)
+        XCTAssertEqual(result.toast.title, "Added to Road Trip")
+        XCTAssertEqual(result.toast.message, "2 tracks added.")
+        result.toast.tapHandler?()
+        XCTAssertTrue(didTap)
+    }
+
+    func testAddTracksBuildsQueuedToast() async throws {
+        let stub = StubMutator()
+        stub.addOutcome = .queued
+        stub.addResult = nil
+        let workflow = PlaylistMutationWorkflow(mutator: stub)
+
+        let result = try await workflow.addTracks(
+            [makeTrack()],
+            to: makePlaylist(title: "Road Trip")
+        )
+
+        XCTAssertEqual(result.outcome, .queued)
+        XCTAssertEqual(result.mutationResult.addedCount, 0)
+        XCTAssertEqual(result.toast.style, .info)
+        XCTAssertEqual(result.toast.iconSystemName, "clock.arrow.circlepath")
+        XCTAssertEqual(result.toast.title, "Queued for Road Trip")
+    }
+
+    func testOptimisticAddRejectsEmptySelectionAndBuildsCompletedToast() async throws {
+        let stub = StubMutator()
+        let workflow = PlaylistMutationWorkflow(mutator: stub)
+
+        do {
+            _ = try await workflow.addTracksOptimistically([], to: makePlaylist())
+            XCTFail("Expected empty-selection failure")
+        } catch let error as PlaylistMutationError {
+            XCTAssertEqual(error, .emptySelection)
+        }
+
+        let result = try await workflow.addTracksOptimistically(
+            [makeTrack(id: "track-1")],
+            to: makePlaylist(title: "Road Trip")
+        )
+
+        XCTAssertEqual(stub.optimisticAddedPlaylistID, "playlist-1")
+        XCTAssertEqual(result.outcome, .completed)
+        XCTAssertEqual(result.toast.style, .success)
+        XCTAssertEqual(result.toast.message, "1 track queued for sync.")
+    }
+
+    func testCreatePlaylistBuildsWarningToastForSkippedTracks() async throws {
+        let stub = StubMutator()
+        stub.createResult = PlaylistMutationResult(addedCount: 3, skippedCount: 1)
+        let workflow = PlaylistMutationWorkflow(mutator: stub)
+
+        let result = try await workflow.createPlaylist(
+            title: "New Mix",
+            tracks: [makeTrack()],
+            serverSourceKey: "plex:account:server"
+        )
+
+        XCTAssertEqual(stub.createdPlaylistTitle, "New Mix")
+        XCTAssertEqual(stub.createdPlaylistServerSourceKey, "plex:account:server")
+        XCTAssertEqual(result.mutationResult.skippedCount, 1)
+        XCTAssertEqual(result.toast.style, .warning)
+        XCTAssertEqual(result.toast.title, "Created New Mix")
+        XCTAssertEqual(result.toast.message, "Added 3, skipped 1.")
     }
 
     func testBeginRenameRejectsEmptyTitle() {
@@ -227,6 +347,15 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
             title: title,
             isSmart: isSmart,
             sourceCompositeKey: "plex:account-1:server-1"
+        )
+    }
+
+    private func makeTrack(id: String = "track-1") -> Track {
+        Track(
+            id: id,
+            key: "/library/metadata/\(id)",
+            title: "Track \(id)",
+            sourceCompositeKey: "plex:account-1:server-1:library-1"
         )
     }
 

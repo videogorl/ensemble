@@ -88,7 +88,9 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
   - Delegates app-foreground and network-transition policy to `NetworkLifecycleController` so lifecycle events produce explicit refresh/invalidation plans before side effects run
   - Delegates API-client endpoint synchronization and registry observation to `ServerConnectionController` so sync flow no longer owns registry subscription tasks directly
 - `PlaylistActionService` -- Shared add-to-playlist source compatibility rules used by Now Playing and UI presentation wrappers; owns server-key normalization, cross-source filtering, dedupe, and source stamping for unknown-source tracks before playlist mutation calls
-- `PlaylistMutationWorkflow` -- Shared playlist rename/delete workflow used by playlist root, detail, sidebar/pinned, and merged-playlist batch surfaces; owns title trimming, mutation outcome routing, strict all-copy batch results, and pending/success/failure toast payload policy while views keep local navigation, confirmation, optimistic list state, and pin updates
+- `PlaylistMutationWorkflow` -- Shared playlist add/create/rename/delete workflow used by Now Playing, playlist root, detail, sidebar/pinned, and merged-playlist batch surfaces; owns playlist mutation outcome routing and toast payload policy while views keep local navigation, confirmation, optimistic list state, and pin updates
+- `TrackRatingMutationWorkflow` -- Shared favorite/rating mutation policy used by NowPlayingViewModel; owns queued/success/failure toast payloads while Now Playing keeps immediate optimistic rating state and local cache updates
+- `PinMutationWorkflow` -- Shared local pin/unpin/batch/reorder policy used by context menus, detail headers, sidebar, and pinned surfaces; pin feedback is intentionally silent because pins are local reversible preferences
 - `PlaylistDropResolver` / `MediaTrackResolver` -- Shared media drag/drop resolution for playlist copy/add flows; owns stable media-reference matching, album/playlist expansion policy, smart/merged target rejection, source compatibility, and track dedupe before UI calls playlist mutation APIs
 - `MediaFilterEngine` -- Shared library/detail/favorites filter rules with named configurations for intentional search-field and genre-filter differences across surfaces
 - `NavigationCoordinator` (@MainActor) -- Manages cross-view navigation state (artist/album deep links from NowPlayingView)
@@ -119,10 +121,11 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `AppBootstrapDiagnostics` -- Internal cold-launch diagnostics service wired through `DependencyContainer`; emits one structured startup summary after health checks, playback restoration, and startup sync settle so device logs capture account/sync/playback/offline bootstrap state in a single record
 - `ProgressiveStreamLoader` -- AVAssetResourceLoaderDelegate + URLSessionDataDelegate bridge. Proxies PMS's chunked transcode stream (via custom `ensemble-transcode://` scheme) to AVPlayer progressively, writing to a growing temp file. Post-download callbacks: `onDownloadComplete` for frequency analysis, `onDownloadFailed` for HTTP errors and invalid payloads. Validates HTTP status (non-2xx → `ProgressiveStreamError.httpError`) and payload size (< 256 bytes → `.invalidPayload`). Error body captured to diagnostic buffer (not written to audio file)
 - `ProgressiveStreamError` -- Error type for stream download failures: `.httpError(statusCode:bodySnippet:)` and `.invalidPayload(bytesReceived:)`. Mapped to `PlaybackError` in `PlaybackService.mapToPlaybackError`
-- `HubRepository` -- Repository for hub data persistence (implements `HubRepositoryProtocol`); manages CDHub/CDHubItem entities
-- `HomeHubLoader` -- Shared Feed hub snapshot loader used by both `HomeViewModel` and `BackgroundSyncScheduler` refresh paths
+- `HubRepository` -- Repository for Feed hub persistence (implements `HubRepositoryProtocol`); manages legacy `CDHub`/`CDHubItem` caches plus source-scoped `CDHomeFeedSnapshot` last-good snapshots with freshness metadata
+- `HomeHubLoader` -- Shared Feed hub snapshot loader used by both `HomeViewModel` and background refresh paths
   - Loads cached hub snapshots without creating UI observers
-  - Fetches + merges hubs, persists failed hub keys, and reapplies `HubOrderManager` ordering before returning a `HomeHubSnapshot`
+  - Fetches + merges hubs, persists failed hub keys, reapplies `HubOrderManager` ordering, and saves non-empty results as last-good `HomeFeedCachedSnapshot` records
+  - Empty or failed network fetches never replace the last-good Feed cache; `HomeViewModel` renders cache immediately and marks it stale while background reconciliation runs
   - Keeps background refresh work in a non-UI service so transient `HomeViewModel` instances are never created just to refresh Feed data
 - `HubOrderManager` -- Manages user-customizable hub section ordering per music source
   - Persists custom order to UserDefaults with per-source keys
@@ -141,7 +144,8 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `ServerHealthChecker` -- Concurrent health checks for all configured servers with automatic failover
 - `ServerConnectionController` (@MainActor) -- Internal network seam extracted from `SyncCoordinator`; owns registry-driven API-client URL updates and explicit endpoint refresh fan-out while `SyncCoordinator` remains the façade
 - `SettingsManager` (@MainActor) -- Manages accent colors, customizable tab configuration, and track swipe action layout settings
-- `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for hub refresh ~every 15min (system-controlled); background execution should call `HomeHubLoader` directly instead of instantiating `HomeViewModel`
+- `BackgroundRefreshCoordinator` -- Shared app-refresh and foreground freshness sequence for endpoint health, incremental sync, Feed snapshot refresh, Siri index rebuild, and Siri context refresh. iOS 16+ `BGAppRefreshTask` and iOS 15 foreground activation route through this coordinator so launch freshness policy is not duplicated.
+- `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for Feed/library refresh ~every 15min (system-controlled); background execution should call `BackgroundRefreshCoordinator` rather than instantiating `HomeViewModel`
 - `MoodRepository` -- Mood data persistence (CDMood)
 - `LibraryVisibilityStore` (@MainActor) -- Persists visibility profiles and active profile state for source-level browse filtering
 - `ToastCenter` (@MainActor) -- App-wide toast notification coordination
@@ -157,13 +161,15 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
   - Delegates debounced `downloadsDidChange` fan-out, view-context refresh routing, and queue-completion toast presentation to `OfflineDownloadNotificationBridge` so queue/target logic stays separate from UI-facing notifications
   - Runs `OfflineDownloadCleanupCoordinator` during startup and healing refreshes to remove completed downloads whose track files no longer belong to any offline target membership
   - Delegates direct-download, download-queue, file validation, completion recovery, and per-track post-completion work to `DownloadTransferExecutor` so retry policy and target-refresh logic stay in the façade
+  - Runs one interrupted-download recovery sweep on launch, foreground, background URLSession wake, iOS 26 continued-processing expiration, and macOS sleep/wake so persisted downloads never remain stuck in `.downloading`
+- `DownloadMutationWorkflow` -- Shared user-initiated download mutation boundary for favorites/library/album/artist/playlist target toggles, target removal, remove-all, and pause/resume actions. `OfflineDownloadService` remains the queue and target owner; views and view models route user actions through the workflow so feedback policy can stay centralized.
 - `DownloadQueueCoordinator` (@MainActor) -- Sole owner of offline queue task lifecycle, worker fan-out, background wakeup handling, and queue wind-down/restart decisions
 - `DownloadRetryPolicy` (@MainActor) -- Stateful transfer retry accounting and direct-original fallback gating for offline downloads
 - `DownloadTargetReconciler` -- Resolves offline target memberships, queues missing downloads, and deletes orphaned download files when targets change
 - `DownloadTransferExecutor` (@MainActor) -- Internal offline seam extracted from `OfflineDownloadService`; owns download-queue vs direct-original transfer execution, payload validation, completion recovery, artwork/lyrics/sidecar post-processing, and direct-fallback bookkeeping while the service keeps membership checks, retry policy, and target refresh decisions
 - `OfflineDownloadCleanupCoordinator` (@MainActor) -- Internal offline seam extracted from `OfflineDownloadService`; scans completed downloads for zero-membership tracks and removes stray files/records during startup and healing refreshes
 - `OfflineDownloadNotificationBridge` (@MainActor) -- Internal offline seam extracted from `OfflineDownloadService`; owns debounced `downloadsDidChange` posting, refresh fan-out, and queue-completion toast routing while the service keeps target and transfer logic
-- `OfflineBackgroundExecutionCoordinator` (@MainActor) -- Optional iOS 26+ `BGContinuedProcessingTask` adapter; no-op on unsupported platforms/OS versions
+- `OfflineDownloadBackgroundCoordinating` / `OfflineBackgroundExecutionCoordinator` (@MainActor) -- Offline download background boundary. Owns iOS 26+ `BGContinuedProcessingTask` registration/request/progress, app-delegate background URLSession completion-handler registry, and macOS `NSWorkspace` sleep/wake hooks. `OfflineDownloadService` remains the queue/source of truth; the coordinator only grants execution windows and routes platform events into recovery.
 - `FrequencyAnalysisService` -- Pre-computed audio frequency analysis using Accelerate FFT; produces `FrequencyTimeline` data for visualizer display decoupled from the audio pipeline
   - Owns a `VisualizationConsumer` visibility registry (`phoneOverlay`, `nowPlayingSheet`, `nowPlayingViewport`, `stageFlow`, `externalDisplay`, `rootBackdrop`) so the display timer only runs while at least one visible surface needs frames
   - Keeps the display timer demand-driven; visual surfaces select their own render-cost tier without throttling audio playback state updates
@@ -194,6 +200,9 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `SiriMediaIndex` / `SiriMediaIndexItem` -- Compact index records used by extension-side lookup/ranking
 
 **Key ViewModels:**
+- `NowPlayingViewModel` -- Playback, queue, lyrics, artwork, rating, and playlist action coordinator. It exposes focused `playbackProjection`, `queueProjection`, `artworkProjection`, `lyricsProjection`, and `ratingProjection` objects for SwiftUI surfaces that need state without subscribing to every Now Playing mutation.
+- `TrackActionDispatching` -- Main-actor action seam for browse rows/cards/native tables. `NowPlayingViewModel` conforms, so high-volume UI can dispatch playback, queue, favorite, and playlist actions through the protocol while observing only row-local state or focused projections.
+- `PlaylistViewModel` -- Playlist browse root state. It keeps a process-local last-good playlist snapshot, suppresses degraded empty/partial reload publishes over an already visible list, and exposes stale-snapshot state so Playlists can avoid jumpy blank-to-list transitions while cached CoreData results settle.
 - `PinnedViewModel` -- Fetches `PinnedItem` CoreData records and resolves them into full domain objects
 
 ### EnsembleUI (Presentation Layer)
@@ -202,8 +211,8 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - **Purpose:** All SwiftUI views and reusable components
 
 **Key Views:**
-- `RootView` -- Adapts by platform: tab navigation on iPhone, sidebar on iPad/macOS; also owns the root aurora layer, the single shared mini player overlay, and the scene-local navigation/Now Playing coordinators. On iPadOS/macOS, `SidebarView` keeps one stable app sidebar/detail shell and hosts Artists, Playlists, and Genres browse-list/detail splits inside the detail host.
-- `MiniPlayer` -- Persistent compact player overlay across all screens
+- `RootView` / app commands -- Adapt through `EnsemblePlatformFeaturePolicy`: tab navigation on iPhone/unsupported split-view platforms, sidebar on iPad/macOS when the OS supports the split shell, and shared command availability for Settings, refresh, macOS sidebar command removal, and macOS Playback menu. Platform renderers stay native; feature rules live in the policy. Root also owns the root aurora layer, the single shared mini player overlay, and the scene-local navigation/Now Playing coordinators. On iPadOS/macOS, `SidebarView` keeps one stable app sidebar/detail shell and hosts Artists, Playlists, and Genres browse-list/detail splits inside the detail host.
+- `MiniPlayer` -- Persistent compact player overlay across all screens. Its track, controls, waveform, menu, and background slices observe focused Now Playing projections and keep the full `NowPlayingViewModel` only for action dispatch.
 - `MediaDetailView` -- Unified detail view using `MediaDetailViewModelProtocol` (supports Artist, Album, Playlist, Favorites)
 - `ArtworkView` -- Local-first artwork loading with automatic fallback to network
 - `HomeView` -- Hub-based home screen with horizontally-scrolling sections
@@ -340,9 +349,10 @@ Dynamic home screen powered by Plex's hub system:
   - Artwork: 140x140pt, circular for artists (radius 70), rounded for albums (radius 8)
 
 **Hub Persistence:**
-- `HubRepository` manages `CDHub` and `CDHubItem` CoreData entities
-- Methods: `fetchHubs()`, `saveHubs()`, `deleteAllHubs()`
-- Offline-first: loads cached hubs immediately, fetches fresh in background
+- `HubRepository` manages `CDHomeFeedSnapshot`, `CDHub`, and `CDHubItem` CoreData entities
+- Last-good APIs: `fetchLatestHomeFeedSnapshot(sourceScopeKey:)`, `saveHomeFeedSnapshot(_:)`, `markHomeFeedSnapshotLastGood(id:freshnessState:)`, `deleteHomeFeedSnapshots(sourceScopeKey:)`
+- Legacy APIs: `fetchHubs()`, `saveHubs()`, `deleteAllHubs()` remain for compatibility and prefer the latest last-good snapshot when present
+- Offline-first: `HomeViewModel` loads cached hubs immediately, marks stale metadata, and fetches fresh in background without blanking existing content on failed/empty refreshes
 
 **Hub API Endpoints:**
 - `getHubs(sectionKey:)` -- Section-specific hubs
@@ -395,13 +405,14 @@ Dynamic home screen powered by Plex's hub system:
   - publishing `@Published activeDownloadRatingKeys: Set<String>` for UI download spinners in `TrackRow`/`MediaTrackList`
 - `DownloadManager` stores download quality and uses source-aware lookup/delete (`ratingKey + sourceCompositeKey`) to prevent collisions.
 - Queue policy is Wi-Fi/wired only; active downloads pause on cellular/offline and resume when allowed.
+- Recovery policy runs through `OfflineDownloadService.recoverInterruptedDownloads`: launch/foreground/wake/background URLSession events mark stale `.downloading` records pending when downloads can run, otherwise paused. macOS sleep and BG continued-processing expiration pause active bookkeeping without failing downloads.
 - Queue policy is also lifecycle-aware: user pause, Low Power Mode, app backgrounding, and iOS 26 continued-processing windows all feed the same scheduler so the service can pause aggressively on older devices without losing resumability.
 - Full target-progress recomputation is coalesced during playback/background load; per-track completion still uses targeted owning-target refreshes so UI accuracy is preserved without rebuilding every target on each queue event.
 - Sync integration:
   - `SyncCoordinator` publishes playlist refresh completion via `onPlaylistRefreshCompleted`.
   - `OfflineDownloadService` also watches source sync timestamps to reconcile library/album/artist targets after incremental/full sync updates.
 - iOS 26+ optional acceleration:
-  - `OfflineBackgroundExecutionCoordinator` submits/handles `BGContinuedProcessingTaskRequest`.
+  - `OfflineBackgroundExecutionCoordinator` submits/handles `BGContinuedProcessingTaskRequest`, stores iOS background URLSession completion handlers until recovery finishes, and observes macOS sleep/wake notifications.
   - Background path is best-effort only; persistent queue state remains source of truth.
 
 ## Subsystem: Siri Media Intents (In-App-First)
@@ -603,7 +614,7 @@ Universal link and audio file sharing for tracks and albums:
 3. **ShareSheetPresenter** (`EnsembleUI`) -- iOS 15-compatible `UIActivityViewController` wrapper with imperative presentation via topmost window scene. macOS uses `NSSharingServicePicker`.
 4. **ShareActions** (`EnsembleUI`) -- Static namespace bridging `ShareService` -> share sheet, with toast feedback for download progress and text fallback.
 5. **Context menu integration** -- "Share Link..." and "Share Audio File..." in `TrackRow`, `MediaTrackList`, and Now Playing ellipsis menu. "Share Link..." in `AlbumCard` context menu.
-6. **Drag and drop (iPad/macOS)** -- `MediaDragPayload` provides internal track/album/playlist references for Ensemble drop targets and file representations for external destinations. Playlist drop targets call Core `PlaylistDropResolver`; UI owns provider loading and toast presentation only.
+6. **Drag and drop (iPad/macOS)** -- `MediaDragPayload` provides internal track/album/playlist references for Ensemble drop targets and file representations for external track destinations. `MediaDragExportPolicy` owns copy-vs-move and external file-promise defaults and should be used by drag providers (`itemProvider`/macOS pasteboard writer) instead of calling payload export directly: tracks can copy to playlists/Finder, queue rows can move only inside the queue, albums/playlists are in-app payloads only. Playlist drop targets call Core `PlaylistDropResolver`; UI owns provider loading and toast presentation only.
 7. **MusicKit configuration** -- `com.apple.developer.music-kit` entitlement + `NSAppleMusicUsageDescription` in Info.plist. `#if canImport(MusicKit)` guard for watchOS 8.
 
 ## Subsystem: Mood-Based Browsing

@@ -97,23 +97,26 @@ struct EnsembleApp: App {
             // Settings shortcut (⌘,) — macOS app menu + iPadOS keyboard shortcut overlay
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
+                    guard EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesSettingsShortcut else { return }
                     NavigationCoordinator.openProfileFromActiveScene(
                         fallback: DependencyContainer.shared.navigationCoordinator
                     )
                 }
                 .keyboardShortcut(",", modifiers: .command)
+                .disabled(!EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesSettingsShortcut)
             }
 
             #if os(iOS)
             CommandGroup(after: .toolbar) {
                 Button(focusedRefreshAction?.title ?? "Refresh") {
-                    guard let action = focusedRefreshAction else { return }
+                    guard EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesRefreshCommand,
+                          let action = focusedRefreshAction else { return }
                     Task { @MainActor in
                         await action.perform()
                     }
                 }
                 .keyboardShortcut("r", modifiers: .command)
-                .disabled(focusedRefreshAction == nil)
+                .disabled(focusedRefreshAction == nil || !EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesRefreshCommand)
             }
             #endif
 
@@ -124,20 +127,24 @@ struct EnsembleApp: App {
 
             CommandGroup(after: .sidebar) {
                 Button(focusedRefreshAction?.title ?? "Refresh") {
-                    guard let action = focusedRefreshAction else { return }
+                    guard EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesRefreshCommand,
+                          let action = focusedRefreshAction else { return }
                     Task { @MainActor in
                         await action.perform()
                     }
                 }
                 .keyboardShortcut("r", modifiers: .command)
-                .disabled(focusedRefreshAction == nil)
+                .disabled(focusedRefreshAction == nil || !EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesRefreshCommand)
             }
 
             CommandMenu("Playback") {
                 Button("Play/Pause") {
-                    MacPlaybackShortcut.togglePlaybackIfAllowed()
+                    if EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesPlaybackCommandMenu {
+                        MacPlaybackShortcut.togglePlaybackIfAllowed()
+                    }
                 }
                 .keyboardShortcut(.space, modifiers: [])
+                .disabled(!EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesPlaybackCommandMenu)
             }
             #endif
         }
@@ -211,16 +218,13 @@ struct EnsembleApp: App {
                     DependencyContainer.shared.webSocketCoordinator.start()
                 }
 
-                // Route foreground refresh through SyncCoordinator to coalesce
-                // with network state transitions and cooldown/staleness guards.
-                await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
+                // Route foreground freshness through one coordinator so iOS 15
+                // foreground refresh and iOS background refresh share the same work.
+                await DependencyContainer.shared.backgroundRefreshCoordinator.performForegroundFreshnessRefresh()
                 await DependencyContainer.shared.reconcileSyncOnForeground()
 
                 // Drain any pending offline mutations now that connectivity may have resumed.
                 await DependencyContainer.shared.mutationCoordinator.drainQueue()
-
-                // Update Siri media user context in case library changed while backgrounded
-                await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
 
                 // Restart display timer if music was actively playing when backgrounded.
                 // Also resumes sidecar analysis so pending FFT jobs process in foreground.
@@ -275,6 +279,7 @@ struct EnsembleApp: App {
 
                 // Start monitoring when app becomes active (macOS)
                 DependencyContainer.shared.networkMonitor.startMonitoring()
+                DependencyContainer.shared.offlineBackgroundExecutionCoordinator.register()
                 await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
                 await DependencyContainer.shared.reconcileSyncOnForeground()
 
@@ -659,18 +664,10 @@ private func performBackgroundRefresh() async {
         BackgroundSyncScheduler.shared.scheduleAppRefresh()
     }
 
-    // Incremental library + playlist sync so the app is fresh before the user opens it.
-    // This is cheap — only fetches items added/updated since the last sync timestamp.
-    let syncCoordinator = await MainActor.run {
-        DependencyContainer.shared.syncCoordinator
+    let refreshCoordinator = await MainActor.run {
+        DependencyContainer.shared.backgroundRefreshCoordinator
     }
-    await syncCoordinator.syncAllIncremental()
-
-    // Refresh the cached Feed snapshot directly without instantiating a UI view model.
-    let homeHubLoader = await MainActor.run {
-        DependencyContainer.shared.homeHubLoader
-    }
-    _ = await homeHubLoader.loadSnapshot(applySavedOrder: true, hubCount: "12")
+    await refreshCoordinator.performAppRefresh()
 
     AppLogger.debug("✅ Background refresh complete")
 }

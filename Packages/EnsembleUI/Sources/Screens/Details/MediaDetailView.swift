@@ -348,14 +348,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     Button {
                         if let customAction = customPinAction {
                             customAction(isPinned)
-                        } else if isPinned {
-                            pinManager.unpin(id: ratingKey)
                         } else {
-                            pinManager.pin(
+                            deps.pinMutationWorkflow.togglePin(
                                 id: ratingKey,
                                 sourceKey: headerData.sourceKey ?? "",
                                 type: mediaType,
-                                title: headerData.title
+                                title: headerData.title,
+                                isPinned: isPinned
                             )
                         }
                     } label: {
@@ -373,7 +372,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
                         Button {
                             Task {
-                                await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
+                                await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
                             }
                         } label: {
                             MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
@@ -398,14 +397,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 Button {
                     if let customAction = customPinAction {
                         customAction(isPinned)
-                    } else if isPinned {
-                        pinManager.unpin(id: ratingKey)
                     } else {
-                        pinManager.pin(
+                        deps.pinMutationWorkflow.togglePin(
                             id: ratingKey,
                             sourceKey: headerData.sourceKey ?? "",
                             type: mediaType,
-                            title: headerData.title
+                            title: headerData.title,
+                            isPinned: isPinned
                         )
                     }
                 } label: {
@@ -425,7 +423,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
                         Button {
                             Task {
-                                await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
+                                await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
                             }
                         } label: {
                             MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
@@ -444,7 +442,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
                         Button {
                             Task {
-                                await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
+                                await deps.downloadMutationWorkflow.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
                             }
                         } label: {
                             MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
@@ -464,7 +462,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
                         Button {
                             Task {
-                                await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
+                                await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
                             }
                         } label: {
                             MediaActionLabel(kind: .download(isDownloaded: isDownloaded))

@@ -13,8 +13,8 @@ enum DownloadProcessingError: LocalizedError {
         switch self {
         case .invalidHTTPStatus(let statusCode):
             return "Download HTTP status \(statusCode)"
-        case .emptyPayload(let url):
-            return "Download payload was empty for \(url)"
+        case .emptyPayload(let context):
+            return "Download payload was empty for \(context)"
         case .truncatedPayload(let fileDuration, let expectedDuration):
             return "Download truncated: file is \(String(format: "%.1f", fileDuration))s but expected \(String(format: "%.1f", expectedDuration))s"
         }
@@ -121,7 +121,7 @@ final class DownloadTransferExecutor {
             attemptedDirectFallback = requestedQuality != .original
 
             EnsembleLogger.debug(
-                "⬇️ Offline download attempt: track=\(ctx.trackRatingKey) stage=\(selectedMode) url=\(selectedURL)"
+                "⬇️ Offline download attempt: track=\(ctx.trackRatingKey) stage=\(selectedMode)"
             )
 
             let (temporaryURL, response) = try await dependencies.performDirectDownload(
@@ -151,7 +151,7 @@ final class DownloadTransferExecutor {
             let temporaryAttributes = try? FileManager.default.attributesOfItem(atPath: temporaryURL.path)
             let temporaryFileSize = (temporaryAttributes?[.size] as? NSNumber)?.int64Value ?? 0
             guard temporaryFileSize > 0 else {
-                throw DownloadProcessingError.emptyPayload(selectedURL.absoluteString)
+                throw DownloadProcessingError.emptyPayload(selectedMode)
             }
 
             let destinationURL = Self.localFileURL(
@@ -169,7 +169,7 @@ final class DownloadTransferExecutor {
             let destinationFileSize = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
             let persistedFileSize = max(temporaryFileSize, destinationFileSize)
             guard persistedFileSize > 0 else {
-                throw DownloadProcessingError.emptyPayload(selectedURL.absoluteString)
+                throw DownloadProcessingError.emptyPayload(selectedMode)
             }
 
             // Diagnostic: log Content-Type and file magic bytes to verify transcode actually happened

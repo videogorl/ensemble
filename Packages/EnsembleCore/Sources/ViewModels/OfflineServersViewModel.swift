@@ -21,11 +21,17 @@ public final class OfflineServersViewModel: ObservableObject {
 
     private let accountManager: AccountManager
     private let offlineDownloadService: OfflineDownloadService
+    private let downloadMutationWorkflow: DownloadMutationWorkflow
     private var cancellables = Set<AnyCancellable>()
 
-    public init(accountManager: AccountManager, offlineDownloadService: OfflineDownloadService) {
+    public init(
+        accountManager: AccountManager,
+        offlineDownloadService: OfflineDownloadService,
+        downloadMutationWorkflow: DownloadMutationWorkflow? = nil
+    ) {
         self.accountManager = accountManager
         self.offlineDownloadService = offlineDownloadService
+        self.downloadMutationWorkflow = downloadMutationWorkflow ?? DownloadMutationWorkflow(mutator: offlineDownloadService)
 
         accountManager.$plexAccounts
             .sink { [weak self] _ in
@@ -48,7 +54,7 @@ public final class OfflineServersViewModel: ObservableObject {
     }
 
     public func setLibraryEnabled(sourceCompositeKey: String, title: String, isEnabled: Bool) async {
-        await offlineDownloadService.setLibraryDownloadEnabled(
+        await downloadMutationWorkflow.setLibraryDownloadEnabled(
             sourceCompositeKey: sourceCompositeKey,
             displayName: title,
             isEnabled: isEnabled

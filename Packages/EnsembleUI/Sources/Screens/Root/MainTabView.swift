@@ -862,7 +862,7 @@ public struct SidebarView: View {
                 }
 
                 handlePinnedSelectionRemoval(ids: [playlist.id], fallback: .library(.playlists))
-                pinManager.unpin(id: playlist.id)
+                deps.pinMutationWorkflow.unpin(id: playlist.id)
                 deps.toastCenter.dismiss(id: deletingToast.id)
                 deps.toastCenter.show(result.successToast)
             } catch {
@@ -901,7 +901,7 @@ public struct SidebarView: View {
                         for: playlist.id,
                         expectedTitle: start.trimmedTitle
                     )
-                    pinManager.updateTitle(id: playlist.id, title: start.trimmedTitle)
+                    deps.pinMutationWorkflow.updateTitle(id: playlist.id, title: start.trimmedTitle)
                 }
 
                 deps.toastCenter.dismiss(id: renamingToast.id)
@@ -1454,9 +1454,9 @@ public struct SidebarView: View {
                     customPinAction: { isPinned in
                         if isPinned {
                             handlePinnedSelectionRemoval(ids: [pinnedItem.id], fallback: .library(.artists))
-                            pinManager.unpin(id: pinnedItem.id)
+                            deps.pinMutationWorkflow.unpin(id: pinnedItem.id)
                         } else {
-                            pinManager.pin(
+                            deps.pinMutationWorkflow.pin(
                                 id: artist.id,
                                 sourceKey: artist.sourceCompositeKey ?? "",
                                 type: .artist,
@@ -1495,9 +1495,9 @@ public struct SidebarView: View {
                     customPinAction: { isPinned in
                         if isPinned {
                             handlePinnedSelectionRemoval(ids: [pinnedItem.id], fallback: .library(.albums))
-                            pinManager.unpin(id: pinnedItem.id)
+                            deps.pinMutationWorkflow.unpin(id: pinnedItem.id)
                         } else {
-                            pinManager.pin(
+                            deps.pinMutationWorkflow.pin(
                                 id: album.id,
                                 sourceKey: album.sourceCompositeKey ?? "",
                                 type: .album,
@@ -1534,9 +1534,9 @@ public struct SidebarView: View {
                     customPinAction: { isPinned in
                         if isPinned {
                             handlePinnedSelectionRemoval(ids: [pinnedItem.id], fallback: .library(.playlists))
-                            pinManager.unpin(id: pinnedItem.id)
+                            deps.pinMutationWorkflow.unpin(id: pinnedItem.id)
                         } else {
-                            pinManager.pin(
+                            deps.pinMutationWorkflow.pin(
                                 id: playlist.id,
                                 sourceKey: playlist.sourceCompositeKey ?? "",
                                 type: .playlist,
@@ -1580,7 +1580,7 @@ public struct SidebarView: View {
                             ids: Set(pinnedItems.map(\.id)),
                             fallback: .library(.playlists)
                         )
-                        pinManager.unpinAll(ids: Set(pinnedItems.map(\.id)))
+                        deps.pinMutationWorkflow.unpinAll(ids: Set(pinnedItems.map(\.id)))
                     }
                 )
             }

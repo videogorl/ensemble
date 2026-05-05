@@ -2,6 +2,23 @@ import Foundation
 
 @MainActor
 public protocol PlaylistMutationWorkflowMutating: AnyObject {
+    func addTracksToPlaylist(
+        _ tracks: [Track],
+        playlist: Playlist
+    ) async throws -> (PlaylistMutationResult?, MutationOutcome)
+
+    @discardableResult
+    func enqueuePlaylistAddOptimistically(
+        _ tracks: [Track],
+        playlist: Playlist
+    ) async throws -> MutationOutcome
+
+    func createPlaylist(
+        title: String,
+        tracks: [Track],
+        serverSourceKey: String
+    ) async throws -> PlaylistMutationResult
+
     @discardableResult
     func renamePlaylist(_ playlist: Playlist, to newTitle: String) async throws -> MutationOutcome
 
@@ -39,6 +56,38 @@ public struct PlaylistRenameWorkflowResult {
     public init(outcome: MutationOutcome, successToast: ToastPayload) {
         self.outcome = outcome
         self.successToast = successToast
+    }
+}
+
+public struct PlaylistAddWorkflowResult {
+    public let mutationResult: PlaylistMutationResult
+    public let outcome: MutationOutcome
+    public let toast: ToastPayload
+
+    public init(mutationResult: PlaylistMutationResult, outcome: MutationOutcome, toast: ToastPayload) {
+        self.mutationResult = mutationResult
+        self.outcome = outcome
+        self.toast = toast
+    }
+}
+
+public struct PlaylistOptimisticAddWorkflowResult {
+    public let outcome: MutationOutcome
+    public let toast: ToastPayload
+
+    public init(outcome: MutationOutcome, toast: ToastPayload) {
+        self.outcome = outcome
+        self.toast = toast
+    }
+}
+
+public struct PlaylistCreateWorkflowResult {
+    public let mutationResult: PlaylistMutationResult
+    public let toast: ToastPayload
+
+    public init(mutationResult: PlaylistMutationResult, toast: ToastPayload) {
+        self.mutationResult = mutationResult
+        self.toast = toast
     }
 }
 
@@ -87,14 +136,77 @@ public final class PlaylistMutationWorkflow {
         static let edit = "pencil"
         static let editSuccess = "pencil.circle.fill"
         static let failure = "xmark.octagon.fill"
+        static let playlistCreate = "plus.circle.fill"
         static let queued = "clock.arrow.circlepath"
         static let success = "checkmark.circle.fill"
+        static let warning = "exclamationmark.triangle.fill"
     }
 
     private let mutator: PlaylistMutationWorkflowMutating
 
     public init(mutator: PlaylistMutationWorkflowMutating) {
         self.mutator = mutator
+    }
+
+    public func addTracks(
+        _ tracks: [Track],
+        to playlist: Playlist,
+        tapHandler: (() -> Void)? = nil
+    ) async throws -> PlaylistAddWorkflowResult {
+        let (resultOrNil, outcome) = try await mutator.addTracksToPlaylist(tracks, playlist: playlist)
+
+        if outcome == .queued {
+            return PlaylistAddWorkflowResult(
+                mutationResult: PlaylistMutationResult(addedCount: 0, skippedCount: 0),
+                outcome: outcome,
+                toast: queuedAddToast(playlist: playlist)
+            )
+        }
+
+        let result = resultOrNil ?? PlaylistMutationResult(addedCount: 0, skippedCount: 0)
+        return PlaylistAddWorkflowResult(
+            mutationResult: result,
+            outcome: outcome,
+            toast: addToast(playlist: playlist, result: result, tapHandler: tapHandler)
+        )
+    }
+
+    public func addTracksOptimistically(
+        _ tracks: [Track],
+        to playlist: Playlist,
+        tapHandler: (() -> Void)? = nil
+    ) async throws -> PlaylistOptimisticAddWorkflowResult {
+        guard !tracks.isEmpty else {
+            throw PlaylistMutationError.emptySelection
+        }
+
+        let outcome = try await mutator.enqueuePlaylistAddOptimistically(tracks, playlist: playlist)
+        return PlaylistOptimisticAddWorkflowResult(
+            outcome: outcome,
+            toast: optimisticAddToast(
+                playlist: playlist,
+                addedCount: tracks.count,
+                outcome: outcome,
+                tapHandler: tapHandler
+            )
+        )
+    }
+
+    public func createPlaylist(
+        title: String,
+        tracks: [Track],
+        serverSourceKey: String
+    ) async throws -> PlaylistCreateWorkflowResult {
+        let result = try await mutator.createPlaylist(
+            title: title,
+            tracks: tracks,
+            serverSourceKey: serverSourceKey
+        )
+
+        return PlaylistCreateWorkflowResult(
+            mutationResult: result,
+            toast: createToast(title: title, result: result)
+        )
     }
 
     public func beginRename(
@@ -336,5 +448,81 @@ public final class PlaylistMutationWorkflow {
         playlistID: String
     ) -> String {
         "\(scope.dedupePrefix)-\(action)-\(state)-\(playlistID)"
+    }
+
+    private func queuedAddToast(playlist: Playlist) -> ToastPayload {
+        ToastPayload(
+            style: .info,
+            iconSystemName: Icon.queued,
+            title: "Queued for \(playlist.title)",
+            message: "Will be added when back online.",
+            dedupeKey: "playlist-add-queued-\(playlist.id)"
+        )
+    }
+
+    private func addToast(
+        playlist: Playlist,
+        result: PlaylistMutationResult,
+        tapHandler: (() -> Void)?
+    ) -> ToastPayload {
+        if result.skippedCount > 0 {
+            return ToastPayload(
+                style: .warning,
+                iconSystemName: Icon.warning,
+                title: "Added to \(playlist.title)",
+                message: "Added \(result.addedCount), skipped \(result.skippedCount) incompatible.",
+                tapHandler: tapHandler,
+                dedupeKey: "playlist-add-\(playlist.id)"
+            )
+        }
+
+        return ToastPayload(
+            style: .success,
+            iconSystemName: Icon.success,
+            title: "Added to \(playlist.title)",
+            message: result.addedCount == 1 ? "1 track added." : "\(result.addedCount) tracks added.",
+            tapHandler: tapHandler,
+            dedupeKey: "playlist-add-\(playlist.id)"
+        )
+    }
+
+    private func optimisticAddToast(
+        playlist: Playlist,
+        addedCount: Int,
+        outcome: MutationOutcome,
+        tapHandler: (() -> Void)?
+    ) -> ToastPayload {
+        if outcome == .queued {
+            return queuedAddToast(playlist: playlist)
+        }
+
+        return ToastPayload(
+            style: .success,
+            iconSystemName: Icon.success,
+            title: "Added to \(playlist.title)",
+            message: addedCount == 1 ? "1 track queued for sync." : "\(addedCount) tracks queued for sync.",
+            tapHandler: tapHandler,
+            dedupeKey: "playlist-add-optimistic-\(playlist.id)"
+        )
+    }
+
+    private func createToast(title: String, result: PlaylistMutationResult) -> ToastPayload {
+        if result.skippedCount > 0 {
+            return ToastPayload(
+                style: .warning,
+                iconSystemName: Icon.playlistCreate,
+                title: "Created \(title)",
+                message: "Added \(result.addedCount), skipped \(result.skippedCount).",
+                dedupeKey: "playlist-create-\(title.lowercased())"
+            )
+        }
+
+        return ToastPayload(
+            style: .success,
+            iconSystemName: Icon.playlistCreate,
+            title: "Created \(title)",
+            message: result.addedCount == 1 ? "1 track added." : "\(result.addedCount) tracks added.",
+            dedupeKey: "playlist-create-\(title.lowercased())"
+        )
     }
 }

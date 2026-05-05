@@ -15,170 +15,13 @@ public struct MusicSourceAccountDetailView: View {
     }
 
     public var body: some View {
-        List {
-            // Pending offline mutations — navigate to detail
-            if viewModel.pendingMutationCount > 0 {
-                Section {
-                    NavigationLink {
-                        PendingMutationsView()
-                    } label: {
-                        PendingChangesRow(count: viewModel.pendingMutationCount)
-                    }
-                }
+        EnsembleAdaptiveUtilityScaffold(title: viewModel.accountIdentifier) {
+            List {
+                accountListSections
             }
-
-            if viewModel.isAccountMissing {
-                Section {
-                    Text("This account is no longer available.")
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                }
-            } else {
-                if viewModel.isReauthenticationRequired {
-                    Section {
-                        Text("Session expired. Re-authenticate this account to change libraries or sync.")
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    }
-                } else {
-                    // Server/library sections
-                    ForEach(viewModel.sections) { server in
-                        Section {
-                            // Show scan progress bar when server is scanning
-                            if let scanProgress = viewModel.scanProgressByServer[server.id] {
-                                VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.detailTextSpacing) {
-                                    HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
-                                        Image(systemName: EnsembleDesign.Icon.search)
-                                            .font(EnsembleDesign.Typography.rowSecondary)
-                                            .foregroundColor(EnsembleDesign.Color.accent)
-                                        Text("Scanning library…")
-                                            .font(EnsembleDesign.Typography.rowSecondary)
-                                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                                    }
-                                    ProgressView(value: Double(scanProgress), total: EnsembleScaffold.UtilityRow.percentProgressTotal)
-                                        .tint(EnsembleDesign.Color.accent)
-                                }
-                                .padding(.vertical, EnsembleScaffold.UtilityRow.tightVerticalPadding)
-                            }
-
-                            if let refreshError = viewModel.serverLibraryErrors[server.id] {
-                                Text(refreshError)
-                                    .font(EnsembleDesign.Typography.rowSecondary)
-                                    .foregroundColor(EnsembleDesign.Color.destructive)
-                            }
-
-                            if server.libraries.isEmpty {
-                                Text("No music libraries found")
-                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            } else {
-                                ForEach(server.libraries) { library in
-                                    LibrarySyncStatusRow(row: library) {
-                                        Task {
-                                            await viewModel.toggleLibrary(library)
-                                        }
-                                    }
-                                    .disabled(viewModel.isReauthenticationRequired)
-                                }
-                            }
-                        } header: {
-                            HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
-                                Text(server.serverName)
-                                if let platform = server.serverPlatform {
-                                    Text("(\(platform))")
-                                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                                }
-                                Spacer()
-                                ServerFeatureBadges(section: server)
-                            }
-                        }
-                    }
-                }
-
-                // Sync buttons
-                Section {
-                    Button {
-                        Task {
-                            await viewModel.syncEnabledLibraries()
-                        }
-                    } label: {
-                        HStack {
-                            EnsembleUtilityIcon(EnsembleDesign.Icon.refreshCycle)
-                            Text("Sync Enabled Libraries")
-                            Spacer()
-                            if viewModel.isSyncingEnabledLibraries {
-                                ProgressView()
-                            }
-                        }
-                    }
-                    .disabled(!viewModel.hasEnabledLibraries || viewModel.isSyncingEnabledLibraries || viewModel.isReauthenticationRequired)
-
-                    Button {
-                        Task {
-                            await viewModel.refreshAvailableLibraries()
-                        }
-                    } label: {
-                        HStack {
-                            EnsembleUtilityIcon(EnsembleDesign.Icon.retry)
-                            Text("Refresh Available Libraries")
-                            Spacer()
-                            if viewModel.isRefreshingInventory {
-                                ProgressView()
-                            }
-                        }
-                    }
-                    .disabled(viewModel.isRefreshingInventory || viewModel.isReauthenticationRequired)
-
-                    if viewModel.isRefreshingInventory {
-                        HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
-                            ProgressView()
-                            Text("Checking for library updates…")
-                                .font(EnsembleDesign.Typography.rowSecondary)
-                                .foregroundColor(EnsembleDesign.Color.secondaryText)
-                        }
-                    }
-
-                    if let error = viewModel.error {
-                        Text(error)
-                            .font(EnsembleDesign.Typography.rowSecondary)
-                            .foregroundColor(EnsembleDesign.Color.destructive)
-                    }
-                }
-
-                // Feature legend (plain text, no cell styling)
-                Section {
-                    VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
-                        featureLegendRow(icon: EnsembleDesign.Icon.ticket, text: "Plex Pass: Higher quality transcoding and lyrics")
-                        featureLegendRow(icon: EnsembleDesign.Icon.lyrics, text: "Lyrics: Time-synced lyrics via LyricFind")
-                        featureLegendRow(icon: EnsembleDesign.Icon.infinity, text: "Radio: Sonically similar radio stations")
-                    }
-                    .padding(.vertical, EnsembleScaffold.UtilityRow.negativeListPadding)
-                    .listRowBackground(Color.clear)
-                    #if os(iOS)
-                    .listRowSeparator(.hidden)
-                    #endif
-                } header: {
-                    EnsembleUtilitySectionHeader("Legend")
-                }
-
-                // Remove source
-                Section {
-                    Button(role: .destructive) {
-                        showingRemoveSourceAlert = true
-                    } label: {
-                        HStack {
-                            Text("Remove Source")
-                            Spacer()
-                            if viewModel.isRemovingAccount {
-                                ProgressView()
-                            }
-                        }
-                    }
-                    .disabled(viewModel.isRemovingAccount)
-                }
-            }
+        } regularContent: {
+            accountCardSections
         }
-        .navigationTitle(viewModel.accountIdentifier)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
         .miniPlayerBottomSpacing()
         .alert("Remove Source", isPresented: $showingRemoveSourceAlert) {
             Button("Cancel", role: .cancel) {}
@@ -196,6 +39,292 @@ public struct MusicSourceAccountDetailView: View {
         .task {
             await viewModel.performInitialRefreshIfNeeded()
         }
+    }
+
+    @ViewBuilder
+    private var accountListSections: some View {
+        if viewModel.pendingMutationCount > 0 {
+            Section {
+                pendingChangesLink
+            }
+        }
+
+        if viewModel.isAccountMissing {
+            Section {
+                Text("This account is no longer available.")
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+            }
+        } else {
+            if viewModel.isReauthenticationRequired {
+                Section {
+                    Text("Session expired. Re-authenticate this account to change libraries or sync.")
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+            } else {
+                ForEach(viewModel.sections) { server in
+                    Section {
+                        serverLibraryRows(for: server, cardRows: false)
+                    } header: {
+                        serverHeader(server)
+                    }
+                }
+            }
+
+            Section {
+                syncActionsRows(cardRows: false)
+            }
+
+            Section {
+                featureLegendContent
+                    .padding(.vertical, EnsembleScaffold.UtilityRow.negativeListPadding)
+                    .listRowBackground(Color.clear)
+                    #if os(iOS)
+                    .listRowSeparator(.hidden)
+                    #endif
+            } header: {
+                EnsembleUtilitySectionHeader("Legend")
+            }
+
+            Section {
+                removeSourceButton
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var accountCardSections: some View {
+        if viewModel.pendingMutationCount > 0 {
+            EnsembleUtilityCardSection {
+                EnsembleUtilityCardRow {
+                    pendingChangesLink
+                }
+            }
+        }
+
+        if viewModel.isAccountMissing {
+            EnsembleUtilityCardSection {
+                EnsembleUtilityCardRow {
+                    Text("This account is no longer available.")
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+            }
+        } else {
+            if viewModel.isReauthenticationRequired {
+                EnsembleUtilityCardSection {
+                    EnsembleUtilityCardRow {
+                        Text("Session expired. Re-authenticate this account to change libraries or sync.")
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    }
+                }
+            } else {
+                ForEach(viewModel.sections) { server in
+                    EnsembleUtilityCardSection {
+                        EnsembleUtilityCardRow {
+                            serverHeader(server)
+                        }
+
+                        EnsembleUtilityCardDivider()
+
+                        serverLibraryRows(for: server, cardRows: true)
+                    }
+                }
+            }
+
+            EnsembleUtilityCardSection {
+                syncActionsRows(cardRows: true)
+            }
+
+            EnsembleUtilityCardSection("Legend") {
+                EnsembleUtilityCardRow {
+                    featureLegendContent
+                }
+            }
+
+            EnsembleUtilityCardSection {
+                EnsembleUtilityCardRow {
+                    removeSourceButton
+                }
+            }
+        }
+    }
+
+    private var pendingChangesLink: some View {
+        NavigationLink {
+            PendingMutationsView()
+        } label: {
+            PendingChangesRow(count: viewModel.pendingMutationCount)
+        }
+    }
+
+    private func serverHeader(_ server: MusicSourceAccountDetailViewModel.ServerSection) -> some View {
+        HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
+            Text(server.serverName)
+            if let platform = server.serverPlatform {
+                Text("(\(platform))")
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+            }
+            Spacer()
+            ServerFeatureBadges(section: server)
+        }
+    }
+
+    @ViewBuilder
+    private func serverLibraryRows(
+        for server: MusicSourceAccountDetailViewModel.ServerSection,
+        cardRows: Bool
+    ) -> some View {
+        if let scanProgress = viewModel.scanProgressByServer[server.id] {
+            utilityRow(cardRows: cardRows) {
+                VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.detailTextSpacing) {
+                    HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
+                        Image(systemName: EnsembleDesign.Icon.search)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.accent)
+                        Text("Scanning library…")
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    }
+                    ProgressView(value: Double(scanProgress), total: EnsembleScaffold.UtilityRow.percentProgressTotal)
+                        .tint(EnsembleDesign.Color.accent)
+                }
+                .padding(.vertical, EnsembleScaffold.UtilityRow.tightVerticalPadding)
+            }
+        }
+
+        if let refreshError = viewModel.serverLibraryErrors[server.id] {
+            utilityRow(cardRows: cardRows) {
+                Text(refreshError)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.destructive)
+            }
+        }
+
+        if server.libraries.isEmpty {
+            utilityRow(cardRows: cardRows) {
+                Text("No music libraries found")
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+            }
+        } else {
+            ForEach(server.libraries) { library in
+                utilityRow(cardRows: cardRows) {
+                    LibrarySyncStatusRow(row: library) {
+                        Task {
+                            await viewModel.toggleLibrary(library)
+                        }
+                    }
+                    .disabled(viewModel.isReauthenticationRequired)
+                }
+
+                if cardRows && library.id != server.libraries.last?.id {
+                    EnsembleUtilityCardDivider()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func syncActionsRows(cardRows: Bool) -> some View {
+        utilityRow(cardRows: cardRows) {
+            Button {
+                Task {
+                    await viewModel.syncEnabledLibraries()
+                }
+            } label: {
+                HStack {
+                    EnsembleUtilityIcon(EnsembleDesign.Icon.refreshCycle)
+                    Text("Sync Enabled Libraries")
+                    Spacer()
+                    if viewModel.isSyncingEnabledLibraries {
+                        ProgressView()
+                    }
+                }
+            }
+            .disabled(!viewModel.hasEnabledLibraries || viewModel.isSyncingEnabledLibraries || viewModel.isReauthenticationRequired)
+        }
+
+        if cardRows {
+            EnsembleUtilityCardDivider()
+        }
+
+        utilityRow(cardRows: cardRows) {
+            Button {
+                Task {
+                    await viewModel.refreshAvailableLibraries()
+                }
+            } label: {
+                HStack {
+                    EnsembleUtilityIcon(EnsembleDesign.Icon.retry)
+                    Text("Refresh Available Libraries")
+                    Spacer()
+                    if viewModel.isRefreshingInventory {
+                        ProgressView()
+                    }
+                }
+            }
+            .disabled(viewModel.isRefreshingInventory || viewModel.isReauthenticationRequired)
+        }
+
+        if viewModel.isRefreshingInventory {
+            if cardRows {
+                EnsembleUtilityCardDivider()
+            }
+            utilityRow(cardRows: cardRows) {
+                HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
+                    ProgressView()
+                    Text("Checking for library updates…")
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+            }
+        }
+
+        if let error = viewModel.error {
+            if cardRows {
+                EnsembleUtilityCardDivider()
+            }
+            utilityRow(cardRows: cardRows) {
+                Text(error)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.destructive)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func utilityRow<Content: View>(
+        cardRows: Bool,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if cardRows {
+            EnsembleUtilityCardRow {
+                content()
+            }
+        } else {
+            content()
+        }
+    }
+
+    private var featureLegendContent: some View {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
+            featureLegendRow(icon: EnsembleDesign.Icon.ticket, text: "Plex Pass: Higher quality transcoding and lyrics")
+            featureLegendRow(icon: EnsembleDesign.Icon.lyrics, text: "Lyrics: Time-synced lyrics via LyricFind")
+            featureLegendRow(icon: EnsembleDesign.Icon.infinity, text: "Radio: Sonically similar radio stations")
+        }
+    }
+
+    private var removeSourceButton: some View {
+        Button(role: .destructive) {
+            showingRemoveSourceAlert = true
+        } label: {
+            HStack {
+                Text("Remove Source")
+                Spacer()
+                if viewModel.isRemovingAccount {
+                    ProgressView()
+                }
+            }
+        }
+        .disabled(viewModel.isRemovingAccount)
     }
 
     private func featureLegendRow(icon: String, text: String) -> some View {

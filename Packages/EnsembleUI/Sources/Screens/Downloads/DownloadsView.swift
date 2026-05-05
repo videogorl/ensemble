@@ -4,10 +4,6 @@ import SwiftUI
 public struct DownloadsView: View {
     @StateObject private var viewModel: DownloadsViewModel
     let nowPlayingVM: NowPlayingViewModel
-    @Environment(\.dependencies) private var deps
-    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
-    @State private var isRefreshingDownloadQuality = false
-    @AppStorage("downloadQuality") private var downloadQuality = "high"
 
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeDownloadsViewModel())
@@ -429,102 +425,22 @@ public struct DownloadsView: View {
         DownloadTargetDetailView(summary: item, nowPlayingVM: nowPlayingVM)
     }
 
-    private func refreshCompletedDownloadsForCurrentQuality() async {
-        guard !isRefreshingDownloadQuality else { return }
-        isRefreshingDownloadQuality = true
-
-        let refreshResult = await deps.offlineDownloadService.requeueCompletedDownloadsForCurrentQuality()
-        await viewModel.refresh()
-
-        let qualityLabel = formattedQuality(downloadQuality)
-        if refreshResult.requeuedCount > 0 {
-            let skippedSuffix: String
-            if refreshResult.skippedUnsupportedCount > 0 {
-                skippedSuffix = " \(refreshResult.skippedUnsupportedCount) track\(refreshResult.skippedUnsupportedCount == 1 ? " was" : "s were") skipped because this server only supports original-quality offline downloads."
-            } else {
-                skippedSuffix = ""
-            }
-            let requeuedTrackSuffix = refreshResult.requeuedCount == 1 ? "" : "s"
-            deps.toastCenter.show(
-                ToastPayload(
-                    style: .info,
-                    iconSystemName: EnsembleDesign.Icon.refreshCycle,
-                    title: "Refreshing Downloads",
-                    message: "Re-queued \(refreshResult.requeuedCount) track\(requeuedTrackSuffix) for \(qualityLabel) quality.\(skippedSuffix)"
-                )
-            )
-        } else if refreshResult.skippedUnsupportedCount > 0 {
-            let skippedTrackSuffix = refreshResult.skippedUnsupportedCount == 1 ? "" : "s"
-            deps.toastCenter.show(
-                ToastPayload(
-                    style: .warning,
-                    iconSystemName: EnsembleDesign.Icon.errorOutline,
-                    title: "Original Quality Only",
-                    message: "\(refreshResult.skippedUnsupportedCount) track\(skippedTrackSuffix) skipped because this server rejects offline transcode requests."
-                )
-            )
-        } else {
-            deps.toastCenter.show(
-                ToastPayload(
-                    style: .info,
-                    iconSystemName: EnsembleDesign.Icon.checkmarkOutline,
-                    title: "Downloads Up to Date",
-                    message: "Completed downloads already match \(qualityLabel) quality."
-                )
-            )
-        }
-
-        isRefreshingDownloadQuality = false
-    }
-
-    private func formattedQuality(_ quality: String) -> String {
-        switch quality {
-        case "high":
-            return "high (320 kbps)"
-        case "medium":
-            return "medium (192 kbps)"
-        case "low":
-            return "low (128 kbps)"
-        default:
-            return "original"
-        }
-    }
-
-    /// Whether any download target has tracks needing a quality refresh or retry
-    private var anyItemNeedsRefresh: Bool {
-        viewModel.items.contains { $0.needsRefresh }
-    }
-
     /// Whether any items have non-completed tracks (pending/downloading/paused)
     private var hasActiveDownloads: Bool {
         viewModel.items.contains { $0.status != .completed }
     }
 
-    /// Toolbar button that switches between refresh, pause, and resume states
+    /// Toolbar button that switches between pause and resume states.
     @ViewBuilder
     private var queueControlButton: some View {
         if !viewModel.items.isEmpty {
-            if anyItemNeedsRefresh {
-                // Refresh mode — re-queue mismatched/failed tracks
-                Button {
-                    Task { await refreshCompletedDownloadsForCurrentQuality() }
-                } label: {
-                    if isRefreshingDownloadQuality {
-                        ProgressView()
-                    } else {
-                        Label("Refresh Downloads", systemImage: EnsembleDesign.Icon.refreshCycle)
-                    }
-                }
-                .disabled(isRefreshingDownloadQuality)
-            } else if viewModel.isQueueRunning {
-                // Pause mode — queue is actively downloading
+            if viewModel.isQueueRunning {
                 Button {
                     Task { await viewModel.pauseQueue() }
                 } label: {
                     Label("Pause Downloads", systemImage: EnsembleDesign.Icon.pause)
                 }
             } else if hasActiveDownloads {
-                // Resume mode — downloads are paused with tracks remaining
                 Button {
                     Task { await viewModel.resumeQueue() }
                 } label: {
@@ -582,13 +498,6 @@ private struct DownloadedItemRow: View {
                 }
 
                 Spacer()
-
-                // Refresh indicator when target has quality-mismatched or failed tracks
-                if item.needsRefresh {
-                    Image(systemName: EnsembleDesign.Icon.refreshCycle)
-                        .font(EnsembleDesign.Typography.rowSecondary)
-                        .foregroundColor(EnsembleDesign.Color.warning)
-                }
 
                 Text(statusText)
                     .font(EnsembleDesign.Typography.rowSecondary)

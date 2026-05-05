@@ -8,19 +8,31 @@ public struct HomeHubSnapshotMetadata: Sendable {
     public let fetchTaskCount: Int
     public let usedGlobalFallback: Bool
     public let networkFetchCompletedAt: Date?
+    public let cacheCreatedAt: Date?
+    public let cacheFetchedAt: Date?
+    public let freshnessState: HomeFeedSnapshotFreshnessState?
+    public let refreshReason: String?
 
     public init(
         currentSourceKey: String?,
         currentSourceName: String,
         fetchTaskCount: Int,
         usedGlobalFallback: Bool,
-        networkFetchCompletedAt: Date?
+        networkFetchCompletedAt: Date?,
+        cacheCreatedAt: Date? = nil,
+        cacheFetchedAt: Date? = nil,
+        freshnessState: HomeFeedSnapshotFreshnessState? = nil,
+        refreshReason: String? = nil
     ) {
         self.currentSourceKey = currentSourceKey
         self.currentSourceName = currentSourceName
         self.fetchTaskCount = fetchTaskCount
         self.usedGlobalFallback = usedGlobalFallback
         self.networkFetchCompletedAt = networkFetchCompletedAt
+        self.cacheCreatedAt = cacheCreatedAt
+        self.cacheFetchedAt = cacheFetchedAt
+        self.freshnessState = freshnessState
+        self.refreshReason = refreshReason
     }
 }
 
@@ -80,7 +92,13 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
     public func loadCachedSnapshot() async throws -> HomeHubSnapshot {
         let sourceContext = currentSourceContext()
         let enabledSourceKeys = enabledSourceCompositeKeys()
-        let cached = try await hubRepository.fetchHubs()
+        let cachedSnapshot = try await hubRepository.fetchLatestHomeFeedSnapshot(sourceScopeKey: sourceContext.sourceKey)
+        let cached: [Hub]
+        if let cachedSnapshot {
+            cached = cachedSnapshot.hubs
+        } else {
+            cached = try await hubRepository.fetchHubs()
+        }
         let filtered = Self.filterHubsToEnabledSources(
             cached,
             enabledSourceCompositeKeys: enabledSourceKeys
@@ -105,7 +123,11 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
                 currentSourceName: sourceContext.sourceName,
                 fetchTaskCount: 0,
                 usedGlobalFallback: false,
-                networkFetchCompletedAt: nil
+                networkFetchCompletedAt: nil,
+                cacheCreatedAt: cachedSnapshot?.createdAt,
+                cacheFetchedAt: cachedSnapshot?.fetchedAt,
+                freshnessState: cachedSnapshot?.freshnessState,
+                refreshReason: cachedSnapshot?.refreshReason
             )
         )
     }
@@ -169,13 +191,21 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         if orderedHubs.isEmpty {
             EnsembleLogger.debug("🏠 Hub loader skipped empty cache save to preserve last usable Feed cache")
         } else {
-            let cacheSnapshot = orderedHubs
+            let cacheSnapshot = HomeFeedCachedSnapshot(
+                sourceScopeKey: sourceContext.sourceKey,
+                sourceName: sourceContext.sourceName,
+                fetchedAt: Date(),
+                refreshReason: "network",
+                freshnessState: .fresh,
+                isLastGood: true,
+                hubs: orderedHubs
+            )
             Task.detached(priority: .background) { [hubRepository] in
                 do {
-                    try await hubRepository.saveHubs(cacheSnapshot)
-                    EnsembleLogger.debug("🏠 Hub loader cache save count=\(cacheSnapshot.count)")
+                    try await hubRepository.saveHomeFeedSnapshot(cacheSnapshot)
+                    EnsembleLogger.debug("🏠 Hub loader last-good snapshot save count=\(cacheSnapshot.hubs.count)")
                 } catch {
-                    EnsembleLogger.debug("🏠 Hub loader cache save failed: \(error.localizedDescription)")
+                    EnsembleLogger.debug("🏠 Hub loader last-good snapshot save failed: \(error.localizedDescription)")
                 }
             }
         }
@@ -188,7 +218,11 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
                 currentSourceName: sourceContext.sourceName,
                 fetchTaskCount: fetchTasks.count,
                 usedGlobalFallback: usedGlobalFallback,
-                networkFetchCompletedAt: Date()
+                networkFetchCompletedAt: Date(),
+                cacheCreatedAt: nil,
+                cacheFetchedAt: nil,
+                freshnessState: .fresh,
+                refreshReason: "network"
             )
         )
     }

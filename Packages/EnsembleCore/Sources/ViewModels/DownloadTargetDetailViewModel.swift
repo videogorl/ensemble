@@ -118,22 +118,6 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
         tracks.filter { $0.status == .failed }.count
     }
 
-    /// Number of completed tracks whose quality is LOWER than the current setting.
-    /// Tracks at higher quality (e.g. original when setting is medium) are not counted —
-    /// the file exceeds the request and doesn't need re-downloading.
-    public var qualityMismatchCount: Int {
-        let desired = UserDefaults.standard.string(forKey: "downloadQuality") ?? "high"
-        return tracks.filter { row in
-            guard row.status == .completed, let quality = row.downloadedQuality else { return false }
-            return !DownloadManager.qualitySatisfies(existing: quality, desired: desired)
-        }.count
-    }
-
-    /// True when this target has actionable issues that a refresh could resolve
-    public var needsRefresh: Bool {
-        qualityMismatchCount > 0 || failedCount > 0
-    }
-
     // MARK: - Live Target Stats (derived from tracks, updated reactively)
 
     /// Live completed track count computed from current track rows
@@ -166,10 +150,11 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
         return .pending
     }
 
-    /// Re-reconcile the target, re-queue mismatched/failed downloads, and restart the queue
-    public func refreshTarget() async {
-        await offlineDownloadService.refreshTarget(key: summary.key)
+    /// Explicitly redownload completed tracks whose quality differs from the current setting.
+    public func redownloadAtCurrentQuality() async -> OfflineDownloadQualityRefreshResult {
+        let result = await offlineDownloadService.redownloadTargetAtCurrentQuality(key: summary.key)
         await loadTrackRows()
+        return result
     }
 
     // MARK: - Private

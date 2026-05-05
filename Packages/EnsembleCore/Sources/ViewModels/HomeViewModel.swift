@@ -18,6 +18,8 @@ public final class HomeViewModel: ObservableObject {
     @Published public private(set) var hasConfiguredAccounts = false
     @Published public private(set) var hasEnabledLibraries = false
     @Published public private(set) var isRestoringCloudSources = false
+    @Published public private(set) var isFeedCacheStale = false
+    @Published public private(set) var lastFeedCacheRefreshDate: Date?
     
     // Edit mode state
     @Published public var isEditingOrder = false
@@ -65,6 +67,7 @@ public final class HomeViewModel: ObservableObject {
     private let idleApplyDebounceNanoseconds: UInt64 = 350_000_000
     private let startupHealthCheckPollNanoseconds: UInt64 = 100_000_000
     private let startupHealthCheckWaitTimeout: TimeInterval = 12.0
+    private let feedCacheStaleInterval: TimeInterval = 6 * 60 * 60
 
     // Rotating count for hub requests — different counts cause PMS to select
     // different dynamic hub content (e.g. "More by...", "More in..." sections)
@@ -111,6 +114,8 @@ public final class HomeViewModel: ObservableObject {
                 let cachedSnapshot = try await hubLoader.loadCachedSnapshot()
                 self.currentSourceKey = cachedSnapshot.metadata.currentSourceKey
                 self.currentSourceName = cachedSnapshot.metadata.currentSourceName
+                self.lastFeedCacheRefreshDate = cachedSnapshot.metadata.cacheFetchedAt
+                self.isFeedCacheStale = self.isCachedFeedStale(cachedSnapshot.metadata)
 
                 if !cachedSnapshot.orderedHubs.isEmpty {
                     self.rawHubSnapshot = cachedSnapshot.orderedHubs
@@ -199,6 +204,7 @@ public final class HomeViewModel: ObservableObject {
                     clearHubContentForUnavailableSources()
                 } else {
                     isLoading = false
+                    isFeedCacheStale = true
                     initialLoadCompleted = true
                     loadTask = nil
                     EnsembleLogger.debug("🏠 Feed preserving cached hubs after unavailable network snapshot")
@@ -206,11 +212,16 @@ public final class HomeViewModel: ObservableObject {
                 return
             }
 
-            guard !snapshot.orderedHubs.isEmpty || hubs.isEmpty || !syncCoordinator.isOffline else {
-                isLoading = false
-                initialLoadCompleted = true
-                loadTask = nil
-                EnsembleLogger.debug("🏠 Feed preserving cached hubs while offline")
+            guard !snapshot.orderedHubs.isEmpty else {
+                if hubs.isEmpty {
+                    clearHubContentForUnavailableSources()
+                } else {
+                    isLoading = false
+                    isFeedCacheStale = true
+                    initialLoadCompleted = true
+                    loadTask = nil
+                    EnsembleLogger.debug("🏠 Feed preserving cached hubs after empty network snapshot")
+                }
                 return
             }
 
@@ -225,6 +236,8 @@ public final class HomeViewModel: ObservableObject {
             isLoading = false
             initialLoadCompleted = true
             lastNetworkHubFetchTime = snapshot.metadata.networkFetchCompletedAt
+            lastFeedCacheRefreshDate = snapshot.metadata.networkFetchCompletedAt
+            isFeedCacheStale = false
             loadTask = nil
         }
 
@@ -757,6 +770,8 @@ public final class HomeViewModel: ObservableObject {
         loadTask?.cancel()
         isLoading = false
         error = nil
+        isFeedCacheStale = false
+        lastFeedCacheRefreshDate = nil
         rawHubSnapshot = []
         unfilteredHubs = []
         hubs = []
@@ -767,6 +782,17 @@ public final class HomeViewModel: ObservableObject {
         pendingAutoRefreshReasons.removeAll()
         deferredAutoRefreshTask?.cancel()
         deferredAutoRefreshTask = nil
+    }
+
+    private func isCachedFeedStale(_ metadata: HomeHubSnapshotMetadata) -> Bool {
+        if metadata.freshnessState == .stale || metadata.freshnessState == .failed {
+            return true
+        }
+
+        guard let fetchedAt = metadata.cacheFetchedAt else {
+            return !metadata.currentSourceName.isEmpty
+        }
+        return Date().timeIntervalSince(fetchedAt) > feedCacheStaleInterval
     }
     
     /// Look up the library title for a hub based on its ID.

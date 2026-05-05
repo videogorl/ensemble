@@ -309,6 +309,134 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.error, PlaylistMutationError.smartPlaylistReadOnly.localizedDescription)
     }
 
+    func testPlaylistViewModelPreservesVisiblePlaylistsWhenReloadTemporarilyEmpty() async {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        let playlist = makePlaylist(id: "playlist-a", title: "Road")
+        playlistRepository.playlists[playlistRepository.playlistKey(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )] = makeCachedPlaylist(playlist, tracks: [], context: context)
+
+        let viewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter()
+        )
+
+        await viewModel.loadPlaylists()
+        XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
+
+        playlistRepository.playlists.removeAll()
+        await viewModel.loadPlaylists()
+
+        XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
+        XCTAssertNil(viewModel.error)
+    }
+
+    func testPlaylistViewModelSeedsNewInstanceFromLastGoodSnapshot() async {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        let playlist = makePlaylist(id: "playlist-a", title: "Road")
+        playlistRepository.playlists[playlistRepository.playlistKey(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )] = makeCachedPlaylist(playlist, tracks: [], context: context)
+
+        let firstViewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter()
+        )
+        await firstViewModel.loadPlaylists()
+
+        let secondViewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter()
+        )
+
+        XCTAssertEqual(secondViewModel.playlists.map(\.id), ["playlist-a"])
+        XCTAssertEqual(secondViewModel.displayPlaylists.map(\.primaryPlaylist.id), ["playlist-a"])
+        XCTAssertTrue(secondViewModel.isShowingStaleSnapshot)
+
+        await secondViewModel.loadPlaylists()
+        XCTAssertFalse(secondViewModel.isShowingStaleSnapshot)
+    }
+
+    func testPlaylistViewModelClearsStaleSeedWhenCacheIsActuallyEmpty() async {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        let playlist = makePlaylist(id: "playlist-a", title: "Road")
+        playlistRepository.playlists[playlistRepository.playlistKey(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )] = makeCachedPlaylist(playlist, tracks: [], context: context)
+
+        let firstViewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter()
+        )
+        await firstViewModel.loadPlaylists()
+        playlistRepository.playlists.removeAll()
+
+        let secondViewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter()
+        )
+        XCTAssertEqual(secondViewModel.playlists.map(\.id), ["playlist-a"])
+
+        await secondViewModel.loadPlaylists()
+
+        XCTAssertTrue(secondViewModel.playlists.isEmpty)
+        XCTAssertFalse(secondViewModel.isShowingStaleSnapshot)
+    }
+
+    func testPlaylistDetailPreservesTracksDuringIntermediateEmptyRelationshipReload() async {
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        let playlist = makePlaylist(id: "playlist-a", title: "Road")
+        let firstTracks = [makeTrack(id: "track-1"), makeTrack(id: "track-2")]
+        let key = playlistRepository.playlistKey(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )
+        playlistRepository.playlists[key] = makeCachedPlaylist(playlist, tracks: firstTracks, context: context)
+
+        let viewModel = PlaylistDetailViewModel(
+            playlist: playlist,
+            playlistRepository: playlistRepository,
+            libraryRepository: MockLibraryRepository(),
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
+        )
+
+        await viewModel.loadTracks()
+        XCTAssertEqual(viewModel.tracks.map(\.id), ["track-1", "track-2"])
+
+        let intermediate = makeCachedPlaylist(playlist, tracks: [], context: context)
+        intermediate.trackCount = 2
+        playlistRepository.playlists[key] = intermediate
+
+        await viewModel.loadTracks()
+
+        XCTAssertEqual(viewModel.tracks.map(\.id), ["track-1", "track-2"])
+    }
+
     func testRemoveTrackFromPlaylistReplacesContentsWithoutRemovedTrack() async {
         let syncCoordinator = makeSyncCoordinator()
         var replacedPlaylistID: String?

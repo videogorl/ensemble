@@ -48,6 +48,12 @@ swift test --package-path Packages/EnsembleUI
 # Keep the Core warning budget at or below the current baseline
 scripts/check_core_warning_budget.sh
 
+# Capture repeatable before/after Instruments gates when changing SwiftUI
+# observation, root chrome, Feed launch/refresh, or Downloads queue behavior
+scripts/capture_performance_gate.sh --platform device \
+  --device "Felicity’s iPhone 16 Pro" \
+  --destination "id=00008140-00023030117B001C"
+
 # Run all tests via Xcode (slower but comprehensive)
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
   -sdk iphonesimulator \
@@ -168,7 +174,10 @@ The same pattern applies to any protocol in the codebase:
 - `KeychainServiceProtocol` → mock for API tests
 - `LibraryRepositoryProtocol` → mock for ViewModel/service tests
 - `PlaylistRepositoryProtocol` → mock for playlist mutation tests
-- `HubRepositoryProtocol` → mock for HomeViewModel / hub tests
+- `HubRepositoryProtocol` → mock for HomeViewModel / hub tests; cover `HomeFeedCachedSnapshot` source cleanup, last-good preservation, and stale metadata in `HubRepositorySnapshotTests`
+- `PlaylistRepositoryProtocol` → mock for playlist browse/detail stability; cover last-good PlaylistViewModel seeding, transient empty reload preservation, stale seed clearing when cache is truly empty, and playlist-detail track preservation during intermediate empty relationship reloads
+- `BackgroundRefreshCoordinating` / `BackgroundRefreshCoordinator` → use closure seams to test app refresh, iOS 15 foreground fallback, cooldown, cancellation/error collection, and Feed/Siri sequencing without constructing the app container
+- `OfflineDownloadBackgroundCoordinating` / `OfflineBackgroundExecutionCoordinator` → test background URLSession completion-handler lifecycle, iOS 26 continued-processing request/progress seams where injectable, macOS sleep/wake hooks, and service recovery sweeps that prevent stale `.downloading` records
 
 When testing non-protocol concrete services (for example `SyncCoordinator` or `HomeViewModel`), prefer internal test seams (`...ForTesting` closures/helpers) over production-facing API changes.
 

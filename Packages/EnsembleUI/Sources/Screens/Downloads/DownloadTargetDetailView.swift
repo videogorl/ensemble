@@ -9,10 +9,13 @@ public struct DownloadTargetDetailView: View {
     @StateObject private var viewModel: DownloadTargetDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
+    @Environment(\.dismiss) private var dismiss
     @State private var artworkImage: UIImage?
     @State private var currentArtworkPath: String?
-    @State private var isRefreshing = false
-    @AppStorage("downloadQuality") private var downloadQuality = "original"
+    @State private var isRedownloading = false
+    @State private var isRemovingDownload = false
+    @State private var isShowingRemoveDownloadConfirmation = false
+    @AppStorage("downloadQuality") private var downloadQuality = "high"
 
     public init(summary: DownloadedItemSummary, nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(
@@ -37,18 +40,12 @@ public struct DownloadTargetDetailView: View {
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
-                refreshTargetButton
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                retryAllButton
+                downloadActionsToolbarItem
             }
             #else
             EnsembleDetailToolbarLeadingSpacer()
             ToolbarItem(placement: .primaryActionIfAvailable) {
-                refreshTargetButton
-            }
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                retryAllButton
+                downloadActionsToolbarItem
             }
             #endif
         }
@@ -243,47 +240,140 @@ public struct DownloadTargetDetailView: View {
         }
     }
 
-    // MARK: - Refresh Target Button
+    // MARK: - Download Actions
 
     @ViewBuilder
-    private var refreshTargetButton: some View {
-        if viewModel.needsRefresh {
+    private var downloadActionsToolbarItem: some View {
+        downloadActionsMenu
+    }
+
+    private var downloadActionsMenu: some View {
+        Menu {
             Button {
-                Task {
-                    isRefreshing = true
-                    await viewModel.refreshTarget()
-                    isRefreshing = false
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: .info,
-                            iconSystemName: EnsembleDesign.Icon.refreshCycle,
-                            title: "Target Refreshed",
-                            message: "Re-queued mismatched and failed downloads."
-                        )
-                    )
-                }
+                Task { await redownloadAtCurrentQuality() }
             } label: {
-                if isRefreshing {
-                    ProgressView()
-                } else {
-                    Label("Refresh Downloads", systemImage: EnsembleDesign.Icon.refreshCycle)
-                }
+                Label("Redownload at Current Quality", systemImage: EnsembleDesign.Icon.refreshCycle)
             }
-            .disabled(isRefreshing)
+            .disabled(isRedownloading || isRemovingDownload)
+
+            if viewModel.failedCount > 0 {
+                Button {
+                    Task { await retryAllFailed() }
+                } label: {
+                    Label("Retry All Failed", systemImage: EnsembleDesign.Icon.retry)
+                }
+                .disabled(isRedownloading || isRemovingDownload)
+            }
+
+            Divider()
+
+            removeDownloadMenuItem
+        } label: {
+            if isRedownloading || isRemovingDownload {
+                ProgressView()
+            } else {
+                Label("Download Actions", systemImage: EnsembleDesign.Icon.more)
+            }
+        }
+        .confirmationDialog(
+            "Remove Download?",
+            isPresented: $isShowingRemoveDownloadConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Remove Download", role: .destructive) {
+                Task { await removeDownloadTarget() }
+            }
+
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes \(viewModel.summary.title) from offline downloads and deletes its local files.")
         }
     }
 
-    // MARK: - Retry All Button
-
     @ViewBuilder
-    private var retryAllButton: some View {
-        if viewModel.failedCount > 0 {
-            Button {
-                Task { await viewModel.retryAllFailed() }
-            } label: {
-                Label("Retry All Failed", systemImage: EnsembleDesign.Icon.retry)
-            }
+    private var removeDownloadMenuItem: some View {
+        Button(role: .destructive) {
+            isShowingRemoveDownloadConfirmation = true
+        } label: {
+            Label("Remove Download", systemImage: EnsembleDesign.Icon.delete)
         }
+        .disabled(isRedownloading || isRemovingDownload)
+    }
+
+    private func redownloadAtCurrentQuality() async {
+        guard !isRedownloading else { return }
+        isShowingRemoveDownloadConfirmation = false
+        isRedownloading = true
+        let result = await viewModel.redownloadAtCurrentQuality()
+        isRedownloading = false
+
+        let qualityLabel = formattedQuality(downloadQuality)
+        if result.requeuedCount > 0 {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: EnsembleDesign.Icon.refreshCycle,
+                    title: "Redownloading",
+                    message: "Queued \(result.requeuedCount) \(trackLabel(for: result.requeuedCount)) at \(qualityLabel) quality."
+                )
+            )
+        } else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: EnsembleDesign.Icon.checkmarkOutline,
+                    title: "Downloads Match",
+                    message: "Completed tracks already match \(qualityLabel) quality."
+                )
+            )
+        }
+    }
+
+    private func retryAllFailed() async {
+        isShowingRemoveDownloadConfirmation = false
+        await viewModel.retryAllFailed()
+        deps.toastCenter.show(
+            ToastPayload(
+                style: .info,
+                iconSystemName: EnsembleDesign.Icon.retry,
+                title: "Retrying Downloads",
+                message: "Queued failed tracks for retry."
+            )
+        )
+    }
+
+    private func removeDownloadTarget() async {
+        guard !isRemovingDownload else { return }
+        isRemovingDownload = true
+        isShowingRemoveDownloadConfirmation = false
+        await deps.downloadMutationWorkflow.removeTarget(key: viewModel.summary.key)
+        isRemovingDownload = false
+        deps.toastCenter.show(
+            ToastPayload(
+                style: .info,
+                iconSystemName: EnsembleDesign.Icon.delete,
+                title: "Download Removed",
+                message: "\(viewModel.summary.title) was removed from offline downloads."
+            )
+        )
+        dismiss()
+    }
+
+    private func formattedQuality(_ quality: String) -> String {
+        switch quality {
+        case "high":
+            return "high (320 kbps)"
+        case "medium":
+            return "medium (192 kbps)"
+        case "low":
+            return "low (128 kbps)"
+        default:
+            return "original"
+        }
+    }
+
+    private func trackLabel(for count: Int) -> String {
+        count == 1 ? "track" : "tracks"
     }
 
     // MARK: - Artwork Loading

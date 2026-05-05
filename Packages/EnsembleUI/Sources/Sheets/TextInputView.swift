@@ -46,26 +46,26 @@ struct TextInputView: View {
     }
 
     private var formContent: some View {
-        Form {
+        EnsembleAdaptiveUtilityScaffold(title: title) {
+            Form {
+                compactFormRows
+            }
+        } regularContent: {
             if !message.isEmpty {
-                Section {
-                    Text(message)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                EnsembleUtilityCardSection {
+                    EnsembleUtilityCardRow {
+                        Text(message)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    }
                 }
             }
 
-            Section {
-                TextField(placeholder, text: $text)
-                    .focused($isFocused)
-                    .submitLabel(.done)
-                    .onSubmit { submit() }
+            EnsembleUtilityCardSection {
+                EnsembleUtilityCardRow {
+                    textField
+                }
             }
         }
-        .navigationTitle(title)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)
-        #endif
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismissAfterKeyboard() }
@@ -76,6 +76,33 @@ struct TextInputView: View {
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
+        #if os(iOS)
+        .navigationBarBackButtonHidden(true)
+        #endif
+    }
+
+    @ViewBuilder
+    private var compactFormRows: some View {
+        if !message.isEmpty {
+            Section {
+                Text(message)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+            }
+        }
+
+        Section {
+            textField
+        }
+    }
+
+    private var textField: some View {
+        TextField(placeholder, text: $text)
+            .focused($isFocused)
+            .submitLabel(.done)
+            .onSubmit { submit() }
+            #if os(macOS)
+            .textFieldStyle(.roundedBorder)
+            #endif
     }
 
     /// Dismiss keyboard first, then dismiss the modal so the keyboard animation

@@ -87,9 +87,9 @@ public final class MoodRepository: MoodRepositoryProtocol, @unchecked Sendable {
 extension Mood {
     init(from cdMood: CDMood) {
         self.init(
-            id: cdMood.id ?? UUID().uuidString,
-            key: cdMood.key ?? "",
-            title: cdMood.title ?? "Unknown",
+            id: cdMood.id,
+            key: cdMood.key,
+            title: cdMood.title,
             sourceCompositeKey: cdMood.sourceCompositeKey
         )
     }

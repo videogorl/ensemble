@@ -39,16 +39,19 @@ public final class DownloadManagerSettingsViewModel: ObservableObject {
     @Published public private(set) var sizeEstimates: QualitySizeEstimates?
 
     private let offlineDownloadService: OfflineDownloadService
+    private let downloadMutationWorkflow: DownloadMutationWorkflow
     private let targetRepository: OfflineDownloadTargetRepositoryProtocol
     private let downloadManager: DownloadManagerProtocol
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         offlineDownloadService: OfflineDownloadService,
+        downloadMutationWorkflow: DownloadMutationWorkflow? = nil,
         targetRepository: OfflineDownloadTargetRepositoryProtocol,
         downloadManager: DownloadManagerProtocol
     ) {
         self.offlineDownloadService = offlineDownloadService
+        self.downloadMutationWorkflow = downloadMutationWorkflow ?? DownloadMutationWorkflow(mutator: offlineDownloadService)
         self.targetRepository = targetRepository
         self.downloadManager = downloadManager
 
@@ -78,12 +81,12 @@ public final class DownloadManagerSettingsViewModel: ObservableObject {
     }
 
     public func removeDownload(key: String) async {
-        await offlineDownloadService.removeTarget(key: key)
+        await downloadMutationWorkflow.removeTarget(key: key)
     }
 
     /// Remove all download targets, memberships, and files
     public func removeAllDownloads() async {
-        await offlineDownloadService.removeAllDownloads()
+        await downloadMutationWorkflow.removeAllDownloads()
         sizeEstimates = nil
     }
 

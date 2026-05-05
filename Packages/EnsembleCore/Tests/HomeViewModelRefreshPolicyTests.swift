@@ -99,10 +99,35 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
 
     private final class MockHubRepository: HubRepositoryProtocol, @unchecked Sendable {
         var cachedHubs: [Hub] = []
+        var cachedSnapshot: HomeFeedCachedSnapshot?
 
         func fetchHubs() async throws -> [Hub] { cachedHubs }
         func saveHubs(_ hubs: [Hub]) async throws {}
         func deleteAllHubs() async throws {}
+        func fetchLatestHomeFeedSnapshot(sourceScopeKey: String?) async throws -> HomeFeedCachedSnapshot? {
+            cachedSnapshot
+        }
+        func saveHomeFeedSnapshot(_ snapshot: HomeFeedCachedSnapshot) async throws {
+            cachedSnapshot = snapshot
+        }
+        func markHomeFeedSnapshotLastGood(id: String, freshnessState: HomeFeedSnapshotFreshnessState) async throws {
+            guard let snapshot = cachedSnapshot, snapshot.id == id else { return }
+            cachedSnapshot = HomeFeedCachedSnapshot(
+                id: snapshot.id,
+                sourceScopeKey: snapshot.sourceScopeKey,
+                sourceName: snapshot.sourceName,
+                createdAt: snapshot.createdAt,
+                fetchedAt: snapshot.fetchedAt,
+                refreshReason: snapshot.refreshReason,
+                freshnessState: freshnessState,
+                schemaVersion: snapshot.schemaVersion,
+                isLastGood: true,
+                hubs: snapshot.hubs
+            )
+        }
+        func deleteHomeFeedSnapshots(sourceScopeKey: String?) async throws {
+            cachedSnapshot = nil
+        }
     }
 
     private final class MockHomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
@@ -455,6 +480,21 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         await sut.loadHubs()
 
         XCTAssertEqual(sut.hubs.map(\.id), [cachedHub.id])
+        XCTAssertTrue(sut.isFeedCacheStale)
+    }
+
+    func testEmptyNetworkSnapshotPreservesExistingCachedFeedContent() async {
+        let cachedHub = makeHub()
+        let loader = MockHomeHubLoader(cachedHubs: [], networkHubs: [])
+        let (sut, _) = makeViewModel(hubLoader: loader)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.seedHubsForTesting([cachedHub])
+
+        await sut.loadHubs()
+
+        XCTAssertEqual(sut.hubs.map(\.id), [cachedHub.id])
+        XCTAssertTrue(sut.isFeedCacheStale)
     }
 
     func testOfflineEmptyNetworkSnapshotPreservesExistingCachedFeedContent() async {
@@ -469,6 +509,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         await sut.loadHubs()
 
         XCTAssertEqual(sut.hubs.map(\.id), [cachedHub.id])
+        XCTAssertTrue(sut.isFeedCacheStale)
     }
 
     func testLocalAvailabilityFilterDropsUnresolvedItemsAndEmptyHubs() async throws {
