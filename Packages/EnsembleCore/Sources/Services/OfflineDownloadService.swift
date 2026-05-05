@@ -82,6 +82,32 @@ enum DownloadWorkMode: Equatable, Sendable {
     case background
 }
 
+enum OfflineDownloadRecoveryReason: Equatable, Sendable {
+    case launch
+    case foreground
+    case backgroundURLSession(String)
+    case systemWillSleep
+    case systemDidWake
+    case backgroundExpiration
+
+    var logDescription: String {
+        switch self {
+        case .launch:
+            return "launch"
+        case .foreground:
+            return "foreground"
+        case .backgroundURLSession(let identifier):
+            return "background-url-session(\(identifier))"
+        case .systemWillSleep:
+            return "system-will-sleep"
+        case .systemDidWake:
+            return "system-did-wake"
+        case .backgroundExpiration:
+            return "background-expiration"
+        }
+    }
+}
+
 @MainActor
 public final class OfflineDownloadService: ObservableObject {
     /// Posted when download targets change (enable/disable/quality refresh) so track-displaying VMs can re-fetch
@@ -102,7 +128,7 @@ public final class OfflineDownloadService: ObservableObject {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
-    private let backgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating
+    private let backgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let toastCenter: ToastCenter
     private let lyricsService: LyricsService
@@ -251,7 +277,7 @@ public final class OfflineDownloadService: ObservableObject {
         playlistRepository: PlaylistRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
         networkMonitor: NetworkMonitor,
-        backgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating,
+        backgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating,
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
         toastCenter: ToastCenter,
         lyricsService: LyricsService
@@ -279,18 +305,31 @@ public final class OfflineDownloadService: ObservableObject {
         backgroundExecutionCoordinator.onExpiration = { [weak self] in
             self?.handleBackgroundTaskExpiration()
         }
+        backgroundExecutionCoordinator.onBackgroundURLSessionEvents = { [weak self] identifier, completion in
+            Task { @MainActor in
+                guard let self else {
+                    completion()
+                    return
+                }
+                await self.handleBackgroundURLSessionEvents(identifier: identifier, completion: completion)
+            }
+        }
+        backgroundExecutionCoordinator.onSystemWillSleep = { [weak self] in
+            Task { @MainActor in
+                await self?.handleSystemWillSleep()
+            }
+        }
+        backgroundExecutionCoordinator.onSystemDidWake = { [weak self] in
+            Task { @MainActor in
+                await self?.handleSystemDidWake()
+            }
+        }
 
         observeNetworkState()
         observeSyncCompletions()
 
         Task {
-            await runDownloadHealing()
-
-            await refreshState()
-            // Reset stale .downloading status from previous app session.
-            // At init time, no download can be actively in-progress.
-            try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .pending)
-            startQueueIfNeeded()
+            await recoverInterruptedDownloads(reason: .launch, resumeEligibleWork: true)
         }
     }
 
@@ -927,10 +966,22 @@ public final class OfflineDownloadService: ObservableObject {
     public func handleAppWillEnterForeground() async {
         isAppInBackground = false
         allowsBackgroundContinuation = false
-        try? await applyNetworkPolicy()
-        refreshQueueStatusReason()
-        scheduleFullProgressRefresh(forceImmediate: true)
-        startQueueIfNeeded()
+        await recoverInterruptedDownloads(reason: .foreground, resumeEligibleWork: true)
+    }
+
+    public func handleSystemWillSleep() async {
+        allowsBackgroundContinuation = false
+        await stopQueueForSuspension()
+        await recoverInterruptedDownloads(reason: .systemWillSleep, resumeEligibleWork: false)
+    }
+
+    public func handleSystemDidWake() async {
+        await recoverInterruptedDownloads(reason: .systemDidWake, resumeEligibleWork: true)
+    }
+
+    private func handleBackgroundURLSessionEvents(identifier: String, completion: @escaping () -> Void) async {
+        await recoverInterruptedDownloads(reason: .backgroundURLSession(identifier), resumeEligibleWork: true)
+        completion()
     }
 
     // MARK: - Queue Execution
@@ -948,9 +999,7 @@ public final class OfflineDownloadService: ObservableObject {
         allowsBackgroundContinuation = false
         queueCoordinator.cancelCurrentTask()
         Task {
-            try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .paused)
-            await refreshAllTargetProgresses()
-            refreshQueueStatusReason()
+            await recoverInterruptedDownloads(reason: .backgroundExpiration, resumeEligibleWork: false)
         }
     }
 
@@ -1589,6 +1638,38 @@ public final class OfflineDownloadService: ObservableObject {
             )
             EnsembleLogger.debug("❌ Failed removing orphaned completed downloads: \(error.localizedDescription)")
         }
+    }
+
+    /// Reconciles interrupted work after launch, foreground, background URLSession wakes,
+    /// and macOS sleep/wake. Persisted downloads should never remain stuck in `.downloading`
+    /// after the process or execution window that owned them has ended.
+    private func recoverInterruptedDownloads(
+        reason: OfflineDownloadRecoveryReason,
+        resumeEligibleWork: Bool
+    ) async {
+        EnsembleLogger.debug("📦 Offline download recovery sweep started reason=\(reason.logDescription)")
+
+        await runDownloadHealing()
+
+        let recoveredStatus: CDDownload.Status = resumeEligibleWork && canRunQueueAutomatically ? .pending : .paused
+        try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: recoveredStatus)
+
+        if resumeEligibleWork {
+            try? await applyNetworkPolicy()
+        } else {
+            refreshQueueStatusReason()
+        }
+
+        await refreshAllTargetProgresses()
+        scheduleFullProgressRefresh(forceImmediate: true)
+
+        if resumeEligibleWork {
+            startQueueIfNeeded()
+        }
+
+        EnsembleLogger.debug(
+            "📦 Offline download recovery sweep finished reason=\(reason.logDescription) resume=\(resumeEligibleWork) recoveredStatus=\(recoveredStatus.rawValue)"
+        )
     }
 
     /// Schedules a debounced `downloadsDidChange` notification so detail views

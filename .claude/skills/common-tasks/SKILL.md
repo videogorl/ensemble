@@ -294,6 +294,12 @@ Use this flow for target-based offline support:
    - wire `SyncCoordinator.onPlaylistRefreshCompleted` for playlist-target refresh
 6. Respect download quality by reading `downloadQuality` and passing mapped `StreamingQuality` into stream URL generation.
 
+Background/recovery rules:
+- Keep `OfflineDownloadService` as the queue and target source of truth. Platform events must route through `OfflineDownloadBackgroundCoordinating`; do not start queue work directly from `AppDelegate`, macOS delegates, or URLSession callbacks.
+- iOS background URLSession wakeups call `handleBackgroundURLSessionEvents(identifier:completionHandler:)`; the completion handler must run only after download recovery/healing and target progress refresh complete.
+- macOS sleep should pause in-flight bookkeeping as resumable/paused, not failed. Wake/foreground should run the same recovery sweep and then resume eligible pending work under network/user/Low Power policy.
+- Stale `.downloading` records from a previous process/session must be normalized to `.pending` or `.paused`; never leave them stuck in `.downloading`.
+
 UI integration rules:
 - Settings manager entry point remains `SettingsView` -> `DownloadManagerSettingsView` (do not repurpose `DownloadsView`).
 - Use `OfflineServersView` for library-wide toggles; only include sync-enabled libraries.

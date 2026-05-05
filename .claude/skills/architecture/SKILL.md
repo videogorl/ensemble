@@ -161,6 +161,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
   - Delegates debounced `downloadsDidChange` fan-out, view-context refresh routing, and queue-completion toast presentation to `OfflineDownloadNotificationBridge` so queue/target logic stays separate from UI-facing notifications
   - Runs `OfflineDownloadCleanupCoordinator` during startup and healing refreshes to remove completed downloads whose track files no longer belong to any offline target membership
   - Delegates direct-download, download-queue, file validation, completion recovery, and per-track post-completion work to `DownloadTransferExecutor` so retry policy and target-refresh logic stay in the façade
+  - Runs one interrupted-download recovery sweep on launch, foreground, background URLSession wake, iOS 26 continued-processing expiration, and macOS sleep/wake so persisted downloads never remain stuck in `.downloading`
 - `DownloadMutationWorkflow` -- Shared user-initiated download mutation boundary for favorites/library/album/artist/playlist target toggles, target removal, remove-all, and pause/resume actions. `OfflineDownloadService` remains the queue and target owner; views and view models route user actions through the workflow so feedback policy can stay centralized.
 - `DownloadQueueCoordinator` (@MainActor) -- Sole owner of offline queue task lifecycle, worker fan-out, background wakeup handling, and queue wind-down/restart decisions
 - `DownloadRetryPolicy` (@MainActor) -- Stateful transfer retry accounting and direct-original fallback gating for offline downloads
@@ -168,7 +169,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `DownloadTransferExecutor` (@MainActor) -- Internal offline seam extracted from `OfflineDownloadService`; owns download-queue vs direct-original transfer execution, payload validation, completion recovery, artwork/lyrics/sidecar post-processing, and direct-fallback bookkeeping while the service keeps membership checks, retry policy, and target refresh decisions
 - `OfflineDownloadCleanupCoordinator` (@MainActor) -- Internal offline seam extracted from `OfflineDownloadService`; scans completed downloads for zero-membership tracks and removes stray files/records during startup and healing refreshes
 - `OfflineDownloadNotificationBridge` (@MainActor) -- Internal offline seam extracted from `OfflineDownloadService`; owns debounced `downloadsDidChange` posting, refresh fan-out, and queue-completion toast routing while the service keeps target and transfer logic
-- `OfflineBackgroundExecutionCoordinator` (@MainActor) -- Optional iOS 26+ `BGContinuedProcessingTask` adapter; no-op on unsupported platforms/OS versions
+- `OfflineDownloadBackgroundCoordinating` / `OfflineBackgroundExecutionCoordinator` (@MainActor) -- Offline download background boundary. Owns iOS 26+ `BGContinuedProcessingTask` registration/request/progress, app-delegate background URLSession completion-handler registry, and macOS `NSWorkspace` sleep/wake hooks. `OfflineDownloadService` remains the queue/source of truth; the coordinator only grants execution windows and routes platform events into recovery.
 - `FrequencyAnalysisService` -- Pre-computed audio frequency analysis using Accelerate FFT; produces `FrequencyTimeline` data for visualizer display decoupled from the audio pipeline
   - Owns a `VisualizationConsumer` visibility registry (`phoneOverlay`, `nowPlayingSheet`, `nowPlayingViewport`, `stageFlow`, `externalDisplay`, `rootBackdrop`) so the display timer only runs while at least one visible surface needs frames
   - Keeps the display timer demand-driven; visual surfaces select their own render-cost tier without throttling audio playback state updates
@@ -401,13 +402,14 @@ Dynamic home screen powered by Plex's hub system:
   - publishing `@Published activeDownloadRatingKeys: Set<String>` for UI download spinners in `TrackRow`/`MediaTrackList`
 - `DownloadManager` stores download quality and uses source-aware lookup/delete (`ratingKey + sourceCompositeKey`) to prevent collisions.
 - Queue policy is Wi-Fi/wired only; active downloads pause on cellular/offline and resume when allowed.
+- Recovery policy runs through `OfflineDownloadService.recoverInterruptedDownloads`: launch/foreground/wake/background URLSession events mark stale `.downloading` records pending when downloads can run, otherwise paused. macOS sleep and BG continued-processing expiration pause active bookkeeping without failing downloads.
 - Queue policy is also lifecycle-aware: user pause, Low Power Mode, app backgrounding, and iOS 26 continued-processing windows all feed the same scheduler so the service can pause aggressively on older devices without losing resumability.
 - Full target-progress recomputation is coalesced during playback/background load; per-track completion still uses targeted owning-target refreshes so UI accuracy is preserved without rebuilding every target on each queue event.
 - Sync integration:
   - `SyncCoordinator` publishes playlist refresh completion via `onPlaylistRefreshCompleted`.
   - `OfflineDownloadService` also watches source sync timestamps to reconcile library/album/artist targets after incremental/full sync updates.
 - iOS 26+ optional acceleration:
-  - `OfflineBackgroundExecutionCoordinator` submits/handles `BGContinuedProcessingTaskRequest`.
+  - `OfflineBackgroundExecutionCoordinator` submits/handles `BGContinuedProcessingTaskRequest`, stores iOS background URLSession completion handlers until recovery finishes, and observes macOS sleep/wake notifications.
   - Background path is best-effort only; persistent queue state remains source of truth.
 
 ## Subsystem: Siri Media Intents (In-App-First)

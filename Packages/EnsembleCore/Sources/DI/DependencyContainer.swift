@@ -53,7 +53,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let siriAffinityCoordinator: SiriAffinityCoordinator
     public let siriAddToPlaylistCoordinator: SiriAddToPlaylistCoordinator
     public let siriMediaUserContextManager: SiriMediaUserContextManager
-    public let offlineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating
+    public let offlineBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating
     public let offlineDownloadService: OfflineDownloadService
     public let downloadMutationWorkflow: DownloadMutationWorkflow
     public let lyricsService: LyricsService

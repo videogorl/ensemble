@@ -160,3 +160,17 @@ Verification:
 - Passed: `scripts/compile_coredata_model.sh`
 - Passed: `swift test --package-path Packages/EnsemblePersistence` (7 XCTest cases)
 - Passed: `swift test --package-path Packages/EnsembleCore` (500 XCTest cases + 4 Swift Testing cases)
+
+## 2026-05-05 Download Background Recovery Pass
+
+| Area | Completed in this pass | Remaining gate |
+|---|---|---|
+| Coordinator ownership | Expanded `OfflineBackgroundExecutionCoordinator` into the `OfflineDownloadBackgroundCoordinating` boundary. It now owns iOS 26 continued-processing registration/progress as before, plus background URLSession completion-handler registration and macOS sleep/wake event routing. | A true background `URLSessionConfiguration.background` transfer adapter remains a later implementation step; current direct downloads still use the existing streamed transfer path. |
+| Recovery sweeps | `OfflineDownloadService` now runs one recovery sweep on launch, foreground, background URLSession wake, BG continued-processing expiration, macOS sleep, and macOS wake. Stale `.downloading` rows are normalized to `.pending` when work can resume or `.paused` when it cannot. | Simulator/device smoke should exercise Downloads pause/resume and, on iOS 26, a continued-processing pass with the physical iPhone 16 Pro when available. |
+| macOS sleep/wake | macOS registration uses `NSWorkspace.willSleepNotification` and `NSWorkspace.didWakeNotification`; sleep pauses active bookkeeping without failing downloads, wake revalidates and resumes eligible work under network/user/Low Power policy. | Needs manual macOS sleep/wake validation because package tests cover only the hook/recovery seams. |
+| Background URLSession completion | `AppDelegate.application(_:handleEventsForBackgroundURLSession:completionHandler:)` now routes to the coordinator; the stored completion handler is called only after service recovery/healing and target progress refresh finish. | Actual background transfer delegate reconciliation should be added with the future transfer adapter. |
+| Test coverage | Added `OfflineDownloadBackgroundCoordinatorTests`; extended `OfflineDownloadServicePolicyTests` for sleep pause and background URLSession wake recovery. | Add adapter-specific tests when background transfers move from the current streaming path to a durable `URLSession` adapter. |
+
+Verification:
+
+- Passed: `swift test --package-path Packages/EnsembleCore` (505 XCTest cases + 4 Swift Testing cases)

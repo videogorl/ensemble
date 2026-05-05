@@ -272,6 +272,7 @@ struct EnsembleApp: App {
 
                 // Start monitoring when app becomes active (macOS)
                 DependencyContainer.shared.networkMonitor.startMonitoring()
+                DependencyContainer.shared.offlineBackgroundExecutionCoordinator.register()
                 await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
                 await DependencyContainer.shared.reconcileSyncOnForeground()
 

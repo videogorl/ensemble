@@ -218,7 +218,7 @@ Sources/
 |   +-- DownloadTargetReconciler.swift # Membership resolution and orphan cleanup for offline targets
 |   +-- DownloadTransferExecutor.swift # Direct-download/download-queue transfer pipeline, validation, recovery, and post-completion side effects extracted from OfflineDownloadService
 |   +-- OfflineDownloadNotificationBridge.swift # Debounced downloadsDidChange fan-out + queue completion toast seam extracted from OfflineDownloadService
-|   +-- OfflineBackgroundExecutionCoordinator.swift # Optional iOS 26+ BG continued-processing adapter
+|   +-- OfflineBackgroundExecutionCoordinator.swift # Offline download background coordinator: iOS 26 continued processing, URLSession wake completion registry, macOS sleep/wake recovery
 |   +-- MoodRepository.swift           # Mood data persistence (CDMood)
 |   +-- LibraryVisibilityStore.swift   # Persisted visibility profiles + active profile state
 |   +-- SiriMediaIndexStore.swift      # Shared App Group Siri index persistence/rebuild hooks
@@ -294,6 +294,7 @@ Tests/
 +-- DownloadTransferExecutorTests.swift # Direct-download/download-queue transfer execution and fallback coverage
 +-- OfflineDownloadNotificationBridgeTests.swift # Debounced downloadsDidChange fan-out and toast routing coverage
 +-- OfflineDownloadCleanupCoordinatorTests.swift # Orphaned completed-download sweep coverage
++-- OfflineDownloadBackgroundCoordinatorTests.swift # URLSession completion registry and sleep/wake hook coverage
 +-- BackgroundRefreshCoordinatorTests.swift # Shared app/foreground freshness sequencing and error/cooldown coverage
 +-- HomeViewModelRefreshPolicyTests.swift
 +-- HubRepositorySnapshotTests.swift  # CDHomeFeedSnapshot save/fetch/source cleanup/last-good preservation coverage

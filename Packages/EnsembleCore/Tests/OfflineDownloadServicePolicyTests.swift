@@ -80,6 +80,8 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
     }
 
     private final class MockDownloadManager: DownloadManagerProtocol, @unchecked Sendable {
+        var statusUpdates: [([CDDownload.Status], CDDownload.Status)] = []
+
         func fetchDownloads() async throws -> [CDDownload] { [] }
         func fetchPendingDownloads() async throws -> [CDDownload] { [] }
         func fetchNextPendingDownload() async throws -> CDDownload? { nil }
@@ -92,7 +94,9 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         func batchCreateDownloads(references: [OfflineTrackReference], quality: String) async throws -> Int { 0 }
         func updateDownloadProgress(_ downloadId: NSManagedObjectID, progress: Float) async throws {}
         func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status, quality: String?) async throws {}
-        func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws {}
+        func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws {
+            statusUpdates.append((statuses, status))
+        }
         func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64, quality: String?) async throws {}
         func failDownload(_ downloadId: NSManagedObjectID, error: String) async throws {}
         func deleteDownload(forTrackRatingKey trackRatingKey: String) async throws {}
@@ -134,17 +138,33 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         func getArtworkCacheSize() async throws -> Int64 { 0 }
     }
 
-    private final class MockBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating {
+    private final class MockBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating {
         var onExecutionRequested: (() -> Void)?
         var onExpiration: (() -> Void)?
+        var onBackgroundURLSessionEvents: ((_ identifier: String, _ completion: @escaping () -> Void) -> Void)?
+        var onSystemWillSleep: (() -> Void)?
+        var onSystemDidWake: (() -> Void)?
 
         func register() {}
         func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {}
         func setProgress(completedUnitCount: Int, totalUnitCount: Int) {}
         func finishCurrentTask(success: Bool) {}
+        func handleBackgroundURLSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
+            onBackgroundURLSessionEvents?(identifier, completionHandler)
+        }
+        func completeBackgroundURLSessionEvents(identifier: String) {}
+        func handleSystemWillSleep() {
+            onSystemWillSleep?()
+        }
+        func handleSystemDidWake() {
+            onSystemDidWake?()
+        }
     }
 
-    private func makeService() async -> OfflineDownloadService {
+    private func makeService(
+        downloadManager: MockDownloadManager = MockDownloadManager(),
+        backgroundCoordinator: OfflineDownloadBackgroundCoordinating? = nil
+    ) async -> OfflineDownloadService {
         let accountManager = AccountManager(keychain: TestKeychain())
         let libraryRepository = MockLibraryRepository()
         let playlistRepository = MockPlaylistRepository()
@@ -164,13 +184,13 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         )
 
         let service = OfflineDownloadService(
-            downloadManager: MockDownloadManager(),
+            downloadManager: downloadManager,
             targetRepository: MockTargetRepository(),
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             syncCoordinator: syncCoordinator,
             networkMonitor: networkMonitor,
-            backgroundExecutionCoordinator: MockBackgroundExecutionCoordinator(),
+            backgroundExecutionCoordinator: backgroundCoordinator ?? MockBackgroundExecutionCoordinator(),
             artworkDownloadManager: MockArtworkDownloadManager(),
             toastCenter: ToastCenter(),
             lyricsService: LyricsService(syncCoordinator: syncCoordinator)
@@ -218,5 +238,46 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         await service.handleAppWillEnterForeground()
         XCTAssertEqual(service.currentDownloadWorkMode, .interactivePlayback)
+    }
+
+    func testSystemSleepMarksDownloadingRecordsPaused() async {
+        let downloadManager = MockDownloadManager()
+        let service = await makeService(downloadManager: downloadManager)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        downloadManager.statusUpdates.removeAll()
+
+        await service.handleSystemWillSleep()
+
+        XCTAssertTrue(
+            downloadManager.statusUpdates.contains { statuses, status in
+                statuses == [.downloading] && status == .paused
+            }
+        )
+    }
+
+    func testBackgroundURLSessionWakeRunsRecoveryBeforeCompletion() async {
+        let downloadManager = MockDownloadManager()
+        let backgroundCoordinator = OfflineBackgroundExecutionCoordinator()
+        let service = await makeService(
+            downloadManager: downloadManager,
+            backgroundCoordinator: backgroundCoordinator
+        )
+        _ = service
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        downloadManager.statusUpdates.removeAll()
+        var didComplete = false
+
+        backgroundCoordinator.handleBackgroundURLSessionEvents(identifier: "com.test.downloads") {
+            didComplete = true
+        }
+
+        try? await Task.sleep(nanoseconds: 30_000_000)
+
+        XCTAssertTrue(didComplete)
+        XCTAssertTrue(
+            downloadManager.statusUpdates.contains { statuses, _ in
+                statuses == [.downloading]
+            }
+        )
     }
 }

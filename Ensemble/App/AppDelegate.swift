@@ -463,8 +463,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         handleEventsForBackgroundURLSession identifier: String,
         completionHandler: @escaping () -> Void
     ) {
-        // Handle background download completion
-        completionHandler()
+        DependencyContainer.shared.offlineBackgroundExecutionCoordinator.handleBackgroundURLSessionEvents(
+            identifier: identifier,
+            completionHandler: completionHandler
+        )
     }
 
     // MARK: - Scene Will Connect (iOS 13+ scene lifecycle)
