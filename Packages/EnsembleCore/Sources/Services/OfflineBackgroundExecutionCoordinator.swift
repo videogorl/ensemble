@@ -64,6 +64,7 @@ private final class OfflineDownloadBackgroundEventStore {
 
 #if os(iOS) && canImport(BackgroundTasks)
 import BackgroundTasks
+import UIKit
 
 @MainActor
 public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating {
@@ -91,6 +92,7 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgro
     private static let continuedTaskIdentifier = "com.videogorl.ensemble.offline.continued"
     private let eventStore = OfflineDownloadBackgroundEventStore()
     private var currentTask: AnyObject?
+    private var applicationBackgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var didRegister = false
 
     public init() {}
@@ -136,8 +138,10 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgro
     }
 
     public func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {
-        guard #available(iOS 26.0, *) else { return }
         guard pendingTrackCount > 0 else { return }
+        beginApplicationBackgroundTaskIfNeeded()
+
+        guard #available(iOS 26.0, *) else { return }
         guard didRegister else {
             EnsembleLogger.debug("⚠️ Skipping BG continued processing submit: handler not registered")
             return
@@ -176,9 +180,11 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgro
     }
 
     public func finishCurrentTask(success: Bool) {
-        guard #available(iOS 26.0, *) else { return }
-        (currentTask as? BGContinuedProcessingTask)?.setTaskCompleted(success: success)
-        currentTask = nil
+        if #available(iOS 26.0, *) {
+            (currentTask as? BGContinuedProcessingTask)?.setTaskCompleted(success: success)
+            currentTask = nil
+        }
+        endApplicationBackgroundTaskIfNeeded()
     }
 
     public func handleBackgroundURLSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
@@ -195,6 +201,25 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgro
 
     public func handleSystemDidWake() {
         eventStore.handleSystemDidWake()
+    }
+
+    private func beginApplicationBackgroundTaskIfNeeded() {
+        guard applicationBackgroundTask == .invalid else { return }
+
+        applicationBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Offline Downloads") { [weak self] in
+            Task { @MainActor in
+                self?.eventStore.onExpiration?()
+                self?.endApplicationBackgroundTaskIfNeeded()
+            }
+        }
+        EnsembleLogger.debug("📦 Began app background task for offline downloads")
+    }
+
+    private func endApplicationBackgroundTaskIfNeeded() {
+        guard applicationBackgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(applicationBackgroundTask)
+        applicationBackgroundTask = .invalid
+        EnsembleLogger.debug("📦 Ended app background task for offline downloads")
     }
 }
 

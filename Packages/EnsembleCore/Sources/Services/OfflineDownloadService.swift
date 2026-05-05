@@ -956,8 +956,16 @@ public final class OfflineDownloadService: ObservableObject {
     /// the OS explicitly grants a continued-processing window later.
     public func handleAppDidEnterBackground() async {
         isAppInBackground = true
-        allowsBackgroundContinuation = false
-        await stopQueueForSuspension()
+        allowsBackgroundContinuation = true
+        let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
+        let activeOrPendingCount = max(
+            pendingCount,
+            activeDownloadRatingKeys.count,
+            queueCoordinator.hasActiveTask || isQueueRunning ? 1 : 0
+        )
+        backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: activeOrPendingCount)
+        try? await applyNetworkPolicy()
+        startQueueIfNeeded()
         refreshQueueStatusReason()
         scheduleFullProgressRefresh()
     }
@@ -1317,7 +1325,7 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     internal var currentDownloadWorkMode: DownloadWorkMode {
-        if isAppInBackground && !allowsBackgroundContinuation {
+        if isAppInBackground {
             return .background
         }
         if isPlaybackSensitive {

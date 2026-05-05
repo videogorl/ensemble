@@ -144,9 +144,12 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         var onBackgroundURLSessionEvents: ((_ identifier: String, _ completion: @escaping () -> Void) -> Void)?
         var onSystemWillSleep: (() -> Void)?
         var onSystemDidWake: (() -> Void)?
+        var continuedProcessingRequests: [Int] = []
 
         func register() {}
-        func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {}
+        func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {
+            continuedProcessingRequests.append(pendingTrackCount)
+        }
         func setProgress(completedUnitCount: Int, totalUnitCount: Int) {}
         func finishCurrentTask(success: Bool) {}
         func handleBackgroundURLSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
@@ -173,6 +176,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
             monitorQueue: DispatchQueue(label: "test.network.monitor"),
             monitorFactory: { SystemNetworkPathMonitor() }
         )
+        networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
         let serverHealthChecker = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         let syncCoordinator = SyncCoordinator(
             accountManager: accountManager,
@@ -238,6 +242,28 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         await service.handleAppWillEnterForeground()
         XCTAssertEqual(service.currentDownloadWorkMode, .interactivePlayback)
+    }
+
+    func testBackgroundLifecycleDoesNotPauseDownloadingRecordsImmediately() async {
+        let downloadManager = MockDownloadManager()
+        let backgroundCoordinator = MockBackgroundExecutionCoordinator()
+        let service = await makeService(
+            downloadManager: downloadManager,
+            backgroundCoordinator: backgroundCoordinator
+        )
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        downloadManager.statusUpdates.removeAll()
+
+        await service.handleAppDidEnterBackground()
+
+        XCTAssertEqual(service.currentDownloadWorkMode, .background)
+        XCTAssertFalse(
+            downloadManager.statusUpdates.contains { statuses, status in
+                statuses == [.downloading] && status == .paused
+            },
+            "Backgrounding should request an execution window and leave active downloads running until expiration."
+        )
+        XCTAssertEqual(backgroundCoordinator.continuedProcessingRequests.count, 1)
     }
 
     func testSystemSleepMarksDownloadingRecordsPaused() async {
