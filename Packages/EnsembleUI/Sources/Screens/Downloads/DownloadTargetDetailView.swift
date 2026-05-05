@@ -12,7 +12,7 @@ public struct DownloadTargetDetailView: View {
     @State private var artworkImage: UIImage?
     @State private var currentArtworkPath: String?
     @State private var isRefreshing = false
-    @AppStorage("downloadQuality") private var downloadQuality = "original"
+    @AppStorage("downloadQuality") private var downloadQuality = "high"
 
     public init(summary: DownloadedItemSummary, nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(
