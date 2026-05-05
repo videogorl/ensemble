@@ -65,7 +65,7 @@ The implementation rule is: same feature, same rules, platform-native rendering.
 2. Warning budget: `scripts/check_core_warning_budget.sh` after Core service additions.
 3. App builds: iPhone and iPad simulator build through `Ensemble.xcworkspace`; macOS build if available in the environment.
 4. Simulator verification: iPhone tab flow, iPad sidebar flow, profile/downloads/settings/filter scaffolds, favorite/pin/download actions, playlist add/create/rename/delete, drag track/album/playlist into playlist targets.
-5. Performance evidence: capture a before/after runtime baseline with `scripts/capture_runtime_baseline.sh`; attach Instruments trace notes for Root, Detail, Now Playing, Artists, Playlists, and MiniPlayer. If A9 hardware is unavailable, document simulator-only trace limitation.
+5. Performance evidence: capture a before/after runtime baseline with `scripts/capture_runtime_baseline.sh`; capture repeatable Instruments gates with `scripts/capture_performance_gate.sh` for Root, Detail, Now Playing, Artists, Playlists, MiniPlayer, Feed launch/refresh, and Downloads queue. If A9 hardware is unavailable, document simulator-only or iPhone 16 Pro-only trace limitation.
 
 ## Implementation Order
 
@@ -145,6 +145,19 @@ Physical-device conclusions:
 2. The SwiftUI trace still confirms broad root/environment/mini-player update participation during normal browse navigation, so projection models for playback, queue, artwork, lyrics, and rating remain the correct before/after refactor gate.
 3. The current physical baseline is not yet an A9/2GB-memory baseline. The iPhone 6s should be profiled later when explicitly requested, using the same Root, Detail, Now Playing, Artists, Playlists, and MiniPlayer flows.
 4. The first 16 Pro pass exercised the playlist-add toast path and added the currently playing track `Outro` to `Music video ideas`. No further mutation actions were used in the physical profiling passes.
+
+## 2026-05-05 Profiling Gate Script Pass
+
+| Area | Completed in this pass | Remaining gate |
+|---|---|---|
+| Repeatable capture | Added `scripts/capture_performance_gate.sh` for Root, Detail, Now Playing, Artists, Playlists, MiniPlayer, Feed launch, Feed refresh, and Downloads queue. The script can target simulator or physical device, builds with matching dSYMs by default, optionally installs/launches the app, and writes per-flow traces, exports, logs, and JSON metrics under one output directory. | Run the full gate after the observation/action refactor. Current accepted device is iPhone 16 Pro; iPhone 6s/A9 remains a later explicit pass. |
+| Trace table exports | The script exports TOC plus best-effort hang, hitch, runloop, SwiftUI update/cause/change, thermal, signpost/log, GCD, time-profile, and time-sample tables where the active Instruments template exposes them. Missing/failed tables are captured in each flow's `export-errors.log` instead of failing the whole gate. | Add stricter threshold checks only after two clean before/after gate directories exist, so the thresholds are tied to measured trace stability rather than guesses. |
+| JSON metrics | Each flow/template writes `metrics/<flow>-<template>.json` with row counts, thermal states, memory/allocation table presence, SwiftUI hotspot mentions (`RootView`, `MergedEnvironment`, `ChildEnvironment<( NowPlayingViewModel) -> Void>`, `MiniPlayer`, etc.), and top app-symbol mentions found in exported tables. | Symbol attribution still depends on `xctrace` resolving app frames. The script records app/dSYM UUIDs and copies dSYMs to `symbols/`, but any remaining address-only rows must be documented in the trace notes. |
+
+Verification:
+
+- Passed: `bash -n scripts/capture_performance_gate.sh`
+- Passed: `scripts/capture_performance_gate.sh --help`
 
 ## 2026-05-05 Feed Stability And Refresh Pass
 

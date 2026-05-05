@@ -48,6 +48,12 @@ swift test --package-path Packages/EnsembleUI
 # Keep the Core warning budget at or below the current baseline
 scripts/check_core_warning_budget.sh
 
+# Capture repeatable before/after Instruments gates when changing SwiftUI
+# observation, root chrome, Feed launch/refresh, or Downloads queue behavior
+scripts/capture_performance_gate.sh --platform device \
+  --device "Felicity’s iPhone 16 Pro" \
+  --destination "id=00008140-00023030117B001C"
+
 # Run all tests via Xcode (slower but comprehensive)
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
   -sdk iphonesimulator \
