@@ -168,7 +168,8 @@ The same pattern applies to any protocol in the codebase:
 - `KeychainServiceProtocol` → mock for API tests
 - `LibraryRepositoryProtocol` → mock for ViewModel/service tests
 - `PlaylistRepositoryProtocol` → mock for playlist mutation tests
-- `HubRepositoryProtocol` → mock for HomeViewModel / hub tests
+- `HubRepositoryProtocol` → mock for HomeViewModel / hub tests; cover `HomeFeedCachedSnapshot` source cleanup, last-good preservation, and stale metadata in `HubRepositorySnapshotTests`
+- `BackgroundRefreshCoordinating` / `BackgroundRefreshCoordinator` → use closure seams to test app refresh, iOS 15 foreground fallback, cooldown, cancellation/error collection, and Feed/Siri sequencing without constructing the app container
 
 When testing non-protocol concrete services (for example `SyncCoordinator` or `HomeViewModel`), prefer internal test seams (`...ForTesting` closures/helpers) over production-facing API changes.
 

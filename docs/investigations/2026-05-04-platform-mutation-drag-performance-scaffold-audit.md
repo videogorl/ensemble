@@ -145,3 +145,18 @@ Physical-device conclusions:
 2. The SwiftUI trace still confirms broad root/environment/mini-player update participation during normal browse navigation, so projection models for playback, queue, artwork, lyrics, and rating remain the correct before/after refactor gate.
 3. The current physical baseline is not yet an A9/2GB-memory baseline. The iPhone 6s should be profiled later when explicitly requested, using the same Root, Detail, Now Playing, Artists, Playlists, and MiniPlayer flows.
 4. The first 16 Pro pass exercised the playlist-add toast path and added the currently playing track `Outro` to `Music video ideas`. No further mutation actions were used in the physical profiling passes.
+
+## 2026-05-05 Feed Stability And Refresh Pass
+
+| Area | Completed in this pass | Remaining gate |
+|---|---|---|
+| Feed last-good cache | Added `CDHomeFeedSnapshot` with source scope, created/fetched dates, refresh reason, schema version, freshness state, last-good flag, and ordered hub relationship. `HubRepository` now exposes snapshot save/fetch/mark/delete APIs while preserving legacy `fetchHubs()` compatibility. | Simulator smoke still needs Feed cold-launch from cache and failed refresh preserving content against a configured account. |
+| Empty/failing refresh policy | `HomeHubLoader` saves only non-empty network results as last-good snapshots. `HomeViewModel` renders cached Feed content immediately, marks stale metadata, and preserves existing hubs when network refresh is unavailable or offline-empty. | Partial hub failure policy remains conservative; future resolver work can distinguish "some hubs failed" from "no usable Feed payload." |
+| Shared launch/background freshness | Added `BackgroundRefreshCoordinator` for app refresh and iOS 15 foreground freshness. The sequence now runs endpoint refresh, incremental sync, Feed snapshot refresh, Siri index rebuild, and Siri context refresh through one testable coordinator while preserving foreground-specific network lifecycle handling. | `BGAppRefreshTask` expiration/cancellation should be covered through an injected platform adapter in the broader background-execution phase. |
+| Test coverage | Added `BackgroundRefreshCoordinatorTests` and `HubRepositorySnapshotTests`; extended `HomeViewModelRefreshPolicyTests` for stale-preserving behavior. | UI/simulator cache-smoke and performance trace gates are pending the profiling-script pass. |
+
+Verification:
+
+- Passed: `scripts/compile_coredata_model.sh`
+- Passed: `swift test --package-path Packages/EnsemblePersistence` (7 XCTest cases)
+- Passed: `swift test --package-path Packages/EnsembleCore` (500 XCTest cases + 4 Swift Testing cases)

@@ -112,7 +112,7 @@ Sources/
 |   +-- Ensemble.xcdatamodeld          # CoreData schema
 |   +-- Compiled/SwiftPMEnsemble.momd # Precompiled model copy used by SwiftPM tests; refreshed by verify_package_baseline.sh
 |   +-- CoreDataStack.swift            # Singleton stack with background contexts
-|   +-- ManagedObjects.swift           # NSManagedObject subclasses (CD* prefix)
+|   +-- ManagedObjects.swift           # NSManagedObject subclasses (CD* prefix, including CDHomeFeedSnapshot for Feed last-good cache)
 +-- Downloads/
 |   +-- DownloadManager.swift          # Track download queue & file storage
 |   +-- OfflineDownloadTargetRepository.swift # Offline target + membership persistence
@@ -205,10 +205,11 @@ Sources/
 |   +-- ServerHealthChecker.swift      # Concurrent server health checks
 |   +-- ServerConnectionController.swift # Registry subscription + API-client endpoint synchronization extracted from SyncCoordinator
 |   +-- SettingsManager.swift          # App settings (accent colors, customizable tabs)
-|   +-- HubRepository.swift            # Hub data persistence (CDHub/CDHubItem)
+|   +-- HubRepository.swift            # Hub data persistence (CDHub/CDHubItem/CDHomeFeedSnapshot last-good snapshots)
 |   +-- HomeHubLoader.swift            # Feed hub snapshot loader shared by HomeViewModel and background refresh
 |   +-- HubOrderManager.swift          # User-customizable hub section ordering
 |   +-- BackgroundSyncScheduler.swift  # iOS BGAppRefreshTask scheduling for background sync
+|   +-- BackgroundRefreshCoordinator.swift # Shared app-refresh/foreground Feed freshness sequence (health, sync, Feed snapshot, Siri context)
 |   +-- OfflineDownloadService.swift   # Target-based offline queue, reconciliation, progress tracking, and healing orchestration
 |   +-- DownloadMutationWorkflow.swift # Shared user-initiated download target/queue mutation boundary
 |   +-- DownloadQueueCoordinator.swift # Sole owner of offline queue task lifecycle and worker orchestration
@@ -293,7 +294,9 @@ Tests/
 +-- DownloadTransferExecutorTests.swift # Direct-download/download-queue transfer execution and fallback coverage
 +-- OfflineDownloadNotificationBridgeTests.swift # Debounced downloadsDidChange fan-out and toast routing coverage
 +-- OfflineDownloadCleanupCoordinatorTests.swift # Orphaned completed-download sweep coverage
++-- BackgroundRefreshCoordinatorTests.swift # Shared app/foreground freshness sequencing and error/cooldown coverage
 +-- HomeViewModelRefreshPolicyTests.swift
++-- HubRepositorySnapshotTests.swift  # CDHomeFeedSnapshot save/fetch/source cleanup/last-good preservation coverage
 +-- ServerHealthCheckerClassificationTests.swift
 +-- SettingsManagerConnectionPolicyTests.swift
 +-- AccountManagerAuthPolicyTests.swift

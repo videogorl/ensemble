@@ -121,10 +121,11 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `AppBootstrapDiagnostics` -- Internal cold-launch diagnostics service wired through `DependencyContainer`; emits one structured startup summary after health checks, playback restoration, and startup sync settle so device logs capture account/sync/playback/offline bootstrap state in a single record
 - `ProgressiveStreamLoader` -- AVAssetResourceLoaderDelegate + URLSessionDataDelegate bridge. Proxies PMS's chunked transcode stream (via custom `ensemble-transcode://` scheme) to AVPlayer progressively, writing to a growing temp file. Post-download callbacks: `onDownloadComplete` for frequency analysis, `onDownloadFailed` for HTTP errors and invalid payloads. Validates HTTP status (non-2xx → `ProgressiveStreamError.httpError`) and payload size (< 256 bytes → `.invalidPayload`). Error body captured to diagnostic buffer (not written to audio file)
 - `ProgressiveStreamError` -- Error type for stream download failures: `.httpError(statusCode:bodySnippet:)` and `.invalidPayload(bytesReceived:)`. Mapped to `PlaybackError` in `PlaybackService.mapToPlaybackError`
-- `HubRepository` -- Repository for hub data persistence (implements `HubRepositoryProtocol`); manages CDHub/CDHubItem entities
-- `HomeHubLoader` -- Shared Feed hub snapshot loader used by both `HomeViewModel` and `BackgroundSyncScheduler` refresh paths
+- `HubRepository` -- Repository for Feed hub persistence (implements `HubRepositoryProtocol`); manages legacy `CDHub`/`CDHubItem` caches plus source-scoped `CDHomeFeedSnapshot` last-good snapshots with freshness metadata
+- `HomeHubLoader` -- Shared Feed hub snapshot loader used by both `HomeViewModel` and background refresh paths
   - Loads cached hub snapshots without creating UI observers
-  - Fetches + merges hubs, persists failed hub keys, and reapplies `HubOrderManager` ordering before returning a `HomeHubSnapshot`
+  - Fetches + merges hubs, persists failed hub keys, reapplies `HubOrderManager` ordering, and saves non-empty results as last-good `HomeFeedCachedSnapshot` records
+  - Empty or failed network fetches never replace the last-good Feed cache; `HomeViewModel` renders cache immediately and marks it stale while background reconciliation runs
   - Keeps background refresh work in a non-UI service so transient `HomeViewModel` instances are never created just to refresh Feed data
 - `HubOrderManager` -- Manages user-customizable hub section ordering per music source
   - Persists custom order to UserDefaults with per-source keys
@@ -143,7 +144,8 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `ServerHealthChecker` -- Concurrent health checks for all configured servers with automatic failover
 - `ServerConnectionController` (@MainActor) -- Internal network seam extracted from `SyncCoordinator`; owns registry-driven API-client URL updates and explicit endpoint refresh fan-out while `SyncCoordinator` remains the façade
 - `SettingsManager` (@MainActor) -- Manages accent colors, customizable tab configuration, and track swipe action layout settings
-- `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for hub refresh ~every 15min (system-controlled); background execution should call `HomeHubLoader` directly instead of instantiating `HomeViewModel`
+- `BackgroundRefreshCoordinator` -- Shared app-refresh and foreground freshness sequence for endpoint health, incremental sync, Feed snapshot refresh, Siri index rebuild, and Siri context refresh. iOS 16+ `BGAppRefreshTask` and iOS 15 foreground activation route through this coordinator so launch freshness policy is not duplicated.
+- `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for Feed/library refresh ~every 15min (system-controlled); background execution should call `BackgroundRefreshCoordinator` rather than instantiating `HomeViewModel`
 - `MoodRepository` -- Mood data persistence (CDMood)
 - `LibraryVisibilityStore` (@MainActor) -- Persists visibility profiles and active profile state for source-level browse filtering
 - `ToastCenter` (@MainActor) -- App-wide toast notification coordination
@@ -343,9 +345,10 @@ Dynamic home screen powered by Plex's hub system:
   - Artwork: 140x140pt, circular for artists (radius 70), rounded for albums (radius 8)
 
 **Hub Persistence:**
-- `HubRepository` manages `CDHub` and `CDHubItem` CoreData entities
-- Methods: `fetchHubs()`, `saveHubs()`, `deleteAllHubs()`
-- Offline-first: loads cached hubs immediately, fetches fresh in background
+- `HubRepository` manages `CDHomeFeedSnapshot`, `CDHub`, and `CDHubItem` CoreData entities
+- Last-good APIs: `fetchLatestHomeFeedSnapshot(sourceScopeKey:)`, `saveHomeFeedSnapshot(_:)`, `markHomeFeedSnapshotLastGood(id:freshnessState:)`, `deleteHomeFeedSnapshots(sourceScopeKey:)`
+- Legacy APIs: `fetchHubs()`, `saveHubs()`, `deleteAllHubs()` remain for compatibility and prefer the latest last-good snapshot when present
+- Offline-first: `HomeViewModel` loads cached hubs immediately, marks stale metadata, and fetches fresh in background without blanking existing content on failed/empty refreshes
 
 **Hub API Endpoints:**
 - `getHubs(sectionKey:)` -- Section-specific hubs

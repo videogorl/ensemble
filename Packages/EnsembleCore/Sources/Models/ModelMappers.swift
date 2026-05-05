@@ -541,7 +541,8 @@ public extension Hub {
             id: cd.id,
             title: cd.title,
             type: cd.type,
-            items: cd.itemsArray.map { HubItem(from: $0) }
+            items: cd.itemsArray.map { HubItem(from: $0) },
+            context: cd.context
         )
     }
 }

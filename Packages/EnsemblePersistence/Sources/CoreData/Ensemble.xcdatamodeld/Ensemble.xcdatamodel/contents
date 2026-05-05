@@ -119,12 +119,31 @@
             </uniquenessConstraint>
         </uniquenessConstraints>
     </entity>
+    <entity name="CDHomeFeedSnapshot" representedClassName="CDHomeFeedSnapshot" syncable="YES">
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="fetchedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="freshnessState" optional="YES" attributeType="String"/>
+        <attribute name="id" optional="YES" attributeType="String"/>
+        <attribute name="isLastGood" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="refreshReason" optional="YES" attributeType="String"/>
+        <attribute name="schemaVersion" optional="YES" attributeType="Integer 16" defaultValueString="1" usesScalarValueType="YES"/>
+        <attribute name="sourceName" optional="YES" attributeType="String"/>
+        <attribute name="sourceScopeKey" optional="YES" attributeType="String"/>
+        <relationship name="hubs" optional="YES" toMany="YES" deletionRule="Cascade" ordered="YES" destinationEntity="CDHub" inverseName="snapshot" inverseEntity="CDHub"/>
+        <uniquenessConstraints>
+            <uniquenessConstraint>
+                <constraint value="id"/>
+            </uniquenessConstraint>
+        </uniquenessConstraints>
+    </entity>
     <entity name="CDHub" representedClassName="CDHub" syncable="YES">
+        <attribute name="context" optional="YES" attributeType="String"/>
         <attribute name="id" optional="YES" attributeType="String"/>
         <attribute name="order" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="title" optional="YES" attributeType="String"/>
         <attribute name="type" optional="YES" attributeType="String"/>
         <relationship name="items" optional="YES" toMany="YES" deletionRule="Cascade" ordered="YES" destinationEntity="CDHubItem" inverseName="hub" inverseEntity="CDHubItem"/>
+        <relationship name="snapshot" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDHomeFeedSnapshot" inverseName="hubs" inverseEntity="CDHomeFeedSnapshot"/>
     </entity>
     <entity name="CDHubItem" representedClassName="CDHubItem" syncable="YES">
         <attribute name="id" optional="YES" attributeType="String"/>

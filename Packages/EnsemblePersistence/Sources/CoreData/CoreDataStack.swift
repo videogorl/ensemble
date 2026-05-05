@@ -129,12 +129,15 @@ public final class CoreDataStack: @unchecked Sendable {
     }
 
     /// Reject stale compiled model bundles before Core Data boots.
-    /// `genreNames` was added after the initial SwiftPM compiled copy and is a reliable canary
-    /// that the loaded model matches the checked-in managed object subclasses.
+    /// `CDHomeFeedSnapshot` is the current cache/freshness canary. Checking it here
+    /// prevents SwiftPM from silently loading a stale compiled model after schema changes.
     private static func isCurrentModel(_ model: NSManagedObjectModel) -> Bool {
         guard let trackEntity = model.entitiesByName["CDTrack"] else {
             return false
         }
-        return trackEntity.propertiesByName["genreNames"] != nil
+        guard trackEntity.propertiesByName["genreNames"] != nil else {
+            return false
+        }
+        return model.entitiesByName["CDHomeFeedSnapshot"]?.propertiesByName["hubs"] != nil
     }
 }

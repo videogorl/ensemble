@@ -112,15 +112,29 @@ Task {
 // Load hubs from Plex API
 let hubs = try await deps.syncCoordinator.fetchHubs(for: sourceKey)
 
-// Save hubs to CoreData for offline access
-try await deps.hubRepository.saveHubs(hubs)
+// Save a last-good Feed snapshot for offline-first launch.
+let snapshot = HomeFeedCachedSnapshot(
+    sourceScopeKey: "plex:account:server",
+    sourceName: "Editing Music",
+    fetchedAt: Date(),
+    refreshReason: "network",
+    freshnessState: .fresh,
+    isLastGood: true,
+    hubs: hubs
+)
+try await deps.hubRepository.saveHomeFeedSnapshot(snapshot)
 
 // Load cached hubs
-let cachedHubs = try await deps.hubRepository.fetchHubs()
+let cachedSnapshot = try await deps.hubRepository.fetchLatestHomeFeedSnapshot(sourceScopeKey: "plex:account:server")
 
 // Clear all cached hubs
 try await deps.hubRepository.deleteAllHubs()
 ```
+
+Rules:
+- Feed refresh should use `HomeHubLoader` or `BackgroundRefreshCoordinator`, not a transient `HomeViewModel`.
+- Do not save empty network hub results over the last-good snapshot.
+- Use `saveHubs(_:)`/`fetchHubs()` only for legacy compatibility; new Feed freshness work should use `HomeFeedCachedSnapshot`.
 
 ## Adding Hub Support to New Content Types
 

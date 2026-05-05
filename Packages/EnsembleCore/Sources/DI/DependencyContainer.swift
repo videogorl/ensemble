@@ -41,6 +41,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let settingsManager: SettingsManager
     public let cacheManager: CacheManager
     public let homeHubLoader: HomeHubLoaderProtocol
+    public let backgroundRefreshCoordinator: BackgroundRefreshCoordinating
     public let navigationCoordinator: NavigationCoordinator
     public let hubOrderManager: HubOrderManager
     public let pinManager: PinManager
@@ -234,11 +235,12 @@ public final class DependencyContainer: @unchecked Sendable {
         cacheManager = playback.cacheManager
         songLinkService = playback.songLinkService
         shareService = playback.shareService
-        homeHubLoader = HomeHubLoader(
+        let builtHomeHubLoader = HomeHubLoader(
             accountManager: accountManager,
             hubRepository: hubRepository,
             hubOrderManager: hubOrderManager
         )
+        homeHubLoader = builtHomeHubLoader
 
         offlineBackgroundExecutionCoordinator = mutation.offlineBackgroundExecutionCoordinator
         offlineDownloadService = mutation.offlineDownloadService
@@ -254,6 +256,12 @@ public final class DependencyContainer: @unchecked Sendable {
         siriAffinityCoordinator = siri.siriAffinityCoordinator
         siriAddToPlaylistCoordinator = siri.siriAddToPlaylistCoordinator
         siriMediaUserContextManager = siri.siriMediaUserContextManager
+        backgroundRefreshCoordinator = BackgroundRefreshCoordinator(
+            syncCoordinator: sync.syncCoordinator,
+            homeHubLoader: builtHomeHubLoader,
+            siriMediaIndexStore: siri.siriMediaIndexStore,
+            siriMediaUserContextManager: siri.siriMediaUserContextManager
+        )
         appBootstrapDiagnostics = Self.buildAppBootstrapDiagnostics(
             network: network,
             sync: sync,
