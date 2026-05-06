@@ -127,6 +127,7 @@ Sources/
 |   +-- LibraryRepository+Albums.swift # Album fetch/update/delete/upsert operations split from LibraryRepository
 |   +-- LibraryRepository+Tracks.swift # Track fetch/update/delete/upsert operations split from LibraryRepository
 |   +-- LibraryRepository+Genres.swift # Genre fetch/upsert/coverage/orphan repair operations split from LibraryRepository
+|   +-- LibraryRepository+Search.swift # Tokenized and source-scoped search/find operations split from LibraryRepository
 |   +-- LibraryRepository+SyncMetadata.swift # Source rows, sync timestamps, cleanup, orphan removal, and batch upsert operations split from LibraryRepository
 |   +-- PlaylistRepository.swift       # CRUD for playlists
 +-- EnsembleLogger.swift               # Package logger categories
