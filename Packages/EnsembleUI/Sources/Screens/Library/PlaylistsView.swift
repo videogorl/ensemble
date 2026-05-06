@@ -54,6 +54,15 @@ public struct PlaylistsView: View {
         isStageFlowActive
     }
 
+    private var shouldShowPlaylistSearch: Bool {
+        guard !isPresenterChromeHidden else { return false }
+        #if os(macOS)
+        return selectedPlaylist == nil
+        #else
+        return true
+        #endif
+    }
+
     private var playlistMergeButton: some View {
         Button {
             viewModel.toggleMerge()
@@ -261,7 +270,7 @@ public struct PlaylistsView: View {
                     }
                 }
             }
-            .if(!isPresenterChromeHidden) { view in
+            .if(shouldShowPlaylistSearch) { view in
                 view.searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             }
             .task {
@@ -921,7 +930,7 @@ public struct PlaylistDetailView: View {
                 }
             }
             #else
-            ToolbarItem(placement: .primaryActionIfAvailable) {
+            ToolbarItemGroup(placement: .primaryActionIfAvailable) {
                 if isEditingPlaylist {
                     Button("Save") {
                         let editedSnapshot = editedTracks
@@ -935,10 +944,7 @@ public struct PlaylistDetailView: View {
                         }
                     }
                     .disabled(isSavingPlaylistEdits)
-                }
-            }
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                if isEditingPlaylist {
+
                     Button("Cancel") {
                         if startedInEditMode {
                             dismiss()

@@ -26,7 +26,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     @Environment(\.dependencies) private var dependencies
 
     func makeNSView(context: Context) -> NSScrollView {
-        let tableView = NSTableView()
+        let tableView = MacNativeContextMenuTableView()
         tableView.headerView = nil
         tableView.backgroundColor = .clear
         tableView.selectionHighlightStyle = .regular
@@ -40,6 +40,9 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         tableView.dataSource = context.coordinator
         tableView.target = context.coordinator
         tableView.action = #selector(Coordinator.tableClicked(_:))
+        tableView.contextMenuProvider = { [weak coordinator = context.coordinator] row in
+            coordinator?.contextMenu(forRow: row)
+        }
         tableView.setDraggingSourceOperationMask(.copy, forLocal: true)
         tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
 
@@ -399,6 +402,19 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             )
         }
 
+        func contextMenu(forRow row: Int) -> NSMenu? {
+            guard row >= 0,
+                  row < rows.count,
+                  case let .track(track, globalIndex) = rows[row] else {
+                return nil
+            }
+            return makeMenu(
+                for: track,
+                globalIndex: globalIndex,
+                resolvedActions: interactionModel.resolve(for: track)
+            )
+        }
+
         private func hostingHeight(for rootView: AnyView, width: CGFloat) -> CGFloat {
             let hostingView = NSHostingView(rootView: rootView.frame(width: max(width, 1)))
             return max(1, hostingView.fittingSize.height)
@@ -435,6 +451,18 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 )
             }
         }
+    }
+}
+
+private final class MacNativeContextMenuTableView: NSTableView {
+    var contextMenuProvider: ((Int) -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let row = row(at: convert(event.locationInWindow, from: nil))
+        guard let menu = contextMenuProvider?(row) else {
+            return super.menu(for: event)
+        }
+        return menu
     }
 }
 
