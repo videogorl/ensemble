@@ -335,40 +335,25 @@ public final class SyncCoordinator: ObservableObject {
         isSyncing = true
         defer { isSyncing = false }
 
-        // Track which servers have been synced (playlists are server-level, not library-level)
-        var syncedServerKeys = Set<String>()
+        let results = await playlistRefreshController.refreshAllServers(
+            providers: syncProviders,
+            playlistRepository: playlistRepository,
+            trigger: .playlistOnly,
+            allowFullFallback: false
+        )
 
-        for (_, provider) in syncProviders {
-            let sourceId = provider.sourceIdentifier
-            let serverKey = "\(sourceId.accountId):\(sourceId.serverId)"
-
-            // Only sync once per server
-            guard !syncedServerKeys.contains(serverKey) else { continue }
-            syncedServerKeys.insert(serverKey)
-
-            do {
-                guard let result = try await playlistRefreshController.refreshServer(
-                    serverSourceKey: "plex:\(sourceId.accountId):\(sourceId.serverId)",
-                    providers: syncProviders,
-                    playlistRepository: playlistRepository,
-                    trigger: .playlistOnly,
-                    allowFullFallback: false
-                ) else {
-                    continue
-                }
-                // Cache playlist composite artwork so it's always available offline
+        for result in results {
+            if let provider = syncProviders.first(where: { _, provider in
+                provider.sourceIdentifier == result.sourceId
+            })?.value {
                 await cachePlaylistArtwork(sourceId: result.sourceId, provider: provider)
-                publishContentChangeIfNeeded(
-                    for: result.sourceId,
-                    playlistResult: result.playlistResult,
-                    syncedAt: Date()
-                )
-                notifyPlaylistRefreshCompleted(serverSourceKey: result.serverSourceKey)
-            } catch is CancellationError {
-                EnsembleLogger.debug("⏹️ SyncCoordinator: Playlist-only sync cancelled for server \(serverKey)")
-            } catch {
-                EnsembleLogger.debug("⚠️ Failed to sync playlists for server \(serverKey): \(error.localizedDescription)")
             }
+            publishContentChangeIfNeeded(
+                for: result.sourceId,
+                playlistResult: result.playlistResult,
+                syncedAt: Date()
+            )
+            notifyPlaylistRefreshCompleted(serverSourceKey: result.serverSourceKey)
         }
     }
 

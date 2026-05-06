@@ -182,7 +182,7 @@ Sources/
 |   +-- RefreshOrchestrator.swift      # Health-refresh gating, cooldown/staleness policy, and startup-health ownership extracted from SyncCoordinator
 |   +-- NetworkLifecycleController.swift # App-foreground and network-transition policy extracted from SyncCoordinator
 |   +-- PeriodicSyncController.swift   # Foreground periodic-sync timer scheduling + WebSocket-aware interval policy extracted from SyncCoordinator
-|   +-- PlaylistRefreshController.swift # Server-scoped playlist refresh orchestration extracted from SyncCoordinator
+|   +-- PlaylistRefreshController.swift # Server-scoped playlist refresh dedupe/fallback orchestration extracted from SyncCoordinator
 |   +-- WebSocketSyncController.swift  # WebSocket-triggered section resolution + playlist refresh routing extracted from SyncCoordinator
 |   +-- MusicSourceSyncProvider.swift  # Protocol for source-specific sync
 |   +-- PlexMusicSourceSyncProvider.swift # Plex implementation of sync protocol
@@ -293,7 +293,7 @@ Tests/
 +-- RefreshOrchestratorTests.swift # Health-refresh coalescing, cooldown/staleness gating, and startup ownership coverage
 +-- NetworkLifecycleControllerTests.swift # Foreground and network-transition policy coverage for SyncCoordinator lifecycle decisions
 +-- PeriodicSyncControllerTests.swift # Foreground timer scheduling and WebSocket-aware interval coverage
-+-- PlaylistRefreshControllerTests.swift # Server playlist refresh fallback and trigger-policy coverage
++-- PlaylistRefreshControllerTests.swift # Server playlist refresh dedupe, fallback, and trigger-policy coverage
 +-- WebSocketSyncControllerTests.swift # WebSocket section resolution and playlist refresh routing coverage
 +-- ServerConnectionControllerTests.swift # Registry-update processing, API-client endpoint synchronization, and post-sync URL resolution coverage
 +-- PlexWebSocketCoordinatorTests.swift # Aggregate WebSocket availability callback coverage
