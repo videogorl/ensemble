@@ -209,6 +209,7 @@ Sources/
 |   +-- PlaybackPrefetchController.swift # Upcoming-queue prefetch policy, resolved-file cache eviction, and stream-cache cleanup extracted from PlaybackService
 |   +-- PlaybackNowPlayingBridge.swift # Lock-screen metadata + command-availability wiring extracted from PlaybackService
 |   +-- PlaybackTransportCoordinator.swift # Stream/local transport resolution + progressive-loader cache extracted from PlaybackService
+|   +-- PlaybackLocalFilePolicy.swift # Local payload validation, mislabeled MP3 aliasing, and truncated-duration thresholds extracted from PlaybackService
 |   +-- PlaybackSettingsObserver.swift # Key-filtered UserDefaults observer for playback settings changes
 |   +-- PlaybackReportingController.swift # Timeline reporting and scrobble policy extracted from PlaybackService
 |   +-- AppBootstrapDiagnostics.swift # Structured cold-launch bootstrap summary service (accounts/sync/playback/offline/audio session)
@@ -292,6 +293,7 @@ Tests/
 +-- PlaybackLaunchCoordinatorTests.swift
 +-- PlaybackSessionStateMachineTests.swift
 +-- PlaybackTransportCoordinatorTests.swift
++-- PlaybackLocalFilePolicyTests.swift # Local payload sniffing, invalid payload rejection, MP3 aliasing, and truncation threshold coverage
 +-- PlaybackPrefetchControllerTests.swift # Upcoming-queue selection and prefetch schedule-eligibility coverage
 +-- PlaybackQueueStoreTests.swift
 +-- PlaybackQueueControllerTests.swift # Queue/history controller coverage, including legacy autoplay identity tracking

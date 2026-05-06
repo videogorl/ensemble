@@ -1021,11 +1021,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             networkState: { [weak self] in
                 await self?.currentTransportNetworkState() ?? .unknown
             },
-            preparedLocalPlaybackURL: { [weak self] path in
-                self?.preparedLocalPlaybackURL(forPath: path) ?? URL(fileURLWithPath: path)
+            preparedLocalPlaybackURL: { path in
+                PlaybackLocalFilePolicy.preparedPlaybackURL(forPath: path)
             },
-            isClearlyInvalidLocalPayload: { [weak self] fileURL in
-                self?.isClearlyInvalidLocalPayload(fileURL) ?? true
+            isClearlyInvalidLocalPayload: { fileURL in
+                PlaybackLocalFilePolicy.isClearlyInvalidPayload(fileURL)
             },
             ensureServerConnection: { [weak self] track in
                 guard let self else {
@@ -3772,10 +3772,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // Validate cached file isn't truncated (interrupted download or stale cache).
                 // A truncated file causes premature track completion and stale gapless state.
                 let expectedDuration = request.track.duration
-                if expectedDuration > 10 {
+                if PlaybackLocalFilePolicy.shouldCheckForTruncation(expectedDuration: expectedDuration) {
                     let probeFile = try AVAudioFile(forReading: fileURL)
                     let fileDuration = Double(probeFile.length) / probeFile.processingFormat.sampleRate
-                    if fileDuration < expectedDuration * 0.5 && fileDuration < expectedDuration - 10 {
+                    if PlaybackLocalFilePolicy.shouldTreatAsTruncated(fileDuration: fileDuration, expectedDuration: expectedDuration) {
                         EnsembleLogger.debug("[playCurrentQueueItem] Truncated file for '\(request.track.title)': file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedDuration))s — re-downloading")
                         await evictTruncatedFile(fileURL: fileURL, track: request.track, fileDuration: fileDuration, expectedDuration: expectedDuration)
                         fileURL = try await resolveAudioFile(for: request.track)
@@ -4110,86 +4110,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return (codec, fileSize)
     }
 
-    /// Normalize local playback URL so container/extension mismatches do not prevent decode.
-    /// Some servers return MPEG data via queue flow without a filename extension.
-    private func preparedLocalPlaybackURL(forPath path: String) -> URL {
-        let originalURL = URL(fileURLWithPath: path)
-        guard originalURL.pathExtension.lowercased() == "m4a" else { return originalURL }
-        guard sniffedAudioContainer(for: originalURL) == "mp3" else { return originalURL }
-
-        let mp3URL = originalURL.deletingPathExtension().appendingPathExtension("mp3")
-        if FileManager.default.fileExists(atPath: mp3URL.path) {
-            if sniffedAudioContainer(for: mp3URL) == "mp3", !isClearlyInvalidLocalPayload(mp3URL) {
-                return mp3URL
-            }
-            try? FileManager.default.removeItem(at: mp3URL)
-        }
-
-        do {
-            try FileManager.default.linkItem(at: originalURL, to: mp3URL)
-            return isClearlyInvalidLocalPayload(mp3URL) ? originalURL : mp3URL
-        } catch {
-            do {
-                try FileManager.default.copyItem(at: originalURL, to: mp3URL)
-                return isClearlyInvalidLocalPayload(mp3URL) ? originalURL : mp3URL
-            } catch {
-                EnsembleLogger.debug("⚠️ Failed creating mp3 alias for local playback: \(error.localizedDescription)")
-                return originalURL
-            }
-        }
-    }
-
-    private func sniffedAudioContainer(for fileURL: URL) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return nil }
-        defer { try? handle.close() }
-        guard let header = try? handle.read(upToCount: 12), !header.isEmpty else {
-            return nil
-        }
-
-        if header.starts(with: Data([0x49, 0x44, 0x33])) { // ID3
-            return "mp3"
-        }
-        if header.starts(with: Data([0x66, 0x4C, 0x61, 0x43])) { // fLaC
-            return "flac"
-        }
-        if header.starts(with: Data([0xFF, 0xFB])) || header.starts(with: Data([0xFF, 0xF3])) || header.starts(with: Data([0xFF, 0xF2])) {
-            return "mp3"
-        }
-        if header.count >= 8 && header.subdata(in: 4..<8) == Data([0x66, 0x74, 0x79, 0x70]) {
-            return "m4a"
-        }
-        return nil
-    }
-
-    private func isClearlyInvalidLocalPayload(_ fileURL: URL) -> Bool {
-        // Reject files that don't exist or can't be opened
-        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return true }
-        defer { try? handle.close() }
-
-        // Reject files smaller than 256 bytes — too small for any valid audio container
-        let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int64) ?? 0
-        if fileSize < 256 { return true }
-
-        guard let header = try? handle.read(upToCount: 64), !header.isEmpty else {
-            return true
-        }
-
-        // Reject HTML error pages that the server returned instead of audio data
-        let leadingText = String(decoding: header, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        if leadingText.hasPrefix("<html")
-            || leadingText.hasPrefix("<!doctype html")
-            || leadingText.hasPrefix("<?xml")
-            || leadingText.contains("<h1>400 bad request</h1>")
-            || leadingText.contains("<h1>404 not found</h1>")
-            || leadingText.contains("<h1>503 ") {
-            return true
-        }
-
-        return false
-    }
-
     /// Evict a truncated audio file — clears stream cache and, if the file came from an
     /// offline download, marks the CDDownload as failed and deletes the file on disk.
     /// After calling this, `resolveAudioFile` will fall through to streaming.
@@ -4211,7 +4131,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 ) {
                     try await downloadManager.failDownload(
                         download.objectID,
-                        error: "Truncated download (\(String(format: "%.0f", fileDuration))s vs \(String(format: "%.0f", expectedDuration))s expected)"
+                        error: PlaybackLocalFilePolicy.truncatedDownloadError(fileDuration: fileDuration, expectedDuration: expectedDuration)
                     )
                     EnsembleLogger.debug("[evictTruncatedFile] Marked offline download as failed for '\(track.title)'")
                 }
@@ -4313,10 +4233,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // An interrupted download or aggressive cache cleanup can leave a partial file
             // on disk. Scheduling it for gapless causes a premature track advance.
             let expectedDuration = track.duration
-            if expectedDuration > 10 {
+            if PlaybackLocalFilePolicy.shouldCheckForTruncation(expectedDuration: expectedDuration) {
                 let probeFile = try AVAudioFile(forReading: fileURL)
                 let fileDuration = Double(probeFile.length) / probeFile.processingFormat.sampleRate
-                if fileDuration < expectedDuration * 0.5 && fileDuration < expectedDuration - 10 {
+                if PlaybackLocalFilePolicy.shouldTreatAsTruncated(fileDuration: fileDuration, expectedDuration: expectedDuration) {
                     EnsembleLogger.debug("[prefetch] Truncated file for '\(track.title)': file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedDuration))s — evicting and re-downloading")
                     await evictTruncatedFile(fileURL: fileURL, track: track, fileDuration: fileDuration, expectedDuration: expectedDuration)
                     fileURL = try await resolveAudioFile(for: track)
