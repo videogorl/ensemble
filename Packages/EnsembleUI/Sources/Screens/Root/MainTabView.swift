@@ -603,7 +603,7 @@ public struct SidebarView: View {
     @StateObject private var playlistsVM: PlaylistViewModel
     @StateObject private var contextMenuMetadataEditorCoordinator = ContextMenuMetadataEditorCoordinator()
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
     private let pinManager = DependencyContainer.shared.pinManager
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
@@ -629,6 +629,7 @@ public struct SidebarView: View {
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
+    @State private var accentColor: AppAccentColor = DependencyContainer.shared.settingsManager.accentColor
 
     private var profileSheetBinding: Binding<Bool> {
         Binding(
@@ -670,6 +671,13 @@ public struct SidebarView: View {
 
     private var isShowingNowPlaying: Bool {
         isViewportNowPlayingPresented
+    }
+
+    private func updateSettingsSnapshot() {
+        let latestAccentColor = settingsManager.accentColor
+        if latestAccentColor != accentColor {
+            accentColor = latestAccentColor
+        }
     }
 
     private var isShowingCompactSidebarRoot: Bool {
@@ -958,13 +966,13 @@ public struct SidebarView: View {
             navigationCoordinator.dismissAuxiliaryPresentation()
         }) {
             ProfilePresentationContainer()
-                .accentColor(settingsManager.accentColor.color)
+                .accentColor(accentColor.color)
         }
         .phoneSafeAuxiliaryPresentation(item: downloadsAuxiliaryBinding, onDismiss: {
             navigationCoordinator.dismissAuxiliaryPresentation()
         }) { destination in
             AuxiliaryPresentationView(destination: destination)
-                .accentColor(settingsManager.accentColor.color)
+                .accentColor(accentColor.color)
         }
         #endif
         .onChange(of: isShowingNowPlaying) { isShowing in
@@ -977,6 +985,11 @@ public struct SidebarView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                     navigationCoordinator.push(pending.destination, in: targetTab)
                 }
+            }
+        }
+        .onReceive(settingsManager.objectWillChange) { _ in
+            DispatchQueue.main.async {
+                updateSettingsSnapshot()
             }
         }
         #if os(macOS)

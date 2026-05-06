@@ -391,7 +391,7 @@ Sources/
 |   +-- PlaylistActionPresentationHost.swift # Shared add-to-playlist sheet request + recent-playlist presentation helpers
 |   +-- EnsembleUtilityScreenScaffold.swift # Adaptive utility scaffold plus card-based macOS screen/section rows for menu-like tools
 +-- Screens/
-|   +-- Root/                         # RootView, MainTabView, MoreView, auxiliary presentation routing
+|   +-- Root/                         # RootView, MainTabView/SidebarView root shells, MoreView, auxiliary presentation routing
 |   |   +-- NavigationDestinationFactory.swift # Shared root tab/destination view factory used by iPhone tabs and iPad/macOS sidebar stacks
 |   |   +-- NavigationCoordinator+Bindings.swift # SwiftUI path bindings backed by NavigationCoordinator path helpers
 |   |   +-- SidebarSelection.swift    # Sidebar selection model and destination mapping for iPad/macOS root navigation

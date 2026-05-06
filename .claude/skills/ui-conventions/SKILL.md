@@ -105,6 +105,7 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - Artists, Playlists, and Genres keep the app's root `NavigationSplitView` as a stable two-column sidebar/detail shell on iPadOS/macOS. Their browse list + selected detail split lives inside the detail host so switching sections does not recreate the app sidebar or reset its scroll state.
 - Compact iPhone and unsupported OS fallbacks keep the existing push/list root behavior by rendering each browse screen in compact mode.
 - Store selected artist/playlist/genre state in `SidebarView`, outside the section-owned split subtree, so selection survives detail host rebuilds, compact collapse/expand, and detail pushes.
+- Persistent root/sidebar shells should not observe the full `SettingsManager` for one-off values. Cache specific settings such as `accentColor` in `@State`, listen to `settingsManager.objectWillChange`, and assign only when the projected value actually changes.
 - Keep selection rows visually dense and use `LargeScreenPlaceholderView` for empty right-pane states such as "Select an Artist".
 - Do not clip the selected detail pane inside large-screen browse splits. Artwork-backed detail screens rely on top safe-area bleed plus transparent toolbar chrome so the media wash continues behind search and toolbar controls on iPadOS/macOS.
 - On macOS, SwiftUI toolbar actions that need to sit to the right of a search field should use `EnsembleToolbarLeadingSpacer` before the action group. Do this as a toolbar-level alignment spacer, not as column-width math or screen-level toolbar delegate proxying.
