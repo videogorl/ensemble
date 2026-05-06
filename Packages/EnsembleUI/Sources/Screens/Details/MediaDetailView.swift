@@ -228,12 +228,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         )
         // Native track lists manage their own bottom inset so rows can scroll
         // behind the floating mini player without shrinking the table host.
-        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
-            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
-        }
-        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
-            if gen != availabilityGeneration { availabilityGeneration = gen }
-        }
+        .trackListRuntimeObservation(
+            activeDownloadRatingKeys: $activeDownloadRatingKeys,
+            availabilityGeneration: $availabilityGeneration
+        )
         .onReceive(pinManager.objectWillChange) { _ in
             DispatchQueue.main.async {
                 updatePinStateForHeader()

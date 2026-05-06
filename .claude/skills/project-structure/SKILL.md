@@ -368,6 +368,7 @@ Sources/
 |   +-- QueueTableView.swift
 |   +-- SongsTrackListHost.swift
 |   +-- StandardSwipeActions.swift
+|   +-- TrackListRuntimeObservation.swift # Shared download/availability value observation modifier for native track-list callers
 |   +-- TrackRow.swift
 |   +-- TrackRowInteractionModel.swift
 |   +-- TrackSwipeContainer.swift

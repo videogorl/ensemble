@@ -80,12 +80,10 @@ public struct SearchView: View {
         .onReceive(DependencyContainer.shared.accountManager.$isAwaitingCloudSources) { awaiting in
             if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
         }
-        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
-            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
-        }
-        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
-            if gen != availabilityGeneration { availabilityGeneration = gen }
-        }
+        .trackListRuntimeObservation(
+            activeDownloadRatingKeys: $activeDownloadRatingKeys,
+            availabilityGeneration: $availabilityGeneration
+        )
         .onReceive(navigationCoordinator.$selectedTab) { tab in
             let isActive = tab == .search
             if isActive != isSearchTabActive { isSearchTabActive = isActive }
