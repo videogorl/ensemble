@@ -850,7 +850,8 @@ public struct PlaylistsView: View {
 /// not the entire PlaylistsView list.
 private struct PlaylistsNewButton: View {
     let action: () -> Void
-    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
+    @State private var isOffline = DependencyContainer.shared.syncCoordinator.isOffline
 
     var body: some View {
         Button {
@@ -858,7 +859,12 @@ private struct PlaylistsNewButton: View {
         } label: {
             Label("New Playlist", systemImage: EnsembleDesign.Icon.add)
         }
-        .disabled(syncCoordinator.isOffline)
+        .disabled(isOffline)
+        .onReceive(syncCoordinator.$isOffline) { newValue in
+            if newValue != isOffline {
+                isOffline = newValue
+            }
+        }
     }
 }
 
