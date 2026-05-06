@@ -64,7 +64,7 @@ ensemble/
 |   +-- Views/
 |   |   +-- WatchRootView.swift   # Standalone watch shell; does not link full EnsembleCore
 |   +-- Resources/
-|   |   +-- Assets.xcassets
+|   |   +-- Assets.xcassets       # Watch accent color and 1024px AppIcon
 |   +-- Info.plist
 |
 +-- Packages/                      # Swift Package modules
