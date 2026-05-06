@@ -35,6 +35,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         tableView.rowSizeStyle = .custom
         tableView.intercellSpacing = NSSize(width: 0, height: 0)
         tableView.gridStyleMask = []
+        tableView.floatsGroupRows = false
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.target = context.coordinator
@@ -46,7 +47,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         column.resizingMask = .autoresizingMask
         tableView.addTableColumn(column)
 
-        let scrollView = NSScrollView()
+        let scrollView = MacNativeTrackScrollView()
         scrollView.drawsBackground = false
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentInsets = NSEdgeInsetsZero
@@ -80,10 +81,19 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
         context.coordinator.onRemoveFromPlaylist = onRemoveFromPlaylist
         context.coordinator.rebuildRows()
+        if let trackScrollView = scrollView as? MacNativeTrackScrollView {
+            trackScrollView.bottomContentInset = bottomContentInset
+        } else {
+            let contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: bottomContentInset, right: 0)
+            if !scrollView.contentInsets.isApproximatelyEqual(to: contentInsets) {
+                scrollView.contentInsets = contentInsets
+            }
+        }
 
         if tableView.numberOfRows != context.coordinator.rows.count {
             tableView.reloadData()
         } else {
+            context.coordinator.invalidateDynamicRowHeights(in: tableView)
             tableView.enumerateAvailableRowViews { _, row in
                 guard row < context.coordinator.rows.count else { return }
                 let view = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
@@ -197,7 +207,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 sections: sections,
                 hasHeader: tableHeaderContent != nil,
                 hasFooter: tableFooterContent != nil,
-                bottomContentInset: bottomContentInset
+                bottomContentInset: 0
             )
         }
 
@@ -220,6 +230,12 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             return false
         }
 
+        func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+            guard row < rows.count else { return false }
+            if case .track = rows[row] { return true }
+            return false
+        }
+
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard row < rows.count else { return rowHeight }
             if case .section = rows[row] { return 40 }
@@ -231,6 +247,21 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 return hostingHeight(for: tableFooterContent, width: tableView.bounds.width)
             }
             return rowHeight
+        }
+
+        func invalidateDynamicRowHeights(in tableView: NSTableView) {
+            let indexes = rows.enumerated().reduce(into: IndexSet()) { result, element in
+                switch element.element {
+                case .header, .footer, .bottomSpacer:
+                    result.insert(element.offset)
+                case .section, .track:
+                    break
+                }
+            }
+
+            if !indexes.isEmpty {
+                tableView.noteHeightOfRows(withIndexesChanged: indexes)
+            }
         }
 
         func tableView(
@@ -407,6 +438,32 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     }
 }
 
+private final class MacNativeTrackScrollView: NSScrollView {
+    var bottomContentInset: CGFloat = 0 {
+        didSet {
+            updateContentInsets()
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        updateContentInsets()
+    }
+
+    private func updateContentInsets() {
+        let insets = NSEdgeInsets(
+            top: safeAreaInsets.top,
+            left: 0,
+            bottom: bottomContentInset,
+            right: 0
+        )
+        if !contentInsets.isApproximatelyEqual(to: insets) {
+            contentInsets = insets
+        }
+        scrollerInsets = NSEdgeInsetsZero
+    }
+}
+
 private final class MacNativeTrackHostingCell: NSTableCellView {
     private var hostingView: NSHostingView<AnyView>?
 
@@ -427,6 +484,15 @@ private final class MacNativeTrackHostingCell: NSTableCellView {
             ])
             self.hostingView = hostingView
         }
+    }
+}
+
+private extension NSEdgeInsets {
+    func isApproximatelyEqual(to other: NSEdgeInsets) -> Bool {
+        abs(top - other.top) < 0.5 &&
+        abs(left - other.left) < 0.5 &&
+        abs(bottom - other.bottom) < 0.5 &&
+        abs(right - other.right) < 0.5
     }
 }
 

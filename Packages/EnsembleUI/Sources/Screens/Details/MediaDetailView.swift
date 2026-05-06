@@ -698,6 +698,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .ignoresSafeArea(.container, edges: [.top, .bottom])
             #else
             tracksSection
+                .ignoresSafeArea(.container, edges: .top)
             #endif
         }
         .background(
