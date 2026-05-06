@@ -4716,19 +4716,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Re-stamp streamingQuality on all non-downloaded queue items
     private func updateQueueStreamingQuality(_ quality: String) {
-        var changed = false
-        for i in queue.indices {
-            // Skip downloaded tracks (quality is file-determined)
-            if let path = queue[i].track.localFilePath,
-               FileManager.default.fileExists(atPath: path) {
-                continue
-            }
-            if queue[i].streamingQuality != quality {
-                queue[i].streamingQuality = quality
-                changed = true
-            }
-        }
-        if changed {
+        if queueController.updateStreamingQuality(quality, queue: &queue) {
             savePlaybackState()
         }
     }
@@ -4740,74 +4728,31 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// download state changed. Non-scheduled track changes update metadata
     /// silently so bulk downloads don't stutter playback.
     private func refreshQueueDownloadState() async {
-        var changed = false
-        var changedTrackIds = Set<String>()
-        for i in queue.indices {
-            let track = queue[i].track
-            let ratingKey = track.id
-            let sourceKey = track.sourceCompositeKey
-
-            // Ask download manager for current local path
-            let currentPath = try? await downloadManager.getLocalFilePath(
-                forTrackRatingKey: ratingKey,
-                sourceCompositeKey: sourceKey
-            )
-
-            if track.localFilePath != currentPath {
-                // Rebuild the Track with the updated localFilePath
-                let updatedTrack = Track(
-                    id: track.id,
-                    key: track.key,
-                    title: track.title,
-                    artistName: track.artistName,
-                    albumName: track.albumName,
-                    albumRatingKey: track.albumRatingKey,
-                    artistRatingKey: track.artistRatingKey,
-                    trackNumber: track.trackNumber,
-                    discNumber: track.discNumber,
-                    duration: track.duration,
-                    thumbPath: track.thumbPath,
-                    fallbackThumbPath: track.fallbackThumbPath,
-                    fallbackRatingKey: track.fallbackRatingKey,
-                    streamKey: track.streamKey,
-                    streamId: track.streamId,
-                    localFilePath: currentPath,
-                    dateAdded: track.dateAdded,
-                    dateModified: track.dateModified,
-                    lastPlayed: track.lastPlayed,
-                    lastRatedAt: track.lastRatedAt,
-                    rating: track.rating,
-                    playCount: track.playCount,
+        let result = await queueController.refreshDownloadState(
+            queue: &queue,
+            currentQueueIndex: currentQueueIndex,
+            fallbackStreamingQuality: UserDefaults.standard.string(forKey: "streamingQuality") ?? "high",
+            localFilePathForTrack: { [downloadManager] track in
+                try? await downloadManager.getLocalFilePath(
+                    forTrackRatingKey: track.id,
                     sourceCompositeKey: track.sourceCompositeKey
                 )
-                // Downloaded tracks clear streamingQuality; newly removed downloads
-                // re-stamp with the current streaming quality setting
-                let quality: String? = currentPath != nil
-                    ? nil
-                    : (UserDefaults.standard.string(forKey: "streamingQuality") ?? "high")
-                queue[i] = QueueItem(
-                    id: queue[i].id,
-                    track: updatedTrack,
-                    source: queue[i].source,
-                    streamingQuality: quality
-                )
-                changed = true
-                changedTrackIds.insert(ratingKey)
+            }
+        )
 
-                // Evict cached player item when download state changes for non-current tracks.
-                // Covers both download completion (re-resolve to local file) and removal
-                // (stale item pointing to deleted file corrupts AVPlayer's queue).
-                // Also cancel in-flight creation tasks — they captured the old Track with
-                // the stale localFilePath, so their result would be immediately outdated.
-                if i != currentQueueIndex {
-                    await MainActor.run {
-                        removeCachedPlayerItem(for: track.id)
-                        transportCoordinator.cancelResolution(for: track.id)
-                    }
-                }
+        // Evict cached player items when download state changes for non-current tracks.
+        // Covers both download completion (re-resolve to local file) and removal
+        // (stale item pointing to deleted file corrupts AVPlayer's queue).
+        // Also cancel in-flight creation tasks; they captured the old Track with
+        // the stale localFilePath, so their result would be immediately outdated.
+        for trackId in result.nonCurrentTrackIdsNeedingCacheEviction {
+            await MainActor.run {
+                removeCachedPlayerItem(for: trackId)
+                transportCoordinator.cancelResolution(for: trackId)
             }
         }
-        if changed {
+
+        if result.changed {
             savePlaybackState()
 
             // Only flush the AudioEngine FIFO when a gaplessly-scheduled track's
@@ -4815,7 +4760,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // further out in the queue — flushing the FIFO for those would stutter
             // playback via playerNode.stop() + re-anchor every few seconds.
             let scheduledIds = await MainActor.run { audioEngine?.scheduledTrackIds ?? [] }
-            let scheduledChanged = !scheduledIds.isDisjoint(with: changedTrackIds)
+            let scheduledChanged = !scheduledIds.isDisjoint(with: result.changedTrackIds)
 
             if scheduledChanged {
                 await MainActor.run {
