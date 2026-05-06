@@ -47,11 +47,9 @@ private enum SiriIndexLookup {
 
         let deduplicated = deduplicateEquivalentItems(sorted.map(\.item))
         let results = Array(deduplicated.prefix(limit))
-        #if DEBUG
         SiriAppShortcutLogger.logger.info(
-            "SIRI_SHORTCUT: findItems kind=\(kind.rawValue, privacy: .public) raw='\(rawQuery, privacy: .public)' normalized='\(query, privacy: .public)' matches=\(results.count, privacy: .public)"
+            "SIRI_SHORTCUT: findItems kind=\(kind.rawValue, privacy: .public) raw='\(rawQuery, privacy: .private)' normalized='\(query, privacy: .private)' matches=\(results.count, privacy: .public)"
         )
-        #endif
         return results
     }
 
@@ -143,11 +141,9 @@ struct EnsembleAlbumEntityQuery: EntityStringQuery {
                 sourceCompositeKey: item.sourceCompositeKey
             )
         }
-        #if DEBUG
         SiriAppShortcutLogger.logger.info(
-            "SIRI_SHORTCUT: album entities(matching:) raw='\(string, privacy: .public)' resolved=\(results.count, privacy: .public)"
+            "SIRI_SHORTCUT: album entities(matching:) raw='\(string, privacy: .private)' resolved=\(results.count, privacy: .public)"
         )
-        #endif
         return results
     }
 
@@ -200,11 +196,9 @@ struct EnsemblePlaylistEntityQuery: EntityStringQuery {
                 sourceCompositeKey: item.sourceCompositeKey
             )
         }
-        #if DEBUG
         SiriAppShortcutLogger.logger.info(
-            "SIRI_SHORTCUT: playlist entities(matching:) raw='\(string, privacy: .public)' resolved=\(results.count, privacy: .public)"
+            "SIRI_SHORTCUT: playlist entities(matching:) raw='\(string, privacy: .private)' resolved=\(results.count, privacy: .public)"
         )
-        #endif
         return results
     }
 
@@ -240,11 +234,9 @@ struct PlayEnsembleAlbumIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        #if DEBUG
         SiriAppShortcutLogger.logger.info(
-            "SIRI_SHORTCUT: perform album title='\(album.title, privacy: .public)' id='\(album.id, privacy: .public)'"
+            "SIRI_SHORTCUT: perform album title='\(album.title, privacy: .private)' id='\(album.id, privacy: .private)'"
         )
-        #endif
         let parsedID = parseCompositeEntityID(album.id)
         try await SiriShortcutPlaybackExecutor.play(
             kind: .album,
@@ -268,11 +260,9 @@ struct PlayEnsemblePlaylistIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        #if DEBUG
         SiriAppShortcutLogger.logger.info(
-            "SIRI_SHORTCUT: perform playlist title='\(playlist.title, privacy: .public)' id='\(playlist.id, privacy: .public)'"
+            "SIRI_SHORTCUT: perform playlist title='\(playlist.title, privacy: .private)' id='\(playlist.id, privacy: .private)'"
         )
-        #endif
         let parsedID = parseCompositeEntityID(playlist.id)
         try await SiriShortcutPlaybackExecutor.play(
             kind: .playlist,
