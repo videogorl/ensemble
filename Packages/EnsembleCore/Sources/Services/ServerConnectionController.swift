@@ -104,6 +104,39 @@ final class ServerConnectionController {
         }
     }
 
+    func connectionStateAfterSuccessfulSync(
+        for source: MusicSourceIdentifier,
+        fallback: ServerConnectionState
+    ) async -> ServerConnectionState {
+        var resolvedURL: String?
+
+        if let apiClient = accountManager.makeAPIClient(accountId: source.accountId, serverId: source.serverId) {
+            let currentURL = await apiClient.getCurrentServerURL().trimmingCharacters(in: .whitespacesAndNewlines)
+            if !currentURL.isEmpty {
+                resolvedURL = currentURL
+            }
+        }
+
+        if resolvedURL == nil,
+           let account = accountManager.plexAccounts.first(where: { $0.id == source.accountId }),
+           let server = account.servers.first(where: { $0.id == source.serverId }) {
+            let fallbackURL = server.url.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !fallbackURL.isEmpty {
+                resolvedURL = fallbackURL
+            }
+        }
+
+        guard let resolvedURL else {
+            return fallback
+        }
+
+        if case .degraded = fallback {
+            return .degraded(url: resolvedURL)
+        }
+
+        return .connected(url: resolvedURL)
+    }
+
     internal func awaitRegistryPropagationForTesting() async {
         await Task.yield()
         await Task.yield()

@@ -157,4 +157,52 @@ final class ServerConnectionControllerTests: XCTestCase {
 
         XCTAssertEqual(refreshCount, 0)
     }
+
+    func testConnectionStateAfterSuccessfulSyncUsesAPIClientURLAndPreservesDegradedState() async throws {
+        let accountManager = makeAccountManager()
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+        let apiClient = try XCTUnwrap(accountManager.makeAPIClient(accountId: "account-1", serverId: "server-1"))
+        await apiClient.updateCurrentServerURL("https://active.example.com")
+        let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
+
+        let state = await controller.connectionStateAfterSuccessfulSync(
+            for: source,
+            fallback: .degraded(url: "https://old.example.com")
+        )
+
+        XCTAssertEqual(state, .degraded(url: "https://active.example.com"))
+    }
+
+    func testConnectionStateAfterSuccessfulSyncFallsBackToConfiguredServerURL() async throws {
+        let accountManager = makeAccountManager()
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+        let apiClient = try XCTUnwrap(accountManager.makeAPIClient(accountId: "account-1", serverId: "server-1"))
+        await apiClient.updateCurrentServerURL("   ")
+        let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
+
+        let state = await controller.connectionStateAfterSuccessfulSync(
+            for: source,
+            fallback: .unknown
+        )
+
+        XCTAssertEqual(state, .connected(url: "https://initial.example.com"))
+    }
 }

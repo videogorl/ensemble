@@ -261,39 +261,6 @@ public final class SyncCoordinator: ObservableObject {
         await syncExecutionController().sync(sources: sources, providers: syncProviders)
     }
 
-    private func connectionStateAfterSuccessfulSync(
-        for source: MusicSourceIdentifier,
-        fallback: ServerConnectionState
-    ) async -> ServerConnectionState {
-        var resolvedURL: String?
-
-        if let apiClient = accountManager.makeAPIClient(accountId: source.accountId, serverId: source.serverId) {
-            let currentURL = await apiClient.getCurrentServerURL().trimmingCharacters(in: .whitespacesAndNewlines)
-            if !currentURL.isEmpty {
-                resolvedURL = currentURL
-            }
-        }
-
-        if resolvedURL == nil,
-           let account = accountManager.plexAccounts.first(where: { $0.id == source.accountId }),
-           let server = account.servers.first(where: { $0.id == source.serverId }) {
-            let fallbackURL = server.url.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !fallbackURL.isEmpty {
-                resolvedURL = fallbackURL
-            }
-        }
-
-        guard let resolvedURL else {
-            return fallback
-        }
-
-        if case .degraded = fallback {
-            return .degraded(url: resolvedURL)
-        }
-
-        return .connected(url: resolvedURL)
-    }
-
     private func syncErrorMessage(for error: Error) -> String {
         let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty, message.caseInsensitiveCompare("unknown") != .orderedSame else {
@@ -775,7 +742,9 @@ public final class SyncCoordinator: ObservableObject {
                 cacheArtistArtwork: { await self.cacheArtistArtwork(sourceId: $0, provider: $1) },
                 cachePlaylistArtwork: { await self.cachePlaylistArtwork(sourceId: $0, provider: $1) },
                 notifyPlaylistRefreshCompleted: { self.notifyPlaylistRefreshCompleted(serverSourceKey: $0) },
-                connectionStateAfterSuccessfulSync: { await self.connectionStateAfterSuccessfulSync(for: $0, fallback: $1) },
+                connectionStateAfterSuccessfulSync: {
+                    await self.serverConnectionController.connectionStateAfterSuccessfulSync(for: $0, fallback: $1)
+                },
                 publishContentChange: { self.publishContentChangeIfNeeded(for: $0, libraryResult: $1, playlistResult: $2, syncedAt: $3) },
                 restoreStatusAfterCancellation: { self.restoreStatusAfterCancellation(for: $0, previousStatus: $1, fallbackConnectionState: $2) },
                 syncErrorMessage: { self.syncErrorMessage(for: $0) },
