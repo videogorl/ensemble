@@ -235,6 +235,7 @@ public struct SongsTrackListHost: View {
                 availabilityGeneration: configuration.availabilityGeneration,
                 activeDownloadRatingKeys: configuration.activeDownloadRatingKeys,
                 bottomContentInset: configuration.bottomContentInset,
+                tableHeaderExtraHeight: configuration.tableHeaderExtraHeight,
                 supplementalMetadataWidth: configuration.supplementalMetadataWidth,
                 rowHeight: configuration.rowHeight,
                 interactionModel: configuration.interactionModel,

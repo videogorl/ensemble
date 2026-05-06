@@ -16,6 +16,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     let availabilityGeneration: UInt64
     let activeDownloadRatingKeys: Set<String>
     let bottomContentInset: CGFloat
+    let tableHeaderExtraHeight: CGFloat
     let supplementalMetadataWidth: CGFloat?
     let rowHeight: CGFloat
     let interactionModel: TrackRowInteractionModel
@@ -75,6 +76,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         context.coordinator.availabilityGeneration = availabilityGeneration
         context.coordinator.activeDownloadRatingKeys = activeDownloadRatingKeys
         context.coordinator.bottomContentInset = bottomContentInset
+        context.coordinator.tableHeaderExtraHeight = tableHeaderExtraHeight
         context.coordinator.supplementalMetadataWidth = supplementalMetadataWidth
         context.coordinator.rowHeight = rowHeight
         context.coordinator.interactionModel = interactionModel
@@ -125,6 +127,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,
             bottomContentInset: bottomContentInset,
+            tableHeaderExtraHeight: tableHeaderExtraHeight,
             supplementalMetadataWidth: supplementalMetadataWidth,
             rowHeight: rowHeight,
             interactionModel: interactionModel,
@@ -149,6 +152,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         var availabilityGeneration: UInt64
         var activeDownloadRatingKeys: Set<String>
         var bottomContentInset: CGFloat
+        var tableHeaderExtraHeight: CGFloat
         var supplementalMetadataWidth: CGFloat?
         var rowHeight: CGFloat
         var interactionModel: TrackRowInteractionModel
@@ -172,6 +176,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             availabilityGeneration: UInt64,
             activeDownloadRatingKeys: Set<String>,
             bottomContentInset: CGFloat,
+            tableHeaderExtraHeight: CGFloat,
             supplementalMetadataWidth: CGFloat?,
             rowHeight: CGFloat,
             interactionModel: TrackRowInteractionModel,
@@ -192,6 +197,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             self.availabilityGeneration = availabilityGeneration
             self.activeDownloadRatingKeys = activeDownloadRatingKeys
             self.bottomContentInset = bottomContentInset
+            self.tableHeaderExtraHeight = tableHeaderExtraHeight
             self.supplementalMetadataWidth = supplementalMetadataWidth
             self.rowHeight = rowHeight
             self.interactionModel = interactionModel
@@ -426,7 +432,9 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 return measuredHeight
             }
 
-            let wideHeaderHeight = ArtworkSize.medium.cgSize.height + (EnsembleScaffold.DetailSurface.headerPadding * 2)
+            let wideHeaderHeight = ArtworkSize.medium.cgSize.height
+                + (EnsembleScaffold.DetailSurface.headerPadding * 2)
+                + tableHeaderExtraHeight
             return min(measuredHeight, wideHeaderHeight)
         }
 

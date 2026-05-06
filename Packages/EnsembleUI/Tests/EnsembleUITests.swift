@@ -245,6 +245,7 @@ final class EnsembleUITests: XCTestCase {
             availabilityGeneration: 42,
             activeDownloadRatingKeys: ["track-2"],
             bottomContentInset: 24,
+            tableHeaderExtraHeight: 36,
             interactionModel: TrackRowInteractionModel()
         )
 
@@ -256,6 +257,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(configuration.availabilityGeneration, 42)
         XCTAssertEqual(configuration.activeDownloadRatingKeys, ["track-2"])
         XCTAssertEqual(configuration.bottomContentInset, 24)
+        XCTAssertEqual(configuration.tableHeaderExtraHeight, 36)
     }
 
     func testNativeTrackListFlatteningPreservesTrackIndexesAcrossSupplementaryRows() {

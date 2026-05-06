@@ -698,7 +698,11 @@ public struct SidebarView: View {
     /// Build sidebar items from DisplayPlaylists (merge-aware grouping)
     private func buildMergedSidebarPlaylistItems() -> [SidebarPlaylistItem] {
         var seenIDs = Set<String>()
-        return playlistsVM.sortedDisplayPlaylists.compactMap { dp in
+        let displayPlaylists = playlistsVM.sortedDisplayPlaylists.isEmpty
+            ? DisplayPlaylist.group(sortedSidebarSourcePlaylists(), merge: true)
+            : playlistsVM.sortedDisplayPlaylists
+
+        return displayPlaylists.compactMap { dp in
             let stableID = dp.id
             guard seenIDs.insert(stableID).inserted else { return nil }
             return SidebarPlaylistItem(
@@ -1053,6 +1057,7 @@ public struct SidebarView: View {
             async let pinsLoad: () = pinnedVM.loadPinnedItems()
             async let playlistsLoad: () = playlistsVM.loadPlaylists()
             _ = await (libRefresh, pinsLoad, playlistsLoad)
+            rebuildCachedSidebarPlaylists()
         }
         // Keep NavigationCoordinator.selectedTab in sync with sidebar selection
         // so navigate(to:) pushes onto the correct section's NavigationStack
@@ -1154,6 +1159,9 @@ public struct SidebarView: View {
         .onReceive(playlistsVM.$playlists) { _ in
             rebuildCachedSidebarPlaylists()
         }
+        .onReceive(playlistsVM.$sortedDisplayPlaylists) { _ in
+            rebuildCachedSidebarPlaylists()
+        }
         .onReceive(playlistsVM.$playlistSortOption) { _ in
             rebuildCachedSidebarPlaylists()
         }
@@ -1161,6 +1169,9 @@ public struct SidebarView: View {
             rebuildCachedSidebarPlaylists()
         }
         .onReceive(playlistsVM.$isMergeEnabled) { _ in
+            rebuildCachedSidebarPlaylists()
+        }
+        .onAppear {
             rebuildCachedSidebarPlaylists()
         }
     }

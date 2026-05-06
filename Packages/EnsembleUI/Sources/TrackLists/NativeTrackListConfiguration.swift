@@ -15,6 +15,7 @@ public struct NativeTrackListConfiguration {
     public var managesOwnScrolling: Bool
     public var rowHeight: CGFloat
     public var bottomContentInset: CGFloat
+    public var tableHeaderExtraHeight: CGFloat
     public var supplementalMetadataWidth: CGFloat?
     public var currentTrackId: String?
     public var availabilityGeneration: UInt64
@@ -30,6 +31,7 @@ public struct NativeTrackListConfiguration {
         managesOwnScrolling: Bool = true,
         rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
         bottomContentInset: CGFloat = 0,
+        tableHeaderExtraHeight: CGFloat = 0,
         supplementalMetadataWidth: CGFloat? = nil,
         currentTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
@@ -44,6 +46,7 @@ public struct NativeTrackListConfiguration {
         self.managesOwnScrolling = managesOwnScrolling
         self.rowHeight = rowHeight
         self.bottomContentInset = bottomContentInset
+        self.tableHeaderExtraHeight = tableHeaderExtraHeight
         self.supplementalMetadataWidth = supplementalMetadataWidth
         self.currentTrackId = currentTrackId
         self.availabilityGeneration = availabilityGeneration
@@ -56,6 +59,7 @@ public struct NativeTrackListConfiguration {
         availabilityGeneration: UInt64 = 0,
         activeDownloadRatingKeys: Set<String> = [],
         bottomContentInset: CGFloat = 0,
+        tableHeaderExtraHeight: CGFloat = 0,
         supplementalMetadataWidth: CGFloat? = nil,
         showsSectionIndex: Bool = false,
         interactionModel: TrackRowInteractionModel
@@ -67,6 +71,7 @@ public struct NativeTrackListConfiguration {
             groupByDisc: false,
             showsSectionIndex: showsSectionIndex,
             bottomContentInset: bottomContentInset,
+            tableHeaderExtraHeight: tableHeaderExtraHeight,
             supplementalMetadataWidth: supplementalMetadataWidth,
             currentTrackId: currentTrackId,
             availabilityGeneration: availabilityGeneration,
@@ -80,6 +85,7 @@ public struct NativeTrackListConfiguration {
         availabilityGeneration: UInt64 = 0,
         activeDownloadRatingKeys: Set<String> = [],
         bottomContentInset: CGFloat = 0,
+        tableHeaderExtraHeight: CGFloat = 0,
         interactionModel: TrackRowInteractionModel
     ) -> NativeTrackListConfiguration {
         NativeTrackListConfiguration(
@@ -88,6 +94,7 @@ public struct NativeTrackListConfiguration {
             showAlbumName: false,
             groupByDisc: true,
             bottomContentInset: bottomContentInset,
+            tableHeaderExtraHeight: tableHeaderExtraHeight,
             currentTrackId: currentTrackId,
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,

@@ -1006,6 +1006,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 groupByDisc: groupByDisc,
                 rowHeight: TrackListLayoutMetrics.defaultRowHeight,
                 bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+                tableHeaderExtraHeight: macTableHeaderExtraHeight,
                 supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                 currentTrackId: currentTrackId,
                 availabilityGeneration: availabilityGeneration,
@@ -1041,6 +1042,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 tracks: group.tracks.map(\.element)
             )
         }
+    }
+
+    private var macTableHeaderExtraHeight: CGFloat {
+        genreChipContent == nil ? 0 : EnsembleScaffold.Chip.barHeight + (EnsembleDesign.Spacing.sm * 2)
     }
 
     private var macDiscTrackGroups: [(disc: Int?, tracks: [(offset: Int, element: Track)])] {
