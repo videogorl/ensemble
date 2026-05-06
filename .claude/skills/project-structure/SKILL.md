@@ -192,7 +192,7 @@ Sources/
 |   +-- PlaybackAudioSessionCoordinator.swift # AVAudioSession configuration/activation + interruption/route observation extracted from PlaybackService
 |   +-- PlaybackHandoffCoordinator.swift # Disconnect/interruption/remote-command handoff reducer extracted from PlaybackService
 |   +-- PlaybackQueueStore.swift       # Queue/history restoration persistence extracted from PlaybackService
-|   +-- PlaybackQueueController.swift  # Queue/history mutation + queue snapshot persistence extracted from PlaybackService
+|   +-- PlaybackQueueController.swift  # Queue/history mutation, legacy autoplay identity tracking, and queue snapshot persistence extracted from PlaybackService
 |   +-- PlaybackStartupCoordinator.swift # Restored-playback snapshot validation + prebuffer decision policy extracted from PlaybackService
 |   +-- PlaybackLaunchCoordinator.swift # Successful playback launch path (visualizer load, engine start, recovery seek, prefetch) extracted from PlaybackService
 |   +-- PlaybackRecoveryPolicy.swift   # Buffering/stall-recovery policy extracted from PlaybackService
@@ -285,6 +285,9 @@ Tests/
 +-- PlaybackSessionStateMachineTests.swift
 +-- PlaybackTransportCoordinatorTests.swift
 +-- PlaybackQueueStoreTests.swift
++-- PlaybackQueueControllerTests.swift # Queue/history controller coverage, including legacy autoplay identity tracking
++-- PlaybackSettingsObserverTests.swift # Key-filtered playback UserDefaults observation coverage
++-- PlaybackReportingControllerTests.swift # Timeline reporting and scrobble policy coverage
 +-- NetworkMonitorTests.swift
 +-- SyncCoordinatorNetworkHealthTests.swift
 +-- RefreshOrchestratorTests.swift # Health-refresh coalescing, cooldown/staleness gating, and startup ownership coverage
