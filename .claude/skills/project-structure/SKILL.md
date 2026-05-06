@@ -122,7 +122,8 @@ Sources/
 |   +-- OfflineDownloadTargetRepository.swift # Offline target + membership persistence
 |   +-- ArtworkDownloadManager.swift   # Image caching
 +-- Repositories/
-|   +-- LibraryRepository.swift        # CRUD for artists, albums, tracks, genres
+|   +-- LibraryRepository.swift        # Library repository protocol, initializer, shared helpers, and remaining entity operations
+|   +-- LibraryRepository+Artists.swift # Artist fetch/update/upsert operations split from LibraryRepository
 |   +-- PlaylistRepository.swift       # CRUD for playlists
 +-- EnsembleLogger.swift               # Package logger categories
 +-- EnsemblePersistence.swift          # Public exports
