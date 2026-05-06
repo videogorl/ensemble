@@ -20,6 +20,13 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Known Limitations
 
+### Core Warning Budget Blocked By PendingMutationRepository Sendable Warning (May 6, 2026)
+- **Location:** `Packages/EnsemblePersistence/Sources/Repositories/PendingMutationRepository.swift:70`, `Packages/EnsemblePersistence/Sources/CoreData/ManagedObjects.swift:454`
+- **Issue:** `scripts/check_core_warning_budget.sh` fails with 2 warnings against budget 0 because `CDPendingMutation.MutationType` is captured in a `@Sendable` closure without conforming to `Sendable`.
+- **Impact:** Package tests and the iOS simulator workspace build still pass, but the warning-budget gate is red and future Core warning checks will fail until this is fixed.
+- **Current behavior (May 6, 2026):** `swift test --package-path Packages/EnsemblePersistence`, `swift test --package-path Packages/EnsembleCore`, and the iPhone 17 Pro simulator workspace build passed during the full Swift codebase audit; only the warning-budget script failed.
+- **Likely fix:** Make the nested mutation-type enum explicitly `Sendable` or snapshot the raw value before entering the `@Sendable` CoreData closure, then rerun `scripts/check_core_warning_budget.sh`.
+
 ### iOS 26 Keyboard Presenter Guardrails (Apr 13, 2026)
 - **Location:** `View+Extensions.swift`, `MainTabView.swift`, `PlaylistsView.swift`, `ProfileView.swift`, filter screens
 - **Issue:** A broad iPhone workaround pushed ordinary text-input flows into `keyboardSafeEditorPresentation(...)` and pre-hidden chrome. That masked the real root-layout issue, swallowed valid presentations, and forced unnecessary full-screen editors.

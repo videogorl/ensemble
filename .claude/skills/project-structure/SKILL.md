@@ -31,6 +31,9 @@ ensemble/
 |       +-- 2026-04-14-repo-audit-baseline.md # Ranked audit findings + baseline verification notes
 |       +-- 2026-05-04-function-ownership-context-menu-audit.md # Shared function/menu ownership audit and migration order
 |       +-- 2026-05-04-platform-mutation-drag-performance-scaffold-audit.md # Cross-platform policy, mutation, drag/export, performance, and utility scaffold audit
+|       +-- 2026-05-06-codebase-audit.md # Full Swift target/package audit with cleanup and migration backlog
+|       +-- 2026-05-06-swift-file-index.json # Generated exhaustive one-row-per-Swift-file audit index
+|       +-- 2026-05-06-swift-file-index.csv # CSV export of the exhaustive Swift file audit index
 |
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/
