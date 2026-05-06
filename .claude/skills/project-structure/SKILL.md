@@ -189,7 +189,7 @@ Sources/
 |   +-- RefreshOrchestrator.swift      # Health-refresh gating, cooldown/staleness policy, and startup-health ownership extracted from SyncCoordinator
 |   +-- NetworkLifecycleController.swift # App-foreground and network-transition policy extracted from SyncCoordinator
 |   +-- PeriodicSyncController.swift   # Foreground periodic-sync timer scheduling + WebSocket-aware interval policy extracted from SyncCoordinator
-|   +-- PlaylistRefreshController.swift # Server-scoped playlist refresh dedupe/fallback orchestration extracted from SyncCoordinator
+|   +-- PlaylistRefreshController.swift # Server-scoped playlist refresh dedupe/fallback orchestration and provider result routing extracted from SyncCoordinator
 |   +-- WebSocketSyncController.swift  # WebSocket-triggered section resolution + playlist refresh routing extracted from SyncCoordinator
 |   +-- SyncProviderResolver.swift    # Exact-source and fallback provider lookup seam extracted from SyncCoordinator playback/download/reporting routes
 |   +-- MusicSourceSyncProvider.swift  # Protocol for source-specific sync

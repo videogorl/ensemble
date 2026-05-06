@@ -24,6 +24,7 @@ final class PlaylistRefreshController {
     struct RefreshResult {
         let sourceId: MusicSourceIdentifier
         let serverSourceKey: String
+        let provider: MusicSourceSyncProvider
         let playlistResult: PlaylistSyncResult
     }
 
@@ -89,6 +90,7 @@ final class PlaylistRefreshController {
                 return RefreshResult(
                     sourceId: sourceId,
                     serverSourceKey: "plex:\(sourceId.accountId):\(sourceId.serverId)",
+                    provider: provider,
                     playlistResult: playlistResult
                 )
             } catch is CancellationError {
@@ -110,6 +112,7 @@ final class PlaylistRefreshController {
                     return RefreshResult(
                         sourceId: sourceId,
                         serverSourceKey: "plex:\(sourceId.accountId):\(sourceId.serverId)",
+                        provider: provider,
                         playlistResult: playlistResult
                     )
                 } catch {

@@ -348,11 +348,7 @@ public final class SyncCoordinator: ObservableObject {
         )
 
         for result in results {
-            if let provider = syncProviders.first(where: { _, provider in
-                provider.sourceIdentifier == result.sourceId
-            })?.value {
-                await cachePlaylistArtwork(sourceId: result.sourceId, provider: provider)
-            }
+            await cachePlaylistArtwork(sourceId: result.sourceId, provider: result.provider)
             publishContentChangeIfNeeded(
                 for: result.sourceId,
                 playlistResult: result.playlistResult,
@@ -1407,9 +1403,7 @@ public final class SyncCoordinator: ObservableObject {
                 return
             }
 
-            if let provider = providerResolver.provider(matching: result.sourceId) {
-                await cachePlaylistArtwork(sourceId: result.sourceId, provider: provider)
-            }
+            await cachePlaylistArtwork(sourceId: result.sourceId, provider: result.provider)
             publishContentChangeIfNeeded(
                 for: result.sourceId,
                 playlistResult: result.playlistResult,
@@ -2004,14 +1998,6 @@ public final class SyncCoordinator: ObservableObject {
     /// Called by `PlexWebSocketCoordinator` when a playlist update notification arrives.
     /// Does not depend on `isSyncing` so it can run alongside library sync.
     public func syncServerPlaylistsIncremental(serverKey: String) async {
-        guard syncProviders.contains(where: { _, provider in
-            let id = provider.sourceIdentifier
-            return "\(id.accountId):\(id.serverId)" == serverKey
-        }) else {
-            EnsembleLogger.error("🔌 SyncCoordinator: No provider found for server \(serverKey) playlist sync")
-            return
-        }
-
         EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered playlist sync for server \(serverKey)")
 
         do {
@@ -2021,6 +2007,7 @@ public final class SyncCoordinator: ObservableObject {
                 playlistRepository: playlistRepository,
                 playlistRefreshController: playlistRefreshController
             ) else {
+                EnsembleLogger.error("🔌 SyncCoordinator: No playlist refresh result for server \(serverKey)")
                 return
             }
             await cachePlaylistArtwork(sourceId: result.sourceId, provider: result.provider)

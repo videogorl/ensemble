@@ -65,6 +65,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
 
         XCTAssertEqual(result?.sourceId, source)
         XCTAssertEqual(result?.serverSourceKey, "plex:account-1:server-1")
+        XCTAssertEqual(result?.provider.sourceIdentifier, source)
         XCTAssertEqual(result?.playlistResult.changedPlaylists, 1)
     }
 
@@ -87,6 +88,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         )
 
         XCTAssertEqual(result?.playlistResult.changedPlaylists, 2)
+        XCTAssertEqual(result?.provider.sourceIdentifier, source)
     }
 
     func testRefreshServerReturnsNilWhenIncrementalFailsWithoutFallback() async throws {
