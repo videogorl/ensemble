@@ -202,6 +202,7 @@ Sources/
 |   +-- PlaybackNowPlayingBridge.swift # Lock-screen metadata + command-availability wiring extracted from PlaybackService
 |   +-- PlaybackTransportCoordinator.swift # Stream/local transport resolution + progressive-loader cache extracted from PlaybackService
 |   +-- PlaybackSettingsObserver.swift # Key-filtered UserDefaults observer for playback settings changes
+|   +-- PlaybackReportingController.swift # Timeline reporting and scrobble policy extracted from PlaybackService
 |   +-- AppBootstrapDiagnostics.swift # Structured cold-launch bootstrap summary service (accounts/sync/playback/offline/audio session)
 |   +-- ProgressiveStreamLoader.swift  # AVAssetResourceLoaderDelegate bridge for chunked transcode streams
 |   +-- ArtworkLoader.swift            # Persistent artwork caching & loading

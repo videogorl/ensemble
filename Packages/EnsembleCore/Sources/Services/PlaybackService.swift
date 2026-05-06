@@ -982,6 +982,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let startupCoordinator: PlaybackStartupCoordinator
     private let resolvedFileCache: PlaybackResolvedFileCache
     private let settingsObserver: PlaybackSettingsObserver
+    private let reportingController: PlaybackReportingController
     internal private(set) var startupRestoreStatus: PlaybackStartupRestoreStatus = .notAttempted
 
     /// Thread-safe check for aurora visualizer setting (reads UserDefaults directly
@@ -996,13 +997,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
     private var mutationCoordinator: MutationCoordinator?
     private var originalQueue: [QueueItem] = []  // For shuffle restore
-    private var lastTimelineReportTime: TimeInterval = 0  // Track last timeline report
-    private var consecutiveTimelineFailures = 0  // Backoff counter for offline periods
-    private var hasScrobbled: Bool = false  // Track if current track has been scrobbled
     private var lastPlaybackSnapshotTime: TimeInterval = 0
-    private var isScrobblingEnabled: Bool {
-        UserDefaults.standard.bool(forKey: "scrobblingEnabled")
-    }
     private var audioAnalyzerCancellable: AnyCancellable?
     
     // Queue limiting: keep small lookahead of auto-generated next suggestions (5 tracks)
@@ -1161,6 +1156,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.startupCoordinator = PlaybackStartupCoordinator()
         self.resolvedFileCache = PlaybackResolvedFileCache(maxCachedFileURLs: self.maxCachedFileURLs)
         self.settingsObserver = PlaybackSettingsObserver()
+        self.reportingController = PlaybackReportingController(syncCoordinator: syncCoordinator)
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -1195,6 +1191,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.startupCoordinator = PlaybackStartupCoordinator()
         self.resolvedFileCache = PlaybackResolvedFileCache(maxCachedFileURLs: self.maxCachedFileURLs)
         self.settingsObserver = PlaybackSettingsObserver()
+        self.reportingController = PlaybackReportingController(syncCoordinator: syncCoordinator)
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -1223,6 +1220,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Wire the mutation coordinator after init to avoid circular DI dependencies
     public func setMutationCoordinator(_ coordinator: MutationCoordinator) {
         self.mutationCoordinator = coordinator
+        reportingController.setMutationCoordinator(coordinator)
     }
 
     private func setupPlayer() {
@@ -1282,53 +1280,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     self.audioAnalyzer.updatePlaybackPosition(self.presentationTime)
                 }
 
-                // Timeline reporting with network awareness and failure backoff.
-                // Without this, offline periods trigger ~50 failed reports × 6 connection
-                // probes each = ~300 wasted HTTPS attempts with TLS overhead.
-                if let track = self.currentTrack,
-                   self.lastObservedNetworkState?.isConnected == true {
-                    let backoffInterval: TimeInterval
-                    if self.consecutiveTimelineFailures >= 4 {
-                        backoffInterval = 60.0
-                    } else if self.consecutiveTimelineFailures >= 2 {
-                        backoffInterval = 30.0
-                    } else {
-                        backoffInterval = 10.0
-                    }
-
-                    if time - self.lastTimelineReportTime >= backoffInterval {
-                        self.lastTimelineReportTime = time
-                        let syncCoordinator = self.syncCoordinator
-                        Task { [weak self] in
-                            do {
-                                try await syncCoordinator.reportTimelineThrowing(
-                                    track: track,
-                                    state: "playing",
-                                    time: time
-                                )
-                                self?.consecutiveTimelineFailures = 0
-                            } catch {
-                                self?.consecutiveTimelineFailures += 1
-                            }
-                        }
-                    }
-                }
-
-                // Scrobble at 90% completion (respects user setting)
-                if !self.hasScrobbled,
-                   self.isScrobblingEnabled,
-                   let track = self.currentTrack,
-                   self.duration > 0,
-                   time / self.duration >= 0.9 {
-                    self.hasScrobbled = true
-                    Task {
-                        if let mutationCoordinator = self.mutationCoordinator {
-                            await mutationCoordinator.scrobbleTrack(track)
-                        } else {
-                            await self.syncCoordinator.scrobbleTrack(track)
-                        }
-                    }
-                }
+                self.reportingController.observePlayingProgress(
+                    track: self.currentTrack,
+                    time: time,
+                    duration: self.duration,
+                    isNetworkConnected: self.lastObservedNetworkState?.isConnected == true
+                )
             }
 
         audioEngine = engine
@@ -1411,9 +1368,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         updatePlaybackTimes(rawTime: 0)
         bufferedProgress = 1.0
         waveformHeights = []
-        lastTimelineReportTime = 0
-        consecutiveTimelineFailures = 0
-        hasScrobbled = false
+        reportingController.resetForTrack()
 
         // Reset pause tracking for the new track
         unexpectedPauseCount = 0
@@ -2056,9 +2011,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         if let track = currentTrack {
-            Task {
-                await syncCoordinator.reportTimeline(track: track, state: "paused", time: currentTime)
-            }
+            reportingController.reportState(track: track, state: "paused", time: currentTime)
         }
 
         if reason == .user || reason == .system {
@@ -2668,11 +2621,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             Task { await self.prefetchNextItem() }
                             Task { await self.checkAndRefreshAutoplayQueue() }
                             if let track = self.currentTrack {
-                                Task {
-                                    await self.syncCoordinator.reportTimeline(
-                                        track: track, state: "playing", time: self.currentTime
-                                    )
-                                }
+                                self.reportingController.reportState(
+                                    track: track,
+                                    state: "playing",
+                                    time: self.currentTime
+                                )
                             }
                         } catch {
                             EnsembleLogger.playback("ENGINE: resume after pre-buffer failed -- \(error.localizedDescription)")
@@ -2724,9 +2677,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Report playing state to Plex
         if let track = currentTrack {
-            Task {
-                await syncCoordinator.reportTimeline(track: track, state: "playing", time: currentTime)
-            }
+            reportingController.reportState(track: track, state: "playing", time: currentTime)
         }
     }
 
@@ -2756,9 +2707,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func stop() {
         // Report stopped state to Plex before cleaning up
         if let track = currentTrack {
-            Task {
-                await syncCoordinator.reportTimeline(track: track, state: "stopped", time: currentTime)
-            }
+            reportingController.reportState(track: track, state: "stopped", time: currentTime)
         }
 
         // Reset instrumental mode (sync both UI flag and engine state)
@@ -5153,10 +5102,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         playbackState = .stopped
         updatePlaybackTimes(rawTime: 0)
         bufferedProgress = 0
-        lastTimelineReportTime = 0
-        consecutiveTimelineFailures = 0
-        hasScrobbled = false
-                                        autoGeneratedTrackIds.removeAll()
+        reportingController.resetForTrack()
+        autoGeneratedTrackIds.removeAll()
 
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         MPNowPlayingInfoCenter.default().playbackState = .stopped
