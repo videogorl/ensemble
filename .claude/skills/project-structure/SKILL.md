@@ -212,6 +212,7 @@ Sources/
 |   +-- PlaybackLocalFilePolicy.swift # Local payload validation, mislabeled MP3 aliasing, and truncated-duration thresholds extracted from PlaybackService
 |   +-- PlaybackSettingsObserver.swift # Key-filtered UserDefaults observer for playback settings changes
 |   +-- PlaybackReportingController.swift # Timeline reporting and scrobble policy extracted from PlaybackService
+|   +-- SyncPlaybackReportingController.swift # Sync-side exact-provider routing for playback timeline/scrobble calls
 |   +-- AppBootstrapDiagnostics.swift # Structured cold-launch bootstrap summary service (accounts/sync/playback/offline/audio session)
 |   +-- ProgressiveStreamLoader.swift  # AVAssetResourceLoaderDelegate bridge for chunked transcode streams
 |   +-- ArtworkLoader.swift            # Persistent artwork caching & loading
@@ -299,6 +300,7 @@ Tests/
 +-- PlaybackQueueControllerTests.swift # Queue/history controller coverage, including quality/download restamping and legacy autoplay identity tracking
 +-- PlaybackSettingsObserverTests.swift # Key-filtered playback UserDefaults observation coverage
 +-- PlaybackReportingControllerTests.swift # Timeline reporting and scrobble policy coverage
++-- SyncPlaybackReportingControllerTests.swift # Sync-side playback reporting provider routing coverage
 +-- NetworkMonitorTests.swift
 +-- SyncCoordinatorNetworkHealthTests.swift
 +-- RefreshOrchestratorTests.swift # Health-refresh coalescing, cooldown/staleness gating, and startup ownership coverage

@@ -107,6 +107,7 @@ public final class SyncCoordinator: ObservableObject {
     private let periodicSyncController: PeriodicSyncController
     private let playlistRefreshController: PlaylistRefreshController
     private let webSocketSyncController: WebSocketSyncController
+    private let playbackReportingController: SyncPlaybackReportingController
     private let networkLifecycleController: NetworkLifecycleController
     private var syncProviders: [String: MusicSourceSyncProvider] = [:]  // keyed by compositeKey
     private var providerResolver: SyncProviderResolver {
@@ -177,6 +178,7 @@ public final class SyncCoordinator: ObservableObject {
         self.periodicSyncController = PeriodicSyncController()
         self.playlistRefreshController = PlaylistRefreshController()
         self.webSocketSyncController = WebSocketSyncController()
+        self.playbackReportingController = SyncPlaybackReportingController()
         self.networkLifecycleController = NetworkLifecycleController(initialNetworkState: networkMonitor.networkState)
         self.serverConnectionController = ServerConnectionController(
             accountManager: accountManager,
@@ -999,16 +1001,11 @@ public final class SyncCoordinator: ObservableObject {
     /// Throwing variant of reportTimeline that propagates errors to the caller.
     /// Used by PlaybackService for failure-aware backoff during offline periods.
     public func reportTimelineThrowing(track: Track, state: String, time: TimeInterval) async throws {
-        guard let resolution = providerResolver.resolve(sourceKey: track.sourceCompositeKey, allowFallback: false) else {
-            return
-        }
-
-        try await resolution.provider.reportTimeline(
-            ratingKey: track.id,
-            key: "/library/metadata/\(track.id)",
+        try await playbackReportingController.reportTimeline(
+            track: track,
             state: state,
-            time: Int(time * 1000),  // Convert to milliseconds
-            duration: Int(track.duration * 1000)  // Convert to milliseconds
+            time: time,
+            providers: syncProviders
         )
     }
 
@@ -1016,12 +1013,8 @@ public final class SyncCoordinator: ObservableObject {
     /// This should be called when a track reaches ~90% completion
     /// - Parameter track: The track to scrobble
     public func scrobbleTrack(_ track: Track) async {
-        guard let resolution = providerResolver.resolve(sourceKey: track.sourceCompositeKey, allowFallback: false) else {
-            return
-        }
-
         do {
-            try await resolution.provider.scrobble(ratingKey: track.id)
+            try await scrobbleTrackThrowing(track)
         } catch {
             // Scrobbling is non-critical, just log the error
             EnsembleLogger.debug("⚠️ Failed to scrobble track: \(error.localizedDescription)")
@@ -1030,10 +1023,7 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Scrobble a track, throwing on failure so MutationCoordinator can queue retries.
     public func scrobbleTrackThrowing(_ track: Track) async throws {
-        guard let resolution = providerResolver.resolve(sourceKey: track.sourceCompositeKey, allowFallback: false) else {
-            return
-        }
-        try await resolution.provider.scrobble(ratingKey: track.id)
+        try await playbackReportingController.scrobble(track: track, providers: syncProviders)
     }
 
     /// Get tracks for an album from the music source
