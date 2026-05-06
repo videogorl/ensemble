@@ -58,25 +58,19 @@ extension PlexAPIClient {
 
     /// Get playlist tracks
     public func getPlaylistTracks(playlistKey: String) async throws -> [PlexTrack] {
-        #if DEBUG
         EnsembleLogger.debug("🎵 PlexAPIClient.getPlaylistTracks() called")
         EnsembleLogger.debug("  - Playlist key: \(playlistKey)")
         EnsembleLogger.debug("🔄 Fetching playlist items from /playlists/\(playlistKey)/items...")
-        #endif
 
         let data = try await serverRequest(path: "/playlists/\(playlistKey)/items")
-        #if DEBUG
         EnsembleLogger.debug("✅ Got response data (\(data.count) bytes)")
         EnsembleLogger.debug("🔄 Decoding playlist tracks...")
-        #endif
 
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexTrack>.self,
             from: data
         )
-        #if DEBUG
         EnsembleLogger.debug("✅ Got \(container.mediaContainer.items.count) playlist tracks")
-        #endif
         return container.mediaContainer.items
     }
 

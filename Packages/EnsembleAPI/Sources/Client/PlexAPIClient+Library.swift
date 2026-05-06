@@ -316,20 +316,18 @@ extension PlexAPIClient {
             ]
         )
 
+        #if DEBUG
         if let jsonString = String(data: data, encoding: .utf8) {
-            #if DEBUG
             EnsembleLogger.debug("🔍 Raw Hubs JSON (Section \(sectionKey)): \(jsonString.prefix(2000))")
-            #endif
         }
+        #endif
 
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexHub>.self,
             from: data
         )
         let hubs = container.mediaContainer.items
-        #if DEBUG
         EnsembleLogger.debug("🏠 Decoded \(hubs.count) hubs from Section \(sectionKey)")
-        #endif
         return hubs
     }
 
@@ -345,20 +343,18 @@ extension PlexAPIClient {
             ]
         )
 
+        #if DEBUG
         if let jsonString = String(data: data, encoding: .utf8) {
-            #if DEBUG
             EnsembleLogger.debug("🔍 Raw Global Hubs JSON: \(jsonString.prefix(2000))")
-            #endif
         }
+        #endif
 
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexHub>.self,
             from: data
         )
         let hubs = container.mediaContainer.items
-        #if DEBUG
         EnsembleLogger.debug("🏠 Decoded \(hubs.count) global hubs")
-        #endif
         return hubs
     }
 
