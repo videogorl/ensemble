@@ -428,7 +428,7 @@ Dynamic home screen powered by Plex's hub system:
   - Match quality: exact normalized > prefix > contains
   - Tie-breaks: last played > play count > track count > deterministic name/id
 - Extension returns `.handleInApp` with serialized `SiriPlaybackRequestPayload` in `NSUserActivity.userInfo`.
-- `AppDelegate.application(_:continue:restorationHandler:)` routes payloads to `DependencyContainer.shared.siriPlaybackCoordinator`.
+- `AppDelegate+Siri.application(_:continue:restorationHandler:)` routes payloads to `DependencyContainer.shared.siriPlaybackCoordinator`.
 - `SiriPlaybackCoordinator` resolves media against enabled sources and executes:
   - Track: direct playback from resolved track
   - Album: queue album tracks from first track
@@ -437,7 +437,7 @@ Dynamic home screen powered by Plex's hub system:
 - `SiriMediaIndexStore` rebuilds the index after sync completion and account/source configuration changes.
 - App target registers `EnsembleAppShortcutsProvider` fallback shortcuts for album/playlist phrases (`PlayEnsembleAlbumIntent`, `PlayEnsemblePlaylistIntent`).
 - App shortcut entities resolve against the same shared Siri index so Siri vocabulary tracks cached library content without direct extension CoreData access.
-- `AppDelegate` calls `EnsembleAppShortcutsProvider.updateAppShortcutParameters()` at launch so App Intents metadata stays aligned with current index contents.
+- `AppDelegate+LaunchPipeline` calls `EnsembleAppShortcutsProvider.updateAppShortcutParameters()` at launch so App Intents metadata stays aligned with current index contents.
 
 ## Subsystem: Library Visibility Profiles (Groundwork)
 
@@ -466,7 +466,7 @@ Multi-layered network resilience spanning endpoint management, push-based update
   - `@Published serverScanProgress: [String: Int]` -- Per-server library scan progress (0-100) from activity events
 - `SyncCoordinator` supports adjustable timer policy and incremental section-level sync triggered by WS events.
 - `SyncCoordinator.rateTrack()` triggers debounced post-rating playlist sync (5s) for smart playlist freshness.
-- `AppDelegate` starts/stops WebSocket connections on foreground/background transitions.
+- `AppDelegate+LaunchPipeline` starts WebSocket connections after startup health checks; `EnsembleApp` owns foreground/background start/stop policy from scene phase changes.
 
 ### Reactive Track Availability -- TrackAvailabilityResolver
 - **`TrackAvailabilityResolver`** (`EnsembleCore`, @MainActor ObservableObject) -- Publishes per-track availability by combining per-server connection state with per-track download state.
@@ -537,8 +537,9 @@ PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (
 ```
 
 **App Lifecycle:**
-- iOS: Network monitor starts in `AppDelegate` (delayed 500ms)
-- iOS: WebSocket connections start on foreground, stop on background (`AppDelegate`)
+- iOS launch delegate ownership is file-split: `AppDelegate.swift` stores shared delegate state, `AppDelegate+LaunchPipeline.swift` owns cold-launch bootstrap, `AppDelegate+Siri.swift` owns Siri payload bridging, `AppDelegate+SceneOrientation.swift` owns scene routing/orientation/background URLSession handoff, and `SpaceBarPlaybackShortcut.swift` owns the hardware keyboard playback shortcut.
+- iOS: Network monitor starts during the AppDelegate launch pipeline, then foreground/background restart/stop policy is owned by `EnsembleApp.handleScenePhaseChange`.
+- iOS: WebSocket connections start after launch health checks, then foreground/background restart/stop policy is owned by `EnsembleApp.handleScenePhaseChange`.
 - Foreground network-health recovery routes through `SyncCoordinator.handleAppWillEnterForeground()` to avoid duplicate immediate + monitor-triggered checks
 - macOS: Stops monitoring when backgrounded
 - macOS active transition also routes through `SyncCoordinator.handleAppWillEnterForeground()`
@@ -565,7 +566,7 @@ PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (
 
 - **Ensemble** (`Ensemble/Ensemble/`) -- iOS/iPadOS/macOS
   - `EnsembleApp.swift` -- Scene-based lifecycle with environment injection
-  - `AppDelegate.swift` (iOS) -- AVAudioSession, remote commands, network monitoring
+  - `AppDelegate.swift` + `AppDelegate+*.swift` (iOS) -- Split UIApplicationDelegate ownership for launch sequencing, Siri bridge events, scene/orientation policy, background URLSession handoff, and shared delegate state
 
 - **EnsembleWatch** (`Ensemble/EnsembleWatch/`) -- watchOS
   - `WatchRootView.swift` -- Consolidated views (auth, library, now playing)

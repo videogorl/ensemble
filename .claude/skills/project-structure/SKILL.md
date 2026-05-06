@@ -38,7 +38,11 @@ ensemble/
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/
 |   |   +-- EnsembleApp.swift     # App entry point
-|   |   +-- AppDelegate.swift     # Audio session & background playback config
+|   |   +-- AppDelegate.swift     # iOS delegate state shared by app lifecycle extensions
+|   |   +-- AppDelegate+LaunchPipeline.swift # iOS launch bootstrap, remote notifications, startup health/playback/sync sequencing
+|   |   +-- AppDelegate+Siri.swift # Siri intent/user-activity bridge and in-app playback execution
+|   |   +-- AppDelegate+SceneOrientation.swift # Background URLSession handoff, scene routing, StageFlow orientation policy
+|   |   +-- SpaceBarPlaybackShortcut.swift # iOS hardware keyboard space-bar playback shortcut
 |   |   +-- ExternalDisplaySceneDelegate.swift # UIWindowSceneDelegate for AirPlay screen mirroring external display
 |   |   +-- EnsembleAppShortcuts.swift # App Intents fallback entities/phrases for Siri album/playlist playback
 |   +-- Resources/

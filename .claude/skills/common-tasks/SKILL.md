@@ -334,7 +334,7 @@ Use this flow for Siri phrases like "play track/album/artist/playlist ... on Ens
    - Return disambiguation when confidence is close.
    - Return `.handleInApp` only; never execute playback in the extension.
 3. Encode handoff payload with `SiriPlaybackActivityCodec` (`SiriIntentPayload.swift`) and include schema version.
-4. Route in app lifecycle via `AppDelegate.application(_:continue:restorationHandler:)`.
+4. Route in app lifecycle via `AppDelegate+Siri.application(_:continue:restorationHandler:)`.
 5. Execute playback in `SiriPlaybackCoordinator`:
    - `executePlayTrack(request:)`
    - `executePlayAlbum(request:)`

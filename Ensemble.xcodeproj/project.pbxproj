@@ -10,6 +10,10 @@
 		9926CB082F43A106004A19A3 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 9926CB072F43A106004A19A3 /* AppIcon.icon */; };
 		E0001001 /* EnsembleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001000 /* EnsembleApp.swift */; };
 		E0001003 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001002 /* AppDelegate.swift */; };
+		E0001041 /* AppDelegate+LaunchPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001040 /* AppDelegate+LaunchPipeline.swift */; };
+		E0001043 /* AppDelegate+Siri.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001042 /* AppDelegate+Siri.swift */; };
+		E0001045 /* AppDelegate+SceneOrientation.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001044 /* AppDelegate+SceneOrientation.swift */; };
+		E0001047 /* SpaceBarPlaybackShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001046 /* SpaceBarPlaybackShortcut.swift */; };
 		E0001030 /* ExternalDisplaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001031 /* ExternalDisplaySceneDelegate.swift */; };
 		E0001034 /* AppIntentVocabulary.plist in Resources */ = {isa = PBXBuildFile; fileRef = E0001032 /* AppIntentVocabulary.plist */; };
 		E0001035 /* AppIntentVocabulary.plist in Resources */ = {isa = PBXBuildFile; fileRef = E0001033 /* AppIntentVocabulary.plist */; };
@@ -63,6 +67,10 @@
 		E0000003 /* EnsembleSiriIntentsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = EnsembleSiriIntentsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		E0001000 /* EnsembleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleApp.swift; sourceTree = "<group>"; };
 		E0001002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		E0001040 /* AppDelegate+LaunchPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+LaunchPipeline.swift"; sourceTree = "<group>"; };
+		E0001042 /* AppDelegate+Siri.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+Siri.swift"; sourceTree = "<group>"; };
+		E0001044 /* AppDelegate+SceneOrientation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+SceneOrientation.swift"; sourceTree = "<group>"; };
+		E0001046 /* SpaceBarPlaybackShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceBarPlaybackShortcut.swift; sourceTree = "<group>"; };
 		E0001031 /* ExternalDisplaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalDisplaySceneDelegate.swift; sourceTree = "<group>"; };
 		E0001032 /* AppIntentVocabulary.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Base.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
 		E0001033 /* AppIntentVocabulary.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = en.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
@@ -194,6 +202,10 @@
 			children = (
 				E0001000 /* EnsembleApp.swift */,
 				E0001002 /* AppDelegate.swift */,
+				E0001040 /* AppDelegate+LaunchPipeline.swift */,
+				E0001042 /* AppDelegate+Siri.swift */,
+				E0001044 /* AppDelegate+SceneOrientation.swift */,
+				E0001046 /* SpaceBarPlaybackShortcut.swift */,
 				E0001031 /* ExternalDisplaySceneDelegate.swift */,
 				E0001015 /* EnsembleAppShortcuts.swift */,
 			);
@@ -436,6 +448,10 @@
 			files = (
 				E0001001 /* EnsembleApp.swift in Sources */,
 				E0001003 /* AppDelegate.swift in Sources */,
+				E0001041 /* AppDelegate+LaunchPipeline.swift in Sources */,
+				E0001043 /* AppDelegate+Siri.swift in Sources */,
+				E0001045 /* AppDelegate+SceneOrientation.swift in Sources */,
+				E0001047 /* SpaceBarPlaybackShortcut.swift in Sources */,
 				E0001030 /* ExternalDisplaySceneDelegate.swift in Sources */,
 				E0001016 /* EnsembleAppShortcuts.swift in Sources */,
 			);
