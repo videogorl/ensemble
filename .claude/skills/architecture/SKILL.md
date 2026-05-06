@@ -115,7 +115,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `PlaybackRecoveryPolicy` -- Internal playback buffering/stall policy seam extracted from `PlaybackService`; owns buffering profiles, conservative-mode escalation, prefetch throttling, and unexpected-pause recovery decisions while `PlaybackService` remains the façade
 - `PlaybackSessionStateMachine` -- Internal playback-session seam extracted from `PlaybackService`; owns request validation, retry policy, supersession checks, and terminal failure classification for `playCurrentQueueItem` while queue mutation and engine control remain in the façade
 - `PlaybackResolvedFileCache` -- Internal serialized cache store extracted from `PlaybackService`; owns resolved-file URL storage, LRU eviction, stream-cache cleanup context snapshots, and prefetch in-flight bookkeeping so playback startup/prefetch flows do not mutate shared dictionaries directly
-- `PlaybackPrefetchController` -- Internal prefetch/cache seam extracted from `PlaybackService`; owns resolved-file cache eviction, temporary stream-cache cleanup, and network-transition re-prefetch invalidation policy while the backing cache state lives in `PlaybackResolvedFileCache`
+- `PlaybackPrefetchController` -- Internal prefetch/cache seam extracted from `PlaybackService`; owns upcoming-queue selection, schedule-eligibility checks, resolved-file cache eviction, temporary stream-cache cleanup, and network-transition re-prefetch invalidation policy while the backing cache state lives in `PlaybackResolvedFileCache`
 - `PlaybackNowPlayingBridge` -- Internal lock-screen seam extracted from `PlaybackService`; owns `MPNowPlayingInfoCenter` metadata, artwork loading, feedback-command state, command enablement, and remote-command registration
 - `PlaybackTransportCoordinator` -- Internal transport seam extracted from `PlaybackService`; owns stream-decision caching, in-flight resolution deduplication, and progressive-loader lifecycle for local-file vs streaming resolution without changing playback queue semantics
 - `PlaybackSettingsObserver` -- Internal playback settings seam extracted from `PlaybackService`; owns key-specific UserDefaults change detection for visualizer enablement and streaming-quality changes so unrelated defaults writes do not schedule playback work
@@ -476,7 +476,7 @@ Multi-layered network resilience spanning endpoint management, push-based update
 - **`StreamDecision`** / **`TranscodeStreamDecision`** (`EnsembleAPI`) -- Endpoint-independent streaming decisions that survive network transitions. Capture codec, quality, session params without the server base URL.
 - **`PlexAPIClient.makeStreamDecision()`** -- Phase 1: Calls PMS `/decision` endpoint, returns `StreamDecision` (cacheable).
 - **`PlexAPIClient.assembleStreamResolution()`** -- Phase 2: Reads freshest endpoint from `ServerConnectionRegistry`, builds `StreamResolution` with current URL. No network calls.
-- **`PlaybackService.cachedStreamDecisions`** -- Decision cache keyed by trackId. On network transition, decisions persist while resolved URLs are evicted. Re-prefetch skips `/decision` call and only re-assembles URL.
+- **`PlaybackTransportCoordinator` cached stream decisions** -- Decision cache keyed by trackId. On network transition, decisions persist while resolved URLs are evicted. Re-prefetch skips `/decision` call and only re-assembles URL.
 - `resolveStreamURL()` remains as convenience that chains both phases (backward compat).
 
 ### Queue Resilience (PlaybackService)
@@ -528,7 +528,7 @@ PlexAPIClient ──failover──> ServerConnectionRegistry <──writes──
 PlaybackService ──makeStreamDecision──> SyncCoordinator ──> PlexMusicSourceSyncProvider ──> PlexAPIClient.makeStreamDecision()
 PlaybackService ──assembleStream──> SyncCoordinator ──> PlexMusicSourceSyncProvider ──> PlexAPIClient.assembleStreamResolution()
                                                                                               └──> ServerConnectionRegistry (reads fresh endpoint)
-PlaybackService.cachedStreamDecisions ── survives ──> network transitions (decisions are endpoint-independent)
+PlaybackTransportCoordinator.cachedStreamDecisions ── survives ──> network transitions (decisions are endpoint-independent)
 
 PlaybackService ──scrobble──> MutationCoordinator ──(on failure)──> CDPendingMutation (.scrobble)
 PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (transport vs. semantic)

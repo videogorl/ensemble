@@ -206,7 +206,7 @@ Sources/
 |   +-- PlaybackRecoveryPolicy.swift   # Buffering/stall-recovery policy extracted from PlaybackService
 |   +-- PlaybackSessionStateMachine.swift # Playback session request/retry/failure policy extracted from PlaybackService
 |   +-- PlaybackResolvedFileCache.swift # Serialized resolved-file URL cache + prefetch in-flight bookkeeping extracted from PlaybackService
-|   +-- PlaybackPrefetchController.swift # Resolved-file cache eviction + stream-cache cleanup policy extracted from PlaybackService
+|   +-- PlaybackPrefetchController.swift # Upcoming-queue prefetch policy, resolved-file cache eviction, and stream-cache cleanup extracted from PlaybackService
 |   +-- PlaybackNowPlayingBridge.swift # Lock-screen metadata + command-availability wiring extracted from PlaybackService
 |   +-- PlaybackTransportCoordinator.swift # Stream/local transport resolution + progressive-loader cache extracted from PlaybackService
 |   +-- PlaybackSettingsObserver.swift # Key-filtered UserDefaults observer for playback settings changes
@@ -292,6 +292,7 @@ Tests/
 +-- PlaybackLaunchCoordinatorTests.swift
 +-- PlaybackSessionStateMachineTests.swift
 +-- PlaybackTransportCoordinatorTests.swift
++-- PlaybackPrefetchControllerTests.swift # Upcoming-queue selection and prefetch schedule-eligibility coverage
 +-- PlaybackQueueStoreTests.swift
 +-- PlaybackQueueControllerTests.swift # Queue/history controller coverage, including legacy autoplay identity tracking
 +-- PlaybackSettingsObserverTests.swift # Key-filtered playback UserDefaults observation coverage
