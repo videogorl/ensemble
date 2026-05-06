@@ -29,7 +29,6 @@
 		E0002003 /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002002 /* WatchRootView.swift */; };
 		E0002005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E0002004 /* Assets.xcassets */; };
 		E0003001 /* EnsembleUI in Frameworks */ = {isa = PBXBuildFile; productRef = E0003000 /* EnsembleUI */; };
-		E0003003 /* EnsembleCore in Frameworks */ = {isa = PBXBuildFile; productRef = E0003002 /* EnsembleCore */; };
 		E0003005 /* EnsembleSiriShared in Frameworks */ = {isa = PBXBuildFile; productRef = E0003004 /* EnsembleSiriShared */; };
 		E0003006 /* EnsembleSiriShared in Frameworks */ = {isa = PBXBuildFile; productRef = E0003004 /* EnsembleSiriShared */; };
 /* End PBXBuildFile section */
@@ -110,7 +109,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E0003003 /* EnsembleCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -288,7 +286,6 @@
 			);
 			name = EnsembleWatch;
 			packageProductDependencies = (
-				E0003002 /* EnsembleCore */,
 			);
 			productName = EnsembleWatch;
 			productReference = E0000002 /* Ensemble Watch.app */;
@@ -700,6 +697,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 86QFS2R7RZ;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EnsembleWatch/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -728,6 +726,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 86QFS2R7RZ;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EnsembleWatch/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -870,11 +869,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = E0500000 /* XCLocalSwiftPackageReference "Packages/EnsembleUI" */;
 			productName = EnsembleUI;
-		};
-		E0003002 /* EnsembleCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = E0500001 /* XCLocalSwiftPackageReference "Packages/EnsembleCore" */;
-			productName = EnsembleCore;
 		};
 		E0003004 /* EnsembleSiriShared */ = {
 			isa = XCSwiftPackageProductDependency;

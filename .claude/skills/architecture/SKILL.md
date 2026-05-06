@@ -569,7 +569,7 @@ PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (
   - `AppDelegate.swift` + `AppDelegate+*.swift` (iOS) -- Split UIApplicationDelegate ownership for launch sequencing, Siri bridge events, scene/orientation policy, background URLSession handoff, and shared delegate state
 
 - **EnsembleWatch** (`Ensemble/EnsembleWatch/`) -- watchOS
-  - `WatchRootView.swift` -- Consolidated views (auth, library, now playing)
+  - `WatchRootView.swift` -- Standalone watch shell. The target intentionally does not link full `EnsembleCore`; a real companion app should use a watch-specific bridge/product instead of importing the iOS playback/dependency graph.
 
 ## Subsystem: Playlist Mutations
 

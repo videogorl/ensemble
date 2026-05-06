@@ -62,7 +62,7 @@ ensemble/
 |   +-- App/
 |   |   +-- EnsembleWatchApp.swift
 |   +-- Views/
-|   |   +-- WatchRootView.swift   # All watchOS views (auth, library, now playing)
+|   |   +-- WatchRootView.swift   # Standalone watch shell; does not link full EnsembleCore
 |   +-- Resources/
 |   |   +-- Assets.xcassets
 |   +-- Info.plist

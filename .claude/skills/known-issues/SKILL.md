@@ -7,18 +7,16 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Critical
 
-### watchOS Authentication Missing
-- **Location:** `EnsembleWatch/Views/WatchRootView.swift:5`
-- **Issue:** References `DependencyContainer.shared.makeAuthViewModel()` which does not exist
-- **Impact:** watchOS app won't compile
-- **Status (February 21, 2026):** Deferred by scope decision; not being fixed in current remediation pass
-- **Root Cause:** iOS uses `AddPlexAccountViewModel`, watchOS was designed with different auth flow
-- **Fix Options:**
-  1. Create `AuthViewModel` in EnsembleCore and add factory method to DependencyContainer
-  2. Refactor watchOS to use existing `AddPlexAccountViewModel`
-  3. Create watchOS-specific auth flow that matches iOS patterns
+No unresolved critical issues currently documented.
 
 ## Known Limitations
+
+### watchOS Companion Shell Only (May 6, 2026)
+- **Location:** `EnsembleWatch/Views/WatchRootView.swift`
+- **Issue:** The watch target currently ships as a standalone shell and does not provide Plex auth, library browsing, or playback control.
+- **Root cause:** The previous watch view referenced a missing `AuthViewModel` and linked full `EnsembleCore`; that forced watchOS to compile iOS-only playback/background services such as `AudioPlaybackEngine` and `BackgroundSyncScheduler`.
+- **Current status:** The non-compiling placeholder flow was removed, and the watch target no longer links full `EnsembleCore`.
+- **Future fix:** Build a watch-specific companion bridge/product that shares only portable domain/auth state and communicates with the iPhone app, rather than importing the full iOS Core dependency graph.
 
 ### iOS 26 Keyboard Presenter Guardrails (Apr 13, 2026)
 - **Location:** `View+Extensions.swift`, `MainTabView.swift`, `PlaylistsView.swift`, `ProfileView.swift`, filter screens
