@@ -726,17 +726,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .ignoresSafeArea(.container, edges: .top)
             #endif
         }
-        .background(
-            GeometryReader { geometry in
-                Color.clear
-                    .onAppear {
-                        updateTrackListSupplementalMetadataWidth(geometry.size.width)
-                    }
-                    .onChange(of: geometry.size.width) { newWidth in
-                        updateTrackListSupplementalMetadataWidth(newWidth)
-                    }
-            }
-        )
+        .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
         .navigationTitle("")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

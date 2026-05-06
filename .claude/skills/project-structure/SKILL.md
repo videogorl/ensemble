@@ -392,6 +392,7 @@ Sources/
 |   +-- MediaDragExportPolicy.swift   # Drag/drop copy-vs-move and external file-promise policy matrix plus provider/writer helpers
 |   +-- MediaMenuCatalog.swift        # Shared context-menu action catalog, section policy, roles, and context gating
 |   +-- EnsemblePlatformFeaturePolicy.swift # Platform feature/rendering policy for root shell, commands, mini-player menus, native lists, and utility scaffolds
+|   +-- MeasuredWidthReader.swift     # Shared width-measurement modifier for list/detail surfaces
 |   +-- PlaylistActionPresentationHost.swift # Shared add-to-playlist sheet request + recent-playlist presentation helpers
 |   +-- EnsembleUtilityScreenScaffold.swift # Adaptive utility scaffold plus card-based macOS screen/section rows for menu-like tools
 +-- Screens/

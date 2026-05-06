@@ -595,17 +595,7 @@ public struct ArtistDetailView: View {
                 compactArtistHeader
             }
         }
-        .background(
-            GeometryReader { geometry in
-                Color.clear
-                    .onAppear {
-                        updateArtistHeaderWidth(geometry.size.width)
-                    }
-                    .onChange(of: geometry.size.width) { newWidth in
-                        updateArtistHeaderWidth(newWidth)
-                    }
-            }
-        )
+        .measuredWidth(onChange: updateArtistHeaderWidth)
     }
 
     private var usesWideArtistHeader: Bool {
@@ -1108,17 +1098,7 @@ public struct ArtistDetailView: View {
             .frame(height: CGFloat(viewModel.favoritedTracks.count) * TrackListLayoutMetrics.defaultRowHeight)
             #endif
         }
-        .background(
-            GeometryReader { geometry in
-                Color.clear
-                    .onAppear {
-                        updateFavoritedTrackListWidth(geometry.size.width)
-                    }
-                    .onChange(of: geometry.size.width) { newWidth in
-                        updateFavoritedTrackListWidth(newWidth)
-                    }
-            }
-        )
+        .measuredWidth(onChange: updateFavoritedTrackListWidth)
     }
 
     private func updateFavoritedTrackListWidth(_ newWidth: CGFloat) {

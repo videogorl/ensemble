@@ -216,7 +216,7 @@ struct GenreDetailContentView: View {
         ) { _, index in
             nowPlayingVM.play(tracks: tracks, startingAt: index)
         }
-        .background(trackListSupplementalMetadataWidthReader)
+        .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
         #else
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
             genreHeader(tracks: tracks)
@@ -236,7 +236,7 @@ struct GenreDetailContentView: View {
                 ) { _, index in
                     nowPlayingVM.play(tracks: tracks, startingAt: index)
                 }
-                .background(trackListSupplementalMetadataWidthReader)
+                .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
             }
         }
         #endif
@@ -256,18 +256,6 @@ struct GenreDetailContentView: View {
 
     private var genreEmptyFooter: some View {
         LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.musicNote, title: "No Songs")
-    }
-
-    private var trackListSupplementalMetadataWidthReader: some View {
-        GeometryReader { geometry in
-            Color.clear
-                .onAppear {
-                    updateTrackListSupplementalMetadataWidth(geometry.size.width)
-                }
-                .onChange(of: geometry.size.width) { newWidth in
-                    updateTrackListSupplementalMetadataWidth(newWidth)
-                }
-        }
     }
 
     private func updateTrackListSupplementalMetadataWidth(_ newWidth: CGFloat) {

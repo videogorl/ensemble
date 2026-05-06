@@ -60,7 +60,7 @@ public struct MoodTracksView: View {
                 nowPlayingVM.play(tracks: moodTracks, startingAt: index)
             }
             .ignoresSafeArea(.container, edges: [.top, .bottom])
-            .background(trackListSupplementalMetadataWidthReader)
+            .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
             #else
             NativeTrackListHost(
                 tracks: moodTracks,
@@ -80,7 +80,7 @@ public struct MoodTracksView: View {
                 }
                 nowPlayingVM.play(tracks: moodTracks, startingAt: index)
             }
-            .background(trackListSupplementalMetadataWidthReader)
+            .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
             #endif
         }
         .navigationTitle(mood.title)
@@ -166,18 +166,6 @@ public struct MoodTracksView: View {
             )
         )
         .frame(height: EnsembleScaffold.MoodDetail.backgroundHeight)
-    }
-
-    private var trackListSupplementalMetadataWidthReader: some View {
-        GeometryReader { geometry in
-            Color.clear
-                .onAppear {
-                    updateTrackListSupplementalMetadataWidth(geometry.size.width)
-                }
-                .onChange(of: geometry.size.width) { newWidth in
-                    updateTrackListSupplementalMetadataWidth(newWidth)
-                }
-        }
     }
 
     private func updateTrackListSupplementalMetadataWidth(_ newWidth: CGFloat) {
