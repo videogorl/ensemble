@@ -1,3 +1,4 @@
+import Combine
 import EnsembleCore
 import SwiftUI
 
@@ -26,6 +27,57 @@ struct TrackListRuntimeObservationModifier: ViewModifier {
     }
 }
 
+/// Centralizes Now Playing projections used by persistent track-list surfaces.
+/// The modifier subscribes to narrow publishers without observing the whole
+/// view model, so high-churn Now Playing state does not invalidate the caller.
+@MainActor
+private struct NowPlayingTrackListObservationModifier: ViewModifier {
+    @Binding var currentTrackId: String?
+
+    let nowPlayingVM: NowPlayingViewModel
+    let lastPlaylistProjection: LastPlaylistProjection
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(nowPlayingVM.$currentTrack.map { $0?.id }.removeDuplicates()) { id in
+                if id != currentTrackId {
+                    currentTrackId = id
+                }
+            }
+            .onReceive(
+                nowPlayingVM.$lastPlaylistTarget
+                    .map { lastPlaylistProjection.value(from: $0) }
+                    .removeDuplicates()
+            ) { value in
+                lastPlaylistProjection.update(value)
+            }
+    }
+}
+
+@MainActor
+private enum LastPlaylistProjection {
+    case title(Binding<String?>)
+    case id(Binding<String?>)
+
+    func value(from target: LastPlaylistTarget?) -> String? {
+        switch self {
+        case .title:
+            return target?.title
+        case .id:
+            return target?.id
+        }
+    }
+
+    func update(_ value: String?) {
+        switch self {
+        case .title(let binding), .id(let binding):
+            if binding.wrappedValue != value {
+                binding.wrappedValue = value
+            }
+        }
+    }
+}
+
 extension View {
     @MainActor
     func trackListRuntimeObservation(
@@ -36,6 +88,36 @@ extension View {
             TrackListRuntimeObservationModifier(
                 activeDownloadRatingKeys: activeDownloadRatingKeys,
                 availabilityGeneration: availabilityGeneration
+            )
+        )
+    }
+
+    @MainActor
+    func nowPlayingTrackListObservation(
+        nowPlayingVM: NowPlayingViewModel,
+        currentTrackId: Binding<String?>,
+        recentPlaylistTitle: Binding<String?>
+    ) -> some View {
+        modifier(
+            NowPlayingTrackListObservationModifier(
+                currentTrackId: currentTrackId,
+                nowPlayingVM: nowPlayingVM,
+                lastPlaylistProjection: .title(recentPlaylistTitle)
+            )
+        )
+    }
+
+    @MainActor
+    func nowPlayingTrackListObservation(
+        nowPlayingVM: NowPlayingViewModel,
+        currentTrackId: Binding<String?>,
+        lastPlaylistTargetId: Binding<String?>
+    ) -> some View {
+        modifier(
+            NowPlayingTrackListObservationModifier(
+                currentTrackId: currentTrackId,
+                nowPlayingVM: nowPlayingVM,
+                lastPlaylistProjection: .id(lastPlaylistTargetId)
             )
         )
     }

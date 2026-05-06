@@ -265,14 +265,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
             }
         }
-        .onReceive(nowPlayingVM.$currentTrack) { track in
-            let id = track?.id
-            if id != currentTrackId { currentTrackId = id }
-        }
-        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
-            let id = target?.id
-            if id != nvmLastPlaylistTargetId { nvmLastPlaylistTargetId = id }
-        }
+        .nowPlayingTrackListObservation(
+            nowPlayingVM: nowPlayingVM,
+            currentTrackId: $currentTrackId,
+            lastPlaylistTargetId: $nvmLastPlaylistTargetId
+        )
     }
 
     @ViewBuilder

@@ -60,14 +60,11 @@ public struct SearchView: View {
             await pinnedVM.loadPinnedItems()
         }
         .miniPlayerBottomSpacing()
-        .onReceive(nowPlayingVM.$currentTrack) { track in
-            let id = track?.id
-            if id != currentTrackId { currentTrackId = id }
-        }
-        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
-            let title = target?.title
-            if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
-        }
+        .nowPlayingTrackListObservation(
+            nowPlayingVM: nowPlayingVM,
+            currentTrackId: $currentTrackId,
+            recentPlaylistTitle: $nvmRecentPlaylistTitle
+        )
         .onReceive(DependencyContainer.shared.accountManager.$plexAccounts) { accounts in
             let has = !accounts.isEmpty
             if has != hasAnySources { hasAnySources = has }

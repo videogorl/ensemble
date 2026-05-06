@@ -491,14 +491,11 @@ public struct ArtistDetailView: View {
             activeDownloadRatingKeys: $activeDownloadRatingKeys,
             availabilityGeneration: $availabilityGeneration
         )
-        .onReceive(nowPlayingVM.$currentTrack) { track in
-            let id = track?.id
-            if id != currentTrackId { currentTrackId = id }
-        }
-        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
-            let title = target?.title
-            if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
-        }
+        .nowPlayingTrackListObservation(
+            nowPlayingVM: nowPlayingVM,
+            currentTrackId: $currentTrackId,
+            recentPlaylistTitle: $nvmRecentPlaylistTitle
+        )
         .onReceive(pinManager.objectWillChange) { _ in
             DispatchQueue.main.async {
                 updateArtistPinState()

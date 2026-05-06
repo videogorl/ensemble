@@ -373,7 +373,7 @@ Sources/
 |   +-- QueueTableView.swift
 |   +-- SongsTrackListHost.swift
 |   +-- StandardSwipeActions.swift
-|   +-- TrackListRuntimeObservation.swift # Shared download/availability value observation modifier for native track-list callers
+|   +-- TrackListRuntimeObservation.swift # Shared download/availability and Now Playing projection observation modifiers for native track-list callers
 |   +-- TrackRow.swift
 |   +-- TrackRowInteractionModel.swift
 |   +-- TrackSwipeContainer.swift
