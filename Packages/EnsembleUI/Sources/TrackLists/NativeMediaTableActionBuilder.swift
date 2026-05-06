@@ -190,8 +190,8 @@ enum NativeMediaTableActionBuilder {
             canFavorite: resolvedActions.onToggleFavorite != nil,
             canDownload: false,
             canPin: false,
-            canEditMetadata: false,
-            canDelete: false,
+            canEditMetadata: resolvedActions.onEditMetadata != nil,
+            canDelete: resolvedActions.onDeleteTrack != nil,
             canRename: false,
             canEditPlaylist: false,
             canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
@@ -211,11 +211,13 @@ enum NativeMediaTableActionBuilder {
             addToPlaylist: resolvedActions.onAddToPlaylist,
             goToAlbum: resolvedActions.onGoToAlbum,
             goToArtist: resolvedActions.onGoToArtist,
+            editMetadata: resolvedActions.onEditMetadata,
             favorite: resolvedActions.onToggleFavorite,
             shareLink: resolvedActions.onShareLink,
             shareAudioFile: resolvedActions.onShareFile,
             removeFromPlaylist: onRemoveFromPlaylist,
-            removeFromQueue: onRemoveFromQueue
+            removeFromQueue: onRemoveFromQueue,
+            deleteTrack: resolvedActions.onDeleteTrack
         )
     }
 }
@@ -272,8 +274,8 @@ enum NativeMediaTableActionBuilder {
             canFavorite: resolvedActions.onToggleFavorite != nil,
             canDownload: false,
             canPin: false,
-            canEditMetadata: false,
-            canDelete: false,
+            canEditMetadata: resolvedActions.onEditMetadata != nil,
+            canDelete: resolvedActions.onDeleteTrack != nil,
             canRename: false,
             canEditPlaylist: false,
             canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
@@ -293,11 +295,13 @@ enum NativeMediaTableActionBuilder {
             addToPlaylist: resolvedActions.onAddToPlaylist,
             goToAlbum: resolvedActions.onGoToAlbum,
             goToArtist: resolvedActions.onGoToArtist,
+            editMetadata: resolvedActions.onEditMetadata,
             favorite: resolvedActions.onToggleFavorite,
             shareLink: resolvedActions.onShareLink,
             shareAudioFile: resolvedActions.onShareFile,
             removeFromPlaylist: onRemoveFromPlaylist,
-            removeFromQueue: onRemoveFromQueue
+            removeFromQueue: onRemoveFromQueue,
+            deleteTrack: resolvedActions.onDeleteTrack
         )
     }
 }

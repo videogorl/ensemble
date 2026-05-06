@@ -86,12 +86,15 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
+    @State private var trackPendingDeletion: Track?
+    @State private var isConfirmingTrackDelete = false
     // Targeted NVM observation: only re-evaluate on track/playlist target changes
     @State private var currentTrackId: String?
     @State private var nvmLastPlaylistTargetId: String?
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
@@ -212,11 +215,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             threshold: 0,
             showToolbarTitle: $showToolbarTitle
         )
-        // iOS: MediaTrackList handles its own bottomContentInset for scroll-behind-chrome.
-        // macOS: ScrollView-based layout uses miniPlayerBottomSpacing.
-        #if !os(iOS)
-        .miniPlayerBottomSpacing()
-        #endif
+        // Native track lists manage their own bottom inset so rows can scroll
+        // behind the floating mini player without shrinking the table host.
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
         }
@@ -224,6 +224,21 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             if gen != availabilityGeneration { availabilityGeneration = gen }
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .confirmationDialog(
+            "Delete Track?",
+            isPresented: $isConfirmingTrackDelete,
+            titleVisibility: .visible,
+            presenting: trackPendingDeletion
+        ) { track in
+            Button("Delete Track", role: .destructive) {
+                deleteTrack(track)
+            }
+            Button("Cancel", role: .cancel) {
+                trackPendingDeletion = nil
+            }
+        } message: { track in
+            Text("This permanently deletes \"\(track.title)\" from the Plex server and removes its local cache.")
+        }
         .task(id: quickTargetRefreshKey) {
             lastPlaylistQuickTarget = await PlaylistActionPresentationHost.resolveRecentPlaylistTarget(
                 for: viewModel.filteredTracks,
@@ -527,6 +542,61 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
 
         playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+    }
+
+    private func presentTrackMetadataEditor(_ track: Track) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            contextMenuMetadataEditorCoordinator.present(
+                kind: .track,
+                currentTitle: track.title
+            ) { newTitle in
+                do {
+                    let result = try await deps.metadataMutationWorkflow.editTrack(
+                        track,
+                        title: newTitle
+                    )
+                    await MainActor.run {
+                        deps.toastCenter.show(result.successToast)
+                    }
+                } catch {
+                    await MainActor.run {
+                        deps.toastCenter.show(
+                            deps.metadataMutationWorkflow.editFailureToast(
+                                noun: "Track",
+                                itemID: track.id,
+                                error: error,
+                                scope: .track
+                            )
+                        )
+                    }
+                    throw error
+                }
+            }
+        }
+    }
+
+    private func deleteTrack(_ track: Track) {
+        Task {
+            do {
+                let result = try await deps.metadataMutationWorkflow.deleteTrack(track)
+                await MainActor.run {
+                    trackPendingDeletion = nil
+                    deps.toastCenter.show(result.successToast)
+                }
+            } catch {
+                await MainActor.run {
+                    trackPendingDeletion = nil
+                    deps.toastCenter.show(
+                        deps.metadataMutationWorkflow.deleteFailureToast(
+                            noun: "Track",
+                            itemID: track.id,
+                            error: error,
+                            scope: .track
+                        )
+                    )
+                }
+            }
+        }
     }
 
     private var playlistTrackRemovalHandler: ((Track, Int) -> Void)? {
@@ -869,11 +939,18 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
                 }
             },
+            onEditMetadata: { track in
+                presentTrackMetadataEditor(track)
+            },
             onShareLink: { track in
                 ShareActions.shareTrackLink(track, deps: deps)
             },
             onShareFile: { track in
                 ShareActions.shareTrackFile(track, deps: deps)
+            },
+            onDeleteTrack: { track in
+                trackPendingDeletion = track
+                isConfirmingTrackDelete = true
             },
             isTrackFavorited: { track in
                 nowPlayingVM.isTrackFavorited(track)

@@ -515,8 +515,10 @@ final class EnsembleUITests: XCTestCase {
             onToggleFavorite: { _ in },
             onGoToAlbum: { _ in },
             onGoToArtist: { _ in },
+            onEditMetadata: { _ in },
             onShareLink: { _ in },
             onShareFile: { _ in },
+            onDeleteTrack: { _ in },
             isTrackFavorited: { _ in false },
             recentPlaylistTitle: "Road Trip"
         )
@@ -536,7 +538,9 @@ final class EnsembleUITests: XCTestCase {
                 "Go to Album",
                 "Go to Artist",
                 "Share Link…",
-                "Share Audio File…"
+                "Share Audio File…",
+                "Edit Metadata…",
+                "Delete Track"
             ]
         )
     }

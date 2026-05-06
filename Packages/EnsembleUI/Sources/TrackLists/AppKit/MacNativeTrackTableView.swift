@@ -34,8 +34,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         tableView.style = .plain
         tableView.rowSizeStyle = .custom
         tableView.intercellSpacing = NSSize(width: 0, height: 0)
-        tableView.gridStyleMask = [.solidHorizontalGridLineMask]
-        tableView.gridColor = TrackListLayoutMetrics.nativeSeparatorColor
+        tableView.gridStyleMask = []
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.target = context.coordinator
@@ -49,6 +48,9 @@ struct MacNativeTrackTableView: NSViewRepresentable {
 
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsetsZero
+        scrollView.scrollerInsets = NSEdgeInsetsZero
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -223,7 +225,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             if case .section = rows[row] { return 40 }
             if case let .bottomSpacer(height) = rows[row] { return height }
             if case .header = rows[row], let tableHeaderContent {
-                return hostingHeight(for: tableHeaderContent, width: tableView.bounds.width)
+                return headerHeight(for: tableHeaderContent, width: tableView.bounds.width)
             }
             if case .footer = rows[row], let tableFooterContent {
                 return hostingHeight(for: tableFooterContent, width: tableView.bounds.width)
@@ -371,6 +373,16 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             return max(1, hostingView.fittingSize.height)
         }
 
+        private func headerHeight(for rootView: AnyView, width: CGFloat) -> CGFloat {
+            let measuredHeight = hostingHeight(for: rootView, width: width)
+            guard width >= EnsembleScaffold.DetailSurface.wideHeaderThreshold else {
+                return measuredHeight
+            }
+
+            let wideHeaderHeight = ArtworkSize.medium.cgSize.height + (EnsembleScaffold.DetailSurface.headerPadding * 2)
+            return min(measuredHeight, wideHeaderHeight)
+        }
+
         private func showSwipeConfirmation(for action: TrackSwipeAction, track: Track) {
             guard let toast = NativeTrackSwipeActionPresenter.confirmationToast(
                 for: action,
@@ -462,6 +474,7 @@ private final class MacNativeTrackTableCell: NSTableCellView {
     private let durationField = NSTextField(labelWithString: "")
     private let overflowButton = NSButton()
     private let playingImageView = NSImageView()
+    private let dividerView = NSView()
 
     private var titleTopConstraint: NSLayoutConstraint?
     private var titleCenterYConstraint: NSLayoutConstraint?
@@ -597,6 +610,11 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         playingImageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(playingImageView)
 
+        dividerView.wantsLayer = true
+        dividerView.layer?.backgroundColor = TrackListLayoutMetrics.nativeSeparatorColor.cgColor
+        dividerView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(dividerView)
+
         titleTopConstraint = titleField.topAnchor.constraint(equalTo: topAnchor, constant: TrackListLayoutMetrics.defaultTitleTopPadding)
         titleCenterYConstraint = titleField.centerYAnchor.constraint(equalTo: centerYAnchor)
         subtitleTopConstraint = subtitleField.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: TrackListLayoutMetrics.primarySecondaryTextSpacing)
@@ -651,7 +669,12 @@ private final class MacNativeTrackTableCell: NSTableCellView {
             playingImageView.trailingAnchor.constraint(equalTo: overflowButton.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap),
             playingImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
             playingImageView.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.playingIndicatorDimension),
-            playingImageView.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.playingIndicatorDimension)
+            playingImageView.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.playingIndicatorDimension),
+
+            dividerView.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
+            dividerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            dividerView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            dividerView.heightAnchor.constraint(equalToConstant: 1 / (NSScreen.main?.backingScaleFactor ?? 2))
         ])
         titleLeadingToArtworkConstraint?.isActive = true
         titleTopConstraint?.isActive = true
