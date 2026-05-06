@@ -451,7 +451,7 @@ extension CDPendingMutation {
         return NSFetchRequest<CDPendingMutation>(entityName: "CDPendingMutation")
     }
 
-    public enum MutationType: String {
+    public enum MutationType: String, Sendable {
         case trackRating
         case playlistAdd
         case playlistRemove
@@ -460,7 +460,7 @@ extension CDPendingMutation {
         case scrobble
     }
 
-    public enum MutationStatus: String {
+    public enum MutationStatus: String, Sendable {
         case pending
         case failed
     }
