@@ -176,14 +176,11 @@ public struct MusicSourceAccountDetailView: View {
         if let scanProgress = viewModel.scanProgressByServer[server.id] {
             utilityRow(cardRows: cardRows) {
                 VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.detailTextSpacing) {
-                    HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
-                        Image(systemName: EnsembleDesign.Icon.search)
-                            .font(EnsembleDesign.Typography.rowSecondary)
-                            .foregroundColor(EnsembleDesign.Color.accent)
-                        Text("Scanning library…")
-                            .font(EnsembleDesign.Typography.rowSecondary)
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    }
+                    EnsembleUtilityInlineStatusRow(
+                        iconSystemName: EnsembleDesign.Icon.search,
+                        text: "Scanning library…",
+                        iconColor: EnsembleDesign.Color.accent
+                    )
                     ProgressView(value: Double(scanProgress), total: EnsembleScaffold.UtilityRow.percentProgressTotal)
                         .tint(EnsembleDesign.Color.accent)
                 }
@@ -328,15 +325,13 @@ public struct MusicSourceAccountDetailView: View {
     }
 
     private func featureLegendRow(icon: String, text: String) -> some View {
-        HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
-            Image(systemName: icon)
-                .font(EnsembleDesign.Typography.statusBadgeIcon)
-                .foregroundColor(EnsembleDesign.Color.accent)
-                .frame(width: EnsembleScaffold.UtilityRow.inlineIconWidth)
-            Text(text)
-                .font(EnsembleDesign.Typography.rowSecondary)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-        }
+        EnsembleUtilityInlineStatusRow(
+            iconSystemName: icon,
+            text: text,
+            iconColor: EnsembleDesign.Color.accent,
+            iconFont: EnsembleDesign.Typography.statusBadgeIcon,
+            spacing: EnsembleScaffold.UtilityRow.rowSpacing
+        )
     }
 }
 
@@ -371,13 +366,10 @@ private struct LibrarySyncStatusRow: View {
                 EnabledLibraryStatusView(status: row.status ?? MusicSourceStatus())
                     .padding(.leading, EnsembleScaffold.UtilityRow.nestedLeadingPadding)
             } else {
-                HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
-                    Image(systemName: EnsembleDesign.Icon.removeCircle)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    Text("Not synced")
-                        .font(EnsembleDesign.Typography.rowSecondary)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                }
+                EnsembleUtilityInlineStatusRow(
+                    iconSystemName: EnsembleDesign.Icon.removeCircle,
+                    text: "Not synced"
+                )
                 .padding(.leading, EnsembleScaffold.UtilityRow.nestedLeadingPadding)
             }
         }
@@ -390,26 +382,19 @@ private struct EnabledLibraryStatusView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.detailTextSpacing) {
-            HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
-                Image(systemName: syncIcon)
-                    .foregroundColor(syncColor)
-                    .font(EnsembleDesign.Typography.rowSecondary)
+            EnsembleUtilityInlineStatusRow(
+                iconSystemName: syncIcon,
+                text: syncText,
+                iconColor: syncColor,
+                textColor: syncColor,
+                lineLimit: 2
+            )
 
-                Text(syncText)
-                    .font(EnsembleDesign.Typography.rowSecondary)
-                    .foregroundColor(syncColor)
-                    .lineLimit(2)
-            }
-
-            HStack(spacing: EnsembleScaffold.UtilityRow.inlineSpacing) {
-                Image(systemName: connectionIcon)
-                    .foregroundColor(connectionColor)
-                    .font(EnsembleDesign.Typography.rowSecondary)
-
-                Text(connectionText)
-                    .font(EnsembleDesign.Typography.rowSecondary)
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-            }
+            EnsembleUtilityInlineStatusRow(
+                iconSystemName: connectionIcon,
+                text: connectionText,
+                iconColor: connectionColor
+            )
         }
     }
 
@@ -515,19 +500,25 @@ private struct ServerFeatureBadges: View {
     var body: some View {
         HStack(spacing: EnsembleScaffold.UtilityRow.detailTextSpacing) {
             if section.hasPlexPass {
-                Image(systemName: EnsembleDesign.Icon.ticket)
-                    .font(EnsembleDesign.Typography.statusBadgeIcon)
-                    .foregroundColor(EnsembleDesign.Color.accent)
+                EnsembleUtilityIcon(
+                    EnsembleDesign.Icon.ticket,
+                    font: EnsembleDesign.Typography.statusBadgeIcon,
+                    width: EnsembleScaffold.UtilityRow.inlineIconWidth
+                )
             }
             if section.capabilities?.hasLyrics == true {
-                Image(systemName: EnsembleDesign.Icon.lyrics)
-                    .font(EnsembleDesign.Typography.statusBadgeIcon)
-                    .foregroundColor(EnsembleDesign.Color.accent)
+                EnsembleUtilityIcon(
+                    EnsembleDesign.Icon.lyrics,
+                    font: EnsembleDesign.Typography.statusBadgeIcon,
+                    width: EnsembleScaffold.UtilityRow.inlineIconWidth
+                )
             }
             if section.capabilities?.hasRadio == true {
-                Image(systemName: EnsembleDesign.Icon.infinity)
-                    .font(EnsembleDesign.Typography.statusBadgeIcon)
-                    .foregroundColor(EnsembleDesign.Color.accent)
+                EnsembleUtilityIcon(
+                    EnsembleDesign.Icon.infinity,
+                    font: EnsembleDesign.Typography.statusBadgeIcon,
+                    width: EnsembleScaffold.UtilityRow.inlineIconWidth
+                )
             }
         }
     }
