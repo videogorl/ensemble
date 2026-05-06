@@ -72,6 +72,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - **Location:** `Packages/EnsembleCore/`
 - **Dependencies:** EnsembleAPI, EnsemblePersistence, EnsembleSiriShared, Nuke
 - **Purpose:** Services, ViewModels, domain models, dependency injection
+- **Platforms:** iOS 15+ and macOS 12+. Core intentionally does not advertise watchOS support because playback/background services are not watch-portable as a full package.
 
 **Key Services:**
 - `DependencyContainer` (singleton) -- Wires all services, creates ViewModels, injected via SwiftUI environment

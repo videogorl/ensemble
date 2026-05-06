@@ -15,7 +15,7 @@ No unresolved critical issues currently documented.
 - **Location:** `EnsembleWatch/Views/WatchRootView.swift`
 - **Issue:** The watch target currently ships as a standalone shell and does not provide Plex auth, library browsing, or playback control.
 - **Root cause:** The previous watch view referenced a missing `AuthViewModel` and linked full `EnsembleCore`; that forced watchOS to compile iOS-only playback/background services such as `AudioPlaybackEngine` and `BackgroundSyncScheduler`.
-- **Current status:** The non-compiling placeholder flow was removed, and the watch target no longer links full `EnsembleCore`.
+- **Current status:** The non-compiling placeholder flow was removed, the watch target no longer links full `EnsembleCore`, and `EnsembleCore`/`EnsembleUI` no longer advertise watchOS package support.
 - **Future fix:** Build a watch-specific companion bridge/product that shares only portable domain/auth state and communicates with the iPhone app, rather than importing the full iOS Core dependency graph.
 
 ### iOS 26 Keyboard Presenter Guardrails (Apr 13, 2026)

@@ -6,8 +6,7 @@ let package = Package(
     name: "EnsembleCore",
     platforms: [
         .iOS(.v15),
-        .macOS(.v12),
-        .watchOS(.v8)
+        .macOS(.v12)
     ],
     products: [
         .library(
