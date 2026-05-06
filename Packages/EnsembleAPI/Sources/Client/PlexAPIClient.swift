@@ -424,11 +424,7 @@ public actor PlexAPIClient {
         do {
             let data = try await serverRequest(path: path, query: query)
 
-            #if DEBUG
-            if let responseString = String(data: data, encoding: .utf8) {
-                EnsembleLogger.debug("🔍 Raw loudness response (first 500 chars): \(String(responseString.prefix(500)))")
-            }
-            #endif
+            EnsembleLogger.debug("🔍 Received loudness response for stream \(streamId): \(data.count) bytes")
 
             let timeline = try JSONDecoder().decode(PlexLoudnessTimeline.self, from: data)
 

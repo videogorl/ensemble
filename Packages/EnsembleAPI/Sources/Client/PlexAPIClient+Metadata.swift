@@ -41,11 +41,7 @@ extension PlexAPIClient {
     public func getTrack(trackKey: String) async throws -> PlexTrack? {
         let data = try await serverRequest(path: "/library/metadata/\(trackKey)")
 
-        #if DEBUG
-        if let jsonString = String(data: data, encoding: .utf8) {
-            EnsembleLogger.debug("🔍 Raw JSON response (first 500 chars): \(String(jsonString.prefix(500)))")
-        }
-        #endif
+        EnsembleLogger.debug("🔍 Received track metadata payload for \(trackKey): \(data.count) bytes")
 
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexTrack>.self,
