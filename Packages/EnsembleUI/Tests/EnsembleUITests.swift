@@ -141,11 +141,17 @@ final class EnsembleUITests: XCTestCase {
     #if os(macOS)
     func testMediaDragPayloadPasteboardItemExposesJSONFallbackWithoutStringFallback() throws {
         let track = Track(id: "track-1", key: "/tracks/1", title: "Track")
+        let expected = MediaDragPayload.track(track)
         let item = try XCTUnwrap(MediaDragPayload.track(track).pasteboardItem())
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
+        pasteboard.clearContents()
 
         XCTAssertTrue(item.types.contains(NSPasteboard.PasteboardType(MediaDragPayload.typeIdentifier)))
         XCTAssertTrue(item.types.contains(NSPasteboard.PasteboardType(UTType.json.identifier)))
         XCTAssertFalse(item.types.contains(.string))
+        XCTAssertTrue(pasteboard.writeObjects([item]))
+        XCTAssertTrue(MediaDragPayload.canLoad(from: pasteboard))
+        XCTAssertEqual(MediaDragPayload.load(from: pasteboard), expected)
     }
 
     func testMediaDragPayloadFilePromiseWriterKeepsPayloadAndPromisesFile() throws {

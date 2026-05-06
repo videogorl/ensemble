@@ -163,6 +163,10 @@ struct MediaDragPayload: Codable, Equatable {
         )
     }
 
+    static var pasteboardTypes: [NSPasteboard.PasteboardType] {
+        acceptedTypeIdentifiers.map { NSPasteboard.PasteboardType($0) }
+    }
+
     func pasteboardItem(fallbackFileURL: URL? = nil) -> NSPasteboardItem? {
         let item = NSPasteboardItem()
         var wroteRepresentation = false
@@ -202,6 +206,29 @@ struct MediaDragPayload: Codable, Equatable {
                 return fallbackFileURL
             }
         )
+    }
+
+    static func canLoad(from pasteboard: NSPasteboard) -> Bool {
+        acceptedTypeIdentifiers.contains { typeIdentifier in
+            pasteboard.data(forType: NSPasteboard.PasteboardType(typeIdentifier)) != nil ||
+                pasteboard.canReadItem(withDataConformingToTypes: [typeIdentifier])
+        }
+    }
+
+    static func debugRegisteredTypeIdentifiers(for pasteboard: NSPasteboard) -> String {
+        let identifiers = pasteboard.types?.map(\.rawValue) ?? []
+        return identifiers.isEmpty ? "none" : identifiers.joined(separator: ",")
+    }
+
+    static func load(from pasteboard: NSPasteboard) -> MediaDragPayload? {
+        for typeIdentifier in acceptedTypeIdentifiers {
+            guard let data = pasteboard.data(forType: NSPasteboard.PasteboardType(typeIdentifier)),
+                  let payload = try? JSONDecoder().decode(MediaDragPayload.self, from: data) else {
+                continue
+            }
+            return payload
+        }
+        return nil
     }
     #endif
 
