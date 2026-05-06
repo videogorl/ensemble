@@ -1,4 +1,5 @@
 import EnsembleCore
+import Combine
 import SwiftUI
 
 private extension Notification.Name {
@@ -8,6 +9,70 @@ private extension Notification.Name {
     static let playlistRenameStarted = Notification.Name("playlistRenameStarted")
     static let playlistRenameSucceeded = Notification.Name("playlistRenameSucceeded")
     static let playlistRenameFailed = Notification.Name("playlistRenameFailed")
+}
+
+private enum PlaylistMutationEvent {
+    case deletionStarted(playlistID: String)
+    case deletionSucceeded(playlistID: String)
+    case deletionFailed(playlistID: String)
+    case renameStarted(playlistID: String, newTitle: String)
+    case renameSucceeded(playlistID: String, newTitle: String)
+    case renameFailed(playlistID: String)
+
+    static var publisher: AnyPublisher<PlaylistMutationEvent, Never> {
+        Publishers.MergeMany([
+            notificationPublisher(for: .playlistDeletionStarted) { note in
+                guard let playlistID = note.playlistID else { return nil }
+                return .deletionStarted(playlistID: playlistID)
+            },
+            notificationPublisher(for: .playlistDeletionSucceeded) { note in
+                guard let playlistID = note.playlistID else { return nil }
+                return .deletionSucceeded(playlistID: playlistID)
+            },
+            notificationPublisher(for: .playlistDeletionFailed) { note in
+                guard let playlistID = note.playlistID else { return nil }
+                return .deletionFailed(playlistID: playlistID)
+            },
+            notificationPublisher(for: .playlistRenameStarted) { note in
+                guard let playlistID = note.playlistID,
+                      let newTitle = note.newTitle else {
+                    return nil
+                }
+                return .renameStarted(playlistID: playlistID, newTitle: newTitle)
+            },
+            notificationPublisher(for: .playlistRenameSucceeded) { note in
+                guard let playlistID = note.playlistID,
+                      let newTitle = note.newTitle else {
+                    return nil
+                }
+                return .renameSucceeded(playlistID: playlistID, newTitle: newTitle)
+            },
+            notificationPublisher(for: .playlistRenameFailed) { note in
+                guard let playlistID = note.playlistID else { return nil }
+                return .renameFailed(playlistID: playlistID)
+            }
+        ])
+        .eraseToAnyPublisher()
+    }
+
+    private static func notificationPublisher(
+        for name: Notification.Name,
+        transform: @escaping (Notification) -> PlaylistMutationEvent?
+    ) -> AnyPublisher<PlaylistMutationEvent, Never> {
+        NotificationCenter.default.publisher(for: name)
+            .compactMap(transform)
+            .eraseToAnyPublisher()
+    }
+}
+
+private extension Notification {
+    var playlistID: String? {
+        userInfo?["playlistID"] as? String
+    }
+
+    var newTitle: String? {
+        userInfo?["newTitle"] as? String
+    }
 }
 
 public struct PlaylistsView: View {
@@ -99,6 +164,58 @@ public struct PlaylistsView: View {
             Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
         }
         .accessibilityLabel("Sort Playlists")
+    }
+
+    private func filteredDisplayedPlaylists(_ displayPlaylists: [DisplayPlaylist]) -> [DisplayPlaylist] {
+        displayPlaylists.filter { dp in
+            !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
+        }
+    }
+
+    private func refreshCachedDisplayedPlaylists() {
+        cachedDisplayedPlaylists = filteredDisplayedPlaylists(viewModel.displayPlaylists)
+    }
+
+    private func handlePlaylistMutationEvent(_ event: PlaylistMutationEvent) {
+        switch event {
+        case .deletionStarted(let playlistID):
+            pendingDeletionPlaylistIDs.insert(playlistID)
+            refreshCachedDisplayedPlaylists()
+
+        case .deletionFailed(let playlistID):
+            pendingDeletionPlaylistIDs.remove(playlistID)
+            refreshCachedDisplayedPlaylists()
+            if let toastID = deletingToastIDsByPlaylistID.removeValue(forKey: playlistID) {
+                deps.toastCenter.dismiss(id: toastID)
+            }
+
+        case .deletionSucceeded(let playlistID):
+            if let toastID = deletingToastIDsByPlaylistID.removeValue(forKey: playlistID) {
+                deps.toastCenter.dismiss(id: toastID)
+            }
+            Task {
+                await viewModel.loadPlaylists()
+                pendingDeletionPlaylistIDs.remove(playlistID)
+                refreshCachedDisplayedPlaylists()
+            }
+
+        case .renameStarted(let playlistID, let newTitle):
+            viewModel.applyOptimisticRename(forPlaylistID: playlistID, newTitle: newTitle)
+
+        case .renameSucceeded(let playlistID, let newTitle):
+            Task {
+                await viewModel.awaitRenamedPlaylistMaterialization(
+                    for: playlistID,
+                    expectedTitle: newTitle
+                )
+            }
+
+        case .renameFailed(let playlistID):
+            viewModel.clearOptimisticRename(for: playlistID)
+            Task {
+                await viewModel.loadPlaylists()
+            }
+        }
     }
 
     public init(
@@ -284,75 +401,16 @@ public struct PlaylistsView: View {
                 // after sync finishes, which emits the final correct data.
                 guard !viewModel.isRefreshingFromServer else { return }
 
-                let filtered = displayPlaylists.filter { dp in
-                    !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
-                }
-                cachedDisplayedPlaylists = filtered
+                cachedDisplayedPlaylists = filteredDisplayedPlaylists(displayPlaylists)
             }
             // When refresh completes, catch up immediately rather than waiting for the
             // Combine pipeline's 150ms debounce to produce the next displayPlaylists emission.
             .onReceive(viewModel.$isRefreshingFromServer) { isRefreshing in
                 guard !isRefreshing else { return }
-                let filtered = viewModel.displayPlaylists.filter { dp in
-                    !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
-                }
-                cachedDisplayedPlaylists = filtered
+                refreshCachedDisplayedPlaylists()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionStarted)) { note in
-                guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
-                pendingDeletionPlaylistIDs.insert(playlistID)
-                cachedDisplayedPlaylists = viewModel.displayPlaylists.filter { dp in
-                    !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionFailed)) { note in
-                guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
-                pendingDeletionPlaylistIDs.remove(playlistID)
-                cachedDisplayedPlaylists = viewModel.displayPlaylists.filter { dp in
-                    !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
-                }
-                if let toastID = deletingToastIDsByPlaylistID.removeValue(forKey: playlistID) {
-                    deps.toastCenter.dismiss(id: toastID)
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionSucceeded)) { note in
-                guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
-                if let toastID = deletingToastIDsByPlaylistID.removeValue(forKey: playlistID) {
-                    deps.toastCenter.dismiss(id: toastID)
-                }
-                Task {
-                    await viewModel.loadPlaylists()
-                    pendingDeletionPlaylistIDs.remove(playlistID)
-                    cachedDisplayedPlaylists = viewModel.displayPlaylists.filter { dp in
-                        !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
-                    }
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .playlistRenameStarted)) { note in
-                guard let playlistID = note.userInfo?["playlistID"] as? String,
-                      let newTitle = note.userInfo?["newTitle"] as? String else {
-                    return
-                }
-                viewModel.applyOptimisticRename(forPlaylistID: playlistID, newTitle: newTitle)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .playlistRenameSucceeded)) { note in
-                guard let playlistID = note.userInfo?["playlistID"] as? String,
-                      let newTitle = note.userInfo?["newTitle"] as? String else {
-                    return
-                }
-                Task {
-                    await viewModel.awaitRenamedPlaylistMaterialization(
-                        for: playlistID,
-                        expectedTitle: newTitle
-                    )
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .playlistRenameFailed)) { note in
-                guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
-                viewModel.clearOptimisticRename(for: playlistID)
-                Task {
-                    await viewModel.loadPlaylists()
-                }
+            .onReceive(PlaylistMutationEvent.publisher) { event in
+                handlePlaylistMutationEvent(event)
             }
             .refreshable {
                 await viewModel.refreshFromServer()
