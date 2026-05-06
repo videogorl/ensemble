@@ -191,6 +191,7 @@ Sources/
 |   +-- PeriodicSyncController.swift   # Foreground periodic-sync timer scheduling + WebSocket-aware interval policy extracted from SyncCoordinator
 |   +-- PlaylistRefreshController.swift # Server-scoped playlist refresh dedupe/fallback orchestration extracted from SyncCoordinator
 |   +-- WebSocketSyncController.swift  # WebSocket-triggered section resolution + playlist refresh routing extracted from SyncCoordinator
+|   +-- SyncProviderResolver.swift    # Exact-source and fallback provider lookup seam extracted from SyncCoordinator playback/download/reporting routes
 |   +-- MusicSourceSyncProvider.swift  # Protocol for source-specific sync
 |   +-- PlexMusicSourceSyncProvider.swift # Plex implementation of sync protocol
 |   +-- NavigationCoordinator.swift    # Centralized navigation state management (MainActor)
@@ -303,6 +304,7 @@ Tests/
 +-- PlaylistRefreshControllerTests.swift # Server playlist refresh dedupe, fallback, and trigger-policy coverage
 +-- WebSocketSyncControllerTests.swift # WebSocket section resolution and playlist refresh routing coverage
 +-- ServerConnectionControllerTests.swift # Registry-update processing, API-client endpoint synchronization, and post-sync URL resolution coverage
++-- SyncProviderResolverTests.swift # Exact-source, fallback, and missing-provider routing coverage
 +-- PlexWebSocketCoordinatorTests.swift # Aggregate WebSocket availability callback coverage
 +-- OfflineDownloadServicePolicyTests.swift # Playback/background download work-mode policy coverage
 +-- DownloadMutationWorkflowTests.swift # Shared download target/queue mutation workflow coverage

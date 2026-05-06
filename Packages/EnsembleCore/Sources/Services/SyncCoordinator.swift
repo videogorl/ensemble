@@ -109,6 +109,9 @@ public final class SyncCoordinator: ObservableObject {
     private let webSocketSyncController: WebSocketSyncController
     private let networkLifecycleController: NetworkLifecycleController
     private var syncProviders: [String: MusicSourceSyncProvider] = [:]  // keyed by compositeKey
+    private var providerResolver: SyncProviderResolver {
+        SyncProviderResolver(providers: syncProviders)
+    }
     private var cancellables = Set<AnyCancellable>()
     private var isCheckingHealth = false
     /// Timestamp of last sourceStatuses progress update per source — used to throttle
@@ -870,7 +873,7 @@ public final class SyncCoordinator: ObservableObject {
     /// Called when AVPlayer reports a resource-unavailable error so subsequent stream URL
     /// requests immediately fall back to direct file URLs without retrying the transcoder.
     public func disableUniversalEndpoint(for sourceKey: String) {
-        if let provider = syncProviders[sourceKey] {
+        if let provider = providerResolver.provider(sourceKey: sourceKey) {
             provider.disableUniversalEndpoint()
         }
     }
@@ -885,33 +888,10 @@ public final class SyncCoordinator: ObservableObject {
         EnsembleLogger.debug("🔍 Track streamKey: \(track.streamKey ?? "nil")")
         EnsembleLogger.debug("🔍 Available providers: \(syncProviders.keys.joined(separator: ", "))")
 
-        if let sourceKey = await resolvedTrackSourceCompositeKey(for: track),
-           let provider = syncProviders[sourceKey] {
-            // Parse the composite key to extract serverId
-            let components = sourceKey.split(separator: ":")
-            if components.count >= 4 {
-                let accountId = String(components[1])
-                let serverId = String(components[2])
-                let libraryId = String(components[3])
-
-                // Find the server name
-                if let account = accountManager.plexAccounts.first(where: { $0.id == accountId }),
-                   let server = account.servers.first(where: { $0.id == serverId }) {
-                    EnsembleLogger.debug("🔍 Using provider for server: \(server.name) (ID: \(serverId), Library: \(libraryId))")
-                } else {
-                    EnsembleLogger.debug("🔍 Using provider for sourceKey: \(sourceKey)")
-                }
-            }
-            return try await provider.getStreamURL(
-                for: track.id, trackStreamKey: track.streamKey,
-                quality: quality, metadataDurationSeconds: track.duration
-            )
-        }
-
-        // Fallback: try any available provider
-        if let provider = syncProviders.values.first {
-            EnsembleLogger.debug("⚠️ Using fallback provider")
-            return try await provider.getStreamURL(
+        let sourceKey = await resolvedTrackSourceCompositeKey(for: track)
+        if let resolution = providerResolver.resolve(sourceKey: sourceKey, allowFallback: true) {
+            logStreamProviderResolution(resolution)
+            return try await resolution.provider.getStreamURL(
                 for: track.id, trackStreamKey: track.streamKey,
                 quality: quality, metadataDurationSeconds: track.duration
             )
@@ -927,17 +907,9 @@ public final class SyncCoordinator: ObservableObject {
     /// The returned `StreamDecision` can be cached across network transitions — it captures
     /// codec, quality, and session parameters that don't change when the endpoint changes.
     public func makeStreamDecision(for track: Track, quality: StreamingQuality = .original) async throws -> StreamDecision {
-        if let sourceKey = await resolvedTrackSourceCompositeKey(for: track),
-           let provider = syncProviders[sourceKey] as? PlexMusicSourceSyncProvider {
-            return try await provider.makeStreamDecision(
-                for: track.id, trackStreamKey: track.streamKey,
-                quality: quality, metadataDurationSeconds: track.duration
-            )
-        }
-
-        // Fallback: try any available provider
-        if let provider = syncProviders.values.first as? PlexMusicSourceSyncProvider {
-            return try await provider.makeStreamDecision(
+        let sourceKey = await resolvedTrackSourceCompositeKey(for: track)
+        if let resolution = providerResolver.resolvePlex(sourceKey: sourceKey, allowFallback: true) {
+            return try await resolution.provider.makeStreamDecision(
                 for: track.id, trackStreamKey: track.streamKey,
                 quality: quality, metadataDurationSeconds: track.duration
             )
@@ -951,14 +923,9 @@ public final class SyncCoordinator: ObservableObject {
     /// This is a lightweight operation (no network calls) — the endpoint is read from
     /// `ServerConnectionRegistry` at assembly time.
     public func assembleStreamResolution(for track: Track, from decision: StreamDecision) async throws -> StreamResolution {
-        if let sourceKey = await resolvedTrackSourceCompositeKey(for: track),
-           let provider = syncProviders[sourceKey] as? PlexMusicSourceSyncProvider {
-            return try await provider.assembleStreamResolution(from: decision)
-        }
-
-        // Fallback: try any available provider
-        if let provider = syncProviders.values.first as? PlexMusicSourceSyncProvider {
-            return try await provider.assembleStreamResolution(from: decision)
+        let sourceKey = await resolvedTrackSourceCompositeKey(for: track)
+        if let resolution = providerResolver.resolvePlex(sourceKey: sourceKey, allowFallback: true) {
+            return try await resolution.provider.assembleStreamResolution(from: decision)
         }
 
         throw PlexAPIError.noServerSelected
@@ -968,18 +935,9 @@ public final class SyncCoordinator: ObservableObject {
     /// Routes through the provider's dedicated download path which avoids the unnecessary
     /// HTTP roundtrip that the streaming path requires for AVPlayer session warmup.
     public func getDownloadURL(for track: Track, quality: StreamingQuality = .original) async throws -> URL {
-        if let sourceKey = await resolvedTrackSourceCompositeKey(for: track),
-           let provider = syncProviders[sourceKey] as? PlexMusicSourceSyncProvider {
-            return try await provider.getDownloadURL(
-                for: track.id,
-                trackStreamKey: track.streamKey,
-                quality: quality
-            )
-        }
-
-        // Fallback: try any available provider
-        if let provider = syncProviders.values.first as? PlexMusicSourceSyncProvider {
-            return try await provider.getDownloadURL(
+        let sourceKey = await resolvedTrackSourceCompositeKey(for: track)
+        if let resolution = providerResolver.resolvePlex(sourceKey: sourceKey, allowFallback: true) {
+            return try await resolution.provider.getDownloadURL(
                 for: track.id,
                 trackStreamKey: track.streamKey,
                 quality: quality
@@ -1090,14 +1048,8 @@ public final class SyncCoordinator: ObservableObject {
     public func getArtworkURL(path: String?, sourceKey: String?, size: Int = 300) async throws -> URL? {
         guard let path = path else { return nil }
 
-        if let sourceKey = sourceKey,
-           let provider = syncProviders[sourceKey] {
-            return try await provider.getArtworkURL(path: path, size: size)
-        }
-
-        // Fallback: try any available provider
-        if let provider = syncProviders.values.first {
-            return try await provider.getArtworkURL(path: path, size: size)
+        if let resolution = providerResolver.resolve(sourceKey: sourceKey, allowFallback: true) {
+            return try await resolution.provider.getArtworkURL(path: path, size: size)
         }
 
         return nil
@@ -1107,10 +1059,8 @@ public final class SyncCoordinator: ObservableObject {
     /// After a successful rating change, triggers a debounced playlist sync so smart playlists
     /// reflect the updated rating state.
     public func rateTrack(track: Track, rating: Int?) async throws {
-        guard let sourceKey = track.sourceCompositeKey,
-              let provider = syncProviders[sourceKey] else {
-            throw PlexAPIError.noServerSelected
-        }
+        guard let sourceKey = track.sourceCompositeKey else { throw PlexAPIError.noServerSelected }
+        let provider = try providerResolver.requireProvider(sourceKey: sourceKey)
 
         try await provider.rateTrack(ratingKey: track.id, rating: rating)
 
@@ -1143,12 +1093,11 @@ public final class SyncCoordinator: ObservableObject {
     /// Throwing variant of reportTimeline that propagates errors to the caller.
     /// Used by PlaybackService for failure-aware backoff during offline periods.
     public func reportTimelineThrowing(track: Track, state: String, time: TimeInterval) async throws {
-        guard let sourceKey = track.sourceCompositeKey,
-              let provider = syncProviders[sourceKey] else {
+        guard let resolution = providerResolver.resolve(sourceKey: track.sourceCompositeKey, allowFallback: false) else {
             return
         }
 
-        try await provider.reportTimeline(
+        try await resolution.provider.reportTimeline(
             ratingKey: track.id,
             key: "/library/metadata/\(track.id)",
             state: state,
@@ -1161,13 +1110,12 @@ public final class SyncCoordinator: ObservableObject {
     /// This should be called when a track reaches ~90% completion
     /// - Parameter track: The track to scrobble
     public func scrobbleTrack(_ track: Track) async {
-        guard let sourceKey = track.sourceCompositeKey,
-              let provider = syncProviders[sourceKey] else {
+        guard let resolution = providerResolver.resolve(sourceKey: track.sourceCompositeKey, allowFallback: false) else {
             return
         }
 
         do {
-            try await provider.scrobble(ratingKey: track.id)
+            try await resolution.provider.scrobble(ratingKey: track.id)
         } catch {
             // Scrobbling is non-critical, just log the error
             EnsembleLogger.debug("⚠️ Failed to scrobble track: \(error.localizedDescription)")
@@ -1176,63 +1124,50 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Scrobble a track, throwing on failure so MutationCoordinator can queue retries.
     public func scrobbleTrackThrowing(_ track: Track) async throws {
-        guard let sourceKey = track.sourceCompositeKey,
-              let provider = syncProviders[sourceKey] else {
+        guard let resolution = providerResolver.resolve(sourceKey: track.sourceCompositeKey, allowFallback: false) else {
             return
         }
-        try await provider.scrobble(ratingKey: track.id)
+        try await resolution.provider.scrobble(ratingKey: track.id)
     }
 
     /// Get tracks for an album from the music source
     public func getAlbumTracks(albumId: String, sourceKey: String) async throws -> [Track] {
-        guard let provider = syncProviders[sourceKey] else {
-            throw PlexAPIError.noServerSelected
-        }
+        let provider = try providerResolver.requireProvider(sourceKey: sourceKey)
         
         return try await provider.getAlbumTracks(albumKey: albumId)
     }
 
     /// Get albums for an artist from the music source
     public func getArtistAlbums(artistId: String, sourceKey: String) async throws -> [Album] {
-        guard let provider = syncProviders[sourceKey] else {
-            throw PlexAPIError.noServerSelected
-        }
+        let provider = try providerResolver.requireProvider(sourceKey: sourceKey)
         
         return try await provider.getArtistAlbums(artistKey: artistId)
     }
 
     /// Get all tracks for an artist from the music source
     public func getArtistTracks(artistId: String, sourceKey: String) async throws -> [Track] {
-        guard let provider = syncProviders[sourceKey] else {
-            throw PlexAPIError.noServerSelected
-        }
+        let provider = try providerResolver.requireProvider(sourceKey: sourceKey)
 
         return try await provider.getArtistTracks(artistKey: artistId)
     }
 
     /// Get detailed artist metadata (genres, country, similar artists, styles) from the source
     public func getArtistDetail(artistId: String, sourceKey: String) async throws -> ArtistDetail? {
-        guard let provider = syncProviders[sourceKey] else {
-            throw PlexAPIError.noServerSelected
-        }
+        let provider = try providerResolver.requireProvider(sourceKey: sourceKey)
 
         return try await provider.getArtistDetail(artistKey: artistId)
     }
 
     /// Get detailed album metadata (genres, styles, studio/label) from the source
     public func getAlbumDetail(albumId: String, sourceKey: String) async throws -> AlbumDetail? {
-        guard let provider = syncProviders[sourceKey] else {
-            throw PlexAPIError.noServerSelected
-        }
+        let provider = try providerResolver.requireProvider(sourceKey: sourceKey)
 
         return try await provider.getAlbumDetail(albumKey: albumId)
     }
 
     /// Get similar/related albums from Plex's recommendation engine
     public func getSimilarAlbums(albumId: String, sourceKey: String) async throws -> [Album] {
-        guard let provider = syncProviders[sourceKey] else {
-            throw PlexAPIError.noServerSelected
-        }
+        let provider = try providerResolver.requireProvider(sourceKey: sourceKey)
 
         return try await provider.getSimilarAlbums(albumKey: albumId)
     }
@@ -1527,6 +1462,35 @@ public final class SyncCoordinator: ObservableObject {
         return nil
     }
 
+    private func logStreamProviderResolution(_ resolution: SyncProviderResolver.ProviderResolution) {
+        guard !resolution.usedFallback else {
+            EnsembleLogger.debug("⚠️ Using fallback provider")
+            return
+        }
+
+        guard let sourceKey = resolution.sourceKey else {
+            EnsembleLogger.debug("🔍 Using provider without source key")
+            return
+        }
+
+        let components = sourceKey.split(separator: ":")
+        guard components.count >= 4 else {
+            EnsembleLogger.debug("🔍 Using provider for sourceKey: \(sourceKey)")
+            return
+        }
+
+        let accountId = String(components[1])
+        let serverId = String(components[2])
+        let libraryId = String(components[3])
+
+        if let account = accountManager.plexAccounts.first(where: { $0.id == accountId }),
+           let server = account.servers.first(where: { $0.id == serverId }) {
+            EnsembleLogger.debug("🔍 Using provider for server: \(server.name) (ID: \(serverId), Library: \(libraryId))")
+        } else {
+            EnsembleLogger.debug("🔍 Using provider for sourceKey: \(sourceKey)")
+        }
+    }
+
     private func hasSingleServerMatching(_ serverSourceKey: String) -> Bool {
         let uniqueServerSources = Set(
             syncProviders.keys.compactMap { key in
@@ -1581,9 +1545,7 @@ public final class SyncCoordinator: ObservableObject {
                 return
             }
 
-            if let provider = syncProviders.first(where: { _, provider in
-                provider.sourceIdentifier == result.sourceId
-            })?.value {
+            if let provider = providerResolver.provider(matching: result.sourceId) {
                 await cachePlaylistArtwork(sourceId: result.sourceId, provider: provider)
             }
             publishContentChangeIfNeeded(
@@ -2040,9 +2002,10 @@ public final class SyncCoordinator: ObservableObject {
     /// Returns the PlexAPIClient for a given source composite key, if available.
     /// Used by LyricsService to fetch track metadata and lyrics content.
     public func apiClient(for sourceCompositeKey: String?) -> PlexAPIClient? {
-        guard let sourceCompositeKey else { return nil }
-        guard let provider = syncProviders[sourceCompositeKey] as? PlexMusicSourceSyncProvider else { return nil }
-        return provider.exposedAPIClient
+        providerResolver.resolvePlex(
+            sourceKey: sourceCompositeKey,
+            allowFallback: false
+        )?.provider.exposedAPIClient
     }
 
     // MARK: - Radio Provider Factory
