@@ -858,20 +858,7 @@ public final class SyncCoordinator: ObservableObject {
     /// Get a quality-aware universal stream URL for offline downloading.
     /// Playback should continue using direct stream URLs for AVPlayer compatibility.
     public func getOfflineDownloadURL(for track: Track, quality: StreamingQuality) async throws -> URL {
-        guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
-            throw PlexAPIError.noServerSelected
-        }
-
-        let components = sourceKey.split(separator: ":")
-        guard components.count >= 4 else {
-            throw PlexAPIError.noServerSelected
-        }
-
-        let accountId = String(components[1])
-        let serverId = String(components[2])
-        guard let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) else {
-            throw PlexAPIError.noServerSelected
-        }
+        let apiClient = try await apiClientForTrack(track)
 
         guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else {
             throw PlexAPIError.invalidResponse
@@ -886,20 +873,7 @@ public final class SyncCoordinator: ObservableObject {
         for track: Track,
         quality: StreamingQuality
     ) async throws -> (data: Data, suggestedFilename: String?, mimeType: String?) {
-        guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
-            throw PlexAPIError.noServerSelected
-        }
-
-        let components = sourceKey.split(separator: ":")
-        guard components.count >= 4 else {
-            throw PlexAPIError.noServerSelected
-        }
-
-        let accountId = String(components[1])
-        let serverId = String(components[2])
-        guard let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) else {
-            throw PlexAPIError.noServerSelected
-        }
+        let apiClient = try await apiClientForTrack(track)
 
         return try await apiClient.downloadTranscodedMediaViaQueue(
             trackRatingKey: track.id,
@@ -917,20 +891,7 @@ public final class SyncCoordinator: ObservableObject {
         useAudioEndpoint: Bool = false,
         useStartWithoutExtension: Bool = false
     ) async throws -> URL {
-        guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
-            throw PlexAPIError.noServerSelected
-        }
-
-        let components = sourceKey.split(separator: ":")
-        guard components.count >= 4 else {
-            throw PlexAPIError.noServerSelected
-        }
-
-        let accountId = String(components[1])
-        let serverId = String(components[2])
-        guard let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) else {
-            throw PlexAPIError.noServerSelected
-        }
+        let apiClient = try await apiClientForTrack(track)
 
         let transcodeTrackKey: String
         if preferStreamKeyPath,
@@ -950,6 +911,11 @@ public final class SyncCoordinator: ObservableObject {
             useAudioEndpoint: useAudioEndpoint,
             useStartWithoutExtension: useStartWithoutExtension
         )
+    }
+
+    private func apiClientForTrack(_ track: Track) async throws -> PlexAPIClient {
+        let sourceKey = await resolvedTrackSourceCompositeKey(for: track)
+        return try serverConnectionController.requireAPIClient(sourceKey: sourceKey)
     }
 
     /// Get artwork URL, routing to the correct provider

@@ -196,6 +196,51 @@ final class ServerConnectionControllerTests: XCTestCase {
         XCTAssertNil(controller.serverFailureMessage(sourceKey: "invalid"))
     }
 
+    func testAPIClientLookupAcceptsServerAndLibrarySourceKeys() async throws {
+        let accountManager = makeAccountManager()
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+
+        let serverScopedClient = try XCTUnwrap(controller.apiClient(sourceKey: "plex:account-1:server-1"))
+        let libraryScopedClient = try XCTUnwrap(controller.apiClient(sourceKey: "plex:account-1:server-1:1"))
+
+        XCTAssertTrue(serverScopedClient === libraryScopedClient)
+    }
+
+    func testRequireAPIClientRejectsInvalidOrUnknownSourceKey() async throws {
+        let accountManager = makeAccountManager()
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+
+        XCTAssertThrowsError(try controller.requireAPIClient(sourceKey: "invalid")) { error in
+            guard case PlexAPIError.noServerSelected = error else {
+                return XCTFail("Expected noServerSelected, got \(error)")
+            }
+        }
+
+        XCTAssertThrowsError(try controller.requireAPIClient(sourceKey: "plex:missing:server-1:1")) { error in
+            guard case PlexAPIError.noServerSelected = error else {
+                return XCTFail("Expected noServerSelected, got \(error)")
+            }
+        }
+    }
+
     func testRefreshConnectionsThrowsWhenNoConfiguredClients() async throws {
         let accountManager = AccountManager(keychain: TestKeychain())
         let networkMonitor = makeNetworkMonitor()

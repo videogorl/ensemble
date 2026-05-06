@@ -171,6 +171,24 @@ final class ServerConnectionController {
         )?.userMessage
     }
 
+    func apiClient(sourceKey: String?) -> PlexAPIClient? {
+        guard let identity = MediaSourceIdentity.parse(sourceKey) else {
+            return nil
+        }
+
+        return accountManager.makeAPIClient(
+            accountId: identity.accountId,
+            serverId: identity.serverId
+        )
+    }
+
+    func requireAPIClient(sourceKey: String?) throws -> PlexAPIClient {
+        guard let apiClient = apiClient(sourceKey: sourceKey) else {
+            throw PlexAPIError.noServerSelected
+        }
+        return apiClient
+    }
+
     /// Proactively refresh Plex server connections across configured accounts.
     /// Playback retry paths use this to recover from transient endpoint failures.
     func refreshConnections(resetStreamFallbackState: () -> Void) async throws {

@@ -219,7 +219,7 @@ Sources/
 |   +-- CacheManager.swift             # Cache size tracking & management (MainActor)
 |   +-- NetworkMonitor.swift           # Network connectivity monitoring (NWPathMonitor)
 |   +-- ServerHealthChecker.swift      # Concurrent server health checks
-|   +-- ServerConnectionController.swift # Registry subscription, playback readiness checks, API-client endpoint refresh/fan-out, and post-sync URL resolution extracted from SyncCoordinator
+|   +-- ServerConnectionController.swift # Registry subscription, playback readiness checks, source-key API-client lookup, endpoint refresh/fan-out, and post-sync URL resolution extracted from SyncCoordinator
 |   +-- SettingsManager.swift          # App settings (accent colors, customizable tabs)
 |   +-- HubRepository.swift            # Hub data persistence (CDHub/CDHubItem/CDHomeFeedSnapshot last-good snapshots)
 |   +-- HomeHubLoader.swift            # Feed hub snapshot loader shared by HomeViewModel and background refresh
@@ -308,7 +308,7 @@ Tests/
 +-- PeriodicSyncControllerTests.swift # Foreground timer scheduling and WebSocket-aware interval coverage
 +-- PlaylistRefreshControllerTests.swift # Server playlist refresh dedupe, fallback, and trigger-policy coverage
 +-- WebSocketSyncControllerTests.swift # WebSocket section resolution and playlist refresh routing coverage
-+-- ServerConnectionControllerTests.swift # Registry-update processing, playback readiness, API-client endpoint refresh, and post-sync URL resolution coverage
++-- ServerConnectionControllerTests.swift # Registry-update processing, playback readiness, source-key API-client lookup, endpoint refresh, and post-sync URL resolution coverage
 +-- SyncProviderResolverTests.swift # Exact-source, fallback, and missing-provider routing coverage
 +-- PlexWebSocketCoordinatorTests.swift # Aggregate WebSocket availability callback coverage
 +-- OfflineDownloadServicePolicyTests.swift # Playback/background download work-mode policy coverage
