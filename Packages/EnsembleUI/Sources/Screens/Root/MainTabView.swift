@@ -762,9 +762,7 @@ public struct SidebarView: View {
             ].joined(separator: "|")
 
             guard !stableID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ SidebarView: skipping playlist row with no stable identity")
-                #endif
                 return nil
             }
 
