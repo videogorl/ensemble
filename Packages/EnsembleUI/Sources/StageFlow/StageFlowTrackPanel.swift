@@ -133,40 +133,22 @@ struct StageFlowTrackPanel: View {
                     nowPlayingVM.play(tracks: tracks, startingAt: index)
                 }
                 #else
-                // macOS: List with native .swipeActions for trackpad two-finger swipe support
-                List {
-                    ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
-                        TrackRow(
-                            track: track,
-                            showArtwork: true,
-                            isPlaying: track.id == currentTrackId,
-                            onPlayNext: { nowPlayingVM.playNext(track) },
-                            onPlayLast: { nowPlayingVM.playLast(track) },
-                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
-                            onAddToRecentPlaylist: { addToRecentPlaylist(track) },
-                            onShareLink: {
-                                ShareActions.shareTrackLink(track, deps: deps)
-                            },
-                            onShareFile: {
-                                ShareActions.shareTrackFile(track, deps: deps)
-                            },
-                            recentPlaylistTitle: recentPlaylistTitle(for: track)
-                        ) {
-                            nowPlayingVM.play(tracks: tracks, startingAt: index)
-                        }
-                        .trackSwipeActions(
-                            track: track,
-                            nowPlayingVM: nowPlayingVM,
-                            onPlayNext: { nowPlayingVM.playNext(track) },
-                            onPlayLast: { nowPlayingVM.playLast(track) },
-                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
-                        )
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
-                    }
+                NativeTrackListHost(
+                    tracks: tracks,
+                    configuration: NativeTrackListConfiguration(
+                        showArtwork: true,
+                        showTrackNumbers: true,
+                        showAlbumName: false,
+                        rowHeight: 58,
+                        bottomContentInset: 4,
+                        currentTrackId: currentTrackId,
+                        availabilityGeneration: availabilityGeneration,
+                        activeDownloadRatingKeys: activeDownloadRatingKeys,
+                        interactionModel: trackInteractionModel
+                    )
+                ) { _, index in
+                    nowPlayingVM.play(tracks: tracks, startingAt: index)
                 }
-                .listStyle(.plain)
-                .modifier(ClearScrollContentBackgroundModifier())
                 #endif
             }
         }
@@ -246,5 +228,40 @@ struct StageFlowTrackPanel: View {
 
     private func recentPlaylistTitle(for track: Track) -> String? {
         PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
+    }
+
+    private var trackInteractionModel: TrackRowInteractionModel {
+        TrackRowInteractionModel(
+            onPlayNext: { track in
+                nowPlayingVM.playNext(track)
+            },
+            onPlayLast: { track in
+                nowPlayingVM.playLast(track)
+            },
+            onAddToPlaylist: { track in
+                presentPlaylistPicker(with: [track])
+            },
+            onAddToRecentPlaylist: { track in
+                addToRecentPlaylist(track)
+            },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
+            onShareLink: { track in
+                ShareActions.shareTrackLink(track, deps: deps)
+            },
+            onShareFile: { track in
+                ShareActions.shareTrackFile(track, deps: deps)
+            },
+            isTrackFavorited: { track in
+                nowPlayingVM.isTrackFavorited(track)
+            },
+            canAddToRecentPlaylist: { track in
+                recentPlaylistTitle(for: track) != nil
+            },
+            recentPlaylistTitle: recentPlaylistTitle
+        )
     }
 }

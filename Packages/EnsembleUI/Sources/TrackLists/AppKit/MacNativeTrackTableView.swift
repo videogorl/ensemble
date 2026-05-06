@@ -7,6 +7,11 @@ import AppKit
 
 struct MacNativeTrackTableView: NSViewRepresentable {
     let sections: [SongsTrackListSection]
+    let showArtwork: Bool
+    let showTrackNumbers: Bool
+    let showAlbumName: Bool
+    let tableHeaderContent: AnyView?
+    let tableFooterContent: AnyView?
     let currentTrackId: String?
     let availabilityGeneration: UInt64
     let activeDownloadRatingKeys: Set<String>
@@ -14,6 +19,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     let supplementalMetadataWidth: CGFloat?
     let rowHeight: CGFloat
     let interactionModel: TrackRowInteractionModel
+    let onRemoveFromPlaylist: ((Track, Int) -> Void)?
     @Binding var requestedSectionID: String?
     let onTrackTap: (Track, Int) -> Void
 
@@ -54,6 +60,11 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let tableView = scrollView.documentView as? NSTableView else { return }
         context.coordinator.sections = sections
+        context.coordinator.showArtwork = showArtwork
+        context.coordinator.showTrackNumbers = showTrackNumbers
+        context.coordinator.showAlbumName = showAlbumName
+        context.coordinator.tableHeaderContent = tableHeaderContent
+        context.coordinator.tableFooterContent = tableFooterContent
         context.coordinator.currentTrackId = currentTrackId
         context.coordinator.availabilityGeneration = availabilityGeneration
         context.coordinator.activeDownloadRatingKeys = activeDownloadRatingKeys
@@ -65,6 +76,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         context.coordinator.shareService = dependencies.shareService
         context.coordinator.toastCenter = dependencies.toastCenter
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
+        context.coordinator.onRemoveFromPlaylist = onRemoveFromPlaylist
         context.coordinator.rebuildRows()
 
         if tableView.numberOfRows != context.coordinator.rows.count {
@@ -89,6 +101,11 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             sections: sections,
+            showArtwork: showArtwork,
+            showTrackNumbers: showTrackNumbers,
+            showAlbumName: showAlbumName,
+            tableHeaderContent: tableHeaderContent,
+            tableFooterContent: tableFooterContent,
             currentTrackId: currentTrackId,
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,
@@ -100,19 +117,19 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             shareService: dependencies.shareService,
             toastCenter: dependencies.toastCenter,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
+            onRemoveFromPlaylist: onRemoveFromPlaylist,
             onTrackTap: onTrackTap
         )
     }
 
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
-        enum Row {
-            case section(SongsTrackListSection)
-            case track(Track, globalIndex: Int)
-            case bottomSpacer(CGFloat)
-        }
-
         var sections: [SongsTrackListSection]
+        var showArtwork: Bool
+        var showTrackNumbers: Bool
+        var showAlbumName: Bool
+        var tableHeaderContent: AnyView?
+        var tableFooterContent: AnyView?
         var currentTrackId: String?
         var availabilityGeneration: UInt64
         var activeDownloadRatingKeys: Set<String>
@@ -124,12 +141,18 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         var shareService: ShareService
         var toastCenter: ToastCenter
         var trackAvailabilityResolver: TrackAvailabilityResolver
+        var onRemoveFromPlaylist: ((Track, Int) -> Void)?
         let onTrackTap: (Track, Int) -> Void
         weak var tableView: NSTableView?
-        private(set) var rows: [Row] = []
+        private(set) var rows: [NativeTrackListFlattenedRow] = []
 
         init(
             sections: [SongsTrackListSection],
+            showArtwork: Bool,
+            showTrackNumbers: Bool,
+            showAlbumName: Bool,
+            tableHeaderContent: AnyView?,
+            tableFooterContent: AnyView?,
             currentTrackId: String?,
             availabilityGeneration: UInt64,
             activeDownloadRatingKeys: Set<String>,
@@ -141,9 +164,15 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             shareService: ShareService,
             toastCenter: ToastCenter,
             trackAvailabilityResolver: TrackAvailabilityResolver,
+            onRemoveFromPlaylist: ((Track, Int) -> Void)?,
             onTrackTap: @escaping (Track, Int) -> Void
         ) {
             self.sections = sections
+            self.showArtwork = showArtwork
+            self.showTrackNumbers = showTrackNumbers
+            self.showAlbumName = showAlbumName
+            self.tableHeaderContent = tableHeaderContent
+            self.tableFooterContent = tableFooterContent
             self.currentTrackId = currentTrackId
             self.availabilityGeneration = availabilityGeneration
             self.activeDownloadRatingKeys = activeDownloadRatingKeys
@@ -155,33 +184,25 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             self.shareService = shareService
             self.toastCenter = toastCenter
             self.trackAvailabilityResolver = trackAvailabilityResolver
+            self.onRemoveFromPlaylist = onRemoveFromPlaylist
             self.onTrackTap = onTrackTap
             super.init()
             rebuildRows()
         }
 
         func rebuildRows() {
-            var nextRows: [Row] = []
-            var globalIndex = 0
-            for section in sections {
-                if !section.title.isEmpty {
-                    nextRows.append(.section(section))
-                }
-                for track in section.tracks {
-                    nextRows.append(.track(track, globalIndex: globalIndex))
-                    globalIndex += 1
-                }
-            }
-            if bottomContentInset > 0 {
-                nextRows.append(.bottomSpacer(bottomContentInset))
-            }
-            rows = nextRows
+            rows = NativeTrackListFlattening.rows(
+                sections: sections,
+                hasHeader: tableHeaderContent != nil,
+                hasFooter: tableFooterContent != nil,
+                bottomContentInset: bottomContentInset
+            )
         }
 
         func rowIndex(forSectionID id: String) -> Int? {
             rows.firstIndex { row in
-                if case let .section(section) = row {
-                    return section.id == id
+                if case let .section(sectionID, _) = row {
+                    return sectionID == id
                 }
                 return false
             }
@@ -201,6 +222,12 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             guard row < rows.count else { return rowHeight }
             if case .section = rows[row] { return 40 }
             if case let .bottomSpacer(height) = rows[row] { return height }
+            if case .header = rows[row], let tableHeaderContent {
+                return hostingHeight(for: tableHeaderContent, width: tableView.bounds.width)
+            }
+            if case .footer = rows[row], let tableFooterContent {
+                return hostingHeight(for: tableFooterContent, width: tableView.bounds.width)
+            }
             return rowHeight
         }
 
@@ -212,17 +239,31 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             guard row < rows.count else { return nil }
 
             switch rows[row] {
-            case let .section(section):
+            case .header:
+                guard let tableHeaderContent else { return nil }
+                let view = tableView.makeView(withIdentifier: .hostingRow, owner: self) as? MacNativeTrackHostingCell
+                    ?? MacNativeTrackHostingCell()
+                view.identifier = .hostingRow
+                view.configure(rootView: tableHeaderContent)
+                return view
+            case let .section(_, title):
                 let view = tableView.makeView(withIdentifier: .sectionHeader, owner: self) as? MacNativeTrackSectionCell
                     ?? MacNativeTrackSectionCell()
                 view.identifier = .sectionHeader
-                view.configure(title: section.title)
+                view.configure(title: title)
                 return view
             case .track:
                 let view = tableView.makeView(withIdentifier: .trackRow, owner: self) as? MacNativeTrackTableCell
                     ?? MacNativeTrackTableCell()
                 view.identifier = .trackRow
                 configure(view: view, row: row)
+                return view
+            case .footer:
+                guard let tableFooterContent else { return nil }
+                let view = tableView.makeView(withIdentifier: .hostingRow, owner: self) as? MacNativeTrackHostingCell
+                    ?? MacNativeTrackHostingCell()
+                view.identifier = .hostingRow
+                view.configure(rootView: tableFooterContent)
                 return view
             case .bottomSpacer:
                 let view = tableView.makeView(withIdentifier: .bottomSpacer, owner: self)
@@ -244,11 +285,14 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         func configure(view: NSView?, row: Int) {
             guard row < rows.count,
                   let view = view as? MacNativeTrackTableCell,
-                  case let .track(track, _) = rows[row] else { return }
+                  case let .track(track, globalIndex) = rows[row] else { return }
 
             let resolvedActions = interactionModel.resolve(for: track)
             view.configure(
                 track: track,
+                showArtwork: showArtwork,
+                showTrackNumber: showTrackNumbers,
+                showAlbumName: showAlbumName,
                 isPlaying: track.id == currentTrackId,
                 isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
                 isActivelyDownloading: activeDownloadRatingKeys.contains(track.id),
@@ -256,7 +300,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 supplementalMetadataWidth: supplementalMetadataWidth,
                 artworkLoader: artworkLoader,
                 menuProvider: { [weak self] in
-                    self?.makeMenu(for: track, resolvedActions: resolvedActions)
+                    self?.makeMenu(for: track, globalIndex: globalIndex, resolvedActions: resolvedActions)
                 }
             )
         }
@@ -309,9 +353,22 @@ struct MacNativeTrackTableView: NSViewRepresentable {
 
         private func makeMenu(
             for track: Track,
+            globalIndex: Int,
             resolvedActions: TrackRowInteractionModel.ResolvedActions
         ) -> NSMenu? {
-            NativeMediaTableActionBuilder.contextMenu(for: track, resolvedActions: resolvedActions)
+            NativeMediaTableActionBuilder.contextMenu(
+                for: track,
+                resolvedActions: resolvedActions,
+                context: onRemoveFromPlaylist == nil ? .library : .playlistTrack(canRemove: true),
+                onRemoveFromPlaylist: onRemoveFromPlaylist.map { handler in
+                    { handler(track, globalIndex) }
+                }
+            )
+        }
+
+        private func hostingHeight(for rootView: AnyView, width: CGFloat) -> CGFloat {
+            let hostingView = NSHostingView(rootView: rootView.frame(width: max(width, 1)))
+            return max(1, hostingView.fittingSize.height)
         }
 
         private func showSwipeConfirmation(for action: TrackSwipeAction, track: Track) {
@@ -334,6 +391,29 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 )
                 )
             }
+        }
+    }
+}
+
+private final class MacNativeTrackHostingCell: NSTableCellView {
+    private var hostingView: NSHostingView<AnyView>?
+
+    func configure(rootView: AnyView) {
+        if let hostingView {
+            hostingView.rootView = rootView
+        } else {
+            let hostingView = NSHostingView(rootView: rootView)
+            hostingView.translatesAutoresizingMaskIntoConstraints = false
+            hostingView.wantsLayer = true
+            hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+            addSubview(hostingView)
+            NSLayoutConstraint.activate([
+                hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                hostingView.topAnchor.constraint(equalTo: topAnchor),
+                hostingView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            ])
+            self.hostingView = hostingView
         }
     }
 }
@@ -373,6 +453,7 @@ private final class MacNativeTrackSectionCell: NSTableCellView {
 private final class MacNativeTrackTableCell: NSTableCellView {
     private let favoriteImageView = NSImageView()
     private let artworkImageView = NSImageView()
+    private let trackNumberField = NSTextField(labelWithString: "")
     private let titleField = NSTextField(labelWithString: "")
     private let subtitleField = NSTextField(labelWithString: "")
     private let artistField = NSTextField(labelWithString: "")
@@ -385,6 +466,9 @@ private final class MacNativeTrackTableCell: NSTableCellView {
     private var titleTopConstraint: NSLayoutConstraint?
     private var titleCenterYConstraint: NSLayoutConstraint?
     private var subtitleTopConstraint: NSLayoutConstraint?
+    private var titleLeadingToArtworkConstraint: NSLayoutConstraint?
+    private var titleLeadingToTrackNumberConstraint: NSLayoutConstraint?
+    private var titleLeadingToContentConstraint: NSLayoutConstraint?
     private var titleTrailingToDurationConstraint: NSLayoutConstraint?
     private var titleTrailingToArtistConstraint: NSLayoutConstraint?
     private var artistTrailingToAlbumConstraint: NSLayoutConstraint?
@@ -416,6 +500,9 @@ private final class MacNativeTrackTableCell: NSTableCellView {
 
     func configure(
         track: Track,
+        showArtwork: Bool,
+        showTrackNumber: Bool,
+        showAlbumName: Bool,
         isPlaying: Bool,
         isUnavailableOffline: Bool,
         isActivelyDownloading: Bool,
@@ -426,27 +513,36 @@ private final class MacNativeTrackTableCell: NSTableCellView {
     ) {
         self.menuProvider = menuProvider
         titleField.stringValue = track.title
+        trackNumberField.stringValue = isPlaying ? "" : "\(track.trackNumber)"
         artistField.stringValue = track.artistName ?? "Unknown Artist"
         albumField.stringValue = track.albumName ?? "Unknown Album"
         durationField.stringValue = track.formattedDuration
 
         let showsArtist = Self.showsArtistMetadataColumn(for: supplementalMetadataWidth)
-        let showsAlbum = Self.showsAlbumMetadataColumn(for: supplementalMetadataWidth)
+        let showsAlbum = showAlbumName && Self.showsAlbumMetadataColumn(for: supplementalMetadataWidth)
         applySupplementalMetadataLayout(width: supplementalMetadataWidth, showsArtist: showsArtist, showsAlbum: showsAlbum)
+        applyPrimaryLeadingLayout(showArtwork: showArtwork, showTrackNumber: showTrackNumber)
 
         var subtitleParts: [String] = []
         if let artist = track.artistName { subtitleParts.append(artist) }
-        if let album = track.albumName { subtitleParts.append(album) }
+        if showAlbumName, let album = track.albumName { subtitleParts.append(album) }
         subtitleField.stringValue = showsArtist ? "" : subtitleParts.joined(separator: " · ")
         subtitleField.isHidden = showsArtist
 
+        artworkImageView.isHidden = !showArtwork
+        trackNumberField.isHidden = !showTrackNumber
         favoriteImageView.isHidden = !isFavorited
         downloadImageView.isHidden = !(track.isDownloaded || isActivelyDownloading)
         playingImageView.isHidden = !isPlaying
         durationField.isHidden = isPlaying
         alphaValue = isUnavailableOffline ? 0.45 : 1
 
-        if currentTrackID != track.id {
+        if !showArtwork {
+            artworkLoadTask?.cancel()
+            artworkLoadTask = nil
+            currentTrackID = track.id
+            artworkImageView.image = nil
+        } else if currentTrackID != track.id {
             currentTrackID = track.id
             artworkImageView.image = nil
             loadArtwork(for: track, artworkLoader: artworkLoader)
@@ -475,6 +571,8 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         artworkImageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(artworkImageView)
 
+        configureTextField(trackNumberField, fontSize: 14, color: .secondaryLabelColor)
+        trackNumberField.alignment = .center
         configureTextField(titleField, fontSize: 15, color: .labelColor)
         configureTextField(subtitleField, fontSize: 13, color: .secondaryLabelColor)
         configureTextField(artistField, fontSize: 15, color: .secondaryLabelColor)
@@ -502,6 +600,9 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         titleTopConstraint = titleField.topAnchor.constraint(equalTo: topAnchor, constant: TrackListLayoutMetrics.defaultTitleTopPadding)
         titleCenterYConstraint = titleField.centerYAnchor.constraint(equalTo: centerYAnchor)
         subtitleTopConstraint = subtitleField.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: TrackListLayoutMetrics.primarySecondaryTextSpacing)
+        titleLeadingToArtworkConstraint = titleField.leadingAnchor.constraint(equalTo: artworkImageView.trailingAnchor, constant: TrackListLayoutMetrics.rowInterItemSpacing)
+        titleLeadingToTrackNumberConstraint = titleField.leadingAnchor.constraint(equalTo: trackNumberField.trailingAnchor, constant: TrackListLayoutMetrics.rowInterItemSpacing)
+        titleLeadingToContentConstraint = titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: TrackListLayoutMetrics.rowHorizontalPadding)
         titleTrailingToDurationConstraint = titleField.trailingAnchor.constraint(lessThanOrEqualTo: downloadImageView.leadingAnchor, constant: -TrackListLayoutMetrics.rowTightAccessoryGap)
         titleTrailingToArtistConstraint = titleField.trailingAnchor.constraint(lessThanOrEqualTo: artistField.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing)
         artistTrailingToAlbumConstraint = artistField.trailingAnchor.constraint(equalTo: albumField.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing)
@@ -521,7 +622,10 @@ private final class MacNativeTrackTableCell: NSTableCellView {
             artworkImageView.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.standardArtworkDimension),
             artworkImageView.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.standardArtworkDimension),
 
-            titleField.leadingAnchor.constraint(equalTo: artworkImageView.trailingAnchor, constant: TrackListLayoutMetrics.rowInterItemSpacing),
+            trackNumberField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: TrackListLayoutMetrics.rowHorizontalPadding),
+            trackNumberField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            trackNumberField.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.trackNumberWidth),
+
             subtitleField.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
             subtitleTopConstraint!,
 
@@ -549,6 +653,7 @@ private final class MacNativeTrackTableCell: NSTableCellView {
             playingImageView.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.playingIndicatorDimension),
             playingImageView.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.playingIndicatorDimension)
         ])
+        titleLeadingToArtworkConstraint?.isActive = true
         titleTopConstraint?.isActive = true
         titleTrailingToDurationConstraint?.isActive = true
     }
@@ -578,6 +683,12 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         artistTrailingToAlbumConstraint?.isActive = showsArtist && showsAlbum
         artistTrailingToDurationConstraint?.isActive = showsArtist && !showsAlbum
         albumTrailingToDurationConstraint?.isActive = showsAlbum
+    }
+
+    private func applyPrimaryLeadingLayout(showArtwork: Bool, showTrackNumber: Bool) {
+        titleLeadingToArtworkConstraint?.isActive = showArtwork
+        titleLeadingToTrackNumberConstraint?.isActive = !showArtwork && showTrackNumber
+        titleLeadingToContentConstraint?.isActive = !showArtwork && !showTrackNumber
     }
 
     private func loadArtwork(for track: Track, artworkLoader: ArtworkLoaderProtocol) {
@@ -632,6 +743,7 @@ private final class MacNativeTrackTableCell: NSTableCellView {
 private extension NSUserInterfaceItemIdentifier {
     static let track = NSUserInterfaceItemIdentifier("NativeTrackListHost.TrackColumn")
     static let trackRow = NSUserInterfaceItemIdentifier("NativeTrackListHost.TrackRow")
+    static let hostingRow = NSUserInterfaceItemIdentifier("NativeTrackListHost.HostingRow")
     static let sectionHeader = NSUserInterfaceItemIdentifier("NativeTrackListHost.SectionHeader")
     static let bottomSpacer = NSUserInterfaceItemIdentifier("NativeTrackListHost.BottomSpacer")
 }

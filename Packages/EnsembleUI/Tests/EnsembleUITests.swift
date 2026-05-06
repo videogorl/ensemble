@@ -239,6 +239,51 @@ final class EnsembleUITests: XCTestCase {
         #endif
     }
 
+    func testNativeTrackListAlbumDetailConfigurationPreservesDisplayFlags() {
+        let configuration = NativeTrackListConfiguration.albumDetail(
+            currentTrackId: "track-1",
+            availabilityGeneration: 42,
+            activeDownloadRatingKeys: ["track-2"],
+            bottomContentInset: 24,
+            interactionModel: TrackRowInteractionModel()
+        )
+
+        XCTAssertFalse(configuration.showArtwork)
+        XCTAssertTrue(configuration.showTrackNumbers)
+        XCTAssertFalse(configuration.showAlbumName)
+        XCTAssertTrue(configuration.groupByDisc)
+        XCTAssertEqual(configuration.currentTrackId, "track-1")
+        XCTAssertEqual(configuration.availabilityGeneration, 42)
+        XCTAssertEqual(configuration.activeDownloadRatingKeys, ["track-2"])
+        XCTAssertEqual(configuration.bottomContentInset, 24)
+    }
+
+    func testNativeTrackListFlatteningPreservesTrackIndexesAcrossSupplementaryRows() {
+        let firstTrack = Track(id: "track-1", key: "/tracks/1", title: "Track 1")
+        let secondTrack = Track(id: "track-2", key: "/tracks/2", title: "Track 2")
+        let thirdTrack = Track(id: "track-3", key: "/tracks/3", title: "Track 3")
+
+        let rows = NativeTrackListFlattening.rows(
+            sections: [
+                NativeTrackListSection(id: "disc-1", title: "Disc 1", tracks: [firstTrack, secondTrack]),
+                NativeTrackListSection(id: "disc-2", title: "Disc 2", tracks: [thirdTrack])
+            ],
+            hasHeader: true,
+            hasFooter: true,
+            bottomContentInset: 18
+        )
+
+        XCTAssertEqual(rows.count, 8)
+        XCTAssertEqual(rows[0], .header)
+        XCTAssertEqual(rows[1], .section(id: "disc-1", title: "Disc 1"))
+        XCTAssertEqual(rows[2], .track(firstTrack, globalIndex: 0))
+        XCTAssertEqual(rows[3], .track(secondTrack, globalIndex: 1))
+        XCTAssertEqual(rows[4], .section(id: "disc-2", title: "Disc 2"))
+        XCTAssertEqual(rows[5], .track(thirdTrack, globalIndex: 2))
+        XCTAssertEqual(rows[6], .footer)
+        XCTAssertEqual(rows[7], .bottomSpacer(18))
+    }
+
     func testScrollIndexCompactTrailingPaddingDoesNotOverlapViewportEdge() {
         XCTAssertGreaterThanOrEqual(EnsembleScaffold.ScrollIndex.compactTrailingPadding, 0)
     }

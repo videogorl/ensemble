@@ -16,6 +16,10 @@ import AppKit
 public struct SongsTrackListHost: View {
     private let sections: [SongsTrackListSection]
     private let configuration: NativeTrackListConfiguration
+    private let tableHeaderContent: AnyView?
+    private let tableFooterContent: AnyView?
+    private let searchTextBinding: Binding<String>?
+    private let onRemoveFromPlaylist: ((Track, Int) -> Void)?
     private let onTrackTap: (Track, Int) -> Void
 
     @State private var requestedSectionID: String?
@@ -27,22 +31,38 @@ public struct SongsTrackListHost: View {
     public init(
         tracks: [Track],
         configuration: NativeTrackListConfiguration,
+        tableHeaderContent: AnyView? = nil,
+        tableFooterContent: AnyView? = nil,
+        searchTextBinding: Binding<String>? = nil,
+        onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
         self.sections = [
             SongsTrackListSection(id: "all", title: "", tracks: tracks)
         ]
         self.configuration = configuration
+        self.tableHeaderContent = tableHeaderContent
+        self.tableFooterContent = tableFooterContent
+        self.searchTextBinding = searchTextBinding
+        self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.onTrackTap = onTrackTap
     }
 
     public init(
         sections: [SongsTrackListSection],
         configuration: NativeTrackListConfiguration,
+        tableHeaderContent: AnyView? = nil,
+        tableFooterContent: AnyView? = nil,
+        searchTextBinding: Binding<String>? = nil,
+        onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
         self.sections = sections
         self.configuration = configuration
+        self.tableHeaderContent = tableHeaderContent
+        self.tableFooterContent = tableFooterContent
+        self.searchTextBinding = searchTextBinding
+        self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.onTrackTap = onTrackTap
     }
 
@@ -54,6 +74,10 @@ public struct SongsTrackListHost: View {
         bottomContentInset: CGFloat = 0,
         supplementalMetadataWidth: CGFloat? = nil,
         interactionModel: TrackRowInteractionModel,
+        tableHeaderContent: AnyView? = nil,
+        tableFooterContent: AnyView? = nil,
+        searchTextBinding: Binding<String>? = nil,
+        onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
         self.init(
@@ -66,6 +90,10 @@ public struct SongsTrackListHost: View {
                 supplementalMetadataWidth: supplementalMetadataWidth,
                 interactionModel: interactionModel
             ),
+            tableHeaderContent: tableHeaderContent,
+            tableFooterContent: tableFooterContent,
+            searchTextBinding: searchTextBinding,
+            onRemoveFromPlaylist: onRemoveFromPlaylist,
             onTrackTap: onTrackTap
         )
     }
@@ -79,6 +107,10 @@ public struct SongsTrackListHost: View {
         supplementalMetadataWidth: CGFloat? = nil,
         showsSectionIndex: Bool = true,
         interactionModel: TrackRowInteractionModel,
+        tableHeaderContent: AnyView? = nil,
+        tableFooterContent: AnyView? = nil,
+        searchTextBinding: Binding<String>? = nil,
+        onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
         self.init(
@@ -92,6 +124,10 @@ public struct SongsTrackListHost: View {
                 showsSectionIndex: showsSectionIndex,
                 interactionModel: interactionModel
             ),
+            tableHeaderContent: tableHeaderContent,
+            tableFooterContent: tableFooterContent,
+            searchTextBinding: searchTextBinding,
+            onRemoveFromPlaylist: onRemoveFromPlaylist,
             onTrackTap: onTrackTap
         )
     }
@@ -139,8 +175,12 @@ public struct SongsTrackListHost: View {
                     managesOwnScrolling: true,
                     bottomContentInset: configuration.bottomContentInset,
                     rowHeight: configuration.rowHeight,
+                    tableHeaderContent: tableHeaderContent,
+                    tableFooterContent: tableFooterContent,
+                    searchTextBinding: searchTextBinding,
                     interactionModel: configuration.interactionModel,
-                    supplementalMetadataWidth: configuration.supplementalMetadataWidth
+                    supplementalMetadataWidth: configuration.supplementalMetadataWidth,
+                    onRemoveFromPlaylist: onRemoveFromPlaylist
                 ) { track, index in
                     onTrackTap(track, index)
                 }
@@ -182,9 +222,15 @@ public struct SongsTrackListHost: View {
 
     #if os(macOS)
     private var macTrackList: some View {
-        ZStack(alignment: .trailing) {
+        searchableIfNeeded(
+            ZStack(alignment: .trailing) {
             MacNativeTrackTableView(
                 sections: sections,
+                showArtwork: configuration.showArtwork,
+                showTrackNumbers: configuration.showTrackNumbers,
+                showAlbumName: configuration.showAlbumName,
+                tableHeaderContent: tableHeaderContent,
+                tableFooterContent: tableFooterContent,
                 currentTrackId: configuration.currentTrackId,
                 availabilityGeneration: configuration.availabilityGeneration,
                 activeDownloadRatingKeys: configuration.activeDownloadRatingKeys,
@@ -192,6 +238,7 @@ public struct SongsTrackListHost: View {
                 supplementalMetadataWidth: configuration.supplementalMetadataWidth,
                 rowHeight: configuration.rowHeight,
                 interactionModel: configuration.interactionModel,
+                onRemoveFromPlaylist: onRemoveFromPlaylist,
                 requestedSectionID: $requestedSectionID,
                 onTrackTap: onTrackTap
             )
@@ -199,6 +246,16 @@ public struct SongsTrackListHost: View {
             sectionIndex { sectionID in
                 requestedSectionID = sectionID
             }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func searchableIfNeeded<Content: View>(_ content: Content) -> some View {
+        if let searchTextBinding {
+            content.searchable(text: searchTextBinding)
+        } else {
+            content
         }
     }
     #endif
@@ -229,3 +286,5 @@ public struct SongsTrackListHost: View {
         #endif
     }
 }
+
+public typealias NativeTrackListHost = SongsTrackListHost

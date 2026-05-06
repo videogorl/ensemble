@@ -627,48 +627,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             tracksSection
                 .ignoresSafeArea(.container, edges: [.top, .bottom])
             #else
-            // macOS: List with header section + track rows with native swipe actions
-            List {
-                // Header section: artwork, metadata, genre chips
-                Section {
-                    tableHeaderForTrackList
-                }
-                .hideListRowSeparator()
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-
-                if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
-                    Section {
-                        ProgressView()
-                            .padding(.top, EnsembleScaffold.DetailSurface.loadingTopPadding)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .hideListRowSeparator()
-                    .listRowBackground(Color.clear)
-                } else if viewModel.filteredTracks.isEmpty {
-                    Section {
-                        Text("No tracks")
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            .padding(.top, EnsembleScaffold.DetailSurface.loadingTopPadding)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .hideListRowSeparator()
-                    .listRowBackground(Color.clear)
-                } else {
-                    tracksSection
-                }
-
-                if let additionalFooterContent {
-                    Section {
-                        additionalFooterContent
-                    }
-                    .hideListRowSeparator()
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                }
-            }
-            .listStyle(.plain)
-            .modifier(ClearScrollContentBackgroundModifier())
+            tracksSection
             #endif
         }
         .background(
@@ -960,21 +919,52 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
         #else
-        // macOS: SwiftUI List rows retain native trackpad swipe support.
-        // Album details add disc headers using the same multi-disc rule as iOS.
-        ForEach(Array(macDiscTrackGroups.enumerated()), id: \.offset) { _, group in
-            if let disc = group.disc {
-                macDiscHeader(disc)
+        NativeTrackListHost(
+            sections: macNativeTrackSections,
+            configuration: NativeTrackListConfiguration(
+                showArtwork: showArtwork,
+                showTrackNumbers: showTrackNumbers,
+                showAlbumName: !(viewModel is AlbumDetailViewModel),
+                groupByDisc: groupByDisc,
+                rowHeight: TrackListLayoutMetrics.defaultRowHeight,
+                bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+                supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+                currentTrackId: currentTrackId,
+                availabilityGeneration: availabilityGeneration,
+                activeDownloadRatingKeys: activeDownloadRatingKeys,
+                interactionModel: trackInteractionModel
+            ),
+            tableHeaderContent: AnyView(tableHeaderForTrackList),
+            tableFooterContent: AnyView(VStack(spacing: EnsembleDesign.Spacing.none) {
+                emptyStateFooter
+                if let additionalFooterContent { additionalFooterContent }
+            }),
+            searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
+            onRemoveFromPlaylist: playlistTrackRemovalHandler.map { handler in
+                { track, _ in
+                    let displayIndex = viewModel.filteredTracks.firstIndex { $0.id == track.id } ?? 0
+                    handler(track, displayIndex)
+                }
             }
-
-            ForEach(group.tracks, id: \.element.id) { indexedTrack in
-                macTrackRow(track: indexedTrack.element, index: indexedTrack.offset)
+        ) { track, _ in
+            if let index = viewModel.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+                nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
             }
         }
         #endif
     }
 
     #if !os(iOS)
+    private var macNativeTrackSections: [NativeTrackListSection] {
+        macDiscTrackGroups.enumerated().map { offset, group in
+            NativeTrackListSection(
+                id: group.disc.map { "disc-\($0)" } ?? "all-\(offset)",
+                title: group.disc.map { "Disc \($0)" } ?? "",
+                tracks: group.tracks.map(\.element)
+            )
+        }
+    }
+
     private var macDiscTrackGroups: [(disc: Int?, tracks: [(offset: Int, element: Track)])] {
         let indexedTracks = Array(viewModel.filteredTracks.enumerated())
         guard groupByDisc else {
@@ -993,67 +983,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
     }
 
-    private func macDiscHeader(_ disc: Int) -> some View {
-        Text("Disc \(disc)")
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundColor(EnsembleDesign.Color.secondaryText)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-            .padding(.top, EnsembleDesign.Spacing.md)
-            .padding(.bottom, EnsembleDesign.Spacing.xs)
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
-            .hideListRowSeparator()
-    }
-
-    private func macTrackRow(track: Track, index: Int) -> some View {
-        let resolvedActions = trackInteractionModel.resolve(for: track)
-
-        return VStack(spacing: EnsembleDesign.Spacing.none) {
-            TrackRow(
-                track: track,
-                showArtwork: showArtwork,
-                showTrackNumber: showTrackNumbers,
-                isPlaying: track.id == currentTrackId,
-                onPlayNext: resolvedActions.onPlayNext,
-                onPlayLast: resolvedActions.onPlayLast,
-                onAddToPlaylist: resolvedActions.onAddToPlaylist,
-                onAddToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
-                onToggleFavorite: resolvedActions.onToggleFavorite,
-                onGoToAlbum: resolvedActions.onGoToAlbum,
-                onGoToArtist: resolvedActions.onGoToArtist,
-                onShareLink: resolvedActions.onShareLink,
-                onShareFile: resolvedActions.onShareFile,
-                onRemoveFromPlaylist: playlistTrackRemovalHandler.map { handler in
-                    { handler(track, index) }
-                },
-                isFavorited: resolvedActions.isFavorited,
-                recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
-                supplementalMetadataWidth: trackListSupplementalMetadataWidth
-            ) {
-                nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
-            }
-            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-            .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
-
-            if index < viewModel.filteredTracks.count - 1 {
-                TrackListDivider(
-                    showArtwork: showArtwork,
-                    showTrackNumbers: showTrackNumbers
-                )
-            }
-        }
-        .trackSwipeActions(
-            track: track,
-            nowPlayingVM: nowPlayingVM,
-            onPlayNext: resolvedActions.onPlayNext,
-            onPlayLast: resolvedActions.onPlayLast,
-            onAddToPlaylist: resolvedActions.onAddToPlaylist
-        )
-        .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets())
-        .hideListRowSeparator()
-    }
     #endif
 
     /// SwiftUI header content embedded as the UITableView's native tableHeaderView.
