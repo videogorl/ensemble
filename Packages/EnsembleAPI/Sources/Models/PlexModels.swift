@@ -384,6 +384,12 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         return part.key
     }
 
+    /// Audio stream ID used by Plex loudness-level endpoints.
+    public var audioStreamId: Int? {
+        media?.first?.part?.first?.stream?
+            .first(where: { $0.streamType == 2 })?.id
+    }
+
     /// Returns the best available lyrics stream (prefers timed LRC over plain TXT)
     public var lyricsStream: PlexStream? {
         guard let streams = media?.first?.part?.first?.stream else { return nil }

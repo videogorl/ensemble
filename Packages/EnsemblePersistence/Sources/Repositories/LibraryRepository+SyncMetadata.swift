@@ -488,6 +488,7 @@ extension LibraryRepository {
                         track.duration = Int64(input.duration ?? 0)
                         track.thumbPath = input.thumbPath
                         track.streamKey = input.streamKey
+                        track.streamId = Int32(input.streamId ?? 0)
                         track.genreNames = input.genreNames
                         if existing == nil, let added = input.dateAdded {
                             track.dateAdded = added

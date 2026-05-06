@@ -192,10 +192,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let tracksTimestampChanged = tracksToSync.count - tracksNew - tracksRatingChanged
         EnsembleLogger.debug("⏱️ Incremental sync: tracks fetch \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(trackMap.count) from server, \(tracksToSync.count) to sync (new=\(tracksNew), ratingChanged=\(tracksRatingChanged), timestampChanged=\(tracksTimestampChanged))")
         phaseStart = CFAbsoluteTimeGetCurrent()
-        for track in tracksToSync {
-            // Copy genre from parent album (Plex doesn't return genres on tracks)
+        let trackInputs = tracksToSync.map { track in
             let trackGenreNames = track.parentRatingKey.flatMap { incrementalAlbumGenres[$0] }
-            _ = try await repository.upsertTrack(
+            return TrackUpsertInput(
                 ratingKey: track.ratingKey,
                 key: track.key,
                 title: track.title,
@@ -207,6 +206,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 duration: track.duration,
                 thumbPath: track.thumb ?? track.parentThumb,
                 streamKey: track.streamURL,
+                streamId: track.audioStreamId,
                 dateAdded: track.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 dateModified: track.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 lastPlayed: track.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
@@ -214,9 +214,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 rating: track.userRating.map { Int($0) } ?? 0,
                 playCount: track.viewCount ?? 0,
                 genreNames: trackGenreNames,
-                sourceCompositeKey: sourceKey
             )
         }
+        try await repository.batchUpsertTracks(trackInputs, sourceCompositeKey: sourceKey)
 
         // Orphan removal: Fetch server inventory (lightweight) and remove local items not on server
         progressHandler(0.55)
@@ -360,6 +360,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 duration: track.duration,
                 thumbPath: track.thumb ?? track.parentThumb,
                 streamKey: track.streamURL,
+                streamId: track.audioStreamId,
                 dateAdded: track.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 dateModified: track.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 lastPlayed: track.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },

@@ -56,9 +56,7 @@ public final class CoreDataStack: @unchecked Sendable {
             do {
                 try context.save()
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug("CoreData save error: \(error)")
-                #endif
             }
         }
     }
@@ -136,6 +134,9 @@ public final class CoreDataStack: @unchecked Sendable {
             return false
         }
         guard trackEntity.propertiesByName["genreNames"] != nil else {
+            return false
+        }
+        guard trackEntity.propertiesByName["streamId"] != nil else {
             return false
         }
         return model.entitiesByName["CDHomeFeedSnapshot"]?.propertiesByName["hubs"] != nil

@@ -187,7 +187,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 
 **Key Models:**
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
-  - `Track` includes `streamId: Int?` -- Identifies audio stream for fetching loudness timeline data (waveform visualization)
+  - `Track` includes `streamId: Int?` -- Identifies audio stream for fetching loudness timeline data (waveform visualization). `CDTrack.streamId` is persisted in the current CoreData model (`Ensemble 3`) and populated from Plex full/incremental batch upserts.
 - `MusicSource` / `MusicSourceIdentifier` -- Multi-account source tracking
 - `MediaSourceIdentity` -- Shared parser/comparator for library-scoped and server-scoped source keys
 - `MediaFormatters` -- Shared track-clock, collection-duration, download-byte, file-byte, and log-byte formatting helpers used by domain models, ViewModels, and UI

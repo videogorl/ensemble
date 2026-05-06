@@ -113,8 +113,8 @@ Tests/
 ```
 Sources/
 +-- CoreData/
-|   +-- Ensemble.xcdatamodeld          # CoreData schema
-|   +-- Compiled/SwiftPMEnsemble.momd # Precompiled model copy used by SwiftPM tests; refreshed by verify_package_baseline.sh
+|   +-- Ensemble.xcdatamodeld          # Versioned CoreData schema (current: Ensemble 3 with CDTrack.streamId)
+|   +-- Compiled/SwiftPMEnsemble.momd # Precompiled model copy used by SwiftPM tests; refreshed by compile_coredata_model.sh / verify_package_baseline.sh
 |   +-- CoreDataStack.swift            # Singleton stack with background contexts
 |   +-- ManagedObjects.swift           # NSManagedObject subclasses (CD* prefix, including CDHomeFeedSnapshot for Feed last-good cache)
 +-- Downloads/
@@ -332,6 +332,7 @@ Tests/
 +-- PinMutationWorkflowTests.swift    # Shared pin/unpin/batch/reorder policy coverage
 +-- TrackRatingMutationWorkflowTests.swift # Shared favorite/rating toast and queued/error policy coverage
 +-- MetadataMutationWorkflowTests.swift # Shared metadata edit/delete workflow and toast payload coverage
++-- ModelMappersTests.swift         # Domain mapper coverage for persisted CoreData fields such as Track.streamId
 +-- MediaFilterEngineTests.swift      # Shared media filter configurations and parity coverage
 +-- MediaFormattersTests.swift        # Shared media duration/byte formatting coverage
 +-- MediaSourceIdentityTests.swift    # Source-key parsing and server comparison coverage

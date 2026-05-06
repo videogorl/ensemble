@@ -144,6 +144,7 @@ public class CDTrack: NSManagedObject {
     @NSManaged public var updatedAt: Date?
     @NSManaged public var genreNames: String?
     @NSManaged public var sourceCompositeKey: String?
+    @NSManaged public var streamId: Int32
     @NSManaged public var album: CDAlbum?
     @NSManaged public var source: CDMusicSource?
     @NSManaged public var download: CDDownload?

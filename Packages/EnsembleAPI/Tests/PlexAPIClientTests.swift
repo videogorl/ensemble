@@ -37,6 +37,32 @@ final class PlexAPIClientTests: XCTestCase {
         XCTAssertEqual(track.durationSeconds, 180.0)
     }
 
+    func testPlexTrackExposesAudioStreamId() throws {
+        let trackJSON = """
+        {
+            "ratingKey": "12345",
+            "key": "/library/metadata/12345",
+            "title": "Test Song",
+            "Media": [
+                {
+                    "Part": [
+                        {
+                            "key": "/library/parts/12345",
+                            "Stream": [
+                                { "id": 111, "streamType": 4 },
+                                { "id": 222, "streamType": 2 }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        """
+
+        let track = try JSONDecoder().decode(PlexTrack.self, from: Data(trackJSON.utf8))
+        XCTAssertEqual(track.audioStreamId, 222)
+    }
+
     func testPlexTrackDecodingFallsBackToFileNameWhenTitleMissing() throws {
         let trackJSON = """
         {

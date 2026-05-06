@@ -76,6 +76,7 @@ public struct TrackUpsertInput: Sendable {
     public let duration: Int?
     public let thumbPath: String?
     public let streamKey: String?
+    public let streamId: Int?
     public let dateAdded: Date?
     public let dateModified: Date?
     public let lastPlayed: Date?
@@ -84,7 +85,7 @@ public struct TrackUpsertInput: Sendable {
     public let playCount: Int?
     public let genreNames: String?
 
-    public init(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, lastRatedAt: Date? = nil, rating: Int?, playCount: Int?, genreNames: String? = nil) {
+    public init(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, streamId: Int? = nil, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, lastRatedAt: Date? = nil, rating: Int?, playCount: Int?, genreNames: String? = nil) {
         self.ratingKey = ratingKey
         self.key = key
         self.title = title
@@ -96,6 +97,7 @@ public struct TrackUpsertInput: Sendable {
         self.duration = duration
         self.thumbPath = thumbPath
         self.streamKey = streamKey
+        self.streamId = streamId
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.lastPlayed = lastPlayed
