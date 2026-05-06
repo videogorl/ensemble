@@ -172,6 +172,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 ### Gesture Actions (iOS/iPadOS)
 - Track rows use a shared swipe layout from `SettingsManager.trackSwipeLayout` (2 leading slots, 2 trailing slots)
+- UIKit/AppKit native track-list delegates should receive `SettingsManager` through their coordinator dependencies instead of reaching back into `DependencyContainer.shared` from delegate callbacks.
 - Slot 1 on each edge is full-swipe enabled; slot 2 is reveal-only
 - Supported swipe action catalog in v1: `Play Next`, `Play Last`, `Add to Playlist…`, favorite toggle
 - Keep primary tap behavior unchanged (tap still plays/navigates as before)

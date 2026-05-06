@@ -777,6 +777,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.supplementalMetadataWidth = supplementalMetadataWidth
         context.coordinator.artworkLoader = dependencies.artworkLoader
         context.coordinator.toastCenter = dependencies.toastCenter
+        context.coordinator.settingsManager = dependencies.settingsManager
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
         context.coordinator.isOffline = isOffline
         context.coordinator.activeDownloadRatingKeys = activeDownloadRatingKeys
@@ -919,6 +920,7 @@ public struct MediaTrackList: UIViewRepresentable {
             artworkLoader: dependencies.artworkLoader,
             shareService: dependencies.shareService,
             toastCenter: dependencies.toastCenter,
+            settingsManager: dependencies.settingsManager,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
             isOffline: !dependencies.networkMonitor.isConnected,
             activeDownloadRatingKeys: activeDownloadRatingKeys,
@@ -965,6 +967,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var artworkLoader: ArtworkLoaderProtocol
         var shareService: ShareService
         var toastCenter: ToastCenter
+        var settingsManager: SettingsManager
         var trackAvailabilityResolver: TrackAvailabilityResolver
         var isOffline: Bool
         var activeDownloadRatingKeys: Set<String>
@@ -1013,6 +1016,7 @@ public struct MediaTrackList: UIViewRepresentable {
             artworkLoader: ArtworkLoaderProtocol,
             shareService: ShareService,
             toastCenter: ToastCenter,
+            settingsManager: SettingsManager,
             trackAvailabilityResolver: TrackAvailabilityResolver,
             isOffline: Bool,
             activeDownloadRatingKeys: Set<String> = [],
@@ -1043,6 +1047,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.artworkLoader = artworkLoader
             self.shareService = shareService
             self.toastCenter = toastCenter
+            self.settingsManager = settingsManager
             self.trackAvailabilityResolver = trackAvailabilityResolver
             self.isOffline = isOffline
             self.activeDownloadRatingKeys = activeDownloadRatingKeys
@@ -1236,7 +1241,7 @@ public struct MediaTrackList: UIViewRepresentable {
         public func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
             guard UIDevice.current.userInterfaceIdiom == .phone else { return nil }
             guard let track = track(at: indexPath) else { return nil }
-            let configured = DependencyContainer.shared.settingsManager.trackSwipeLayout.leading
+            let configured = settingsManager.trackSwipeLayout.leading
             let actions = swipeActions(from: configured, track: track)
             guard !actions.isEmpty else { return nil }
 
@@ -1248,7 +1253,7 @@ public struct MediaTrackList: UIViewRepresentable {
         public func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
             guard UIDevice.current.userInterfaceIdiom == .phone else { return nil }
             guard let track = track(at: indexPath) else { return nil }
-            let configured = DependencyContainer.shared.settingsManager.trackSwipeLayout.trailing
+            let configured = settingsManager.trackSwipeLayout.trailing
             let actions = swipeActions(from: configured, track: track)
             guard !actions.isEmpty else { return nil }
 
