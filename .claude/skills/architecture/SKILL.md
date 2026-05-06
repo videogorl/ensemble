@@ -53,7 +53,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 **Key Types:**
 - `CoreDataStack` (singleton) -- Main/background contexts, saves on background queue
 - `CD*` models -- `CDMusicSource`, `CDArtist`, `CDAlbum`, `CDTrack`, `CDGenre`, `CDPlaylist`, `CDServer`, `CDOfflineDownloadTarget`, `CDOfflineDownloadMembership`
-- `LibraryRepository` / `PlaylistRepository` -- Protocol-based repository pattern; `LibraryRepository` keeps its protocol/initializer in the main file while entity-owned operations are being split into focused extensions such as `LibraryRepository+Artists.swift` and `LibraryRepository+Albums.swift`
+- `LibraryRepository` / `PlaylistRepository` -- Protocol-based repository pattern; `LibraryRepository` keeps its protocol/initializer in the main file while entity-owned operations are being split into focused extensions such as `LibraryRepository+Artists.swift`, `LibraryRepository+Albums.swift`, and `LibraryRepository+Tracks.swift`
 - `DownloadManager` -- Offline track file management (source-aware, quality-aware)
 - `OfflineDownloadTargetRepository` -- Offline target metadata and target->track membership persistence
 - `ArtworkDownloadManager` -- Persistent artwork caching to local filesystem
