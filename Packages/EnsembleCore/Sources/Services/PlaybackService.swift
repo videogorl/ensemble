@@ -923,12 +923,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Tracks the in-progress pre-buffer task so resume() can await it instead of
     /// starting a redundant transcode download.
     private var preBufferTask: Task<Void, Never>?
-    private var qualityChangeObserver: NSObjectProtocol?
     private var qualityDebounceTask: Task<Void, Never>?
     private var downloadChangeObserver: AnyCancellable?
-    private var visualizerSettingObserver: NSObjectProtocol?
-    private var lastKnownVisualizerEnabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
-    private var lastObservedStreamingQuality: String = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?  // Kept for network stall detection during file resolution
     /// Tracks the in-progress next()/previous() transition task so it can be
@@ -985,6 +981,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let audioSessionCoordinator: PlaybackAudioSessionCoordinator
     private let startupCoordinator: PlaybackStartupCoordinator
     private let resolvedFileCache: PlaybackResolvedFileCache
+    private let settingsObserver: PlaybackSettingsObserver
     internal private(set) var startupRestoreStatus: PlaybackStartupRestoreStatus = .notAttempted
 
     /// Thread-safe check for aurora visualizer setting (reads UserDefaults directly
@@ -1163,6 +1160,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.audioSessionCoordinator = PlaybackAudioSessionCoordinator()
         self.startupCoordinator = PlaybackStartupCoordinator()
         self.resolvedFileCache = PlaybackResolvedFileCache(maxCachedFileURLs: self.maxCachedFileURLs)
+        self.settingsObserver = PlaybackSettingsObserver()
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -1172,8 +1170,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupHealthCheckObservation()
         setupAccountSourcesObservation()
         setupAudioAnalyzer()
-        setupVisualizerSettingObservation()
-        setupQueueQualityObservation()
+        setupPlaybackSettingsObservation()
         setupDownloadChangeObservation()
     }
 
@@ -1197,6 +1194,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.audioSessionCoordinator = PlaybackAudioSessionCoordinator()
         self.startupCoordinator = PlaybackStartupCoordinator()
         self.resolvedFileCache = PlaybackResolvedFileCache(maxCachedFileURLs: self.maxCachedFileURLs)
+        self.settingsObserver = PlaybackSettingsObserver()
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -1206,8 +1204,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupHealthCheckObservation()
         setupAccountSourcesObservation()
         setupAudioAnalyzer()
-        setupVisualizerSettingObservation()
-        setupQueueQualityObservation()
+        setupPlaybackSettingsObservation()
         setupDownloadChangeObservation()
     }
 
@@ -1220,12 +1217,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         qualityDebounceTask = nil
         downloadChangeObserver?.cancel()
         downloadChangeObserver = nil
-        if let qualityChangeObserver {
-            NotificationCenter.default.removeObserver(qualityChangeObserver)
-        }
-        if let visualizerSettingObserver {
-            NotificationCenter.default.removeObserver(visualizerSettingObserver)
-        }
+        settingsObserver.stop()
     }
 
     /// Wire the mutation coordinator after init to avoid circular DI dependencies
@@ -4765,33 +4757,34 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     
     // MARK: - Queue Quality / Download Observation
 
+    /// Observe playback settings through a key-filtering helper so unrelated
+    /// UserDefaults writes do not schedule unnecessary playback work.
+    private func setupPlaybackSettingsObservation() {
+        settingsObserver.start(
+            visualizerChanged: { [weak self] isEnabled in
+                self?.handleVisualizerSettingChanged(isEnabled)
+            },
+            streamingQualityChanged: { [weak self] newQuality in
+                self?.handleStreamingQualityChanged(newQuality)
+            }
+        )
+    }
+
     /// When the user changes streaming quality, re-stamp all non-downloaded
     /// queue items so InfoCard (and future resume) reflect the actual quality.
-    private func setupQueueQualityObservation() {
-        qualityChangeObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self = self else { return }
-            let newQuality = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
-            // Only act when the streaming quality actually changed
-            guard newQuality != self.lastObservedStreamingQuality else { return }
-            self.lastObservedStreamingQuality = newQuality
+    private func handleStreamingQualityChanged(_ newQuality: String) {
+        // Re-stamp queue items immediately (metadata-only, cheap)
+        updateQueueStreamingQuality(newQuality)
 
-            // Re-stamp queue items immediately (metadata-only, cheap)
-            self.updateQueueStreamingQuality(newQuality)
-
-            // Debounce the expensive reload (2s) — if the user is rapidly toggling
-            // quality settings, only the final selection triggers a stream reload
-            self.qualityDebounceTask?.cancel()
-            self.qualityDebounceTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                guard !Task.isCancelled, let self else { return }
-                await self.reloadCurrentTrackForQualityChange()
-                // Invalidate prefetch items so they're re-fetched at the new quality
-                self.invalidatePrefetchForQualityChange()
-            }
+        // Debounce the expensive reload (2s) so rapid quality changes only
+        // reload the current stream once at the final selected quality.
+        qualityDebounceTask?.cancel()
+        qualityDebounceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            await self.reloadCurrentTrackForQualityChange()
+            // Invalidate prefetch items so they're re-fetched at the new quality
+            self.invalidatePrefetchForQualityChange()
         }
     }
 
@@ -5033,53 +5026,39 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
-    /// Observe the aurora visualizer setting so toggling it mid-song triggers
-    /// frequency analysis for the currently playing track immediately, instead of
-    /// waiting for the next track transition.
-    private func setupVisualizerSettingObservation() {
-        visualizerSettingObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            // Fast path: skip the Task+MainActor hop if the visualizer setting hasn't changed.
-            // UserDefaults.didChangeNotification fires on ANY key write (currentTime, queue, etc.),
-            // so without this guard we'd create ~94 unnecessary Tasks per session.
-            let current = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
-            guard current != self?.lastKnownVisualizerEnabled else { return }
+    /// React to visualizer setting changes without coupling UserDefaults
+    /// observation to playback side effects.
+    private func handleVisualizerSettingChanged(_ isEnabled: Bool) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
 
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.lastKnownVisualizerEnabled = current
+            // Keep the analyzer's timer gate in sync so it stops/starts the 30Hz timer
+            self.audioAnalyzer.visualizationEnabled = isEnabled
 
-                // Keep the analyzer's timer gate in sync so it stops/starts the 30Hz timer
-                self.audioAnalyzer.visualizationEnabled = current
+            // Only act when toggled ON during active playback
+            guard isEnabled, self.playbackState == .playing,
+                  let track = self.currentTrack,
+                  let fileURL = self.getCachedFileURL(for: track.id) else { return }
 
-                // Only act when toggled ON during active playback
-                guard current, self.playbackState == .playing,
-                      let track = self.currentTrack,
-                      let fileURL = self.getCachedFileURL(for: track.id) else { return }
-
-                let analyzer = self.audioAnalyzer
-                let trackId = track.id
-                let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
-                let throttle = self.isInstrumentalModeActive || isLowCoreDevice
-                let priority: TaskPriority
-                if self.isInstrumentalModeActive {
-                    priority = .background
-                } else if isLowCoreDevice {
-                    priority = .utility
-                } else {
-                    priority = .userInitiated
-                }
-
-                EnsembleLogger.debug("[Visualizer] Setting toggled ON mid-song — loading timeline for '\(track.title)'")
-                Task.detached {
-                    await analyzer.loadTimeline(for: trackId, fileURL: fileURL, priority: priority, throttled: throttle)
-                }
-                analyzer.activateTimeline(for: trackId)
-                analyzer.resumeUpdates()
+            let analyzer = self.audioAnalyzer
+            let trackId = track.id
+            let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+            let throttle = self.isInstrumentalModeActive || isLowCoreDevice
+            let priority: TaskPriority
+            if self.isInstrumentalModeActive {
+                priority = .background
+            } else if isLowCoreDevice {
+                priority = .utility
+            } else {
+                priority = .userInitiated
             }
+
+            EnsembleLogger.debug("[Visualizer] Setting toggled ON mid-song — loading timeline for '\(track.title)'")
+            Task.detached {
+                await analyzer.loadTimeline(for: trackId, fileURL: fileURL, priority: priority, throttled: throttle)
+            }
+            analyzer.activateTimeline(for: trackId)
+            analyzer.resumeUpdates()
         }
     }
 
