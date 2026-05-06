@@ -62,36 +62,23 @@ public struct MoodTracksView: View {
             .ignoresSafeArea(.container, edges: [.top, .bottom])
             .background(trackListSupplementalMetadataWidthReader)
             #else
-            ScrollView {
-                VStack(spacing: EnsembleDesign.Spacing.none) {
-                    moodHeader
-                    if isLoading {
-                        EnsembleStateScaffold(
-                            kind: .loading,
-                            title: "Loading tracks…",
-                            presentation: .compactFooter
-                        )
-                    } else if let error = error {
-                        errorView(error)
-                    } else if moodTracks.isEmpty {
-                        emptyView
-                    } else {
-                        SongsTrackListHost(
-                            tracks: moodTracks,
-                            currentTrackId: currentTrackId,
-                            availabilityGeneration: availabilityGeneration,
-                            activeDownloadRatingKeys: activeDownloadRatingKeys,
-                            supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-                            interactionModel: trackInteractionModel
-                        ) { _, index in
-                            if !nowPlayingVM.isAutoplayEnabled {
-                                nowPlayingVM.toggleAutoplay()
-                            }
-                            nowPlayingVM.play(tracks: moodTracks, startingAt: index)
-                        }
-                        .frame(height: CGFloat(moodTracks.count) * TrackListLayoutMetrics.defaultRowHeight)
-                    }
+            NativeTrackListHost(
+                tracks: moodTracks,
+                configuration: .songs(
+                    currentTrackId: currentTrackId,
+                    availabilityGeneration: availabilityGeneration,
+                    activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+                    supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+                    interactionModel: trackInteractionModel
+                ),
+                tableHeaderContent: AnyView(moodHeader),
+                tableFooterContent: AnyView(moodFooter)
+            ) { _, index in
+                if !nowPlayingVM.isAutoplayEnabled {
+                    nowPlayingVM.toggleAutoplay()
                 }
+                nowPlayingVM.play(tracks: moodTracks, startingAt: index)
             }
             .background(trackListSupplementalMetadataWidthReader)
             #endif
@@ -159,31 +146,6 @@ public struct MoodTracksView: View {
             )
         }
     }
-
-    #if !os(iOS)
-    private func errorView(_ message: String) -> some View {
-        EnsembleStateScaffold(
-            kind: .error,
-            title: "Failed to load tracks",
-            message: message,
-            presentation: .compactFooter
-        ) {
-            Button("Retry") {
-                Task { await loadTracks() }
-            }
-            .buttonStyle(.bordered)
-        }
-    }
-
-    private var emptyView: some View {
-        EnsembleStateScaffold(
-            kind: .empty,
-            title: "No tracks found",
-            message: "for \"\(mood.title)\"",
-            presentation: .compactFooter
-        )
-    }
-    #endif
 
     // MARK: - Header Views
 

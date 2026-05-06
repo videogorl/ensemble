@@ -265,25 +265,21 @@ public struct FavoritesView: View {
         .miniPlayerBottomSpacing()
         .background(trackListSupplementalMetadataWidthReader)
         #else
-        // macOS: header plus AppKit-backed table so row layout/actions match Songs, Search, and Mood.
-        ScrollView {
-            VStack(spacing: EnsembleDesign.Spacing.none) {
-                favoritesHeaderSurface
-
-                SongsTrackListHost(
-                    tracks: viewModel.filteredTracks,
-                    currentTrackId: currentTrackId,
-                    availabilityGeneration: availabilityGeneration,
-                    activeDownloadRatingKeys: activeDownloadRatingKeys,
-                    supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-                    interactionModel: interactionModel
-                ) { _, index in
-                    nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
-                }
-                .frame(height: CGFloat(viewModel.filteredTracks.count) * TrackListLayoutMetrics.defaultRowHeight)
-            }
+        // macOS: AppKit-backed table owns the header and scroll range.
+        NativeTrackListHost(
+            tracks: viewModel.filteredTracks,
+            configuration: .songs(
+                currentTrackId: currentTrackId,
+                availabilityGeneration: availabilityGeneration,
+                activeDownloadRatingKeys: activeDownloadRatingKeys,
+                bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+                supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+                interactionModel: interactionModel
+            ),
+            tableHeaderContent: AnyView(favoritesHeaderSurface)
+        ) { _, index in
+            nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
-        .miniPlayerBottomSpacing()
         .background(trackListSupplementalMetadataWidthReader)
         #endif
     }

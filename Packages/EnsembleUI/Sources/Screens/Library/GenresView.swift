@@ -202,16 +202,24 @@ struct GenreDetailContentView: View {
 
     var body: some View {
         let tracks = tracks(for: genre)
+        #if os(macOS)
+        NativeTrackListHost(
+            tracks: tracks,
+            configuration: .songs(
+                currentTrackId: nowPlayingVM.currentTrack?.id,
+                bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
+                supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+                interactionModel: TrackRowInteractionModel()
+            ),
+            tableHeaderContent: AnyView(genreHeader(tracks: tracks)),
+            tableFooterContent: tracks.isEmpty ? AnyView(genreEmptyFooter) : nil
+        ) { _, index in
+            nowPlayingVM.play(tracks: tracks, startingAt: index)
+        }
+        .background(trackListSupplementalMetadataWidthReader)
+        #else
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-            VStack(alignment: .leading, spacing: EnsembleScaffold.Genres.detailHeaderSpacing) {
-                Text(genre.title)
-                    .font(EnsembleDesign.Typography.stateTitle)
-                    .fontWeight(.semibold)
-                Text("\(tracks.count) song\(tracks.count == 1 ? "" : "s")")
-                    .font(EnsembleDesign.Typography.stateMessage)
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-            }
-            .padding(EnsembleDesign.Spacing.lg)
+            genreHeader(tracks: tracks)
 
             Divider()
 
@@ -231,6 +239,23 @@ struct GenreDetailContentView: View {
                 .background(trackListSupplementalMetadataWidthReader)
             }
         }
+        #endif
+    }
+
+    private func genreHeader(tracks: [Track]) -> some View {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.Genres.detailHeaderSpacing) {
+            Text(genre.title)
+                .font(EnsembleDesign.Typography.stateTitle)
+                .fontWeight(.semibold)
+            Text("\(tracks.count) song\(tracks.count == 1 ? "" : "s")")
+                .font(EnsembleDesign.Typography.stateMessage)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+        }
+        .padding(EnsembleDesign.Spacing.lg)
+    }
+
+    private var genreEmptyFooter: some View {
+        LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.musicNote, title: "No Songs")
     }
 
     private var trackListSupplementalMetadataWidthReader: some View {

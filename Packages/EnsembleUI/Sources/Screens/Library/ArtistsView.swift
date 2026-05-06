@@ -1084,13 +1084,15 @@ public struct ArtistDetailView: View {
             }
             .frame(height: height)
             #else
-            SongsTrackListHost(
+            NativeTrackListHost(
                 tracks: viewModel.favoritedTracks,
-                currentTrackId: currentTrackId,
-                availabilityGeneration: availabilityGeneration,
-                activeDownloadRatingKeys: activeDownloadRatingKeys,
-                supplementalMetadataWidth: favoritedTrackListWidth,
-                interactionModel: interactionModel
+                configuration: .songs(
+                    currentTrackId: currentTrackId,
+                    availabilityGeneration: availabilityGeneration,
+                    activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    supplementalMetadataWidth: favoritedTrackListWidth,
+                    interactionModel: interactionModel
+                )
             ) { _, index in
                 nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
             }
