@@ -673,6 +673,17 @@ public struct SidebarView: View {
         isViewportNowPlayingPresented
     }
 
+    private var sidebarPlaylistCacheInvalidations: AnyPublisher<Void, Never> {
+        Publishers.Merge5(
+            playlistsVM.$playlists.map { _ in () },
+            playlistsVM.$sortedDisplayPlaylists.map { _ in () },
+            playlistsVM.$playlistSortOption.map { _ in () },
+            playlistsVM.$filterOptions.map { _ in () },
+            playlistsVM.$isMergeEnabled.map { _ in () }
+        )
+        .eraseToAnyPublisher()
+    }
+
     private func updateSettingsSnapshot() {
         let latestAccentColor = settingsManager.accentColor
         if latestAccentColor != accentColor {
@@ -1195,19 +1206,7 @@ public struct SidebarView: View {
         // Sync cached sidebar playlists from VM publisher. Using @State + .onReceive
         // instead of computed properties ensures updates survive NavigationSplitView
         // re-layouts on macOS that can swallow computed property changes.
-        .onReceive(playlistsVM.$playlists) { _ in
-            rebuildCachedSidebarPlaylists()
-        }
-        .onReceive(playlistsVM.$sortedDisplayPlaylists) { _ in
-            rebuildCachedSidebarPlaylists()
-        }
-        .onReceive(playlistsVM.$playlistSortOption) { _ in
-            rebuildCachedSidebarPlaylists()
-        }
-        .onReceive(playlistsVM.$filterOptions) { _ in
-            rebuildCachedSidebarPlaylists()
-        }
-        .onReceive(playlistsVM.$isMergeEnabled) { _ in
+        .onReceive(sidebarPlaylistCacheInvalidations) { _ in
             rebuildCachedSidebarPlaylists()
         }
         .onAppear {

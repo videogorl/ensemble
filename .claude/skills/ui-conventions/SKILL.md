@@ -106,6 +106,7 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - Compact iPhone and unsupported OS fallbacks keep the existing push/list root behavior by rendering each browse screen in compact mode.
 - Store selected artist/playlist/genre state in `SidebarView`, outside the section-owned split subtree, so selection survives detail host rebuilds, compact collapse/expand, and detail pushes.
 - Persistent root/sidebar shells should not observe the full `SettingsManager` for one-off values. Cache specific settings such as `accentColor` in `@State`, listen to `settingsManager.objectWillChange`, and assign only when the projected value actually changes.
+- Sidebar caches that depend on multiple `PlaylistViewModel` publishers should merge those publishers into one invalidation stream and keep one rebuild handler, so the cache-preservation policy stays centralized.
 - Keep selection rows visually dense and use `LargeScreenPlaceholderView` for empty right-pane states such as "Select an Artist".
 - Do not clip the selected detail pane inside large-screen browse splits. Artwork-backed detail screens rely on top safe-area bleed plus transparent toolbar chrome so the media wash continues behind search and toolbar controls on iPadOS/macOS.
 - On macOS, SwiftUI toolbar actions that need to sit to the right of a search field should use `EnsembleToolbarLeadingSpacer` before the action group. Do this as a toolbar-level alignment spacer, not as column-width math or screen-level toolbar delegate proxying.
