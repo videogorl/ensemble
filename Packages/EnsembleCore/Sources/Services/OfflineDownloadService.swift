@@ -1352,9 +1352,7 @@ public final class OfflineDownloadService: ObservableObject {
                 let memberships = try await targetRepository.fetchTrackReferences(targetKey: target.key)
                 guard memberships.isEmpty && target.totalTrackCount > 0 else { continue }
 
-                #if DEBUG
                 EnsembleLogger.debug("🔧 Reconciling orphaned target \(target.key) (stale count: \(target.totalTrackCount))")
-                #endif
                 try? await reconcileTarget(key: target.key)
                 reconciledAny = true
             }
@@ -1363,9 +1361,7 @@ public final class OfflineDownloadService: ObservableObject {
                 await refreshTargetSnapshots()
             }
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed reconciling orphaned targets: \(error.localizedDescription)")
-            #endif
         }
     }
 
@@ -1402,9 +1398,7 @@ public final class OfflineDownloadService: ObservableObject {
                         progress: 0,
                         lastError: nil
                     )
-                    #if DEBUG
                     EnsembleLogger.debug("⚠️ Orphaned download target \(targetKey): preserved stale count of \(existing.totalTrackCount) tracks")
-                    #endif
                 } else {
                     // Genuinely empty target (newly created or all tracks removed)
                     downloadedBytesByTargetKey[targetKey] = 0
