@@ -97,7 +97,7 @@ These patterns are mandatory for views and ViewModels targeting A9 devices (2GB 
 
 ### Observation Extraction (`@ObservedObject` -> `let` + `@State` + `.onReceive`)
 
-In large, persistent views (tabs, lists with 100+ items), never use `@ObservedObject` for singletons that publish frequently (NowPlayingViewModel, SyncCoordinator, OfflineDownloadService). Instead:
+In large, persistent views (tabs, lists with 100+ items), never use `@ObservedObject` for singletons that publish frequently or broadly (NowPlayingViewModel, SyncCoordinator, OfflineDownloadService, PinManager). Instead:
 
 ```swift
 let viewModel: SomeViewModel  // not @ObservedObject
@@ -109,6 +109,8 @@ let viewModel: SomeViewModel  // not @ObservedObject
 ```
 
 For Now Playing surfaces, prefer the focused projections (`playbackProjection`, `queueProjection`, `artworkProjection`, `lyricsProjection`, `ratingProjection`) or `TrackActionDispatching` over observing the full `NowPlayingViewModel`. Keep the full model only where the view truly needs cross-cutting state or mutation methods.
+
+For detail menus that only need the pin state for one item, store the relevant `Bool` in local `@State` and refresh it from `PinManager.objectWillChange` with a cached comparison. Do not observe the full `PinManager` in large detail surfaces just to render one Pin/Unpin label.
 
 **When NOT to apply:** Short-lived modals with small view trees (<20 rows, <5s lifetime). The PlaylistPickerSheet revert (5 workaround commits -> full revert) proved the complexity cost exceeds performance benefit for these cases.
 

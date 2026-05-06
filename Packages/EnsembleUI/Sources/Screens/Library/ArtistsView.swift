@@ -380,13 +380,14 @@ public struct ArtistDetailView: View {
 
     @Environment(\.dependencies) private var dependencies
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    private let pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     // Targeted NVM observation: only re-evaluate for track changes and playlist target
     @State private var currentTrackId: String?
     @State private var nvmRecentPlaylistTitle: String?
+    @State private var isArtistPinned: Bool
     @State private var isBioExpanded = false
     @State private var artworkImage: UIImage?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -402,6 +403,7 @@ public struct ArtistDetailView: View {
     ) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeArtistDetailViewModel(artist: artist))
         self.nowPlayingVM = nowPlayingVM
+        self._isArtistPinned = State(initialValue: DependencyContainer.shared.pinManager.isPinned(id: artist.id))
     }
 
     public var body: some View {
@@ -499,6 +501,11 @@ public struct ArtistDetailView: View {
             let title = target?.title
             if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
         }
+        .onReceive(pinManager.objectWillChange) { _ in
+            DispatchQueue.main.async {
+                updateArtistPinState()
+            }
+        }
         .task {
             await viewModel.loadAlbums()
             await viewModel.loadTracks()
@@ -508,9 +515,16 @@ public struct ArtistDetailView: View {
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
     }
 
+    private func updateArtistPinState() {
+        let latest = pinManager.isPinned(id: viewModel.artist.id)
+        if latest != isArtistPinned {
+            isArtistPinned = latest
+        }
+    }
+
     /// Toolbar menu with Pin/Unpin action for the artist
     private var artistPinMenuButton: some View {
-        let isPinned = pinManager.isPinned(id: viewModel.artist.id)
+        let isPinned = isArtistPinned
         let isDownloaded = dependencies.offlineDownloadService.isArtistDownloadEnabled(viewModel.artist)
         return Menu {
             Button {

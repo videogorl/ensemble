@@ -91,11 +91,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     // Targeted NVM observation: only re-evaluate on track/playlist target changes
     @State private var currentTrackId: String?
     @State private var nvmLastPlaylistTargetId: String?
+    @State private var isPinnedForHeader: Bool
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    private let pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
@@ -132,6 +133,16 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.additionalFooterContent = additionalFooterContent
         self.customPinAction = customPinAction
         self.customIsPinned = customIsPinned
+
+        let initialPinState: Bool
+        if let customIsPinned {
+            initialPinState = customIsPinned()
+        } else if let ratingKey = headerData.ratingKey {
+            initialPinState = DependencyContainer.shared.pinManager.isPinned(id: ratingKey)
+        } else {
+            initialPinState = false
+        }
+        self._isPinnedForHeader = State(initialValue: initialPinState)
     }
 
     public var body: some View {
@@ -223,6 +234,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
             if gen != availabilityGeneration { availabilityGeneration = gen }
         }
+        .onReceive(pinManager.objectWillChange) { _ in
+            DispatchQueue.main.async {
+                updatePinStateForHeader()
+            }
+        }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .confirmationDialog(
             "Delete Track?",
@@ -288,9 +304,23 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         return "\(firstTrackID):\(viewModel.filteredTracks.count):\(playlistTargetID)"
     }
 
+    private func updatePinStateForHeader() {
+        guard let ratingKey = headerData.ratingKey else {
+            if isPinnedForHeader {
+                isPinnedForHeader = false
+            }
+            return
+        }
+
+        let latest = customIsPinned?() ?? pinManager.isPinned(id: ratingKey)
+        if latest != isPinnedForHeader {
+            isPinnedForHeader = latest
+        }
+    }
+
     /// Toolbar menu with Pin/Unpin action
     private func pinMenuButton(ratingKey: String, mediaType: PinnedItemType) -> some View {
-        let isPinned = customIsPinned?() ?? pinManager.isPinned(id: ratingKey)
+        let isPinned = isPinnedForHeader
         let sourceKey = headerData.sourceKey
         return Menu {
             if showFilter {
