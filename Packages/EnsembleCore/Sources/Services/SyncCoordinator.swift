@@ -755,117 +755,23 @@ public final class SyncCoordinator: ObservableObject {
         guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
             throw PlexAPIError.noServerSelected
         }
-        
-        // Parse the composite key: format is "plex:accountId:serverId:libraryId"
-        let components = sourceKey.split(separator: ":")
-        guard components.count >= 4 else {
-            throw PlexAPIError.noServerSelected
-        }
-        
-        let accountId = String(components[1])
-        let serverId = String(components[2])
-        
-        // Check if we already have a connected state
-        let currentState = serverHealthChecker.getServerState(accountId: accountId, serverId: serverId)
-
-        EnsembleLogger.debug("🎵 ensureServerConnection[v2]: current state for \(accountId):\(serverId) = \(currentState.description)")
-        
-        // If already connected or degraded, we're good
-        if case .connected = currentState {
-            return
-        }
-        if case .degraded = currentState {
-            return
-        }
-        
-        // Need to check server health
-        EnsembleLogger.debug("🔍 Checking server connection before playback")
-        let newState = await serverHealthChecker.checkServer(
-            accountId: accountId,
-            serverId: serverId,
-            forceRefresh: false
-        )
-        
-        // Update the API client with the working URL
-        switch newState {
-        case .connected(let url), .degraded(let url):
-            if let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) {
-                await apiClient.updateCurrentServerURL(url)
-                EnsembleLogger.debug("✅ Server connection ready for playback: \(url)")
-            }
-        case .offline:
-            EnsembleLogger.debug("⚠️ Server health check reported offline for playback; attempting optimistic failover refresh")
-            if let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) {
-                let refreshResult = try? await apiClient.refreshConnection()
-                let refreshedURL = await apiClient.getCurrentServerURL()
-                EnsembleLogger.debug(
-                    "⚠️ ensureServerConnection[v2]: proceeding after refresh with URL host=\(hostForDebugURL(refreshedURL))"
-                )
-                if let refreshResult {
-                    EnsembleLogger.debug(
-                        "⚠️ ensureServerConnection[v2]: refresh outcome=\(refreshResult.outcome.rawValue) probes=\(refreshResult.probeCount)"
-                    )
-                }
-            }
-            // Do not fail fast on health-check offline. Stream URL retrieval/playback
-            // performs its own network path and can still succeed on slower paths.
-            return
-        case .connecting, .unknown:
-            EnsembleLogger.debug("⚠️ Server state uncertain, attempting playback anyway")
-        }
-    }
-
-    private func hostForDebugURL(_ urlString: String) -> String {
-        URL(string: urlString)?.host ?? "invalid"
+        try await serverConnectionController.ensureServerConnection(sourceKey: sourceKey)
     }
 
     public func serverFailureMessage(for track: Track) async -> String? {
         guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
             return nil
         }
-
-        let components = sourceKey.split(separator: ":")
-        guard components.count >= 4 else {
-            return nil
-        }
-
-        let accountId = String(components[1])
-        let serverId = String(components[2])
-        return serverHealthChecker.getServerFailureReason(accountId: accountId, serverId: serverId)?.userMessage
+        return serverConnectionController.serverFailureMessage(sourceKey: sourceKey)
     }
 
     /// Proactively refreshes Plex server connections across configured accounts.
     /// Playback retry paths use this to recover from transient connection failures.
     public func refreshConnection() async throws {
-        var refreshedAnyConnection = false
-        var lastError: Error?
-
-        for account in accountManager.plexAccounts {
-            for server in account.servers {
-                guard let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
-                    continue
-                }
-                do {
-                    let result = try await apiClient.refreshConnection()
-                    refreshedAnyConnection = true
-                    EnsembleLogger.debug(
-                        "🔄 SyncCoordinator: Refreshed \(server.name) outcome=\(result.outcome.rawValue), probes=\(result.probeCount)"
-                    )
-                } catch {
-                    lastError = error
-                    EnsembleLogger.debug("⚠️ SyncCoordinator: Failed to refresh \(server.name): \(error.localizedDescription)")
-                }
+        try await serverConnectionController.refreshConnections {
+            for provider in syncProviders.values {
+                provider.resetStreamFallbackState()
             }
-        }
-
-        guard refreshedAnyConnection else {
-            throw lastError ?? PlexAPIError.noServerSelected
-        }
-
-        // Clear any temporary stream URL fallback state (e.g., universal endpoint cooldown)
-        // so providers re-attempt the preferred path after connectivity is restored.
-        for (_, provider) in syncProviders {
-            provider.resetStreamFallbackState()
         }
     }
     

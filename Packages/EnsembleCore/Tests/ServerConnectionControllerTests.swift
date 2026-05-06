@@ -158,6 +158,71 @@ final class ServerConnectionControllerTests: XCTestCase {
         XCTAssertEqual(refreshCount, 0)
     }
 
+    func testEnsureServerConnectionRejectsInvalidSourceKey() async throws {
+        let accountManager = makeAccountManager()
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+
+        do {
+            try await controller.ensureServerConnection(sourceKey: "invalid")
+            XCTFail("Expected invalid source key to throw")
+        } catch PlexAPIError.noServerSelected {
+        } catch {
+            XCTFail("Expected noServerSelected, got \(error)")
+        }
+    }
+
+    func testServerFailureMessageReturnsNilForInvalidSourceKey() async throws {
+        let accountManager = makeAccountManager()
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+
+        XCTAssertNil(controller.serverFailureMessage(sourceKey: "invalid"))
+    }
+
+    func testRefreshConnectionsThrowsWhenNoConfiguredClients() async throws {
+        let accountManager = AccountManager(keychain: TestKeychain())
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+
+        var didResetFallbacks = false
+        do {
+            try await controller.refreshConnections {
+                didResetFallbacks = true
+            }
+            XCTFail("Expected refresh without configured clients to throw")
+        } catch PlexAPIError.noServerSelected {
+        } catch {
+            XCTFail("Expected noServerSelected, got \(error)")
+        }
+
+        XCTAssertFalse(didResetFallbacks)
+    }
+
     func testConnectionStateAfterSuccessfulSyncUsesAPIClientURLAndPreservesDegradedState() async throws {
         let accountManager = makeAccountManager()
         let networkMonitor = makeNetworkMonitor()

@@ -144,7 +144,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `PlaylistRefreshController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns server-scoped playlist refresh resolution (incremental vs fallback full sync) and per-server playlist-only dedupe for mutation refreshes, playlist-only sync, and WebSocket-triggered playlist updates
 - `WebSocketSyncController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns WebSocket-triggered section resolution and server playlist refresh routing so the coordinator does not inline provider lookup logic
 - `ServerHealthChecker` -- Concurrent health checks for all configured servers with automatic failover
-- `ServerConnectionController` (@MainActor) -- Internal network seam extracted from `SyncCoordinator`; owns registry-driven API-client URL updates, explicit endpoint refresh fan-out, and post-sync connection-state URL resolution while `SyncCoordinator` remains the façade
+- `ServerConnectionController` (@MainActor) -- Internal network seam extracted from `SyncCoordinator`; owns registry-driven API-client URL updates, playback connection readiness checks, explicit endpoint refresh fan-out/fallback reset callbacks, failure-message lookup, and post-sync connection-state URL resolution while `SyncCoordinator` remains the façade
 - `SyncProviderResolver` -- Internal provider-lookup seam extracted from `SyncCoordinator`; owns exact-source and fallback provider routing for playback/download/reporting calls so source-key policy stays consistent
 - `SettingsManager` (@MainActor) -- Manages accent colors, customizable tab configuration, and track swipe action layout settings
 - `BackgroundRefreshCoordinator` -- Shared app-refresh and foreground freshness sequence for endpoint health, incremental sync, Feed snapshot refresh, Siri index rebuild, and Siri context refresh. iOS 16+ `BGAppRefreshTask` and iOS 15 foreground activation route through this coordinator so launch freshness policy is not duplicated.
@@ -452,7 +452,7 @@ Multi-layered network resilience spanning endpoint management, push-based update
 - **`ServerConnectionRegistry`** (`EnsembleAPI`, actor) -- Single source of truth for per-server active endpoints.
 - `PlexAPIClient` seeds the registry on init with the first discovered endpoint, and reports failover results back so all consumers share the latest healthy endpoint.
 - `ServerHealthChecker` writes probe results into the registry after health checks.
-- `SyncCoordinator` subscribes to registry changes to trigger downstream refreshes.
+- `ServerConnectionController` subscribes to registry changes to trigger downstream refreshes while `SyncCoordinator` remains the public sync facade.
 - `AccountManager` owns the registry instance; `DependencyContainer` wires it to all dependents.
 
 ### Push-Based Updates -- PlexWebSocketManager & PlexWebSocketCoordinator
@@ -517,7 +517,7 @@ PlexWebSocketManager ──events──> PlexWebSocketCoordinator ──> SyncCo
 PlexAPIClient ──failover──> ServerConnectionRegistry <──writes── ServerHealthChecker
                                         |
                                         v
-                               SyncCoordinator (subscribes to endpoint changes)
+                               ServerConnectionController (subscribes to endpoint changes)
                                         |
                                         v
                             TrackAvailabilityResolver (server state + download state -> per-track availability)
