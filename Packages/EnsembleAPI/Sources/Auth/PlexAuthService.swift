@@ -58,15 +58,7 @@ public actor PlexAuthService {
         self.productName = productName
         self.productVersion = productVersion
 
-        #if os(iOS)
-        self.deviceName = deviceName ?? UIDevice.current.name
-        #elseif os(macOS)
-        self.deviceName = deviceName ?? Host.current().localizedName ?? "Mac"
-        #elseif os(watchOS)
-        self.deviceName = deviceName ?? "Apple Watch"
-        #else
-        self.deviceName = deviceName ?? "Unknown Device"
-        #endif
+        self.deviceName = deviceName ?? PlexClientDeviceInfo.defaultDeviceName()
 
         // Get or create client identifier
         if let existingId = try? keychain.get(KeychainKey.plexClientIdentifier) {
@@ -188,16 +180,6 @@ public actor PlexAuthService {
         request.setValue(deviceName, forHTTPHeaderField: "X-Plex-Device")
         request.setValue("controller", forHTTPHeaderField: "X-Plex-Provides")
 
-        #if os(iOS)
-        request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
-        #elseif os(macOS)
-        request.setValue("macOS", forHTTPHeaderField: "X-Plex-Platform")
-        #elseif os(watchOS)
-        request.setValue("watchOS", forHTTPHeaderField: "X-Plex-Platform")
-        #endif
+        request.setValue(PlexClientDeviceInfo.platformName, forHTTPHeaderField: "X-Plex-Platform")
     }
 }
-
-#if os(iOS)
-import UIKit
-#endif

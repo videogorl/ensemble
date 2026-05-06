@@ -1,7 +1,4 @@
 import Foundation
-#if os(iOS)
-import UIKit
-#endif
 
 public enum PlexAPIError: Error, LocalizedError {
     case notAuthenticated
@@ -278,19 +275,8 @@ public actor PlexAPIClient {
         self.serverKey = serverKey
         self.productName = productName
         self.productVersion = productVersion
-        #if os(iOS)
-        self.platformName = "iOS"
-        self.deviceName = UIDevice.current.name
-        #elseif os(macOS)
-        self.platformName = "macOS"
-        self.deviceName = Host.current().localizedName ?? "Mac"
-        #elseif os(watchOS)
-        self.platformName = "watchOS"
-        self.deviceName = "Apple Watch"
-        #else
-        self.platformName = "Unknown"
-        self.deviceName = "Unknown Device"
-        #endif
+        self.platformName = PlexClientDeviceInfo.platformName
+        self.deviceName = PlexClientDeviceInfo.defaultDeviceName()
 
         if let existingId = try? keychain.get(KeychainKey.plexClientIdentifier) {
             self.clientIdentifier = existingId

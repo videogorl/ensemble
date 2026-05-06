@@ -90,6 +90,7 @@ Sources/
 |   +-- PlexAPIClient+Downloads.swift  # Universal-download and download-queue transport helpers split from PlexAPIClient
 |   +-- PlexErrorClassification.swift  # Unified error taxonomy for failover/retry decisions
 |   +-- PlexRequestBuilder.swift       # Pure URLRequest/header assembly helper shared by PlexAPIClient transport paths
+|   +-- PlexClientDeviceInfo.swift     # Platform/device-name header helper that avoids non-main UIKit access from API actors
 |   +-- PlexWebSocketManager.swift     # Per-server WebSocket connections with exponential backoff (actor)
 |   +-- ServerConnectionRegistry.swift # Single source of truth for per-server endpoints (actor)
 |   +-- ConnectionFailoverManager.swift # Server connection resilience

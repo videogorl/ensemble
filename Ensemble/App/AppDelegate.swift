@@ -168,6 +168,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // inherit the same endpoint selection as playback restore and WebSocket setup.
         // Without this sequencing, startup sync can race a stale local URL and spend
         // its first request budget on a timeout before failover updates the client.
+        let appGroupIdentifier = Self.appGroupIdentifier
+        let pendingPlaybackFilename = Self.pendingPlaybackFilename
         startupSyncTask = Task.detached(priority: .utility) {
             await self.earlyHealthCheckTask?.value
 
@@ -175,8 +177,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             // to let the audio session activate and route selection complete.
             // Sync at .utility priority won't compete meaningfully with the Siri audio
             // path which runs at default/userInitiated priority.
-            let appGroup = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier)
-            let pendingFile = appGroup?.appendingPathComponent(Self.pendingPlaybackFilename)
+            let appGroup = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)
+            let pendingFile = appGroup?.appendingPathComponent(pendingPlaybackFilename)
             let hasPendingSiri = pendingFile.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
 
             if hasPendingSiri {
