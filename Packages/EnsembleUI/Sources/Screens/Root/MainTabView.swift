@@ -11,7 +11,7 @@ public struct MainTabView: View {
     private let nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var contextMenuMetadataEditorCoordinator = ContextMenuMetadataEditorCoordinator()
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
     // Observation-extracted: networkMonitor publishes on every network state change,
     // which would invalidate the entire root view. We only need networkState, so we
     // listen to just that property and store it in @State.
@@ -26,13 +26,16 @@ public struct MainTabView: View {
     // Extracted observation state — avoids full root invalidation from singleton publishers
     @State private var networkState: NetworkState = DependencyContainer.shared.networkMonitor.networkState
     @State private var isLowPowerMode: Bool = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
+    @State private var enabledTabs: [TabItem] = DependencyContainer.shared.settingsManager.enabledTabs
+    @State private var accentColor: AppAccentColor = DependencyContainer.shared.settingsManager.accentColor
+    @State private var auroraVisualizationEnabled: Bool = DependencyContainer.shared.settingsManager.auroraVisualizationEnabled
     #if os(iOS)
     @State private var keyboardVisible = false
     #endif
 
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
-        Array(settingsManager.enabledTabs.prefix(4))
+        Array(enabledTabs.prefix(4))
     }
 
     @MainActor
@@ -173,6 +176,11 @@ public struct MainTabView: View {
             .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
                 isLowPowerMode = newValue
             }
+            .onReceive(settingsManager.objectWillChange) { _ in
+                DispatchQueue.main.async {
+                    updateSettingsSnapshot()
+                }
+            }
             #if os(iOS)
             .onReceive(Publishers.keyboardHeight.map { $0 > 0 }.removeDuplicates()) { newValue in
                 // Keep the presenting shell stable while an auxiliary sheet or
@@ -207,13 +215,13 @@ public struct MainTabView: View {
                 navigationCoordinator.dismissAuxiliaryPresentation()
             }) {
                 ProfilePresentationContainer()
-                    .accentColor(settingsManager.accentColor.color)
+                    .accentColor(accentColor.color)
             }
             .phoneSafeAuxiliaryPresentation(item: downloadsAuxiliaryBinding, onDismiss: {
                 navigationCoordinator.dismissAuxiliaryPresentation()
             }) { destination in
                 AuxiliaryPresentationView(destination: destination)
-                    .accentColor(settingsManager.accentColor.color)
+                    .accentColor(accentColor.color)
             }
             #endif
             // Add account sheet presented at root level so it survives
@@ -367,6 +375,23 @@ public struct MainTabView: View {
         UISelectionFeedbackGenerator().selectionChanged()
         #endif
     }
+
+    private func updateSettingsSnapshot() {
+        let latestTabs = settingsManager.enabledTabs
+        if latestTabs != enabledTabs {
+            enabledTabs = latestTabs
+        }
+
+        let latestAccentColor = settingsManager.accentColor
+        if latestAccentColor != accentColor {
+            accentColor = latestAccentColor
+        }
+
+        let latestAuroraEnabled = settingsManager.auroraVisualizationEnabled
+        if latestAuroraEnabled != auroraVisualizationEnabled {
+            auroraVisualizationEnabled = latestAuroraEnabled
+        }
+    }
     
     @ViewBuilder
     private func tabRootView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
@@ -404,7 +429,7 @@ public struct MainTabView: View {
         .overlay(alignment: .bottom) {
             if showsPhoneAuroraOverlay &&
                 navigationCoordinator.selectedTab == tab &&
-                settingsManager.auroraVisualizationEnabled &&
+                auroraVisualizationEnabled &&
                 !isShowingNowPlaying &&
                 !isRootChromeSuppressed &&
                 !navigationCoordinator.isKeyboardEditorPresented &&
@@ -412,7 +437,7 @@ public struct MainTabView: View {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
                     consumer: .phoneOverlay,
-                    accentColor: settingsManager.accentColor.color,
+                    accentColor: accentColor.color,
                     isPaused: isShowingNowPlaying,
                     isLowPowerMode: isLowPowerMode
                 )
