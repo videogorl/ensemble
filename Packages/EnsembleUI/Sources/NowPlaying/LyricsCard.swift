@@ -60,13 +60,23 @@ public struct LyricsCard: View {
                 .padding(.bottom, EnsembleScaffold.NowPlaying.cardBottomPadding)
             }
         }
+        .onAppear {
+            syncLyricsSnapshot()
+        }
+        .onChange(of: currentPage) { newPage in
+            guard NowPlayingPanelPage.lyrics.shouldRenderContent(currentPage: newPage) else { return }
+            syncLyricsSnapshot()
+        }
         .onReceive(viewModel.currentLyricsLineIndexPublisher) { index in
+            guard NowPlayingPanelPage.lyrics.isActive(currentPage: currentPage) else { return }
             if index != currentLyricsLineIndex { currentLyricsLineIndex = index }
         }
         .onReceive(viewModel.lyricsScrollTargetIndexPublisher) { index in
+            guard NowPlayingPanelPage.lyrics.isActive(currentPage: currentPage) else { return }
             if index != lyricsScrollTargetIndex { lyricsScrollTargetIndex = index }
         }
         .onReceive(viewModel.instrumentalProgressPublisher) { progress in
+            guard NowPlayingPanelPage.lyrics.isActive(currentPage: currentPage) else { return }
             if progress != instrumentalProgress { instrumentalProgress = progress }
         }
     }
@@ -105,16 +115,13 @@ public struct LyricsCard: View {
 
     // MARK: - Content
 
-    /// Whether this card is the active page in the carousel.
-    /// TabView's .page style renders ALL children simultaneously — gate expensive
-    /// blur/scroll/animation content behind this check to avoid GPU work off-screen.
-    private var isVisible: Bool {
-        currentPage == 2
+    private var shouldRenderContent: Bool {
+        NowPlayingPanelPage.lyrics.shouldRenderContent(currentPage: currentPage)
     }
 
     @ViewBuilder
     private var contentView: some View {
-        if isVisible {
+        if shouldRenderContent {
             switch viewModel.lyricsState {
             case .loading:
                 loadingView
@@ -131,8 +138,7 @@ public struct LyricsCard: View {
                     .mask(fadeMask)
             }
         } else {
-            // Lightweight placeholder — keeps layout stable for TabView paging
-            // without any blur/scroll/animation GPU cost
+            // Lightweight placeholder for pages more than one swipe away.
             Color.clear
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -278,9 +284,8 @@ public struct LyricsCard: View {
                 }
             )
             #endif
-            // Restore scroll position when view appears (e.g., swiping back from another card).
-            // The isVisible gate replaces the ScrollView with Color.clear when off-screen,
-            // so scroll position is lost. Snap to the current lyrics position on re-creation.
+            // Restore scroll position when the scroll view is recreated after
+            // moving more than one page away from Lyrics.
             .onAppear {
                 guard lyrics.isTimed else { return }
                 let scrollTarget: AnyHashable
@@ -337,6 +342,18 @@ public struct LyricsCard: View {
                 // Snap back without animation (same as large jump behavior)
                 proxy.scrollTo(scrollTarget, anchor: .center)
             }
+        }
+    }
+
+    private func syncLyricsSnapshot() {
+        if viewModel.currentLyricsLineIndex != currentLyricsLineIndex {
+            currentLyricsLineIndex = viewModel.currentLyricsLineIndex
+        }
+        if viewModel.lyricsScrollTargetIndex != lyricsScrollTargetIndex {
+            lyricsScrollTargetIndex = viewModel.lyricsScrollTargetIndex
+        }
+        if viewModel.instrumentalProgress != instrumentalProgress {
+            instrumentalProgress = viewModel.instrumentalProgress
         }
     }
 

@@ -1,6 +1,23 @@
 import EnsembleCore
 import SwiftUI
 
+enum NowPlayingPanelPage: Int {
+    case queue = 0
+    case controls = 1
+    case lyrics = 2
+    case info = 3
+
+    func isActive(currentPage: Int) -> Bool {
+        currentPage == rawValue
+    }
+
+    /// Keep the selected and neighboring cards rendered so `.page` swipes reveal
+    /// complete panels before SwiftUI commits the new selection at the midpoint.
+    func shouldRenderContent(currentPage: Int, isAlwaysVisible: Bool = false) -> Bool {
+        isAlwaysVisible || abs(currentPage - rawValue) <= 1
+    }
+}
+
 /// Horizontal paging carousel managing four cards: Queue, Controls, Lyrics, Info
 /// Opens to Controls by default
 public struct NowPlayingCarousel: View {

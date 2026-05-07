@@ -30,11 +30,13 @@ public struct QueueCard: View {
         self.isAlwaysVisible = isAlwaysVisible
     }
     
-    /// Whether this card is the active page in the carousel.
-    /// TabView's .page style renders ALL children simultaneously — gate the heavy
-    /// QueueTableView (UIKit UITableView) behind this to avoid layout/rendering off-screen.
-    private var isVisible: Bool {
-        isAlwaysVisible || currentPage == 0
+    /// Render the active or adjacent queue panel so page swipes do not reveal an
+    /// empty placeholder before SwiftUI commits the new page selection.
+    private var shouldRenderContent: Bool {
+        NowPlayingPanelPage.queue.shouldRenderContent(
+            currentPage: currentPage,
+            isAlwaysVisible: isAlwaysVisible
+        )
     }
 
     public var body: some View {
@@ -44,7 +46,7 @@ public struct QueueCard: View {
                 .padding(.top, EnsembleScaffold.NowPlaying.headerTopPadding)
                 .padding(.bottom, EnsembleScaffold.NowPlaying.headerBottomPadding)
 
-            if isVisible {
+            if shouldRenderContent {
                 // Queue list — QueueTableView manages its own scrolling now.
                 // No SwiftUI ScrollView wrapper — that was defeating cell recycling
                 // by forcing IntrinsicTableView to report full contentSize.
@@ -78,7 +80,7 @@ public struct QueueCard: View {
                         }
                     )
             } else {
-                // Lightweight placeholder — avoids UITableView layout off-screen
+                // Lightweight placeholder for far-off pages only.
                 Color.clear
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

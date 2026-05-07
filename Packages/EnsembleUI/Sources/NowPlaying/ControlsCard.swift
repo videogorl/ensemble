@@ -44,18 +44,25 @@ public struct ControlsCard: View {
     
     private let namespace: Namespace.ID?
     private let animationID: String?
+    private let isAlwaysVisible: Bool
 
-    /// TabView's page style keeps every card alive. Keep the controls page's
-    /// expensive waveform/artwork tree idle while another Now Playing page is active.
-    private var isVisible: Bool {
-        currentPage == 1
+    private var isActivePage: Bool {
+        NowPlayingPanelPage.controls.isActive(currentPage: currentPage)
+    }
+
+    private var shouldRenderContent: Bool {
+        NowPlayingPanelPage.controls.shouldRenderContent(
+            currentPage: currentPage,
+            isAlwaysVisible: isAlwaysVisible
+        )
     }
     
     public init(
         viewModel: NowPlayingViewModel,
         currentPage: Binding<Int>,
         namespace: Namespace.ID? = nil,
-        animationID: String? = nil
+        animationID: String? = nil,
+        isAlwaysVisible: Bool = false
     ) {
         self.viewModel = viewModel
         self._currentPage = currentPage
@@ -63,11 +70,12 @@ public struct ControlsCard: View {
         self._ratingProjection = ObservedObject(wrappedValue: viewModel.ratingProjection)
         self.namespace = namespace
         self.animationID = animationID
+        self.isAlwaysVisible = isAlwaysVisible
     }
     
     public var body: some View {
         GeometryReader { geometry in
-            if isVisible {
+            if shouldRenderContent {
                 if let track = playbackProjection.currentTrack {
                     contentView(track: track, geometry: geometry)
                 } else {
@@ -80,7 +88,7 @@ public struct ControlsCard: View {
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: viewModel)
         .task {
-            guard isVisible else { return }
+            guard isActivePage || isAlwaysVisible else { return }
             await refreshLastPlaylistQuickTarget()
         }
         .onAppear {
@@ -88,42 +96,48 @@ public struct ControlsCard: View {
             lastPlaylistTargetID = viewModel.lastPlaylistTarget?.id
         }
         .onChange(of: playbackProjection.currentTrack?.id) { _ in
-            guard isVisible else { return }
+            guard isActivePage || isAlwaysVisible else { return }
             Task { @MainActor in await refreshLastPlaylistQuickTarget() }
         }
         .onChange(of: currentPage) { newPage in
-            guard newPage == 1 else { return }
+            let isActive = NowPlayingPanelPage.controls.isActive(currentPage: newPage)
+            let isRenderable = NowPlayingPanelPage.controls.shouldRenderContent(
+                currentPage: newPage,
+                isAlwaysVisible: isAlwaysVisible
+            )
+            guard isRenderable else { return }
+            syncPlaybackSnapshot()
+            guard isActive || isAlwaysVisible else { return }
             Task { @MainActor in
-                syncPlaybackSnapshot()
                 lastPlaylistTargetID = viewModel.lastPlaylistTarget?.id
                 await refreshLastPlaylistQuickTarget()
             }
         }
         .onReceive(viewModel.lastPlaylistTargetPublisher) { target in
-            guard isVisible else { return }
+            guard isActivePage || isAlwaysVisible else { return }
             let targetID = target?.id
             guard targetID != lastPlaylistTargetID else { return }
             lastPlaylistTargetID = targetID
             Task { @MainActor in await refreshLastPlaylistQuickTarget() }
         }
         .onReceive(playbackProjection.waveformPublisher) { heights in
-            guard isVisible, waveformHeights != heights else { return }
+            guard isActivePage || isAlwaysVisible, waveformHeights != heights else { return }
             waveformHeights = heights
         }
         .onReceive(playbackProjection.progressPublisher) { progress in
-            guard isVisible, !isDraggingSlider, abs(playbackProgress - progress) > 0.0005 else { return }
+            guard isActivePage || isAlwaysVisible, !isDraggingSlider, abs(playbackProgress - progress) > 0.0005 else { return }
             playbackProgress = progress
         }
         .onReceive(playbackProjection.bufferedProgressPublisher) { progress in
-            guard isVisible, abs(bufferedProgress - progress) > 0.0005 else { return }
+            guard isActivePage || isAlwaysVisible, abs(bufferedProgress - progress) > 0.0005 else { return }
             bufferedProgress = progress
         }
         .onReceive(playbackProjection.currentTimePublisher) { time in
-            guard isVisible, abs(playbackCurrentTime - time) > 0.05 else { return }
+            guard isActivePage || isAlwaysVisible, abs(playbackCurrentTime - time) > 0.05 else { return }
             playbackCurrentTime = time
         }
         .onReceive(playbackProjection.durationPublisher) { duration in
-            guard isVisible, abs(playbackDuration - duration) > 0.001 else { return }
+            guard isActivePage || isAlwaysVisible, abs(playbackDuration - duration) > 0.001 else { return }
             playbackDuration = duration
         }
     }

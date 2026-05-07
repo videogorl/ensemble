@@ -147,7 +147,7 @@ public struct NowPlayingSheetView: View {
             wideHeader
 
             HStack(alignment: .top, spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
-                ControlsCard(viewModel: viewModel, currentPage: currentPageBinding)
+                ControlsCard(viewModel: viewModel, currentPage: currentPageBinding, isAlwaysVisible: true)
                     .frame(width: panelWidth(for: geometry))
                     .frame(maxHeight: .infinity, alignment: .topLeading)
 

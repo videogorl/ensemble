@@ -15,7 +15,7 @@ public struct InfoCard: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("streamingQuality") private var streamingQuality: String = "high"
 
-    // Metadata fetched asynchronously when card becomes visible
+    // Metadata fetched asynchronously when the card becomes renderable.
     @State private var fetchedAlbum: Album?
     @State private var audioFileInfo: AudioFileInfo?
 
@@ -27,10 +27,8 @@ public struct InfoCard: View {
         self._currentPage = currentPage
     }
 
-    /// Whether this card is the active page in the carousel.
-    /// Gate content and async fetches behind visibility to avoid unnecessary work off-screen.
-    private var isVisible: Bool {
-        currentPage == 3
+    private var shouldRenderContent: Bool {
+        NowPlayingPanelPage.info.shouldRenderContent(currentPage: currentPage)
     }
 
     private var currentTrack: Track? {
@@ -44,30 +42,30 @@ public struct InfoCard: View {
                 .padding(.top, EnsembleScaffold.NowPlaying.headerTopPadding)
                 .padding(.bottom, EnsembleScaffold.NowPlaying.headerBottomPadding)
 
-            if isVisible {
+            if shouldRenderContent {
                 // Scrollable content area with fade masks
                 contentView
                     .padding(.bottom, EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight + EnsembleDesign.Spacing.xxl)
             } else {
-                // Lightweight placeholder when off-screen
+                // Lightweight placeholder for pages more than one swipe away.
                 Color.clear
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task {
-            guard isVisible else { return }
+        .task(id: shouldRenderContent) {
+            guard shouldRenderContent else { return }
             await loadMetadataForCurrentTrack()
         }
         .onChange(of: playbackProjection.currentTrack?.id) { _ in
-            guard isVisible else { return }
+            guard shouldRenderContent else { return }
             audioFileInfo = nil  // Clear stale data immediately
             Task {
                 await loadMetadataForCurrentTrack()
             }
         }
         .onChange(of: currentPage) { newPage in
-            // Fetch metadata when user navigates to this card
-            if newPage == 3 && fetchedAlbum == nil {
+            // Preload metadata when the Info card becomes adjacent to the swipe.
+            if NowPlayingPanelPage.info.shouldRenderContent(currentPage: newPage), fetchedAlbum == nil {
                 Task {
                     await loadMetadataForCurrentTrack()
                 }
