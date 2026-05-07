@@ -2,11 +2,9 @@ import Accelerate
 import AVFoundation
 import Combine
 import Foundation
-
-#if DEBUG
 import os
+
 private let logger = Logger(subsystem: "com.felicity.Ensemble", category: "AudioAnalyzer")
-#endif
 
 public enum VisualizationConsumer: String, CaseIterable, Sendable {
     case phoneOverlay
@@ -266,9 +264,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     public init() {
         frequencyBands = Array(repeating: 0.0, count: bandCount)
 
-        #if DEBUG
         logger.debug("FrequencyAnalysisService initialized (pre-computed, no audio tap)")
-        #endif
     }
 
     deinit {
@@ -279,23 +275,17 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     // MARK: - Timeline Loading
 
     public func loadTimeline(for trackId: String, fileURL: URL, priority: TaskPriority = .utility, throttled: Bool = false) async {
-        #if DEBUG
         logger.debug("loadTimeline called for \(trackId), url=\(fileURL.lastPathComponent), isFile=\(fileURL.isFileURL)")
-        #endif
 
         // Already cached or loading
         if timelines[trackId] != nil || analysisTasks[trackId] != nil {
-            #if DEBUG
             logger.debug("loadTimeline skipped \(trackId): cached=\(self.timelines[trackId] != nil), loading=\(self.analysisTasks[trackId] != nil)")
-            #endif
             return
         }
 
         // Only analyze local files (not remote stream URLs)
         guard fileURL.isFileURL else {
-            #if DEBUG
             logger.debug("loadTimeline skipped \(trackId): not a file URL")
-            #endif
             return
         }
 
@@ -305,14 +295,10 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             do {
                 let timeline = try FrequencyTimelinePersistence.load(from: sidecarURL)
                 timelines[trackId] = timeline
-                #if DEBUG
                 logger.debug("Loaded sidecar timeline for \(trackId): \(timeline.snapshots.count) frames")
-                #endif
                 return
             } catch {
-                #if DEBUG
                 logger.debug("Failed to load sidecar for \(trackId), will re-analyze: \(error)")
-                #endif
             }
         }
 
@@ -322,15 +308,11 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         if priority == .userInitiated {
             for (existingId, existingTask) in analysisTasks {
                 existingTask.cancel()
-                #if DEBUG
                 logger.debug("Cancelled analysis for \(existingId) to prioritize \(trackId)")
-                #endif
             }
             analysisTasks.removeAll()
         } else if !analysisTasks.isEmpty {
-            #if DEBUG
             logger.debug("Skipping prefetch analysis for \(trackId): another analysis is running")
-            #endif
             return
         }
 
@@ -372,13 +354,9 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                     }
                 }
 
-                #if DEBUG
                 logger.debug("Analyzed timeline for \(trackId): \(timeline.snapshots.count) frames, \(String(format: "%.1f", timeline.duration))s")
-                #endif
             } else {
-                #if DEBUG
                 logger.debug("Analysis returned nil for \(trackId) — file may be unsupported")
-                #endif
             }
 
             service.analysisTasks.removeValue(forKey: trackId)
@@ -410,11 +388,9 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
         updateDisplayTimerState(trigger: "activateTimeline")
 
-        #if DEBUG
         let hasTimeline = timelines[trackId] != nil
         let vizEnabled = visualizationEnabled
         logger.debug("Activated timeline for \(trackId), hasData=\(hasTimeline), vizEnabled=\(vizEnabled)")
-        #endif
     }
 
     // MARK: - Eviction
@@ -450,18 +426,14 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         analysisTasks.removeAll()
         frequencyBands = Array(repeating: 0.0, count: bandCount)
 
-        #if DEBUG
         logger.debug("Frequency analysis stopped")
-        #endif
     }
 
     public func pauseUpdates() {
         isPaused = true
         updateDisplayTimerState(trigger: "pauseUpdates")
 
-        #if DEBUG
         logger.debug("Frequency updates paused (timer stopped)")
-        #endif
     }
 
     public func resumeUpdates() {
@@ -470,9 +442,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         positionUpdateWallTime = CACurrentMediaTime()
         updateDisplayTimerState(trigger: "resumeUpdates")
 
-        #if DEBUG
         logger.debug("Frequency updates resumed (timer restarted)")
-        #endif
     }
 
     // MARK: - App Lifecycle
@@ -501,9 +471,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
         guard changed else { return }
 
-        #if DEBUG
         logger.debug("Visualization consumer \(consumer.rawValue) visible=\(isVisible) total=\(self.visibleVisualizationConsumers.count)")
-        #endif
 
         updateDisplayTimerState(trigger: "consumer:\(consumer.rawValue)")
     }
@@ -563,9 +531,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         displayTimer = timer
         activeDisplayFPS = fps
 
-        #if DEBUG
         logger.debug("Display timer started fps=\(fps, format: .fixed(precision: 0)) reason=\(reason)")
-        #endif
     }
 
     private func stopDisplayTimer(reason: String) {
@@ -574,9 +540,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         displayTimer = nil
         activeDisplayFPS = nil
 
-        #if DEBUG
         logger.debug("Display timer stopped reason=\(reason)")
-        #endif
     }
 
     /// Called ~30 times per second by the display timer
@@ -649,10 +613,8 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         throttled: Bool = false,
         progressHandler: ProgressHandler? = nil
     ) -> FrequencyTimeline? {
-        #if DEBUG
         let startTime = CACurrentMediaTime()
-        NSLog("[FrequencyAnalysis] analyzeFile START: %@", fileURL.lastPathComponent)
-        #endif
+        logger.debug("Frequency analysis started file=\(fileURL.lastPathComponent, privacy: .public)")
 
         // Open audio file — try directly first, then fall back to symlink probing
         // for files with unrecognized extensions (e.g. ".audio" from stream cache).
@@ -664,11 +626,11 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             audioFile = file
             tempSymlink = symlink
         } else {
-            #if DEBUG
             let exists = FileManager.default.fileExists(atPath: fileURL.path)
             let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int64) ?? -1
-            NSLog("[FrequencyAnalysis] Failed to open: %@ (exists=%d, size=%lld)", fileURL.lastPathComponent, exists, size)
-            #endif
+            logger.error(
+                "Frequency analysis failed to open file=\(fileURL.lastPathComponent, privacy: .public) exists=\(exists, privacy: .public) size=\(size, privacy: .public)"
+            )
             return nil
         }
         defer { if let tempSymlink { try? FileManager.default.removeItem(at: tempSymlink) } }
@@ -680,9 +642,9 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         let duration = Double(totalFrames) / sampleRate
         let processingFormat = audioFile.processingFormat
         let channelCount = Int(processingFormat.channelCount)
-        #if DEBUG
-        NSLog("[FrequencyAnalysis] Opened: %.1fs, %.0fHz, ch=%u", duration, sampleRate, channelCount)
-        #endif
+        logger.debug(
+            "Frequency analysis opened duration=\(duration, format: .fixed(precision: 1)) sampleRate=\(sampleRate, format: .fixed(precision: 0)) channels=\(channelCount, privacy: .public)"
+        )
 
         // Seek-based analysis at 10fps with progressive loading.
         // Each seek + decode of 1024 samples takes ~14ms on A9 (dual core).
@@ -722,6 +684,13 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         var magnitudes = [Float](repeating: 0, count: fftSize / 2)
         var normalizedMags = [Float](repeating: 0, count: fftSize / 2)
         let binSize = sampleRate / Double(fftSize)
+        let maxBin = fftSize / 2
+        let bandBinRanges: [Range<Int>] = (0..<bandCount).map { index in
+            let lower = min(maxBin, max(0, Int(bandEdges[index] / binSize)))
+            let rawUpper = Int(bandEdges[index + 1] / binSize)
+            let upper = min(maxBin, max(lower, rawUpper))
+            return lower..<upper
+        }
 
         // Analyze at 10fps keyframes by seeking to each point
         let keyframeCount = Int(ceil(duration * analysisFPS))
@@ -781,8 +750,6 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                 }
 
                 // FFT
-                realParts = [Float](repeating: 0, count: fftSize / 2)
-                imagParts = [Float](repeating: 0, count: fftSize / 2)
                 realParts.withUnsafeMutableBufferPointer { realPtr in
                     imagParts.withUnsafeMutableBufferPointer { imagPtr in
                         guard let realBase = realPtr.baseAddress, let imagBase = imagPtr.baseAddress else { return }
@@ -802,13 +769,12 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                 // Extract 24 logarithmic frequency bands
                 var bandValues = [UInt8](repeating: 0, count: bandCount)
                 for i in 0..<bandCount {
-                    let lowerBin = Int(bandEdges[i] / binSize)
-                    let upperBin = Int(bandEdges[i + 1] / binSize)
-                    guard lowerBin < normalizedMags.count else { continue }
+                    let bins = bandBinRanges[i]
+                    guard !bins.isEmpty else { continue }
 
                     var sum: Float = 0
                     var count = 0
-                    for bin in lowerBin..<min(upperBin, normalizedMags.count) {
+                    for bin in bins {
                         sum += normalizedMags[bin]
                         count += 1
                     }
@@ -830,9 +796,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                 }
             }
         } catch {
-            #if DEBUG
-            NSLog("[FrequencyAnalysis] Read error: %@", "\(error)")
-            #endif
+            logger.error("Frequency analysis read failed: \(error.localizedDescription, privacy: .public)")
             // Return whatever we have so far (partial analysis is better than nothing)
             if !keyframes.isEmpty {
                 let analyzedSoFar = Double(keyframes.count) / analysisFPS
@@ -848,11 +812,10 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
         guard !keyframes.isEmpty else { return nil }
 
-        #if DEBUG
         let elapsed = CACurrentMediaTime() - startTime
-        NSLog("[FrequencyAnalysis] Complete: %d keyframes for %.1fs (took %.2fs)",
-              keyframes.count, duration, elapsed)
-        #endif
+        logger.debug(
+            "Frequency analysis complete keyframes=\(keyframes.count, privacy: .public) duration=\(duration, format: .fixed(precision: 1)) elapsed=\(elapsed, format: .fixed(precision: 2))"
+        )
 
         // Store keyframes at analysis FPS. The display timer
         // interpolates between them at 30Hz via bands(at:).
@@ -880,9 +843,9 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             do {
                 try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: fileURL)
                 if let file = try? AVAudioFile(forReading: symlink) {
-                    #if DEBUG
-                    NSLog("[FrequencyAnalysis] Opened file via extension probe: .%@ for %@", ext, fileURL.lastPathComponent)
-                    #endif
+                    logger.debug(
+                        "Frequency analysis opened via extension probe ext=\(ext, privacy: .public) file=\(fileURL.lastPathComponent, privacy: .public)"
+                    )
                     return (file, symlink)
                 }
                 try? FileManager.default.removeItem(at: symlink)
