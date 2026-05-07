@@ -194,20 +194,25 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(jsonDecoded, expected)
     }
 
-    func testMacNativeTrackScrollViewPinsShortTableDocumentToTopInset() {
+    func testMacNativeTrackScrollViewKeepsShortTableDocumentAtStableTopOrigin() {
         let scrollView = MacNativeTrackScrollView(
             frame: NSRect(x: 0, y: 0, width: 400, height: 800)
         )
-        scrollView.contentInsets = NSEdgeInsets(top: 40, left: 0, bottom: 0, right: 0)
+        scrollView.bottomContentInset = 140
         let tableView = NSTableView(frame: .zero)
         tableView.headerView = nil
         tableView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("track")))
 
         scrollView.documentView = tableView
+        scrollView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(scrollView.contentInsets.top, 0, accuracy: 0.5)
+        XCTAssertEqual(scrollView.contentInsets.bottom, 140, accuracy: 0.5)
+
         let constrainedBounds = scrollView.contentView.constrainBoundsRect(
             NSRect(x: 0, y: 0, width: 400, height: 800)
         )
-        XCTAssertEqual(constrainedBounds.origin.y, -40, accuracy: 0.5)
+        XCTAssertEqual(constrainedBounds.origin.y, 0, accuracy: 0.5)
     }
     #endif
 

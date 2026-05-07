@@ -261,7 +261,11 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         func invalidateDynamicRowHeights(in tableView: NSTableView) {
             let indexes = rows.enumerated().reduce(into: IndexSet()) { result, element in
                 switch element.element {
-                case .header, .footer, .bottomSpacer:
+                case .header:
+                    if tableView.bounds.width < EnsembleScaffold.DetailSurface.wideHeaderThreshold {
+                        result.insert(element.offset)
+                    }
+                case .footer, .bottomSpacer:
                     result.insert(element.offset)
                 case .section, .track:
                     break
@@ -269,7 +273,11 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             }
 
             if !indexes.isEmpty {
-                tableView.noteHeightOfRows(withIndexesChanged: indexes)
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0
+                    context.allowsImplicitAnimation = false
+                    tableView.noteHeightOfRows(withIndexesChanged: indexes)
+                }
             }
         }
 
@@ -427,15 +435,14 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         }
 
         private func headerHeight(for rootView: AnyView, width: CGFloat) -> CGFloat {
-            let measuredHeight = hostingHeight(for: headerRootView(rootView, width: width), width: width)
-            guard width >= EnsembleScaffold.DetailSurface.wideHeaderThreshold else {
-                return measuredHeight
-            }
-
             let wideHeaderHeight = ArtworkSize.medium.cgSize.height
                 + (EnsembleScaffold.DetailSurface.headerPadding * 2)
                 + tableHeaderExtraHeight
-            return min(measuredHeight, wideHeaderHeight)
+            guard width < EnsembleScaffold.DetailSurface.wideHeaderThreshold else {
+                return wideHeaderHeight
+            }
+
+            return hostingHeight(for: headerRootView(rootView, width: width), width: width)
         }
 
         private func headerRootView(_ rootView: AnyView, width: CGFloat) -> AnyView {
@@ -508,7 +515,7 @@ final class MacNativeTrackScrollView: NSScrollView {
 
     private func updateContentInsets() {
         let insets = NSEdgeInsets(
-            top: safeAreaInsets.top,
+            top: 0,
             left: 0,
             bottom: bottomContentInset,
             right: 0
@@ -529,11 +536,9 @@ private final class MacNativeTrackTopAlignedClipView: NSClipView {
             return bounds
         }
 
-        // NSTableView is flipped. When its document is shorter than the viewport,
-        // AppKit can allow an origin beyond the scroll view's top content inset,
-        // visually shifting the loading shell before rows arrive. Keep short
-        // tables pinned to the same top inset used by populated tables.
-        bounds.origin.y = -(enclosingScrollView?.contentInsets.top ?? 0)
+        // NSTableView is flipped. Keep short loading tables pinned to the same
+        // origin as populated tables so content does not drift as rows arrive.
+        bounds.origin.y = 0
         return bounds
     }
 }
