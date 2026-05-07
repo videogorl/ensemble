@@ -51,17 +51,29 @@ struct AlbumDetailLoader: View {
     private func loadAlbum() async {
         EnsembleLogger.debug("💿 AlbumDetailLoader: loading album \(albumId)")
         do {
-            if let cdAlbum = try await deps.libraryRepository.fetchAlbum(
+            let loadedAlbum = try await deps.libraryRepository.fetchAlbum(
                 ratingKey: albumId,
                 sourceCompositeKey: albumSourceKey
-            ) {
-                self.album = Album(from: cdAlbum)
-            }
-            self.isLoading = false
+            ).map { Album(from: $0) }
+            finishLoading(album: loadedAlbum, error: nil)
         } catch {
+            finishLoading(album: nil, error: error)
+        }
+        EnsembleLogger.debug("💿 AlbumDetailLoader: finished loading album \(albumId)")
+    }
+
+    @MainActor
+    private func finishLoading(album: Album?, error: Error?) {
+        guard !Task.isCancelled else { return }
+
+        var transaction = Transaction()
+        transaction.animation = nil
+        transaction.disablesAnimations = true
+
+        withTransaction(transaction) {
+            self.album = album
             self.error = error
             self.isLoading = false
         }
-        EnsembleLogger.debug("💿 AlbumDetailLoader: finished loading album \(albumId)")
     }
 }

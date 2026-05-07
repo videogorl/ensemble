@@ -48,6 +48,10 @@ public enum AlbumCardLayoutMetrics {
         artworkSize.cgSize.height + EnsembleScaffold.MediaCard.horizontalScrollMetadataHeight
     }
 
+    public var constrainsToArtworkWidth: Bool {
+        self == .shelf
+    }
+
     public var gridColumns: [GridItem] {
         [GridItem(.adaptive(minimum: columnMinimum, maximum: columnMaximum), spacing: gridSpacing, alignment: .top)]
     }
@@ -66,8 +70,9 @@ public struct AlbumCard: View {
         let artworkCornerRadius = ArtworkCornerRadius.square(for: layout.artworkSize)
         let artistLine = album.artistName ?? " "
         let yearLine = album.year.map(String.init) ?? " "
+        let artworkWidth = layout.artworkSize.cgSize.width
 
-        VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.contentSpacing) {
+        let cardContent = VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.contentSpacing) {
             ArtworkView(album: album, size: layout.artworkSize, cornerRadius: artworkCornerRadius, isResponsive: true)
 
             VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {
@@ -102,8 +107,18 @@ public struct AlbumCard: View {
             }
             .frame(height: EnsembleScaffold.MediaCard.metadataTextHeight, alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .multilineTextAlignment(.leading)
+
+        Group {
+            if layout.constrainsToArtworkWidth {
+                cardContent
+                    .frame(width: artworkWidth, alignment: .topLeading)
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                cardContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
         #if !os(watchOS)
         .onDrag {
             MediaDragExportPolicy.itemProvider(for: MediaDragPayload.album(album))

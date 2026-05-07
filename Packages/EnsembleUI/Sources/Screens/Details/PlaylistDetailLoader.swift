@@ -50,14 +50,26 @@ struct PlaylistDetailLoader: View {
     @MainActor
     private func loadPlaylist() async {
         do {
-            if let cdPlaylist = try await deps.playlistRepository.fetchPlaylist(
+            let loadedPlaylist = try await deps.playlistRepository.fetchPlaylist(
                 ratingKey: playlistId,
                 sourceCompositeKey: playlistSourceKey
-            ) {
-                self.playlist = Playlist(from: cdPlaylist)
-            }
-            self.isLoading = false
+            ).map { Playlist(from: $0) }
+            finishLoading(playlist: loadedPlaylist, error: nil)
         } catch {
+            finishLoading(playlist: nil, error: error)
+        }
+    }
+
+    @MainActor
+    private func finishLoading(playlist: Playlist?, error: Error?) {
+        guard !Task.isCancelled else { return }
+
+        var transaction = Transaction()
+        transaction.animation = nil
+        transaction.disablesAnimations = true
+
+        withTransaction(transaction) {
+            self.playlist = playlist
             self.error = error
             self.isLoading = false
         }
