@@ -233,7 +233,7 @@ public final class OfflineDownloadService: ObservableObject {
                 await sidecarAnalysisQueue.enqueue(sourceURL: sourceURL, sidecarURL: sidecarURL)
             },
             scheduleDownloadsChanged: { [weak self] in
-                self?.scheduleDownloadChangeNotification()
+                self?.notificationBridge.scheduleDownloadsChanged()
             }
         )
     )
@@ -1388,14 +1388,6 @@ public final class OfflineDownloadService: ObservableObject {
         EnsembleLogger.debug(
             "📦 Offline download recovery sweep finished reason=\(reason.logDescription) resume=\(resumeEligibleWork) recoveredStatus=\(recoveredStatus.rawValue)"
         )
-    }
-
-    /// Schedules a debounced `downloadsDidChange` notification so detail views
-    /// re-fetch tracks after individual downloads complete without flooding during
-    /// bulk queue processing. Refreshes the view context first so managed objects
-    /// reflect the latest background-context saves (e.g. CDTrack.localFilePath).
-    private func scheduleDownloadChangeNotification() {
-        notificationBridge.scheduleDownloadsChanged()
     }
 
     private func observeNetworkState() {
