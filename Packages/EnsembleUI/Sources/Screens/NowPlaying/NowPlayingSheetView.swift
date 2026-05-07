@@ -4,12 +4,15 @@ import SwiftUI
 /// Main sheet container for iPhone-style Now Playing presentation.
 /// Large-screen viewport presentation lives in `NowPlayingViewportRoot`.
 public struct NowPlayingSheetView: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    let viewModel: NowPlayingViewModel
+    @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
+    @ObservedObject private var artworkProjection: NowPlayingArtworkProjection
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @State private var dismissDragOffset: CGFloat = 0
+    @State private var currentPage: Int
 
     private let namespace: Namespace.ID?
     private let animationID: String?
@@ -30,6 +33,9 @@ public struct NowPlayingSheetView: View {
         dismissAction: (() -> Void)? = nil
     ) {
         self.viewModel = viewModel
+        self._playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
+        self._artworkProjection = ObservedObject(wrappedValue: viewModel.artworkProjection)
+        self._currentPage = State(initialValue: viewModel.currentPage)
         self.namespace = namespace
         self.animationID = animationID
         self.dismissAction = dismissAction
@@ -53,13 +59,26 @@ public struct NowPlayingSheetView: View {
                     if usesWideNowPlayingLayout(for: geometry.size) {
                         wideLayout(for: geometry)
                     } else {
-                        NowPlayingCarousel(viewModel: viewModel, currentPage: $viewModel.currentPage)
+                        NowPlayingCarousel(viewModel: viewModel, currentPage: currentPageBinding)
                     }
                 }
             }
         }
+        .onAppear {
+            currentPage = viewModel.currentPage
+        }
         .offset(y: dismissDragOffset)
         .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.86), value: dismissDragOffset)
+    }
+
+    private var currentPageBinding: Binding<Int> {
+        Binding(
+            get: { currentPage },
+            set: { newValue in
+                currentPage = newValue
+                viewModel.currentPage = newValue
+            }
+        )
     }
 
     private var backgroundView: some View {
@@ -76,11 +95,11 @@ public struct NowPlayingSheetView: View {
 
         return ZStack {
             BlurredArtworkBackground(
-                image: viewModel.artworkImage,
-                preBlurredImage: viewModel.blurredArtworkImage,
+                image: artworkProjection.artworkImage,
+                preBlurredImage: artworkProjection.blurredArtworkImage,
                 overlayColor: colorScheme == .dark ? .black : lightOverlayColor
             )
-            .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
+            .animation(.easeInOut(duration: 0.8), value: artworkProjection.artworkImage)
 
             if colorScheme == .dark {
                 Color.black.opacity(EnsembleScaffold.NowPlaying.backgroundDarkOverlayOpacity)
@@ -128,7 +147,7 @@ public struct NowPlayingSheetView: View {
             wideHeader
 
             HStack(alignment: .top, spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
-                ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+                ControlsCard(viewModel: viewModel, currentPage: currentPageBinding)
                     .frame(width: panelWidth(for: geometry))
                     .frame(maxHeight: .infinity, alignment: .topLeading)
 
@@ -145,11 +164,11 @@ public struct NowPlayingSheetView: View {
     private var wideHeader: some View {
         HStack(alignment: .center, spacing: EnsembleScaffold.NowPlaying.sectionTopPadding) {
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                Text(viewModel.currentTrack?.title ?? "Now Playing")
+                Text(playbackProjection.currentTrack?.title ?? "Now Playing")
                     .font(EnsembleDesign.Typography.detailSubtitle.weight(.semibold))
                     .lineLimit(1)
 
-                if let artist = viewModel.currentTrack?.artistName, !artist.isEmpty {
+                if let artist = playbackProjection.currentTrack?.artistName, !artist.isEmpty {
                     Text(artist)
                         .font(EnsembleDesign.Typography.stateMessage)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
@@ -173,28 +192,28 @@ public struct NowPlayingSheetView: View {
     private var widePanelSelection: Binding<Int> {
         Binding(
             get: {
-                if viewModel.currentPage == 3 { return 3 }
-                if viewModel.currentPage == 2 { return 2 }
+                if currentPage == 3 { return 3 }
+                if currentPage == 2 { return 2 }
                 return 0
             },
             set: { newValue in
-                viewModel.currentPage = newValue
+                currentPageBinding.wrappedValue = newValue
             }
         )
     }
 
     @ViewBuilder
     private var wideDetailPanel: some View {
-        if viewModel.currentPage == 3 {
-            InfoCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
-        } else if viewModel.currentPage == 2 {
+        if currentPage == 3 {
+            InfoCard(viewModel: viewModel, currentPage: currentPageBinding)
+        } else if currentPage == 2 {
             LyricsCard(
                 viewModel: viewModel,
-                currentPage: $viewModel.currentPage,
+                currentPage: currentPageBinding,
                 isLowPowerMode: powerStateMonitor.isLowPowerMode
             )
         } else {
-            QueueCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+            QueueCard(viewModel: viewModel, currentPage: currentPageBinding)
         }
     }
 

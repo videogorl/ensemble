@@ -92,11 +92,11 @@ public final class NowPlayingViewModel: ObservableObject {
     public var waveformHeightsPublisher: AnyPublisher<[Double], Never> {
         _waveformHeights.eraseToAnyPublisher()
     }
-    // Playback progress is high-frequency like waveform heights. Keep it out of
-    // @Published so scrubbers can animate without invalidating every NP panel.
-    private let _progress = CurrentValueSubject<Double, Never>(0)
+    // Playback progress is high-frequency like waveform heights. The published
+    // stream is forwarded through playbackProjection so Now Playing surfaces share
+    // one progress subject instead of duplicating every display tick.
     public var progressPublisher: AnyPublisher<Double, Never> {
-        _progress.eraseToAnyPublisher()
+        playbackProjection.progressPublisher
     }
     @Published public var currentRating: TrackRating = .none
     @Published public private(set) var isAutoplayEnabled = false
@@ -109,6 +109,9 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public var currentPage: Int = 1
     @Published public private(set) var isPlaylistMutationInProgress = false
     @Published public var lastPlaylistTarget: LastPlaylistTarget?
+    public var lastPlaylistTargetPublisher: AnyPublisher<LastPlaylistTarget?, Never> {
+        $lastPlaylistTarget.eraseToAnyPublisher()
+    }
     @Published public private(set) var artworkImage: PlatformImage?
     /// Pre-rendered blurred artwork for NP background — avoids live .blur(80) +
     /// .contrast(2.0) + .saturation(1.9) + .brightness(-0.05) on every body eval.
@@ -610,7 +613,6 @@ public final class NowPlayingViewModel: ObservableObject {
 
     private func publishPlaybackProjectionSnapshot() {
         let latestProgress = progress
-        _progress.send(latestProgress)
         playbackProjection.updateDuration(scrubberDuration)
         playbackProjection.updateProgress(
             latestProgress,

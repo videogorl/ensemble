@@ -209,7 +209,6 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     private let minFrequency: Double = 60.0
     private let maxFrequency: Double = 16000.0
     private let highTargetFPS: Double = 30.0
-    private let lowTargetFPS: Double = 15.0
 
     // MARK: - Display State
 
@@ -485,15 +484,10 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     private var desiredDisplayFPS: Double? {
         guard !visibleVisualizationConsumers.isEmpty else { return nil }
 
-        // Now Playing/root visual surfaces are presentational ambience; publishing
-        // bands at 15fps halves main-runloop churn while the render surfaces still
-        // interpolate visually. StageFlow/external displays keep the higher cadence.
-        if visibleVisualizationConsumers.contains(.stageFlow)
-            || visibleVisualizationConsumers.contains(.externalDisplay) {
-            return highTargetFPS
-        }
-
-        return lowTargetFPS
+        // Keep Aurora visually responsive at 30Hz. Main-thread pressure is managed
+        // by coalescing no-op band publishes and moving surface shaping off the
+        // SwiftUI receive path, not by reducing the visualizer cadence.
+        return highTargetFPS
     }
 
     private func updateDisplayTimerState(trigger: String) {

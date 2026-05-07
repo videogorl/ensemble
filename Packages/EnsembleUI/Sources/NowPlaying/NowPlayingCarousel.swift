@@ -4,8 +4,9 @@ import SwiftUI
 /// Horizontal paging carousel managing four cards: Queue, Controls, Lyrics, Info
 /// Opens to Controls by default
 public struct NowPlayingCarousel: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    let viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
+    @ObservedObject private var lyricsProjection: NowPlayingLyricsProjection
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
 
     // Track previous page for haptic feedback
@@ -14,6 +15,7 @@ public struct NowPlayingCarousel: View {
     public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
         self.viewModel = viewModel
         self._currentPage = currentPage
+        self._lyricsProjection = ObservedObject(wrappedValue: viewModel.lyricsProjection)
     }
 
     public var body: some View {
@@ -46,7 +48,7 @@ public struct NowPlayingCarousel: View {
             // Fixed page indicator overlay — lyrics icon reflects availability
             PageIndicator(
                 currentPage: $currentPage,
-                lyricsAvailable: viewModel.lyricsState.isAvailable
+                lyricsAvailable: lyricsProjection.lyricsState.isAvailable
             )
             .padding(.vertical, EnsembleScaffold.NowPlaying.PageIndicator.verticalPadding)
         }

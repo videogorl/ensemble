@@ -8,8 +8,10 @@ import UIKit
 /// Center card displaying artwork, scrubber, playback controls, and secondary controls
 /// Extracts and refines existing NowPlayingView controls into standalone card
 public struct ControlsCard: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    let viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
+    @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
+    @ObservedObject private var ratingProjection: NowPlayingRatingProjection
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
@@ -35,6 +37,10 @@ public struct ControlsCard: View {
     // objectWillChange at ~10Hz which would re-evaluate all 4 NP cards.
     @State private var waveformHeights: [Double] = []
     @State private var playbackProgress: Double = 0
+    @State private var bufferedProgress: Double = 0
+    @State private var playbackCurrentTime: TimeInterval = 0
+    @State private var playbackDuration: TimeInterval = 0
+    @State private var lastPlaylistTargetID: String?
     
     private let namespace: Namespace.ID?
     private let animationID: String?
@@ -47,13 +53,15 @@ public struct ControlsCard: View {
     ) {
         self.viewModel = viewModel
         self._currentPage = currentPage
+        self._playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
+        self._ratingProjection = ObservedObject(wrappedValue: viewModel.ratingProjection)
         self.namespace = namespace
         self.animationID = animationID
     }
     
     public var body: some View {
         GeometryReader { geometry in
-            if let track = viewModel.currentTrack {
+            if let track = playbackProjection.currentTrack {
                 contentView(track: track, geometry: geometry)
             } else {
                 emptyStateView(geometry: geometry)
@@ -64,20 +72,37 @@ public struct ControlsCard: View {
             await refreshLastPlaylistQuickTarget()
         }
         .onAppear {
-            playbackProgress = viewModel.progress
+            waveformHeights = playbackProjection.waveformHeights
+            playbackProgress = playbackProjection.progress
+            bufferedProgress = playbackProjection.bufferedProgress
+            playbackCurrentTime = playbackProjection.currentTime
+            playbackDuration = playbackProjection.scrubberDuration
+            lastPlaylistTargetID = viewModel.lastPlaylistTarget?.id
         }
-        .onChange(of: viewModel.currentTrack?.id) { _ in
+        .onChange(of: playbackProjection.currentTrack?.id) { _ in
             Task { @MainActor in await refreshLastPlaylistQuickTarget() }
         }
-        .onChange(of: viewModel.lastPlaylistTarget?.id) { _ in
+        .onReceive(viewModel.lastPlaylistTargetPublisher) { target in
+            let targetID = target?.id
+            guard targetID != lastPlaylistTargetID else { return }
+            lastPlaylistTargetID = targetID
             Task { @MainActor in await refreshLastPlaylistQuickTarget() }
         }
-        .onReceive(viewModel.waveformHeightsPublisher) { heights in
+        .onReceive(playbackProjection.waveformPublisher) { heights in
             waveformHeights = heights
         }
-        .onReceive(viewModel.progressPublisher) { progress in
+        .onReceive(playbackProjection.progressPublisher) { progress in
             guard !isDraggingSlider else { return }
             playbackProgress = progress
+        }
+        .onReceive(playbackProjection.bufferedProgressPublisher) { progress in
+            bufferedProgress = progress
+        }
+        .onReceive(playbackProjection.currentTimePublisher) { time in
+            playbackCurrentTime = time
+        }
+        .onReceive(playbackProjection.durationPublisher) { duration in
+            playbackDuration = duration
         }
     }
     
@@ -231,95 +256,96 @@ public struct ControlsCard: View {
     // MARK: - Progress View / Scrubber
     
     private func progressView(track: Track) -> some View {
-        // Single TimelineView replaces 3 individual ones (waveform + 2 time labels).
-        // On a dual-core A9, this reduces timer wake-ups from 3 to 1 per 0.5s tick.
-        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-            VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        waveformContent(track: track, width: geometry.size.width)
+        VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    waveformContent(track: track, width: geometry.size.width)
 
-                        Color.clear
-                            .contentShape(Rectangle())
-                    }
-                    .frame(height: EnsembleScaffold.NowPlaying.scrubberHeight)
-                    .clipped()
-                    .onAppear {
-                        sliderWidth = geometry.size.width
-                    }
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                if !isDraggingSlider {
-                                    isDraggingSlider = true
-                                    sliderWidth = geometry.size.width
-                                    dragStartY = value.location.y
-                                    dragStartX = value.location.x
-                                    lastDragX = value.location.x
-                                    initialProgress = max(0, min(1, value.location.x / sliderWidth))
-                                    localProgress = initialProgress
-                                }
-
-                                currentDragY = value.location.y
-                                let verticalDistance = abs(currentDragY - dragStartY)
-                                let scrubRate = getScrubRate(verticalDistance: verticalDistance)
-
-                                if scrubRate != lastScrubRate {
-                                    #if os(iOS)
-                                    UISelectionFeedbackGenerator().selectionChanged()
-                                    #endif
-                                    lastScrubRate = scrubRate
-                                }
-
-                                let deltaX = value.location.x - lastDragX
-                                let progressChange = (deltaX / sliderWidth) * scrubRate
-                                localProgress = max(0, min(1, localProgress + progressChange))
-                                lastDragX = value.location.x
-
-                                // Update visualizer in real-time during scrubber drag
-                                viewModel.updateVisualizerPosition(localProgress)
-                            }
-                            .onEnded { _ in
-                                viewModel.seekToProgress(localProgress)
-                                isDraggingSlider = false
-                            }
-                    )
+                    Color.clear
+                        .contentShape(Rectangle())
                 }
                 .frame(height: EnsembleScaffold.NowPlaying.scrubberHeight)
-
-                HStack {
-                    Group {
-                        if isDraggingSlider {
-                            Text(MediaFormatters.trackClock(localProgress * viewModel.scrubberDuration))
-                        } else {
-                            Text(viewModel.formattedCurrentTime)
-                        }
-                    }
-                    .font(EnsembleDesign.Typography.rowSecondary)
-                    .monospacedDigit()
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-
-                    Spacer()
-
-                    if isDraggingSlider {
-                        scrubIndicator
-                    }
-
-                    Spacer()
-
-                    Group {
-                        if isDraggingSlider {
-                            Text(MediaFormatters.trackClock((1 - localProgress) * viewModel.scrubberDuration))
-                        } else {
-                            Text(viewModel.formattedRemainingTime)
-                        }
-                    }
-                    .font(EnsembleDesign.Typography.rowSecondary)
-                    .monospacedDigit()
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+                .clipped()
+                .onAppear {
+                    sliderWidth = geometry.size.width
                 }
+                .gesture(scrubberGesture(width: geometry.size.width))
+            }
+            .frame(height: EnsembleScaffold.NowPlaying.scrubberHeight)
+
+            HStack {
+                Group {
+                    if isDraggingSlider {
+                        Text(MediaFormatters.trackClock(localProgress * displayDuration))
+                    } else {
+                        Text(MediaFormatters.trackClock(playbackCurrentTime))
+                    }
+                }
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .monospacedDigit()
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+
+                Spacer()
+
+                if isDraggingSlider {
+                    scrubIndicator
+                }
+
+                Spacer()
+
+                Group {
+                    if isDraggingSlider {
+                        Text(MediaFormatters.trackClock((1 - localProgress) * displayDuration))
+                    } else {
+                        Text(MediaFormatters.negativeTrackClock(max(0, displayDuration - playbackCurrentTime)))
+                    }
+                }
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .monospacedDigit()
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
+    }
+
+    private var displayDuration: TimeInterval {
+        max(0, playbackDuration)
+    }
+
+    private func scrubberGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if !isDraggingSlider {
+                    isDraggingSlider = true
+                    sliderWidth = width
+                    dragStartY = value.location.y
+                    dragStartX = value.location.x
+                    lastDragX = value.location.x
+                    initialProgress = max(0, min(1, value.location.x / sliderWidth))
+                    localProgress = initialProgress
+                }
+
+                currentDragY = value.location.y
+                let verticalDistance = abs(currentDragY - dragStartY)
+                let scrubRate = getScrubRate(verticalDistance: verticalDistance)
+
+                if scrubRate != lastScrubRate {
+                    #if os(iOS)
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    #endif
+                    lastScrubRate = scrubRate
+                }
+
+                let deltaX = value.location.x - lastDragX
+                let progressChange = (deltaX / sliderWidth) * scrubRate
+                localProgress = max(0, min(1, localProgress + progressChange))
+                lastDragX = value.location.x
+
+                viewModel.updateVisualizerPosition(localProgress)
+            }
+            .onEnded { _ in
+                viewModel.seekToProgress(localProgress)
+                isDraggingSlider = false
+            }
     }
 
     // Extracted waveform builder for readability
@@ -327,7 +353,7 @@ public struct ControlsCard: View {
     private func waveformContent(track: Track, width: CGFloat) -> some View {
         let waveform = WaveformView(
             progress: isDraggingSlider ? localProgress : playbackProgress,
-            bufferedProgress: viewModel.bufferedProgress,
+            bufferedProgress: bufferedProgress,
             color: EnsembleDesign.Color.primaryText,
             heights: waveformHeights
         )
@@ -394,22 +420,22 @@ public struct ControlsCard: View {
                     } else {
                         // During loading/buffering, hold the last settled icon to prevent
                         // the pause→play flicker when skipping tracks
-                        let showPause = viewModel.isPlaying ||
-                            ((viewModel.playbackState == .loading || viewModel.playbackState == .buffering) && wasPlayingBeforeTransition)
+                        let showPause = playbackProjection.isPlaying ||
+                            ((playbackProjection.playbackState == .loading || playbackProjection.playbackState == .buffering) && wasPlayingBeforeTransition)
                         Image(systemName: showPause ? EnsembleDesign.Icon.pauseCircleFilled : EnsembleDesign.Icon.playCircleFilled)
                             .font(.system(size: EnsembleScaffold.NowPlaying.playPauseControlIconSize))
                     }
                 }
             }
-            .disabled(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable)
-            .opacity(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable ? 0.4 : 1.0)
+            .disabled(!playbackProjection.isPlaying && !playbackProjection.isCurrentTrackPlayable)
+            .opacity(!playbackProjection.isPlaying && !playbackProjection.isCurrentTrackPlayable ? 0.4 : 1.0)
             .onAppear {
                 // Sync loading indicator with current state when the view mounts.
                 // onChange only fires on *subsequent* changes — if the NPV opens
                 // while state is already .loading, onChange never fires and the
                 // spinner never shows. The mini player doesn't have this problem
                 // because it checks playbackState directly in its body.
-                let state = viewModel.playbackState
+                let state = playbackProjection.playbackState
                 let isLoading = state == .loading || state == .buffering
                 if isLoading {
                     loadingDelayTask?.cancel()
@@ -423,7 +449,7 @@ public struct ControlsCard: View {
                     wasPlayingBeforeTransition = true
                 }
             }
-            .onChange(of: viewModel.playbackState) { newState in
+            .onChange(of: playbackProjection.playbackState) { newState in
                 let isLoading = newState == .loading || newState == .buffering
                 if isLoading {
                     // Debounce the loading indicator to avoid flicker during fast track skips
@@ -466,14 +492,14 @@ public struct ControlsCard: View {
             
             // Favorite toggle (heart)
             Button(action: viewModel.toggleRating) {
-                Image(systemName: viewModel.currentRating.icon)
+                Image(systemName: ratingProjection.currentRating.icon)
                     .font(EnsembleDesign.Typography.detailSubtitle)
-                    .foregroundColor(viewModel.currentRating == .none ? EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity) : EnsembleDesign.Color.accent)
+                    .foregroundColor(ratingProjection.currentRating == .none ? EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity) : EnsembleDesign.Color.accent)
             }
             
             // Add to Playlist
             Button {
-                if let currentTrack = viewModel.currentTrack {
+                if let currentTrack = playbackProjection.currentTrack {
                     playlistActionRequest = PlaylistActionPresentationHost.request(
                         for: [currentTrack],
                         title: "Add to Playlist"
@@ -487,7 +513,7 @@ public struct ControlsCard: View {
             
             // More menu with navigation, sharing, and quick add
             Menu {
-                if let currentTrack = viewModel.currentTrack {
+                if let currentTrack = playbackProjection.currentTrack {
                     Section {
                         if currentTrack.albumRatingKey != nil {
                             Button {
@@ -508,7 +534,7 @@ public struct ControlsCard: View {
                 }
 
                 // Share actions
-                if let currentTrack = viewModel.currentTrack {
+                if let currentTrack = playbackProjection.currentTrack {
                     Section {
                         Button {
                             ShareActions.shareTrackLink(currentTrack, deps: deps)
@@ -524,7 +550,7 @@ public struct ControlsCard: View {
                     }
                 }
 
-                if let currentTrack = viewModel.currentTrack,
+                if let currentTrack = playbackProjection.currentTrack,
                    let recentTitle = PlaylistActionPresentationHost.recentPlaylistTitle(
                        for: [currentTrack],
                        target: lastPlaylistQuickTarget,
@@ -583,7 +609,7 @@ public struct ControlsCard: View {
     
     @MainActor
     private func refreshLastPlaylistQuickTarget() async {
-        guard let currentTrack = viewModel.currentTrack else {
+        guard let currentTrack = playbackProjection.currentTrack else {
             lastPlaylistQuickTarget = nil
             return
         }

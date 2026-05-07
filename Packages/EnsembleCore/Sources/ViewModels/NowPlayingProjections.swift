@@ -27,6 +27,10 @@ public final class NowPlayingPlaybackProjection: ObservableObject {
         currentTimeSubject.eraseToAnyPublisher()
     }
 
+    public var durationPublisher: AnyPublisher<TimeInterval, Never> {
+        $duration.eraseToAnyPublisher()
+    }
+
     public var waveformPublisher: AnyPublisher<[Double], Never> {
         waveformSubject.eraseToAnyPublisher()
     }
