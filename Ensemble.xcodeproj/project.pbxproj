@@ -12,6 +12,10 @@
 		E0001051 /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001050 /* AppLogger.swift */; };
 		E0001003 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001002 /* AppDelegate.swift */; };
 		E0001041 /* AppDelegate+LaunchPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001040 /* AppDelegate+LaunchPipeline.swift */; };
+		E0001053 /* AppDelegate+LaunchTasks.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001052 /* AppDelegate+LaunchTasks.swift */; };
+		E0001055 /* AppDelegate+RemoteNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001054 /* AppDelegate+RemoteNotifications.swift */; };
+		E0001057 /* AppDelegate+SiriAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001056 /* AppDelegate+SiriAuthorization.swift */; };
+		E0001059 /* AppDelegate+BackgroundURLSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001058 /* AppDelegate+BackgroundURLSession.swift */; };
 		E0001043 /* AppDelegate+Siri.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001042 /* AppDelegate+Siri.swift */; };
 		E0001045 /* AppDelegate+SceneOrientation.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001044 /* AppDelegate+SceneOrientation.swift */; };
 		E0001047 /* SpaceBarPlaybackShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001046 /* SpaceBarPlaybackShortcut.swift */; };
@@ -70,6 +74,10 @@
 		E0001050 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 		E0001002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		E0001040 /* AppDelegate+LaunchPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+LaunchPipeline.swift"; sourceTree = "<group>"; };
+		E0001052 /* AppDelegate+LaunchTasks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+LaunchTasks.swift"; sourceTree = "<group>"; };
+		E0001054 /* AppDelegate+RemoteNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+RemoteNotifications.swift"; sourceTree = "<group>"; };
+		E0001056 /* AppDelegate+SiriAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+SiriAuthorization.swift"; sourceTree = "<group>"; };
+		E0001058 /* AppDelegate+BackgroundURLSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+BackgroundURLSession.swift"; sourceTree = "<group>"; };
 		E0001042 /* AppDelegate+Siri.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+Siri.swift"; sourceTree = "<group>"; };
 		E0001044 /* AppDelegate+SceneOrientation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+SceneOrientation.swift"; sourceTree = "<group>"; };
 		E0001046 /* SpaceBarPlaybackShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceBarPlaybackShortcut.swift; sourceTree = "<group>"; };
@@ -207,6 +215,10 @@
 				E0001050 /* AppLogger.swift */,
 				E0001002 /* AppDelegate.swift */,
 				E0001040 /* AppDelegate+LaunchPipeline.swift */,
+				E0001052 /* AppDelegate+LaunchTasks.swift */,
+				E0001054 /* AppDelegate+RemoteNotifications.swift */,
+				E0001056 /* AppDelegate+SiriAuthorization.swift */,
+				E0001058 /* AppDelegate+BackgroundURLSession.swift */,
 				E0001042 /* AppDelegate+Siri.swift */,
 				E0001044 /* AppDelegate+SceneOrientation.swift */,
 				E0001046 /* SpaceBarPlaybackShortcut.swift */,
@@ -453,6 +465,10 @@
 				E0001051 /* AppLogger.swift in Sources */,
 				E0001003 /* AppDelegate.swift in Sources */,
 				E0001041 /* AppDelegate+LaunchPipeline.swift in Sources */,
+				E0001053 /* AppDelegate+LaunchTasks.swift in Sources */,
+				E0001055 /* AppDelegate+RemoteNotifications.swift in Sources */,
+				E0001057 /* AppDelegate+SiriAuthorization.swift in Sources */,
+				E0001059 /* AppDelegate+BackgroundURLSession.swift in Sources */,
 				E0001043 /* AppDelegate+Siri.swift in Sources */,
 				E0001045 /* AppDelegate+SceneOrientation.swift in Sources */,
 				E0001047 /* SpaceBarPlaybackShortcut.swift in Sources */,

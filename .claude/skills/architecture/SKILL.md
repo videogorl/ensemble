@@ -538,7 +538,7 @@ PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (
 ```
 
 **App Lifecycle:**
-- iOS launch delegate ownership is file-split: `AppDelegate.swift` stores shared delegate state, `AppDelegate+LaunchPipeline.swift` owns cold-launch bootstrap, `AppDelegate+Siri.swift` owns Siri payload bridging, `AppDelegate+SceneOrientation.swift` owns scene routing/orientation/background URLSession handoff, and `SpaceBarPlaybackShortcut.swift` owns the hardware keyboard playback shortcut.
+- iOS launch delegate ownership is file-split: `AppDelegate.swift` stores shared delegate state, `AppDelegate+LaunchPipeline.swift` owns cold-launch setup, `AppDelegate+LaunchTasks.swift` owns startup task sequencing, `AppDelegate+RemoteNotifications.swift` owns CloudKit silent-push callbacks, `AppDelegate+SiriAuthorization.swift` owns Siri authorization, `AppDelegate+BackgroundURLSession.swift` owns offline background URLSession wakeups, `AppDelegate+Siri.swift` owns Siri payload bridging, `AppDelegate+SceneOrientation.swift` owns scene routing/orientation, and `SpaceBarPlaybackShortcut.swift` owns the hardware keyboard playback shortcut.
 - iOS: Network monitor starts during the AppDelegate launch pipeline, then foreground/background restart/stop policy is owned by `EnsembleApp.handleScenePhaseChange`.
 - iOS: WebSocket connections start after launch health checks, then foreground/background restart/stop policy is owned by `EnsembleApp.handleScenePhaseChange`.
 - Foreground network-health recovery routes through `SyncCoordinator.handleAppWillEnterForeground()` to avoid duplicate immediate + monitor-triggered checks
@@ -567,7 +567,7 @@ PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (
 
 - **Ensemble** (`Ensemble/Ensemble/`) -- iOS/iPadOS/macOS
   - `EnsembleApp.swift` -- Scene-based lifecycle with environment injection
-  - `AppDelegate.swift` + `AppDelegate+*.swift` (iOS) -- Split UIApplicationDelegate ownership for launch sequencing, Siri bridge events, scene/orientation policy, background URLSession handoff, and shared delegate state
+  - `AppDelegate.swift` + `AppDelegate+*.swift` (iOS) -- Split UIApplicationDelegate ownership for launch setup, startup task sequencing, Siri bridge events, Siri authorization, remote notifications, scene/orientation policy, background URLSession handoff, and shared delegate state
 
 - **EnsembleWatch** (`Ensemble/EnsembleWatch/`) -- watchOS
   - `WatchRootView.swift` -- Standalone watch shell. The target intentionally does not link full `EnsembleCore`; a real companion app should use a watch-specific bridge/product instead of importing the iOS playback/dependency graph.

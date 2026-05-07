@@ -40,7 +40,11 @@ ensemble/
 |   |   +-- EnsembleApp.swift     # App entry point
 |   |   +-- AppLogger.swift       # App-target structured logger + persistent session redaction bridge
 |   |   +-- AppDelegate.swift     # iOS delegate state shared by app lifecycle extensions
-|   |   +-- AppDelegate+LaunchPipeline.swift # iOS launch bootstrap, remote notifications, startup health/playback/sync sequencing
+|   |   +-- AppDelegate+LaunchPipeline.swift # iOS launch bootstrap setup and lifecycle task registration
+|   |   +-- AppDelegate+LaunchTasks.swift # Startup health/playback/Siri/WebSocket/sync/diagnostics task sequencing
+|   |   +-- AppDelegate+RemoteNotifications.swift # CloudKit silent push registration and remote-notification handling
+|   |   +-- AppDelegate+SiriAuthorization.swift # Siri authorization prompt/status handling
+|   |   +-- AppDelegate+BackgroundURLSession.swift # Background URLSession wakeup handoff for offline downloads
 |   |   +-- AppDelegate+Siri.swift # Siri intent/user-activity bridge and in-app playback execution
 |   |   +-- AppDelegate+SceneOrientation.swift # Background URLSession handoff, scene routing, StageFlow orientation policy
 |   |   +-- SpaceBarPlaybackShortcut.swift # iOS hardware keyboard space-bar playback shortcut
