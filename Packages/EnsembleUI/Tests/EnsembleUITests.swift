@@ -193,6 +193,22 @@ final class EnsembleUITests: XCTestCase {
         let jsonDecoded = try JSONDecoder().decode(MediaDragPayload.self, from: jsonData)
         XCTAssertEqual(jsonDecoded, expected)
     }
+
+    func testMacNativeTrackScrollViewPinsShortTableDocumentToTopInset() {
+        let scrollView = MacNativeTrackScrollView(
+            frame: NSRect(x: 0, y: 0, width: 400, height: 800)
+        )
+        scrollView.contentInsets = NSEdgeInsets(top: 40, left: 0, bottom: 0, right: 0)
+        let tableView = NSTableView(frame: .zero)
+        tableView.headerView = nil
+        tableView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("track")))
+
+        scrollView.documentView = tableView
+        let constrainedBounds = scrollView.contentView.constrainBoundsRect(
+            NSRect(x: 0, y: 0, width: 400, height: 800)
+        )
+        XCTAssertEqual(constrainedBounds.origin.y, -40, accuracy: 0.5)
+    }
     #endif
 
     func testArtworkSizeValues() {

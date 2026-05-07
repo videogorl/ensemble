@@ -478,16 +478,32 @@ private final class MacNativeContextMenuTableView: NSTableView {
     }
 }
 
-private final class MacNativeTrackScrollView: NSScrollView {
+final class MacNativeTrackScrollView: NSScrollView {
     var bottomContentInset: CGFloat = 0 {
         didSet {
             updateContentInsets()
         }
     }
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        installTopAlignedClipView()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        installTopAlignedClipView()
+    }
+
     override func layout() {
         super.layout()
         updateContentInsets()
+    }
+
+    private func installTopAlignedClipView() {
+        let clipView = MacNativeTrackTopAlignedClipView(frame: contentView.frame)
+        clipView.drawsBackground = contentView.drawsBackground
+        contentView = clipView
     }
 
     private func updateContentInsets() {
@@ -501,6 +517,24 @@ private final class MacNativeTrackScrollView: NSScrollView {
             contentInsets = insets
         }
         scrollerInsets = NSEdgeInsetsZero
+    }
+}
+
+private final class MacNativeTrackTopAlignedClipView: NSClipView {
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+        var bounds = super.constrainBoundsRect(proposedBounds)
+        guard let documentView,
+              documentView.isFlipped,
+              documentView.frame.height <= bounds.height else {
+            return bounds
+        }
+
+        // NSTableView is flipped. When its document is shorter than the viewport,
+        // AppKit can allow an origin beyond the scroll view's top content inset,
+        // visually shifting the loading shell before rows arrive. Keep short
+        // tables pinned to the same top inset used by populated tables.
+        bounds.origin.y = -(enclosingScrollView?.contentInsets.top ?? 0)
+        return bounds
     }
 }
 
