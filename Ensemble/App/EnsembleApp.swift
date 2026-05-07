@@ -1,5 +1,6 @@
 import EnsembleCore
 import EnsembleUI
+import Foundation
 import Intents
 import os
 import OSLog
@@ -15,6 +16,12 @@ import BackgroundTasks
 /// session sink used for TestFlight diagnostics.
 enum AppLogger {
     private static let logger = Logger(subsystem: "com.videogorl.ensemble", category: "app")
+    private static let sensitiveNames = [
+        "X-Plex-Token",
+        "accessToken",
+        "authToken",
+        "rawToken"
+    ]
 
     /// Closure wired by PersistentLogService to receive log entries for file writing.
     static var fileLogHandler: ((String, String, String) -> Void)?
@@ -22,9 +29,39 @@ enum AppLogger {
     private static let category = "app"
 
     static func debug(_ message: @autoclosure () -> String) {
-        let msg = message()
+        let msg = redactSensitiveValues(in: message())
         logger.debug("\(msg, privacy: .public)")
         fileLogHandler?("DEBUG", category, msg)
+    }
+
+    static func info(_ message: @autoclosure () -> String) {
+        let msg = redactSensitiveValues(in: message())
+        logger.info("\(msg, privacy: .public)")
+        fileLogHandler?("INFO", category, msg)
+    }
+
+    private static func redactSensitiveValues(in message: String) -> String {
+        sensitiveNames.reduce(message) { partial, name in
+            redactValue(named: name, in: partial)
+        }
+    }
+
+    private static func redactValue(named name: String, in message: String) -> String {
+        let escapedName = NSRegularExpression.escapedPattern(for: name)
+        let plainPattern = #"(?i)(\b\#(escapedName)\s*[:=]\s*)[^&\s,\)\]\}>]+"#
+        let encodedPattern = #"(?i)(\b\#(escapedName)%3D)[^%&\s,\)\]\}>]+"#
+
+        return message
+            .replacingOccurrences(
+                of: plainPattern,
+                with: "$1<redacted>",
+                options: .regularExpression
+            )
+            .replacingOccurrences(
+                of: encodedPattern,
+                with: "$1<redacted>",
+                options: .regularExpression
+            )
     }
 }
 
@@ -55,10 +92,10 @@ struct EnsembleApp: App {
                 .environment(\.dependencies, DependencyContainer.shared)
                 .installGlobalToastWindow(toastCenter: DependencyContainer.shared.toastCenter)
                 .onAppear {
-                    os_log(.info, "SIRI_APP: RootView.onAppear - app UI is visible")
+                    AppLogger.info("SIRI_APP: RootView.onAppear - app UI is visible")
                 }
                 .onOpenURL { url in
-                    os_log(.info, "SIRI_APP: onOpenURL called with: %{public}@", url.absoluteString)
+                    AppLogger.info("SIRI_APP: onOpenURL called with: \(url.absoluteString)")
                     _ = DependencyContainer.shared.navigationCoordinator.handleDeepLink(url)
                 }
                 .onContinueUserActivity(SiriPlaybackActivityCodec.activityType) { userActivity in
@@ -71,15 +108,15 @@ struct EnsembleApp: App {
                     handleSiriAddToPlaylistActivity(userActivity)
                 }
                 .onContinueUserActivity("INPlayMediaIntent") { userActivity in
-                    os_log(.info, "SIRI_APP: Received INPlayMediaIntent activity via SwiftUI")
+                    AppLogger.info("SIRI_APP: Received INPlayMediaIntent activity via SwiftUI")
                     handleGenericSiriActivity(userActivity)
                 }
                 .onContinueUserActivity("com.apple.intents.PlayMediaIntent") { userActivity in
-                    os_log(.info, "SIRI_APP: Received com.apple.intents.PlayMediaIntent activity via SwiftUI")
+                    AppLogger.info("SIRI_APP: Received com.apple.intents.PlayMediaIntent activity via SwiftUI")
                     handleGenericSiriActivity(userActivity)
                 }
                 .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { userActivity in
-                    os_log(.info, "SIRI_APP: Received web browsing activity: %{public}@", userActivity.webpageURL?.absoluteString ?? "nil")
+                    AppLogger.info("SIRI_APP: Received web browsing activity: \(userActivity.webpageURL?.absoluteString ?? "nil")")
                 }
                 .userActivity("com.videogorl.ensemble.active") { activity in
                     // This registers a user activity so we can track if the app becomes active

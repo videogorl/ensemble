@@ -114,6 +114,7 @@ Tests/
 +-- PlexResourcesSpecTests.swift
 +-- PlexAPIClientFailoverPolicyTests.swift
 +-- PlexAuthTokenLifecycleTests.swift
++-- EnsembleLoggerRedactionTests.swift # API logger token/query redaction coverage for unified and persistent logs
 ```
 
 ## EnsemblePersistence (Data Layer)
@@ -330,6 +331,7 @@ Tests/
 +-- OfflineDownloadNotificationBridgeTests.swift # Debounced downloadsDidChange fan-out and toast routing coverage
 +-- OfflineDownloadCleanupCoordinatorTests.swift # Orphaned completed-download sweep coverage
 +-- OfflineDownloadBackgroundCoordinatorTests.swift # URLSession completion registry and sleep/wake hook coverage
++-- EnsembleLoggerRedactionTests.swift # Core logger token/query redaction coverage for unified and persistent logs
 +-- BackgroundRefreshCoordinatorTests.swift # Shared app/foreground freshness sequencing and error/cooldown coverage
 +-- HomeViewModelRefreshPolicyTests.swift
 +-- HubRepositorySnapshotTests.swift  # CDHomeFeedSnapshot save/fetch/source cleanup/last-good preservation coverage
