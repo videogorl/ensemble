@@ -404,6 +404,7 @@ public enum EnsembleScaffold {
         public static let iconActionDimension = EnsembleScaffold.UtilityRow.iconLaneWidth
         public static let darkLegibilityOverlayOpacity = 0.45
         public static let lightLegibilityOverlayOpacity = 0.7
+        public static let backgroundFadeDuration = 0.55
 
         public enum ArtworkShadow {
             public static let color = EnsembleDesign.Effect.shadowColor
