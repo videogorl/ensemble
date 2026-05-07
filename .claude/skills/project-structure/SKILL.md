@@ -232,7 +232,7 @@ Sources/
 |   +-- HubOrderManager.swift          # User-customizable hub section ordering
 |   +-- BackgroundSyncScheduler.swift  # iOS BGAppRefreshTask scheduling for background sync
 |   +-- BackgroundRefreshCoordinator.swift # Shared app-refresh/foreground Feed freshness sequence (health, sync, Feed snapshot, Siri context)
-|   +-- OfflineDownloadService.swift   # Target-based offline queue, reconciliation, progress tracking, and healing orchestration
+|   +-- OfflineDownloadService.swift   # Target-based offline queue, lifecycle policy, recovery, and public download facade
 |   +-- DownloadMutationWorkflow.swift # Shared user-initiated download target/queue mutation boundary
 |   +-- DownloadQueueCoordinator.swift # Sole owner of offline queue task lifecycle and worker orchestration
 |   +-- OfflineDownloadCleanupCoordinator.swift # Best-effort orphaned-download cleanup for completed files that no longer have any offline target membership
@@ -240,6 +240,7 @@ Sources/
 |   +-- DownloadTargetReconciler.swift # Membership resolution and orphan cleanup for offline targets
 |   +-- DownloadTransferExecutor.swift # Direct-download/download-queue transfer pipeline, validation, recovery, and post-completion side effects extracted from OfflineDownloadService
 |   +-- OfflineDownloadNotificationBridge.swift # Debounced downloadsDidChange fan-out + queue completion toast seam extracted from OfflineDownloadService
+|   +-- OfflineDownloadTargetProgressController.swift # Target progress recomputation, snapshots, active key cache, and orphaned-target repair
 |   +-- OfflineBackgroundExecutionCoordinator.swift # Offline download background coordinator: iOS 26 continued processing, URLSession wake completion registry, macOS sleep/wake recovery
 |   +-- MoodRepository.swift           # Mood data persistence (CDMood)
 |   +-- LibraryVisibilityStore.swift   # Persisted visibility profiles + active profile state

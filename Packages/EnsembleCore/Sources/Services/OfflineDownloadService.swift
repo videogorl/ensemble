@@ -131,9 +131,6 @@ public final class OfflineDownloadService: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var lastObservedSyncBySource: [String: Date] = [:]
 
-    private var downloadedBytesByTargetKey: [String: Int64] = [:]
-    private var failedTracksByTargetKey: [String: Int] = [:]
-
     /// Coalesces expensive target progress refreshes so queue/network churn
     /// doesn't rebuild every target on each state transition.
     private var fullProgressRefreshTask: Task<Void, Never>?
@@ -186,6 +183,18 @@ public final class OfflineDownloadService: ObservableObject {
                         title: "Downloads Complete"
                     )
                 )
+            }
+        )
+    )
+    private lazy var targetProgressController = OfflineDownloadTargetProgressController(
+        dependencies: .init(
+            downloadManager: downloadManager,
+            targetRepository: targetRepository,
+            canExecuteDownloads: { [weak self] in self?.canExecuteDownloads ?? false },
+            isQueueRunning: { [weak self] in self?.isQueueRunning ?? false },
+            reconcileTarget: { [weak self] key in
+                guard let self else { return }
+                try await self.reconcileTarget(key: key)
             }
         )
     )
@@ -1272,29 +1281,8 @@ public final class OfflineDownloadService: ObservableObject {
     // MARK: - Progress / Snapshots
 
     private func refreshTargetSnapshots() async {
-        do {
-            let fetched = try await targetRepository.fetchTargets()
-            let existingTargetKeys = Set(fetched.map(\.key))
-            downloadedBytesByTargetKey = downloadedBytesByTargetKey.filter { existingTargetKeys.contains($0.key) }
-            failedTracksByTargetKey = failedTracksByTargetKey.filter { existingTargetKeys.contains($0.key) }
-            targets = fetched.map {
-                OfflineDownloadTargetSnapshot(
-                    id: $0.key,
-                    key: $0.key,
-                    kind: $0.targetKind,
-                    ratingKey: $0.ratingKey,
-                    sourceCompositeKey: $0.sourceCompositeKey,
-                    displayName: $0.displayName ?? defaultDisplayName(for: $0),
-                    status: $0.targetStatus,
-                    totalTrackCount: Int($0.totalTrackCount),
-                    completedTrackCount: Int($0.completedTrackCount),
-                    downloadedBytes: downloadedBytesByTargetKey[$0.key] ?? 0,
-                    progress: $0.progress,
-                    failedTrackCount: failedTracksByTargetKey[$0.key] ?? 0
-                )
-            }
-        } catch {
-            EnsembleLogger.debug("❌ Failed fetching offline target snapshots: \(error.localizedDescription)")
+        if let snapshots = await targetProgressController.refreshTargetSnapshots() {
+            targets = snapshots
         }
     }
 
@@ -1305,197 +1293,38 @@ public final class OfflineDownloadService: ObservableObject {
     /// scheduleDownloadChangeNotification() handles that to batch spinner updates
     /// instead of firing per-track during bulk downloads.
     private func refreshTargetsForTrack(ratingKey: String, sourceCompositeKey: String) async {
-        do {
-            let reference = OfflineTrackReference(
-                trackRatingKey: ratingKey,
-                trackSourceCompositeKey: sourceCompositeKey
-            )
-            let targetKeys = try await targetRepository.fetchTargetKeys(containing: reference)
-            for key in targetKeys {
-                await refreshTargetProgress(forTargetKey: key)
-            }
-            await refreshTargetSnapshots()
-        } catch {
-            EnsembleLogger.debug("❌ Failed targeted refresh for track \(ratingKey): \(error.localizedDescription)")
-            // Fall back to full refresh on error
+        let result = await targetProgressController.refreshTargetsForTrack(
+            ratingKey: ratingKey,
+            sourceCompositeKey: sourceCompositeKey
+        )
+        switch result {
+        case .snapshots(let snapshots):
+            targets = snapshots
+        case .requiresFullRefresh:
             await refreshAllTargetProgresses()
         }
     }
 
     private func refreshAllTargetProgresses() async {
-        do {
-            let allTargets = try await targetRepository.fetchTargets()
-            for target in allTargets {
-                await refreshTargetProgress(forTargetKey: target.key)
+        if let state = await targetProgressController.refreshAllTargetProgresses() {
+            targets = state.snapshots
+            if state.activeDownloadRatingKeys != activeDownloadRatingKeys {
+                activeDownloadRatingKeys = state.activeDownloadRatingKeys
             }
-            await refreshTargetSnapshots()
-            await refreshActiveDownloadRatingKeys()
-
-            // Self-heal orphaned targets: rebuild memberships for targets that
-            // lost their track references (e.g., after iOS update or data issue).
-            // This runs after the initial snapshot publish so the UI shows stale-
-            // but-useful counts while reconciliation proceeds in the background.
-            await reconcileOrphanedTargets()
-        } catch {
-            EnsembleLogger.debug("❌ Failed refreshing offline target progress: \(error.localizedDescription)")
-        }
-    }
-
-    /// Detects targets with 0 memberships but non-zero stale total track counts
-    /// (orphaned) and rebuilds their memberships from existing library/playlist data.
-    private func reconcileOrphanedTargets() async {
-        do {
-            let allTargets = try await targetRepository.fetchTargets()
-            var reconciledAny = false
-
-            for target in allTargets {
-                let memberships = try await targetRepository.fetchTrackReferences(targetKey: target.key)
-                guard memberships.isEmpty && target.totalTrackCount > 0 else { continue }
-
-                EnsembleLogger.debug("🔧 Reconciling orphaned target \(target.key) (stale count: \(target.totalTrackCount))")
-                try? await reconcileTarget(key: target.key)
-                reconciledAny = true
-            }
-
-            if reconciledAny {
-                await refreshTargetSnapshots()
-            }
-        } catch {
-            EnsembleLogger.debug("❌ Failed reconciling orphaned targets: \(error.localizedDescription)")
         }
     }
 
     /// Recomputes the set of track ratingKeys that are pending or actively downloading.
     private func refreshActiveDownloadRatingKeys() async {
-        do {
-            let pending = try await downloadManager.fetchPendingDownloads()
-            let keys = Set(pending.compactMap { $0.track?.ratingKey })
+        if let keys = await targetProgressController.refreshActiveDownloadRatingKeys() {
             if keys != activeDownloadRatingKeys {
                 activeDownloadRatingKeys = keys
             }
-        } catch {
-            EnsembleLogger.debug("❌ Failed refreshing active download ratingKeys: \(error.localizedDescription)")
         }
     }
 
     private func refreshTargetProgress(forTargetKey targetKey: String) async {
-        do {
-            let references = try await targetRepository.fetchTrackReferences(targetKey: targetKey)
-            guard !references.isEmpty else {
-                // Check if this is an orphaned target: previously had tracks but
-                // memberships were lost (e.g., after iOS update or data corruption).
-                // Preserve stale total count so UI shows "37 tracks • Queued" instead
-                // of "0 tracks • Downloaded" while reconciliation rebuilds memberships.
-                let existingTarget = try? await targetRepository.fetchTarget(key: targetKey)
-                if let existing = existingTarget, existing.totalTrackCount > 0 {
-                    downloadedBytesByTargetKey[targetKey] = 0
-                    failedTracksByTargetKey[targetKey] = 0
-                    try await targetRepository.updateTarget(
-                        key: targetKey,
-                        status: .pending,
-                        totalTrackCount: Int(existing.totalTrackCount),
-                        completedTrackCount: 0,
-                        progress: 0,
-                        lastError: nil
-                    )
-                    EnsembleLogger.debug("⚠️ Orphaned download target \(targetKey): preserved stale count of \(existing.totalTrackCount) tracks")
-                } else {
-                    // Genuinely empty target (newly created or all tracks removed)
-                    downloadedBytesByTargetKey[targetKey] = 0
-                    failedTracksByTargetKey[targetKey] = 0
-                    try await targetRepository.updateTarget(
-                        key: targetKey,
-                        status: .completed,
-                        totalTrackCount: 0,
-                        completedTrackCount: 0,
-                        progress: 1,
-                        lastError: nil
-                    )
-                }
-                return
-            }
-
-            // Batch-fetch all downloads for this target in a single CoreData query
-            // instead of N individual queries (was O(N) queries per target refresh)
-            let downloadsByKey = try await downloadManager.fetchDownloadsBatch(forReferences: references)
-
-            var completed = 0
-            var downloading = 0
-            var pending = 0
-            var paused = 0
-            var failed = 0
-            var firstFailure: String?
-            var downloadedBytes: Int64 = 0
-
-            for reference in references {
-                let lookupKey = "\(reference.trackSourceCompositeKey)|\(reference.trackRatingKey)"
-                guard let download = downloadsByKey[lookupKey] else {
-                    pending += 1
-                    continue
-                }
-
-                switch download.downloadStatus {
-                case .completed:
-                    completed += 1
-                    downloadedBytes += max(download.fileSize, 0)
-                case .downloading:
-                    downloading += 1
-                case .pending:
-                    pending += 1
-                case .paused:
-                    paused += 1
-                case .failed:
-                    failed += 1
-                    if firstFailure == nil {
-                        firstFailure = download.error
-                    }
-                }
-            }
-
-            let total = references.count
-            let progress = total > 0 ? Float(completed) / Float(total) : 1
-
-            let status: CDOfflineDownloadTarget.Status
-            if failed > 0 {
-                status = .failed
-            } else if completed >= total {
-                status = .completed
-            } else if downloading > 0 || (isQueueRunning && pending > 0) {
-                status = .downloading
-            } else if !canExecuteDownloads && (pending > 0 || paused > 0) {
-                status = .paused
-            } else {
-                status = .pending
-            }
-
-            try await targetRepository.updateTarget(
-                key: targetKey,
-                status: status,
-                totalTrackCount: total,
-                completedTrackCount: completed,
-                progress: progress,
-                lastError: firstFailure
-            )
-            downloadedBytesByTargetKey[targetKey] = downloadedBytes
-            failedTracksByTargetKey[targetKey] = failed
-        } catch {
-            EnsembleLogger.debug("❌ Failed refreshing target progress for \(targetKey): \(error.localizedDescription)")
-        }
-    }
-
-    private func defaultDisplayName(for target: CDOfflineDownloadTarget) -> String {
-        switch target.targetKind {
-        case .library:
-            return "Library"
-        case .album:
-            return "Album"
-        case .artist:
-            return "Artist"
-        case .playlist:
-            return "Playlist"
-        case .favorites:
-            return "Favorites"
-        }
+        await targetProgressController.refreshTargetProgress(forTargetKey: targetKey)
     }
 
     // MARK: - Sync / Network Reconciliation
