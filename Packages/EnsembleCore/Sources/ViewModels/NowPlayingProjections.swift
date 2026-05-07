@@ -158,6 +158,7 @@ public final class NowPlayingQueueProjection: ObservableObject {
     }
 
     func updateQueueSections(_ sections: QueueSections) {
+        guard queueSections != sections else { return }
         queueSections = sections
     }
 

@@ -102,7 +102,7 @@ public struct QueueItem: Identifiable, Equatable, Sendable, Codable {
 // MARK: - Queue Sections
 
 /// Sectioned view of the upcoming queue for UI display
-public struct QueueSections {
+public struct QueueSections: Equatable, Sendable {
     public let upNext: [QueueItem]
     public let continuePlaying: [QueueItem]
     public let autoplay: [QueueItem]

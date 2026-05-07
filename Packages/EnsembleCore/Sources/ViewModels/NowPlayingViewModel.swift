@@ -239,21 +239,14 @@ public final class NowPlayingViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] track in
                 guard let self else { return }
-                self.currentTrack = track
-                self.playbackProjection.updateCurrentTrack(track)
-                self.artworkProjection.updateCurrentTrack(track)
-                self.ratingProjection.updateCurrentTrack(
-                    track,
-                    displayRating: track.map { self.trackDisplayRating(for: $0) }
-                )
+                self.setIfChanged(\.currentTrack, track)
             }
             .store(in: &cancellables)
 
         playbackService.playbackStatePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
-                self?.playbackState = state
-                self?.playbackProjection.updatePlaybackState(state)
+                self?.setIfChanged(\.playbackState, state)
             }
             .store(in: &cancellables)
 
@@ -261,79 +254,97 @@ public final class NowPlayingViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] queue in
                 guard let self else { return }
-                self.queue = queue
-                self.queueProjection.updateQueue(queue)
-                self.queueProjection.updateQueueSections(self.playbackService.queueSections)
+                self.setIfChanged(\.queue, queue)
             }
             .store(in: &cancellables)
 
         playbackService.currentQueueIndexPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] index in
-                self?.currentQueueIndex = index
-                self?.queueProjection.updateCurrentQueueIndex(index)
+                self?.setIfChanged(\.currentQueueIndex, index)
             }
             .store(in: &cancellables)
 
         playbackService.historyPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] history in
-                self?.playbackHistory = history
-                self?.queueProjection.updatePlaybackHistory(history)
+                self?.setIfChanged(\.playbackHistory, history)
             }
             .store(in: &cancellables)
 
         playbackService.shufflePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isEnabled in
-                self?.isShuffleEnabled = isEnabled
-                self?.playbackProjection.updateShuffle(isEnabled)
+                self?.setIfChanged(\.isShuffleEnabled, isEnabled)
             }
             .store(in: &cancellables)
 
         playbackService.repeatModePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] mode in
-                self?.repeatMode = mode
-                self?.playbackProjection.updateRepeatMode(mode)
+                self?.setIfChanged(\.repeatMode, mode)
             }
             .store(in: &cancellables)
         
         playbackService.waveformPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] heights in
-                self?.waveformHeights = heights
-                self?.playbackProjection.updateWaveformHeights(heights)
+                guard let self else { return }
+                if self.waveformHeights != heights {
+                    self.waveformHeights = heights
+                }
+                self.playbackProjection.updateWaveformHeights(heights)
             }
             .store(in: &cancellables)
 
         playbackService.autoplayEnabledPublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$isAutoplayEnabled)
+            .sink { [weak self] isEnabled in
+                self?.setIfChanged(\.isAutoplayEnabled, isEnabled)
+            }
+            .store(in: &cancellables)
 
         playbackService.autoplayTracksPublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$autoplayTracks)
+            .sink { [weak self] tracks in
+                self?.setIfChanged(\.autoplayTracks, tracks)
+            }
+            .store(in: &cancellables)
 
         playbackService.autoplayActivePublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$isAutoplayActive)
+            .sink { [weak self] isActive in
+                self?.setIfChanged(\.isAutoplayActive, isActive)
+            }
+            .store(in: &cancellables)
 
         playbackService.radioModePublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$radioMode)
+            .sink { [weak self] mode in
+                self?.setIfChanged(\.radioMode, mode)
+            }
+            .store(in: &cancellables)
 
         playbackService.recommendationsExhaustedPublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$recommendationsExhausted)
+            .sink { [weak self] isExhausted in
+                self?.setIfChanged(\.recommendationsExhausted, isExhausted)
+            }
+            .store(in: &cancellables)
 
         playbackService.instrumentalModeActivePublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$isInstrumentalModeActive)
+            .sink { [weak self] isActive in
+                self?.setIfChanged(\.isInstrumentalModeActive, isActive)
+            }
+            .store(in: &cancellables)
 
         syncCoordinator.$lastPlaylistTarget
             .receive(on: DispatchQueue.main)
-            .assign(to: &$lastPlaylistTarget)
+            .sink { [weak self] target in
+                self?.setIfChanged(\.lastPlaylistTarget, target)
+            }
+            .store(in: &cancellables)
 
         // Reset duration when track changes, then let periodic playback updates refine it.
         $currentTrack
@@ -375,7 +386,9 @@ public final class NowPlayingViewModel: ObservableObject {
         $currentQueueIndex
             .receive(on: DispatchQueue.main)
             .sink { [weak self] index in
-                self?.queueProjection.updateCurrentQueueIndex(index)
+                guard let self else { return }
+                self.queueProjection.updateCurrentQueueIndex(index)
+                self.queueProjection.updateQueueSections(self.playbackService.queueSections)
             }
             .store(in: &cancellables)
 
@@ -452,14 +465,23 @@ public final class NowPlayingViewModel: ObservableObject {
         // Keep duration synchronized with AVPlayer's effective item duration as playback advances.
         playbackService.currentTimePublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] currentTime in
                 guard let self else { return }
                 let latestDuration = self.playbackService.duration
                 guard latestDuration.isFinite else { return }
-                if abs(self.duration - latestDuration) > 0.05 {
+                let currentDuration = self.duration
+                let displayDuration: TimeInterval
+                if abs(currentDuration - latestDuration) > 0.05 {
                     self.duration = latestDuration
+                    displayDuration = max(0, latestDuration)
+                } else {
+                    displayDuration = max(0, max(currentDuration, latestDuration))
                 }
-                self.publishPlaybackProjectionSnapshot()
+                self.publishPlaybackProjectionSnapshot(
+                    currentTime: currentTime,
+                    displayDuration: displayDuration,
+                    bufferedProgress: self.playbackService.bufferedProgressValue
+                )
             }
             .store(in: &cancellables)
         
@@ -625,13 +647,40 @@ public final class NowPlayingViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
+    private func setIfChanged<Value: Equatable>(
+        _ keyPath: ReferenceWritableKeyPath<NowPlayingViewModel, Value>,
+        _ newValue: Value
+    ) {
+        guard self[keyPath: keyPath] != newValue else { return }
+        self[keyPath: keyPath] = newValue
+    }
+
     private func publishPlaybackProjectionSnapshot() {
-        let latestProgress = progress
-        playbackProjection.updateDuration(scrubberDuration)
+        let liveDuration = playbackService.duration
+        guard liveDuration.isFinite else { return }
+        publishPlaybackProjectionSnapshot(
+            currentTime: playbackService.currentTimeValue,
+            displayDuration: max(0, max(duration, liveDuration)),
+            bufferedProgress: playbackService.bufferedProgressValue
+        )
+    }
+
+    private func publishPlaybackProjectionSnapshot(
+        currentTime latestCurrentTime: TimeInterval,
+        displayDuration: TimeInterval,
+        bufferedProgress latestBufferedProgress: Double
+    ) {
+        guard latestCurrentTime.isFinite, displayDuration.isFinite, latestBufferedProgress.isFinite else { return }
+        let boundedDuration = max(0, displayDuration)
+        let latestProgress = boundedDuration > 0
+            ? max(0, min(1, latestCurrentTime / boundedDuration))
+            : 0
+
+        playbackProjection.updateDuration(boundedDuration)
         playbackProjection.updateProgress(
             latestProgress,
-            bufferedProgress: bufferedProgress,
-            currentTime: currentTime
+            bufferedProgress: max(0, min(1, latestBufferedProgress)),
+            currentTime: latestCurrentTime
         )
     }
 
