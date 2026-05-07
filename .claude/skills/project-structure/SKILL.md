@@ -389,6 +389,11 @@ Sources/
 |   +-- TrackSwipeContainer.swift
 +-- DetailSurfaces/                  # Shared media-detail shell/header/action/list-card primitives
 +-- PlaybackChrome/                  # Mini player, AirPlay button, waveform
+|   +-- MiniPlayer.swift             # Core mini-player pill content, track info, waveform, and transport controls
+|   +-- MiniPlayerActionsMenu.swift  # Mini-player media action menu and platform menu renderers
+|   +-- MiniPlayerBackground.swift   # Artwork/material mini-player background projection host
+|   +-- MiniPlayerContainer.swift    # Root mini-player overlay container
+|   +-- MiniPlayerGestures.swift     # Phone mini-player vertical/open and horizontal prev/next swipe modifiers
 +-- NowPlaying/                      # Now Playing cards, carousel, queue, lyrics, page indicator
 +-- StageFlow/                       # iPhone landscape StageFlow experience
 +-- Aurora/                          # Aurora background and Metal/Canvas renderers
