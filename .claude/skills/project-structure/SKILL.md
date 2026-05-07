@@ -406,6 +406,10 @@ Sources/
 |   |   +-- NavigationDestinationFactory.swift # Shared root tab/destination view factory used by iPhone tabs and iPad/macOS sidebar stacks
 |   |   +-- NavigationCoordinator+Bindings.swift # SwiftUI path bindings backed by NavigationCoordinator path helpers
 |   |   +-- SidebarSelection.swift    # Sidebar selection model and destination mapping for iPad/macOS root navigation
+|   |   +-- iOS15TabBarHider.swift    # UIKit-backed iOS 15 TabView tab-bar visibility bridge
+|   |   +-- NestedNavigationLink.swift # Recursive NavigationView fallback for iOS 15 root tab paths
+|   |   +-- RootNavigationViewModifiers.swift # Root TabView/sidebar toolbar style helpers
+|   |   +-- MacSidebarPlaylistDropBridge.swift # macOS AppKit drop bridge for sidebar playlist rows
 |   +-- Library/                      # Songs, Artists, Albums, Genres, Playlists, Favorites, Mood
 |   +-- Details/                      # Media detail, merged playlist detail, async detail loaders
 |   +-- Discovery/                    # Home/Feed and Search
