@@ -263,7 +263,7 @@ public struct FavoritesView: View {
             }
         }
         .miniPlayerBottomSpacing()
-        .background(trackListSupplementalMetadataWidthReader)
+        .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
         #else
         // macOS: AppKit-backed table owns the header and scroll range.
         NativeTrackListHost(
@@ -280,20 +280,8 @@ public struct FavoritesView: View {
         ) { _, index in
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
-        .background(trackListSupplementalMetadataWidthReader)
+        .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
         #endif
-    }
-
-    private var trackListSupplementalMetadataWidthReader: some View {
-        GeometryReader { geometry in
-            Color.clear
-                .onAppear {
-                    updateTrackListSupplementalMetadataWidth(geometry.size.width)
-                }
-                .onChange(of: geometry.size.width) { newWidth in
-                    updateTrackListSupplementalMetadataWidth(newWidth)
-                }
-        }
     }
 
     private func updateTrackListSupplementalMetadataWidth(_ newWidth: CGFloat) {

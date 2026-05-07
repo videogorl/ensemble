@@ -4,7 +4,10 @@ import SwiftUI
 /// Right-most card displaying track metadata and streaming/connection details
 /// Positioned after Lyrics card in the NowPlaying carousel
 public struct InfoCard: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    private let viewModel: NowPlayingViewModel
+    @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
+    @ObservedObject private var lyricsProjection: NowPlayingLyricsProjection
+    @ObservedObject private var queueProjection: NowPlayingQueueProjection
     @Binding var currentPage: Int
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
@@ -12,19 +15,24 @@ public struct InfoCard: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("streamingQuality") private var streamingQuality: String = "high"
 
-    // Metadata fetched asynchronously when card becomes visible
+    // Metadata fetched asynchronously when the card becomes renderable.
     @State private var fetchedAlbum: Album?
     @State private var audioFileInfo: AudioFileInfo?
 
     public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
         self.viewModel = viewModel
+        self._playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
+        self._lyricsProjection = ObservedObject(wrappedValue: viewModel.lyricsProjection)
+        self._queueProjection = ObservedObject(wrappedValue: viewModel.queueProjection)
         self._currentPage = currentPage
     }
 
-    /// Whether this card is the active page in the carousel.
-    /// Gate content and async fetches behind visibility to avoid unnecessary work off-screen.
-    private var isVisible: Bool {
-        currentPage == 3
+    private var shouldRenderContent: Bool {
+        NowPlayingPanelPage.info.shouldRenderContent(currentPage: currentPage)
+    }
+
+    private var currentTrack: Track? {
+        playbackProjection.currentTrack
     }
 
     public var body: some View {
@@ -34,41 +42,32 @@ public struct InfoCard: View {
                 .padding(.top, EnsembleScaffold.NowPlaying.headerTopPadding)
                 .padding(.bottom, EnsembleScaffold.NowPlaying.headerBottomPadding)
 
-            if isVisible {
+            if shouldRenderContent {
                 // Scrollable content area with fade masks
                 contentView
                     .padding(.bottom, EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight + EnsembleDesign.Spacing.xxl)
             } else {
-                // Lightweight placeholder when off-screen
+                // Lightweight placeholder for pages more than one swipe away.
                 Color.clear
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task {
-            guard isVisible else { return }
-            async let album = viewModel.fetchAlbumForCurrentTrack()
-            async let fileInfo = viewModel.fetchAudioFileInfoForCurrentTrack()
-            fetchedAlbum = await album
-            audioFileInfo = await fileInfo
+        .task(id: shouldRenderContent) {
+            guard shouldRenderContent else { return }
+            await loadMetadataForCurrentTrack()
         }
-        .onChange(of: viewModel.currentTrack?.id) { _ in
-            guard isVisible else { return }
+        .onChange(of: playbackProjection.currentTrack?.id) { _ in
+            guard shouldRenderContent else { return }
             audioFileInfo = nil  // Clear stale data immediately
             Task {
-                async let album = viewModel.fetchAlbumForCurrentTrack()
-                async let fileInfo = viewModel.fetchAudioFileInfoForCurrentTrack()
-                fetchedAlbum = await album
-                audioFileInfo = await fileInfo
+                await loadMetadataForCurrentTrack()
             }
         }
         .onChange(of: currentPage) { newPage in
-            // Fetch metadata when user navigates to this card
-            if newPage == 3 && fetchedAlbum == nil {
+            // Preload metadata when the Info card becomes adjacent to the swipe.
+            if NowPlayingPanelPage.info.shouldRenderContent(currentPage: newPage), fetchedAlbum == nil {
                 Task {
-                    async let album = viewModel.fetchAlbumForCurrentTrack()
-                    async let fileInfo = viewModel.fetchAudioFileInfoForCurrentTrack()
-                    fetchedAlbum = await album
-                    audioFileInfo = await fileInfo
+                    await loadMetadataForCurrentTrack()
                 }
             }
         }
@@ -123,7 +122,7 @@ public struct InfoCard: View {
     private var trackMetadataSection: some View {
         VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Album (tappable)
-            if let track = viewModel.currentTrack, track.albumName != nil {
+            if let track = currentTrack, track.albumName != nil {
                 infoRow(
                     label: "Album",
                     value: track.albumName ?? "—",
@@ -134,7 +133,7 @@ public struct InfoCard: View {
             }
 
             // Album Artist (tappable — navigates to artist page)
-            if let track = viewModel.currentTrack, let albumArtist = track.albumArtistName {
+            if let track = currentTrack, let albumArtist = track.albumArtistName {
                 infoRow(
                     label: "Artist",
                     value: albumArtist,
@@ -145,7 +144,7 @@ public struct InfoCard: View {
             }
 
             // Track Artist (plain text — only shown when different from album artist)
-            if let track = viewModel.currentTrack,
+            if let track = currentTrack,
                let trackArtist = track.artistName,
                let albumArtist = track.albumArtistName,
                trackArtist != albumArtist {
@@ -158,22 +157,22 @@ public struct InfoCard: View {
             }
 
             // Track / Disc number
-            if let track = viewModel.currentTrack {
+            if let track = currentTrack {
                 infoRow(label: "Track", value: formatTrackDiscInfo(track: track))
             }
 
             // Duration
-            if let track = viewModel.currentTrack {
+            if let track = currentTrack {
                 infoRow(label: "Duration", value: track.formattedDuration)
             }
 
             // Play count
-            if let track = viewModel.currentTrack {
+            if let track = currentTrack {
                 infoRow(label: "Plays", value: String(track.playCount))
             }
 
             // Date added
-            if let dateAdded = viewModel.currentTrack?.dateAdded {
+            if let dateAdded = currentTrack?.dateAdded {
                 infoRow(label: "Added", value: formatDate(dateAdded))
             }
 
@@ -201,7 +200,7 @@ public struct InfoCard: View {
             sourceFileInfoRow
 
             // Source (streaming vs downloaded)
-            if viewModel.currentTrack != nil {
+            if currentTrack != nil {
                 infoRow(label: "Source", value: resolvePlaybackSource())
             }
 
@@ -296,9 +295,9 @@ public struct InfoCard: View {
 
     /// Lyrics source/status indicator with format info when available
     private var lyricsInfoRow: some View {
-        let source = viewModel.lyricsSource
+        let source = lyricsProjection.lyricsSource
         let detail: String
-        if case .available(let lyrics) = viewModel.lyricsState {
+        if case .available(let lyrics) = lyricsProjection.lyricsState {
             let format = lyrics.isTimed ? "Timed" : "Plain"
             detail = "\(source.displayText) (\(format), \(lyrics.lines.count) lines)"
         } else {
@@ -327,6 +326,14 @@ public struct InfoCard: View {
     }
 
     // MARK: - Helpers
+
+    @MainActor
+    private func loadMetadataForCurrentTrack() async {
+        async let album = viewModel.fetchAlbumForCurrentTrack()
+        async let fileInfo = viewModel.fetchAudioFileInfoForCurrentTrack()
+        fetchedAlbum = await album
+        audioFileInfo = await fileInfo
+    }
 
     /// Creates a standard info row with label and value
     private func infoRow(
@@ -448,7 +455,7 @@ public struct InfoCard: View {
 
     /// Resolve whether current playback is from a downloaded local file or streaming.
     private func resolvePlaybackSource() -> String {
-        guard let track = viewModel.currentTrack else { return "—" }
+        guard let track = currentTrack else { return "—" }
         guard let localFilePath = track.localFilePath else { return "Streaming" }
         return FileManager.default.fileExists(atPath: localFilePath) ? "Downloaded" : "Streaming"
     }
@@ -458,11 +465,11 @@ public struct InfoCard: View {
     /// For streaming playback, this uses the quality captured when the track was queued,
     /// falling back to the current setting for backwards compatibility.
     private func resolvePlaybackQuality() -> String {
-        guard let track = viewModel.currentTrack else { return "—" }
+        guard let track = currentTrack else { return "—" }
         guard let localFilePath = track.localFilePath,
               FileManager.default.fileExists(atPath: localFilePath) else {
             // Prefer the quality stamped on the queue item at queue time
-            let quality = viewModel.currentQueueItem?.streamingQuality ?? streamingQuality
+            let quality = queueProjection.currentQueueItem?.streamingQuality ?? streamingQuality
             return "\(formatQuality(quality)) (Streaming)"
         }
 
@@ -523,7 +530,7 @@ public struct InfoCard: View {
 
     /// Resolve server name from account manager
     private func resolveServerName() -> String? {
-        guard let serverKey = extractServerKey(from: viewModel.currentTrack?.sourceCompositeKey) else {
+        guard let serverKey = extractServerKey(from: currentTrack?.sourceCompositeKey) else {
             return nil
         }
 
@@ -545,7 +552,7 @@ public struct InfoCard: View {
     /// Resolve library name from the track's sourceCompositeKey
     /// Format: "plex:accountId:serverId:libraryId" -> find matching library title
     private func resolveLibraryName() -> String? {
-        guard let key = viewModel.currentTrack?.sourceCompositeKey else { return nil }
+        guard let key = currentTrack?.sourceCompositeKey else { return nil }
         let components = key.split(separator: ":")
         guard components.count >= 4 else { return nil }
 
@@ -565,7 +572,7 @@ public struct InfoCard: View {
 
     /// Resolve connection URL and type info
     private func resolveConnectionInfo() -> String? {
-        guard let serverKey = extractServerKey(from: viewModel.currentTrack?.sourceCompositeKey) else {
+        guard let serverKey = extractServerKey(from: currentTrack?.sourceCompositeKey) else {
             return nil
         }
 
@@ -626,7 +633,7 @@ public struct InfoCard: View {
             return ("Offline", EnsembleDesign.Color.destructive)
         }
 
-        guard let serverKey = extractServerKey(from: viewModel.currentTrack?.sourceCompositeKey) else {
+        guard let serverKey = extractServerKey(from: currentTrack?.sourceCompositeKey) else {
             return nil
         }
 

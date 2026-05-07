@@ -33,6 +33,17 @@ Use the iOS Simulator MCP server for interaction and state inspection:
 
 Use shell commands for build/log work, and MCP tools for interaction. That split keeps the iteration loop fast and agent-driven.
 
+## Physical Device Screenshots Via iPhone Mirroring
+
+When validating on a real iPhone through iPhone Mirroring, do not use plain `screencapture` for evidence. It captures the full desktop display and can save the wrong window. Resolve the `iPhone Mirroring` window id first, then target that window explicitly:
+
+```bash
+swift -e 'import CoreGraphics; let opts = CGWindowListOption(arrayLiteral: [.optionOnScreenOnly, .excludeDesktopElements]); if let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] { for w in list { let owner = w[kCGWindowOwnerName as String] as? String ?? ""; let name = w[kCGWindowName as String] as? String ?? ""; if owner.localizedCaseInsensitiveContains("iPhone") || name.localizedCaseInsensitiveContains("iPhone") { print("\\(w[kCGWindowNumber as String] ?? "?") owner=\\(owner) name=\\(name) bounds=\\(w[kCGWindowBounds as String] ?? [:])") } } }'
+screencapture -x -l <window-id> /tmp/ensemble-device-profile/artifacts/iphone-mirroring-now-playing.png
+```
+
+Use the window-targeted artifact for before/after performance comparisons, especially when collecting Time Profiler or Instruments evidence from a physical device.
+
 ---
 
 ## Quick Reference

@@ -6,21 +6,15 @@ extension PlexAPIClient {
     /// Generate streaming URL for a track using its stream key.
     public func getStreamURL(trackKey: String?) throws -> URL {
         guard let partKey = trackKey, !partKey.isEmpty else {
-            #if DEBUG
             EnsembleLogger.debug("❌ PlexAPIClient: trackKey is nil or empty")
-            #endif
             throw PlexAPIError.invalidURL
         }
 
-        #if DEBUG
         EnsembleLogger.debug("🔍 PlexAPIClient: Building stream URL with partKey: \(partKey)")
         EnsembleLogger.debug("🔍 PlexAPIClient: Current server URL: \(currentServerURL)")
-        #endif
 
         guard var components = URLComponents(string: currentServerURL) else {
-            #if DEBUG
             EnsembleLogger.debug("❌ PlexAPIClient: Failed to create URLComponents from current server URL")
-            #endif
             throw PlexAPIError.invalidURL
         }
 
@@ -31,16 +25,12 @@ extension PlexAPIClient {
         ]
 
         guard let url = components.url else {
-            #if DEBUG
             EnsembleLogger.debug("❌ PlexAPIClient: Failed to construct final URL")
             EnsembleLogger.debug("❌ PlexAPIClient: Components - path: \(components.path), host: \(components.host ?? "nil")")
-            #endif
             throw PlexAPIError.invalidURL
         }
 
-        #if DEBUG
         EnsembleLogger.debug("✅ PlexAPIClient: Successfully created stream URL: \(url)")
-        #endif
         return url
     }
 
@@ -64,9 +54,7 @@ extension PlexAPIClient {
         useAudioEndpoint: Bool,
         useStartWithoutExtension: Bool
     ) async throws -> URL {
-        #if DEBUG
         EnsembleLogger.debug("🎵 PlexAPIClient.getTranscodeStreamURL: \(trackKey) [quality: \(quality.rawValue)]")
-        #endif
 
         guard var components = URLComponents(string: currentServerURL) else {
             throw PlexAPIError.invalidURL
@@ -137,10 +125,8 @@ extension PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
 
-        #if DEBUG
         EnsembleLogger.debug("🎵 PlexAPIClient.getTranscodeStreamURL normalized path: \(normalizedPath)")
         EnsembleLogger.debug("✅ Created transcode stream URL: \(url)")
-        #endif
 
         return url
     }
@@ -168,9 +154,7 @@ extension PlexAPIClient {
         quality: StreamingQuality = .original,
         sessionId: String? = nil
     ) async throws -> URL {
-        #if DEBUG
         EnsembleLogger.debug("🎵 PlexAPIClient.getUniversalStreamURL: \(track.title) [quality: \(quality.rawValue)]")
-        #endif
         return try await getUniversalStreamURL(
             ratingKey: track.ratingKey,
             quality: quality,
@@ -185,9 +169,7 @@ extension PlexAPIClient {
         quality: StreamingQuality = .original,
         sessionId: String? = nil
     ) async throws -> URL {
-        #if DEBUG
         EnsembleLogger.debug("🎵 PlexAPIClient.getUniversalStreamURL(ratingKey): \(ratingKey) [quality: \(quality.rawValue)]")
-        #endif
 
         let resolvedSessionId = sessionId ?? UUID().uuidString
         let queryItems = buildUniversalStreamQueryItems(
@@ -203,9 +185,7 @@ extension PlexAPIClient {
             queryItems: queryItems
         )
 
-        #if DEBUG
         EnsembleLogger.debug("✅ Created universal stream URL")
-        #endif
 
         return url
     }
@@ -238,9 +218,7 @@ extension PlexAPIClient {
         metadataDurationSeconds: Double?
     ) async throws -> StreamDecision {
         if quality == .original, let streamKey = trackStreamKey, !streamKey.isEmpty {
-            #if DEBUG
             EnsembleLogger.debug("[makeStreamDecision] original quality → directStream(partKey)")
-            #endif
             return .directStream(partKey: streamKey)
         }
 
@@ -257,16 +235,12 @@ extension PlexAPIClient {
             switch decision.decision {
             case .directplay, .copy:
                 let partKey = decision.directStreamPartKey ?? streamKey
-                #if DEBUG
                 EnsembleLogger.debug("[makeStreamDecision] decision=\(decision.decision.rawValue) → directStream(partKey)")
-                #endif
                 return .directStream(partKey: partKey)
 
             case .transcode, .unknown:
                 let estimated = estimateTranscodeSize(quality: quality, durationSeconds: metadataDurationSeconds)
-                #if DEBUG
                 EnsembleLogger.debug("[makeStreamDecision] decision=\(decision.decision.rawValue) → progressiveTranscode")
-                #endif
                 return .progressiveTranscode(TranscodeStreamDecision(
                     path: "/music/:/transcode/universal/start.mp3",
                     queryItems: queryItems,
@@ -285,9 +259,7 @@ extension PlexAPIClient {
         )
         try await callTranscodeDecision(queryItems: queryItems)
         let estimated = estimateTranscodeSize(quality: quality, durationSeconds: metadataDurationSeconds)
-        #if DEBUG
         EnsembleLogger.debug("[makeStreamDecision] no stream key → progressiveTranscode")
-        #endif
         return .progressiveTranscode(TranscodeStreamDecision(
             path: "/music/:/transcode/universal/start.mp3",
             queryItems: queryItems,
@@ -302,9 +274,7 @@ extension PlexAPIClient {
         if let registry = connectionRegistry, let key = serverKey,
            let freshURL = await registry.currentURL(for: key) {
             if freshURL != currentServerURL {
-                #if DEBUG
                 EnsembleLogger.debug("[assembleStream] Endpoint synced from registry: \(currentServerURL) → \(freshURL)")
-                #endif
                 currentServerURL = freshURL
             }
         }
@@ -312,9 +282,7 @@ extension PlexAPIClient {
         switch decision {
         case .directStream(let partKey):
             let url = try getStreamURL(trackKey: partKey)
-            #if DEBUG
             EnsembleLogger.debug("[assembleStream] directStream → \(url)")
-            #endif
             return .directStream(url)
 
         case .progressiveTranscode(let transcode):
@@ -331,9 +299,7 @@ extension PlexAPIClient {
                 estimatedContentLength: transcode.estimatedContentLength,
                 metadataDuration: transcode.metadataDuration
             )
-            #if DEBUG
             EnsembleLogger.debug("[assembleStream] progressiveTranscode → \(url)")
-            #endif
             return .progressiveTranscode(config)
         }
     }
@@ -424,9 +390,7 @@ extension PlexAPIClient {
             queryItems: queryItems
         )
 
-        #if DEBUG
         EnsembleLogger.debug("🔄 Calling transcode decision endpoint")
-        #endif
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -442,17 +406,13 @@ extension PlexAPIClient {
         }
 
         guard httpResponse.statusCode == 200 else {
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Transcode decision returned \(httpResponse.statusCode)")
-            #endif
             throw PlexAPIError.httpError(statusCode: httpResponse.statusCode)
         }
 
         let result = parseTranscodeDecision(from: data)
 
-        #if DEBUG
         EnsembleLogger.debug("✅ Transcode decision completed: \(result.decision.rawValue), partKey: \(result.directStreamPartKey ?? "nil")")
-        #endif
 
         return result
     }
@@ -531,46 +491,30 @@ extension PlexAPIClient {
 
     /// Generate streaming URL for a track (legacy direct file access).
     public func getStreamURL(for track: PlexTrack) throws -> URL {
-        #if DEBUG
         EnsembleLogger.debug("🔍 PlexAPIClient.getStreamURL(for track): \(track.title)")
         EnsembleLogger.debug("🔍 Track ratingKey: \(track.ratingKey)")
         EnsembleLogger.debug("🔍 Track media count: \(track.media?.count ?? 0)")
-        #endif
 
         if let media = track.media?.first {
-            #if DEBUG
             EnsembleLogger.debug("🔍 First media - parts count: \(media.part?.count ?? 0)")
-            #endif
             if let part = media.part?.first {
-                #if DEBUG
                 EnsembleLogger.debug("🔍 First part key: \(part.key ?? "nil")")
-                #endif
             } else {
-                #if DEBUG
                 EnsembleLogger.debug("❌ No parts in media")
-                #endif
             }
         } else {
-            #if DEBUG
             EnsembleLogger.debug("❌ No media array in track")
-            #endif
         }
 
         guard let partKey = track.media?.first?.part?.first?.key else {
-            #if DEBUG
             EnsembleLogger.debug("❌ Cannot extract part key from track")
-            #endif
             throw PlexAPIError.invalidURL
         }
 
-        #if DEBUG
         EnsembleLogger.debug("🔍 Building URL with partKey: \(partKey)")
         EnsembleLogger.debug("🔍 Current server URL: \(currentServerURL)")
-        #endif
         guard var components = URLComponents(string: currentServerURL) else {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed to create URLComponents from current server URL")
-            #endif
             throw PlexAPIError.invalidURL
         }
 
@@ -581,15 +525,11 @@ extension PlexAPIClient {
         ]
 
         guard let url = components.url else {
-            #if DEBUG
             EnsembleLogger.debug("❌ Failed to construct final URL")
-            #endif
             throw PlexAPIError.invalidURL
         }
 
-        #if DEBUG
         EnsembleLogger.debug("✅ Successfully created stream URL: \(url)")
-        #endif
         return url
     }
 }

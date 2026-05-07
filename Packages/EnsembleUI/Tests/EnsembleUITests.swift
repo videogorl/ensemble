@@ -139,13 +139,19 @@ final class EnsembleUITests: XCTestCase {
     }
 
     #if os(macOS)
-    func testMediaDragPayloadPasteboardItemDoesNotExposeJSONOrStringFallbacks() throws {
+    func testMediaDragPayloadPasteboardItemExposesJSONFallbackWithoutStringFallback() throws {
         let track = Track(id: "track-1", key: "/tracks/1", title: "Track")
+        let expected = MediaDragPayload.track(track)
         let item = try XCTUnwrap(MediaDragPayload.track(track).pasteboardItem())
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
+        pasteboard.clearContents()
 
         XCTAssertTrue(item.types.contains(NSPasteboard.PasteboardType(MediaDragPayload.typeIdentifier)))
-        XCTAssertFalse(item.types.contains(NSPasteboard.PasteboardType(UTType.json.identifier)))
+        XCTAssertTrue(item.types.contains(NSPasteboard.PasteboardType(UTType.json.identifier)))
         XCTAssertFalse(item.types.contains(.string))
+        XCTAssertTrue(pasteboard.writeObjects([item]))
+        XCTAssertTrue(MediaDragPayload.canLoad(from: pasteboard))
+        XCTAssertEqual(MediaDragPayload.load(from: pasteboard), expected)
     }
 
     func testMediaDragPayloadFilePromiseWriterKeepsPayloadAndPromisesFile() throws {
@@ -170,8 +176,8 @@ final class EnsembleUITests: XCTestCase {
         let promisedSuggestedFileNameType = NSPasteboard.PasteboardType("com.apple.pasteboard.promised-suggested-file-name")
 
         XCTAssertTrue(types.contains(customType))
+        XCTAssertTrue(types.contains(NSPasteboard.PasteboardType(UTType.json.identifier)))
         XCTAssertTrue(types.contains(promiseContentType))
-        XCTAssertFalse(types.contains(NSPasteboard.PasteboardType(UTType.json.identifier)))
         XCTAssertFalse(types.contains(.string))
         XCTAssertTrue(
             [promisedFileNameType, promisedSuggestedFileNameType].contains { type in
@@ -182,6 +188,10 @@ final class EnsembleUITests: XCTestCase {
         let data = try XCTUnwrap(writer.pasteboardPropertyList(forType: customType) as? Data)
         let decoded = try JSONDecoder().decode(MediaDragPayload.self, from: data)
         XCTAssertEqual(decoded, expected)
+
+        let jsonData = try XCTUnwrap(writer.pasteboardPropertyList(forType: NSPasteboard.PasteboardType(UTType.json.identifier)) as? Data)
+        let jsonDecoded = try JSONDecoder().decode(MediaDragPayload.self, from: jsonData)
+        XCTAssertEqual(jsonDecoded, expected)
     }
     #endif
 

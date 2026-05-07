@@ -1,10 +1,8 @@
-import EnsembleSiriShared
 import Foundation
 import Intents
-import os
+import OSLog
 
 public final class UpdateMediaAffinityIntentHandler: NSObject, INUpdateMediaAffinityIntentHandling {
-    private static let appGroupIdentifier = SiriSharedConstants.appGroupIdentifier
     private static let pendingFilename = "siri-pending-affinity.json"
     private static let darwinNotificationName = "com.videogorl.ensemble.siri.pendingAffinity"
 
@@ -15,7 +13,7 @@ public final class UpdateMediaAffinityIntentHandler: NSObject, INUpdateMediaAffi
 
     public override init() {
         super.init()
-        os_log(.info, "SIRI_EXT: UpdateMediaAffinityIntentHandler.init()")
+        SiriExtensionLogger.info("SIRI_EXT: UpdateMediaAffinityIntentHandler.init()")
     }
 
     // MARK: - INUpdateMediaAffinityIntentHandling
@@ -26,13 +24,7 @@ public final class UpdateMediaAffinityIntentHandler: NSObject, INUpdateMediaAffi
     ) {
         logger.info("resolveMediaItems: returning success for current track")
         // We act on whatever is currently playing -- no resolution needed.
-        let currentTrackItem = INMediaItem(
-            identifier: "current-track",
-            title: "Current Track",
-            type: .song,
-            artwork: nil
-        )
-        completion([.success(with: currentTrackItem)])
+        completion([.success(with: SiriMatchingHelpers.currentTrackMediaItem())])
     }
 
     public func resolveAffinityType(
@@ -69,39 +61,29 @@ public final class UpdateMediaAffinityIntentHandler: NSObject, INUpdateMediaAffi
             affinityType = "love"
         }
 
-        // Write payload to shared App Group file for the main app to pick up
-        let payloadDict: [String: Any] = [
-            "schemaVersion": 1,
-            "affinityType": affinityType
-        ]
-
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
+        let payload = PendingAffinityPayload(affinityType: affinityType)
+        guard SiriPendingIntentBridge.writePayload(
+            payload,
+            filename: Self.pendingFilename,
+            logger: logger,
+            context: "affinity"
         ) else {
-            logger.error("handle: App Group container unavailable")
             completion(INUpdateMediaAffinityIntentResponse(code: .failure, userActivity: nil))
             return
         }
 
-        let fileURL = containerURL.appendingPathComponent(Self.pendingFilename)
-
-        do {
-            let data = try JSONSerialization.data(withJSONObject: payloadDict)
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            logger.error("handle: failed to write pending file: \(error.localizedDescription, privacy: .public)")
-            completion(INUpdateMediaAffinityIntentResponse(code: .failure, userActivity: nil))
-            return
-        }
-
-        // Post Darwin notification to wake the main app (which is running since music is playing)
-        CFNotificationCenterPostNotification(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            CFNotificationName(Self.darwinNotificationName as CFString),
-            nil, nil, true
+        SiriPendingIntentBridge.postDarwinNotification(
+            named: Self.darwinNotificationName,
+            logger: logger,
+            context: "affinity"
         )
 
         logger.info("handle: wrote pending affinity file + posted Darwin notification, returning success")
         completion(INUpdateMediaAffinityIntentResponse(code: .success, userActivity: nil))
     }
+}
+
+private struct PendingAffinityPayload: Encodable {
+    let schemaVersion = 1
+    let affinityType: String
 }

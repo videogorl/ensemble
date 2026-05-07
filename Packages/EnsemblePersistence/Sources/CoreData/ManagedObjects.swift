@@ -144,6 +144,7 @@ public class CDTrack: NSManagedObject {
     @NSManaged public var updatedAt: Date?
     @NSManaged public var genreNames: String?
     @NSManaged public var sourceCompositeKey: String?
+    @NSManaged public var streamId: Int32
     @NSManaged public var album: CDAlbum?
     @NSManaged public var source: CDMusicSource?
     @NSManaged public var download: CDDownload?
@@ -195,12 +196,10 @@ extension CDPlaylist {
         let set = playlistTracks as? Set<CDPlaylistTrack> ?? []
         let sorted = set.sorted { $0.order < $1.order }
         let result = sorted.compactMap { $0.track }
-        #if DEBUG
         if result.count != sorted.count {
             let nilIndices = sorted.enumerated().filter { $0.element.track == nil }.map { $0.offset }
             EnsembleLogger.debug("⚠️ CDPlaylist.tracksArray '\(title)': \(sorted.count) CDPlaylistTrack entries but only \(result.count) have non-nil track. Nil at indices: \(nilIndices)")
         }
-        #endif
         return result
     }
 }
@@ -451,7 +450,7 @@ extension CDPendingMutation {
         return NSFetchRequest<CDPendingMutation>(entityName: "CDPendingMutation")
     }
 
-    public enum MutationType: String {
+    public enum MutationType: String, Sendable {
         case trackRating
         case playlistAdd
         case playlistRemove
@@ -460,7 +459,7 @@ extension CDPendingMutation {
         case scrobble
     }
 
-    public enum MutationStatus: String {
+    public enum MutationStatus: String, Sendable {
         case pending
         case failed
     }

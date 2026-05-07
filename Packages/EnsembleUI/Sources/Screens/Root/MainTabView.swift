@@ -1,6 +1,9 @@
 import EnsembleCore
 import Combine
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// Main tab bar view for iPhone (5-tab classic iOS style)
 public struct MainTabView: View {
@@ -8,7 +11,7 @@ public struct MainTabView: View {
     private let nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var contextMenuMetadataEditorCoordinator = ContextMenuMetadataEditorCoordinator()
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
     // Observation-extracted: networkMonitor publishes on every network state change,
     // which would invalidate the entire root view. We only need networkState, so we
     // listen to just that property and store it in @State.
@@ -23,13 +26,16 @@ public struct MainTabView: View {
     // Extracted observation state — avoids full root invalidation from singleton publishers
     @State private var networkState: NetworkState = DependencyContainer.shared.networkMonitor.networkState
     @State private var isLowPowerMode: Bool = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
+    @State private var enabledTabs: [TabItem] = DependencyContainer.shared.settingsManager.enabledTabs
+    @State private var accentColor: AppAccentColor = DependencyContainer.shared.settingsManager.accentColor
+    @State private var auroraVisualizationEnabled: Bool = DependencyContainer.shared.settingsManager.auroraVisualizationEnabled
     #if os(iOS)
     @State private var keyboardVisible = false
     #endif
 
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
-        Array(settingsManager.enabledTabs.prefix(4))
+        Array(enabledTabs.prefix(4))
     }
 
     @MainActor
@@ -170,6 +176,11 @@ public struct MainTabView: View {
             .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
                 isLowPowerMode = newValue
             }
+            .onReceive(settingsManager.objectWillChange) { _ in
+                DispatchQueue.main.async {
+                    updateSettingsSnapshot()
+                }
+            }
             #if os(iOS)
             .onReceive(Publishers.keyboardHeight.map { $0 > 0 }.removeDuplicates()) { newValue in
                 // Keep the presenting shell stable while an auxiliary sheet or
@@ -204,13 +215,13 @@ public struct MainTabView: View {
                 navigationCoordinator.dismissAuxiliaryPresentation()
             }) {
                 ProfilePresentationContainer()
-                    .accentColor(settingsManager.accentColor.color)
+                    .accentColor(accentColor.color)
             }
             .phoneSafeAuxiliaryPresentation(item: downloadsAuxiliaryBinding, onDismiss: {
                 navigationCoordinator.dismissAuxiliaryPresentation()
             }) { destination in
                 AuxiliaryPresentationView(destination: destination)
-                    .accentColor(settingsManager.accentColor.color)
+                    .accentColor(accentColor.color)
             }
             #endif
             // Add account sheet presented at root level so it survives
@@ -364,6 +375,23 @@ public struct MainTabView: View {
         UISelectionFeedbackGenerator().selectionChanged()
         #endif
     }
+
+    private func updateSettingsSnapshot() {
+        let latestTabs = settingsManager.enabledTabs
+        if latestTabs != enabledTabs {
+            enabledTabs = latestTabs
+        }
+
+        let latestAccentColor = settingsManager.accentColor
+        if latestAccentColor != accentColor {
+            accentColor = latestAccentColor
+        }
+
+        let latestAuroraEnabled = settingsManager.auroraVisualizationEnabled
+        if latestAuroraEnabled != auroraVisualizationEnabled {
+            auroraVisualizationEnabled = latestAuroraEnabled
+        }
+    }
     
     @ViewBuilder
     private func tabRootView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
@@ -401,7 +429,7 @@ public struct MainTabView: View {
         .overlay(alignment: .bottom) {
             if showsPhoneAuroraOverlay &&
                 navigationCoordinator.selectedTab == tab &&
-                settingsManager.auroraVisualizationEnabled &&
+                auroraVisualizationEnabled &&
                 !isShowingNowPlaying &&
                 !isRootChromeSuppressed &&
                 !navigationCoordinator.isKeyboardEditorPresented &&
@@ -409,7 +437,7 @@ public struct MainTabView: View {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
                     consumer: .phoneOverlay,
-                    accentColor: settingsManager.accentColor.color,
+                    accentColor: accentColor.color,
                     isPaused: isShowingNowPlaying,
                     isLowPowerMode: isLowPowerMode
                 )
@@ -460,98 +488,6 @@ public struct MainTabView: View {
     }
 }
 
-// MARK: - iOS 15 Tab Bar Hider
-
-#if os(iOS)
-/// Hides the UITabBar on iOS 15 where .toolbar(_, for: .tabBar) is unavailable.
-/// Searches from the window's root view controller to find the UITabBarController
-/// backing SwiftUI's TabView, then sets tabBar.isHidden directly.
-private struct iOS15TabBarHider: UIViewRepresentable {
-    let isHidden: Bool
-
-    func makeUIView(context: Context) -> TabBarProbeView {
-        let view = TabBarProbeView()
-        view.targetHidden = isHidden
-        view.backgroundColor = .clear
-        view.isUserInteractionEnabled = false
-        view.isHidden = true
-        return view
-    }
-
-    func updateUIView(_ view: TabBarProbeView, context: Context) {
-        view.targetHidden = isHidden
-        view.applyTabBarVisibility()
-    }
-
-    final class TabBarProbeView: UIView {
-        var targetHidden: Bool = false
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            DispatchQueue.main.async { [weak self] in
-                self?.applyTabBarVisibility()
-            }
-        }
-
-        func applyTabBarVisibility() {
-            guard let window = self.window,
-                  let tabBarController = Self.findTabBarController(from: window.rootViewController) else {
-                return
-            }
-            if tabBarController.tabBar.isHidden != targetHidden {
-                tabBarController.tabBar.isHidden = targetHidden
-            }
-        }
-
-        /// Recursively search the view controller hierarchy for the UITabBarController
-        private static func findTabBarController(from vc: UIViewController?) -> UITabBarController? {
-            guard let vc else { return nil }
-            if let tbc = vc as? UITabBarController { return tbc }
-            for child in vc.children {
-                if let found = findTabBarController(from: child) { return found }
-            }
-            if let presented = vc.presentedViewController {
-                return findTabBarController(from: presented)
-            }
-            return nil
-        }
-    }
-}
-#endif
-
-// MARK: - iOS 15 Navigation Helpers
-
-struct NestedNavigationLink<DestinationView: View>: View {
-    let path: [NavigationCoordinator.Destination]
-    let tab: TabItem
-    let navigationCoordinator: NavigationCoordinator
-    let destinationBuilder: (NavigationCoordinator.Destination) -> DestinationView
-    
-    var body: some View {
-        if let first = path.first {
-            NavigationLink(
-                isActive: Binding(
-                    get: { !path.isEmpty },
-                    set: { if !$0 { navigationCoordinator.popToRoot(tab: tab) } }
-                ),
-                destination: {
-                    destinationBuilder(first)
-                        .background(
-                            NestedNavigationLink(
-                                path: Array(path.dropFirst()),
-                                tab: tab,
-                                navigationCoordinator: navigationCoordinator,
-                                destinationBuilder: destinationBuilder
-                            )
-                        )
-                }
-            ) {
-                EmptyView()
-            }
-        }
-    }
-}
-
 // MARK: - iPad Sidebar View
 
 @available(iOS 16.0, macOS 13.0, *)
@@ -575,7 +511,7 @@ public struct SidebarView: View {
     @StateObject private var playlistsVM: PlaylistViewModel
     @StateObject private var contextMenuMetadataEditorCoordinator = ContextMenuMetadataEditorCoordinator()
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
     private let pinManager = DependencyContainer.shared.pinManager
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
@@ -601,6 +537,7 @@ public struct SidebarView: View {
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
+    @State private var accentColor: AppAccentColor = DependencyContainer.shared.settingsManager.accentColor
 
     private var profileSheetBinding: Binding<Bool> {
         Binding(
@@ -642,6 +579,24 @@ public struct SidebarView: View {
 
     private var isShowingNowPlaying: Bool {
         isViewportNowPlayingPresented
+    }
+
+    private var sidebarPlaylistCacheInvalidations: AnyPublisher<Void, Never> {
+        Publishers.Merge5(
+            playlistsVM.$playlists.map { _ in () },
+            playlistsVM.$sortedDisplayPlaylists.map { _ in () },
+            playlistsVM.$playlistSortOption.map { _ in () },
+            playlistsVM.$filterOptions.map { _ in () },
+            playlistsVM.$isMergeEnabled.map { _ in () }
+        )
+        .eraseToAnyPublisher()
+    }
+
+    private func updateSettingsSnapshot() {
+        let latestAccentColor = settingsManager.accentColor
+        if latestAccentColor != accentColor {
+            accentColor = latestAccentColor
+        }
     }
 
     private var isShowingCompactSidebarRoot: Bool {
@@ -734,9 +689,7 @@ public struct SidebarView: View {
             ].joined(separator: "|")
 
             guard !stableID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ SidebarView: skipping playlist row with no stable identity")
-                #endif
                 return nil
             }
 
@@ -932,13 +885,13 @@ public struct SidebarView: View {
             navigationCoordinator.dismissAuxiliaryPresentation()
         }) {
             ProfilePresentationContainer()
-                .accentColor(settingsManager.accentColor.color)
+                .accentColor(accentColor.color)
         }
         .phoneSafeAuxiliaryPresentation(item: downloadsAuxiliaryBinding, onDismiss: {
             navigationCoordinator.dismissAuxiliaryPresentation()
         }) { destination in
             AuxiliaryPresentationView(destination: destination)
-                .accentColor(settingsManager.accentColor.color)
+                .accentColor(accentColor.color)
         }
         #endif
         .onChange(of: isShowingNowPlaying) { isShowing in
@@ -951,6 +904,11 @@ public struct SidebarView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                     navigationCoordinator.push(pending.destination, in: targetTab)
                 }
+            }
+        }
+        .onReceive(settingsManager.objectWillChange) { _ in
+            DispatchQueue.main.async {
+                updateSettingsSnapshot()
             }
         }
         #if os(macOS)
@@ -1156,19 +1114,7 @@ public struct SidebarView: View {
         // Sync cached sidebar playlists from VM publisher. Using @State + .onReceive
         // instead of computed properties ensures updates survive NavigationSplitView
         // re-layouts on macOS that can swallow computed property changes.
-        .onReceive(playlistsVM.$playlists) { _ in
-            rebuildCachedSidebarPlaylists()
-        }
-        .onReceive(playlistsVM.$sortedDisplayPlaylists) { _ in
-            rebuildCachedSidebarPlaylists()
-        }
-        .onReceive(playlistsVM.$playlistSortOption) { _ in
-            rebuildCachedSidebarPlaylists()
-        }
-        .onReceive(playlistsVM.$filterOptions) { _ in
-            rebuildCachedSidebarPlaylists()
-        }
-        .onReceive(playlistsVM.$isMergeEnabled) { _ in
+        .onReceive(sidebarPlaylistCacheInvalidations) { _ in
             rebuildCachedSidebarPlaylists()
         }
         .onAppear {
@@ -1661,6 +1607,11 @@ public struct SidebarView: View {
                     handleSidebarPlaylistDrop(providers, onto: playlist)
                 }
                 #if os(macOS)
+                .background {
+                    MacSidebarPlaylistDropBridge(isTargeted: $isDropTargeted) { payload in
+                        handleSidebarPlaylistDrop(payload, onto: playlist)
+                    }
+                }
                 .help("Drop songs, albums, or playlists here to add tracks.")
                 #endif
         }
@@ -1694,6 +1645,13 @@ public struct SidebarView: View {
                     )
                     return
                 }
+                await performSidebarPlaylistDrop(payload, onto: playlist)
+            }
+            return true
+        }
+
+        private func handleSidebarPlaylistDrop(_ payload: MediaDragPayload, onto playlist: SidebarPlaylistItem) -> Bool {
+            Task { @MainActor in
                 await performSidebarPlaylistDrop(payload, onto: playlist)
             }
             return true
@@ -1851,46 +1809,5 @@ public struct SidebarView: View {
             nowPlayingVM: nowPlayingVM,
             searchVM: searchVM
         )
-    }
-}
-
-// MARK: - macOS Sidebar Collapse Prevention
-
-
-// MARK: - TabView Style Helper
-
-extension View {
-    /// Apply .sidebarAdaptable or .automatic TabView style.
-    /// Needed because different styles are different types and can't be
-    /// returned from a single `some TabViewStyle` function.
-    @ViewBuilder
-    func applyTabViewStyle(sidebarAdaptable: Bool) -> some View {
-        #if os(iOS)
-        if sidebarAdaptable {
-            if #available(iOS 18.0, *) {
-                self.tabViewStyle(.sidebarAdaptable)
-            } else {
-                self.tabViewStyle(.automatic)
-            }
-        } else {
-            self.tabViewStyle(.automatic)
-        }
-        #else
-        self.tabViewStyle(.automatic)
-        #endif
-    }
-
-    /// Remove the sidebar toggle button. Requires iOS 17+/macOS 14+; no-op on earlier.
-    @ViewBuilder
-    func if_available_removeSidebarToggle() -> some View {
-        #if os(macOS)
-        if #available(iOS 17.0, macOS 14.0, *) {
-            self.toolbar(removing: .sidebarToggle)
-        } else {
-            self
-        }
-        #else
-        self
-        #endif
     }
 }

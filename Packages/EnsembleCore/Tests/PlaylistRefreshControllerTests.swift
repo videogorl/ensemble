@@ -65,6 +65,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
 
         XCTAssertEqual(result?.sourceId, source)
         XCTAssertEqual(result?.serverSourceKey, "plex:account-1:server-1")
+        XCTAssertEqual(result?.provider.sourceIdentifier, source)
         XCTAssertEqual(result?.playlistResult.changedPlaylists, 1)
     }
 
@@ -87,6 +88,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         )
 
         XCTAssertEqual(result?.playlistResult.changedPlaylists, 2)
+        XCTAssertEqual(result?.provider.sourceIdentifier, source)
     }
 
     func testRefreshServerReturnsNilWhenIncrementalFailsWithoutFallback() async throws {
@@ -107,5 +109,35 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         )
 
         XCTAssertNil(result)
+    }
+
+    func testRefreshAllServersDeduplicatesProvidersByServer() async throws {
+        let controller = PlaylistRefreshController()
+        let serverOneSourceA = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
+        let serverOneSourceB = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "2")
+        let serverTwoSource = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-2", libraryId: "1")
+        let providers: [String: MusicSourceSyncProvider] = [
+            serverOneSourceA.compositeKey: MockProvider(
+                sourceIdentifier: serverOneSourceA,
+                incrementalResult: .success(PlaylistSyncResult(changedPlaylists: 1))
+            ),
+            serverOneSourceB.compositeKey: MockProvider(
+                sourceIdentifier: serverOneSourceB,
+                incrementalResult: .success(PlaylistSyncResult(changedPlaylists: 1))
+            ),
+            serverTwoSource.compositeKey: MockProvider(
+                sourceIdentifier: serverTwoSource,
+                incrementalResult: .success(PlaylistSyncResult(changedPlaylists: 1))
+            )
+        ]
+
+        let results = await controller.refreshAllServers(
+            providers: providers,
+            playlistRepository: MockPlaylistRepository(),
+            trigger: .playlistOnly,
+            allowFullFallback: false
+        )
+
+        XCTAssertEqual(Set(results.map(\.serverSourceKey)), ["plex:account-1:server-1", "plex:account-1:server-2"])
     }
 }

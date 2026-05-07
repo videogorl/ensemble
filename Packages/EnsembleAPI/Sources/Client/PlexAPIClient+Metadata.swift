@@ -41,11 +41,7 @@ extension PlexAPIClient {
     public func getTrack(trackKey: String) async throws -> PlexTrack? {
         let data = try await serverRequest(path: "/library/metadata/\(trackKey)")
 
-        if let jsonString = String(data: data, encoding: .utf8) {
-            #if DEBUG
-            EnsembleLogger.debug("🔍 Raw JSON response (first 500 chars): \(String(jsonString.prefix(500)))")
-            #endif
-        }
+        EnsembleLogger.debug("🔍 Received track metadata payload for \(trackKey): \(data.count) bytes")
 
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexTrack>.self,
@@ -54,18 +50,12 @@ extension PlexAPIClient {
         let track = container.mediaContainer.items.first
 
         if let track {
-            #if DEBUG
             EnsembleLogger.debug("🔍 getTrack - media count: \(track.media?.count ?? 0)")
-            #endif
             if let media = track.media?.first {
-                #if DEBUG
                 EnsembleLogger.debug("🔍 getTrack - part count: \(media.part?.count ?? 0)")
-                #endif
                 if let part = media.part?.first {
-                    #if DEBUG
                     EnsembleLogger.debug("🔍 getTrack - part key: \(part.key ?? "nil")")
                     EnsembleLogger.debug("🔍 getTrack - part file: \(part.file ?? "nil")")
-                    #endif
                 }
             }
         }
@@ -80,9 +70,7 @@ extension PlexAPIClient {
 
         let ids = ratingKeys.joined(separator: ",")
 
-        #if DEBUG
         EnsembleLogger.debug("📦 Fetching \(ratingKeys.count) tracks in batch")
-        #endif
 
         let data = try await serverRequest(path: "/library/metadata/\(ids)")
 
@@ -91,9 +79,7 @@ extension PlexAPIClient {
             from: data
         )
 
-        #if DEBUG
         EnsembleLogger.debug("✅ Batch fetch returned \(container.mediaContainer.items.count) tracks")
-        #endif
 
         return container.mediaContainer.items
     }

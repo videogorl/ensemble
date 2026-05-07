@@ -29,6 +29,39 @@ struct StageFlowLayoutMetrics: Equatable {
     )
 }
 
+private enum StageFlowChromeMetrics {
+    static let reflectionBlurRadius: CGFloat = 1.2
+    static let reflectionYOffset = EnsembleDesign.Spacing.chipVertical
+    static let reflectionTopPadding = -EnsembleDesign.Spacing.xs
+    static let reflectionHeightRatio: CGFloat = 0.48
+    static let footerSpacing = EnsembleDesign.Spacing.chipVertical
+    static let footerBottomPadding = EnsembleDesign.Spacing.xl
+    static let footerHorizontalPadding = EnsembleDesign.Spacing.xxl
+    static let detailPanelSeamOverlap = EnsembleDesign.Spacing.md
+    static let detailPanelCornerRadius: CGFloat = 24
+    static let detailPanelStrokeOpacity = 0.08
+    static let detailPanelStrokeWidth: CGFloat = 1
+    static let detailPanelShadowOpacity = 0.26
+    static let detailPanelShadowRadius: CGFloat = 18
+    static let detailPanelShadowX = -EnsembleDesign.Spacing.chipVertical
+    static let detailPanelShadowY = EnsembleDesign.Spacing.sm
+    static let detailPanelZIndex: Double = 150
+    static let closeButtonFontSize = EnsembleDesign.Spacing.md
+    static let closeButtonForegroundOpacity = 0.8
+    static let closeButtonDimension = EnsembleDesign.Spacing.xxxl
+    static let closeButtonBackgroundOpacity = 0.36
+    static let closeButtonStrokeOpacity = 0.15
+    static let closeButtonInset = EnsembleDesign.Spacing.sheetRowVertical
+    static let transportLoadingScale = 0.9
+    static let transportIconSize: CGFloat = 18
+    static let transportButtonDimension: CGFloat = 48
+    static let transportFillOpacity = 0.16
+    static let transportStrokeOpacity = 0.18
+    static let transportTrailingPadding = EnsembleDesign.Spacing.lg
+    static let transportBottomPadding = EnsembleDesign.Spacing.sheetOuterVertical
+    static let transportZIndex: Double = 200
+}
+
 /// Resolved transform values for a single StageFlow item.
 struct StageFlowItemLayout: Equatable {
     let xOffset: CGFloat
@@ -336,22 +369,22 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 .frame(width: itemSize, height: reflectionHeight)
                 .frame(maxHeight: .infinity, alignment: .top)
             )
-            .blur(radius: 1.2)
-            .offset(y: 6)
-            .padding(.top, -4)
+            .blur(radius: StageFlowChromeMetrics.reflectionBlurRadius)
+            .offset(y: StageFlowChromeMetrics.reflectionYOffset)
+            .padding(.top, StageFlowChromeMetrics.reflectionTopPadding)
             .frame(width: itemSize, height: reflectionHeight, alignment: .top)
             .clipped()
             .allowsHitTesting(false)
     }
 
     private func stageReflectionHeight(for itemSize: CGFloat) -> CGFloat {
-        itemSize * 0.48
+        itemSize * StageFlowChromeMetrics.reflectionHeightRatio
     }
 
     @ViewBuilder
     private var footerLayer: some View {
         if let liveCenteredItem {
-            VStack(spacing: 6) {
+            VStack(spacing: StageFlowChromeMetrics.footerSpacing) {
                 Spacer()
                 Text(titleContent(liveCenteredItem))
                     .font(.headline.weight(.semibold))
@@ -365,8 +398,8 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                         .lineLimit(1)
                 }
             }
-            .padding(.bottom, 20)
-            .padding(.horizontal, 24)
+            .padding(.bottom, StageFlowChromeMetrics.footerBottomPadding)
+            .padding(.horizontal, StageFlowChromeMetrics.footerHorizontalPadding)
             .allowsHitTesting(false)
         }
     }
@@ -374,18 +407,26 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     private func detailPanel(for item: Item, in geometry: GeometryProxy) -> some View {
         let trackPanelWidth = detailPanelWidth(for: geometry)
         let centeredItemSize = centeredItemSize(for: geometry)
-        let seamOverlap: CGFloat = 12
+        let seamOverlap = StageFlowChromeMetrics.detailPanelSeamOverlap
         let combinedPanelWidth = centeredItemSize + trackPanelWidth - seamOverlap
         let panelCenterX = geometry.size.width * 0.5
 
         return ZStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
+            RoundedRectangle(cornerRadius: StageFlowChromeMetrics.detailPanelCornerRadius, style: .continuous)
                 .fill(stagePanelBackground)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: StageFlowChromeMetrics.detailPanelCornerRadius, style: .continuous)
+                        .strokeBorder(
+                            Color.white.opacity(StageFlowChromeMetrics.detailPanelStrokeOpacity),
+                            lineWidth: StageFlowChromeMetrics.detailPanelStrokeWidth
+                        )
                 )
-                .shadow(color: .black.opacity(0.26), radius: 18, x: -6, y: 8)
+                .shadow(
+                    color: .black.opacity(StageFlowChromeMetrics.detailPanelShadowOpacity),
+                    radius: StageFlowChromeMetrics.detailPanelShadowRadius,
+                    x: StageFlowChromeMetrics.detailPanelShadowX,
+                    y: StageFlowChromeMetrics.detailPanelShadowY
+                )
 
             HStack(spacing: EnsembleDesign.Spacing.none) {
                 itemView(item)
@@ -398,32 +439,38 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 .frame(height: centeredItemSize)
                 .padding(.leading, -seamOverlap)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: StageFlowChromeMetrics.detailPanelCornerRadius, style: .continuous))
             .overlay(alignment: .topTrailing) {
                 Button {
                     closePanel()
                 } label: {
                     Image(systemName: EnsembleDesign.Icon.close)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.primary.opacity(0.8))
-                        .frame(width: 32, height: 32)
+                        .font(.system(size: StageFlowChromeMetrics.closeButtonFontSize, weight: .semibold))
+                        .foregroundColor(.primary.opacity(StageFlowChromeMetrics.closeButtonForegroundOpacity))
+                        .frame(
+                            width: StageFlowChromeMetrics.closeButtonDimension,
+                            height: StageFlowChromeMetrics.closeButtonDimension
+                        )
                         .background(
                             Circle()
-                                .fill(Color.white.opacity(0.36))
+                                .fill(Color.white.opacity(StageFlowChromeMetrics.closeButtonBackgroundOpacity))
                         )
                         .overlay(
                             Circle()
-                                .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
+                                .strokeBorder(
+                                    Color.primary.opacity(StageFlowChromeMetrics.closeButtonStrokeOpacity),
+                                    lineWidth: StageFlowChromeMetrics.detailPanelStrokeWidth
+                                )
                         )
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 10)
-                .padding(.trailing, 10)
+                .padding(.top, StageFlowChromeMetrics.closeButtonInset)
+                .padding(.trailing, StageFlowChromeMetrics.closeButtonInset)
             }
         }
         .frame(width: combinedPanelWidth, height: centeredItemSize)
         .position(x: panelCenterX, y: detailSurfaceCenterY(for: geometry))
-        .zIndex(150)
+        .zIndex(StageFlowChromeMetrics.detailPanelZIndex)
         .allowsHitTesting(true)
     }
 
@@ -450,29 +497,35 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                         if isTransportLoading {
                             ProgressView()
                                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .scaleEffect(0.9)
+                                .scaleEffect(StageFlowChromeMetrics.transportLoadingScale)
                         } else {
                             Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 18, weight: .bold))
+                                .font(.system(size: StageFlowChromeMetrics.transportIconSize, weight: .bold))
                                 .foregroundColor(.white)
                         }
                     }
-                    .frame(width: 48, height: 48)
+                    .frame(
+                        width: StageFlowChromeMetrics.transportButtonDimension,
+                        height: StageFlowChromeMetrics.transportButtonDimension
+                    )
                     .background(
                         Circle()
-                            .fill(Color.white.opacity(0.16))
+                            .fill(Color.white.opacity(StageFlowChromeMetrics.transportFillOpacity))
                     )
                     .overlay(
                         Circle()
-                            .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                            .strokeBorder(
+                                Color.white.opacity(StageFlowChromeMetrics.transportStrokeOpacity),
+                                lineWidth: StageFlowChromeMetrics.detailPanelStrokeWidth
+                            )
                     )
                 }
                 .buttonStyle(.plain)
-                .padding(.trailing, 16)
-                .padding(.bottom, 28)
+                .padding(.trailing, StageFlowChromeMetrics.transportTrailingPadding)
+                .padding(.bottom, StageFlowChromeMetrics.transportBottomPadding)
             }
         }
-        .zIndex(200)
+        .zIndex(StageFlowChromeMetrics.transportZIndex)
     }
 
     private var liveCenteredItem: Item? {

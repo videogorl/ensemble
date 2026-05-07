@@ -876,6 +876,52 @@ public struct EnsembleUtilityIcon: View {
     }
 }
 
+/// Compact icon + status text row used inside utility cards and account detail rows.
+public struct EnsembleUtilityInlineStatusRow: View {
+    private let iconSystemName: String
+    private let text: String
+    private let iconColor: Color
+    private let textColor: Color
+    private let iconFont: Font
+    private let textFont: Font
+    private let iconWidth: CGFloat
+    private let spacing: CGFloat
+    private let lineLimit: Int?
+
+    public init(
+        iconSystemName: String,
+        text: String,
+        iconColor: Color = EnsembleDesign.Color.secondaryText,
+        textColor: Color = EnsembleDesign.Color.secondaryText,
+        iconFont: Font = EnsembleDesign.Typography.rowSecondary,
+        textFont: Font = EnsembleDesign.Typography.rowSecondary,
+        iconWidth: CGFloat = EnsembleScaffold.UtilityRow.inlineIconWidth,
+        spacing: CGFloat = EnsembleScaffold.UtilityRow.inlineSpacing,
+        lineLimit: Int? = nil
+    ) {
+        self.iconSystemName = iconSystemName
+        self.text = text
+        self.iconColor = iconColor
+        self.textColor = textColor
+        self.iconFont = iconFont
+        self.textFont = textFont
+        self.iconWidth = iconWidth
+        self.spacing = spacing
+        self.lineLimit = lineLimit
+    }
+
+    public var body: some View {
+        HStack(spacing: spacing) {
+            EnsembleUtilityIcon(iconSystemName, color: iconColor, font: iconFont, width: iconWidth)
+
+            Text(text)
+                .font(textFont)
+                .foregroundColor(textColor)
+                .lineLimit(lineLimit)
+        }
+    }
+}
+
 /// Shared title/subtitle stack for compact utility list rows.
 public struct EnsembleUtilityTextStack: View {
     private let title: String

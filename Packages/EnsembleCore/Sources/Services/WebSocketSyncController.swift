@@ -41,13 +41,6 @@ final class WebSocketSyncController {
         playlistRepository: PlaylistRepositoryProtocol,
         playlistRefreshController: PlaylistRefreshController
     ) async throws -> PlaylistResolution? {
-        guard let provider = providers.first(where: { _, provider in
-            let id = provider.sourceIdentifier
-            return "\(id.accountId):\(id.serverId)" == serverKey
-        })?.value else {
-            return nil
-        }
-
         guard let result = try await playlistRefreshController.refreshServer(
             serverSourceKey: "plex:\(serverKey)",
             providers: providers,
@@ -61,7 +54,7 @@ final class WebSocketSyncController {
         return PlaylistResolution(
             sourceId: result.sourceId,
             serverSourceKey: result.serverSourceKey,
-            provider: provider,
+            provider: result.provider,
             playlistResult: result.playlistResult
         )
     }

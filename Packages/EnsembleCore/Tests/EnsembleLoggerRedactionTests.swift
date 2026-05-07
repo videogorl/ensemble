@@ -1,0 +1,32 @@
+import XCTest
+@testable import EnsembleCore
+
+final class EnsembleLoggerRedactionTests: XCTestCase {
+    func testRedactsPlexTokenBeforePersistentCoreLogSink() {
+        var capturedMessage: String?
+        EnsembleLogger.fileLogHandler = { _, _, message in
+            capturedMessage = message
+        }
+        defer {
+            EnsembleLogger.fileLogHandler = nil
+        }
+
+        EnsembleLogger.debug("Playback URL https://example.test?X-Plex-Token=secret-token&ratingKey=1")
+
+        XCTAssertEqual(capturedMessage, "Playback URL https://example.test?X-Plex-Token=<redacted>&ratingKey=1")
+    }
+
+    func testRedactsPlaybackCategoryMessages() {
+        var capturedMessage: String?
+        EnsembleLogger.fileLogHandler = { _, _, message in
+            capturedMessage = message
+        }
+        defer {
+            EnsembleLogger.fileLogHandler = nil
+        }
+
+        EnsembleLogger.playback("Headers: X-Plex-Token: secret-token, authToken=session-secret")
+
+        XCTAssertEqual(capturedMessage, "Headers: X-Plex-Token: <redacted>, authToken=<redacted>")
+    }
+}

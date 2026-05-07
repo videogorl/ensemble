@@ -10,6 +10,44 @@ struct PlaybackStreamCacheContext {
 
 /// Owns resolved-file cache updates and temporary stream-cache cleanup policy.
 final class PlaybackPrefetchController {
+    func upcomingQueueIndices(
+        queueCount: Int,
+        currentQueueIndex: Int,
+        repeatMode: RepeatMode,
+        depth: Int
+    ) -> [Int] {
+        guard depth > 0, queueCount > 0 else { return [] }
+        guard currentQueueIndex >= 0, currentQueueIndex < queueCount else { return [] }
+
+        if repeatMode == .one {
+            return [currentQueueIndex]
+        }
+
+        var indices: [Int] = []
+        var nextIndex = currentQueueIndex
+
+        for _ in 0..<depth {
+            nextIndex += 1
+            if nextIndex >= queueCount {
+                guard repeatMode == .all else { break }
+                nextIndex = 0
+            }
+            indices.append(nextIndex)
+        }
+
+        return indices
+    }
+
+    static func shouldSchedulePrefetchedTrack(
+        prefetchedTrackID: String,
+        currentTrackID: String?,
+        nextUpcomingTrackID: String?
+    ) -> Bool {
+        guard prefetchedTrackID != currentTrackID else { return false }
+        guard nextUpcomingTrackID == prefetchedTrackID else { return false }
+        return true
+    }
+
     func cacheFileURL(
         _ url: URL,
         for trackId: String,

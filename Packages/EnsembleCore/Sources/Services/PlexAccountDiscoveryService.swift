@@ -1,6 +1,5 @@
 import EnsembleAPI
 import Foundation
-import os
 
 public struct PlexAccountIdentity: Sendable, Equatable {
     public let id: String
@@ -254,16 +253,12 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                                 token: authToken,
                                 allowInsecurePolicy: allowInsecurePolicy
                             )
-                            #if DEBUG
-                            Logger(subsystem: "com.videogorl.Ensemble", category: "Discovery")
-                                .debug("[\(device.name)] capabilities: plexPass=\(capabilities?.hasPlexPass ?? false), lyrics=\(capabilities?.hasLyrics ?? false), radio=\(capabilities?.hasRadio ?? false), ownerFeatures=\(capabilities?.ownerFeatures ?? "nil")")
-                            #endif
+                            EnsembleLogger.debug(
+                                "[\(device.name)] capabilities: plexPass=\(capabilities?.hasPlexPass ?? false), lyrics=\(capabilities?.hasLyrics ?? false), radio=\(capabilities?.hasRadio ?? false), ownerFeatures=\(capabilities?.ownerFeatures ?? "nil")"
+                            )
                         } catch {
                             capabilities = nil
-                            #if DEBUG
-                            Logger(subsystem: "com.videogorl.Ensemble", category: "Discovery")
-                                .warning("[\(device.name)] capabilities fetch failed: \(error.localizedDescription)")
-                            #endif
+                            EnsembleLogger.debug("[\(device.name)] capabilities fetch failed: \(error.localizedDescription)")
                         }
 
                         let libraries = sections

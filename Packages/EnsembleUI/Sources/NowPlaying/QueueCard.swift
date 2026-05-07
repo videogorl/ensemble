@@ -4,7 +4,9 @@ import SwiftUI
 /// Right card displaying scrollable queue with pinned header and secondary controls
 /// Includes shuffle, repeat, autoplay buttons relocated from Controls card
 public struct QueueCard: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    private let viewModel: NowPlayingViewModel
+    @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
+    @ObservedObject private var queueProjection: NowPlayingQueueProjection
     @Binding var currentPage: Int
     private let isAlwaysVisible: Bool
     @Environment(\.dependencies) private var deps
@@ -14,6 +16,7 @@ public struct QueueCard: View {
     
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
+    @State private var lastPlaylistTargetID: String?
     
     public init(
         viewModel: NowPlayingViewModel,
@@ -21,15 +24,19 @@ public struct QueueCard: View {
         isAlwaysVisible: Bool = false
     ) {
         self.viewModel = viewModel
+        self._playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
+        self._queueProjection = ObservedObject(wrappedValue: viewModel.queueProjection)
         self._currentPage = currentPage
         self.isAlwaysVisible = isAlwaysVisible
     }
     
-    /// Whether this card is the active page in the carousel.
-    /// TabView's .page style renders ALL children simultaneously — gate the heavy
-    /// QueueTableView (UIKit UITableView) behind this to avoid layout/rendering off-screen.
-    private var isVisible: Bool {
-        isAlwaysVisible || currentPage == 0
+    /// Render the active or adjacent queue panel so page swipes do not reveal an
+    /// empty placeholder before SwiftUI commits the new page selection.
+    private var shouldRenderContent: Bool {
+        NowPlayingPanelPage.queue.shouldRenderContent(
+            currentPage: currentPage,
+            isAlwaysVisible: isAlwaysVisible
+        )
     }
 
     public var body: some View {
@@ -39,7 +46,7 @@ public struct QueueCard: View {
                 .padding(.top, EnsembleScaffold.NowPlaying.headerTopPadding)
                 .padding(.bottom, EnsembleScaffold.NowPlaying.headerBottomPadding)
 
-            if isVisible {
+            if shouldRenderContent {
                 // Queue list — QueueTableView manages its own scrolling now.
                 // No SwiftUI ScrollView wrapper — that was defeating cell recycling
                 // by forcing IntrinsicTableView to report full contentSize.
@@ -73,7 +80,7 @@ public struct QueueCard: View {
                         }
                     )
             } else {
-                // Lightweight placeholder — avoids UITableView layout off-screen
+                // Lightweight placeholder for far-off pages only.
                 Color.clear
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -92,10 +99,12 @@ public struct QueueCard: View {
         .task {
             await refreshLastPlaylistQuickTarget()
         }
-        .onChange(of: viewModel.currentTrack?.id) { _ in
+        .onChange(of: playbackProjection.currentTrack?.id) { _ in
             Task { @MainActor in await refreshLastPlaylistQuickTarget() }
         }
-        .onChange(of: viewModel.lastPlaylistTarget?.id) { _ in
+        .onReceive(viewModel.lastPlaylistTargetPublisher) { target in
+            guard lastPlaylistTargetID != target?.id else { return }
+            lastPlaylistTargetID = target?.id
             Task { @MainActor in await refreshLastPlaylistQuickTarget() }
         }
     }
@@ -104,7 +113,7 @@ public struct QueueCard: View {
     
     private var headerView: some View {
         HStack {
-            Text(viewModel.showHistory ? "History" : "Queue")
+            Text(queueProjection.showHistory ? "History" : "Queue")
                 .font(EnsembleDesign.Typography.sectionTitle)
                 .foregroundColor(EnsembleDesign.Color.primaryText)
             
@@ -123,7 +132,7 @@ public struct QueueCard: View {
                         Text("History")
                             .font(EnsembleDesign.Typography.stateMessage)
                     }
-                    .foregroundColor(viewModel.showHistory ? EnsembleDesign.Color.accent : EnsembleDesign.Color.secondaryText)
+                    .foregroundColor(queueProjection.showHistory ? EnsembleDesign.Color.accent : EnsembleDesign.Color.secondaryText)
                 }
                 
                 // Tertiary actions menu
@@ -154,15 +163,15 @@ public struct QueueCard: View {
     
     private var queueListView: some View {
         ZStack {
-            if !viewModel.queue.isEmpty || !viewModel.playbackHistory.isEmpty {
+            if !queueProjection.queue.isEmpty || !queueProjection.playbackHistory.isEmpty {
                 #if canImport(UIKit)
-                let queueItemsToShow = Array(viewModel.queue.dropFirst(viewModel.currentQueueIndex + 1))
-                let capturedCurrentIndex = viewModel.currentQueueIndex
+                let queueItemsToShow = Array(queueProjection.queue.dropFirst(queueProjection.currentQueueIndex + 1))
+                let capturedCurrentIndex = queueProjection.currentQueueIndex
                 
                 QueueTableView(
                     queueItems: queueItemsToShow,
-                    history: viewModel.playbackHistory,
-                    showHistory: viewModel.showHistory,
+                    history: queueProjection.playbackHistory,
+                    showHistory: queueProjection.showHistory,
                     currentQueueIndex: -1,
                     onItemTap: { item, absoluteIndex in
                         viewModel.playFromQueue(at: capturedCurrentIndex + 1 + absoluteIndex)
@@ -214,7 +223,7 @@ public struct QueueCard: View {
                 )
                 
                 // Recommendations exhausted indicator
-                if viewModel.recommendationsExhausted && viewModel.isAutoplayEnabled {
+                if queueProjection.recommendationsExhausted && queueProjection.isAutoplayEnabled {
                     VStack {
                         Spacer()
                         HStack(spacing: EnsembleDesign.Spacing.chipVertical) {
@@ -253,13 +262,13 @@ public struct QueueCard: View {
     #if os(macOS)
     @ViewBuilder
     private var macOSQueueListView: some View {
-        let queueItemsToShow = Array(viewModel.queue.dropFirst(viewModel.currentQueueIndex + 1))
-        let capturedCurrentIndex = viewModel.currentQueueIndex
+        let queueItemsToShow = Array(queueProjection.queue.dropFirst(queueProjection.currentQueueIndex + 1))
+        let capturedCurrentIndex = queueProjection.currentQueueIndex
 
-        if viewModel.showHistory {
+        if queueProjection.showHistory {
             // History list
             List {
-                ForEach(Array(viewModel.playbackHistory.enumerated()), id: \.element.id) { index, item in
+                ForEach(Array(queueProjection.playbackHistory.enumerated()), id: \.element.id) { index, item in
                     macOSQueueRow(item: item, isAutoplay: false)
                         .listRowBackground(Color.clear)
                         .contentShape(Rectangle())
@@ -290,7 +299,7 @@ public struct QueueCard: View {
             .modifier(ClearScrollContentBackgroundModifier())
 
             // Recommendations exhausted indicator
-            if viewModel.recommendationsExhausted && viewModel.isAutoplayEnabled {
+            if queueProjection.recommendationsExhausted && queueProjection.isAutoplayEnabled {
                 HStack(spacing: EnsembleDesign.Spacing.chipVertical) {
                     Image(systemName: EnsembleDesign.Icon.playlist)
                         .font(.system(size: EnsembleScaffold.NowPlaying.smallIconSize))
@@ -396,14 +405,14 @@ public struct QueueCard: View {
             Button(action: viewModel.toggleShuffle) {
                 Image(systemName: EnsembleDesign.Icon.shuffle)
                     .font(EnsembleDesign.Typography.detailSubtitle)
-                    .foregroundColor(viewModel.isShuffleEnabled ? EnsembleDesign.Color.accent : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
+                    .foregroundColor(playbackProjection.isShuffleEnabled ? EnsembleDesign.Color.accent : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }
             
             // Repeat
             Button(action: viewModel.cycleRepeatMode) {
-                Image(systemName: viewModel.repeatMode.icon)
+                Image(systemName: playbackProjection.repeatMode.icon)
                     .font(EnsembleDesign.Typography.detailSubtitle)
-                    .foregroundColor(viewModel.repeatMode.isActive ? EnsembleDesign.Color.accent : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
+                    .foregroundColor(playbackProjection.repeatMode.isActive ? EnsembleDesign.Color.accent : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }
             
             // Autoplay — dimmed and non-interactive when offline (no network for recommendations)
@@ -424,7 +433,7 @@ public struct QueueCard: View {
     }
     
     private var autoplayColor: Color {
-        viewModel.isAutoplayEnabled
+        queueProjection.isAutoplayEnabled
             ? EnsembleDesign.Color.accent
             : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity)
     }
@@ -433,7 +442,7 @@ public struct QueueCard: View {
     
     @MainActor
     private func refreshLastPlaylistQuickTarget() async {
-        guard let currentTrack = viewModel.currentTrack else {
+        guard let currentTrack = playbackProjection.currentTrack else {
             lastPlaylistQuickTarget = nil
             return
         }

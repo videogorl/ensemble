@@ -614,7 +614,7 @@ public struct AlbumDetailView: View {
                             .font(EnsembleDesign.Typography.rowPrimary)
                             .foregroundColor(EnsembleDesign.Color.primaryText)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, index > 0 ? EnsembleDesign.Spacing.md : EnsembleDesign.Spacing.none)
+                            .padding(.top, index == paragraphs.indices.lowerBound ? EnsembleDesign.Spacing.none : EnsembleDesign.Spacing.md)
                     }
                 } else {
                     Text(paragraphs.first ?? summary)

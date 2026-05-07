@@ -380,13 +380,14 @@ public struct ArtistDetailView: View {
 
     @Environment(\.dependencies) private var dependencies
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    private let pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     // Targeted NVM observation: only re-evaluate for track changes and playlist target
     @State private var currentTrackId: String?
     @State private var nvmRecentPlaylistTitle: String?
+    @State private var isArtistPinned: Bool
     @State private var isBioExpanded = false
     @State private var artworkImage: UIImage?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -402,6 +403,7 @@ public struct ArtistDetailView: View {
     ) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeArtistDetailViewModel(artist: artist))
         self.nowPlayingVM = nowPlayingVM
+        self._isArtistPinned = State(initialValue: DependencyContainer.shared.pinManager.isPinned(id: artist.id))
     }
 
     public var body: some View {
@@ -485,19 +487,19 @@ public struct ArtistDetailView: View {
                 }
             }
         }
-        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
-            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
-        }
-        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
-            if gen != availabilityGeneration { availabilityGeneration = gen }
-        }
-        .onReceive(nowPlayingVM.$currentTrack) { track in
-            let id = track?.id
-            if id != currentTrackId { currentTrackId = id }
-        }
-        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
-            let title = target?.title
-            if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
+        .trackListRuntimeObservation(
+            activeDownloadRatingKeys: $activeDownloadRatingKeys,
+            availabilityGeneration: $availabilityGeneration
+        )
+        .nowPlayingTrackListObservation(
+            nowPlayingVM: nowPlayingVM,
+            currentTrackId: $currentTrackId,
+            recentPlaylistTitle: $nvmRecentPlaylistTitle
+        )
+        .onReceive(pinManager.objectWillChange) { _ in
+            DispatchQueue.main.async {
+                updateArtistPinState()
+            }
         }
         .task {
             await viewModel.loadAlbums()
@@ -508,9 +510,16 @@ public struct ArtistDetailView: View {
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
     }
 
+    private func updateArtistPinState() {
+        let latest = pinManager.isPinned(id: viewModel.artist.id)
+        if latest != isArtistPinned {
+            isArtistPinned = latest
+        }
+    }
+
     /// Toolbar menu with Pin/Unpin action for the artist
     private var artistPinMenuButton: some View {
-        let isPinned = pinManager.isPinned(id: viewModel.artist.id)
+        let isPinned = isArtistPinned
         let isDownloaded = dependencies.offlineDownloadService.isArtistDownloadEnabled(viewModel.artist)
         return Menu {
             Button {
@@ -586,17 +595,7 @@ public struct ArtistDetailView: View {
                 compactArtistHeader
             }
         }
-        .background(
-            GeometryReader { geometry in
-                Color.clear
-                    .onAppear {
-                        updateArtistHeaderWidth(geometry.size.width)
-                    }
-                    .onChange(of: geometry.size.width) { newWidth in
-                        updateArtistHeaderWidth(newWidth)
-                    }
-            }
-        )
+        .measuredWidth(onChange: updateArtistHeaderWidth)
     }
 
     private var usesWideArtistHeader: Bool {
@@ -902,7 +901,7 @@ public struct ArtistDetailView: View {
                             .font(EnsembleDesign.Typography.rowPrimary)
                             .foregroundColor(EnsembleDesign.Color.primaryText)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, index > 0 ? EnsembleDesign.Spacing.md : EnsembleDesign.Spacing.none)
+                            .padding(.top, index == paragraphs.indices.lowerBound ? EnsembleDesign.Spacing.none : EnsembleDesign.Spacing.md)
                     }
                 } else {
                     // Collapsed: show truncated text
@@ -1099,17 +1098,7 @@ public struct ArtistDetailView: View {
             .frame(height: CGFloat(viewModel.favoritedTracks.count) * TrackListLayoutMetrics.defaultRowHeight)
             #endif
         }
-        .background(
-            GeometryReader { geometry in
-                Color.clear
-                    .onAppear {
-                        updateFavoritedTrackListWidth(geometry.size.width)
-                    }
-                    .onChange(of: geometry.size.width) { newWidth in
-                        updateFavoritedTrackListWidth(newWidth)
-                    }
-            }
-        )
+        .measuredWidth(onChange: updateFavoritedTrackListWidth)
     }
 
     private func updateFavoritedTrackListWidth(_ newWidth: CGFloat) {

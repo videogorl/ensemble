@@ -163,12 +163,17 @@ struct MediaDragPayload: Codable, Equatable {
         )
     }
 
+    static var pasteboardTypes: [NSPasteboard.PasteboardType] {
+        acceptedTypeIdentifiers.map { NSPasteboard.PasteboardType($0) }
+    }
+
     func pasteboardItem(fallbackFileURL: URL? = nil) -> NSPasteboardItem? {
         let item = NSPasteboardItem()
         var wroteRepresentation = false
 
         if let data = encodedData() {
             item.setData(data, forType: NSPasteboard.PasteboardType(Self.typeIdentifier))
+            item.setData(data, forType: NSPasteboard.PasteboardType(Self.jsonContentType.identifier))
             wroteRepresentation = true
         }
 
@@ -201,6 +206,29 @@ struct MediaDragPayload: Codable, Equatable {
                 return fallbackFileURL
             }
         )
+    }
+
+    static func canLoad(from pasteboard: NSPasteboard) -> Bool {
+        acceptedTypeIdentifiers.contains { typeIdentifier in
+            pasteboard.data(forType: NSPasteboard.PasteboardType(typeIdentifier)) != nil ||
+                pasteboard.canReadItem(withDataConformingToTypes: [typeIdentifier])
+        }
+    }
+
+    static func debugRegisteredTypeIdentifiers(for pasteboard: NSPasteboard) -> String {
+        let identifiers = pasteboard.types?.map(\.rawValue) ?? []
+        return identifiers.isEmpty ? "none" : identifiers.joined(separator: ",")
+    }
+
+    static func load(from pasteboard: NSPasteboard) -> MediaDragPayload? {
+        for typeIdentifier in acceptedTypeIdentifiers {
+            guard let data = pasteboard.data(forType: NSPasteboard.PasteboardType(typeIdentifier)),
+                  let payload = try? JSONDecoder().decode(MediaDragPayload.self, from: data) else {
+                continue
+            }
+            return payload
+        }
+        return nil
     }
     #endif
 
@@ -368,12 +396,14 @@ private final class MediaDragFilePromiseProvider: NSObject, NSPasteboardWriting 
         var types = filePromiseProvider.writableTypes(for: pasteboard)
         if payloadData != nil {
             types.insert(NSPasteboard.PasteboardType(MediaDragPayload.typeIdentifier), at: 0)
+            types.insert(NSPasteboard.PasteboardType(MediaDragPayload.jsonContentType.identifier), at: 1)
         }
         return types
     }
 
     func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
-        if type.rawValue == MediaDragPayload.typeIdentifier {
+        if type.rawValue == MediaDragPayload.typeIdentifier ||
+            type.rawValue == MediaDragPayload.jsonContentType.identifier {
             return payloadData
         }
         return filePromiseProvider.pasteboardPropertyList(forType: type)
@@ -383,7 +413,8 @@ private final class MediaDragFilePromiseProvider: NSObject, NSPasteboardWriting 
         forType type: NSPasteboard.PasteboardType,
         pasteboard: NSPasteboard
     ) -> NSPasteboard.WritingOptions {
-        if type.rawValue == MediaDragPayload.typeIdentifier {
+        if type.rawValue == MediaDragPayload.typeIdentifier ||
+            type.rawValue == MediaDragPayload.jsonContentType.identifier {
             return []
         }
         return filePromiseProvider.writingOptions(forType: type, pasteboard: pasteboard)

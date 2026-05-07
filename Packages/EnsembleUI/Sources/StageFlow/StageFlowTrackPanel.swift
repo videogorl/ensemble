@@ -153,9 +153,9 @@ struct StageFlowTrackPanel: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.leading, 12)
-        .padding(.trailing, 12)
-        .padding(.vertical, 8)
+        .padding(.leading, EnsembleDesign.Spacing.md)
+        .padding(.trailing, EnsembleDesign.Spacing.md)
+        .padding(.vertical, EnsembleDesign.Spacing.sm)
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys {
                 activeDownloadRatingKeys = keys

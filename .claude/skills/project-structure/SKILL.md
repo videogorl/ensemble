@@ -31,11 +31,23 @@ ensemble/
 |       +-- 2026-04-14-repo-audit-baseline.md # Ranked audit findings + baseline verification notes
 |       +-- 2026-05-04-function-ownership-context-menu-audit.md # Shared function/menu ownership audit and migration order
 |       +-- 2026-05-04-platform-mutation-drag-performance-scaffold-audit.md # Cross-platform policy, mutation, drag/export, performance, and utility scaffold audit
+|       +-- 2026-05-06-codebase-audit.md # Full Swift target/package audit with cleanup and migration backlog
+|       +-- 2026-05-06-swift-file-index.json # Generated exhaustive one-row-per-Swift-file audit index
+|       +-- 2026-05-06-swift-file-index.csv # CSV export of the exhaustive Swift file audit index
 |
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/
 |   |   +-- EnsembleApp.swift     # App entry point
-|   |   +-- AppDelegate.swift     # Audio session & background playback config
+|   |   +-- AppLogger.swift       # App-target structured logger + persistent session redaction bridge
+|   |   +-- AppDelegate.swift     # iOS delegate state shared by app lifecycle extensions
+|   |   +-- AppDelegate+LaunchPipeline.swift # iOS launch bootstrap setup and lifecycle task registration
+|   |   +-- AppDelegate+LaunchTasks.swift # Startup health/playback/Siri/WebSocket/sync/diagnostics task sequencing
+|   |   +-- AppDelegate+RemoteNotifications.swift # CloudKit silent push registration and remote-notification handling
+|   |   +-- AppDelegate+SiriAuthorization.swift # Siri authorization prompt/status handling
+|   |   +-- AppDelegate+BackgroundURLSession.swift # Background URLSession wakeup handoff for offline downloads
+|   |   +-- AppDelegate+Siri.swift # Siri intent/user-activity bridge and in-app playback execution
+|   |   +-- AppDelegate+SceneOrientation.swift # Background URLSession handoff, scene routing, StageFlow orientation policy
+|   |   +-- SpaceBarPlaybackShortcut.swift # iOS hardware keyboard space-bar playback shortcut
 |   |   +-- ExternalDisplaySceneDelegate.swift # UIWindowSceneDelegate for AirPlay screen mirroring external display
 |   |   +-- EnsembleAppShortcuts.swift # App Intents fallback entities/phrases for Siri album/playlist playback
 |   +-- Resources/
@@ -47,7 +59,11 @@ ensemble/
 |
 +-- EnsembleSiriIntentsExtension/  # SiriKit Media Intents extension target
 |   +-- IntentHandler.swift        # Extension entry point for intent handlers
+|   +-- SiriExtensionLogger.swift  # Siri extension structured logger + privacy redaction helper
 |   +-- PlayMediaIntentHandler.swift # INPlayMediaIntentHandling implementation
+|   +-- AddMediaIntentHandler.swift # INAddMediaIntentHandling add-current-track-to-playlist implementation
+|   +-- UpdateMediaAffinityIntentHandler.swift # INUpdateMediaAffinityIntentHandling like/dislike current track implementation
+|   +-- SiriMatchingHelpers.swift  # Shared Siri index loading, ranking, current-track item, and pending-intent App Group/Darwin bridge helpers
 |   +-- Info.plist                 # Intents extension configuration
 |   +-- EnsembleSiriIntentsExtension.entitlements # Extension entitlements (Siri + shared App Group)
 |
@@ -55,9 +71,9 @@ ensemble/
 |   +-- App/
 |   |   +-- EnsembleWatchApp.swift
 |   +-- Views/
-|   |   +-- WatchRootView.swift   # All watchOS views (auth, library, now playing)
+|   |   +-- WatchRootView.swift   # Standalone watch shell; does not link full EnsembleCore
 |   +-- Resources/
-|   |   +-- Assets.xcassets
+|   |   +-- Assets.xcassets       # Watch accent color and 1024px AppIcon
 |   +-- Info.plist
 |
 +-- Packages/                      # Swift Package modules
@@ -87,6 +103,7 @@ Sources/
 |   +-- PlexAPIClient+Downloads.swift  # Universal-download and download-queue transport helpers split from PlexAPIClient
 |   +-- PlexErrorClassification.swift  # Unified error taxonomy for failover/retry decisions
 |   +-- PlexRequestBuilder.swift       # Pure URLRequest/header assembly helper shared by PlexAPIClient transport paths
+|   +-- PlexClientDeviceInfo.swift     # Platform/device-name header helper that avoids non-main UIKit access from API actors
 |   +-- PlexWebSocketManager.swift     # Per-server WebSocket connections with exponential backoff (actor)
 |   +-- ServerConnectionRegistry.swift # Single source of truth for per-server endpoints (actor)
 |   +-- ConnectionFailoverManager.swift # Server connection resilience
@@ -103,6 +120,7 @@ Tests/
 +-- PlexResourcesSpecTests.swift
 +-- PlexAPIClientFailoverPolicyTests.swift
 +-- PlexAuthTokenLifecycleTests.swift
++-- EnsembleLoggerRedactionTests.swift # API logger token/query redaction coverage for unified and persistent logs
 ```
 
 ## EnsemblePersistence (Data Layer)
@@ -110,8 +128,8 @@ Tests/
 ```
 Sources/
 +-- CoreData/
-|   +-- Ensemble.xcdatamodeld          # CoreData schema
-|   +-- Compiled/SwiftPMEnsemble.momd # Precompiled model copy used by SwiftPM tests; refreshed by verify_package_baseline.sh
+|   +-- Ensemble.xcdatamodeld          # Versioned CoreData schema (current: Ensemble 3 with CDTrack.streamId)
+|   +-- Compiled/SwiftPMEnsemble.momd # Precompiled model copy used by SwiftPM tests; refreshed by compile_coredata_model.sh / verify_package_baseline.sh
 |   +-- CoreDataStack.swift            # Singleton stack with background contexts
 |   +-- ManagedObjects.swift           # NSManagedObject subclasses (CD* prefix, including CDHomeFeedSnapshot for Feed last-good cache)
 +-- Downloads/
@@ -119,7 +137,13 @@ Sources/
 |   +-- OfflineDownloadTargetRepository.swift # Offline target + membership persistence
 |   +-- ArtworkDownloadManager.swift   # Image caching
 +-- Repositories/
-|   +-- LibraryRepository.swift        # CRUD for artists, albums, tracks, genres
+|   +-- LibraryRepository.swift        # Library repository protocol, initializer, shared helpers, and remaining entity operations
+|   +-- LibraryRepository+Artists.swift # Artist fetch/update/upsert operations split from LibraryRepository
+|   +-- LibraryRepository+Albums.swift # Album fetch/update/delete/upsert operations split from LibraryRepository
+|   +-- LibraryRepository+Tracks.swift # Track fetch/update/delete/upsert operations split from LibraryRepository
+|   +-- LibraryRepository+Genres.swift # Genre fetch/upsert/coverage/orphan repair operations split from LibraryRepository
+|   +-- LibraryRepository+Search.swift # Tokenized and source-scoped search/find operations split from LibraryRepository
+|   +-- LibraryRepository+SyncMetadata.swift # Source rows, sync timestamps, cleanup, orphan removal, and batch upsert operations split from LibraryRepository
 |   +-- PlaylistRepository.swift       # CRUD for playlists
 +-- EnsembleLogger.swift               # Package logger categories
 +-- EnsemblePersistence.swift          # Public exports
@@ -146,7 +170,9 @@ Tests/
 ```
 Sources/
 +-- DI/
-|   +-- DependencyContainer.swift      # Singleton DI container & VM factories
+|   +-- DependencyContainer.swift      # Singleton DI container, bootstrap construction, and cross-service wiring
+|   +-- DependencyContainer+ViewModelFactories.swift # ViewModel factory methods and shared active Now Playing VM state
+|   +-- DependencyContainer+SwiftUIEnvironment.swift # SwiftUI EnvironmentValues bridge for DependencyContainer
 +-- Models/
 |   +-- DisplayPlaylist.swift          # Merge-aware playlist wrapper (single or multi-server merged)
 |   +-- DomainModels.swift             # UI-facing models (Track, Album, Artist, Hub, etc.)
@@ -179,8 +205,9 @@ Sources/
 |   +-- RefreshOrchestrator.swift      # Health-refresh gating, cooldown/staleness policy, and startup-health ownership extracted from SyncCoordinator
 |   +-- NetworkLifecycleController.swift # App-foreground and network-transition policy extracted from SyncCoordinator
 |   +-- PeriodicSyncController.swift   # Foreground periodic-sync timer scheduling + WebSocket-aware interval policy extracted from SyncCoordinator
-|   +-- PlaylistRefreshController.swift # Server-scoped playlist refresh orchestration extracted from SyncCoordinator
+|   +-- PlaylistRefreshController.swift # Server-scoped playlist refresh dedupe/fallback orchestration and provider result routing extracted from SyncCoordinator
 |   +-- WebSocketSyncController.swift  # WebSocket-triggered section resolution + playlist refresh routing extracted from SyncCoordinator
+|   +-- SyncProviderResolver.swift    # Exact-source and fallback provider lookup seam extracted from SyncCoordinator playback/download/reporting routes
 |   +-- MusicSourceSyncProvider.swift  # Protocol for source-specific sync
 |   +-- PlexMusicSourceSyncProvider.swift # Plex implementation of sync protocol
 |   +-- NavigationCoordinator.swift    # Centralized navigation state management (MainActor)
@@ -189,29 +216,33 @@ Sources/
 |   +-- PlaybackAudioSessionCoordinator.swift # AVAudioSession configuration/activation + interruption/route observation extracted from PlaybackService
 |   +-- PlaybackHandoffCoordinator.swift # Disconnect/interruption/remote-command handoff reducer extracted from PlaybackService
 |   +-- PlaybackQueueStore.swift       # Queue/history restoration persistence extracted from PlaybackService
-|   +-- PlaybackQueueController.swift  # Queue/history mutation + queue snapshot persistence extracted from PlaybackService
+|   +-- PlaybackQueueController.swift  # Queue/history mutation, quality/download restamping, legacy autoplay identity tracking, and queue snapshot persistence extracted from PlaybackService
 |   +-- PlaybackStartupCoordinator.swift # Restored-playback snapshot validation + prebuffer decision policy extracted from PlaybackService
 |   +-- PlaybackLaunchCoordinator.swift # Successful playback launch path (visualizer load, engine start, recovery seek, prefetch) extracted from PlaybackService
 |   +-- PlaybackRecoveryPolicy.swift   # Buffering/stall-recovery policy extracted from PlaybackService
 |   +-- PlaybackSessionStateMachine.swift # Playback session request/retry/failure policy extracted from PlaybackService
 |   +-- PlaybackResolvedFileCache.swift # Serialized resolved-file URL cache + prefetch in-flight bookkeeping extracted from PlaybackService
-|   +-- PlaybackPrefetchController.swift # Resolved-file cache eviction + stream-cache cleanup policy extracted from PlaybackService
+|   +-- PlaybackPrefetchController.swift # Upcoming-queue prefetch policy, resolved-file cache eviction, and stream-cache cleanup extracted from PlaybackService
 |   +-- PlaybackNowPlayingBridge.swift # Lock-screen metadata + command-availability wiring extracted from PlaybackService
 |   +-- PlaybackTransportCoordinator.swift # Stream/local transport resolution + progressive-loader cache extracted from PlaybackService
+|   +-- PlaybackLocalFilePolicy.swift # Local payload validation, mislabeled MP3 aliasing, and truncated-duration thresholds extracted from PlaybackService
+|   +-- PlaybackSettingsObserver.swift # Key-filtered UserDefaults observer for playback settings changes
+|   +-- PlaybackReportingController.swift # Timeline reporting and scrobble policy extracted from PlaybackService
+|   +-- SyncPlaybackReportingController.swift # Sync-side exact-provider routing for playback timeline/scrobble calls
 |   +-- AppBootstrapDiagnostics.swift # Structured cold-launch bootstrap summary service (accounts/sync/playback/offline/audio session)
 |   +-- ProgressiveStreamLoader.swift  # AVAssetResourceLoaderDelegate bridge for chunked transcode streams
 |   +-- ArtworkLoader.swift            # Persistent artwork caching & loading
 |   +-- CacheManager.swift             # Cache size tracking & management (MainActor)
 |   +-- NetworkMonitor.swift           # Network connectivity monitoring (NWPathMonitor)
 |   +-- ServerHealthChecker.swift      # Concurrent server health checks
-|   +-- ServerConnectionController.swift # Registry subscription + API-client endpoint synchronization extracted from SyncCoordinator
+|   +-- ServerConnectionController.swift # Registry subscription, playback readiness checks, source-key API-client lookup, endpoint refresh/fan-out, and post-sync URL resolution extracted from SyncCoordinator
 |   +-- SettingsManager.swift          # App settings (accent colors, customizable tabs)
 |   +-- HubRepository.swift            # Hub data persistence (CDHub/CDHubItem/CDHomeFeedSnapshot last-good snapshots)
 |   +-- HomeHubLoader.swift            # Feed hub snapshot loader shared by HomeViewModel and background refresh
 |   +-- HubOrderManager.swift          # User-customizable hub section ordering
 |   +-- BackgroundSyncScheduler.swift  # iOS BGAppRefreshTask scheduling for background sync
 |   +-- BackgroundRefreshCoordinator.swift # Shared app-refresh/foreground Feed freshness sequence (health, sync, Feed snapshot, Siri context)
-|   +-- OfflineDownloadService.swift   # Target-based offline queue, reconciliation, progress tracking, and healing orchestration
+|   +-- OfflineDownloadService.swift   # Target-based offline queue, lifecycle policy, recovery, and public download facade
 |   +-- DownloadMutationWorkflow.swift # Shared user-initiated download target/queue mutation boundary
 |   +-- DownloadQueueCoordinator.swift # Sole owner of offline queue task lifecycle and worker orchestration
 |   +-- OfflineDownloadCleanupCoordinator.swift # Best-effort orphaned-download cleanup for completed files that no longer have any offline target membership
@@ -219,6 +250,7 @@ Sources/
 |   +-- DownloadTargetReconciler.swift # Membership resolution and orphan cleanup for offline targets
 |   +-- DownloadTransferExecutor.swift # Direct-download/download-queue transfer pipeline, validation, recovery, and post-completion side effects extracted from OfflineDownloadService
 |   +-- OfflineDownloadNotificationBridge.swift # Debounced downloadsDidChange fan-out + queue completion toast seam extracted from OfflineDownloadService
+|   +-- OfflineDownloadTargetProgressController.swift # Target progress recomputation, snapshots, active key cache, and orphaned-target repair
 |   +-- OfflineBackgroundExecutionCoordinator.swift # Offline download background coordinator: iOS 26 continued processing, URLSession wake completion registry, macOS sleep/wake recovery
 |   +-- MoodRepository.swift           # Mood data persistence (CDMood)
 |   +-- LibraryVisibilityStore.swift   # Persisted visibility profiles + active profile state
@@ -279,15 +311,22 @@ Tests/
 +-- PlaybackLaunchCoordinatorTests.swift
 +-- PlaybackSessionStateMachineTests.swift
 +-- PlaybackTransportCoordinatorTests.swift
++-- PlaybackLocalFilePolicyTests.swift # Local payload sniffing, invalid payload rejection, MP3 aliasing, and truncation threshold coverage
++-- PlaybackPrefetchControllerTests.swift # Upcoming-queue selection and prefetch schedule-eligibility coverage
 +-- PlaybackQueueStoreTests.swift
++-- PlaybackQueueControllerTests.swift # Queue/history controller coverage, including quality/download restamping and legacy autoplay identity tracking
++-- PlaybackSettingsObserverTests.swift # Key-filtered playback UserDefaults observation coverage
++-- PlaybackReportingControllerTests.swift # Timeline reporting and scrobble policy coverage
++-- SyncPlaybackReportingControllerTests.swift # Sync-side playback reporting provider routing coverage
 +-- NetworkMonitorTests.swift
 +-- SyncCoordinatorNetworkHealthTests.swift
 +-- RefreshOrchestratorTests.swift # Health-refresh coalescing, cooldown/staleness gating, and startup ownership coverage
 +-- NetworkLifecycleControllerTests.swift # Foreground and network-transition policy coverage for SyncCoordinator lifecycle decisions
 +-- PeriodicSyncControllerTests.swift # Foreground timer scheduling and WebSocket-aware interval coverage
-+-- PlaylistRefreshControllerTests.swift # Server playlist refresh fallback and trigger-policy coverage
++-- PlaylistRefreshControllerTests.swift # Server playlist refresh dedupe, fallback, and trigger-policy coverage
 +-- WebSocketSyncControllerTests.swift # WebSocket section resolution and playlist refresh routing coverage
-+-- ServerConnectionControllerTests.swift # Registry-update processing and API-client endpoint synchronization coverage
++-- ServerConnectionControllerTests.swift # Registry-update processing, playback readiness, source-key API-client lookup, endpoint refresh, and post-sync URL resolution coverage
++-- SyncProviderResolverTests.swift # Exact-source, fallback, and missing-provider routing coverage
 +-- PlexWebSocketCoordinatorTests.swift # Aggregate WebSocket availability callback coverage
 +-- OfflineDownloadServicePolicyTests.swift # Playback/background download work-mode policy coverage
 +-- DownloadMutationWorkflowTests.swift # Shared download target/queue mutation workflow coverage
@@ -298,6 +337,7 @@ Tests/
 +-- OfflineDownloadNotificationBridgeTests.swift # Debounced downloadsDidChange fan-out and toast routing coverage
 +-- OfflineDownloadCleanupCoordinatorTests.swift # Orphaned completed-download sweep coverage
 +-- OfflineDownloadBackgroundCoordinatorTests.swift # URLSession completion registry and sleep/wake hook coverage
++-- EnsembleLoggerRedactionTests.swift # Core logger token/query redaction coverage for unified and persistent logs
 +-- BackgroundRefreshCoordinatorTests.swift # Shared app/foreground freshness sequencing and error/cooldown coverage
 +-- HomeViewModelRefreshPolicyTests.swift
 +-- HubRepositorySnapshotTests.swift  # CDHomeFeedSnapshot save/fetch/source cleanup/last-good preservation coverage
@@ -318,6 +358,7 @@ Tests/
 +-- PinMutationWorkflowTests.swift    # Shared pin/unpin/batch/reorder policy coverage
 +-- TrackRatingMutationWorkflowTests.swift # Shared favorite/rating toast and queued/error policy coverage
 +-- MetadataMutationWorkflowTests.swift # Shared metadata edit/delete workflow and toast payload coverage
++-- ModelMappersTests.swift         # Domain mapper coverage for persisted CoreData fields such as Track.streamId
 +-- MediaFilterEngineTests.swift      # Shared media filter configurations and parity coverage
 +-- MediaFormattersTests.swift        # Shared media duration/byte formatting coverage
 +-- MediaSourceIdentityTests.swift    # Source-key parsing and server comparison coverage
@@ -350,11 +391,17 @@ Sources/
 |   +-- QueueTableView.swift
 |   +-- SongsTrackListHost.swift
 |   +-- StandardSwipeActions.swift
+|   +-- TrackListRuntimeObservation.swift # Shared download/availability and Now Playing projection observation modifiers for native track-list callers
 |   +-- TrackRow.swift
 |   +-- TrackRowInteractionModel.swift
 |   +-- TrackSwipeContainer.swift
 +-- DetailSurfaces/                  # Shared media-detail shell/header/action/list-card primitives
 +-- PlaybackChrome/                  # Mini player, AirPlay button, waveform
+|   +-- MiniPlayer.swift             # Core mini-player pill content, track info, waveform, and transport controls
+|   +-- MiniPlayerActionsMenu.swift  # Mini-player media action menu and platform menu renderers
+|   +-- MiniPlayerBackground.swift   # Artwork/material mini-player background projection host
+|   +-- MiniPlayerContainer.swift    # Root mini-player overlay container
+|   +-- MiniPlayerGestures.swift     # Phone mini-player vertical/open and horizontal prev/next swipe modifiers
 +-- NowPlaying/                      # Now Playing cards, carousel, queue, lyrics, page indicator
 +-- StageFlow/                       # iPhone landscape StageFlow experience
 +-- Aurora/                          # Aurora background and Metal/Canvas renderers
@@ -364,13 +411,18 @@ Sources/
 |   +-- MediaDragExportPolicy.swift   # Drag/drop copy-vs-move and external file-promise policy matrix plus provider/writer helpers
 |   +-- MediaMenuCatalog.swift        # Shared context-menu action catalog, section policy, roles, and context gating
 |   +-- EnsemblePlatformFeaturePolicy.swift # Platform feature/rendering policy for root shell, commands, mini-player menus, native lists, and utility scaffolds
+|   +-- MeasuredWidthReader.swift     # Shared width-measurement modifier for list/detail surfaces
 |   +-- PlaylistActionPresentationHost.swift # Shared add-to-playlist sheet request + recent-playlist presentation helpers
 |   +-- EnsembleUtilityScreenScaffold.swift # Adaptive utility scaffold plus card-based macOS screen/section rows for menu-like tools
 +-- Screens/
-|   +-- Root/                         # RootView, MainTabView, MoreView, auxiliary presentation routing
+|   +-- Root/                         # RootView, MainTabView/SidebarView root shells, MoreView, auxiliary presentation routing
 |   |   +-- NavigationDestinationFactory.swift # Shared root tab/destination view factory used by iPhone tabs and iPad/macOS sidebar stacks
 |   |   +-- NavigationCoordinator+Bindings.swift # SwiftUI path bindings backed by NavigationCoordinator path helpers
 |   |   +-- SidebarSelection.swift    # Sidebar selection model and destination mapping for iPad/macOS root navigation
+|   |   +-- iOS15TabBarHider.swift    # UIKit-backed iOS 15 TabView tab-bar visibility bridge
+|   |   +-- NestedNavigationLink.swift # Recursive NavigationView fallback for iOS 15 root tab paths
+|   |   +-- RootNavigationViewModifiers.swift # Root TabView/sidebar toolbar style helpers
+|   |   +-- MacSidebarPlaylistDropBridge.swift # macOS AppKit drop bridge for sidebar playlist rows
 |   +-- Library/                      # Songs, Artists, Albums, Genres, Playlists, Favorites, Mood
 |   +-- Details/                      # Media detail, merged playlist detail, async detail loaders
 |   +-- Discovery/                    # Home/Feed and Search

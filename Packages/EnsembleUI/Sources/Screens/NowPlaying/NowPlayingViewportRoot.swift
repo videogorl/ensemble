@@ -54,7 +54,7 @@ struct NowPlayingViewportRoot: View {
 
                     if mode == .dualPanel {
                         HStack(alignment: .top, spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
-                            ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+                            ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage, isAlwaysVisible: true)
                                 .frame(width: panelWidth(for: geometry))
                                 .frame(maxHeight: .infinity, alignment: .topLeading)
 

@@ -584,7 +584,7 @@ public final class AudioPlaybackEngine {
         // This ensures the IO buffer preference is applied.
         try engine.start()
 
-        #if DEBUG && !os(macOS)
+        #if !os(macOS)
         let ioBufferFrames = engine.outputNode.outputFormat(forBus: 0).sampleRate *
             AVAudioSession.sharedInstance().ioBufferDuration
         EnsembleLogger.debug("[AudioEngine] Engine restarted after isolation wire-up, IO buffer: \(String(format: "%.1f", AVAudioSession.sharedInstance().ioBufferDuration * 1000))ms (\(Int(ioBufferFrames)) frames)")

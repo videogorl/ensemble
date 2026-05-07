@@ -15,26 +15,43 @@ public struct SearchView: View {
     @State private var isEditingPins = false
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     // Targeted singleton observation for empty/no-results states
-    @State private var hasAnySources = DependencyContainer.shared.accountManager.hasAnySources
-    @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
-    @State private var hasEnabledLibrariesState = false
-    @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
+    private let accountManager: AccountManager
+    private let syncCoordinator: SyncCoordinator
+    @State private var hasAnySources: Bool
+    @State private var isSyncing: Bool
+    @State private var hasEnabledLibrariesState: Bool
+    @State private var isRestoringCloudSources: Bool
     // Targeted NVM observation: only re-evaluate on track/playlist target changes
     @State private var currentTrackId: String?
     @State private var nvmRecentPlaylistTitle: String?
     // Targeted observation: only re-evaluate when these specific values change
-    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
-    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
+    @State private var activeDownloadRatingKeys: Set<String>
+    @State private var availabilityGeneration: UInt64
     @State private var isSearchTabActive = false
     @State private var isSearchPathEmpty = true
     @State private var isMoreSearchRootActive = false
     @Environment(\.dependencies) private var deps
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
-        self._viewModel = StateObject(wrappedValue: viewModel ?? DependencyContainer.shared.makeSearchViewModel())
+        let container = DependencyContainer.shared
+        self.accountManager = container.accountManager
+        self.syncCoordinator = container.syncCoordinator
+        self._viewModel = StateObject(wrappedValue: viewModel ?? container.makeSearchViewModel())
         self.nowPlayingVM = nowPlayingVM
-        self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
-        self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
+        self._libraryVM = StateObject(wrappedValue: container.makeLibraryViewModel())
+        self._pinnedVM = StateObject(wrappedValue: container.makePinnedViewModel())
+        self._hasAnySources = State(initialValue: container.accountManager.hasAnySources)
+        self._isSyncing = State(initialValue: container.syncCoordinator.isSyncing)
+        self._hasEnabledLibrariesState = State(
+            initialValue: Self.computeHasEnabledLibraries(in: container.accountManager.plexAccounts)
+        )
+        self._isRestoringCloudSources = State(initialValue: container.accountManager.isAwaitingCloudSources)
+        self._activeDownloadRatingKeys = State(
+            initialValue: container.offlineDownloadService.activeDownloadRatingKeys
+        )
+        self._availabilityGeneration = State(
+            initialValue: container.trackAvailabilityResolver.availabilityGeneration
+        )
     }
 
     public var body: some View {
@@ -60,32 +77,27 @@ public struct SearchView: View {
             await pinnedVM.loadPinnedItems()
         }
         .miniPlayerBottomSpacing()
-        .onReceive(nowPlayingVM.$currentTrack) { track in
-            let id = track?.id
-            if id != currentTrackId { currentTrackId = id }
-        }
-        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
-            let title = target?.title
-            if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
-        }
-        .onReceive(DependencyContainer.shared.accountManager.$plexAccounts) { accounts in
+        .nowPlayingTrackListObservation(
+            nowPlayingVM: nowPlayingVM,
+            currentTrackId: $currentTrackId,
+            recentPlaylistTitle: $nvmRecentPlaylistTitle
+        )
+        .onReceive(accountManager.$plexAccounts) { accounts in
             let has = !accounts.isEmpty
             if has != hasAnySources { hasAnySources = has }
-            let enabledLibs = Self.computeHasEnabledLibraries()
+            let enabledLibs = Self.computeHasEnabledLibraries(in: accounts)
             if enabledLibs != hasEnabledLibrariesState { hasEnabledLibrariesState = enabledLibs }
         }
-        .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
+        .onReceive(syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }
-        .onReceive(DependencyContainer.shared.accountManager.$isAwaitingCloudSources) { awaiting in
+        .onReceive(accountManager.$isAwaitingCloudSources) { awaiting in
             if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
         }
-        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
-            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
-        }
-        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
-            if gen != availabilityGeneration { availabilityGeneration = gen }
-        }
+        .trackListRuntimeObservation(
+            activeDownloadRatingKeys: $activeDownloadRatingKeys,
+            availabilityGeneration: $availabilityGeneration
+        )
         .onReceive(navigationCoordinator.$selectedTab) { tab in
             let isActive = tab == .search
             if isActive != isSearchTabActive { isSearchTabActive = isActive }
@@ -1107,8 +1119,8 @@ public struct SearchView: View {
         AlbumCardLayoutMetrics.compact.gridColumns
     }
 
-    private static func computeHasEnabledLibraries() -> Bool {
-        DependencyContainer.shared.accountManager.plexAccounts.contains { account in
+    private static func computeHasEnabledLibraries(in accounts: [PlexAccountConfig]) -> Bool {
+        accounts.contains { account in
             account.servers.contains { server in
                 server.libraries.contains(where: \.isEnabled)
             }

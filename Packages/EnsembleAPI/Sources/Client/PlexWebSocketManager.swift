@@ -138,9 +138,7 @@ public actor PlexWebSocketManager {
 
         // Build WebSocket URL
         guard var components = URLComponents(string: serverURL) else {
-            #if DEBUG
             EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: Invalid server URL")
-            #endif
             return
         }
 
@@ -155,9 +153,7 @@ public actor PlexWebSocketManager {
         ]
 
         guard let url = components.url else {
-            #if DEBUG
             EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: Failed to build WebSocket URL")
-            #endif
             return
         }
 
@@ -203,9 +199,7 @@ public actor PlexWebSocketManager {
             return
         }
 
-        #if DEBUG
         EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: Receive loop started (subscribers=\(continuations.count))")
-        #endif
 
         // Bridge the completion-handler receive API into an AsyncStream.
         // This avoids the old recursive CheckedContinuation pattern which leaked
@@ -326,9 +320,7 @@ public actor PlexWebSocketManager {
                 // Library item lifecycle events
                 if let entries = container.TimelineEntry {
                     for entry in entries {
-                        #if DEBUG
                         EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: timeline sectionID=\(entry.sectionID ?? "nil") itemID=\(entry.itemID ?? "nil") type=\(entry.type ?? -1) state=\(entry.state ?? -1) title=\(entry.title ?? "nil")")
-                        #endif
                         broadcast(.libraryUpdate(
                             sectionID: entry.sectionIDInt ?? 0,
                             itemID: entry.itemIDInt ?? 0,
@@ -342,9 +334,7 @@ public actor PlexWebSocketManager {
                 // Library scan/refresh activities
                 if let activities = container.ActivityNotification {
                     for activity in activities {
-                        #if DEBUG
                         EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: activity event=\(activity.event ?? "nil") type=\(activity.Activity?.type ?? "nil") progress=\(activity.Activity?.progress ?? -1)")
-                        #endif
                         broadcast(.activityUpdate(
                             event: activity.event ?? "",
                             type: activity.Activity?.type ?? "",
@@ -363,9 +353,7 @@ public actor PlexWebSocketManager {
                 }
 
             case "preference":
-                #if DEBUG
                 EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: Settings changed")
-                #endif
                 broadcast(.settingsUpdate)
 
             default:

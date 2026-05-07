@@ -93,7 +93,7 @@ public struct ExternalDisplayNowPlayingView: View {
     private var contentView: some View {
         HStack(alignment: .top, spacing: EnsembleScaffold.NowPlaying.viewportContentPadding) {
             // Left panel: artwork, scrubber, playback controls (always visible)
-            ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+            ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage, isAlwaysVisible: true)
                 .frame(maxWidth: .infinity)
                 .frame(maxHeight: .infinity, alignment: .topLeading)
 
@@ -115,11 +115,9 @@ public struct ExternalDisplayNowPlayingView: View {
         viewModel.currentPage == 1 ? lastDetailPage : viewModel.currentPage
     }
 
-    /// Binding that tells detail cards they're "visible" even when the device
-    /// is on the Controls page (page 1). Cards gate their content behind an
-    /// `isVisible` check (`currentPage == myPage`); by passing
-    /// `effectiveDetailPage` as the read value, the card sees its own page
-    /// index and renders content. Writes go through to `viewModel.currentPage`.
+    /// Binding that tells detail cards they are renderable even when the device
+    /// is on the Controls page (page 1). The effective page keeps the selected
+    /// detail panel alive while writes still go through to `viewModel.currentPage`.
     private var effectivePageBinding: Binding<Int> {
         Binding(
             get: { effectiveDetailPage },

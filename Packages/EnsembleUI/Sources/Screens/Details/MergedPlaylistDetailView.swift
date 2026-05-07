@@ -22,8 +22,6 @@ public struct MergedPlaylistDetailView: View {
         self.nowPlayingVM = nowPlayingVM
     }
 
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
-
     public var body: some View {
         MediaDetailView(
             viewModel: viewModel,

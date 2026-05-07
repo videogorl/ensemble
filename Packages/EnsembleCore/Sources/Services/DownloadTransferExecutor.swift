@@ -266,11 +266,9 @@ final class DownloadTransferExecutor {
                 quality: quality.rawValue
             )
         } catch {
-            #if DEBUG
             EnsembleLogger.debug(
                 "⚠️ completeDownload(\(ctx.trackRatingKey)) objectID not found: \(error.localizedDescription); attempting recovery"
             )
-            #endif
             let recovered = try await dependencies.downloadManager.createDownload(
                 forTrackRatingKey: ctx.trackRatingKey,
                 sourceCompositeKey: ctx.sourceCompositeKey,
@@ -282,9 +280,7 @@ final class DownloadTransferExecutor {
                 fileSize: fileSize,
                 quality: quality.rawValue
             )
-            #if DEBUG
             EnsembleLogger.debug("✅ Download recovery successful for track=\(ctx.trackRatingKey)")
-            #endif
         }
     }
 

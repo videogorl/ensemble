@@ -53,7 +53,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 **Key Types:**
 - `CoreDataStack` (singleton) -- Main/background contexts, saves on background queue
 - `CD*` models -- `CDMusicSource`, `CDArtist`, `CDAlbum`, `CDTrack`, `CDGenre`, `CDPlaylist`, `CDServer`, `CDOfflineDownloadTarget`, `CDOfflineDownloadMembership`
-- `LibraryRepository` / `PlaylistRepository` -- Protocol-based repository pattern
+- `LibraryRepository` / `PlaylistRepository` -- Protocol-based repository pattern; `LibraryRepository` keeps its protocol/initializer in the main file while focused behavior lives in extensions such as `LibraryRepository+Artists.swift`, `LibraryRepository+Albums.swift`, `LibraryRepository+Tracks.swift`, `LibraryRepository+Genres.swift`, `LibraryRepository+Search.swift`, and `LibraryRepository+SyncMetadata.swift`
 - `DownloadManager` -- Offline track file management (source-aware, quality-aware)
 - `OfflineDownloadTargetRepository` -- Offline target metadata and target->track membership persistence
 - `ArtworkDownloadManager` -- Persistent artwork caching to local filesystem
@@ -72,6 +72,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - **Location:** `Packages/EnsembleCore/`
 - **Dependencies:** EnsembleAPI, EnsemblePersistence, EnsembleSiriShared, Nuke
 - **Purpose:** Services, ViewModels, domain models, dependency injection
+- **Platforms:** iOS 15+ and macOS 12+. Core intentionally does not advertise watchOS support because playback/background services are not watch-portable as a full package.
 
 **Key Services:**
 - `DependencyContainer` (singleton) -- Wires all services, creates ViewModels, injected via SwiftUI environment
@@ -109,15 +110,19 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `PlaybackAudioSessionCoordinator` -- Internal audio-session seam extracted from `PlaybackService`; owns `AVAudioSession` category/policy configuration, interruption + route-change observation, Siri/HomePod route preparation, route-disconnect interruption preference (`setPrefersInterruptionOnRouteDisconnect(true)` where supported), and activation helpers so audio-session policy is not split across `PlaybackService` and `AppDelegate`
 - `PlaybackHandoffCoordinator` -- Internal playback-handoff reducer extracted from `PlaybackService`; normalizes Apple's separate signal families (`AVAudioSession` interruption, `AVAudioSession` route change, remote transport commands, playback lifecycle) into one state machine, owns disconnect/interruption pause intent and settle-window policy, and exposes centralized "block auto-advance / block remote skip" decisions while the service remains the side-effect boundary
 - `PlaybackQueueStore` -- Persists queue/history restoration state outside `PlaybackService`; writes a single snapshot plus legacy keys so queue-restoration refactors can proceed without breaking existing installs
-- `PlaybackQueueController` -- Internal queue/history seam extracted from `PlaybackService`; owns queue snapshot persistence plus autoplay flattening/history normalization while the service remains the playback side-effect boundary
+- `PlaybackQueueController` -- Internal queue/history seam extracted from `PlaybackService`; owns queue snapshot persistence, autoplay flattening/history normalization, queue streaming-quality/download-state restamping, and legacy auto-generated track identity compatibility while the service remains the playback side-effect boundary
 - `PlaybackStartupCoordinator` -- Internal restored-playback seam extracted from `PlaybackService`; owns snapshot validation, duplicate-autoplay pruning, deferred vs immediate prebuffer decisions, and restore outcome classification while the façade still applies side effects
 - `PlaybackLaunchCoordinator` -- Internal playback-launch seam extracted from `PlaybackService`; owns the successful-resolution path (visualizer planning, engine load, recovery seek application, and prefetch kickoff) while the façade still owns queue mutation and transport retry loops
 - `PlaybackRecoveryPolicy` -- Internal playback buffering/stall policy seam extracted from `PlaybackService`; owns buffering profiles, conservative-mode escalation, prefetch throttling, and unexpected-pause recovery decisions while `PlaybackService` remains the façade
 - `PlaybackSessionStateMachine` -- Internal playback-session seam extracted from `PlaybackService`; owns request validation, retry policy, supersession checks, and terminal failure classification for `playCurrentQueueItem` while queue mutation and engine control remain in the façade
 - `PlaybackResolvedFileCache` -- Internal serialized cache store extracted from `PlaybackService`; owns resolved-file URL storage, LRU eviction, stream-cache cleanup context snapshots, and prefetch in-flight bookkeeping so playback startup/prefetch flows do not mutate shared dictionaries directly
-- `PlaybackPrefetchController` -- Internal prefetch/cache seam extracted from `PlaybackService`; owns resolved-file cache eviction, temporary stream-cache cleanup, and network-transition re-prefetch invalidation policy while the backing cache state lives in `PlaybackResolvedFileCache`
+- `PlaybackPrefetchController` -- Internal prefetch/cache seam extracted from `PlaybackService`; owns upcoming-queue selection, schedule-eligibility checks, resolved-file cache eviction, temporary stream-cache cleanup, and network-transition re-prefetch invalidation policy while the backing cache state lives in `PlaybackResolvedFileCache`
 - `PlaybackNowPlayingBridge` -- Internal lock-screen seam extracted from `PlaybackService`; owns `MPNowPlayingInfoCenter` metadata, artwork loading, feedback-command state, command enablement, and remote-command registration
 - `PlaybackTransportCoordinator` -- Internal transport seam extracted from `PlaybackService`; owns stream-decision caching, in-flight resolution deduplication, and progressive-loader lifecycle for local-file vs streaming resolution without changing playback queue semantics
+- `PlaybackLocalFilePolicy` -- Internal local-file playback seam extracted from `PlaybackService`; owns audio-container sniffing, invalid payload rejection, MP3 alias creation for mislabeled downloads, and truncated-duration thresholds shared by playback launch and prefetch recovery
+- `PlaybackSettingsObserver` -- Internal playback settings seam extracted from `PlaybackService`; owns key-specific UserDefaults change detection for visualizer enablement and streaming-quality changes so unrelated defaults writes do not schedule playback work
+- `PlaybackReportingController` -- Internal playback reporting seam extracted from `PlaybackService`; owns timeline backoff, playback-state timeline posts, and 90%-completion scrobble gating while the service remains the playback side-effect facade
+- `SyncPlaybackReportingController` -- Internal sync-side playback reporting router extracted from `SyncCoordinator`; owns exact-provider/no-fallback routing and seconds-to-milliseconds conversion for timeline/scrobble calls so playback reporting never crosses Plex source boundaries
 - `AppBootstrapDiagnostics` -- Internal cold-launch diagnostics service wired through `DependencyContainer`; emits one structured startup summary after health checks, playback restoration, and startup sync settle so device logs capture account/sync/playback/offline bootstrap state in a single record
 - `ProgressiveStreamLoader` -- AVAssetResourceLoaderDelegate + URLSessionDataDelegate bridge. Proxies PMS's chunked transcode stream (via custom `ensemble-transcode://` scheme) to AVPlayer progressively, writing to a growing temp file. Post-download callbacks: `onDownloadComplete` for frequency analysis, `onDownloadFailed` for HTTP errors and invalid payloads. Validates HTTP status (non-2xx → `ProgressiveStreamError.httpError`) and payload size (< 256 bytes → `.invalidPayload`). Error body captured to diagnostic buffer (not written to audio file)
 - `ProgressiveStreamError` -- Error type for stream download failures: `.httpError(statusCode:bodySnippet:)` and `.invalidPayload(bytesReceived:)`. Mapped to `PlaybackError` in `PlaybackService.mapToPlaybackError`
@@ -139,10 +144,11 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `SyncExecutionController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns full/incremental/startup sync execution, progress routing, and cancellation/error status restoration while the coordinator keeps helper side effects and published state
 - `NetworkLifecycleController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns app-foreground and observed-network transition policy (offline state, refresh triggers, and startup-transition skipping) while the coordinator applies side effects
 - `PeriodicSyncController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns foreground periodic-sync timer scheduling and WebSocket-aware polling interval changes while `SyncCoordinator` keeps the actual sync policy
-- `PlaylistRefreshController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns server-scoped playlist refresh resolution (incremental vs fallback full sync) for mutation refreshes, playlist-only sync, and WebSocket-triggered playlist updates
+- `PlaylistRefreshController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns server-scoped playlist refresh resolution (incremental vs fallback full sync), refreshed-provider result routing, and per-server playlist-only dedupe for mutation refreshes, playlist-only sync, and WebSocket-triggered playlist updates
 - `WebSocketSyncController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns WebSocket-triggered section resolution and server playlist refresh routing so the coordinator does not inline provider lookup logic
 - `ServerHealthChecker` -- Concurrent health checks for all configured servers with automatic failover
-- `ServerConnectionController` (@MainActor) -- Internal network seam extracted from `SyncCoordinator`; owns registry-driven API-client URL updates and explicit endpoint refresh fan-out while `SyncCoordinator` remains the façade
+- `ServerConnectionController` (@MainActor) -- Internal network seam extracted from `SyncCoordinator`; owns registry-driven API-client URL updates, playback connection readiness checks, source-key API-client lookup, explicit endpoint refresh fan-out/fallback reset callbacks, failure-message lookup, and post-sync connection-state URL resolution while `SyncCoordinator` remains the façade
+- `SyncProviderResolver` -- Internal provider-lookup seam extracted from `SyncCoordinator`; owns exact-source and fallback provider routing for playback/download/reporting calls so source-key policy stays consistent
 - `SettingsManager` (@MainActor) -- Manages accent colors, customizable tab configuration, and track swipe action layout settings
 - `BackgroundRefreshCoordinator` -- Shared app-refresh and foreground freshness sequence for endpoint health, incremental sync, Feed snapshot refresh, Siri index rebuild, and Siri context refresh. iOS 16+ `BGAppRefreshTask` and iOS 15 foreground activation route through this coordinator so launch freshness policy is not duplicated.
 - `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for Feed/library refresh ~every 15min (system-controlled); background execution should call `BackgroundRefreshCoordinator` rather than instantiating `HomeViewModel`
@@ -185,7 +191,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 
 **Key Models:**
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
-  - `Track` includes `streamId: Int?` -- Identifies audio stream for fetching loudness timeline data (waveform visualization)
+  - `Track` includes `streamId: Int?` -- Identifies audio stream for fetching loudness timeline data (waveform visualization). `CDTrack.streamId` is persisted in the current CoreData model (`Ensemble 3`) and populated from Plex full/incremental batch upserts.
 - `MusicSource` / `MusicSourceIdentifier` -- Multi-account source tracking
 - `MediaSourceIdentity` -- Shared parser/comparator for library-scoped and server-scoped source keys
 - `MediaFormatters` -- Shared track-clock, collection-duration, download-byte, file-byte, and log-byte formatting helpers used by domain models, ViewModels, and UI
@@ -423,7 +429,7 @@ Dynamic home screen powered by Plex's hub system:
   - Match quality: exact normalized > prefix > contains
   - Tie-breaks: last played > play count > track count > deterministic name/id
 - Extension returns `.handleInApp` with serialized `SiriPlaybackRequestPayload` in `NSUserActivity.userInfo`.
-- `AppDelegate.application(_:continue:restorationHandler:)` routes payloads to `DependencyContainer.shared.siriPlaybackCoordinator`.
+- `AppDelegate+Siri.application(_:continue:restorationHandler:)` routes payloads to `DependencyContainer.shared.siriPlaybackCoordinator`.
 - `SiriPlaybackCoordinator` resolves media against enabled sources and executes:
   - Track: direct playback from resolved track
   - Album: queue album tracks from first track
@@ -432,7 +438,7 @@ Dynamic home screen powered by Plex's hub system:
 - `SiriMediaIndexStore` rebuilds the index after sync completion and account/source configuration changes.
 - App target registers `EnsembleAppShortcutsProvider` fallback shortcuts for album/playlist phrases (`PlayEnsembleAlbumIntent`, `PlayEnsemblePlaylistIntent`).
 - App shortcut entities resolve against the same shared Siri index so Siri vocabulary tracks cached library content without direct extension CoreData access.
-- `AppDelegate` calls `EnsembleAppShortcutsProvider.updateAppShortcutParameters()` at launch so App Intents metadata stays aligned with current index contents.
+- `AppDelegate+LaunchPipeline` calls `EnsembleAppShortcutsProvider.updateAppShortcutParameters()` at launch so App Intents metadata stays aligned with current index contents.
 
 ## Subsystem: Library Visibility Profiles (Groundwork)
 
@@ -449,7 +455,7 @@ Multi-layered network resilience spanning endpoint management, push-based update
 - **`ServerConnectionRegistry`** (`EnsembleAPI`, actor) -- Single source of truth for per-server active endpoints.
 - `PlexAPIClient` seeds the registry on init with the first discovered endpoint, and reports failover results back so all consumers share the latest healthy endpoint.
 - `ServerHealthChecker` writes probe results into the registry after health checks.
-- `SyncCoordinator` subscribes to registry changes to trigger downstream refreshes.
+- `ServerConnectionController` subscribes to registry changes to trigger downstream refreshes while `SyncCoordinator` remains the public sync facade.
 - `AccountManager` owns the registry instance; `DependencyContainer` wires it to all dependents.
 
 ### Push-Based Updates -- PlexWebSocketManager & PlexWebSocketCoordinator
@@ -461,7 +467,7 @@ Multi-layered network resilience spanning endpoint management, push-based update
   - `@Published serverScanProgress: [String: Int]` -- Per-server library scan progress (0-100) from activity events
 - `SyncCoordinator` supports adjustable timer policy and incremental section-level sync triggered by WS events.
 - `SyncCoordinator.rateTrack()` triggers debounced post-rating playlist sync (5s) for smart playlist freshness.
-- `AppDelegate` starts/stops WebSocket connections on foreground/background transitions.
+- `AppDelegate+LaunchPipeline` starts WebSocket connections after startup health checks; `EnsembleApp` owns foreground/background start/stop policy from scene phase changes.
 
 ### Reactive Track Availability -- TrackAvailabilityResolver
 - **`TrackAvailabilityResolver`** (`EnsembleCore`, @MainActor ObservableObject) -- Publishes per-track availability by combining per-server connection state with per-track download state.
@@ -473,7 +479,7 @@ Multi-layered network resilience spanning endpoint management, push-based update
 - **`StreamDecision`** / **`TranscodeStreamDecision`** (`EnsembleAPI`) -- Endpoint-independent streaming decisions that survive network transitions. Capture codec, quality, session params without the server base URL.
 - **`PlexAPIClient.makeStreamDecision()`** -- Phase 1: Calls PMS `/decision` endpoint, returns `StreamDecision` (cacheable).
 - **`PlexAPIClient.assembleStreamResolution()`** -- Phase 2: Reads freshest endpoint from `ServerConnectionRegistry`, builds `StreamResolution` with current URL. No network calls.
-- **`PlaybackService.cachedStreamDecisions`** -- Decision cache keyed by trackId. On network transition, decisions persist while resolved URLs are evicted. Re-prefetch skips `/decision` call and only re-assembles URL.
+- **`PlaybackTransportCoordinator` cached stream decisions** -- Decision cache keyed by trackId. On network transition, decisions persist while resolved URLs are evicted. Re-prefetch skips `/decision` call and only re-assembles URL.
 - `resolveStreamURL()` remains as convenience that chains both phases (backward compat).
 
 ### Queue Resilience (PlaybackService)
@@ -514,7 +520,7 @@ PlexWebSocketManager ──events──> PlexWebSocketCoordinator ──> SyncCo
 PlexAPIClient ──failover──> ServerConnectionRegistry <──writes── ServerHealthChecker
                                         |
                                         v
-                               SyncCoordinator (subscribes to endpoint changes)
+                               ServerConnectionController (subscribes to endpoint changes)
                                         |
                                         v
                             TrackAvailabilityResolver (server state + download state -> per-track availability)
@@ -525,15 +531,16 @@ PlexAPIClient ──failover──> ServerConnectionRegistry <──writes──
 PlaybackService ──makeStreamDecision──> SyncCoordinator ──> PlexMusicSourceSyncProvider ──> PlexAPIClient.makeStreamDecision()
 PlaybackService ──assembleStream──> SyncCoordinator ──> PlexMusicSourceSyncProvider ──> PlexAPIClient.assembleStreamResolution()
                                                                                               └──> ServerConnectionRegistry (reads fresh endpoint)
-PlaybackService.cachedStreamDecisions ── survives ──> network transitions (decisions are endpoint-independent)
+PlaybackTransportCoordinator.cachedStreamDecisions ── survives ──> network transitions (decisions are endpoint-independent)
 
 PlaybackService ──scrobble──> MutationCoordinator ──(on failure)──> CDPendingMutation (.scrobble)
 PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (transport vs. semantic)
 ```
 
 **App Lifecycle:**
-- iOS: Network monitor starts in `AppDelegate` (delayed 500ms)
-- iOS: WebSocket connections start on foreground, stop on background (`AppDelegate`)
+- iOS launch delegate ownership is file-split: `AppDelegate.swift` stores shared delegate state, `AppDelegate+LaunchPipeline.swift` owns cold-launch setup, `AppDelegate+LaunchTasks.swift` owns startup task sequencing, `AppDelegate+RemoteNotifications.swift` owns CloudKit silent-push callbacks, `AppDelegate+SiriAuthorization.swift` owns Siri authorization, `AppDelegate+BackgroundURLSession.swift` owns offline background URLSession wakeups, `AppDelegate+Siri.swift` owns Siri payload bridging, `AppDelegate+SceneOrientation.swift` owns scene routing/orientation, and `SpaceBarPlaybackShortcut.swift` owns the hardware keyboard playback shortcut.
+- iOS: Network monitor starts during the AppDelegate launch pipeline, then foreground/background restart/stop policy is owned by `EnsembleApp.handleScenePhaseChange`.
+- iOS: WebSocket connections start after launch health checks, then foreground/background restart/stop policy is owned by `EnsembleApp.handleScenePhaseChange`.
 - Foreground network-health recovery routes through `SyncCoordinator.handleAppWillEnterForeground()` to avoid duplicate immediate + monitor-triggered checks
 - macOS: Stops monitoring when backgrounded
 - macOS active transition also routes through `SyncCoordinator.handleAppWillEnterForeground()`
@@ -560,10 +567,10 @@ PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (
 
 - **Ensemble** (`Ensemble/Ensemble/`) -- iOS/iPadOS/macOS
   - `EnsembleApp.swift` -- Scene-based lifecycle with environment injection
-  - `AppDelegate.swift` (iOS) -- AVAudioSession, remote commands, network monitoring
+  - `AppDelegate.swift` + `AppDelegate+*.swift` (iOS) -- Split UIApplicationDelegate ownership for launch setup, startup task sequencing, Siri bridge events, Siri authorization, remote notifications, scene/orientation policy, background URLSession handoff, and shared delegate state
 
 - **EnsembleWatch** (`Ensemble/EnsembleWatch/`) -- watchOS
-  - `WatchRootView.swift` -- Consolidated views (auth, library, now playing)
+  - `WatchRootView.swift` -- Standalone watch shell. The target intentionally does not link full `EnsembleCore`; a real companion app should use a watch-specific bridge/product instead of importing the iOS playback/dependency graph.
 
 ## Subsystem: Playlist Mutations
 

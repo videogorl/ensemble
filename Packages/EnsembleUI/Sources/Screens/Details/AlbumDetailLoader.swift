@@ -49,9 +49,7 @@ struct AlbumDetailLoader: View {
     
     @MainActor
     private func loadAlbum() async {
-        #if DEBUG
         EnsembleLogger.debug("💿 AlbumDetailLoader: loading album \(albumId)")
-        #endif
         do {
             if let cdAlbum = try await deps.libraryRepository.fetchAlbum(
                 ratingKey: albumId,
@@ -64,8 +62,6 @@ struct AlbumDetailLoader: View {
             self.error = error
             self.isLoading = false
         }
-        #if DEBUG
         EnsembleLogger.debug("💿 AlbumDetailLoader: finished loading album \(albumId)")
-        #endif
     }
 }

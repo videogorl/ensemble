@@ -408,9 +408,7 @@ extension ProgressiveStreamLoader: URLSessionDataDelegate {
             let bodySnippet = String(data: bodyData.prefix(200), encoding: .utf8)
             if case .httpError(let code, _) = presetError as? ProgressiveStreamError {
                 downloadError = ProgressiveStreamError.httpError(statusCode: code, bodySnippet: bodySnippet)
-                #if DEBUG
                 EnsembleLogger.debug("📡 ProgressiveStreamLoader: HTTP \(code) body for \(ratingKey): \(bodySnippet ?? "<binary>")")
-                #endif
             }
 
             // Fail pending AVPlayer requests

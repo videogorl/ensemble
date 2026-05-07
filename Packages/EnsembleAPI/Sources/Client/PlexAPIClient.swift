@@ -1,7 +1,4 @@
 import Foundation
-#if os(iOS)
-import UIKit
-#endif
 
 public enum PlexAPIError: Error, LocalizedError {
     case notAuthenticated
@@ -278,19 +275,8 @@ public actor PlexAPIClient {
         self.serverKey = serverKey
         self.productName = productName
         self.productVersion = productVersion
-        #if os(iOS)
-        self.platformName = "iOS"
-        self.deviceName = UIDevice.current.name
-        #elseif os(macOS)
-        self.platformName = "macOS"
-        self.deviceName = Host.current().localizedName ?? "Mac"
-        #elseif os(watchOS)
-        self.platformName = "watchOS"
-        self.deviceName = "Apple Watch"
-        #else
-        self.platformName = "Unknown"
-        self.deviceName = "Unknown Device"
-        #endif
+        self.platformName = PlexClientDeviceInfo.platformName
+        self.deviceName = PlexClientDeviceInfo.defaultDeviceName()
 
         if let existingId = try? keychain.get(KeychainKey.plexClientIdentifier) {
             self.clientIdentifier = existingId
@@ -298,9 +284,7 @@ public actor PlexAPIClient {
             let newId = UUID().uuidString
             // try? is unavoidable in init (can't throw); log if it fails so we notice in debug builds
             if (try? keychain.save(newId, forKey: KeychainKey.plexClientIdentifier)) == nil {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ [PlexAPIClient] Failed to persist client identifier to keychain")
-                #endif
             }
             self.clientIdentifier = newId
         }
@@ -313,16 +297,12 @@ public actor PlexAPIClient {
         // Log connection details for debugging
         let isHTTPS = connection.url.lowercased().hasPrefix("https://")
         let altCount = connection.alternativeURLs.count
-        #if DEBUG
         EnsembleLogger.debug("🔌 PlexAPIClient initialized")
         EnsembleLogger.debug("   Primary URL: \(connection.url) (HTTPS: \(isHTTPS))")
         EnsembleLogger.debug("   Alternative URLs: \(altCount)")
-        #endif
         for (index, altURL) in connection.alternativeURLs.enumerated() {
             let altHTTPS = altURL.lowercased().hasPrefix("https://")
-            #if DEBUG
             EnsembleLogger.debug("   [\(index + 1)] \(altURL) (HTTPS: \(altHTTPS))")
-            #endif
         }
 
         // Seed the registry with the initial endpoint so consumers (e.g. WebSocket
@@ -388,9 +368,7 @@ public actor PlexAPIClient {
         ]
 
         _ = try await serverRequest(path: path, query: query)
-        #if DEBUG
         EnsembleLogger.debug("📊 Timeline reported: \(state) at \(time)ms / \(duration)ms for track \(ratingKey)")
-        #endif
     }
 
     /// Scrobble a track (mark as played)
@@ -405,9 +383,7 @@ public actor PlexAPIClient {
         ]
 
         _ = try await serverRequest(path: path, query: query)
-        #if DEBUG
         EnsembleLogger.debug("✅ Scrobbled track: \(ratingKey)")
-        #endif
     }
 
     // MARK: - Artwork & Audio Analysis
@@ -438,9 +414,7 @@ public actor PlexAPIClient {
     ///   - streamId: The audio stream ID (from PlexTrack.media[0].part[0].stream[0].id where streamType == 2)
     ///   - subsample: Number of loudness samples to return (default: 128, Plex supports up to ~200)
     public func getLoudnessTimeline(forStreamId streamId: Int, subsample: Int = 128) async throws -> PlexLoudnessTimeline? {
-        #if DEBUG
         EnsembleLogger.debug("🎵 Fetching loudness timeline for stream ID: \(streamId)")
-        #endif
 
         // Correct Plex API endpoint: /library/streams/{stream_id}/levels?subsample={count}
         // This returns loudness level data for waveform visualization
@@ -450,32 +424,21 @@ public actor PlexAPIClient {
         do {
             let data = try await serverRequest(path: path, query: query)
 
-            // Debug: Print raw response to understand format
-            if let responseString = String(data: data, encoding: .utf8) {
-                #if DEBUG
-                EnsembleLogger.debug("🔍 Raw loudness response (first 500 chars): \(String(responseString.prefix(500)))")
-                #endif
-            }
+            EnsembleLogger.debug("🔍 Received loudness response for stream \(streamId): \(data.count) bytes")
 
             let timeline = try JSONDecoder().decode(PlexLoudnessTimeline.self, from: data)
 
             if let count = timeline.loudness?.count {
-                #if DEBUG
                 EnsembleLogger.debug("✅ Retrieved \(count) loudness samples for stream \(streamId)")
-                #endif
             } else {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ No loudness data available for stream \(streamId)")
-                #endif
             }
 
             return timeline
         } catch {
             // If the endpoint doesn't exist (404), the server hasn't analyzed this track yet
             // This is normal and not an error condition
-            #if DEBUG
             EnsembleLogger.debug("ℹ️ Loudness timeline not available for stream \(streamId): \(error.localizedDescription)")
-            #endif
             return nil
         }
     }
@@ -500,9 +463,7 @@ public actor PlexAPIClient {
             do {
                 let data = try await serverRequest(path: streamKey, query: query)
 
-                #if DEBUG
                 EnsembleLogger.debug("Lyrics: content fetch succeeded for \(streamKey) on attempt \(attempt) (\(data.count) bytes)")
-                #endif
 
                 // Try JSON extraction (when Accept: application/json triggers JSON response)
                 if let text = Self.extractLyricsFromJSON(data) {
@@ -520,9 +481,7 @@ public actor PlexAPIClient {
                 let errorString = "\(error)"
                 let isHTTP404 = errorString.contains("404")
 
-                #if DEBUG
                 EnsembleLogger.debug("Lyrics: fetch failed for \(streamKey) (attempt \(attempt)/\(maxAttempts)): \(error.localizedDescription) [is404=\(isHTTP404)]")
-                #endif
 
                 if isHTTP404 && attempt < maxAttempts {
                     // Increasing delay between retries — gives PMS time to re-fetch from LyricFind
@@ -628,82 +587,58 @@ public actor PlexAPIClient {
         limit: Int = 50,
         maxDistance: Double = 0.25
     ) async throws -> [PlexTrack]? {
-        #if DEBUG
         EnsembleLogger.debug("\n🎵 PlexAPIClient.getSimilarTracks()")
         EnsembleLogger.debug("  - ratingKey: \(ratingKey)")
         EnsembleLogger.debug("  - limit: \(limit)")
         EnsembleLogger.debug("  - maxDistance: \(maxDistance)")
-        #endif
 
         let path = "/library/metadata/\(ratingKey)/nearest"
         let query = [
             "limit": String(limit),
             "maxDistance": String(maxDistance)
         ]
-        #if DEBUG
         EnsembleLogger.debug("  - path: \(path)")
         EnsembleLogger.debug("  - query: \(query)")
-        #endif
 
         do {
-            #if DEBUG
             EnsembleLogger.debug("🔄 Making serverRequest...")
-            #endif
             let data = try await serverRequest(path: path, query: query)
-            #if DEBUG
             EnsembleLogger.debug("✅ Received response data (\(data.count) bytes)")
-            #endif
             
-            #if DEBUG
             EnsembleLogger.debug("🔄 Decoding JSON...")
-            #endif
             let container = try JSONDecoder().decode(
                 PlexMediaContainer<PlexTrack>.self,
                 from: data
             )
             let tracks = container.mediaContainer.items
-            #if DEBUG
             EnsembleLogger.debug("✅ Successfully decoded \(tracks.count) PlexTrack objects")
-            #endif
             
             if tracks.isEmpty {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ WARNING: API returned empty track list (no sonic analysis available)")
-                #endif
             } else {
                 // Log first few results as confirmation
                 for track in tracks.prefix(3) {
-                    #if DEBUG
                     EnsembleLogger.debug("  ✅ Recommended: \(track.title) by \(track.grandparentTitle ?? "Unknown")")
-                    #endif
                 }
                 if tracks.count > 3 {
-                    #if DEBUG
                     EnsembleLogger.debug("  ... and \(tracks.count - 3) more tracks")
-                    #endif
                 }
             }
             
             return tracks
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Error in getSimilarTracks:")
             EnsembleLogger.debug("   Type: \(type(of: error))")
             EnsembleLogger.debug("   Message: \(error.localizedDescription)")
-            #endif
             
             let nsError = error as NSError
-            #if DEBUG
             EnsembleLogger.debug("   NSError domain: \(nsError.domain)")
             EnsembleLogger.debug("   Code: \(nsError.code)")
             EnsembleLogger.debug("   UserInfo: \(nsError.userInfo)")
-            #endif
             
             // Check if it's a 404 (no sonic analysis)
             if let urlError = error as? URLError, urlError.code == .fileDoesNotExist {
-                #if DEBUG
                 EnsembleLogger.debug("   → This is a 404: No sonic analysis available for this track")
-                #endif
             }
             
             return nil
@@ -714,57 +649,39 @@ public actor PlexAPIClient {
     /// Returns nil if artist radio not available or Plex Pass not active
     /// - Parameter artistKey: The artist's rating key
     public func getArtistRadioStation(artistKey: String) async throws -> PlexPlaylist? {
-        #if DEBUG
         EnsembleLogger.debug("🎵 PlexAPIClient.getArtistRadioStation() called")
         EnsembleLogger.debug("  - Artist key: \(artistKey)")
         EnsembleLogger.debug("🔄 Fetching artist radio station from Plex...")
-        #endif
 
         let path = "/library/metadata/\(artistKey)"
         let query = ["includeStations": "1"]
-        #if DEBUG
         EnsembleLogger.debug("  - Path: \(path)")
         EnsembleLogger.debug("  - Query: \(query)")
-        #endif
 
         do {
-            #if DEBUG
             EnsembleLogger.debug("🔄 Making serverRequest...")
-            #endif
             let data = try await serverRequest(path: path, query: query)
-            #if DEBUG
             EnsembleLogger.debug("✅ Got response data (\(data.count) bytes)")
-            #endif
 
             // The response includes a Stations container within the metadata
             // We need to parse it to extract the playlist
-            #if DEBUG
             EnsembleLogger.debug("🔄 Decoding response...")
-            #endif
             let container = try JSONDecoder().decode(
                 PlexMediaContainer<PlexPlaylist>.self,
                 from: data
             )
-            #if DEBUG
             EnsembleLogger.debug("✅ Decoded successfully, got \(container.mediaContainer.items.count) items")
-            #endif
 
             // Filter for station-type playlists
             let station = container.mediaContainer.items.first
             if let station = station {
-                #if DEBUG
                 EnsembleLogger.debug("✅ Found artist radio station: \(station.title) (key: \(station.ratingKey))")
-                #endif
             } else {
-                #if DEBUG
                 EnsembleLogger.debug("ℹ️ No artist radio station found for \(artistKey)")
-                #endif
             }
             return station
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Artist radio not available for \(artistKey): \(error.localizedDescription)")
-            #endif
             return nil
         }
     }
@@ -773,54 +690,36 @@ public actor PlexAPIClient {
     /// Returns nil if album radio not available or Plex Pass not active
     /// - Parameter albumKey: The album's rating key
     public func getAlbumRadioStation(albumKey: String) async throws -> PlexPlaylist? {
-        #if DEBUG
         EnsembleLogger.debug("🎵 PlexAPIClient.getAlbumRadioStation() called")
         EnsembleLogger.debug("  - Album key: \(albumKey)")
         EnsembleLogger.debug("🔄 Fetching album radio station from Plex...")
-        #endif
 
         let path = "/library/metadata/\(albumKey)"
         let query = ["includeStations": "1"]
-        #if DEBUG
         EnsembleLogger.debug("  - Path: \(path)")
         EnsembleLogger.debug("  - Query: \(query)")
-        #endif
 
         do {
-            #if DEBUG
             EnsembleLogger.debug("🔄 Making serverRequest...")
-            #endif
             let data = try await serverRequest(path: path, query: query)
-            #if DEBUG
             EnsembleLogger.debug("✅ Got response data (\(data.count) bytes)")
-            #endif
 
-            #if DEBUG
             EnsembleLogger.debug("🔄 Decoding response...")
-            #endif
             let container = try JSONDecoder().decode(
                 PlexMediaContainer<PlexPlaylist>.self,
                 from: data
             )
-            #if DEBUG
             EnsembleLogger.debug("✅ Decoded successfully, got \(container.mediaContainer.items.count) items")
-            #endif
 
             let station = container.mediaContainer.items.first
             if let station = station {
-                #if DEBUG
                 EnsembleLogger.debug("✅ Found album radio station: \(station.title) (key: \(station.ratingKey))")
-                #endif
             } else {
-                #if DEBUG
                 EnsembleLogger.debug("ℹ️ No album radio station found for \(albumKey)")
-                #endif
             }
             return station
         } catch {
-            #if DEBUG
             EnsembleLogger.debug("❌ Album radio not available for \(albumKey): \(error.localizedDescription)")
-            #endif
             return nil
         }
     }
@@ -829,9 +728,7 @@ public actor PlexAPIClient {
     
     /// Attempt to find a policy-compliant working connection if current one fails.
     func attemptFailover() async throws -> ConnectionSelectionResult {
-        #if DEBUG
         EnsembleLogger.debug("🔄 Attempting connection failover...")
-        #endif
 
         let selection = await failoverManager.findBestConnection(
             endpoints: serverConnection.endpoints,
@@ -841,11 +738,9 @@ public actor PlexAPIClient {
         )
 
         guard let endpoint = selection.selected else {
-            #if DEBUG
             EnsembleLogger.debug(
                 "❌ No working connections found (probes=\(selection.probes.count), skippedInsecure=\(selection.skippedInsecureCount))"
             )
-            #endif
             throw PlexAPIError.networkError(
                 NSError(
                     domain: "PlexAPIClient",
@@ -862,9 +757,7 @@ public actor PlexAPIClient {
             await registry.updateEndpoint(for: key, endpoint: endpoint, source: .requestFailover)
         }
 
-        #if DEBUG
         EnsembleLogger.debug("✅ Found working connection: \(endpoint.url)")
-        #endif
         return selection
     }
 
@@ -876,20 +769,14 @@ public actor PlexAPIClient {
             return try await performServerRequest(url: currentServerURL, path: path, query: query)
         } catch {
             // Log the actual error for debugging
-            #if DEBUG
             EnsembleLogger.debug("❌ Request failed: \(error)")
-            #endif
             if let urlError = error as? URLError {
-                #if DEBUG
                 EnsembleLogger.debug("   URLError code: \(urlError.code.rawValue) - \(urlError.localizedDescription)")
-                #endif
             }
 
             // Fail over only for transport/connectivity failures.
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ Attempting failover to alternative URLs...")
-                #endif
                 _ = try await attemptFailover()
                 // Retry with new URL
                 return try await performServerRequest(url: currentServerURL, path: path, query: query)
@@ -918,9 +805,7 @@ public actor PlexAPIClient {
         // Log request for debugging (only show host and path, not full URL with token)
         let isHTTPS = url.lowercased().hasPrefix("https://")
         let urlHost = URLComponents(string: url)?.host ?? "unknown"
-        #if DEBUG
         EnsembleLogger.debug("📡 Request: \(request.httpMethod ?? "GET") \(urlHost)\(path) (HTTPS: \(isHTTPS))")
-        #endif
 
         let (data, _) = try await performRequest(request)
         return data
@@ -933,9 +818,7 @@ public actor PlexAPIClient {
         } catch {
             // If request fails and we have alternative URLs, attempt failover
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ PUT request failed with current URL, attempting failover...")
-                #endif
                 _ = try await attemptFailover()
                 // Retry with new URL
                 return try await performServerRequestPUT(url: currentServerURL, path: path, query: query)
@@ -960,9 +843,7 @@ public actor PlexAPIClient {
             return try await performServerRequestPOST(url: currentServerURL, path: path, query: query)
         } catch {
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ POST request failed with current URL, attempting failover...")
-                #endif
                 _ = try await attemptFailover()
                 return try await performServerRequestPOST(url: currentServerURL, path: path, query: query)
             }
@@ -986,9 +867,7 @@ public actor PlexAPIClient {
             return try await performServerRequestDELETE(url: currentServerURL, path: path, query: query)
         } catch {
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ DELETE request failed with current URL, attempting failover...")
-                #endif
                 _ = try await attemptFailover()
                 return try await performServerRequestDELETE(url: currentServerURL, path: path, query: query)
             }
@@ -1050,9 +929,7 @@ public actor PlexAPIClient {
     private func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         // Check if the task is already cancelled before making the request
         if Task.isCancelled {
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Task was cancelled before request started!")
-            #endif
             throw CancellationError()
         }
 

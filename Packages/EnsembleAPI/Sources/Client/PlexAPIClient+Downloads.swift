@@ -21,11 +21,9 @@ extension PlexAPIClient {
             quality: quality
         )
 
-        #if DEBUG
         EnsembleLogger.debug(
             "⬇️ DownloadQueue enqueued: queue=\(queueId) item=\(itemId) track=\(trackRatingKey) quality=\(quality.rawValue)"
         )
-        #endif
 
         let timeoutDeadline = Date().addingTimeInterval(120)
         var pollInterval: UInt64 = 1_000_000_000
@@ -71,9 +69,7 @@ extension PlexAPIClient {
         sessionId: String? = nil,
         metadataDurationSeconds: Double? = nil
     ) async throws -> URL {
-        #if DEBUG
         EnsembleLogger.debug("🎵 PlexAPIClient.downloadUniversalStreamToFile(ratingKey): \(ratingKey) [quality: \(quality.rawValue)]")
-        #endif
 
         let resolvedSessionId = sessionId ?? UUID().uuidString
         let queryItems = buildUniversalStreamQueryItems(
@@ -89,9 +85,7 @@ extension PlexAPIClient {
             queryItems: queryItems
         )
 
-        #if DEBUG
         EnsembleLogger.debug("🔗 Downloading universal stream for ratingKey \(ratingKey) [session: \(resolvedSessionId.prefix(8))]")
-        #endif
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -104,9 +98,7 @@ extension PlexAPIClient {
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Universal stream download returned \(statusCode)")
-            #endif
             throw PlexAPIError.httpError(statusCode: statusCode)
         }
 
@@ -132,13 +124,9 @@ extension PlexAPIClient {
                 fileExtension = "aac"
             default:
                 fileExtension = "audio"
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ Unknown Content-Type for original quality stream: '\(contentType)'")
-                #endif
             }
-            #if DEBUG
             EnsembleLogger.debug("📦 Original quality Content-Type: '\(contentType)' → .\(fileExtension)")
-            #endif
         }
         let destURL = cacheDir.appendingPathComponent("\(ratingKey)_\(resolvedSessionId).\(fileExtension)")
 
@@ -147,10 +135,8 @@ extension PlexAPIClient {
         }
         try FileManager.default.moveItem(at: tempURL, to: destURL)
 
-        #if DEBUG
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: destURL.path)[.size] as? Int) ?? 0
         EnsembleLogger.debug("Downloaded universal stream to file: \(destURL.lastPathComponent) (\(fileSize) bytes)")
-        #endif
 
         return destURL
     }
@@ -168,9 +154,7 @@ extension PlexAPIClient {
             queryItems: queryItems
         )
 
-        #if DEBUG
         EnsembleLogger.debug("🔗 Downloading universal stream for ratingKey \(ratingKey) [session: \(sessionId.prefix(8))]")
-        #endif
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -183,9 +167,7 @@ extension PlexAPIClient {
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            #if DEBUG
             EnsembleLogger.debug("⚠️ Universal stream download returned \(statusCode)")
-            #endif
             throw PlexAPIError.httpError(statusCode: statusCode)
         }
 
@@ -211,9 +193,7 @@ extension PlexAPIClient {
                 fileExtension = "aac"
             default:
                 fileExtension = "audio"
-                #if DEBUG
                 EnsembleLogger.debug("⚠️ Unknown Content-Type for stream: '\(contentType)'")
-                #endif
             }
         }
 
@@ -223,10 +203,8 @@ extension PlexAPIClient {
         }
         try FileManager.default.moveItem(at: tempURL, to: destURL)
 
-        #if DEBUG
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: destURL.path)[.size] as? Int) ?? 0
         EnsembleLogger.debug("✅ Downloaded universal stream to file: \(destURL.lastPathComponent) (\(fileSize) bytes)")
-        #endif
 
         return destURL
     }

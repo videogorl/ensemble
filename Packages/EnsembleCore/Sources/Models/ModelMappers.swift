@@ -27,10 +27,6 @@ public extension AudioFileInfo {
 
 public extension Track {
     init(from plex: PlexTrack) {
-        // Extract audio stream ID for loudness timeline fetching
-        let audioStreamId: Int? = plex.media?.first?.part?.first?.stream?
-            .first(where: { $0.streamType == 2 })?.id  // streamType 2 = audio
-
         self.init(
             id: plex.ratingKey,
             key: plex.key,
@@ -47,7 +43,7 @@ public extension Track {
             fallbackThumbPath: plex.parentThumb,  // Album artwork as fallback
             fallbackRatingKey: plex.parentRatingKey,  // Album ratingKey
             streamKey: plex.streamURL,
-            streamId: audioStreamId,
+            streamId: plex.audioStreamId,
             localFilePath: nil,
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
@@ -60,10 +56,6 @@ public extension Track {
 
     /// Initialize from PlexTrack with explicit sourceKey for radio providers
     init(from plex: PlexTrack, sourceKey: String) {
-        // Extract audio stream ID for loudness timeline fetching
-        let audioStreamId: Int? = plex.media?.first?.part?.first?.stream?
-            .first(where: { $0.streamType == 2 })?.id  // streamType 2 = audio
-
         self.init(
             id: plex.ratingKey,
             key: plex.key,
@@ -80,7 +72,7 @@ public extension Track {
             fallbackThumbPath: plex.parentThumb,  // Album artwork as fallback
             fallbackRatingKey: plex.parentRatingKey,  // Album ratingKey
             streamKey: plex.streamURL,
-            streamId: audioStreamId,
+            streamId: plex.audioStreamId,
             localFilePath: nil,
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
@@ -132,7 +124,7 @@ public extension Track {
             fallbackThumbPath: cd.album?.thumbPath,  // Album artwork as fallback
             fallbackRatingKey: cd.album?.ratingKey,  // Album ratingKey
             streamKey: cd.streamKey,
-            streamId: nil,  // Not stored in CoreData yet (would require migration)
+            streamId: cd.streamId > 0 ? Int(cd.streamId) : nil,
             localFilePath: resolvedLocalFilePath,
             dateAdded: cd.dateAdded,
             dateModified: cd.dateModified,

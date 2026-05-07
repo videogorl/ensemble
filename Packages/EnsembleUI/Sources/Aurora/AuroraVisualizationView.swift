@@ -1,6 +1,7 @@
 import EnsembleCore
 import SwiftUI
 import Combine
+import Foundation
 
 /// Real-time frequency visualization with soft aurora-style glow.
 /// Displays 24 frequency bands (60Hz-16kHz) from live FFT analysis,
@@ -21,6 +22,7 @@ public struct AuroraVisualizationView: View {
     @State private var isSettlingToZero = false
     @State private var settleToZeroTask: Task<Void, Never>?
     @StateObject private var renderModel = AuroraRenderModel()
+    @StateObject private var bandProcessor = AuroraBandShapeProcessor()
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -162,6 +164,7 @@ public struct AuroraVisualizationView: View {
             isMounted = false
             settleToZeroTask?.cancel()
             settleToZeroTask = nil
+            bandProcessor.cancelPending()
             updateConsumerRegistration()
         }
         .onChange(of: isPaused) { _ in
@@ -283,14 +286,13 @@ public struct AuroraVisualizationView: View {
         case .stopped, .failed:
             newVisibility = false
             // Reset band state so stale values don't flash when playback resumes
+            bandProcessor.cancelPending()
             renderModel.reset()
         }
 
         guard newVisibility != isVisible else { return }
 
-        #if DEBUG
         EnsembleLogger.debug("Aurora visibility: \(newVisibility) (state: \(state), animated: \(animated), timelinePaused: \(state != .playing))")
-        #endif
 
         if animated {
             withAnimation(.easeInOut(duration: 1.0)) {
@@ -308,14 +310,23 @@ public struct AuroraVisualizationView: View {
     /// Advances the smoothed aurora state from analyzer samples without publishing
     /// SwiftUI updates on every FFT tick.
     private func ingestBands(_ rawBands: [Double]) {
-        renderModel.advance(
-            targetBands: calculateBandValues(from: rawBands),
-            attackFactor: attackFactor,
-            decayFactor: decayFactor,
-            peakHoldTime: peakHoldTime,
-            peakDecayRate: peakDecayRate,
-            deltaTime: frameInterval
-        )
+        let renderModel = renderModel
+        let attackFactor = attackFactor
+        let decayFactor = decayFactor
+        let peakHoldTime = peakHoldTime
+        let peakDecayRate = peakDecayRate
+        let deltaTime = frameInterval
+
+        bandProcessor.submit(rawBands) { targetBands in
+            renderModel.advance(
+                targetBands: targetBands,
+                attackFactor: attackFactor,
+                decayFactor: decayFactor,
+                peakHoldTime: peakHoldTime,
+                peakDecayRate: peakDecayRate,
+                deltaTime: deltaTime
+            )
+        }
     }
 
     private func startSettleToZero() {
@@ -383,162 +394,6 @@ public struct AuroraVisualizationView: View {
         let bassCount = min(6, bands.count)
         let bassEnergy = bands.prefix(bassCount).reduce(0, +) / Double(bassCount)
         return min(1, max(0, averageEnergy * 0.70 + bassEnergy * 0.30))
-    }
-
-    /// Maps analyzer output into the aurora's rendered band response curve.
-    private func calculateBandValues(from inputBands: [Double]) -> [Double] {
-        var bands = [Double](repeating: 0.0, count: bandCount)
-
-        if !inputBands.isEmpty {
-            for i in 0..<min(bandCount, inputBands.count) {
-                let normalizedPosition = Double(i) / Double(bandCount - 1)
-                let rawValue = compensatedBandValue(
-                    inputBands[i],
-                    normalizedPosition: normalizedPosition
-                )
-                let exponent = bandResponseExponent(normalizedPosition: normalizedPosition)
-                let shaped = pow(max(0.001, rawValue), exponent)
-                let floor = 0.02 + normalizedPosition * 0.04
-                bands[i] = max(floor, shaped)
-            }
-        } else {
-            for i in 0..<bandCount {
-                bands[i] = 0.1
-            }
-        }
-
-        let responsiveBands = enhanceBandResponsiveness(bands)
-        let blendedBands = lateralBlend(bands: responsiveBands, sigma: 2.8, mix: 0.42)
-        return flowingBandEnvelope(bands: blendedBands, sigma: 2.0, influence: 0.46)
-    }
-
-    /// Applies a gentle spectral tilt: lows get headroom, highs get logarithmic lift.
-    private func compensatedBandValue(_ value: Double, normalizedPosition: Double) -> Double {
-        let clamped = min(1, max(0, value))
-        let highPresence = pow(normalizedPosition, 0.72)
-        let spectralTilt = 0.72 + highPresence * 0.68
-        let weighted = min(0.98, clamped * spectralTilt)
-
-        let bassCompression = (1 - normalizedPosition) * 2.2
-        let bassHeadroom = weighted / (1 + max(0, weighted - 0.58) * bassCompression)
-
-        let logGain = 5.0 + normalizedPosition * 7.0
-        let logarithmic = log1p(bassHeadroom * logGain) / log1p(logGain)
-        let logMix = smoothStep(edge0: 0.28, edge1: 1.0, value: normalizedPosition) * 0.56
-        return bassHeadroom * (1 - logMix) + logarithmic * logMix
-    }
-
-    /// Preserves contrast when the whole spectrum is loud so strong songs still feel animated.
-    /// The bell-curve silhouette is applied later during drawing; this only reshapes per-band energy.
-    private func enhanceBandResponsiveness(_ bands: [Double]) -> [Double] {
-        guard !bands.isEmpty else { return bands }
-
-        let mean = bands.reduce(0, +) / Double(bands.count)
-        let peak = bands.max() ?? 0
-        guard peak > 0 else { return bands }
-
-        let density = mean / peak
-        let loudFactor = smoothStep(edge0: 0.34, edge1: 0.78, value: mean)
-        let fullSpectrumFactor = smoothStep(edge0: 0.58, edge1: 0.92, value: density)
-        let globalContrastBoost = 0.16 + loudFactor * 0.30 + fullSpectrumFactor * 0.18
-        let localContrastBoost = 0.22 + fullSpectrumFactor * 0.38
-        let highBandCompression = 0.04 + fullSpectrumFactor * 0.08
-
-        return bands.enumerated().map { index, value in
-            let localAverage = localAverage(in: bands, around: index, radius: 2)
-            let globalContrast = value - mean
-            let localContrast = value - localAverage
-            let contrasted = value
-                + globalContrast * globalContrastBoost
-                + localContrast * localContrastBoost
-
-            // Keep a little headroom in dense/loud sections so every band does not pin at max.
-            let compressed = contrasted / (1 + max(0, contrasted - 0.68) * highBandCompression)
-            return min(0.98, max(0.015, compressed))
-        }
-    }
-
-    private func localAverage(in bands: [Double], around index: Int, radius: Int) -> Double {
-        let lowerBound = max(0, index - radius)
-        let upperBound = min(bands.count - 1, index + radius)
-        let values = bands[lowerBound...upperBound]
-        return values.reduce(0, +) / Double(values.count)
-    }
-
-    private func smoothStep(edge0: Double, edge1: Double, value: Double) -> Double {
-        guard edge0 != edge1 else { return value >= edge1 ? 1 : 0 }
-        let x = min(1, max(0, (value - edge0) / (edge1 - edge0)))
-        return x * x * (3 - 2 * x)
-    }
-
-    /// Gaussian-weighted lateral blend across frequency bands.
-    /// Each band's output is a mix of its original value and a neighbor-weighted average,
-    /// which fills in gaps between active regions without flattening peaks.
-    private func lateralBlend(bands: [Double], sigma: Double, mix: Double) -> [Double] {
-        let count = bands.count
-        let kernelRadius = Int(ceil(sigma * 2.5))
-        var result = [Double](repeating: 0.0, count: count)
-
-        for i in 0..<count {
-            var weightedSum = 0.0
-            var totalWeight = 0.0
-            let lo = max(0, i - kernelRadius)
-            let hi = min(count - 1, i + kernelRadius)
-
-            for j in lo...hi {
-                let dist = Double(abs(i - j))
-                let weight = exp(-dist * dist / (2 * sigma * sigma))
-                weightedSum += bands[j] * weight
-                totalWeight += weight
-            }
-
-            let smoothed = weightedSum / totalWeight
-            result[i] = bands[i] * (1.0 - mix) + smoothed * mix
-        }
-
-        return result
-    }
-
-    /// Lets neighboring frequency peaks softly lift valleys so the aurora flows as one sheet.
-    private func flowingBandEnvelope(bands: [Double], sigma: Double, influence: Double) -> [Double] {
-        guard !bands.isEmpty else { return bands }
-
-        let count = bands.count
-        let kernelRadius = Int(ceil(sigma * 2.5))
-        var result = [Double](repeating: 0.0, count: count)
-
-        for i in 0..<count {
-            var envelope = bands[i]
-            let lo = max(0, i - kernelRadius)
-            let hi = min(count - 1, i + kernelRadius)
-
-            for j in lo...hi {
-                let dist = Double(abs(i - j))
-                let weight = exp(-dist * dist / (2 * sigma * sigma))
-                envelope = max(envelope, bands[j] * weight)
-            }
-
-            let neighborLift = max(bands[i], envelope * 0.78)
-            result[i] = min(0.98, bands[i] * (1 - influence) + neighborLift * influence)
-        }
-
-        return result
-    }
-
-    /// Returns the gamma exponent used to shape each band's response curve.
-    /// Interpolates smoothly across the spectrum:
-    ///   Bass  (0.0) → 1.45 high contrast, quiet bass stays low
-    ///   Mids  (0.5) → 0.7  gentle lift, keeps presence
-    ///   Highs (1.0) → 0.58 sensitive, brief transients register visibly
-    private func bandResponseExponent(normalizedPosition: Double) -> Double {
-        // Smooth cubic Hermite interpolation through three control points
-        if normalizedPosition <= 0.5 {
-            let t = normalizedPosition * 2.0
-            return 1.45 + (0.7 - 1.45) * (t * t * (3 - 2 * t))
-        } else {
-            let t = (normalizedPosition - 0.5) * 2.0
-            return 0.7 + (0.58 - 0.7) * (t * t * (3 - 2 * t))
-        }
     }
 
     /// Draws a soft glow layer with wide, overlapping bands
@@ -814,6 +669,214 @@ public struct AuroraVisualizationView: View {
                 endPoint: CGPoint(x: rect.midX, y: rect.maxY)
             )
         )
+    }
+}
+
+/// Coalesces raw FFT updates and shapes aurora bands off the SwiftUI receive path.
+@MainActor
+final class AuroraBandShapeProcessor: ObservableObject {
+    private let bandCount = 24
+    private let processingQueue = DispatchQueue(
+        label: "com.felicity.Ensemble.aurora-band-shaper",
+        qos: .userInitiated
+    )
+
+    private var pendingBands: [Double]?
+    private var latestRequestID = 0
+    private var isProcessing = false
+    private var latestCompletion: (@MainActor ([Double]) -> Void)?
+
+    func submit(_ rawBands: [Double], completion: @escaping @MainActor ([Double]) -> Void) {
+        pendingBands = rawBands
+        latestCompletion = completion
+        latestRequestID += 1
+
+        guard !isProcessing else { return }
+        processNext()
+    }
+
+    func cancelPending() {
+        pendingBands = nil
+        latestCompletion = nil
+        latestRequestID += 1
+    }
+
+    private func processNext() {
+        guard let bands = pendingBands else {
+            isProcessing = false
+            return
+        }
+
+        pendingBands = nil
+        isProcessing = true
+
+        let requestID = latestRequestID
+        let bandCount = bandCount
+
+        processingQueue.async {
+            let shapedBands = Self.calculateBandValues(from: bands, bandCount: bandCount)
+
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isProcessing = false
+
+                if requestID == self.latestRequestID, let latestCompletion = self.latestCompletion {
+                    latestCompletion(shapedBands)
+                }
+
+                if self.pendingBands != nil {
+                    self.processNext()
+                }
+            }
+        }
+    }
+
+    /// Maps analyzer output into the aurora's rendered band response curve.
+    private nonisolated static func calculateBandValues(from inputBands: [Double], bandCount: Int) -> [Double] {
+        var bands = [Double](repeating: 0.0, count: bandCount)
+
+        if !inputBands.isEmpty {
+            for i in 0..<min(bandCount, inputBands.count) {
+                let normalizedPosition = Double(i) / Double(bandCount - 1)
+                let rawValue = compensatedBandValue(
+                    inputBands[i],
+                    normalizedPosition: normalizedPosition
+                )
+                let exponent = bandResponseExponent(normalizedPosition: normalizedPosition)
+                let shaped = pow(max(0.001, rawValue), exponent)
+                let floor = 0.02 + normalizedPosition * 0.04
+                bands[i] = max(floor, shaped)
+            }
+        } else {
+            for i in 0..<bandCount {
+                bands[i] = 0.1
+            }
+        }
+
+        let responsiveBands = enhanceBandResponsiveness(bands)
+        let blendedBands = lateralBlend(bands: responsiveBands, sigma: 2.8, mix: 0.42)
+        return flowingBandEnvelope(bands: blendedBands, sigma: 2.0, influence: 0.46)
+    }
+
+    /// Applies a gentle spectral tilt: lows get headroom, highs get logarithmic lift.
+    private nonisolated static func compensatedBandValue(_ value: Double, normalizedPosition: Double) -> Double {
+        let clamped = min(1, max(0, value))
+        let highPresence = pow(normalizedPosition, 0.72)
+        let spectralTilt = 0.72 + highPresence * 0.68
+        let weighted = min(0.98, clamped * spectralTilt)
+
+        let bassCompression = (1 - normalizedPosition) * 2.2
+        let bassHeadroom = weighted / (1 + max(0, weighted - 0.58) * bassCompression)
+
+        let logGain = 5.0 + normalizedPosition * 7.0
+        let logarithmic = log1p(bassHeadroom * logGain) / log1p(logGain)
+        let logMix = smoothStep(edge0: 0.28, edge1: 1.0, value: normalizedPosition) * 0.56
+        return bassHeadroom * (1 - logMix) + logarithmic * logMix
+    }
+
+    /// Preserves contrast when the whole spectrum is loud so strong songs still feel animated.
+    private nonisolated static func enhanceBandResponsiveness(_ bands: [Double]) -> [Double] {
+        guard !bands.isEmpty else { return bands }
+
+        let mean = bands.reduce(0, +) / Double(bands.count)
+        let peak = bands.max() ?? 0
+        guard peak > 0 else { return bands }
+
+        let density = mean / peak
+        let loudFactor = smoothStep(edge0: 0.34, edge1: 0.78, value: mean)
+        let fullSpectrumFactor = smoothStep(edge0: 0.58, edge1: 0.92, value: density)
+        let globalContrastBoost = 0.16 + loudFactor * 0.30 + fullSpectrumFactor * 0.18
+        let localContrastBoost = 0.22 + fullSpectrumFactor * 0.38
+        let highBandCompression = 0.04 + fullSpectrumFactor * 0.08
+
+        return bands.enumerated().map { index, value in
+            let localAverage = localAverage(in: bands, around: index, radius: 2)
+            let globalContrast = value - mean
+            let localContrast = value - localAverage
+            let contrasted = value
+                + globalContrast * globalContrastBoost
+                + localContrast * localContrastBoost
+
+            // Keep a little headroom in dense/loud sections so every band does not pin at max.
+            let compressed = contrasted / (1 + max(0, contrasted - 0.68) * highBandCompression)
+            return min(0.98, max(0.015, compressed))
+        }
+    }
+
+    private nonisolated static func localAverage(in bands: [Double], around index: Int, radius: Int) -> Double {
+        let lowerBound = max(0, index - radius)
+        let upperBound = min(bands.count - 1, index + radius)
+        let values = bands[lowerBound...upperBound]
+        return values.reduce(0, +) / Double(values.count)
+    }
+
+    private nonisolated static func smoothStep(edge0: Double, edge1: Double, value: Double) -> Double {
+        guard edge0 != edge1 else { return value >= edge1 ? 1 : 0 }
+        let x = min(1, max(0, (value - edge0) / (edge1 - edge0)))
+        return x * x * (3 - 2 * x)
+    }
+
+    /// Gaussian-weighted lateral blend across frequency bands.
+    private nonisolated static func lateralBlend(bands: [Double], sigma: Double, mix: Double) -> [Double] {
+        let count = bands.count
+        let kernelRadius = Int(ceil(sigma * 2.5))
+        var result = [Double](repeating: 0.0, count: count)
+
+        for i in 0..<count {
+            var weightedSum = 0.0
+            var totalWeight = 0.0
+            let lo = max(0, i - kernelRadius)
+            let hi = min(count - 1, i + kernelRadius)
+
+            for j in lo...hi {
+                let dist = Double(abs(i - j))
+                let weight = exp(-dist * dist / (2 * sigma * sigma))
+                weightedSum += bands[j] * weight
+                totalWeight += weight
+            }
+
+            let smoothed = weightedSum / totalWeight
+            result[i] = bands[i] * (1.0 - mix) + smoothed * mix
+        }
+
+        return result
+    }
+
+    /// Lets neighboring frequency peaks softly lift valleys so the aurora flows as one sheet.
+    private nonisolated static func flowingBandEnvelope(bands: [Double], sigma: Double, influence: Double) -> [Double] {
+        guard !bands.isEmpty else { return bands }
+
+        let count = bands.count
+        let kernelRadius = Int(ceil(sigma * 2.5))
+        var result = [Double](repeating: 0.0, count: count)
+
+        for i in 0..<count {
+            var envelope = bands[i]
+            let lo = max(0, i - kernelRadius)
+            let hi = min(count - 1, i + kernelRadius)
+
+            for j in lo...hi {
+                let dist = Double(abs(i - j))
+                let weight = exp(-dist * dist / (2 * sigma * sigma))
+                envelope = max(envelope, bands[j] * weight)
+            }
+
+            let neighborLift = max(bands[i], envelope * 0.78)
+            result[i] = min(0.98, bands[i] * (1 - influence) + neighborLift * influence)
+        }
+
+        return result
+    }
+
+    /// Returns the gamma exponent used to shape each band's response curve.
+    private nonisolated static func bandResponseExponent(normalizedPosition: Double) -> Double {
+        if normalizedPosition <= 0.5 {
+            let t = normalizedPosition * 2.0
+            return 1.45 + (0.7 - 1.45) * (t * t * (3 - 2 * t))
+        } else {
+            let t = (normalizedPosition - 0.5) * 2.0
+            return 0.7 + (0.58 - 0.7) * (t * t * (3 - 2 * t))
+        }
     }
 }
 

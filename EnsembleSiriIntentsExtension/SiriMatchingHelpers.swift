@@ -1,5 +1,7 @@
 import EnsembleSiriShared
 import Foundation
+import Intents
+import OSLog
 
 // MARK: - Shared models for Siri intent handlers
 
@@ -66,6 +68,15 @@ enum SiriMatchingHelpers {
         SiriMatchScorer.scoreMatch(queries: queries, candidate: candidate)
     }
 
+    static func currentTrackMediaItem() -> INMediaItem {
+        INMediaItem(
+            identifier: "current-track",
+            title: "Current Track",
+            type: .song,
+            artwork: nil
+        )
+    }
+
     /// Rank index items matching a playlist query by fuzzy score.
     static func rankPlaylistCandidates(
         for query: String,
@@ -90,5 +101,47 @@ enum SiriMatchingHelpers {
                 }
                 return lhs.item.displayName.localizedCaseInsensitiveCompare(rhs.item.displayName) == .orderedAscending
             }
+    }
+}
+
+enum SiriPendingIntentBridge {
+    static func writePayload<T: Encodable>(
+        _ payload: T,
+        filename: String,
+        logger: Logger,
+        context: String
+    ) -> Bool {
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: SiriMatchingHelpers.appGroupIdentifier
+        ) else {
+            logger.error("\(context, privacy: .public): App Group container unavailable")
+            return false
+        }
+
+        let fileURL = containerURL.appendingPathComponent(filename)
+        do {
+            let data = try JSONEncoder().encode(payload)
+            try data.write(to: fileURL, options: .atomic)
+            logger.info("\(context, privacy: .public): wrote pending payload to \(fileURL.path, privacy: .public)")
+            return true
+        } catch {
+            logger.error("\(context, privacy: .public): failed to write pending payload: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    static func postDarwinNotification(
+        named notificationName: String,
+        logger: Logger,
+        context: String
+    ) {
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(notificationName as CFString),
+            nil,
+            nil,
+            true
+        )
+        logger.info("\(context, privacy: .public): posted Darwin notification")
     }
 }
