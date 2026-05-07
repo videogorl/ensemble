@@ -7,6 +7,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     private static let activityType = "com.videogorl.ensemble.siri.playmedia"
     private static let payloadUserInfoKey = "siriPlaybackPayload"
     private static let currentPayloadSchemaVersion = 1
+    private static let pendingFilename = "siri-pending-playback.json"
+    private static let darwinNotificationName = "com.videogorl.ensemble.siri.pendingPlayback"
     private static let disambiguationThreshold = 0.1
     private static let payloadResolutionThreshold = 0.66
     private let logger = Logger(
@@ -101,33 +103,6 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     // requesting device. Without confirm, the flow goes directly to handle()
     // which returns .handleInApp — the signal iOS needs to set up AirPlay.
 
-    private func writePendingPayloadToAppGroup(_ payload: SiriPayloadIdentifier) {
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: SiriSharedConstants.appGroupIdentifier
-        ) else {
-            os_log(.error, "SIRI_EXT: Failed to get App Group container")
-            return
-        }
-
-        let pendingFile = containerURL.appendingPathComponent("siri-pending-playback.json")
-
-        do {
-            let data = try JSONEncoder().encode(payload)
-            try data.write(to: pendingFile, options: .atomic)
-            os_log(.info, "SIRI_EXT: Wrote pending payload to %{public}@", pendingFile.path)
-        } catch {
-            os_log(.error, "SIRI_EXT: Failed to write pending payload: %{public}@", error.localizedDescription)
-        }
-    }
-
-    private func postDarwinNotification() {
-        // Post a Darwin notification to wake the app
-        let notificationName = "com.videogorl.ensemble.siri.pendingPlayback" as CFString
-        let notifyCenter = CFNotificationCenterGetDarwinNotifyCenter()
-        CFNotificationCenterPostNotification(notifyCenter, CFNotificationName(notificationName), nil, nil, true)
-        os_log(.info, "SIRI_EXT: Posted Darwin notification")
-    }
-
     public func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         let requestedMediaType = resolvedMediaType(from: intent, query: queryText(from: intent) ?? "")
         let shuffleRequested = intent.playShuffled ?? false
@@ -160,8 +135,17 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         // Write payload to App Group as fallback in case user activity delivery fails.
         // The app's Darwin notification handler will pick this up if onContinueUserActivity
         // doesn't fire within a few seconds.
-        writePendingPayloadToAppGroup(payload)
-        postDarwinNotification()
+        _ = SiriPendingIntentBridge.writePayload(
+            payload,
+            filename: Self.pendingFilename,
+            logger: logger,
+            context: "playback"
+        )
+        SiriPendingIntentBridge.postDarwinNotification(
+            named: Self.darwinNotificationName,
+            logger: logger,
+            context: "playback"
+        )
 
         // Return .handleInApp — this is the signal iOS needs to establish AirPlay
         // routing from the requesting HomePod before delivering the user activity.

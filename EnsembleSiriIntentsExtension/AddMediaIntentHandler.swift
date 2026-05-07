@@ -1,10 +1,8 @@
-import EnsembleSiriShared
 import Foundation
 import Intents
 import os
 
 public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
-    private static let appGroupIdentifier = SiriSharedConstants.appGroupIdentifier
     private static let pendingFilename = "siri-pending-addtoplaylist.json"
     private static let darwinNotificationName = "com.videogorl.ensemble.siri.pendingAddToPlaylist"
     private static let disambiguationThreshold = 0.1
@@ -27,13 +25,7 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
     ) {
         // The "media to add" is the current track -- no resolution needed.
         logger.info("resolveMediaItems: returning success for current track")
-        let currentTrackItem = INMediaItem(
-            identifier: "current-track",
-            title: "Current Track",
-            type: .song,
-            artwork: nil
-        )
-        completion([.success(with: currentTrackItem)])
+        completion([.success(with: SiriMatchingHelpers.currentTrackMediaItem())])
     }
 
     public func resolveMediaDestination(
@@ -108,41 +100,35 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
             return
         }
 
-        // Write payload to shared App Group file for the main app to pick up
-        let payloadDict: [String: Any] = [
-            "schemaVersion": 1,
-            "playlistRatingKey": match.item.id,
-            "sourceCompositeKey": match.item.sourceCompositeKey ?? "",
-            "playlistDisplayName": match.item.displayName
-        ].compactMapValues { $0 }
-
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
+        let payload = PendingAddToPlaylistPayload(
+            playlistRatingKey: match.item.id,
+            sourceCompositeKey: match.item.sourceCompositeKey ?? "",
+            playlistDisplayName: match.item.displayName
+        )
+        guard SiriPendingIntentBridge.writePayload(
+            payload,
+            filename: Self.pendingFilename,
+            logger: logger,
+            context: "add-to-playlist"
         ) else {
-            logger.error("handle: App Group container unavailable")
             completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
             return
         }
 
-        let fileURL = containerURL.appendingPathComponent(Self.pendingFilename)
-
-        do {
-            let data = try JSONSerialization.data(withJSONObject: payloadDict)
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            logger.error("handle: failed to write pending file: \(error.localizedDescription, privacy: .public)")
-            completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
-            return
-        }
-
-        // Post Darwin notification to wake the main app
-        CFNotificationCenterPostNotification(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            CFNotificationName(Self.darwinNotificationName as CFString),
-            nil, nil, true
+        SiriPendingIntentBridge.postDarwinNotification(
+            named: Self.darwinNotificationName,
+            logger: logger,
+            context: "add-to-playlist"
         )
 
         logger.info("handle: wrote pending add-to-playlist file + posted Darwin notification, returning success")
         completion(INAddMediaIntentResponse(code: .success, userActivity: nil))
     }
+}
+
+private struct PendingAddToPlaylistPayload: Encodable {
+    let schemaVersion = 1
+    let playlistRatingKey: String
+    let sourceCompositeKey: String
+    let playlistDisplayName: String
 }

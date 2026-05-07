@@ -55,6 +55,9 @@ ensemble/
 +-- EnsembleSiriIntentsExtension/  # SiriKit Media Intents extension target
 |   +-- IntentHandler.swift        # Extension entry point for intent handlers
 |   +-- PlayMediaIntentHandler.swift # INPlayMediaIntentHandling implementation
+|   +-- AddMediaIntentHandler.swift # INAddMediaIntentHandling add-current-track-to-playlist implementation
+|   +-- UpdateMediaAffinityIntentHandler.swift # INUpdateMediaAffinityIntentHandling like/dislike current track implementation
+|   +-- SiriMatchingHelpers.swift  # Shared Siri index loading, ranking, current-track item, and pending-intent App Group/Darwin bridge helpers
 |   +-- Info.plist                 # Intents extension configuration
 |   +-- EnsembleSiriIntentsExtension.entitlements # Extension entitlements (Siri + shared App Group)
 |
