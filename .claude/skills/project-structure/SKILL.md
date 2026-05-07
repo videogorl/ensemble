@@ -160,7 +160,9 @@ Tests/
 ```
 Sources/
 +-- DI/
-|   +-- DependencyContainer.swift      # Singleton DI container & VM factories
+|   +-- DependencyContainer.swift      # Singleton DI container, bootstrap construction, and cross-service wiring
+|   +-- DependencyContainer+ViewModelFactories.swift # ViewModel factory methods and shared active Now Playing VM state
+|   +-- DependencyContainer+SwiftUIEnvironment.swift # SwiftUI EnvironmentValues bridge for DependencyContainer
 +-- Models/
 |   +-- DisplayPlaylist.swift          # Merge-aware playlist wrapper (single or multi-server merged)
 |   +-- DomainModels.swift             # UI-facing models (Track, Album, Artist, Hub, etc.)
