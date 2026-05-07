@@ -901,7 +901,7 @@ public struct ArtistDetailView: View {
                             .font(EnsembleDesign.Typography.rowPrimary)
                             .foregroundColor(EnsembleDesign.Color.primaryText)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, index > 0 ? EnsembleDesign.Spacing.md : EnsembleDesign.Spacing.none)
+                            .padding(.top, index == paragraphs.indices.lowerBound ? EnsembleDesign.Spacing.none : EnsembleDesign.Spacing.md)
                     }
                 } else {
                     // Collapsed: show truncated text

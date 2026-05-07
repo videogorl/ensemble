@@ -1,6 +1,15 @@
 import EnsembleCore
 import SwiftUI
 
+private enum StageFlowItemChromeMetrics {
+    static let artworkBorderOpacity = 0.08
+    static let artworkBorderWidth: CGFloat = 1
+    static let artworkShadowOpacity = 0.42
+    static let artworkShadowRadius: CGFloat = 18
+    static let artworkShadowX = EnsembleDesign.Spacing.none
+    static let artworkShadowY = EnsembleDesign.Spacing.md
+}
+
 /// Artwork card used by StageFlow surfaces.
 struct StageFlowItemView: View {
     let ratingKey: String
@@ -24,22 +33,30 @@ struct StageFlowItemView: View {
             .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                    .strokeBorder(
+                        Color.white.opacity(StageFlowItemChromeMetrics.artworkBorderOpacity),
+                        lineWidth: StageFlowItemChromeMetrics.artworkBorderWidth
+                    )
             )
-            .shadow(color: .black.opacity(0.42), radius: 18, x: 0, y: 12)
+            .shadow(
+                color: .black.opacity(StageFlowItemChromeMetrics.artworkShadowOpacity),
+                radius: StageFlowItemChromeMetrics.artworkShadowRadius,
+                x: StageFlowItemChromeMetrics.artworkShadowX,
+                y: StageFlowItemChromeMetrics.artworkShadowY
+            )
     }
 
     @ViewBuilder
     private var artworkContent: some View {
         if let dp = displayPlaylist, dp.isMerged {
-            PlaylistArtwork(displayPlaylist: dp, size: .large, cornerRadius: 0, isResponsive: true)
+            PlaylistArtwork(displayPlaylist: dp, size: .large, cornerRadius: EnsembleDesign.Spacing.none, isResponsive: true)
         } else {
             ArtworkView(
                 path: artworkPath,
                 sourceKey: sourceCompositeKey,
                 ratingKey: ratingKey,
                 size: .large,
-                cornerRadius: 0,
+                cornerRadius: EnsembleDesign.Spacing.none,
                 isResponsive: true
             )
         }

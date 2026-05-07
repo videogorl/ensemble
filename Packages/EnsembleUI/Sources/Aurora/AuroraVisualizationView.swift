@@ -288,9 +288,7 @@ public struct AuroraVisualizationView: View {
 
         guard newVisibility != isVisible else { return }
 
-        #if DEBUG
         EnsembleLogger.debug("Aurora visibility: \(newVisibility) (state: \(state), animated: \(animated), timelinePaused: \(state != .playing))")
-        #endif
 
         if animated {
             withAnimation(.easeInOut(duration: 1.0)) {

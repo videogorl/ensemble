@@ -442,9 +442,7 @@ private struct MiniPlayerContainerInsetter: UIViewRepresentable {
             guard let window = self.window else { return }
 
             guard let tabBarController = Self.findTabBarController(from: window.rootViewController) else {
-                #if DEBUG
-                NSLog("[MiniPlayerInset] No UITabBarController found in VC hierarchy")
-                #endif
+                EnsembleLogger.debug("[MiniPlayerInset] No UITabBarController found in VC hierarchy")
                 return
             }
 
@@ -466,12 +464,11 @@ private struct MiniPlayerContainerInsetter: UIViewRepresentable {
                 }
             }
 
-            #if DEBUG
             if bottomInset != appliedInset {
-                NSLog("[MiniPlayerInset] Applied %.0fpt inset to %d/%d tab children",
-                      bottomInset, appliedCount, tabBarController.children.count)
+                EnsembleLogger.debug(
+                    "[MiniPlayerInset] Applied \(Int(bottomInset))pt inset to \(appliedCount)/\(tabBarController.children.count) tab children"
+                )
             }
-            #endif
             appliedInset = bottomInset
         }
 
