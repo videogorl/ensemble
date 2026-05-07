@@ -26,6 +26,7 @@ public struct FavoritesView: View {
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
+    @State private var hasCompletedInitialLoad = false
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
@@ -45,10 +46,10 @@ public struct FavoritesView: View {
     
     public var body: some View {
         Group {
-            if viewModel.tracks.isEmpty {
-                emptyView
-            } else {
+            if shouldShowTrackList {
                 trackListView
+            } else {
+                emptyView
             }
         }
         .navigationTitle("Favorites")
@@ -87,12 +88,21 @@ public struct FavoritesView: View {
         .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
             if gen != availabilityGeneration { availabilityGeneration = gen }
         }
+        .onReceive(viewModel.$isLoading) { isLoading in
+            if !isLoading && !hasCompletedInitialLoad {
+                hasCompletedInitialLoad = true
+            }
+        }
         .ensembleFilterPresentation(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $viewModel.filterOptions
             )
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+    }
+
+    private var shouldShowTrackList: Bool {
+        !hasCompletedInitialLoad || viewModel.isLoading || !viewModel.tracks.isEmpty
     }
     
     private var moreMenu: some View {
@@ -260,6 +270,10 @@ public struct FavoritesView: View {
                     nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
                 }
                 .frame(height: height)
+
+                if let footer = favoritesFooterContent {
+                    footer
+                }
             }
         }
         .miniPlayerBottomSpacing()
@@ -276,12 +290,30 @@ public struct FavoritesView: View {
                 supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                 interactionModel: interactionModel
             ),
-            tableHeaderContent: AnyView(favoritesHeaderSurface)
+            tableHeaderContent: AnyView(favoritesHeaderSurface),
+            tableFooterContent: favoritesFooterContent
         ) { _, index in
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
         .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
         #endif
+    }
+
+    private var favoritesFooterContent: AnyView? {
+        if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
+            return AnyView(EnsembleStateScaffold(
+                kind: .loading,
+                title: "Loading favorites…",
+                presentation: .compactFooter
+            ))
+        } else if !viewModel.tracks.isEmpty && viewModel.filteredTracks.isEmpty {
+            return AnyView(EnsembleStateScaffold(
+                kind: .empty,
+                title: "No matching favorites",
+                presentation: .compactFooter
+            ))
+        }
+        return nil
     }
 
     private func updateTrackListSupplementalMetadataWidth(_ newWidth: CGFloat) {

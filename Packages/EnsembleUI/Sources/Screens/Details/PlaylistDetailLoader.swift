@@ -24,7 +24,7 @@ struct PlaylistDetailLoader: View {
             if let playlist = playlist {
                 PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
             } else if isLoading {
-                EnsembleStateScaffold(kind: .loading, title: "Loading playlist…")
+                MediaDetailSurface<EmptyView>.LoadingState(title: "Loading playlist…")
             } else if let error = error {
                 EnsembleStateScaffold(
                     kind: .error,

@@ -14,7 +14,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             filterOptions.sortBy = favoritesSortOption.rawValue
         }
     }
-    @Published public private(set) var isLoading: Bool = false
+    @Published public private(set) var isLoading: Bool = true
     @Published public private(set) var error: String?
     // Pre-computed filtered+sorted tracks (avoids O(n log n) sort per body evaluation)
     @Published public private(set) var filteredTracks: [Track] = []

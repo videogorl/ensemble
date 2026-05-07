@@ -43,6 +43,22 @@ struct MediaDetailSurface<Content: View>: View {
 }
 
 extension MediaDetailSurface {
+    /// Top-aligned loading state for detail navigations.
+    /// Full-screen centered loaders read as content reflow when the real
+    /// header arrives at the top edge after a fast local fetch.
+    struct LoadingState: View {
+        let title: String
+
+        var body: some View {
+            EnsembleStateScaffold(
+                kind: .loading,
+                title: title,
+                presentation: .compactFooter
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+    }
+
     enum ActionRole {
         case primary
         case secondary

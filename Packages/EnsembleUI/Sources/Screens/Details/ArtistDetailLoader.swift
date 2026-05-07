@@ -24,7 +24,7 @@ struct ArtistDetailLoader: View {
             if let artist = artist {
                 ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
             } else if isLoading {
-                EnsembleStateScaffold(kind: .loading, title: "Loading artist…")
+                MediaDetailSurface<EmptyView>.LoadingState(title: "Loading artist…")
             } else if let error = error {
                 EnsembleStateScaffold(
                     kind: .error,
@@ -50,14 +50,26 @@ struct ArtistDetailLoader: View {
     @MainActor
     private func loadArtist() async {
         do {
-            if let cdArtist = try await deps.libraryRepository.fetchArtist(
+            let loadedArtist = try await deps.libraryRepository.fetchArtist(
                 ratingKey: artistId,
                 sourceCompositeKey: artistSourceKey
-            ) {
-                self.artist = Artist(from: cdArtist)
-            }
-            self.isLoading = false
+            ).map { Artist(from: $0) }
+            finishLoading(artist: loadedArtist, error: nil)
         } catch {
+            finishLoading(artist: nil, error: error)
+        }
+    }
+
+    @MainActor
+    private func finishLoading(artist: Artist?, error: Error?) {
+        guard !Task.isCancelled else { return }
+
+        var transaction = Transaction()
+        transaction.animation = nil
+        transaction.disablesAnimations = true
+
+        withTransaction(transaction) {
+            self.artist = artist
             self.error = error
             self.isLoading = false
         }
