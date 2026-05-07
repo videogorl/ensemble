@@ -38,7 +38,9 @@ struct MediaDetailSurface<Content: View>: View {
                 .ignoresSafeArea()
 
             content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
 

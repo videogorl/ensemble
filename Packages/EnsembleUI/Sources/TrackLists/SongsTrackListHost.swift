@@ -243,11 +243,13 @@ public struct SongsTrackListHost: View {
                 requestedSectionID: $requestedSectionID,
                 onTrackTap: onTrackTap
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             sectionIndex { sectionID in
                 requestedSectionID = sectionID
             }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         )
     }
 
