@@ -44,6 +44,12 @@ public struct ControlsCard: View {
     
     private let namespace: Namespace.ID?
     private let animationID: String?
+
+    /// TabView's page style keeps every card alive. Keep the controls page's
+    /// expensive waveform/artwork tree idle while another Now Playing page is active.
+    private var isVisible: Bool {
+        currentPage == 1
+    }
     
     public init(
         viewModel: NowPlayingViewModel,
@@ -61,47 +67,63 @@ public struct ControlsCard: View {
     
     public var body: some View {
         GeometryReader { geometry in
-            if let track = playbackProjection.currentTrack {
-                contentView(track: track, geometry: geometry)
+            if isVisible {
+                if let track = playbackProjection.currentTrack {
+                    contentView(track: track, geometry: geometry)
+                } else {
+                    emptyStateView(geometry: geometry)
+                }
             } else {
-                emptyStateView(geometry: geometry)
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: viewModel)
         .task {
+            guard isVisible else { return }
             await refreshLastPlaylistQuickTarget()
         }
         .onAppear {
-            waveformHeights = playbackProjection.waveformHeights
-            playbackProgress = playbackProjection.progress
-            bufferedProgress = playbackProjection.bufferedProgress
-            playbackCurrentTime = playbackProjection.currentTime
-            playbackDuration = playbackProjection.scrubberDuration
+            syncPlaybackSnapshot()
             lastPlaylistTargetID = viewModel.lastPlaylistTarget?.id
         }
         .onChange(of: playbackProjection.currentTrack?.id) { _ in
+            guard isVisible else { return }
             Task { @MainActor in await refreshLastPlaylistQuickTarget() }
         }
+        .onChange(of: currentPage) { newPage in
+            guard newPage == 1 else { return }
+            Task { @MainActor in
+                syncPlaybackSnapshot()
+                lastPlaylistTargetID = viewModel.lastPlaylistTarget?.id
+                await refreshLastPlaylistQuickTarget()
+            }
+        }
         .onReceive(viewModel.lastPlaylistTargetPublisher) { target in
+            guard isVisible else { return }
             let targetID = target?.id
             guard targetID != lastPlaylistTargetID else { return }
             lastPlaylistTargetID = targetID
             Task { @MainActor in await refreshLastPlaylistQuickTarget() }
         }
         .onReceive(playbackProjection.waveformPublisher) { heights in
+            guard isVisible, waveformHeights != heights else { return }
             waveformHeights = heights
         }
         .onReceive(playbackProjection.progressPublisher) { progress in
-            guard !isDraggingSlider else { return }
+            guard isVisible, !isDraggingSlider, abs(playbackProgress - progress) > 0.0005 else { return }
             playbackProgress = progress
         }
         .onReceive(playbackProjection.bufferedProgressPublisher) { progress in
+            guard isVisible, abs(bufferedProgress - progress) > 0.0005 else { return }
             bufferedProgress = progress
         }
         .onReceive(playbackProjection.currentTimePublisher) { time in
+            guard isVisible, abs(playbackCurrentTime - time) > 0.05 else { return }
             playbackCurrentTime = time
         }
         .onReceive(playbackProjection.durationPublisher) { duration in
+            guard isVisible, abs(playbackDuration - duration) > 0.001 else { return }
             playbackDuration = duration
         }
     }
@@ -607,6 +629,15 @@ public struct ControlsCard: View {
         }
     }
     
+    @MainActor
+    private func syncPlaybackSnapshot() {
+        waveformHeights = playbackProjection.waveformHeights
+        playbackProgress = playbackProjection.progress
+        bufferedProgress = playbackProjection.bufferedProgress
+        playbackCurrentTime = playbackProjection.currentTime
+        playbackDuration = playbackProjection.scrubberDuration
+    }
+
     @MainActor
     private func refreshLastPlaylistQuickTarget() async {
         guard let currentTrack = playbackProjection.currentTrack else {
