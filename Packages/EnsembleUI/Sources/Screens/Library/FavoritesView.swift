@@ -280,22 +280,27 @@ public struct FavoritesView: View {
         .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
         #else
         // macOS: AppKit-backed table owns the header and scroll range.
-        NativeTrackListHost(
-            tracks: viewModel.filteredTracks,
-            configuration: .songs(
-                currentTrackId: currentTrackId,
-                availabilityGeneration: availabilityGeneration,
-                activeDownloadRatingKeys: activeDownloadRatingKeys,
-                bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
-                supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-                interactionModel: interactionModel
-            ),
-            tableHeaderContent: AnyView(favoritesHeaderSurface),
-            tableFooterContent: favoritesFooterContent
-        ) { _, index in
-            nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+        VStack(spacing: EnsembleDesign.Spacing.none) {
+            NativeTrackListHost(
+                tracks: viewModel.filteredTracks,
+                configuration: .songs(
+                    currentTrackId: currentTrackId,
+                    availabilityGeneration: availabilityGeneration,
+                    activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+                    supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+                    interactionModel: interactionModel
+                ),
+                tableHeaderContent: AnyView(favoritesHeaderSurface),
+                tableFooterContent: favoritesFooterContent
+            ) { _, index in
+                nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+            }
+            .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
+
+            Spacer(minLength: EnsembleDesign.Spacing.none)
         }
-        .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         #endif
     }
 

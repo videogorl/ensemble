@@ -722,8 +722,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             tracksSection
                 .ignoresSafeArea(.container, edges: [.top, .bottom])
             #else
-            tracksSection
-                .ignoresSafeArea(.container, edges: .top)
+            VStack(spacing: EnsembleDesign.Spacing.none) {
+                tracksSection
+                    .ignoresSafeArea(.container, edges: .top)
+                Spacer(minLength: EnsembleDesign.Spacing.none)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             #endif
         }
         .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
