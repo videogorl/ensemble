@@ -19,13 +19,13 @@ public enum VisualizationConsumer: String, CaseIterable, Sendable {
 
 /// Protocol for pre-computed frequency analysis decoupled from the audio pipeline.
 /// Timelines are analyzed from audio files on disk, then played back in sync with
-/// AVPlayer's current time via a 30Hz display timer.
+/// AVPlayer's current time via an adaptive display timer.
 @MainActor
 public protocol AudioAnalyzerProtocol: AnyObject {
     /// Current frequency bands (24 bands from 60Hz to 16kHz)
     var frequencyBands: [Double] { get }
 
-    /// Publisher for frequency band updates (~30 Hz)
+    /// Publisher for frequency band updates.
     var frequencyBandsPublisher: AnyPublisher<[Double], Never> { get }
 
     /// Pre-compute frequency data for a track (call during prefetch or item creation).
@@ -197,7 +197,7 @@ public enum FrequencyAnalysisError: Error {
 // MARK: - Frequency Analysis Service
 
 /// Pre-computed frequency analyzer. Reads audio files on a background thread, runs FFT
-/// to produce time-indexed frequency snapshots, and drives a 30Hz display timer synced
+/// to produce time-indexed frequency snapshots, and drives an adaptive display timer synced
 /// to AVPlayer's current playback position. Completely decoupled from the audio pipeline.
 @MainActor
 public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
@@ -211,12 +211,18 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     private let highTargetFPS: Double = 30.0
     private let lowTargetFPS: Double = 15.0
 
-    // MARK: - Published State
+    // MARK: - Display State
 
-    @Published public private(set) var frequencyBands: [Double] = []
+    private let frequencyBandsSubject = CurrentValueSubject<[Double], Never>(
+        Array(repeating: 0.0, count: 24)
+    )
+
+    public var frequencyBands: [Double] {
+        frequencyBandsSubject.value
+    }
 
     public var frequencyBandsPublisher: AnyPublisher<[Double], Never> {
-        $frequencyBands.eraseToAnyPublisher()
+        frequencyBandsSubject.eraseToAnyPublisher()
     }
 
     // MARK: - Internal State
@@ -262,8 +268,6 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     // MARK: - Init
 
     public init() {
-        frequencyBands = Array(repeating: 0.0, count: bandCount)
-
         logger.debug("FrequencyAnalysisService initialized (pre-computed, no audio tap)")
     }
 
@@ -384,7 +388,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         positionUpdateWallTime = CACurrentMediaTime()
 
         // Clear bands immediately so stale data from the previous track doesn't persist
-        frequencyBands = Array(repeating: 0.0, count: bandCount)
+        publishFrequencyBands(Array(repeating: 0.0, count: bandCount), force: true)
 
         updateDisplayTimerState(trigger: "activateTimeline")
 
@@ -404,7 +408,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         if activeTrackId == trackId {
             activeTrackId = nil
             updateDisplayTimerState(trigger: "evictTimeline")
-            frequencyBands = Array(repeating: 0.0, count: bandCount)
+            publishFrequencyBands(Array(repeating: 0.0, count: bandCount), force: true)
         }
     }
 
@@ -424,7 +428,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         timelines.removeAll()
         for task in analysisTasks.values { task.cancel() }
         analysisTasks.removeAll()
-        frequencyBands = Array(repeating: 0.0, count: bandCount)
+        publishFrequencyBands(Array(repeating: 0.0, count: bandCount), force: true)
 
         logger.debug("Frequency analysis stopped")
     }
@@ -480,7 +484,16 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     private var desiredDisplayFPS: Double? {
         guard !visibleVisualizationConsumers.isEmpty else { return nil }
-        return highTargetFPS
+
+        // Now Playing/root visual surfaces are presentational ambience; publishing
+        // bands at 15fps halves main-runloop churn while the render surfaces still
+        // interpolate visually. StageFlow/external displays keep the higher cadence.
+        if visibleVisualizationConsumers.contains(.stageFlow)
+            || visibleVisualizationConsumers.contains(.externalDisplay) {
+            return highTargetFPS
+        }
+
+        return lowTargetFPS
     }
 
     private func updateDisplayTimerState(trigger: String) {
@@ -543,7 +556,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         logger.debug("Display timer stopped reason=\(reason)")
     }
 
-    /// Called ~30 times per second by the display timer
+    /// Called by the display timer to publish the latest interpolated bands.
     private func tickDisplay() {
         guard !isPaused, !isBackgrounded,
               let trackId = activeTrackId,
@@ -556,12 +569,26 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         let wallElapsed = CACurrentMediaTime() - positionUpdateWallTime
         let interpolatedTime = currentPlaybackTime + wallElapsed
 
-        let newBands = timeline.bands(at: interpolatedTime)
+        publishFrequencyBands(timeline.bands(at: interpolatedTime), force: false)
+    }
 
-        // Skip publish if bands haven't changed — avoids firing @Published -> objectWillChange
-        // chain 30x/sec when the visualizer is showing silence or a held frame
-        guard newBands != frequencyBands else { return }
-        frequencyBands = newBands
+    private func publishFrequencyBands(_ bands: [Double], force: Bool) {
+        let currentBands = frequencyBandsSubject.value
+        guard force || Self.shouldPublishBands(bands, comparedTo: currentBands) else { return }
+        frequencyBandsSubject.send(bands)
+    }
+
+    private nonisolated static func shouldPublishBands(_ newBands: [Double], comparedTo currentBands: [Double]) -> Bool {
+        guard newBands.count == currentBands.count else { return true }
+        let minimumVisibleDelta = 0.003
+
+        for (newValue, currentValue) in zip(newBands, currentBands) {
+            if abs(newValue - currentValue) >= minimumVisibleDelta {
+                return true
+            }
+        }
+
+        return false
     }
 
     internal var visibleVisualizationConsumersForTesting: Set<VisualizationConsumer> {
