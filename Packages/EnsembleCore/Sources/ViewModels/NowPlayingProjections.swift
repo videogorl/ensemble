@@ -134,6 +134,8 @@ public final class NowPlayingQueueProjection: ObservableObject {
     @Published public private(set) var playbackHistory: [QueueItem] = []
     @Published public private(set) var queueSections: QueueSections = .empty
     @Published public private(set) var showHistory = false
+    @Published public private(set) var isAutoplayEnabled = false
+    @Published public private(set) var recommendationsExhausted = false
 
     public var currentQueueItem: QueueItem? {
         guard currentQueueIndex >= 0, currentQueueIndex < queue.count else { return nil }
@@ -162,6 +164,16 @@ public final class NowPlayingQueueProjection: ObservableObject {
     func updateShowHistory(_ isShowing: Bool) {
         guard showHistory != isShowing else { return }
         showHistory = isShowing
+    }
+
+    func updateAutoplayEnabled(_ isEnabled: Bool) {
+        guard isAutoplayEnabled != isEnabled else { return }
+        isAutoplayEnabled = isEnabled
+    }
+
+    func updateRecommendationsExhausted(_ isExhausted: Bool) {
+        guard recommendationsExhausted != isExhausted else { return }
+        recommendationsExhausted = isExhausted
     }
 }
 

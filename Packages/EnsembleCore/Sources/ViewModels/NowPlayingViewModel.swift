@@ -407,6 +407,20 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        $isAutoplayEnabled
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isEnabled in
+                self?.queueProjection.updateAutoplayEnabled(isEnabled)
+            }
+            .store(in: &cancellables)
+
+        $recommendationsExhausted
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isExhausted in
+                self?.queueProjection.updateRecommendationsExhausted(isExhausted)
+            }
+            .store(in: &cancellables)
+
         $artworkImage
             .receive(on: DispatchQueue.main)
             .sink { [weak self] image in
