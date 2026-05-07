@@ -2,8 +2,6 @@ import EnsembleCore
 import EnsembleUI
 import Foundation
 import Intents
-import os
-import OSLog
 import SwiftUI
 #if os(macOS)
 import AppKit
@@ -11,59 +9,6 @@ import AppKit
 #if os(iOS)
 import BackgroundTasks
 #endif
-
-/// App-target logger. Writes to the unified log and the optional persistent
-/// session sink used for TestFlight diagnostics.
-enum AppLogger {
-    private static let logger = Logger(subsystem: "com.videogorl.ensemble", category: "app")
-    private static let sensitiveNames = [
-        "X-Plex-Token",
-        "accessToken",
-        "authToken",
-        "rawToken"
-    ]
-
-    /// Closure wired by PersistentLogService to receive log entries for file writing.
-    static var fileLogHandler: ((String, String, String) -> Void)?
-
-    private static let category = "app"
-
-    static func debug(_ message: @autoclosure () -> String) {
-        let msg = redactSensitiveValues(in: message())
-        logger.debug("\(msg, privacy: .public)")
-        fileLogHandler?("DEBUG", category, msg)
-    }
-
-    static func info(_ message: @autoclosure () -> String) {
-        let msg = redactSensitiveValues(in: message())
-        logger.info("\(msg, privacy: .public)")
-        fileLogHandler?("INFO", category, msg)
-    }
-
-    private static func redactSensitiveValues(in message: String) -> String {
-        sensitiveNames.reduce(message) { partial, name in
-            redactValue(named: name, in: partial)
-        }
-    }
-
-    private static func redactValue(named name: String, in message: String) -> String {
-        let escapedName = NSRegularExpression.escapedPattern(for: name)
-        let plainPattern = #"(?i)(\b\#(escapedName)\s*[:=]\s*)[^&\s,\)\]\}>]+"#
-        let encodedPattern = #"(?i)(\b\#(escapedName)%3D)[^%&\s,\)\]\}>]+"#
-
-        return message
-            .replacingOccurrences(
-                of: plainPattern,
-                with: "$1<redacted>",
-                options: .regularExpression
-            )
-            .replacingOccurrences(
-                of: encodedPattern,
-                with: "$1<redacted>",
-                options: .regularExpression
-            )
-    }
-}
 
 @main
 struct EnsembleApp: App {
@@ -407,11 +352,11 @@ struct EnsembleApp: App {
     }
 
     private func handleGenericSiriActivity(_ userActivity: NSUserActivity) {
-        os_log(.info, "SIRI_APP: handleGenericSiriActivity - type=%{public}@", userActivity.activityType)
+        AppLogger.info("SIRI_APP: handleGenericSiriActivity - type=\(userActivity.activityType)")
 
         // First try our custom payload
         if let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo) {
-            os_log(.info, "SIRI_APP: Found custom payload in generic activity")
+            AppLogger.info("SIRI_APP: Found custom payload in generic activity")
             #if os(iOS)
             executeSiriPlaybackInBackground(payload: payload, origin: "genericActivityCustomPayload")
             #endif
@@ -422,7 +367,7 @@ struct EnsembleApp: App {
         // Try to extract from INInteraction
         if let interaction = userActivity.interaction,
            let playMediaIntent = interaction.intent as? INPlayMediaIntent {
-            os_log(.info, "SIRI_APP: Found INPlayMediaIntent in interaction")
+            AppLogger.info("SIRI_APP: Found INPlayMediaIntent in interaction")
             if let payload = extractPayload(from: playMediaIntent) {
                 executeSiriPlaybackInBackground(payload: payload, origin: "genericActivityInteraction")
                 return
@@ -430,7 +375,7 @@ struct EnsembleApp: App {
         }
         #endif
 
-        os_log(.error, "SIRI_APP: Could not extract playable payload from generic activity")
+        AppLogger.error("SIRI_APP: Could not extract playable payload from generic activity")
     }
 
     #if os(iOS)
@@ -482,26 +427,21 @@ struct EnsembleApp: App {
     #endif
 
     private func handleSiriPlaybackActivity(_ userActivity: NSUserActivity) {
-        os_log(.info, "SIRI_APP: EnsembleApp.handleSiriPlaybackActivity ENTRY - type=%{public}@", userActivity.activityType)
-        os_log(.info, "SIRI_APP: userInfo keys: %{public}@", String(describing: userActivity.userInfo?.keys.map { "\($0)" } ?? []))
+        AppLogger.info("SIRI_APP: EnsembleApp.handleSiriPlaybackActivity ENTRY - type=\(userActivity.activityType)")
+        AppLogger.info("SIRI_APP: userInfo keys: \(String(describing: userActivity.userInfo?.keys.map { "\($0)" } ?? []))")
 
         guard let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo) else {
-            os_log(.error, "SIRI_APP: EnsembleApp could not decode Siri payload from userActivity")
+            AppLogger.error("SIRI_APP: EnsembleApp could not decode Siri payload from userActivity")
             // Try to log the raw userInfo for debugging
             if let userInfo = userActivity.userInfo {
                 for (key, value) in userInfo {
-                    os_log(.info, "SIRI_APP: userInfo[%{public}@] = %{public}@", "\(key)", "\(type(of: value))")
+                    AppLogger.info("SIRI_APP: userInfo[\(key)] = \(type(of: value))")
                 }
             }
             return
         }
 
-        os_log(
-            .info,
-            "SIRI_APP: EnsembleApp forwarding payload kind=%{public}@ entity=%{public}@",
-            payload.kind.rawValue,
-            payload.entityID
-        )
+        AppLogger.info("SIRI_APP: EnsembleApp forwarding payload kind=\(payload.kind.rawValue) entity=\(payload.entityID)")
         #if os(iOS)
         executeSiriPlaybackInBackground(payload: payload, origin: "swiftUIContinue")
         #else
@@ -512,14 +452,14 @@ struct EnsembleApp: App {
     }
 
     private func handleSiriAffinityActivity(_ userActivity: NSUserActivity) {
-        os_log(.info, "SIRI_APP: handleSiriAffinityActivity ENTRY - type=%{public}@", userActivity.activityType)
+        AppLogger.info("SIRI_APP: handleSiriAffinityActivity ENTRY - type=\(userActivity.activityType)")
         Task { @MainActor in
             await DependencyContainer.shared.siriAffinityCoordinator.handle(userActivity: userActivity)
         }
     }
 
     private func handleSiriAddToPlaylistActivity(_ userActivity: NSUserActivity) {
-        os_log(.info, "SIRI_APP: handleSiriAddToPlaylistActivity ENTRY - type=%{public}@", userActivity.activityType)
+        AppLogger.info("SIRI_APP: handleSiriAddToPlaylistActivity ENTRY - type=\(userActivity.activityType)")
         Task { @MainActor in
             await DependencyContainer.shared.siriAddToPlaylistCoordinator.handle(userActivity: userActivity)
         }

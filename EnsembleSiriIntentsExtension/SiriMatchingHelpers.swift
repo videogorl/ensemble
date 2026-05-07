@@ -1,7 +1,7 @@
 import EnsembleSiriShared
 import Foundation
 import Intents
-import os
+import OSLog
 
 // MARK: - Shared models for Siri intent handlers
 

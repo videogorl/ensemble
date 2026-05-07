@@ -1,5 +1,4 @@
 #if os(iOS)
-import os
 import UIKit
 import EnsembleCore
 
@@ -22,16 +21,16 @@ extension AppDelegate {
         configurationForConnecting connectingSceneSession: UISceneSession,
         options: UIScene.ConnectionOptions
     ) -> UISceneConfiguration {
-        os_log(.info, "SIRI_APP: configurationForConnecting - activities=%{public}d, intents=%{public}d",
-               options.userActivities.count,
-               options.shortcutItem != nil ? 1 : 0)
+        AppLogger.info(
+            "SIRI_APP: configurationForConnecting - activities=\(options.userActivities.count), intents=\(options.shortcutItem != nil ? 1 : 0)"
+        )
 
         // Route external display (AirPlay screen mirroring) to dedicated scene delegate.
         // Raw string comparison for iOS 15 compatibility — the typed Swift constant
         // was only added in iOS 16, but the role string works on iOS 13+.
         // This does NOT affect iPadOS Stage Manager, which uses the windowApplication role.
         if connectingSceneSession.role.rawValue == "UIWindowSceneSessionRoleExternalDisplayNonInteractive" {
-            os_log(.info, "ExternalDisplay: routing external display scene to ExternalDisplaySceneDelegate")
+            AppLogger.info("ExternalDisplay: routing external display scene to ExternalDisplaySceneDelegate")
             let config = UISceneConfiguration(
                 name: "External Display",
                 sessionRole: connectingSceneSession.role
@@ -42,9 +41,9 @@ extension AppDelegate {
 
         // Check if there's a Siri userActivity in the connection options
         for activity in options.userActivities {
-            os_log(.info, "SIRI_APP: scene connection has activity type=%{public}@", activity.activityType)
+            AppLogger.info("SIRI_APP: scene connection has activity type=\(activity.activityType)")
             if activity.activityType == "com.videogorl.ensemble.siri.playmedia" {
-                os_log(.info, "SIRI_APP: Detected Siri playmedia activity in scene connection!")
+                AppLogger.info("SIRI_APP: Detected Siri playmedia activity in scene connection")
             }
         }
 

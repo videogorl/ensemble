@@ -1,6 +1,6 @@
 import Foundation
 import Intents
-import os
+import OSLog
 
 public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
     private static let pendingFilename = "siri-pending-addtoplaylist.json"
@@ -14,7 +14,7 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
 
     public override init() {
         super.init()
-        os_log(.info, "SIRI_EXT: AddMediaIntentHandler.init()")
+        SiriExtensionLogger.info("SIRI_EXT: AddMediaIntentHandler.init()")
     }
 
     // MARK: - INAddMediaIntentHandling

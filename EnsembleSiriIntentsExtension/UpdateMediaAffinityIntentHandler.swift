@@ -1,6 +1,6 @@
 import Foundation
 import Intents
-import os
+import OSLog
 
 public final class UpdateMediaAffinityIntentHandler: NSObject, INUpdateMediaAffinityIntentHandling {
     private static let pendingFilename = "siri-pending-affinity.json"
@@ -13,7 +13,7 @@ public final class UpdateMediaAffinityIntentHandler: NSObject, INUpdateMediaAffi
 
     public override init() {
         super.init()
-        os_log(.info, "SIRI_EXT: UpdateMediaAffinityIntentHandler.init()")
+        SiriExtensionLogger.info("SIRI_EXT: UpdateMediaAffinityIntentHandler.init()")
     }
 
     // MARK: - INUpdateMediaAffinityIntentHandling

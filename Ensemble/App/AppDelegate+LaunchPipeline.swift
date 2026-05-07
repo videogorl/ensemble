@@ -1,6 +1,5 @@
 #if os(iOS)
 import Intents
-import os
 import UIKit
 import EnsembleCore
 

@@ -1,7 +1,6 @@
 #if os(iOS)
 import AVFoundation
 import Intents
-import os
 import UIKit
 import EnsembleCore
 import EnsembleSiriShared
@@ -23,7 +22,7 @@ extension AppDelegate {
             nil,
             .deliverImmediately
         )
-        os_log(.info, "SIRI_APP: Registered for Darwin notification: %{public}@", Self.darwinNotificationName)
+        AppLogger.info("SIRI_APP: Registered for Darwin notification: \(Self.darwinNotificationName)")
     }
 
     func registerForSiriAffinityNotification() {
@@ -42,11 +41,11 @@ extension AppDelegate {
             nil,
             .deliverImmediately
         )
-        os_log(.info, "SIRI_APP: Registered for Darwin notification: %{public}@", Self.darwinAffinityNotificationName)
+        AppLogger.info("SIRI_APP: Registered for Darwin notification: \(Self.darwinAffinityNotificationName)")
     }
 
     private func handleSiriPendingAffinityNotification() {
-        os_log(.info, "SIRI_APP: Received trigger for pending affinity")
+        AppLogger.info("SIRI_APP: Received trigger for pending affinity")
 
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
@@ -55,7 +54,7 @@ extension AppDelegate {
         let fileURL = containerURL.appendingPathComponent(Self.pendingAffinityFilename)
 
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            os_log(.debug, "SIRI_APP: No pending affinity file found")
+            AppLogger.debug("SIRI_APP: No pending affinity file found")
             return
         }
 
@@ -65,7 +64,7 @@ extension AppDelegate {
 
             guard let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let affinityTypeStr = dict["affinityType"] as? String else {
-                os_log(.error, "SIRI_APP: Failed to decode affinity payload")
+                AppLogger.error("SIRI_APP: Failed to decode affinity payload")
                 return
             }
 
@@ -78,13 +77,13 @@ extension AppDelegate {
             }
 
             let payload = SiriAffinityRequestPayload(affinityType: affinityType)
-            os_log(.info, "SIRI_APP: Executing affinity request: %{public}@", affinityTypeStr)
+            AppLogger.info("SIRI_APP: Executing affinity request: \(affinityTypeStr)")
 
             Task { @MainActor in
                 try? await DependencyContainer.shared.siriAffinityCoordinator.execute(payload: payload)
             }
         } catch {
-            os_log(.error, "SIRI_APP: Failed to read/process affinity file: %{public}@", error.localizedDescription)
+            AppLogger.error("SIRI_APP: Failed to read/process affinity file: \(error.localizedDescription)")
         }
     }
 
@@ -104,11 +103,11 @@ extension AppDelegate {
             nil,
             .deliverImmediately
         )
-        os_log(.info, "SIRI_APP: Registered for Darwin notification: %{public}@", Self.darwinAddToPlaylistNotificationName)
+        AppLogger.info("SIRI_APP: Registered for Darwin notification: \(Self.darwinAddToPlaylistNotificationName)")
     }
 
     private func handleSiriPendingAddToPlaylistNotification() {
-        os_log(.info, "SIRI_APP: Received trigger for pending add-to-playlist")
+        AppLogger.info("SIRI_APP: Received trigger for pending add-to-playlist")
 
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
@@ -117,7 +116,7 @@ extension AppDelegate {
         let fileURL = containerURL.appendingPathComponent(Self.pendingAddToPlaylistFilename)
 
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            os_log(.debug, "SIRI_APP: No pending add-to-playlist file found")
+            AppLogger.debug("SIRI_APP: No pending add-to-playlist file found")
             return
         }
 
@@ -127,28 +126,28 @@ extension AppDelegate {
 
             let decoder = JSONDecoder()
             let payload = try decoder.decode(SiriAddToPlaylistRequestPayload.self, from: data)
-            os_log(.info, "SIRI_APP: Executing add-to-playlist: playlist=%{public}@", payload.playlistDisplayName ?? "unknown")
+            AppLogger.info("SIRI_APP: Executing add-to-playlist: playlist=\(payload.playlistDisplayName ?? "unknown")")
 
             Task { @MainActor in
                 try? await DependencyContainer.shared.siriAddToPlaylistCoordinator.execute(payload: payload)
             }
         } catch {
-            os_log(.error, "SIRI_APP: Failed to read/process add-to-playlist file: %{public}@", error.localizedDescription)
+            AppLogger.error("SIRI_APP: Failed to read/process add-to-playlist file: \(error.localizedDescription)")
         }
     }
 
     private func handleSiriPendingPlaybackNotification() {
-        os_log(.info, "SIRI_APP: Received trigger for pending playback")
+        AppLogger.info("SIRI_APP: Received trigger for pending playback")
 
         // Read and execute the pending payload
         guard let payload = readAndClearPendingPayload() else {
             // This is expected if multiple triggers (Darwin + Background URL Session) arrive
             // and the first one already cleared the payload.
-            os_log(.debug, "SIRI_APP: No pending payload found (already processed or not present)")
+            AppLogger.debug("SIRI_APP: No pending payload found (already processed or not present)")
             return
         }
 
-        os_log(.info, "SIRI_APP: Executing pending payload kind=%{public}@ entity=%{public}@", payload.kind.rawValue, payload.entityID)
+        AppLogger.info("SIRI_APP: Executing pending payload kind=\(payload.kind.rawValue) entity=\(payload.entityID)")
         executeSiriPlaybackInBackground(payload: payload, origin: "pendingPlaybackTrigger")
     }
 
@@ -194,7 +193,7 @@ extension AppDelegate {
                 shuffle: extensionPayload.shuffle
             )
         } catch {
-            os_log(.error, "SIRI_APP: Failed to read pending payload: %{public}@", error.localizedDescription)
+            AppLogger.error("SIRI_APP: Failed to read pending payload: \(error.localizedDescription)")
             return nil
         }
     }
@@ -203,7 +202,7 @@ extension AppDelegate {
         _ application: UIApplication,
         handlerFor intent: INIntent
     ) -> Any? {
-        os_log(.info, "SIRI_APP: application(handlerFor:) called with intent type: %{public}@", String(describing: type(of: intent)))
+        AppLogger.info("SIRI_APP: application(handlerFor:) called with intent type: \(String(describing: type(of: intent)))")
 
         // Mark that a Siri intent is pending so playback restoration is suppressed.
         // This is set synchronously before any async work, preventing the restoration
@@ -216,21 +215,21 @@ extension AppDelegate {
         // from HomePod, then iOS forwards the intent here for execution.
         // We must return a handler so the forwarded intent succeeds.
         if intent is INPlayMediaIntent {
-            os_log(.info, "SIRI_APP: Returning InAppPlayMediaIntentHandler for forwarded INPlayMediaIntent")
+            AppLogger.info("SIRI_APP: Returning InAppPlayMediaIntentHandler for forwarded INPlayMediaIntent")
             return InAppPlayMediaIntentHandler()
         }
 
         if intent is INAddMediaIntent {
-            os_log(.info, "SIRI_APP: Returning handler for INAddMediaIntent")
+            AppLogger.info("SIRI_APP: Returning handler for INAddMediaIntent")
             // INAddMediaIntent is handled via NSUserActivity delivery, not in-app handler
         }
 
         if intent is INUpdateMediaAffinityIntent {
-            os_log(.info, "SIRI_APP: Returning handler for INUpdateMediaAffinityIntent")
+            AppLogger.info("SIRI_APP: Returning handler for INUpdateMediaAffinityIntent")
             // INUpdateMediaAffinityIntent is handled via NSUserActivity delivery
         }
 
-        os_log(.info, "SIRI_APP: No handler for intent type, returning nil")
+        AppLogger.info("SIRI_APP: No handler for intent type, returning nil")
         return nil
     }
 
@@ -239,7 +238,7 @@ extension AppDelegate {
         continue userActivity: NSUserActivity,
         restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
     ) -> Bool {
-        os_log(.info, "SIRI_APP: AppDelegate.continue(userActivity:) ENTRY - type=%{public}@", userActivity.activityType)
+        AppLogger.info("SIRI_APP: AppDelegate.continue(userActivity:) ENTRY - type=\(userActivity.activityType)")
 
         // Log all details about the incoming activity
         let forwardedIntent: String
@@ -248,33 +247,33 @@ extension AppDelegate {
         } else {
             forwardedIntent = "nil"
         }
-        os_log(.info, "SIRI_APP: activity type=%{public}@, intent=%{public}@", userActivity.activityType, forwardedIntent)
-        os_log(.info, "SIRI_APP: interaction=%{public}@, userInfo keys=%{public}@",
-               userActivity.interaction != nil ? "present" : "nil",
-               String(describing: userActivity.userInfo?.keys.map { "\($0)" } ?? []))
+        AppLogger.info("SIRI_APP: activity type=\(userActivity.activityType), intent=\(forwardedIntent)")
+        AppLogger.info(
+            "SIRI_APP: interaction=\(userActivity.interaction != nil ? "present" : "nil"), userInfo keys=\(String(describing: userActivity.userInfo?.keys.map { "\($0)" } ?? []))"
+        )
 
         // Log if this is a Siri-initiated activity
         if let interaction = userActivity.interaction {
-            os_log(.info, "SIRI_APP: interaction.intentHandlingStatus=%{public}ld", interaction.intentHandlingStatus.rawValue)
+            AppLogger.info("SIRI_APP: interaction.intentHandlingStatus=\(interaction.intentHandlingStatus.rawValue)")
             if let playMediaIntent = interaction.intent as? INPlayMediaIntent {
-                os_log(.info, "SIRI_APP: INPlayMediaIntent found in interaction")
-                os_log(.info, "SIRI_APP: mediaItems count=%{public}d, container=%{public}@",
-                       playMediaIntent.mediaItems?.count ?? 0,
-                       playMediaIntent.mediaContainer?.title ?? "nil")
+                AppLogger.info("SIRI_APP: INPlayMediaIntent found in interaction")
+                AppLogger.info(
+                    "SIRI_APP: mediaItems count=\(playMediaIntent.mediaItems?.count ?? 0), container=\(playMediaIntent.mediaContainer?.title ?? "nil")"
+                )
                 if let firstItem = playMediaIntent.mediaItems?.first {
-                    os_log(.info, "SIRI_APP: firstItem title=%{public}@, identifier=%{public}@",
-                           firstItem.title ?? "nil",
-                           firstItem.identifier ?? "nil")
+                    AppLogger.info(
+                        "SIRI_APP: firstItem title=\(firstItem.title ?? "nil"), identifier=\(firstItem.identifier ?? "nil")"
+                    )
                 }
             }
         }
 
         guard let payload = siriPlaybackPayload(from: userActivity) else {
-            os_log(.error, "SIRI_APP: Payload decode FAILED - returning false")
+            AppLogger.error("SIRI_APP: Payload decode FAILED - returning false")
             return false
         }
 
-        os_log(.info, "SIRI_APP: Payload decoded - kind=%{public}@, entityID=%{public}@", payload.kind.rawValue, payload.entityID)
+        AppLogger.info("SIRI_APP: Payload decoded - kind=\(payload.kind.rawValue), entityID=\(payload.entityID)")
 
         executeSiriPlaybackInBackground(payload: payload, origin: "continueUserActivity")
 
@@ -468,12 +467,8 @@ func executeSiriPlaybackInBackground(
     intentCompletion: ((INPlayMediaIntentResponse) -> Void)? = nil
 ) {
     guard let executionSignature = SiriPlaybackExecutionGate.beginExecution(payload: payload) else {
-        os_log(
-            .info,
-            "SIRI_APP: [origin=%{public}@] Skipping duplicate Siri payload kind=%{public}@ entity=%{public}@",
-            origin,
-            payload.kind.rawValue,
-            payload.entityID
+        AppLogger.info(
+            "SIRI_APP: [origin=\(origin)] Skipping duplicate Siri payload kind=\(payload.kind.rawValue) entity=\(payload.entityID)"
         )
         intentCompletion?(INPlayMediaIntentResponse(code: .success, userActivity: nil))
         return
@@ -502,21 +497,21 @@ func executeSiriPlaybackInBackground(
         let appDelegate = UIApplication.shared.delegate as? AppDelegate
         let shc = DependencyContainer.shared.serverHealthChecker
         if let earlyTask = appDelegate?.earlyHealthCheckTask {
-            os_log(.default, "SIRI_APP: [origin=%{public}@] Awaiting early health checks from didFinishLaunching...", origin)
+            AppLogger.info("SIRI_APP: [origin=\(origin)] Awaiting early health checks from didFinishLaunching...")
             await earlyTask.value
         } else {
-            os_log(.default, "SIRI_APP: [origin=%{public}@] No earlyHealthCheckTask found — running standalone health checks", origin)
+            AppLogger.info("SIRI_APP: [origin=\(origin)] No earlyHealthCheckTask found — running standalone health checks")
         }
 
         // Log server states at this point for diagnostics
         let statesSummary = shc.serverStates.map { "\($0.key.suffix(8)):\($0.value.isAvailable ? "up" : "down")" }.joined(separator: ",")
-        os_log(.default, "SIRI_APP: [origin=%{public}@] Post-health serverStates: [%{public}@]", origin, statesSummary)
+        AppLogger.info("SIRI_APP: [origin=\(origin)] Post-health serverStates: [\(statesSummary)]")
 
         // If early checks didn't find any connected servers (edge case: first
         // launch, network delay, etc.), fall back to running our own checks.
         let hasConnectedServers = shc.serverStates.values.contains { $0.isAvailable }
         if !hasConnectedServers {
-            os_log(.default, "SIRI_APP: [origin=%{public}@] No connected servers — running fallback health checks", origin)
+            AppLogger.info("SIRI_APP: [origin=\(origin)] No connected servers — running fallback health checks")
             let nm = DependencyContainer.shared.networkMonitor
             for _ in 0..<10 {
                 if nm.networkState != .unknown { break }
@@ -524,7 +519,7 @@ func executeSiriPlaybackInBackground(
             }
             await shc.checkAllServers()
             let postFallback = shc.serverStates.map { "\($0.key.suffix(8)):\($0.value.isAvailable ? "up" : "down")" }.joined(separator: ",")
-            os_log(.default, "SIRI_APP: [origin=%{public}@] Post-fallback serverStates: [%{public}@]", origin, postFallback)
+            AppLogger.info("SIRI_APP: [origin=\(origin)] Post-fallback serverStates: [\(postFallback)]")
         }
 
         // Build sync providers (needed for stream URL resolution) and update
@@ -532,43 +527,38 @@ func executeSiriPlaybackInBackground(
         let sc = DependencyContainer.shared.syncCoordinator
         sc.refreshProviders()
         await sc.refreshAPIClientConnections()
-        os_log(.default, "SIRI_APP: [origin=%{public}@] Server connectivity ready", origin)
+        AppLogger.info("SIRI_APP: [origin=\(origin)] Server connectivity ready")
 
         do {
             let playbackService = DependencyContainer.shared.playbackService
             var categoryConfigured = playbackService.ensureAudioSessionConfigured()
             if !categoryConfigured {
                 for attempt in 1...3 {
-                    os_log(.info, "SIRI_APP: [origin=%{public}@] setCategory retry %d/3", origin, attempt)
+                    AppLogger.info("SIRI_APP: [origin=\(origin)] setCategory retry \(attempt)/3")
                     try? await Task.sleep(nanoseconds: 500_000_000)
                     categoryConfigured = playbackService.ensureAudioSessionConfigured()
                     if categoryConfigured { break }
                 }
                 if !categoryConfigured {
-                    os_log(.error, "SIRI_APP: [origin=%{public}@] setCategory failed after retries — proceeding anyway", origin)
+                    AppLogger.error("SIRI_APP: [origin=\(origin)] setCategory failed after retries — proceeding anyway")
                 }
             }
 
             let shouldStartPlayback = await playbackService.preparePlaybackRouteSelection()
-            os_log(
-                .default,
-                "SIRI_APP: [origin=%{public}@] prepareRouteSelection: shouldActivate=%d",
-                origin,
-                shouldStartPlayback ? 1 : 0
-            )
+            AppLogger.info("SIRI_APP: [origin=\(origin)] prepareRouteSelection: shouldActivate=\(shouldStartPlayback ? 1 : 0)")
             if !shouldStartPlayback {
-                os_log(.info, "SIRI_APP: [origin=%{public}@] System declined route activation — activating anyway", origin)
+                AppLogger.info("SIRI_APP: [origin=\(origin)] System declined route activation — activating anyway")
             }
             await playbackService.activatePlaybackAudioSession(shouldStartPlayback: shouldStartPlayback)
 
             let initialRoute = playbackService.currentAudioRouteDescription()
-            os_log(.default, "SIRI_APP: [origin=%{public}@] Audio session activated; initial route: %{public}@", origin, initialRoute)
+            AppLogger.info("SIRI_APP: [origin=\(origin)] Audio session activated; initial route: \(initialRoute)")
 
-            os_log(.default, "SIRI_APP: [origin=%{public}@] Calling coordinator.execute()", origin)
+            AppLogger.info("SIRI_APP: [origin=\(origin)] Calling coordinator.execute()")
             try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
 
             let routeAfter = playbackService.currentAudioRouteDescription()
-            os_log(.default, "SIRI_APP: [origin=%{public}@] Coordinator execute SUCCESS; route: %{public}@", origin, routeAfter)
+            AppLogger.info("SIRI_APP: [origin=\(origin)] Coordinator execute SUCCESS; route: \(routeAfter)")
 
             // Complete the intent response AFTER playback starts. Keeping
             // the intent handler alive until now preserves the system's
@@ -583,19 +573,15 @@ func executeSiriPlaybackInBackground(
                 timeoutNanoseconds: 10_000_000_000
             )
             if switchedAfterExecute {
-                os_log(
-                    .info,
-                    "SIRI_APP: [origin=%{public}@] External route appeared post-execute; nudging playback in 500ms",
-                    origin
-                )
+                AppLogger.info("SIRI_APP: [origin=\(origin)] External route appeared post-execute; nudging playback in 500ms")
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 DependencyContainer.shared.playbackService.nudgeForAirPlayRoute()
             }
         } catch {
             if let siriError = error as? SiriPlaybackCoordinatorError {
-                os_log(.error, "SIRI_APP: [origin=%{public}@] Coordinator error: %{public}@", origin, siriError.localizedDescription)
+                AppLogger.error("SIRI_APP: [origin=\(origin)] Coordinator error: \(siriError.localizedDescription)")
             } else {
-                os_log(.error, "SIRI_APP: [origin=%{public}@] Unexpected error: %{public}@", origin, error.localizedDescription)
+                AppLogger.error("SIRI_APP: [origin=\(origin)] Unexpected error: \(error.localizedDescription)")
             }
             intentCompletion?(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
         }
@@ -630,13 +616,7 @@ private func waitForPotentialExternalRoute(
             let route = outputs
                 .map { "\($0.portType.rawValue):\($0.portName)" }
                 .joined(separator: ",")
-            os_log(
-                .info,
-                "SIRI_APP: [origin=%{public}@][phase=%{public}@] Route switched to external: %{public}@",
-                origin,
-                phase,
-                route
-            )
+            AppLogger.info("SIRI_APP: [origin=\(origin)][phase=\(phase)] Route switched to external: \(route)")
             return true
         }
     }
@@ -644,13 +624,7 @@ private func waitForPotentialExternalRoute(
     let route = session.currentRoute.outputs
         .map { "\($0.portType.rawValue):\($0.portName)" }
         .joined(separator: ",")
-    os_log(
-        .info,
-        "SIRI_APP: [origin=%{public}@][phase=%{public}@] Route remained local after wait: %{public}@",
-        origin,
-        phase,
-        route
-    )
+    AppLogger.info("SIRI_APP: [origin=\(origin)][phase=\(phase)] Route remained local after wait: \(route)")
     return false
 }
 
@@ -715,19 +689,16 @@ enum SiriPlaybackExecutionGate {
 /// Handles INPlayMediaIntent when iOS routes it directly to the app (handleInApp path on iOS 18+)
 final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
-        os_log(.default, "SIRI_APP: InAppPlayMediaIntentHandler.handle() called")
+        AppLogger.info("SIRI_APP: InAppPlayMediaIntentHandler.handle() called")
 
         guard let payload = payload(from: intent) else {
-            os_log(.error, "SIRI_APP: InAppPlayMediaIntentHandler - failed to decode payload/query from intent")
+            AppLogger.error("SIRI_APP: InAppPlayMediaIntentHandler - failed to decode payload/query from intent")
             completion(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
             return
         }
 
-        os_log(
-            .info,
-            "SIRI_APP: InAppPlayMediaIntentHandler - accepted payload kind=%{public}@ entity=%{public}@",
-            payload.kind.rawValue,
-            payload.entityID
+        AppLogger.info(
+            "SIRI_APP: InAppPlayMediaIntentHandler - accepted payload kind=\(payload.kind.rawValue) entity=\(payload.entityID)"
         )
 
         // Return .success immediately so Siri doesn't time out during cold
@@ -772,7 +743,7 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 return nil
             }
 
-            os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - using fallback query: %{public}@", sanitizedQuery)
+            AppLogger.info("SIRI_APP: InAppPlayMediaIntentHandler - using fallback query: \(sanitizedQuery)")
             let kind = mediaKindFrom(intent: intent, fallbackQuery: query)
             return SiriPlaybackRequestPayload(
                 kind: kind,
@@ -785,7 +756,7 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         }
 
         if let rawIdentifier {
-            os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - using raw identifier fallback")
+            AppLogger.info("SIRI_APP: InAppPlayMediaIntentHandler - using raw identifier fallback")
             let kind = mediaKindFrom(intent: intent, fallbackQuery: nil)
             return SiriPlaybackRequestPayload(
                 kind: kind,

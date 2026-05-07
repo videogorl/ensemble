@@ -1,7 +1,7 @@
 import EnsembleSiriShared
 import Foundation
 import Intents
-import os
+import OSLog
 
 public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     private static let activityType = "com.videogorl.ensemble.siri.playmedia"
@@ -18,14 +18,14 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
     public override init() {
         super.init()
-        os_log(.info, "SIRI_EXT: PlayMediaIntentHandler.init() called")
+        SiriExtensionLogger.info("SIRI_EXT: PlayMediaIntentHandler.init() called")
     }
 
     public func resolveMediaItems(
         for intent: INPlayMediaIntent,
         with completion: @escaping ([INPlayMediaMediaItemResolutionResult]) -> Void
     ) {
-        os_log(.info, "SIRI_EXT: resolveMediaItems ENTRY")
+        SiriExtensionLogger.info("SIRI_EXT: resolveMediaItems ENTRY")
         logger.info("resolveMediaItems: ENTRY - received intent")
 
         // Siri may re-enter resolution after the user taps a disambiguation option.
@@ -106,12 +106,14 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     public func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         let requestedMediaType = resolvedMediaType(from: intent, query: queryText(from: intent) ?? "")
         let shuffleRequested = intent.playShuffled ?? false
-        os_log(.info, "SIRI_EXT: handle ENTRY mediaType=%{public}ld shuffle=%{public}d", requestedMediaType.rawValue, shuffleRequested)
+        SiriExtensionLogger.info(
+            "SIRI_EXT: handle ENTRY mediaType=\(requestedMediaType.rawValue) shuffle=\(shuffleRequested)"
+        )
         logger.debug("handle: mediaType=\(requestedMediaType.rawValue, privacy: .public) shuffle=\(shuffleRequested, privacy: .public)")
 
         guard var payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) else {
             logger.error("handle: missing identifier and query; returning failureUnknownMediaType")
-            os_log(.info, "SIRI_EXT: handle returning failureUnknownMediaType")
+            SiriExtensionLogger.info("SIRI_EXT: handle returning failureUnknownMediaType")
             completion(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
             return
         }
@@ -127,7 +129,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
         guard let activity = playbackUserActivity(for: payload) else {
             logger.error("handle: failed to construct playback user activity")
-            os_log(.info, "SIRI_EXT: handle returning failure (no activity)")
+            SiriExtensionLogger.info("SIRI_EXT: handle returning failure (no activity)")
             completion(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
             return
         }
@@ -150,7 +152,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         // Return .handleInApp — this is the signal iOS needs to establish AirPlay
         // routing from the requesting HomePod before delivering the user activity.
         logger.debug("handle: returning handleInApp for payload kind=\(payload.kind, privacy: .public)")
-        os_log(.info, "SIRI_EXT: handle returning handleInApp kind=%{public}@", payload.kind)
+        SiriExtensionLogger.info("SIRI_EXT: handle returning handleInApp kind=\(payload.kind)")
         completion(INPlayMediaIntentResponse(code: .handleInApp, userActivity: activity))
     }
 

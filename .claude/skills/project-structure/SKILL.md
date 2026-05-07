@@ -38,6 +38,7 @@ ensemble/
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/
 |   |   +-- EnsembleApp.swift     # App entry point
+|   |   +-- AppLogger.swift       # App-target structured logger + persistent session redaction bridge
 |   |   +-- AppDelegate.swift     # iOS delegate state shared by app lifecycle extensions
 |   |   +-- AppDelegate+LaunchPipeline.swift # iOS launch bootstrap, remote notifications, startup health/playback/sync sequencing
 |   |   +-- AppDelegate+Siri.swift # Siri intent/user-activity bridge and in-app playback execution
@@ -54,6 +55,7 @@ ensemble/
 |
 +-- EnsembleSiriIntentsExtension/  # SiriKit Media Intents extension target
 |   +-- IntentHandler.swift        # Extension entry point for intent handlers
+|   +-- SiriExtensionLogger.swift  # Siri extension structured logger + privacy redaction helper
 |   +-- PlayMediaIntentHandler.swift # INPlayMediaIntentHandling implementation
 |   +-- AddMediaIntentHandler.swift # INAddMediaIntentHandling add-current-track-to-playlist implementation
 |   +-- UpdateMediaAffinityIntentHandler.swift # INUpdateMediaAffinityIntentHandling like/dislike current track implementation
