@@ -575,6 +575,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     @Published public private(set) var playlist: Playlist
     @Published public private(set) var tracks: [Track] = []
     @Published public private(set) var isLoading = false
+    @Published public private(set) var hasLoadedTracks = false
     @Published public private(set) var error: String?
     @Published public var filterOptions: FilterOptions
 
@@ -590,9 +591,14 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         playlistRepository: PlaylistRepositoryProtocol,
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
-        mutationCoordinator: MutationCoordinator
+        mutationCoordinator: MutationCoordinator,
+        initialTracks: [Track]? = nil
     ) {
         self.playlist = playlist
+        if let initialTracks {
+            self.tracks = initialTracks
+            self.hasLoadedTracks = true
+        }
         self.playlistRepository = playlistRepository
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
@@ -691,6 +697,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             self.error = error.localizedDescription
         }
 
+        hasLoadedTracks = true
         isLoading = false
     }
 

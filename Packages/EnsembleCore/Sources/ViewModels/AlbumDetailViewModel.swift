@@ -9,6 +9,7 @@ public protocol MediaDetailViewModelProtocol: ObservableObject {
     var tracks: [Track] { get }
     var filteredTracks: [Track] { get }
     var isLoading: Bool { get }
+    var hasLoadedTracks: Bool { get }
     var error: String? { get }
     var totalDuration: String { get }
     var filterOptions: FilterOptions { get set }
@@ -23,6 +24,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     @Published public private(set) var album: Album
     @Published public private(set) var tracks: [Track] = []
     @Published public private(set) var isLoading = false
+    @Published public private(set) var hasLoadedTracks = false
     @Published public private(set) var error: String?
     @Published public var filterOptions: FilterOptions
 
@@ -42,9 +44,14 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     public init(
         album: Album,
         libraryRepository: LibraryRepositoryProtocol,
-        syncCoordinator: SyncCoordinator
+        syncCoordinator: SyncCoordinator,
+        initialTracks: [Track]? = nil
     ) {
         self.album = album
+        if let initialTracks {
+            self.tracks = initialTracks
+            self.hasLoadedTracks = true
+        }
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
         self.filterOptions = FilterPersistence.load(for: "AlbumDetail")
@@ -91,6 +98,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
             self.error = error.localizedDescription
         }
 
+        hasLoadedTracks = true
         isLoading = false
     }
     

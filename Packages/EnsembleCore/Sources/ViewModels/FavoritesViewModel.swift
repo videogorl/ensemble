@@ -15,6 +15,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         }
     }
     @Published public private(set) var isLoading: Bool = true
+    @Published public private(set) var hasLoadedTracks: Bool = false
     @Published public private(set) var error: String?
     // Pre-computed filtered+sorted tracks (avoids O(n log n) sort per body evaluation)
     @Published public private(set) var filteredTracks: [Track] = []
@@ -85,6 +86,9 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             tracks = []
         }
 
+        filteredTracks = Self.filterAndSort(tracks, sortOption: favoritesSortOption, filterOptions: filterOptions)
+        totalDuration = Self.computeTotalDuration(filteredTracks)
+        hasLoadedTracks = true
         isLoading = false
     }
 

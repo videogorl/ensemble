@@ -56,11 +56,12 @@ public extension DependencyContainer {
     }
 
     @MainActor
-    func makeAlbumDetailViewModel(album: Album) -> AlbumDetailViewModel {
+    func makeAlbumDetailViewModel(album: Album, initialTracks: [Track]? = nil) -> AlbumDetailViewModel {
         AlbumDetailViewModel(
             album: album,
             libraryRepository: libraryRepository,
-            syncCoordinator: syncCoordinator
+            syncCoordinator: syncCoordinator,
+            initialTracks: initialTracks
         )
     }
 
@@ -75,13 +76,14 @@ public extension DependencyContainer {
     }
 
     @MainActor
-    func makePlaylistDetailViewModel(playlist: Playlist) -> PlaylistDetailViewModel {
+    func makePlaylistDetailViewModel(playlist: Playlist, initialTracks: [Track]? = nil) -> PlaylistDetailViewModel {
         PlaylistDetailViewModel(
             playlist: playlist,
             playlistRepository: playlistRepository,
             libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
-            mutationCoordinator: mutationCoordinator
+            mutationCoordinator: mutationCoordinator,
+            initialTracks: initialTracks
         )
     }
 

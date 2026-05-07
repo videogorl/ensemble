@@ -9,6 +9,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     @Published public private(set) var displayPlaylist: DisplayPlaylist
     @Published public private(set) var tracks: [Track] = []
     @Published public private(set) var isLoading = false
+    @Published public private(set) var hasLoadedTracks = false
     @Published public private(set) var error: String?
     @Published public var filterOptions: FilterOptions
 
@@ -126,6 +127,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
             self.error = error.localizedDescription
         }
 
+        hasLoadedTracks = true
         isLoading = false
     }
 

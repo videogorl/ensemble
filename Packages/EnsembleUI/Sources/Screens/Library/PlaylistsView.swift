@@ -522,8 +522,9 @@ public struct PlaylistsView: View {
                     )
                     .id(displayPlaylist.id)
                 } else {
-                    PlaylistDetailView(
-                        playlist: displayPlaylist.primaryPlaylist,
+                    PlaylistDetailLoader(
+                        playlistId: displayPlaylist.primaryPlaylist.id,
+                        playlistSourceKey: displayPlaylist.primaryPlaylist.sourceCompositeKey,
                         nowPlayingVM: nowPlayingVM
                     )
                     .id(displayPlaylist.id)
@@ -911,8 +912,29 @@ public struct PlaylistDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
 
-    public init(playlist: Playlist, nowPlayingVM: NowPlayingViewModel, startInEditMode: Bool = false) {
-        self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistDetailViewModel(playlist: playlist))
+    public init(
+        playlist: Playlist,
+        nowPlayingVM: NowPlayingViewModel,
+        startInEditMode: Bool = false,
+        initialTracks: [Track]? = nil
+    ) {
+        self._viewModel = StateObject(
+            wrappedValue: DependencyContainer.shared.makePlaylistDetailViewModel(
+                playlist: playlist,
+                initialTracks: initialTracks
+            )
+        )
+        self.nowPlayingVM = nowPlayingVM
+        self._isEditingPlaylist = State(initialValue: startInEditMode)
+        self.startedInEditMode = startInEditMode
+    }
+
+    public init(
+        viewModel: PlaylistDetailViewModel,
+        nowPlayingVM: NowPlayingViewModel,
+        startInEditMode: Bool = false
+    ) {
+        self._viewModel = StateObject(wrappedValue: viewModel)
         self.nowPlayingVM = nowPlayingVM
         self._isEditingPlaylist = State(initialValue: startInEditMode)
         self.startedInEditMode = startInEditMode

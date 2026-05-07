@@ -260,7 +260,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             )
         }
         .task {
-            await viewModel.loadTracks()
+            if !viewModel.hasLoadedTracks {
+                await viewModel.loadTracks()
+            }
             if let path = headerData.artworkPath {
                 await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
             }

@@ -282,8 +282,9 @@ public struct MergedPlaylistDetailLoader: View {
                     MergedPlaylistDetailView(displayPlaylist: dp, nowPlayingVM: nowPlayingVM)
                 } else {
                     // Merge was toggled off — fall back to the primary playlist's detail view
-                    PlaylistDetailView(
-                        playlist: dp.primaryPlaylist,
+                    PlaylistDetailLoader(
+                        playlistId: dp.primaryPlaylist.id,
+                        playlistSourceKey: dp.primaryPlaylist.sourceCompositeKey,
                         nowPlayingVM: nowPlayingVM
                     )
                 }

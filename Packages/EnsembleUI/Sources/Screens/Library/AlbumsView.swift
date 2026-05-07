@@ -380,9 +380,20 @@ public struct AlbumDetailView: View {
 
     private let album: Album
 
-    public init(album: Album, nowPlayingVM: NowPlayingViewModel) {
+    public init(album: Album, nowPlayingVM: NowPlayingViewModel, initialTracks: [Track]? = nil) {
         self.album = album
-        self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeAlbumDetailViewModel(album: album))
+        self._viewModel = StateObject(
+            wrappedValue: DependencyContainer.shared.makeAlbumDetailViewModel(
+                album: album,
+                initialTracks: initialTracks
+            )
+        )
+        self.nowPlayingVM = nowPlayingVM
+    }
+
+    public init(viewModel: AlbumDetailViewModel, nowPlayingVM: NowPlayingViewModel) {
+        self.album = viewModel.album
+        self._viewModel = StateObject(wrappedValue: viewModel)
         self.nowPlayingVM = nowPlayingVM
     }
 

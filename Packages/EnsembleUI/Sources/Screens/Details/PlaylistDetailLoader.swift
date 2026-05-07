@@ -6,6 +6,7 @@ struct PlaylistDetailLoader: View {
     let playlistSourceKey: String?
     let nowPlayingVM: NowPlayingViewModel
     @State private var playlist: Playlist?
+    @State private var initialTracks: [Track]?
     @State private var isLoading = true
     @State private var error: Error?
     @State private var hasStartedLoading = false
@@ -22,7 +23,11 @@ struct PlaylistDetailLoader: View {
     var body: some View {
         Group {
             if let playlist = playlist {
-                PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
+                PlaylistDetailView(
+                    playlist: playlist,
+                    nowPlayingVM: nowPlayingVM,
+                    initialTracks: initialTracks
+                )
             } else if isLoading {
                 MediaDetailSurface<EmptyView>.LoadingState(title: "Loading playlist…")
             } else if let error = error {
@@ -50,18 +55,24 @@ struct PlaylistDetailLoader: View {
     @MainActor
     private func loadPlaylist() async {
         do {
-            let loadedPlaylist = try await deps.playlistRepository.fetchPlaylist(
+            guard let cdPlaylist = try await deps.playlistRepository.fetchPlaylist(
                 ratingKey: playlistId,
                 sourceCompositeKey: playlistSourceKey
-            ).map { Playlist(from: $0) }
-            finishLoading(playlist: loadedPlaylist, error: nil)
+            ) else {
+                finishLoading(playlist: nil, initialTracks: nil, error: nil)
+                return
+            }
+
+            let loadedPlaylist = Playlist(from: cdPlaylist)
+            let loadedTracks = cdPlaylist.tracksArray.map { Track(from: $0) }
+            finishLoading(playlist: loadedPlaylist, initialTracks: loadedTracks, error: nil)
         } catch {
-            finishLoading(playlist: nil, error: error)
+            finishLoading(playlist: nil, initialTracks: nil, error: error)
         }
     }
 
     @MainActor
-    private func finishLoading(playlist: Playlist?, error: Error?) {
+    private func finishLoading(playlist: Playlist?, initialTracks: [Track]?, error: Error?) {
         guard !Task.isCancelled else { return }
 
         var transaction = Transaction()
@@ -69,6 +80,7 @@ struct PlaylistDetailLoader: View {
         transaction.disablesAnimations = true
 
         withTransaction(transaction) {
+            self.initialTracks = initialTracks
             self.playlist = playlist
             self.error = error
             self.isLoading = false
