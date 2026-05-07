@@ -1,5 +1,22 @@
 import SwiftUI
 
+private struct NativeTrackListHeaderWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    var nativeTrackListHeaderWidth: CGFloat {
+        get { self[NativeTrackListHeaderWidthKey.self] }
+        set { self[NativeTrackListHeaderWidthKey.self] = newValue }
+    }
+}
+
+extension View {
+    func nativeTrackListHeaderWidth(_ width: CGFloat) -> some View {
+        environment(\.nativeTrackListHeaderWidth, width)
+    }
+}
+
 /// Shared presentation shell for media-style detail screens.
 /// The root owns the blurred artwork backdrop, while nested helpers keep the
 /// header layout and list-card styling aligned across detail variants.
@@ -417,6 +434,7 @@ extension MediaDetailSurface {
         let subtitle: String?
         let tertiary: String?
         let bottomPadding: CGFloat
+        let artworkWidth: CGFloat
         @ViewBuilder private let artwork: () -> Artwork
         private let play: () -> Void
         private let shuffle: () -> Void
@@ -427,6 +445,7 @@ extension MediaDetailSurface {
             subtitle: String? = nil,
             tertiary: String? = nil,
             bottomPadding: CGFloat = EnsembleDesign.Spacing.none,
+            artworkWidth: CGFloat = EnsembleScaffold.VirtualDetailHeader.heroArtworkDimension,
             isDisabled: Bool,
             @ViewBuilder artwork: @escaping () -> Artwork,
             play: @escaping () -> Void,
@@ -436,6 +455,7 @@ extension MediaDetailSurface {
             self.subtitle = subtitle
             self.tertiary = tertiary
             self.bottomPadding = bottomPadding
+            self.artworkWidth = artworkWidth
             self.isDisabled = isDisabled
             self.artwork = artwork
             self.play = play
@@ -443,7 +463,7 @@ extension MediaDetailSurface {
         }
 
         var body: some View {
-            Header {
+            Header(artworkWidth: artworkWidth) {
                 EmptyView()
             } artwork: {
                 artwork()
@@ -523,10 +543,12 @@ extension MediaDetailSurface {
         CompactActions: View,
         WideActions: View
     >: View {
+        @Environment(\.nativeTrackListHeaderWidth) private var nativeTrackListHeaderWidth
         @State private var containerWidth: CGFloat = 0
         @State private var actionColumnWidth: CGFloat = 0
 
         private let wideLayoutThreshold: CGFloat
+        private let artworkWidth: CGFloat
         @ViewBuilder private let topContent: () -> TopContent
         @ViewBuilder private let artwork: () -> Artwork
         private let metadata: (HorizontalAlignment) -> Metadata
@@ -535,6 +557,7 @@ extension MediaDetailSurface {
 
         init(
             wideLayoutThreshold: CGFloat = EnsembleScaffold.DetailSurface.wideHeaderThreshold,
+            artworkWidth: CGFloat,
             @ViewBuilder topContent: @escaping () -> TopContent,
             @ViewBuilder artwork: @escaping () -> Artwork,
             metadata: @escaping (HorizontalAlignment) -> Metadata,
@@ -542,6 +565,7 @@ extension MediaDetailSurface {
             wideActions: @escaping (CGFloat) -> WideActions
         ) {
             self.wideLayoutThreshold = wideLayoutThreshold
+            self.artworkWidth = artworkWidth
             self.topContent = topContent
             self.artwork = artwork
             self.metadata = metadata
@@ -569,7 +593,7 @@ extension MediaDetailSurface {
 
         private var adaptiveBody: some View {
             Group {
-                if containerWidth >= wideLayoutThreshold {
+                if effectiveContainerWidth >= wideLayoutThreshold {
                     wideHeader
                 } else {
                     compactHeader
@@ -595,7 +619,7 @@ extension MediaDetailSurface {
 
                 VStack(alignment: .leading, spacing: EnsembleScaffold.DetailSurface.metadataSpacing) {
                     metadata(.leading)
-                    wideActions(actionColumnWidth > 0 ? actionColumnWidth : containerWidth)
+                    wideActions(actionColumnWidth > 0 ? actionColumnWidth : estimatedActionColumnWidth)
                         .padding(.top, EnsembleScaffold.DetailSurface.actionTopPadding)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -612,6 +636,20 @@ extension MediaDetailSurface {
                 )
             }
             .padding(EnsembleScaffold.DetailSurface.headerPadding)
+        }
+
+        private var effectiveContainerWidth: CGFloat {
+            nativeTrackListHeaderWidth > 1 ? nativeTrackListHeaderWidth : containerWidth
+        }
+
+        private var estimatedActionColumnWidth: CGFloat {
+            max(
+                effectiveContainerWidth
+                    - artworkWidth
+                    - EnsembleScaffold.DetailSurface.wideHeaderSpacing
+                    - (EnsembleScaffold.DetailSurface.headerPadding * 2),
+                1
+            )
         }
 
         private func updateContainerWidth(_ newWidth: CGFloat) {

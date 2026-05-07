@@ -1089,6 +1089,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// so the genre chips and artwork maintain consistent positioning.
     private var tableHeaderForTrackList: some View {
         MediaDetailSurface<EmptyView>.Header(
+            artworkWidth: ArtworkSize.medium.cgSize.width,
             topContent: {
                 if let genreChipContent {
                     genreChipContent

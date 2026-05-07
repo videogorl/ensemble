@@ -286,7 +286,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 let view = tableView.makeView(withIdentifier: .hostingRow, owner: self) as? MacNativeTrackHostingCell
                     ?? MacNativeTrackHostingCell()
                 view.identifier = .hostingRow
-                view.configure(rootView: tableHeaderContent)
+                view.configure(rootView: headerRootView(tableHeaderContent, width: tableView.bounds.width))
                 return view
             case let .section(_, title):
                 let view = tableView.makeView(withIdentifier: .sectionHeader, owner: self) as? MacNativeTrackSectionCell
@@ -427,7 +427,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         }
 
         private func headerHeight(for rootView: AnyView, width: CGFloat) -> CGFloat {
-            let measuredHeight = hostingHeight(for: rootView, width: width)
+            let measuredHeight = hostingHeight(for: headerRootView(rootView, width: width), width: width)
             guard width >= EnsembleScaffold.DetailSurface.wideHeaderThreshold else {
                 return measuredHeight
             }
@@ -436,6 +436,10 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 + (EnsembleScaffold.DetailSurface.headerPadding * 2)
                 + tableHeaderExtraHeight
             return min(measuredHeight, wideHeaderHeight)
+        }
+
+        private func headerRootView(_ rootView: AnyView, width: CGFloat) -> AnyView {
+            AnyView(rootView.nativeTrackListHeaderWidth(max(width, 1)))
         }
 
         private func showSwipeConfirmation(for action: TrackSwipeAction, track: Track) {

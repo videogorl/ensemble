@@ -68,6 +68,7 @@ public struct DownloadTargetDetailView: View {
 
     private var detailHeader: some View {
         MediaDetailSurface<EmptyView>.Header(
+            artworkWidth: ArtworkSize.medium.cgSize.width,
             topContent: {
                 EmptyView()
             },
