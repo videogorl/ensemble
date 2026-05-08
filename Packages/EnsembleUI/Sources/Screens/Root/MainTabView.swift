@@ -184,9 +184,7 @@ public struct MainTabView: View {
                 isLowPowerMode = newValue
             }
             .onReceive(settingsManager.objectWillChange) { _ in
-                DispatchQueue.main.async {
-                    updateSettingsSnapshot()
-                }
+                updateSettingsSnapshot()
             }
             #if os(iOS)
             .sheet(isPresented: profileSheetBinding, onDismiss: {
@@ -879,9 +877,7 @@ public struct SidebarView: View {
         }
         #endif
         .onReceive(settingsManager.objectWillChange) { _ in
-            DispatchQueue.main.async {
-                updateSettingsSnapshot()
-            }
+            updateSettingsSnapshot()
         }
         #if os(macOS)
         .onChange(of: navigationCoordinator.auxiliaryWindowRequest?.id) { _ in
