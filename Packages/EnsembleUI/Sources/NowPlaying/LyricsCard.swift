@@ -295,10 +295,7 @@ public struct LyricsCard: View {
                     scrollTarget = "intro-instrumental"
                 }
                 lastScrollIndex = lyricsScrollTargetIndex
-                // Defer to next frame so the LazyVStack has laid out its content
-                DispatchQueue.main.async {
-                    proxy.scrollTo(scrollTarget, anchor: .center)
-                }
+                proxy.scrollTo(scrollTarget, anchor: .center)
             }
             // Scroll to active lyric — animate for natural progression, snap for seeks.
             // nil target means "before first lyric" — scroll to top (index 0 or intro).
@@ -566,7 +563,10 @@ private struct VerticalDragDetector: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ uiView: DragDetectorProbeView, context: Context) {}
+    func updateUIView(_ uiView: DragDetectorProbeView, context: Context) {
+        uiView.coordinator = context.coordinator
+        context.coordinator.attachIfNeeded(from: uiView)
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onVerticalDrag: onVerticalDrag)
@@ -578,20 +578,35 @@ private struct VerticalDragDetector: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            guard window != nil else { return }
-            // Defer to let the view hierarchy settle
-            DispatchQueue.main.async { [weak self] in
-                self?.coordinator?.attachIfNeeded(from: self)
+            guard window != nil else {
+                coordinator?.detach()
+                return
             }
+            coordinator?.attachIfNeeded(from: self)
+        }
+
+        override func didMoveToSuperview() {
+            super.didMoveToSuperview()
+            coordinator?.attachIfNeeded(from: self)
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            coordinator?.attachIfNeeded(from: self)
         }
     }
 
     class Coordinator: NSObject, UIGestureRecognizerDelegate {
         let onVerticalDrag: () -> Void
         private var verticalDetector: UIPanGestureRecognizer?
+        private weak var attachedScrollView: UIScrollView?
 
         init(onVerticalDrag: @escaping () -> Void) {
             self.onVerticalDrag = onVerticalDrag
+        }
+
+        deinit {
+            detach()
         }
 
         func attachIfNeeded(from view: UIView?) {
@@ -628,6 +643,7 @@ private struct VerticalDragDetector: UIViewRepresentable {
             vertical.name = "lyrics-vertical-detector"
             lyricsScrollView.addGestureRecognizer(vertical)
             verticalDetector = vertical
+            attachedScrollView = lyricsScrollView
 
             // Make the TabView's paging pan wait for our vertical detector to fail.
             // Vertical swipe → detector recognizes → TabView pan blocked → lyrics scroll works.
@@ -658,6 +674,14 @@ private struct VerticalDragDetector: UIViewRepresentable {
         ) -> Bool {
             return true
         }
+
+        func detach() {
+            if let verticalDetector {
+                attachedScrollView?.removeGestureRecognizer(verticalDetector)
+                self.verticalDetector = nil
+            }
+            attachedScrollView = nil
+        }
     }
 }
 #endif
@@ -678,7 +702,7 @@ private struct MacScrollWheelDetector: NSViewRepresentable {
 
     func updateNSView(_ nsView: ScrollDetectorProbeView, context: Context) {
         nsView.coordinator = context.coordinator
-        context.coordinator.scheduleAttach(from: nsView)
+        context.coordinator.attachIfNeeded(from: nsView)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -695,12 +719,17 @@ private struct MacScrollWheelDetector: NSViewRepresentable {
                 return
             }
 
-            coordinator?.scheduleAttach(from: self)
+            coordinator?.attachIfNeeded(from: self)
         }
 
         override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
-            coordinator?.scheduleAttach(from: self)
+            coordinator?.attachIfNeeded(from: self)
+        }
+
+        override func layout() {
+            super.layout()
+            coordinator?.attachIfNeeded(from: self)
         }
     }
 
@@ -717,17 +746,7 @@ private struct MacScrollWheelDetector: NSViewRepresentable {
             detach()
         }
 
-        func scheduleAttach(from view: NSView?) {
-            attachIfNeeded(from: view)
-            DispatchQueue.main.async { [weak self, weak view] in
-                self?.attachIfNeeded(from: view)
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak view] in
-                self?.attachIfNeeded(from: view)
-            }
-        }
-
-        private func attachIfNeeded(from view: NSView?) {
+        func attachIfNeeded(from view: NSView?) {
             guard monitor == nil, let view else { return }
 
             var current: NSView? = view
