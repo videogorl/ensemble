@@ -99,7 +99,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
   - Owns reusable path snapshot/set helpers and destination-to-target-tab mapping; UI uses `NavigationCoordinator+Bindings` for SwiftUI path bindings instead of duplicating per-tab switches in root views
   - `visibleTabs: [TabItem]` -- Synced from MainTabView to enable fallback logic
   - `navigateFromNowPlaying()` -- Falls back to first visible tab when navigating from Search
-  - `pendingNavigation` -- Deferred navigation executed after sheet dismissal
+  - `pendingNavigation` -- Deferred navigation executed by `RootView` from the Now Playing presenter dismissal; tab/sidebar shells should not use timer-based handoffs
   - `openSettings()` / `openDownloads()` -- Shared auxiliary presentation entry points for large-screen sidebar/actions
   - `activeAuxiliaryPresentation` / `auxiliaryWindowRequest` -- Root-level modal/window routing state; screens should request presentation through the coordinator instead of owning duplicated sheet state
   - On iPhone, `Profile` is routed through `activeAuxiliaryPresentation` but presented as a normal root sheet in `MainTabView`; `Downloads` keeps the auxiliary full-screen presenter because it still benefits from root-shell isolation

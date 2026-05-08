@@ -619,7 +619,7 @@ public struct ControlsCard: View {
     // MARK: - Helper Methods
     
     /// Navigate to artist detail — store intent, then dismiss.
-    /// MainTabView/SidebarView executes the push after sheet fully dismisses.
+    /// RootView executes the push from the Now Playing presenter dismissal.
     private func handleArtistTap(track: Track) {
         if let artistId = track.artistRatingKey {
             navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
@@ -627,7 +627,7 @@ public struct ControlsCard: View {
         }
     }
 
-    /// Navigate to album detail — store intent, then dismiss
+    /// Navigate to album detail — store intent, then dismiss.
     private func handleAlbumTap(track: Track) {
         if let albumId = track.albumRatingKey {
             navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))

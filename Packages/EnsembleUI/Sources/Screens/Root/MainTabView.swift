@@ -217,18 +217,6 @@ public struct MainTabView: View {
                 }
             }
             #endif
-            .onChange(of: isShowingNowPlaying) { isShowing in
-                // Execute pending navigation after the sheet fully dismisses.
-                // The 0.35s delay lets the NavigationStack settle after the
-                // sheet animation completes so path mutations are not dropped.
-                if !isShowing, let pending = navigationCoordinator.pendingNavigation {
-                    navigationCoordinator.pendingNavigation = nil
-                    navigationCoordinator.selectedTab = pending.tab
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        navigationCoordinator.push(pending.destination, in: pending.tab)
-                    }
-                }
-            }
             #if os(iOS)
             .sheet(isPresented: profileSheetBinding, onDismiss: {
                 navigationCoordinator.dismissAuxiliaryPresentation()
@@ -552,7 +540,7 @@ public struct SidebarView: View {
         case detail
     }
 
-    @State private var selection: SidebarSelection? = .library(.home)
+    @Binding private var selection: SidebarSelection?
     @State private var pinnedDetailPath: [NavigationCoordinator.Destination] = []
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var compactColumnPreference: CompactColumnPreference = .sidebar
@@ -599,12 +587,13 @@ public struct SidebarView: View {
     @State private var cachedRegularPlaylists: [SidebarPlaylistItem] = []
 
     @MainActor
-    public init(nowPlayingVM: NowPlayingViewModel) {
+    public init(nowPlayingVM: NowPlayingViewModel, selection: Binding<SidebarSelection?>) {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self.nowPlayingVM = nowPlayingVM
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
         self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
         self._playlistsVM = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
+        self._selection = selection
     }
 
     private var isShowingNowPlaying: Bool {
@@ -924,18 +913,6 @@ public struct SidebarView: View {
                 .accentColor(accentColor.color)
         }
         #endif
-        .onChange(of: isShowingNowPlaying) { isShowing in
-            // Execute pending navigation after sheet fully dismisses.
-            if !isShowing, let pending = navigationCoordinator.pendingNavigation {
-                navigationCoordinator.pendingNavigation = nil
-                // Switch sidebar to the matching section
-                let targetTab = NavigationCoordinator.targetTab(for: pending.destination)
-                self.selection = SidebarSelection.selection(for: pending.destination, fallback: self.selection)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    navigationCoordinator.push(pending.destination, in: targetTab)
-                }
-            }
-        }
         .onReceive(settingsManager.objectWillChange) { _ in
             DispatchQueue.main.async {
                 updateSettingsSnapshot()

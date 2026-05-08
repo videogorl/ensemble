@@ -179,6 +179,7 @@ public struct RootView: View {
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @State private var isNowPlayingPresented = false
     @State private var activeNowPlayingPresentationViewModel: NowPlayingViewModel?
+    @State private var sidebarSelection: SidebarSelection? = .library(.home)
     @State private var isLowPowerMode = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
@@ -365,13 +366,13 @@ public struct RootView: View {
         case .sidebar:
             #if os(iOS)
             if #available(iOS 16.0, *) {
-                SidebarView(nowPlayingVM: nowPlayingVM)
+                SidebarView(nowPlayingVM: nowPlayingVM, selection: $sidebarSelection)
             } else {
                 MainTabView(nowPlayingVM: nowPlayingVM)
             }
             #elseif os(macOS)
             if #available(macOS 13.0, *) {
-                SidebarView(nowPlayingVM: nowPlayingVM)
+                SidebarView(nowPlayingVM: nowPlayingVM, selection: $sidebarSelection)
             } else {
                 MainTabView(nowPlayingVM: nowPlayingVM)
             }
@@ -431,6 +432,27 @@ public struct RootView: View {
         #endif
     }
 
+    private var usesSidebarRootNavigationShell: Bool {
+        switch EnsemblePlatformFeaturePolicy.currentRootNavigationShell {
+        case .sidebar:
+            #if os(iOS)
+            if #available(iOS 16.0, *) {
+                return true
+            }
+            return false
+            #elseif os(macOS)
+            if #available(macOS 13.0, *) {
+                return true
+            }
+            return false
+            #else
+            return false
+            #endif
+        case .tabs:
+            return false
+        }
+    }
+
     fileprivate var nowPlayingPresentationContent: some View {
         NowPlayingSheetView(
             viewModel: presentedNowPlayingViewModel,
@@ -462,10 +484,30 @@ public struct RootView: View {
         withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
             isNowPlayingPresented = false
         }
+        if supportsViewportNowPlayingPresentation {
+            completeNowPlayingDismissal()
+        }
     }
 
-    fileprivate func clearPresentedNowPlayingViewModel() {
+    fileprivate func completeNowPlayingDismissal() {
         activeNowPlayingPresentationViewModel = nil
+
+        guard let pending = navigationCoordinator.pendingNavigation else { return }
+        navigationCoordinator.pendingNavigation = nil
+
+        let targetTab: TabItem
+        if usesSidebarRootNavigationShell {
+            sidebarSelection = SidebarSelection.selection(
+                for: pending.destination,
+                fallback: sidebarSelection
+            )
+            targetTab = NavigationCoordinator.targetTab(for: pending.destination)
+        } else {
+            targetTab = pending.tab
+        }
+
+        navigationCoordinator.selectedTab = targetTab
+        navigationCoordinator.push(pending.destination, in: targetTab)
     }
 }
 
@@ -477,14 +519,14 @@ private struct NowPlayingPresentationModifier: ViewModifier {
         if rootView.usesFullScreenNowPlayingPresentation {
             content.fullScreenCover(
                 isPresented: rootView.nowPlayingPresentationBinding,
-                onDismiss: rootView.clearPresentedNowPlayingViewModel
+                onDismiss: rootView.completeNowPlayingDismissal
             ) {
                 rootView.nowPlayingPresentationContent
             }
         } else if !rootView.supportsViewportNowPlayingPresentation {
             content.sheet(
                 isPresented: rootView.nowPlayingPresentationBinding,
-                onDismiss: rootView.clearPresentedNowPlayingViewModel
+                onDismiss: rootView.completeNowPlayingDismissal
             ) {
                 rootView.nowPlayingPresentationContent
             }
@@ -495,7 +537,7 @@ private struct NowPlayingPresentationModifier: ViewModifier {
         if !rootView.supportsViewportNowPlayingPresentation {
             content.sheet(
                 isPresented: rootView.nowPlayingPresentationBinding,
-                onDismiss: rootView.clearPresentedNowPlayingViewModel
+                onDismiss: rootView.completeNowPlayingDismissal
             ) {
                 rootView.nowPlayingPresentationContent
             }

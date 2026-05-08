@@ -22,7 +22,7 @@ These are core design decisions that must be maintained throughout the app.
 
 ### Deep Linking
 - **NavigationCoordinator.Destination:** Use typed destinations (artist, album, playlist, view) for all deep links
-- **Pending navigation:** From sheets (like Now Playing), set `pendingNavigation` to defer until sheet dismisses
+- **Pending navigation:** From sheets (like Now Playing), set `pendingNavigation` to defer until sheet dismisses. `RootView` owns the Now Playing presenter dismissal handoff; do not add screen-local `asyncAfter` timers in `MainTabView` or `SidebarView` to wait for the sheet animation.
 - **Tab fallback:** If navigating from Search tab (or hidden tab), fall back via `visibleTabs.first ?? .home`
 - **Root path helpers:** Use `NavigationCoordinator.pathSnapshot(for:)`, `setPath(_:for:)`, and the EnsembleUI `pathBinding(for:)` extension instead of adding new per-tab switch statements in root views. Use `NavigationDestinationFactory` for tab/destination view routing, and use `NavigationCoordinator.targetTab(for:)` plus `SidebarSelection.selection(for:fallback:)` for destination-to-root selection mapping.
 
