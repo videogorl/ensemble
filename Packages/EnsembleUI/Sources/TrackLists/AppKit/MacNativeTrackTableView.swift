@@ -21,7 +21,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     let rowHeight: CGFloat
     let interactionModel: TrackRowInteractionModel
     let onRemoveFromPlaylist: ((Track, Int) -> Void)?
-    @Binding var requestedSectionID: String?
+    let sectionScrollRequest: TrackSectionScrollRequest?
     let onTrackTap: (Track, Int) -> Void
 
     @Environment(\.dependencies) private var dependencies
@@ -114,12 +114,11 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             }
         }
 
-        if let requestedSectionID,
-           let targetRow = context.coordinator.rowIndex(forSectionID: requestedSectionID) {
+        if let sectionScrollRequest,
+           context.coordinator.consumedSectionScrollRequestID != sectionScrollRequest.id,
+           let targetRow = context.coordinator.rowIndex(forSectionID: sectionScrollRequest.sectionID) {
             tableView.scrollRowToVisible(targetRow)
-            DispatchQueue.main.async {
-                self.requestedSectionID = nil
-            }
+            context.coordinator.consumedSectionScrollRequestID = sectionScrollRequest.id
         }
     }
 
@@ -171,6 +170,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         var onRemoveFromPlaylist: ((Track, Int) -> Void)?
         let onTrackTap: (Track, Int) -> Void
         weak var tableView: NSTableView?
+        var consumedSectionScrollRequestID: Int?
         private(set) var rows: [NativeTrackListFlattenedRow] = []
 
         init(

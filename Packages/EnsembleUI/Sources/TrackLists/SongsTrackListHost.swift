@@ -8,6 +8,11 @@ import UIKit
 import AppKit
 #endif
 
+struct TrackSectionScrollRequest: Equatable {
+    let id: Int
+    let sectionID: String
+}
+
 /// Platform host for dense Songs track lists.
 ///
 /// iOS/iPadOS uses `MediaTrackList` (`UITableView`) and macOS uses an AppKit
@@ -22,7 +27,8 @@ public struct SongsTrackListHost: View {
     private let onRemoveFromPlaylist: ((Track, Int) -> Void)?
     private let onTrackTap: (Track, Int) -> Void
 
-    @State private var requestedSectionID: String?
+    @State private var sectionScrollRequestID = 0
+    @State private var sectionScrollRequest: TrackSectionScrollRequest?
 
     private var allTracks: [Track] {
         sections.flatMap(\.tracks)
@@ -240,12 +246,16 @@ public struct SongsTrackListHost: View {
                 rowHeight: configuration.rowHeight,
                 interactionModel: configuration.interactionModel,
                 onRemoveFromPlaylist: onRemoveFromPlaylist,
-                requestedSectionID: $requestedSectionID,
+                sectionScrollRequest: sectionScrollRequest,
                 onTrackTap: onTrackTap
             )
 
             sectionIndex { sectionID in
-                requestedSectionID = sectionID
+                sectionScrollRequestID += 1
+                sectionScrollRequest = TrackSectionScrollRequest(
+                    id: sectionScrollRequestID,
+                    sectionID: sectionID
+                )
             }
             }
         )
