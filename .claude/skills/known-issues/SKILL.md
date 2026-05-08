@@ -451,8 +451,8 @@ No unresolved critical issues currently documented.
 ### Legacy SwiftUI Track Row Mass Re-Render on Availability Change
 - **Resolved (March 11, 2026)**
 - **Previous:** `@ObservedObject availabilityResolver` (singleton) caused all visible SwiftUI track rows to re-render when the generation counter bumped. The old `TrackRow` type was removed in the May 2026 native-behavior cleanup.
-- **Fix:** Replaced with `@State private var cachedAvailability` + `.onReceive` that only updates `@State` when THIS track's availability actually changed. The active compact SwiftUI row path remains `CompactTrackRow`.
-- **Key files:** `CompactSearchRows.swift`
+- **Fix:** Replaced large track-row surfaces with native track-list hosts and focused runtime observation modifiers. The unused `CompactTrackRow` fallback was removed in the May 2026 dead-code cleanup.
+- **Key files:** `MediaTrackList.swift`, `SongsTrackListHost.swift`, `TrackListRuntimeObservation.swift`
 
 ### Songs View 1500+ Track Choppiness
 - **Resolved (March 11, 2026)**

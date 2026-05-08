@@ -296,7 +296,6 @@ Sources/
 |   +-- DownloadManagerSettingsViewModel.swift # Settings manager list for offline targets
 |   +-- DownloadTargetDetailViewModel.swift # Per-track detail for a single download target
 |   +-- LibraryDownloadDetailViewModel.swift # All downloads for a library (by sourceCompositeKey)
-|   +-- OfflineServersViewModel.swift  # Server-grouped sync-enabled library toggles for offline targets
 |   +-- PendingMutationsViewModel.swift # Offline-queued mutations (pending/failed playlist & track changes)
 |   +-- PinnedViewModel.swift          # Resolves PinnedItem references into domain objects
 |   +-- PlaylistViewModel.swift
@@ -397,7 +396,6 @@ Sources/
 |   +-- MiniPlayer.swift             # Core mini-player pill content, track info, waveform, and transport controls
 |   +-- MiniPlayerActionsMenu.swift  # Mini-player media action menu and platform menu renderers
 |   +-- MiniPlayerBackground.swift   # Artwork/material mini-player background projection host
-|   +-- MiniPlayerContainer.swift    # Root mini-player overlay container
 |   +-- MiniPlayerGestures.swift     # Phone mini-player vertical/open and horizontal prev/next swipe modifiers
 +-- NowPlaying/                      # Now Playing cards, carousel, queue, lyrics, page indicator
 +-- StageFlow/                       # iPhone landscape StageFlow experience for Songs, Albums, and Playlists roots
@@ -426,7 +424,7 @@ Sources/
 |   +-- Details/                      # Media detail, merged playlist detail, async detail loaders
 |   +-- Discovery/                    # Home/Feed and Search
 |   +-- AccountSettings/              # Profile, settings, account setup, source detail, sync/swipe settings
-|   +-- Downloads/                    # Downloads, download details/settings, offline servers, pending mutations
+|   +-- Downloads/                    # Downloads, download details/settings, pending mutations
 |   +-- NowPlaying/                   # Now Playing sheet, viewport root, external display
 |   +-- Diagnostics/                  # Logs list/detail
 +-- EnsembleLogger.swift              # Package logger categories

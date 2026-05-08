@@ -312,7 +312,7 @@ Background/recovery rules:
 
 UI integration rules:
 - Settings manager entry point remains `SettingsView` -> `DownloadManagerSettingsView` (do not repurpose `DownloadsView`).
-- Use `OfflineServersView` for library-wide toggles; only include sync-enabled libraries.
+- Keep library-wide offline toggles inside `DownloadManagerSettingsView`; only include sync-enabled libraries.
 - Album/artist/playlist download toggles are context/detail menu actions (`Download` / `Remove Download`), not inline buttons.
 - Track rows should dim and block taps offline when `!track.isDownloaded`, with toast feedback.
 

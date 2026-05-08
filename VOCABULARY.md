@@ -264,7 +264,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 |--------------|------|-------------|---------------------|
 | Track list | list | Main scrollable list of all songs | `trackListView`, `MediaTrackList` |
 | Section header | text | Alphabetical section divider (A, B, C...) | `sectionHeader` |
-| Track row | control | Individual song row with artwork, title, artist, duration | `MediaTrackList`, `SongsTrackListHost`, `CompactTrackRow` |
+| Track row | control | Individual song row with artwork, title, artist, duration | `MediaTrackList`, `SongsTrackListHost` |
 | Filter button | control | Toolbar button to open filter sheet (with badge) | `line.3.horizontal.decrease.circle` |
 | Filter badge | indicator | Red dot showing active filters | `hasActiveFilters` |
 | Sort menu | menu | Overflow menu with sort options and actions | `ellipsis.circle` |
@@ -663,25 +663,6 @@ Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterize
 
 ---
 
-## OfflineServersView
-
-- **View name:** `OfflineServersView`
-- **Canonical name:** OfflineServersView
-- **Area:** Settings
-- **Platform:** iOS, iPadOS, macOS
-- **Definition status:** Draft
-
-### Elements
-
-| Element name | Type | Description | Synonyms / code refs |
-|--------------|------|-------------|---------------------|
-| Server section | region | Section per server with account subtitle | `OfflineServerSection` |
-| Library toggle row | control | Toggle enabling/disabling library-wide offline target | `Toggle`, `setLibraryEnabled` |
-| Library source key label | text | Secondary source identifier label below library title | `library.sourceCompositeKey` |
-| Empty state | state | Message shown when no libraries are sync-enabled | `No enabled libraries` |
-
----
-
 ## PendingMutationsView
 
 - **View name:** `PendingMutationsView`
@@ -733,7 +714,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Waiting indicator | indicator | Progress spinner while polling for auth | `Waiting for authorization...` |
 | Cancel auth button | action | Button to cancel ongoing auth | `Cancel` |
 | Server selection region | region | List of discovered servers with libraries | `serverLibrarySelectionView` |
-| Server row | control | Server name with platform info | `ServerRow` |
+| Server row | control | Server name with platform info | `serverLibrarySelectionView` |
 | Library selection row | control | Checkbox row for library enable/disable | `LibrarySelectionRow` |
 | Server error message | indicator | Error text for server connection failures | `serverLibraryErrors` |
 | Add account button | action | Confirm button to save selected libraries | `Add Account` |
@@ -809,7 +790,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Track artwork | artwork | Small thumbnail for track (44x44 or 48x48) | `MediaTrackList`, `CompactTrackRow`, `ArtworkView`, `.tiny` |
+| Track artwork | artwork | Small thumbnail for track (44x44 or 48x48) | `MediaTrackList`, `ArtworkView`, `.tiny` |
 | Track number | text | Numeric position in album/playlist | `track.trackNumber` |
 | Now playing indicator | indicator | Speaker icon when track is currently playing | `speaker.wave.2.fill` |
 | Track title | text | Song name with accent color when playing | `track.title` |

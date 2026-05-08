@@ -59,29 +59,3 @@ public struct GenreCard: View {
         return EnsembleScaffold.MediaCard.genrePalette[index]
     }
 }
-
-// MARK: - Genre Grid
-
-public struct GenreGrid: View {
-    let genres: [Genre]
-    let onGenreTap: ((Genre) -> Void)?
-
-    private let columns = EnsembleScaffold.MediaCard.personGridColumns
-
-    public init(genres: [Genre], onGenreTap: ((Genre) -> Void)? = nil) {
-        self.genres = genres
-        self.onGenreTap = onGenreTap
-    }
-
-    public var body: some View {
-        LazyVGrid(columns: columns, spacing: EnsembleScaffold.MediaCard.rowSpacing) {
-            ForEach(genres) { genre in
-                GenreCard(genre: genre) {
-                    onGenreTap?(genre)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-    }
-}

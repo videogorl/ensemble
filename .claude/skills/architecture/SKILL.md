@@ -230,7 +230,6 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `AddPlexAccountView` -- PIN auth flow with grouped server/library checklist and copy-on-tap PIN
 - `MusicSourceAccountDetailView` -- Account-scoped server/library selection + per-library sync/connection status
 - `DownloadManagerSettingsView` -- Settings-only offline manager screen (`Servers` + target status list)
-- `OfflineServersView` -- Server-grouped, sync-enabled library toggles for library-wide offline targets
 
 ## Key Architectural Patterns
 

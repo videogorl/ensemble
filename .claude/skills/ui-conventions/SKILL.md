@@ -269,7 +269,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 ### Hub Loading
 - **2-second debouncing** to prevent rapid successive loads
 - **Fallback:** If fewer than 3 section hubs, fall back to global hubs
-- **Empty states:** `EmptyLibraryView` with sync prompts
+- **Empty states:** Use `EnsembleStateScaffold` with the relevant sync/setup prompt.
 
 ## DetailLoader Pattern
 

@@ -160,15 +160,6 @@ public extension DependencyContainer {
     }
 
     @MainActor
-    func makeOfflineServersViewModel() -> OfflineServersViewModel {
-        OfflineServersViewModel(
-            accountManager: accountManager,
-            offlineDownloadService: offlineDownloadService,
-            downloadMutationWorkflow: downloadMutationWorkflow
-        )
-    }
-
-    @MainActor
     func makeAddPlexAccountViewModel() -> AddPlexAccountViewModel {
         AddPlexAccountViewModel(
             authService: authService,

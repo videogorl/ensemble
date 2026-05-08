@@ -385,44 +385,6 @@ struct LibrarySelectionRow: View {
     }
 }
 
-// MARK: - Server Row
-
-struct ServerRow: View {
-    let server: Server
-    let onTap: () -> Void
-    
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: EnsembleScaffold.AccountSetup.rowSpacing) {
-                Image(systemName: EnsembleDesign.Icon.server)
-                    .font(EnsembleDesign.Typography.utilityIcon)
-                    .foregroundColor(EnsembleDesign.Color.accent)
-                    .frame(width: EnsembleScaffold.AccountSetup.rowIconWidth)
-                
-                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                    Text(server.name)
-                        .font(EnsembleDesign.Typography.actionLabel)
-
-                    if let platform = server.platform {
-                        Text(platform)
-                            .font(EnsembleDesign.Typography.rowSecondary)
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    }
-                }
-                
-                Spacer()
-                
-                Image(systemName: EnsembleDesign.Icon.chevronRight)
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-            }
-            .padding(EnsembleScaffold.AccountSetup.cardPadding)
-            .background(EnsembleScaffold.AccountSetup.cardBackground)
-            .cornerRadius(EnsembleScaffold.AccountSetup.cardCornerRadius)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 private struct ServerLibrariesSelection: View {
     let libraries: [Library]
     let isSelected: (Library) -> Bool
