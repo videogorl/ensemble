@@ -101,6 +101,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
 
+    private var isPresenterChromeHidden: Bool {
+        contextMenuMetadataEditorCoordinator.request != nil
+    }
+
     public init(
         viewModel: ViewModel,
         nowPlayingVM: NowPlayingViewModel,
@@ -221,11 +225,23 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
             #endif
         }
-        .collapsingToolbarTitle(
-            navigationTitle,
-            threshold: 0,
-            showToolbarTitle: $showToolbarTitle
-        )
+        .if(!isPresenterChromeHidden) { view in
+            view.collapsingToolbarTitle(
+                navigationTitle,
+                threshold: 0,
+                showToolbarTitle: $showToolbarTitle
+            )
+        }
+        #if os(iOS)
+        .navigationBarHidden(isPresenterChromeHidden)
+        .if(isPresenterChromeHidden) { view in
+            if #available(iOS 16.0, *) {
+                view.toolbar(.hidden, for: .navigationBar)
+            } else {
+                view
+            }
+        }
+        #endif
         // Native track lists manage their own bottom inset so rows can scroll
         // behind the floating mini player without shrinking the table host.
         .trackListRuntimeObservation(
@@ -572,32 +588,30 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func presentTrackMetadataEditor(_ track: Track) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            contextMenuMetadataEditorCoordinator.present(
-                kind: .track,
-                currentTitle: track.title
-            ) { newTitle in
-                do {
-                    let result = try await deps.metadataMutationWorkflow.editTrack(
-                        track,
-                        title: newTitle
-                    )
-                    await MainActor.run {
-                        deps.toastCenter.show(result.successToast)
-                    }
-                } catch {
-                    await MainActor.run {
-                        deps.toastCenter.show(
-                            deps.metadataMutationWorkflow.editFailureToast(
-                                noun: "Track",
-                                itemID: track.id,
-                                error: error,
-                                scope: .track
-                            )
-                        )
-                    }
-                    throw error
+        contextMenuMetadataEditorCoordinator.present(
+            kind: .track,
+            currentTitle: track.title
+        ) { newTitle in
+            do {
+                let result = try await deps.metadataMutationWorkflow.editTrack(
+                    track,
+                    title: newTitle
+                )
+                await MainActor.run {
+                    deps.toastCenter.show(result.successToast)
                 }
+            } catch {
+                await MainActor.run {
+                    deps.toastCenter.show(
+                        deps.metadataMutationWorkflow.editFailureToast(
+                            noun: "Track",
+                            itemID: track.id,
+                            error: error,
+                            scope: .track
+                        )
+                    )
+                }
+                throw error
             }
         }
     }

@@ -8,6 +8,7 @@ public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
     @Environment(\.dependencies) private var deps
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
@@ -41,7 +42,7 @@ public struct AlbumsView: View {
     }
 
     private var isPresenterChromeHidden: Bool {
-        isStageFlowActive
+        isStageFlowActive || contextMenuMetadataEditorCoordinator.request != nil
     }
 
     private var albumFilterButton: some View {
@@ -414,42 +415,36 @@ public struct AlbumDetailView: View {
             mediaType: .album,
             albumMenuActions: AlbumDetailMenuActions(
                 onEditMetadata: {
-                    // Menu-driven editors need the same unwind delay as context
-                    // menus so the root presenter is activated after dismissal.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        contextMenuMetadataEditorCoordinator.present(
-                            kind: .album,
-                            currentTitle: album.title
-                        ) { newTitle in
-                            do {
-                                let result = try await deps.metadataMutationWorkflow.editAlbum(
-                                    album,
-                                    title: newTitle,
-                                    scope: .albumDetail
-                                )
-                                await MainActor.run {
-                                    deps.toastCenter.show(result.successToast)
-                                }
-                            } catch {
-                                await MainActor.run {
-                                    deps.toastCenter.show(
-                                        deps.metadataMutationWorkflow.editFailureToast(
-                                            noun: "Album",
-                                            itemID: album.id,
-                                            error: error,
-                                            scope: .albumDetail
-                                        )
-                                    )
-                                }
-                                throw error
+                    contextMenuMetadataEditorCoordinator.present(
+                        kind: .album,
+                        currentTitle: album.title
+                    ) { newTitle in
+                        do {
+                            let result = try await deps.metadataMutationWorkflow.editAlbum(
+                                album,
+                                title: newTitle,
+                                scope: .albumDetail
+                            )
+                            await MainActor.run {
+                                deps.toastCenter.show(result.successToast)
                             }
+                        } catch {
+                            await MainActor.run {
+                                deps.toastCenter.show(
+                                    deps.metadataMutationWorkflow.editFailureToast(
+                                        noun: "Album",
+                                        itemID: album.id,
+                                        error: error,
+                                        scope: .albumDetail
+                                    )
+                                )
+                            }
+                            throw error
                         }
                     }
                 },
                 onDelete: {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        isConfirmingDelete = true
-                    }
+                    isConfirmingDelete = true
                 },
                 onPlayNext: {
                     nowPlayingVM.playNext(viewModel.filteredTracks)
@@ -698,9 +693,6 @@ public struct AlbumDetailView: View {
                     }
                 }
             }
-            #if os(macOS)
-            .background(MacAlbumShelfVerticalScrollPassthrough())
-            #endif
         }
         // Fixed height keeps horizontal album shelves from collapsing under the larger card size.
         .frame(height: AlbumCardLayoutMetrics.shelf.horizontalScrollHeight)
@@ -722,121 +714,3 @@ public struct AlbumDetailView: View {
         }
     }
 }
-
-#if os(macOS)
-/// Forwards vertical wheel/trackpad deltas from embedded horizontal album shelves
-/// to the enclosing native detail table so shelves do not trap page scrolling.
-private struct MacAlbumShelfVerticalScrollPassthrough: NSViewRepresentable {
-    func makeNSView(context: Context) -> ProbeView {
-        let view = ProbeView()
-        view.coordinator = context.coordinator
-        return view
-    }
-
-    func updateNSView(_ nsView: ProbeView, context: Context) {
-        nsView.coordinator = context.coordinator
-        context.coordinator.scheduleAttach(from: nsView)
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    final class ProbeView: NSView {
-        weak var coordinator: Coordinator?
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            guard window != nil else {
-                coordinator?.detach()
-                return
-            }
-            coordinator?.scheduleAttach(from: self)
-        }
-
-        override func viewDidMoveToSuperview() {
-            super.viewDidMoveToSuperview()
-            coordinator?.scheduleAttach(from: self)
-        }
-    }
-
-    final class Coordinator {
-        private weak var horizontalScrollView: NSScrollView?
-        private weak var verticalScrollView: NSScrollView?
-        private var monitor: Any?
-
-        deinit {
-            detach()
-        }
-
-        func scheduleAttach(from view: NSView?) {
-            attachIfNeeded(from: view)
-            DispatchQueue.main.async { [weak self, weak view] in
-                self?.attachIfNeeded(from: view)
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak view] in
-                self?.attachIfNeeded(from: view)
-            }
-        }
-
-        private func attachIfNeeded(from view: NSView?) {
-            guard monitor == nil, let view else { return }
-            guard let scrollViews = enclosingScrollViews(from: view) else { return }
-
-            horizontalScrollView = scrollViews.horizontal
-            verticalScrollView = scrollViews.vertical
-
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-                guard let self,
-                      let horizontalScrollView,
-                      let verticalScrollView,
-                      event.window === horizontalScrollView.window,
-                      self.shouldForward(event, from: horizontalScrollView) else {
-                    return event
-                }
-
-                verticalScrollView.scrollWheel(with: event)
-                return nil
-            }
-        }
-
-        private func enclosingScrollViews(from view: NSView) -> (horizontal: NSScrollView, vertical: NSScrollView)? {
-            var current: NSView? = view
-            var horizontal: NSScrollView?
-
-            while let candidate = current {
-                if let scrollView = candidate as? NSScrollView {
-                    if let horizontal {
-                        guard horizontal !== scrollView else { return nil }
-                        return (horizontal, scrollView)
-                    }
-                    horizontal = scrollView
-                }
-                current = candidate.superview
-            }
-
-            return nil
-        }
-
-        private func shouldForward(_ event: NSEvent, from scrollView: NSScrollView) -> Bool {
-            guard !event.modifierFlags.contains(.shift) else { return false }
-
-            let location = scrollView.convert(event.locationInWindow, from: nil)
-            guard scrollView.bounds.contains(location) else { return false }
-
-            let horizontalDelta = abs(event.scrollingDeltaX)
-            let verticalDelta = abs(event.scrollingDeltaY)
-            return verticalDelta > horizontalDelta && verticalDelta > 0
-        }
-
-        func detach() {
-            if let monitor {
-                NSEvent.removeMonitor(monitor)
-                self.monitor = nil
-            }
-            horizontalScrollView = nil
-            verticalScrollView = nil
-        }
-    }
-}
-#endif

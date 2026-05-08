@@ -235,11 +235,14 @@ public struct MainTabView: View {
                     )
                 #endif
             }
-            .phoneSafeAuxiliaryPresentation(item: $contextMenuMetadataEditorCoordinator.request) { request in
-                MetadataEditSheet(
-                    kind: request.kind,
-                    currentTitle: request.currentTitle,
-                    onSave: request.onSave
+            .sheet(item: $contextMenuMetadataEditorCoordinator.request) { request in
+                TextInputView(
+                    title: request.kind.title,
+                    message: "Changes are sent directly to Plex and then refreshed locally.",
+                    placeholder: request.kind.fieldLabel,
+                    initialText: request.currentTitle,
+                    actionTitle: "Save",
+                    onSubmit: request.onSave
                 )
             }
 
@@ -930,11 +933,14 @@ public struct SidebarView: View {
                 )
             #endif
         }
-        .phoneSafeAuxiliaryPresentation(item: $contextMenuMetadataEditorCoordinator.request) { request in
-            MetadataEditSheet(
-                kind: request.kind,
-                currentTitle: request.currentTitle,
-                onSave: request.onSave
+        .sheet(item: $contextMenuMetadataEditorCoordinator.request) { request in
+            TextInputView(
+                title: request.kind.title,
+                message: "Changes are sent directly to Plex and then refreshed locally.",
+                placeholder: request.kind.fieldLabel,
+                initialText: request.currentTitle,
+                actionTitle: "Save",
+                onSubmit: request.onSave
             )
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)

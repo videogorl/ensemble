@@ -148,31 +148,27 @@ public struct ArtistGrid: View {
     }
 
     private func presentArtistMetadataEditor(_ artist: Artist) {
-        // Delay presentation so context-menu dismissal completes before the root
-        // editor presenter begins.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            contextMenuMetadataEditorCoordinator.present(
-                kind: .artist,
-                currentTitle: artist.name
-            ) { newTitle in
-                do {
-                    let result = try await deps.metadataMutationWorkflow.editArtist(artist, title: newTitle)
-                    await MainActor.run {
-                        deps.toastCenter.show(result.successToast)
-                    }
-                } catch {
-                    await MainActor.run {
-                        deps.toastCenter.show(
-                            deps.metadataMutationWorkflow.editFailureToast(
-                                noun: "Artist",
-                                itemID: artist.id,
-                                error: error,
-                                scope: .artist
-                            )
-                        )
-                    }
-                    throw error
+        contextMenuMetadataEditorCoordinator.present(
+            kind: .artist,
+            currentTitle: artist.name
+        ) { newTitle in
+            do {
+                let result = try await deps.metadataMutationWorkflow.editArtist(artist, title: newTitle)
+                await MainActor.run {
+                    deps.toastCenter.show(result.successToast)
                 }
+            } catch {
+                await MainActor.run {
+                    deps.toastCenter.show(
+                        deps.metadataMutationWorkflow.editFailureToast(
+                            noun: "Artist",
+                            itemID: artist.id,
+                            error: error,
+                            scope: .artist
+                        )
+                    )
+                }
+                throw error
             }
         }
     }

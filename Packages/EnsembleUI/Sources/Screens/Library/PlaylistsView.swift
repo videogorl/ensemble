@@ -589,9 +589,7 @@ public struct PlaylistsView: View {
                                     displayPlaylist: dp,
                                     nowPlayingVM: nowPlayingVM,
                                     onRename: {
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                                            renamePushDP = dp
-                                        }
+                                        renamePushDP = dp
                                     },
                                     onDelete: { displayPlaylistPendingDelete = dp }
                                 )
@@ -600,9 +598,7 @@ public struct PlaylistsView: View {
                                     playlist: dp.primaryPlaylist,
                                     nowPlayingVM: nowPlayingVM,
                                     onRename: {
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                                            renamePushPlaylist = dp.primaryPlaylist
-                                        }
+                                        renamePushPlaylist = dp.primaryPlaylist
                                     },
                                     onEdit: { playlistForEditSheet = dp.primaryPlaylist },
                                     onDelete: { playlistPendingSwipeDelete = dp.primaryPlaylist }

@@ -228,31 +228,27 @@ public struct AlbumGrid: View {
     }
 
     private func presentAlbumMetadataEditor(_ album: Album) {
-        // Context-menu initiated editors can be dropped when toggled in the same
-        // transaction as menu dismissal, so hand them off after the menu unwinds.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            contextMenuMetadataEditorCoordinator.present(
-                kind: .album,
-                currentTitle: album.title
-            ) { newTitle in
-                do {
-                    let result = try await deps.metadataMutationWorkflow.editAlbum(album, title: newTitle)
-                    await MainActor.run {
-                        deps.toastCenter.show(result.successToast)
-                    }
-                } catch {
-                    await MainActor.run {
-                        deps.toastCenter.show(
-                            deps.metadataMutationWorkflow.editFailureToast(
-                                noun: "Album",
-                                itemID: album.id,
-                                error: error,
-                                scope: .album
-                            )
-                        )
-                    }
-                    throw error
+        contextMenuMetadataEditorCoordinator.present(
+            kind: .album,
+            currentTitle: album.title
+        ) { newTitle in
+            do {
+                let result = try await deps.metadataMutationWorkflow.editAlbum(album, title: newTitle)
+                await MainActor.run {
+                    deps.toastCenter.show(result.successToast)
                 }
+            } catch {
+                await MainActor.run {
+                    deps.toastCenter.show(
+                        deps.metadataMutationWorkflow.editFailureToast(
+                            noun: "Album",
+                            itemID: album.id,
+                            error: error,
+                            scope: .album
+                        )
+                    )
+                }
+                throw error
             }
         }
     }

@@ -9,11 +9,44 @@ struct TextInputView: View {
     let placeholder: String
     var initialText: String = ""
     let actionTitle: String
-    let onSubmit: (String) -> Void
+    let onSubmit: (String) async throws -> Void
 
     @State private var text = ""
+    @State private var isSubmitting = false
     @FocusState private var isFocused: Bool
     @Environment(\.dismiss) private var dismiss
+
+    init(
+        title: String,
+        message: String = "",
+        placeholder: String,
+        initialText: String = "",
+        actionTitle: String,
+        onSubmit: @escaping (String) -> Void
+    ) {
+        self.title = title
+        self.message = message
+        self.placeholder = placeholder
+        self.initialText = initialText
+        self.actionTitle = actionTitle
+        self.onSubmit = { text in onSubmit(text) }
+    }
+
+    init(
+        title: String,
+        message: String = "",
+        placeholder: String,
+        initialText: String = "",
+        actionTitle: String,
+        onSubmit: @escaping (String) async throws -> Void
+    ) {
+        self.title = title
+        self.message = message
+        self.placeholder = placeholder
+        self.initialText = initialText
+        self.actionTitle = actionTitle
+        self.onSubmit = onSubmit
+    }
 
     var body: some View {
         navigationContainer
@@ -62,11 +95,16 @@ struct TextInputView: View {
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }
+                    .disabled(isSubmitting)
             }
 
             ToolbarItem(placement: .confirmationAction) {
-                Button(actionTitle) { submit() }
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if isSubmitting {
+                    ProgressView()
+                } else {
+                    Button(actionTitle) { submit() }
+                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
             }
         }
         #if os(iOS)
@@ -100,8 +138,21 @@ struct TextInputView: View {
 
     private func submit() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        dismiss()
-        onSubmit(trimmed)
+        guard !trimmed.isEmpty, !isSubmitting else { return }
+        isSubmitting = true
+
+        Task {
+            do {
+                try await onSubmit(trimmed)
+                await MainActor.run {
+                    dismiss()
+                    isSubmitting = false
+                }
+            } catch {
+                await MainActor.run {
+                    isSubmitting = false
+                }
+            }
+        }
     }
 }
