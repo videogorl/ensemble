@@ -100,6 +100,7 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - iPadOS and macOS always use their standard list/grid layouts for Songs, Albums, and Playlists. iPhone Songs, Albums, and Playlists can render StageFlow in landscape when their tab is active.
 - iOS orientation is portrait-locked by default and only unlocks landscape while `MainTabView` is on a StageFlow-capable tab.
 - `MainTabView` owns StageFlow activation and the single rotation-support token. Browse screens consume `EnvironmentValues.isStageFlowActive`; do not add per-screen `GeometryReader` rotation detection or per-screen `stageFlowRotationSupport(...)` calls.
+- Leaving a StageFlow-capable tab should unregister landscape support immediately. Do not add delayed orientation unregisters; unsupported tabs can otherwise remain briefly in landscape and lay out root chrome/mini-player in the wrong coordinate space.
 - Large mini-player layouts with waveform should expose Previous, Play/Pause, Next, and a row-style ellipsis menu. Compact mini-player layouts keep the simpler Play/Pause + Next controls. On iPadOS, use a plain popover anchored to the ellipsis so the mini-player remains visible behind the menu. On macOS, host the menu with an AppKit `NSButton`/`NSMenu` so the control does not show a pull-down chevron.
 
 ### Large-Screen Browse Surfaces

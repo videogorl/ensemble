@@ -59,8 +59,6 @@ extension AppDelegate {
         }
 
         if change.isEnabled {
-            cancelPendingStageFlowRotationDisable(reason: "re-registered \(change.source)")
-
             let hadActiveSupport = !stageFlowRotationSupportTokens.isEmpty
             let wasInserted = stageFlowRotationSupportTokens.insert(change.token).inserted
             AppLogger.debug(
@@ -80,52 +78,19 @@ extension AppDelegate {
             return
         }
 
-        guard stageFlowRotationSupportTokens.count == 1 else {
-            stageFlowRotationSupportTokens.remove(change.token)
-            AppLogger.debug(
-                "📱 AppDelegate: StageFlow rotation unregistered source=\(change.source) token=\(change.token.uuidString) activeTokens=\(stageFlowRotationSupportTokens.count)"
-            )
-            return
-        }
+        let hadActiveSupport = !stageFlowRotationSupportTokens.isEmpty
+        stageFlowRotationSupportTokens.remove(change.token)
+        AppLogger.debug(
+            "📱 AppDelegate: StageFlow rotation unregistered source=\(change.source) token=\(change.token.uuidString) activeTokens=\(stageFlowRotationSupportTokens.count)"
+        )
 
-        scheduleStageFlowRotationDisable(for: change)
+        if hadActiveSupport && stageFlowRotationSupportTokens.isEmpty {
+            refreshSupportedOrientations(reason: "unregister \(change.source)")
+        }
     }
 
     private var currentSupportedInterfaceOrientations: UIInterfaceOrientationMask {
         stageFlowRotationSupportTokens.isEmpty ? .portrait : .allButUpsideDown
-    }
-
-    private func scheduleStageFlowRotationDisable(
-        for change: AppOrientationNotifications.StageFlowRotationSupportChange
-    ) {
-        cancelPendingStageFlowRotationDisable(reason: "rescheduled by \(change.source)")
-
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            guard self.stageFlowRotationSupportTokens.remove(change.token) != nil else { return }
-
-            self.pendingStageFlowRotationDisable = nil
-            AppLogger.debug(
-                "📱 AppDelegate: StageFlow rotation unregistered source=\(change.source) token=\(change.token.uuidString) activeTokens=\(self.stageFlowRotationSupportTokens.count)"
-            )
-            self.refreshSupportedOrientations(reason: "unregister \(change.source)")
-        }
-
-        pendingStageFlowRotationDisable = (change.token, change.source, workItem)
-        AppLogger.debug(
-            "📱 AppDelegate: Scheduling StageFlow rotation unregister source=\(change.source) token=\(change.token.uuidString) in \(stageFlowRotationDisableDelay)s"
-        )
-        DispatchQueue.main.asyncAfter(deadline: .now() + stageFlowRotationDisableDelay, execute: workItem)
-    }
-
-    private func cancelPendingStageFlowRotationDisable(reason: String) {
-        guard let pendingStageFlowRotationDisable else { return }
-
-        pendingStageFlowRotationDisable.workItem.cancel()
-        self.pendingStageFlowRotationDisable = nil
-        AppLogger.debug(
-            "📱 AppDelegate: Cancelled pending StageFlow rotation unregister source=\(pendingStageFlowRotationDisable.source) token=\(pendingStageFlowRotationDisable.token.uuidString) reason=\(reason)"
-        )
     }
 
     private func refreshSupportedOrientations(reason: String) {

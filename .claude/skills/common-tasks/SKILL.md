@@ -69,6 +69,7 @@ When adding or changing a StageFlow-capable browse screen:
 1. Add the tab to `MainTabView.selectedTabSupportsStageFlow` if it should unlock landscape.
 2. Keep playback resolution and `StageFlowTrackPanel` ownership in the browse screen.
 3. Do not add screen-local `GeometryReader` landscape detection, rotation delay timers, or `stageFlowRotationSupport(...)`; those recreate the presenter during sheet/keyboard flows.
+4. Do not delay root orientation unregister when the selected tab stops supporting StageFlow; unsupported tabs should return to portrait immediately so custom root chrome is not laid out in transient landscape.
 
 ## Adding a New Now Playing Panel/Card
 
