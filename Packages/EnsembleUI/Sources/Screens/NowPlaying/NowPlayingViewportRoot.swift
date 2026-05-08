@@ -401,12 +401,6 @@ private struct MacNowPlayingChromeCoordinatorBridge: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             coordinator?.apply(to: window)
-            DispatchQueue.main.async { [weak self] in
-                self?.coordinator?.apply(to: self?.window)
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                self?.coordinator?.apply(to: self?.window)
-            }
         }
 
         override func viewDidMoveToSuperview() {
