@@ -401,7 +401,7 @@ Sources/
 |   +-- MiniPlayerContainer.swift    # Root mini-player overlay container
 |   +-- MiniPlayerGestures.swift     # Phone mini-player vertical/open and horizontal prev/next swipe modifiers
 +-- NowPlaying/                      # Now Playing cards, carousel, queue, lyrics, page indicator
-+-- StageFlow/                       # iPhone landscape StageFlow experience
++-- StageFlow/                       # iPhone landscape StageFlow experience used by remaining Songs/Playlists roots
 +-- Aurora/                          # Aurora background and Metal/Canvas renderers
 +-- Sheets/                          # Shared sheets and macOS auxiliary sheet/window scaffolds
 |   +-- TextInputView.swift          # Shared short text-entry sheet for rename/edit-name flows, including async metadata saves

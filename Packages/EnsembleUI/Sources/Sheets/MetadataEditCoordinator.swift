@@ -23,21 +23,22 @@ enum MetadataEditItemKind {
 }
 
 @MainActor
-final class ContextMenuMetadataEditorCoordinator: ObservableObject {
-    struct Request: Identifiable {
-        let id = UUID()
-        let kind: MetadataEditItemKind
-        let currentTitle: String
-        let onSave: (String) async throws -> Void
-    }
+struct ContextMenuMetadataEditorRequest: Identifiable {
+    let id = UUID()
+    let kind: MetadataEditItemKind
+    let currentTitle: String
+    let onSave: (String) async throws -> Void
+}
 
-    @Published var request: Request?
+@MainActor
+final class ContextMenuMetadataEditorCoordinator: ObservableObject {
+    @Published var request: ContextMenuMetadataEditorRequest?
 
     func present(
         kind: MetadataEditItemKind,
         currentTitle: String,
         onSave: @escaping (String) async throws -> Void
     ) {
-        request = Request(kind: kind, currentTitle: currentTitle, onSave: onSave)
+        request = ContextMenuMetadataEditorRequest(kind: kind, currentTitle: currentTitle, onSave: onSave)
     }
 }

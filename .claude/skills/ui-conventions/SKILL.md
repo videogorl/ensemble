@@ -46,12 +46,12 @@ These are core design decisions that must be maintained throughout the app.
 - Reserve `keyboardSafeEditorPresentation(...)` for the few remaining root-owned presenters that are still intentionally isolated, such as the pinned/sidebar playlist rename presenters in `MainTabView` and any shared/root presenter that has not yet been revalidated with a normal sheet.
 - On iPhone, that helper still uses `fullScreenCover` so the presenting root container stays out of the keyboard layout pass when isolation is actually required.
 - Root tab shells should own keyboard/search avoidance decisions. Child detail views should not inherit an active search or keyboard presenter from an offscreen tab.
-- Context-menu metadata editors route their root request through `ContextMenuMetadataEditorCoordinator`, present as a normal `.sheet`, and reuse `TextInputView` for the keyboard-heavy text field. If the presenting album/detail screen's own chrome causes a logged loop, suppress only that presenter's navigation/search chrome while the coordinator has an active request. Do not add per-call-site dismissal delays.
+- Context-menu metadata editors present as normal `.sheet` flows and reuse `TextInputView` for the keyboard-heavy text field. Album card/grid context menus own their metadata sheet locally, matching their add-to-playlist and delete presenters. Detail/card surfaces that still need a shared root presenter may route through `ContextMenuMetadataEditorCoordinator`, but library/grid screens must not observe that root request just to hide or restore their own navigation/search chrome; interactive sheet dismissal with a focused keyboard can then race UIKit's navigation-bar updates and recreate the iOS 26 feedback loop.
 - Profile should present as a normal sheet again on iPhone.
 - Profile and Downloads should use the same single-column rhythm on macOS auxiliary windows as they do on iOS sheets. Host them through `MacAuxiliaryWindowScaffold` at about 420pt max width, and compose macOS content with `EnsembleUtilityScreenScaffold`/`EnsembleUtilityCardSection` instead of raw `List` rows when the screen is menu-like.
 - Do not pre-hide root tab, mini-player, or searchable-header chrome for the entire auxiliary transition; suppress parent chrome only for actual immersive modes, the remaining explicitly-isolated keyboard presenters, or a proved local-presenter conflict such as Playlists hiding its own searchable/navigation chrome while create/rename/edit sheets are active.
 - The helper owns keyboard-editor registration timing; do not duplicate `beginKeyboardEditorPresentation()` or `endKeyboardEditorPresentation()` inside the editor view itself
-- Keyboard editors can use a local `NavigationStack`/`NavigationView` plus system toolbar actions for a native look whether they are hosted in a normal sheet or one of the remaining isolated presenters.
+- Short iPhone text editors should avoid wrapping a single focused text field in a `NavigationStack`/`NavigationView`; on iOS 26 that sheet-local navigation bar can enter the same `NavigationBarContentView` feedback loop when the software keyboard appears. Use the shared `TextInputView` plain header + `Form` composition for short text entry. Larger editors that genuinely need navigation can still own a navigation container.
 - For modal text-input flows with explicit Done/Cancel actions, prefer direct native dismissal. Do not add keyboard delays or focus choreography unless a current simulator/hardware repro proves native dismissal is broken.
 
 **NestedNavigationLink Pattern** (in `MainTabView.swift`):
@@ -97,9 +97,9 @@ if #available(iOS 16.0, macOS 13.0, *) {
 
 ### CoverFlow + Rotation Policy
 - CoverFlow is **iPhone-only** (`UIDevice.current.userInterfaceIdiom == .phone`), even though iPad shares `os(iOS)`.
-- iPadOS and macOS always use their standard list/grid layouts for Songs, Albums, and Playlists.
+- iPadOS and macOS always use their standard list/grid layouts for Songs, Albums, and Playlists. The iPhone Albums library also stays on the standard native grid; do not reintroduce Album StageFlow or Album root rotation registration without dedicated simulator proof around context-menu metadata sheets and keyboard dismissal.
 - iOS orientation is portrait-locked by default and only unlocks landscape while a CoverFlow-capable root view is active.
-- StageFlow rotation support is registered with a per-view token and the app delays the final unregister briefly, so SwiftUI view recreation during rotation does not snap the app back to portrait.
+- StageFlow rotation support is still used by the remaining StageFlow roots and is registered with a per-view token; keep it away from ordinary sheet-heavy browse grids where native portrait presentation should own the behavior.
 - Large mini-player layouts with waveform should expose Previous, Play/Pause, Next, and a row-style ellipsis menu. Compact mini-player layouts keep the simpler Play/Pause + Next controls. On iPadOS, use a plain popover anchored to the ellipsis so the mini-player remains visible behind the menu. On macOS, host the menu with an AppKit `NSButton`/`NSMenu` so the control does not show a pull-down chevron.
 
 ### Large-Screen Browse Surfaces

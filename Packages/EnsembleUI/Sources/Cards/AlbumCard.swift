@@ -136,8 +136,8 @@ public struct AlbumGrid: View {
     let layout: AlbumCardLayoutMetrics
 
     @Environment(\.dependencies) private var deps
-    @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
     @State private var pendingAlbumDeletion: Album?
 
     public init(
@@ -202,6 +202,16 @@ public struct AlbumGrid: View {
             }
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .sheet(item: $metadataEditorRequest) { request in
+            TextInputView(
+                title: request.kind.title,
+                message: "Changes are sent directly to Plex and then refreshed locally.",
+                placeholder: request.kind.fieldLabel,
+                initialText: request.currentTitle,
+                actionTitle: "Save",
+                onSubmit: request.onSave
+            )
+        }
         .confirmationDialog(
             "Delete Album?",
             isPresented: Binding(
@@ -228,7 +238,7 @@ public struct AlbumGrid: View {
     }
 
     private func presentAlbumMetadataEditor(_ album: Album) {
-        contextMenuMetadataEditorCoordinator.present(
+        metadataEditorRequest = ContextMenuMetadataEditorRequest(
             kind: .album,
             currentTitle: album.title
         ) { newTitle in

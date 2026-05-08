@@ -1,24 +1,15 @@
 import EnsembleCore
 import SwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
-    @Environment(\.dependencies) private var deps
     @State private var showFilterSheet = false
-    @State private var selectedAlbum: Album?
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedAlbumSections: [AlbumSection] = []
     // Monotonic token to drop stale async section computations.
     @State private var albumSectionComputationToken: Int = 0
-    // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
-    @State private var isStageFlowActive = false
-    @State private var latestContainerSize: CGSize = .zero
     public init(
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel
@@ -31,18 +22,6 @@ public struct AlbumsView: View {
     private var availableArtists: [String] {
         let artists = libraryVM.albums.compactMap { $0.artistName }
         return Array(Set(artists))
-    }
-
-    private var supportsStageFlow: Bool {
-        #if os(iOS)
-        UIDevice.current.userInterfaceIdiom == .phone
-        #else
-        false
-        #endif
-    }
-
-    private var isPresenterChromeHidden: Bool {
-        isStageFlowActive || contextMenuMetadataEditorCoordinator.request != nil
     }
 
     private var albumFilterButton: some View {
@@ -87,128 +66,62 @@ public struct AlbumsView: View {
                 loadingView
             } else if libraryVM.albums.isEmpty {
                 emptyView
-            } else if isStageFlowActive {
-                landscapeStageFlowView
             } else {
                 albumGridView
             }
         }
-        // Lightweight GeometryReader overlay — only updates @State isStageFlowActive
-        // instead of re-evaluating the entire body on every geometry change
-        .background(
-            GeometryReader { geometry in
-                Color.clear
-                    .onAppear {
-                        let active = supportsStageFlow && geometry.size.width > geometry.size.height
-                        if active != isStageFlowActive {
-                            latestContainerSize = geometry.size
-                            isStageFlowActive = active
-                        }
-                    }
-                    .onChange(of: geometry.size) { newSize in
-                        let shouldBeActive = supportsStageFlow && newSize.width > newSize.height
-                        guard shouldBeActive != isStageFlowActive else { return }
-
-                        latestContainerSize = newSize
-                        if shouldBeActive && !isStageFlowActive {
-                            isStageFlowActive = true
-                        } else if !shouldBeActive && isStageFlowActive {
-                            #if os(iOS)
-                            if #available(iOS 16.0, *) {
-                                isStageFlowActive = false
-                            } else {
-                                // iOS 15: delay exit to let rotation animation complete
-                                // before switching the view tree, preventing NavigationView
-                                // layout hangs from simultaneous nav bar + content changes.
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    if latestContainerSize.width < latestContainerSize.height {
-                                        isStageFlowActive = false
-                                    }
-                                }
-                            }
-                            #else
-                            isStageFlowActive = false
-                            #endif
-                        }
-                    }
-            }
-        )
-            .hideTabBarIfAvailable(isHidden: isPresenterChromeHidden)
-            .stageFlowRotationSupport(isEnabled: supportsStageFlow)
-            .stageFlowImmersiveMode(isActive: isPresenterChromeHidden)
-            #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isPresenterChromeHidden)
-            .navigationBarHidden(isPresenterChromeHidden)
-            .if(isPresenterChromeHidden) { view in
-                if #available(iOS 16.0, *) {
-                    view.toolbar(.hidden, for: .navigationBar)
-                } else {
-                    view
-                }
-            }
-            .statusBar(hidden: isStageFlowActive)
-            #endif
-            .navigationTitle(isPresenterChromeHidden ? "" : "Albums")
-            .if(!isPresenterChromeHidden) { view in
-                view.searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
-            }
-            .refreshable {
-                await libraryVM.refreshFromServer()
-            }
+        .navigationTitle("Albums")
+        .searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
+        .refreshable {
+            await libraryVM.refreshFromServer()
+        }
         .profileToolbar()
-                .toolbar {
-            EnsembleBrowseToolbar(isVisible: !libraryVM.albums.isEmpty && !isPresenterChromeHidden) {
+        .toolbar {
+            EnsembleBrowseToolbar(isVisible: !libraryVM.albums.isEmpty) {
                 albumFilterButton
                 albumSortMenu
             }
         }
-            .onReceive(libraryVM.$filteredAlbums) { albums in
-                // Compute sections off main thread to avoid blocking UI during search
-                let sortOption = libraryVM.albumSortOption
-                let oldSections = cachedAlbumSections
-                albumSectionComputationToken += 1
-                let token = albumSectionComputationToken
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let newSections = Self.computeAlbumSections(albums: albums, sortOption: sortOption)
-                    guard !Self.sectionsEqual(oldSections, newSections) else { return }
-                    DispatchQueue.main.async {
-                        guard token == albumSectionComputationToken else { return }
-                        cachedAlbumSections = newSections
-                    }
+        .onReceive(libraryVM.$filteredAlbums) { albums in
+            // Compute sections off main thread to avoid blocking UI during search
+            let sortOption = libraryVM.albumSortOption
+            let oldSections = cachedAlbumSections
+            albumSectionComputationToken += 1
+            let token = albumSectionComputationToken
+            DispatchQueue.global(qos: .userInitiated).async {
+                let newSections = Self.computeAlbumSections(albums: albums, sortOption: sortOption)
+                guard !Self.sectionsEqual(oldSections, newSections) else { return }
+                DispatchQueue.main.async {
+                    guard token == albumSectionComputationToken else { return }
+                    cachedAlbumSections = newSections
                 }
             }
-            .onReceive(libraryVM.$albumSortOption) { sortOption in
-                let albums = libraryVM.filteredAlbums
-                let oldSections = cachedAlbumSections
-                albumSectionComputationToken += 1
-                let token = albumSectionComputationToken
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let newSections = Self.computeAlbumSections(albums: albums, sortOption: sortOption)
-                    guard !Self.sectionsEqual(oldSections, newSections) else { return }
-                    DispatchQueue.main.async {
-                        guard token == albumSectionComputationToken else { return }
-                        cachedAlbumSections = newSections
-                    }
+        }
+        .onReceive(libraryVM.$albumSortOption) { sortOption in
+            let albums = libraryVM.filteredAlbums
+            let oldSections = cachedAlbumSections
+            albumSectionComputationToken += 1
+            let token = albumSectionComputationToken
+            DispatchQueue.global(qos: .userInitiated).async {
+                let newSections = Self.computeAlbumSections(albums: albums, sortOption: sortOption)
+                guard !Self.sectionsEqual(oldSections, newSections) else { return }
+                DispatchQueue.main.async {
+                    guard token == albumSectionComputationToken else { return }
+                    cachedAlbumSections = newSections
                 }
             }
-            .ensembleFilterPresentation(isPresented: $showFilterSheet) {
-                FilterSheet(
-                    filterOptions: $libraryVM.albumsFilterOptions,
-                    availableArtists: availableArtists,
-                    availableGenres: libraryVM.availableAlbumGenres,
-                    showYearFilter: true,
-                    showArtistFilter: true,
-                    showGenreFilter: true,
-                    showHideSingles: true
-                )
-            }
-    }
-
-    /// StageFlow carousel for landscape mode.
-    /// Nav bar and status bar hiding are applied at the outer Group level
-    /// so SwiftUI diffs a parameter change rather than a view tree swap.
-    private var landscapeStageFlowView: some View {
-        stageFlowView
+        }
+        .ensembleFilterPresentation(isPresented: $showFilterSheet) {
+            FilterSheet(
+                filterOptions: $libraryVM.albumsFilterOptions,
+                availableArtists: availableArtists,
+                availableGenres: libraryVM.availableAlbumGenres,
+                showYearFilter: true,
+                showArtistFilter: true,
+                showGenreFilter: true,
+                showHideSingles: true
+            )
+        }
     }
 
     private var loadingView: some View {
@@ -335,39 +248,6 @@ public struct AlbumsView: View {
 
     private func sectionHeader(_ letter: String) -> some View {
         EnsembleBrowseSectionHeader(letter)
-    }
-    
-    private var stageFlowView: some View {
-        StageFlowView(
-            items: libraryVM.filteredAlbums,
-            nowPlayingVM: nowPlayingVM,
-            itemView: { album in
-                StageFlowItemView(album: album)
-            },
-            detailView: { selectedAlbum in
-                StageFlowTrackPanel(
-                    contentType: .album(id: selectedAlbum.id, sourceCompositeKey: selectedAlbum.sourceCompositeKey),
-                    nowPlayingVM: nowPlayingVM
-                )
-            },
-            titleContent: { $0.title },
-            subtitleContent: { $0.artistName },
-            resolvePlaybackTracks: { album in
-                await resolveStageFlowTracks(for: album)
-            },
-            selectedItem: $selectedAlbum
-        )
-    }
-
-    private func resolveStageFlowTracks(for album: Album) async -> [Track] {
-        let cachedTracks: [CDTrack]
-        if let sourceCompositeKey = album.sourceCompositeKey {
-            cachedTracks = (try? await deps.libraryRepository.fetchTracks(forAlbum: album.id, sourceCompositeKey: sourceCompositeKey)) ?? []
-        } else {
-            cachedTracks = (try? await deps.libraryRepository.fetchTracks(forAlbum: album.id)) ?? []
-        }
-
-        return cachedTracks.map { Track(from: $0) }
     }
 }
 

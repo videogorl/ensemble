@@ -49,11 +49,62 @@ struct TextInputView: View {
     }
 
     var body: some View {
+        #if os(iOS)
+        iOSContent
+            .onAppear {
+                text = initialText
+            }
+            .onDisappear {
+                isFocused = false
+            }
+        #else
         navigationContainer
             .onAppear {
                 text = initialText
             }
+        #endif
     }
+
+    #if os(iOS)
+    private var iOSContent: some View {
+        VStack(spacing: 0) {
+            editorHeader
+
+            Form {
+                compactFormRows
+            }
+        }
+    }
+
+    private var editorHeader: some View {
+        ZStack {
+            Text(title)
+                .font(.headline)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
+
+            HStack {
+                Button("Cancel") {
+                    isFocused = false
+                    dismiss()
+                }
+                .disabled(isSubmitting)
+
+                Spacer()
+
+                if isSubmitting {
+                    ProgressView()
+                } else {
+                    Button(actionTitle) { submit() }
+                        .font(.body.weight(.semibold))
+                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .padding(.horizontal, EnsembleDesign.Spacing.lg)
+        .padding(.vertical, EnsembleDesign.Spacing.md)
+        .background(.bar)
+    }
+    #endif
 
     @ViewBuilder
     private var navigationContainer: some View {
@@ -94,7 +145,10 @@ struct TextInputView: View {
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
+                Button("Cancel") {
+                    isFocused = false
+                    dismiss()
+                }
                     .disabled(isSubmitting)
             }
 
@@ -145,6 +199,7 @@ struct TextInputView: View {
             do {
                 try await onSubmit(trimmed)
                 await MainActor.run {
+                    isFocused = false
                     dismiss()
                     isSubmitting = false
                 }
