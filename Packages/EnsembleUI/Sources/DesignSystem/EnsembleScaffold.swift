@@ -388,6 +388,8 @@ public enum EnsembleScaffold {
         public static let metadataSpacing = EnsembleDesign.Spacing.sm
         public static let actionTopPadding = EnsembleDesign.Spacing.xs
         public static let headerPadding = EnsembleDesign.Spacing.lg
+        public static let macWideHeaderTopDragRegion: CGFloat = 48
+        public static let macWideHeaderBottomPadding = EnsembleDesign.Spacing.xxl
         public static let actionVerticalPadding = EnsembleDesign.Spacing.md
         public static let actionCornerRadius = EnsembleDesign.Radius.control
         public static let compactActionFont = EnsembleDesign.Typography.actionLabel

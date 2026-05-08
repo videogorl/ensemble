@@ -26,6 +26,13 @@ struct MacNativeTrackTableView: NSViewRepresentable {
 
     @Environment(\.dependencies) private var dependencies
 
+    static func deterministicWideHeaderHeight(tableHeaderExtraHeight: CGFloat) -> CGFloat {
+        ArtworkSize.medium.cgSize.height
+            + EnsembleScaffold.DetailSurface.macWideHeaderTopDragRegion
+            + EnsembleScaffold.DetailSurface.macWideHeaderBottomPadding
+            + tableHeaderExtraHeight
+    }
+
     func makeNSView(context: Context) -> NSScrollView {
         let tableView = MacNativeContextMenuTableView()
         tableView.headerView = nil
@@ -103,6 +110,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 guard row < context.coordinator.rows.count else { return }
                 let view = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
                 context.coordinator.configure(view: view, row: row)
+                context.coordinator.configureHostingView(view, row: row, in: tableView)
             }
         }
 
@@ -250,7 +258,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             if case .section = rows[row] { return 40 }
             if case let .bottomSpacer(height) = rows[row] { return height }
             if case .header = rows[row], let tableHeaderContent {
-                return headerHeight(for: tableHeaderContent, width: tableView.bounds.width)
+                return headerHeight(for: tableHeaderContent, in: tableView)
             }
             if case .footer = rows[row], let tableFooterContent {
                 return hostingHeight(for: tableFooterContent, width: tableView.bounds.width)
@@ -262,7 +270,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             let indexes = rows.enumerated().reduce(into: IndexSet()) { result, element in
                 switch element.element {
                 case .header:
-                    if tableView.bounds.width < EnsembleScaffold.DetailSurface.wideHeaderThreshold {
+                    if shouldInvalidateHeaderHeight(in: tableView, row: element.offset) {
                         result.insert(element.offset)
                     }
                 case .footer, .bottomSpacer:
@@ -294,7 +302,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 let view = tableView.makeView(withIdentifier: .hostingRow, owner: self) as? MacNativeTrackHostingCell
                     ?? MacNativeTrackHostingCell()
                 view.identifier = .hostingRow
-                view.configure(rootView: headerRootView(tableHeaderContent, width: tableView.bounds.width))
+                view.configure(rootView: headerRootView(tableHeaderContent, width: effectiveTableWidth(tableView)))
                 return view
             case let .section(_, title):
                 let view = tableView.makeView(withIdentifier: .sectionHeader, owner: self) as? MacNativeTrackSectionCell
@@ -353,6 +361,22 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                     self?.makeMenu(for: track, globalIndex: globalIndex, resolvedActions: resolvedActions)
                 }
             )
+        }
+
+        func configureHostingView(_ view: NSView?, row: Int, in tableView: NSTableView) {
+            guard row < rows.count,
+                  let view = view as? MacNativeTrackHostingCell else { return }
+
+            switch rows[row] {
+            case .header:
+                guard let tableHeaderContent else { return }
+                view.configure(rootView: headerRootView(tableHeaderContent, width: effectiveTableWidth(tableView)))
+            case .footer:
+                guard let tableFooterContent else { return }
+                view.configure(rootView: tableFooterContent)
+            case .section, .track, .bottomSpacer:
+                return
+            }
         }
 
         @objc func tableClicked(_ sender: NSTableView) {
@@ -434,15 +458,38 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             return max(1, hostingView.fittingSize.height)
         }
 
-        private func headerHeight(for rootView: AnyView, width: CGFloat) -> CGFloat {
-            let wideHeaderHeight = ArtworkSize.medium.cgSize.height
-                + (EnsembleScaffold.DetailSurface.headerPadding * 2)
-                + tableHeaderExtraHeight
-            guard width < EnsembleScaffold.DetailSurface.wideHeaderThreshold else {
+        private func headerHeight(for rootView: AnyView, in tableView: NSTableView) -> CGFloat {
+            let width = effectiveTableWidth(tableView)
+            let wideHeaderHeight = MacNativeTrackTableView.deterministicWideHeaderHeight(
+                tableHeaderExtraHeight: tableHeaderExtraHeight
+            )
+            guard width > 1, width < EnsembleScaffold.DetailSurface.wideHeaderThreshold else {
                 return wideHeaderHeight
             }
 
             return hostingHeight(for: headerRootView(rootView, width: width), width: width)
+        }
+
+        private func shouldInvalidateHeaderHeight(in tableView: NSTableView, row: Int) -> Bool {
+            let width = effectiveTableWidth(tableView)
+            guard width >= EnsembleScaffold.DetailSurface.wideHeaderThreshold else {
+                return true
+            }
+
+            let expectedHeight = MacNativeTrackTableView.deterministicWideHeaderHeight(
+                tableHeaderExtraHeight: tableHeaderExtraHeight
+            )
+            let currentHeight = tableView.rect(ofRow: row).height
+            return currentHeight <= 1 || abs(currentHeight - expectedHeight) > 0.5
+        }
+
+        private func effectiveTableWidth(_ tableView: NSTableView) -> CGFloat {
+            let measuredWidth = max(
+                tableView.bounds.width,
+                tableView.enclosingScrollView?.contentView.bounds.width ?? 0,
+                tableView.enclosingScrollView?.bounds.width ?? 0
+            )
+            return measuredWidth > 1 ? measuredWidth : EnsembleScaffold.DetailSurface.wideHeaderThreshold
         }
 
         private func headerRootView(_ rootView: AnyView, width: CGFloat) -> AnyView {

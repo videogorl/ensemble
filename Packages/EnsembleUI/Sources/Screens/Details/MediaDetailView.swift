@@ -715,7 +715,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// embedded as the table's `tableHeaderView`. This lets the album art and action buttons
     /// scroll naturally with the track list while preserving UIKit cell recycling.
     private var baseContent: some View {
-        MediaDetailSurface(artworkImage: artworkImage) {
+        MediaDetailSurface(
+            artworkImage: artworkImage,
+            macWindowDragRegionHeight: detailWindowDragRegionHeight
+        ) {
             #if os(iOS)
             // Always use MediaTrackList (UITableView), even with 0 tracks.
             // Loading/empty indicators are shown via tableFooterContent.
@@ -738,6 +741,15 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
     }
+
+    private var detailWindowDragRegionHeight: CGFloat {
+        #if os(macOS)
+        EnsembleScaffold.DetailSurface.macWideHeaderTopDragRegion
+        #else
+        EnsembleDesign.Spacing.none
+        #endif
+    }
+
     private func loadArtworkImage(path: String, sourceKey: String?) async {
         await MainActor.run {
             self.currentLoadPath = path
@@ -1069,6 +1081,18 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         genreChipContent == nil ? 0 : EnsembleScaffold.Chip.barHeight + (EnsembleDesign.Spacing.sm * 2)
     }
 
+    private var macTableHeaderTopPadding: CGFloat {
+        EnsembleScaffold.DetailSurface.macWideHeaderTopDragRegion
+    }
+
+    private var macTableHeaderBottomPadding: CGFloat {
+        EnsembleScaffold.DetailSurface.macWideHeaderBottomPadding
+    }
+
+    private var macTableHeaderTopContentVerticalPadding: CGFloat {
+        genreChipContent == nil ? 0 : EnsembleDesign.Spacing.sm
+    }
+
     private var macDiscTrackGroups: [(disc: Int?, tracks: [(offset: Int, element: Track)])] {
         let indexedTracks = Array(viewModel.filteredTracks.enumerated())
         guard groupByDisc else {
@@ -1096,6 +1120,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var tableHeaderForTrackList: some View {
         MediaDetailSurface<EmptyView>.Header(
             artworkWidth: ArtworkSize.medium.cgSize.width,
+            topPadding: macTableHeaderTopPadding,
+            bottomPadding: macTableHeaderBottomPadding,
+            topContentVerticalPadding: macTableHeaderTopContentVerticalPadding,
             topContent: {
                 if let genreChipContent {
                     genreChipContent

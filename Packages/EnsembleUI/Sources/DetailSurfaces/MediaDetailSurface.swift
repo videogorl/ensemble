@@ -1,5 +1,9 @@
 import SwiftUI
 
+#if os(macOS)
+import AppKit
+#endif
+
 private struct NativeTrackListHeaderWidthKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
 }
@@ -22,13 +26,16 @@ extension View {
 /// header layout and list-card styling aligned across detail variants.
 struct MediaDetailSurface<Content: View>: View {
     let artworkImage: UIImage?
+    let macWindowDragRegionHeight: CGFloat
     @ViewBuilder private let content: () -> Content
 
     init(
         artworkImage: UIImage?,
+        macWindowDragRegionHeight: CGFloat = 0,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.artworkImage = artworkImage
+        self.macWindowDragRegionHeight = macWindowDragRegionHeight
         self.content = content
     }
 
@@ -38,6 +45,15 @@ struct MediaDetailSurface<Content: View>: View {
                 .ignoresSafeArea()
 
             content()
+
+            #if os(macOS)
+            if macWindowDragRegionHeight > 0 {
+                MacWindowDragRegion()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: macWindowDragRegionHeight)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+            #endif
         }
     }
 }
@@ -565,6 +581,10 @@ extension MediaDetailSurface {
 
         private let wideLayoutThreshold: CGFloat
         private let artworkWidth: CGFloat
+        private let horizontalPadding: CGFloat
+        private let topPadding: CGFloat
+        private let bottomPadding: CGFloat
+        private let topContentVerticalPadding: CGFloat
         @ViewBuilder private let topContent: () -> TopContent
         @ViewBuilder private let artwork: () -> Artwork
         private let metadata: (HorizontalAlignment) -> Metadata
@@ -574,6 +594,11 @@ extension MediaDetailSurface {
         init(
             wideLayoutThreshold: CGFloat = EnsembleScaffold.DetailSurface.wideHeaderThreshold,
             artworkWidth: CGFloat,
+            horizontalPadding: CGFloat = EnsembleScaffold.DetailSurface.headerPadding,
+            verticalPadding: CGFloat = EnsembleScaffold.DetailSurface.headerPadding,
+            topPadding: CGFloat? = nil,
+            bottomPadding: CGFloat? = nil,
+            topContentVerticalPadding: CGFloat = 0,
             @ViewBuilder topContent: @escaping () -> TopContent,
             @ViewBuilder artwork: @escaping () -> Artwork,
             metadata: @escaping (HorizontalAlignment) -> Metadata,
@@ -582,6 +607,10 @@ extension MediaDetailSurface {
         ) {
             self.wideLayoutThreshold = wideLayoutThreshold
             self.artworkWidth = artworkWidth
+            self.horizontalPadding = horizontalPadding
+            self.topPadding = topPadding ?? verticalPadding
+            self.bottomPadding = bottomPadding ?? verticalPadding
+            self.topContentVerticalPadding = topContentVerticalPadding
             self.topContent = topContent
             self.artwork = artwork
             self.metadata = metadata
@@ -591,7 +620,9 @@ extension MediaDetailSurface {
 
         var body: some View {
             VStack(spacing: EnsembleDesign.Spacing.none) {
+                topSpacer
                 topContent()
+                    .padding(.vertical, topContentVerticalPadding)
                 adaptiveBody
             }
             .background(
@@ -605,6 +636,15 @@ extension MediaDetailSurface {
                         }
                 }
             )
+        }
+
+        @ViewBuilder
+        private var topSpacer: some View {
+            if topPadding > 0 {
+                Color.clear
+                    .frame(maxWidth: .infinity)
+                    .frame(height: topPadding)
+            }
         }
 
         private var adaptiveBody: some View {
@@ -623,7 +663,8 @@ extension MediaDetailSurface {
                     artwork()
                     metadata(.center)
                 }
-                .padding(EnsembleScaffold.DetailSurface.headerPadding)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.bottom, bottomPadding)
 
                 compactActions()
             }
@@ -651,7 +692,8 @@ extension MediaDetailSurface {
                     }
                 )
             }
-            .padding(EnsembleScaffold.DetailSurface.headerPadding)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.bottom, bottomPadding)
         }
 
         private var effectiveContainerWidth: CGFloat {
@@ -663,7 +705,7 @@ extension MediaDetailSurface {
                 effectiveContainerWidth
                     - artworkWidth
                     - EnsembleScaffold.DetailSurface.wideHeaderSpacing
-                    - (EnsembleScaffold.DetailSurface.headerPadding * 2),
+                    - (horizontalPadding * 2),
                 1
             )
         }
@@ -706,3 +748,33 @@ extension View {
         ensembleArtworkShadow()
     }
 }
+
+#if os(macOS)
+/// Transparent AppKit hit target that lets hidden-titlebar detail windows move
+/// from the intentional empty band above media headers.
+private struct MacWindowDragRegion: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = WindowDragRegionView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.clear.cgColor
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private final class WindowDragRegionView: NSView {
+    override var mouseDownCanMoveWindow: Bool {
+        true
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, alphaValue > 0, bounds.contains(point) else { return nil }
+        return self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
+    }
+}
+#endif
