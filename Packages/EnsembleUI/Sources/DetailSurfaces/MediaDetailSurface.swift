@@ -1,9 +1,5 @@
 import SwiftUI
 
-#if os(macOS)
-import AppKit
-#endif
-
 private struct NativeTrackListHeaderWidthKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
 }
@@ -26,16 +22,13 @@ extension View {
 /// header layout and list-card styling aligned across detail variants.
 struct MediaDetailSurface<Content: View>: View {
     let artworkImage: UIImage?
-    let macWindowDragRegionHeight: CGFloat
     @ViewBuilder private let content: () -> Content
 
     init(
         artworkImage: UIImage?,
-        macWindowDragRegionHeight: CGFloat = 0,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.artworkImage = artworkImage
-        self.macWindowDragRegionHeight = macWindowDragRegionHeight
         self.content = content
     }
 
@@ -43,17 +36,9 @@ struct MediaDetailSurface<Content: View>: View {
         ZStack(alignment: .top) {
             ArtworkDetailBackground(image: artworkImage)
                 .ignoresSafeArea()
+                .allowsHitTesting(false)
 
             content()
-
-            #if os(macOS)
-            if macWindowDragRegionHeight > 0 {
-                MacWindowDragRegion()
-                    .frame(maxWidth: .infinity)
-                    .frame(height: macWindowDragRegionHeight)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            }
-            #endif
         }
     }
 }
@@ -748,33 +733,3 @@ extension View {
         ensembleArtworkShadow()
     }
 }
-
-#if os(macOS)
-/// Transparent AppKit hit target that lets hidden-titlebar detail windows move
-/// from the intentional empty band above media headers.
-private struct MacWindowDragRegion: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = WindowDragRegionView()
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.clear.cgColor
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
-}
-
-private final class WindowDragRegionView: NSView {
-    override var mouseDownCanMoveWindow: Bool {
-        true
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden, alphaValue > 0, bounds.contains(point) else { return nil }
-        return self
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
-    }
-}
-#endif

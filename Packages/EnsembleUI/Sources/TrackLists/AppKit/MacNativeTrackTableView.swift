@@ -28,7 +28,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
 
     static func deterministicWideHeaderHeight(tableHeaderExtraHeight: CGFloat) -> CGFloat {
         ArtworkSize.medium.cgSize.height
-            + EnsembleScaffold.DetailSurface.macWideHeaderTopDragRegion
+            + EnsembleScaffold.DetailSurface.macWideHeaderTopPadding
             + EnsembleScaffold.DetailSurface.macWideHeaderBottomPadding
             + tableHeaderExtraHeight
     }

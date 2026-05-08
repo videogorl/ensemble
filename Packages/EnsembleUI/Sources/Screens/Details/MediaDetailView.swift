@@ -715,10 +715,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// embedded as the table's `tableHeaderView`. This lets the album art and action buttons
     /// scroll naturally with the track list while preserving UIKit cell recycling.
     private var baseContent: some View {
-        MediaDetailSurface(
-            artworkImage: artworkImage,
-            macWindowDragRegionHeight: detailWindowDragRegionHeight
-        ) {
+        MediaDetailSurface(artworkImage: artworkImage) {
             #if os(iOS)
             // Always use MediaTrackList (UITableView), even with 0 tracks.
             // Loading/empty indicators are shown via tableFooterContent.
@@ -729,7 +726,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             #else
             VStack(spacing: EnsembleDesign.Spacing.none) {
                 tracksSection
-                    .ignoresSafeArea(.container, edges: .top)
                 Spacer(minLength: EnsembleDesign.Spacing.none)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -739,14 +735,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .navigationTitle("")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
-    }
-
-    private var detailWindowDragRegionHeight: CGFloat {
-        #if os(macOS)
-        EnsembleScaffold.DetailSurface.macWideHeaderTopDragRegion
-        #else
-        EnsembleDesign.Spacing.none
         #endif
     }
 
@@ -1082,7 +1070,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var macTableHeaderTopPadding: CGFloat {
-        EnsembleScaffold.DetailSurface.macWideHeaderTopDragRegion
+        EnsembleScaffold.DetailSurface.macWideHeaderTopPadding
     }
 
     private var macTableHeaderBottomPadding: CGFloat {
