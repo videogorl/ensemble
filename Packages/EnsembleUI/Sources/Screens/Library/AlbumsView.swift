@@ -11,8 +11,7 @@ public struct AlbumsView: View {
     @State private var selectedAlbum: Album?
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedAlbumSections: [AlbumSection] = []
-    // Monotonic token to drop stale async section computations.
-    @State private var albumSectionComputationToken: Int = 0
+
     public init(
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel
@@ -64,6 +63,11 @@ public struct AlbumsView: View {
     }
 
     public var body: some View {
+        let sectionInput = AlbumSectionComputationInput(
+            albums: libraryVM.filteredAlbums,
+            sortOption: libraryVM.albumSortOption
+        )
+
         Group {
             if libraryVM.isLoading && libraryVM.albums.isEmpty {
                 loadingView
@@ -100,34 +104,8 @@ public struct AlbumsView: View {
                 albumSortMenu
             }
         }
-        .onReceive(libraryVM.$filteredAlbums) { albums in
-            // Compute sections off main thread to avoid blocking UI during search
-            let sortOption = libraryVM.albumSortOption
-            let oldSections = cachedAlbumSections
-            albumSectionComputationToken += 1
-            let token = albumSectionComputationToken
-            DispatchQueue.global(qos: .userInitiated).async {
-                let newSections = Self.computeAlbumSections(albums: albums, sortOption: sortOption)
-                guard !Self.sectionsEqual(oldSections, newSections) else { return }
-                DispatchQueue.main.async {
-                    guard token == albumSectionComputationToken else { return }
-                    cachedAlbumSections = newSections
-                }
-            }
-        }
-        .onReceive(libraryVM.$albumSortOption) { sortOption in
-            let albums = libraryVM.filteredAlbums
-            let oldSections = cachedAlbumSections
-            albumSectionComputationToken += 1
-            let token = albumSectionComputationToken
-            DispatchQueue.global(qos: .userInitiated).async {
-                let newSections = Self.computeAlbumSections(albums: albums, sortOption: sortOption)
-                guard !Self.sectionsEqual(oldSections, newSections) else { return }
-                DispatchQueue.main.async {
-                    guard token == albumSectionComputationToken else { return }
-                    cachedAlbumSections = newSections
-                }
-            }
+        .task(id: sectionInput) {
+            await updateAlbumSections(for: sectionInput)
         }
         .ensembleFilterPresentation(isPresented: $showFilterSheet) {
             FilterSheet(
@@ -170,13 +148,28 @@ public struct AlbumsView: View {
         }
     }
 
-    private struct AlbumSection: Identifiable {
+    private struct AlbumSection: Identifiable, Sendable {
         let letter: String
         let albums: [Album]
         var id: String { letter }
     }
 
-    private static func computeAlbumSections(albums: [Album], sortOption: AlbumSortOption) -> [AlbumSection] {
+    private struct AlbumSectionComputationInput: Equatable, Sendable {
+        let albums: [Album]
+        let sortOption: AlbumSortOption
+    }
+
+    private func updateAlbumSections(for input: AlbumSectionComputationInput) async {
+        let newSections = await Task.detached(priority: .userInitiated) {
+            Self.computeAlbumSections(albums: input.albums, sortOption: input.sortOption)
+        }.value
+
+        guard !Task.isCancelled else { return }
+        guard !Self.sectionsEqual(cachedAlbumSections, newSections) else { return }
+        cachedAlbumSections = newSections
+    }
+
+    nonisolated private static func computeAlbumSections(albums: [Album], sortOption: AlbumSortOption) -> [AlbumSection] {
         let groupingKey: (Album) -> String = { album in
             switch sortOption {
             case .title: return album.title.indexingLetter
@@ -192,7 +185,7 @@ public struct AlbumsView: View {
     }
 
     /// Fast equality check by letter + album IDs (avoids full Album equality)
-    private static func sectionsEqual(_ a: [AlbumSection], _ b: [AlbumSection]) -> Bool {
+    nonisolated private static func sectionsEqual(_ a: [AlbumSection], _ b: [AlbumSection]) -> Bool {
         guard a.count == b.count else { return false }
         for (sa, sb) in zip(a, b) {
             guard sa.letter == sb.letter, sa.albums.count == sb.albums.count else { return false }

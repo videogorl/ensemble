@@ -20,8 +20,6 @@ public struct ArtistsView: View {
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedArtistSections: [ArtistSection] = []
-    // Monotonic token to drop stale async section computations.
-    @State private var artistSectionComputationToken: Int = 0
     @State private var localSelectedArtist: Artist?
 
     public init(
@@ -37,6 +35,8 @@ public struct ArtistsView: View {
     }
 
     public var body: some View {
+        let sectionInput = ArtistSectionComputationInput(artists: libraryVM.filteredArtists)
+
         Group {
             if libraryVM.isLoading && libraryVM.artists.isEmpty {
                 loadingView
@@ -61,19 +61,8 @@ public struct ArtistsView: View {
                 artistSortMenu
             }
         }
-        .onReceive(libraryVM.$filteredArtists) { artists in
-            // Compute sections off main thread to avoid blocking UI during search
-            let oldSections = cachedArtistSections
-            artistSectionComputationToken += 1
-            let token = artistSectionComputationToken
-            DispatchQueue.global(qos: .userInitiated).async {
-                let newSections = Self.computeArtistSections(artists: artists)
-                guard !Self.sectionsEqual(oldSections, newSections) else { return }
-                DispatchQueue.main.async {
-                    guard token == artistSectionComputationToken else { return }
-                    cachedArtistSections = newSections
-                }
-            }
+        .task(id: sectionInput) {
+            await updateArtistSections(for: sectionInput)
         }
         .ensembleFilterPresentation(isPresented: $showFilterSheet) {
             FilterSheet(
@@ -255,20 +244,34 @@ public struct ArtistsView: View {
         }
     }
 
-    private struct ArtistSection: Identifiable {
+    private struct ArtistSection: Identifiable, Sendable {
         let letter: String
         let artists: [Artist]
         var id: String { letter }
     }
 
-    private static func computeArtistSections(artists: [Artist]) -> [ArtistSection] {
+    private struct ArtistSectionComputationInput: Equatable, Sendable {
+        let artists: [Artist]
+    }
+
+    private func updateArtistSections(for input: ArtistSectionComputationInput) async {
+        let newSections = await Task.detached(priority: .userInitiated) {
+            Self.computeArtistSections(artists: input.artists)
+        }.value
+
+        guard !Task.isCancelled else { return }
+        guard !Self.sectionsEqual(cachedArtistSections, newSections) else { return }
+        cachedArtistSections = newSections
+    }
+
+    nonisolated private static func computeArtistSections(artists: [Artist]) -> [ArtistSection] {
         let grouped = Dictionary(grouping: artists) { $0.name.indexingLetter }
         return grouped.map { ArtistSection(letter: $0.key, artists: $0.value) }
             .sorted { $0.letter < $1.letter }
     }
 
     /// Fast equality check by letter + artist IDs (avoids full Artist equality)
-    private static func sectionsEqual(_ a: [ArtistSection], _ b: [ArtistSection]) -> Bool {
+    nonisolated private static func sectionsEqual(_ a: [ArtistSection], _ b: [ArtistSection]) -> Bool {
         guard a.count == b.count else { return false }
         for (sa, sb) in zip(a, b) {
             guard sa.letter == sb.letter, sa.artists.count == sb.artists.count else { return false }
