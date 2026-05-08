@@ -3,16 +3,6 @@ import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
-/// Strategy for performing a sync operation
-public enum SyncStrategy {
-    /// Sync only items added/updated since last sync (fast)
-    case incremental
-    /// Sync all items from server (slow, comprehensive)
-    case full
-    /// Sync only hub data (Recently Added, etc.) - very fast
-    case hubsOnly
-}
-
 public struct PlaylistMutationResult: Sendable {
     public let addedCount: Int
     public let skippedCount: Int
