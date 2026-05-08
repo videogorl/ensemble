@@ -798,9 +798,6 @@ public struct MediaTrackList: UIViewRepresentable {
         // stale index paths against the new (possibly shorter) data — causing crashes.
         if tableView.window != nil && dataChanged {
             tableView.reloadData()
-            DispatchQueue.main.async {
-                EnsembleLogger.debug("MediaTrackList frame=\(tableView.frame) contentSize=\(tableView.contentSize) contentInset=\(tableView.contentInset) contentOffset=\(tableView.contentOffset) adjustedInset=\(tableView.adjustedContentInset) rows=\(self.tracks.count)")
-            }
         }
 
         // Update table header view size if needed (e.g., after initial width becomes available).
