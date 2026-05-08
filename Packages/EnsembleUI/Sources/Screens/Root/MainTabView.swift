@@ -224,7 +224,7 @@ public struct MainTabView: View {
                 ProfilePresentationContainer()
                     .accentColor(accentColor.color)
             }
-            .phoneSafeAuxiliaryPresentation(item: downloadsAuxiliaryBinding, onDismiss: {
+            .sheet(item: downloadsAuxiliaryBinding, onDismiss: {
                 navigationCoordinator.dismissAuxiliaryPresentation()
             }) { destination in
                 AuxiliaryPresentationView(destination: destination)
@@ -904,7 +904,7 @@ public struct SidebarView: View {
             ProfilePresentationContainer()
                 .accentColor(accentColor.color)
         }
-        .phoneSafeAuxiliaryPresentation(item: downloadsAuxiliaryBinding, onDismiss: {
+        .sheet(item: downloadsAuxiliaryBinding, onDismiss: {
             navigationCoordinator.dismissAuxiliaryPresentation()
         }) { destination in
             AuxiliaryPresentationView(destination: destination)

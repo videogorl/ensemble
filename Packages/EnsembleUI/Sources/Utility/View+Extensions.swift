@@ -199,25 +199,6 @@ public extension View {
         #endif
     }
 
-    /// Presents root auxiliary flows full-screen on iPhone when they still need
-    /// isolation from the underlying tab/navigation/search chrome.
-    @ViewBuilder
-    func phoneSafeAuxiliaryPresentation<Item: Identifiable, Content: View>(
-        item: Binding<Item?>,
-        onDismiss: (() -> Void)? = nil,
-        @ViewBuilder content: @escaping (Item) -> Content
-    ) -> some View {
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            self.fullScreenCover(item: item, onDismiss: onDismiss, content: content)
-        } else {
-            self.sheet(item: item, onDismiss: onDismiss, content: content)
-        }
-        #else
-        self.sheet(item: item, onDismiss: onDismiss, content: content)
-        #endif
-    }
-
     /// Apply a wiggle animation to the view, useful for edit modes
     func wiggle(isWiggling: Bool) -> some View {
         self.modifier(WiggleModifier(isWiggling: isWiggling))
