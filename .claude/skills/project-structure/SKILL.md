@@ -47,7 +47,6 @@ ensemble/
 |   |   +-- AppDelegate+BackgroundURLSession.swift # Background URLSession wakeup handoff for offline downloads
 |   |   +-- AppDelegate+Siri.swift # Siri intent/user-activity bridge and in-app playback execution
 |   |   +-- AppDelegate+SceneOrientation.swift # Background URLSession handoff, scene routing, StageFlow orientation policy
-|   |   +-- SpaceBarPlaybackShortcut.swift # iOS hardware keyboard space-bar playback shortcut
 |   |   +-- ExternalDisplaySceneDelegate.swift # UIWindowSceneDelegate for AirPlay screen mirroring external display
 |   |   +-- EnsembleAppShortcuts.swift # App Intents fallback entities/phrases for Siri album/playlist playback
 |   +-- Resources/

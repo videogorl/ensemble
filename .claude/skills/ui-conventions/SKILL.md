@@ -54,6 +54,7 @@ These are core design decisions that must be maintained throughout the app.
 - Short iPhone text editors should use the shared `TextInputView` native navigation container and toolbar. Do not reintroduce custom sheet headers or full-screen keyboard presenters unless a current simulator/hardware repro proves native sheet dismissal is broken.
 - For modal text-input flows with explicit Done/Cancel actions, prefer direct native dismissal. Do not add keyboard delays or focus choreography unless a current simulator/hardware repro proves native dismissal is broken.
 - When one sheet needs to hand off to another sheet, store the pending target and present it from the first sheet's `onDismiss`; do not use arbitrary `DispatchQueue.main.asyncAfter` delays to wait for sheet teardown.
+- Do not install app-wide `UIApplication.sendEvent` swizzles or `GCKeyboard` monitors for hardware shortcuts. Use native SwiftUI commands/keyboard shortcuts where the platform supports them, and leave iOS text input events on the responder chain.
 
 **NestedNavigationLink Pattern** (in `MainTabView.swift`):
 ```swift
