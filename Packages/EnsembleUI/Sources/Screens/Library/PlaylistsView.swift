@@ -111,12 +111,8 @@ public struct PlaylistsView: View {
         presentationMode == .compactRoot && rootStageFlowActive
     }
 
-    private var isPresenterChromeHidden: Bool {
-        isStageFlowActive
-    }
-
     private var shouldShowPlaylistSearch: Bool {
-        guard !isPresenterChromeHidden else { return false }
+        guard !isStageFlowActive else { return false }
         #if os(macOS)
         return selectedPlaylist == nil
         #else
@@ -289,10 +285,9 @@ public struct PlaylistsView: View {
                     )
                 }
             }
-            .hideTabBarIfAvailable(isHidden: isPresenterChromeHidden)
             #if os(iOS)
-            .navigationBarHidden(isPresenterChromeHidden)
-            .if(isPresenterChromeHidden) { view in
+            .navigationBarHidden(isStageFlowActive)
+            .if(isStageFlowActive) { view in
                 if #available(iOS 16.0, *) {
                     view.toolbar(.hidden, for: .navigationBar)
                 } else {
@@ -301,7 +296,7 @@ public struct PlaylistsView: View {
             }
             .statusBar(hidden: isStageFlowActive)
             #endif
-            .navigationTitle(isPresenterChromeHidden ? "" : "Playlists")
+            .navigationTitle(isStageFlowActive ? "" : "Playlists")
             .if(shouldShowPlaylistSearch) { view in
                 view.searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             }
@@ -335,7 +330,7 @@ public struct PlaylistsView: View {
             }
             .profileToolbar()
             .toolbar {
-                EnsembleBrowseToolbar(isVisible: !isPresenterChromeHidden) {
+                EnsembleBrowseToolbar(isVisible: !isStageFlowActive) {
                     playlistMergeButton
                     PlaylistsNewButton {
                         showCreatePlaylistPush = true

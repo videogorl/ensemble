@@ -24,10 +24,6 @@ public struct SongsView: View {
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
 
-    private var isPresenterChromeHidden: Bool {
-        isStageFlowActive
-    }
-    
     private var backgroundColor: Color {
         #if os(macOS)
         return EnsembleDesign.Color.windowSurface
@@ -116,11 +112,11 @@ public struct SongsView: View {
             }
         }
         #if os(iOS)
-        .navigationBarHidden(isPresenterChromeHidden)
+        .navigationBarHidden(isStageFlowActive)
         .statusBar(hidden: isStageFlowActive)
         #endif
-        .navigationTitle(isPresenterChromeHidden ? "" : "Songs")
-        .if(!isPresenterChromeHidden) { view in
+        .navigationTitle(isStageFlowActive ? "" : "Songs")
+        .if(!isStageFlowActive) { view in
             view.searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
         }
         .refreshable {
@@ -130,8 +126,8 @@ public struct SongsView: View {
             await libraryVM.refreshFromServer()
         }
         .profileToolbar()
-                .toolbar {
-            EnsembleBrowseToolbar(isVisible: !libraryVM.tracks.isEmpty && !isPresenterChromeHidden) {
+        .toolbar {
+            EnsembleBrowseToolbar(isVisible: !libraryVM.tracks.isEmpty && !isStageFlowActive) {
                 songsFilterButton
                 songsMoreMenu
             }
