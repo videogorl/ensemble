@@ -10,7 +10,6 @@ public struct MainTabView: View {
     @StateObject private var libraryVM: LibraryViewModel
     private let nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
-    @StateObject private var contextMenuMetadataEditorCoordinator = ContextMenuMetadataEditorCoordinator()
     private let settingsManager = DependencyContainer.shared.settingsManager
     // Observation-extracted: networkMonitor publishes on every network state change,
     // which would invalidate the entire root view. We only need networkState, so we
@@ -205,19 +204,7 @@ public struct MainTabView: View {
                     )
                 #endif
             }
-            .sheet(item: $contextMenuMetadataEditorCoordinator.request) { request in
-                TextInputView(
-                    title: request.kind.title,
-                    message: "Changes are sent directly to Plex and then refreshed locally.",
-                    placeholder: request.kind.fieldLabel,
-                    initialText: request.currentTitle,
-                    actionTitle: "Save",
-                    onSubmit: request.onSave
-                )
-            }
-
             rootView
-                .environmentObject(contextMenuMetadataEditorCoordinator)
                 .stageFlowRotationSupport(isEnabled: selectedTabSupportsStageFlow)
                 .background(
                     RootChromeFrameRegistrationView(
@@ -434,7 +421,6 @@ public struct SidebarView: View {
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var pinnedVM: PinnedViewModel
     @StateObject private var playlistsVM: PlaylistViewModel
-    @StateObject private var contextMenuMetadataEditorCoordinator = ContextMenuMetadataEditorCoordinator()
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let settingsManager = DependencyContainer.shared.settingsManager
     private let pinManager = DependencyContainer.shared.pinManager
@@ -840,16 +826,6 @@ public struct SidebarView: View {
                 )
             #endif
         }
-        .sheet(item: $contextMenuMetadataEditorCoordinator.request) { request in
-            TextInputView(
-                title: request.kind.title,
-                message: "Changes are sent directly to Plex and then refreshed locally.",
-                placeholder: request.kind.fieldLabel,
-                initialText: request.currentTitle,
-                actionTitle: "Save",
-                onSubmit: request.onSave
-            )
-        }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .sheet(item: $playlistForEditSheet) { playlist in
             NavigationView {
@@ -960,7 +936,6 @@ public struct SidebarView: View {
             #endif
             pinnedDetailPath.removeAll()
         }
-        .environmentObject(contextMenuMetadataEditorCoordinator)
     }
 
     private var sidebarColumn: some View {

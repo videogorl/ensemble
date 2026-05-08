@@ -405,7 +405,7 @@ Sources/
 +-- Aurora/                          # Aurora background and Metal/Canvas renderers
 +-- Sheets/                          # Shared sheets and macOS auxiliary sheet/window scaffolds
 |   +-- TextInputView.swift          # Shared short text-entry sheet for rename/edit-name flows, including async metadata saves
-|   +-- MetadataEditCoordinator.swift # Context-menu metadata edit request coordinator used by root sheet presenters
+|   +-- MetadataEditRequest.swift # Context-menu metadata edit request value used by local sheet presenters
 +-- Utility/                         # Shared rows, menus, toolbar/profile helpers, chrome utilities
 |   +-- MediaDragPayload.swift        # Internal drag/drop payload for tracks, albums, playlists, and merged display playlists
 |   +-- MediaDragExportPolicy.swift   # Drag/drop copy-vs-move and external file-promise policy matrix plus provider/writer helpers

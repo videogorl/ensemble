@@ -311,7 +311,7 @@ public struct AlbumDetailView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
-    @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
+    @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 
     private let album: Album
 
@@ -345,7 +345,7 @@ public struct AlbumDetailView: View {
             mediaType: .album,
             albumMenuActions: AlbumDetailMenuActions(
                 onEditMetadata: {
-                    contextMenuMetadataEditorCoordinator.present(
+                    metadataEditorRequest = ContextMenuMetadataEditorRequest(
                         kind: .album,
                         currentTitle: album.title
                     ) { newTitle in
@@ -385,6 +385,16 @@ public struct AlbumDetailView: View {
             ),
             additionalFooterContent: AnyView(albumMetadataFooter)
         )
+        .sheet(item: $metadataEditorRequest) { request in
+            TextInputView(
+                title: request.kind.title,
+                message: "Changes are sent directly to Plex and then refreshed locally.",
+                placeholder: request.kind.fieldLabel,
+                initialText: request.currentTitle,
+                actionTitle: "Save",
+                onSubmit: request.onSave
+            )
+        }
         .confirmationDialog(
             "Delete Album?",
             isPresented: $isConfirmingDelete,

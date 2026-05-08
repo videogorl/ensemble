@@ -29,16 +29,3 @@ struct ContextMenuMetadataEditorRequest: Identifiable {
     let currentTitle: String
     let onSave: (String) async throws -> Void
 }
-
-@MainActor
-final class ContextMenuMetadataEditorCoordinator: ObservableObject {
-    @Published var request: ContextMenuMetadataEditorRequest?
-
-    func present(
-        kind: MetadataEditItemKind,
-        currentTitle: String,
-        onSave: @escaping (String) async throws -> Void
-    ) {
-        request = ContextMenuMetadataEditorRequest(kind: kind, currentTitle: currentTitle, onSave: onSave)
-    }
-}

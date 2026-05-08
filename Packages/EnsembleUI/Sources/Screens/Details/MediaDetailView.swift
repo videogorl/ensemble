@@ -87,6 +87,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
     @State private var trackPendingDeletion: Track?
     @State private var isConfirmingTrackDelete = false
+    @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
     // Targeted NVM observation: only re-evaluate on track/playlist target changes
     @State private var currentTrackId: String?
     @State private var nvmLastPlaylistTargetId: String?
@@ -94,15 +95,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
     private let pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
-
-    private var isPresenterChromeHidden: Bool {
-        contextMenuMetadataEditorCoordinator.request != nil
-    }
 
     public init(
         viewModel: ViewModel,
@@ -193,23 +189,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
             #endif
         }
-        .if(!isPresenterChromeHidden) { view in
-            view.collapsingToolbarTitle(
-                navigationTitle,
-                threshold: 0,
-                showToolbarTitle: $showToolbarTitle
-            )
-        }
-        #if os(iOS)
-        .navigationBarHidden(isPresenterChromeHidden)
-        .if(isPresenterChromeHidden) { view in
-            if #available(iOS 16.0, *) {
-                view.toolbar(.hidden, for: .navigationBar)
-            } else {
-                view
-            }
-        }
-        #endif
+        .collapsingToolbarTitle(
+            navigationTitle,
+            threshold: 0,
+            showToolbarTitle: $showToolbarTitle
+        )
         // Native track lists manage their own bottom inset so rows can scroll
         // behind the floating mini player without shrinking the table host.
         .trackListRuntimeObservation(
@@ -220,6 +204,16 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             updatePinStateForHeader(pinnedItems: pinnedItems)
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .sheet(item: $metadataEditorRequest) { request in
+            TextInputView(
+                title: request.kind.title,
+                message: "Changes are sent directly to Plex and then refreshed locally.",
+                placeholder: request.kind.fieldLabel,
+                initialText: request.currentTitle,
+                actionTitle: "Save",
+                onSubmit: request.onSave
+            )
+        }
         .confirmationDialog(
             "Delete Track?",
             isPresented: $isConfirmingTrackDelete,
@@ -554,7 +548,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func presentTrackMetadataEditor(_ track: Track) {
-        contextMenuMetadataEditorCoordinator.present(
+        metadataEditorRequest = ContextMenuMetadataEditorRequest(
             kind: .track,
             currentTitle: track.title
         ) { newTitle in
