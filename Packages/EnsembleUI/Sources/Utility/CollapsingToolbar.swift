@@ -130,8 +130,10 @@ private struct IOS15NavigationBarAppearanceModifier: ViewModifier {
 // MARK: - Navigation Bar Appearance Configurator (iOS)
 
 #if os(iOS)
-/// UIViewRepresentable that toggles the parent navigation bar between transparent
-/// and default appearance. Compatible with iOS 15+.
+/// UIKit fallback that toggles the parent navigation bar between transparent
+/// and default appearance on iOS 15 only. Modern iOS uses SwiftUI's
+/// `.toolbarBackground(...)` so UIKit appearance proxies do not fight native
+/// navigation chrome.
 struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
     let isTransparent: Bool
 
@@ -143,6 +145,9 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: NavigationBarProbeView, context: Context) {
+        if #available(iOS 16.0, *) {
+            return
+        }
         uiView.isTransparent = isTransparent
         // Defer to next runloop to ensure the nav controller hierarchy is available
         DispatchQueue.main.async {
@@ -157,6 +162,9 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            if #available(iOS 16.0, *) {
+                return
+            }
             if window != nil {
                 // Force transparent on first appearance
                 DispatchQueue.main.async { [weak self] in
@@ -166,6 +174,9 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
         }
 
         func updateAppearance() {
+            if #available(iOS 16.0, *) {
+                return
+            }
             guard lastAppliedState != isTransparent else { return }
             lastAppliedState = isTransparent
 
@@ -200,6 +211,9 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
 
         override func willMove(toWindow newWindow: UIWindow?) {
             super.willMove(toWindow: newWindow)
+            if #available(iOS 16.0, *) {
+                return
+            }
             if newWindow == nil {
                 // Restore default appearance when leaving
                 restoreDefaultAppearance()
@@ -207,6 +221,9 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
         }
 
         private func restoreDefaultAppearance() {
+            if #available(iOS 16.0, *) {
+                return
+            }
             guard let navBar = findNavigationBar() else { return }
             let appearance = UINavigationBarAppearance()
             appearance.configureWithDefaultBackground()
