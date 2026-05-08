@@ -1,12 +1,8 @@
 import EnsembleCore
 import SwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 /// Dedicated large-screen Now Playing presentation surface used by macOS and iPadOS.
-/// This owns the viewport layout and hosts the narrow macOS toolbar suppression bridge
-/// needed to keep split-view chrome out of the presentation.
+/// This owns the viewport layout while leaving window chrome to the root scene.
 struct NowPlayingViewportRoot: View {
     private enum LayoutMode {
         case singlePanel
@@ -39,14 +35,6 @@ struct NowPlayingViewportRoot: View {
         GeometryReader { geometry in
             ZStack {
                 backgroundView
-
-                #if os(macOS)
-                MacNowPlayingChromeCoordinatorBridge()
-                    .frame(
-                        width: EnsembleScaffold.NowPlaying.ToolbarSuppression.hostDimension,
-                        height: EnsembleScaffold.NowPlaying.ToolbarSuppression.hostDimension
-                    )
-                #endif
 
                 let mode = layoutMode(for: geometry)
                 VStack(spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
@@ -275,143 +263,3 @@ struct NowPlayingViewportRoot: View {
         #endif
     }
 }
-
-#if os(macOS)
-/// Coordinates host window chrome while viewport Now Playing is active.
-/// Stores and restores toolbar item visibility plus resize constraints owned
-/// by the surrounding split-view shell.
-private struct MacNowPlayingChromeCoordinatorBridge: NSViewRepresentable {
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeNSView(context: Context) -> WindowObservationView {
-        let view = WindowObservationView()
-        view.coordinator = context.coordinator
-        return view
-    }
-
-    func updateNSView(_ nsView: WindowObservationView, context: Context) {
-        nsView.coordinator = context.coordinator
-        context.coordinator.apply(to: nsView.window)
-    }
-
-    static func dismantleNSView(_ nsView: WindowObservationView, coordinator: Coordinator) {
-        coordinator.restore()
-    }
-
-    final class Coordinator {
-        private weak var window: NSWindow?
-        private var previousHiddenStates: [(item: NSToolbarItem, hidden: Bool)] = []
-        private var previousViewHiddenStates: [(item: NSToolbarItem, hidden: Bool)] = []
-        private var previousContentMinSize: NSSize?
-        private var previousContentMaxSize: NSSize?
-
-        func apply(to window: NSWindow?) {
-            guard let window else { return }
-
-            if self.window !== window {
-                restore()
-                self.window = window
-            }
-
-            applyResizeConstraints(to: window)
-
-            guard let toolbar = window.toolbar else { return }
-
-            for item in toolbar.items {
-                guard shouldHideToolbarItem(item) else {
-                    continue
-                }
-
-                if #available(macOS 15.0, *) {
-                    guard !previousHiddenStates.contains(where: { $0.item === item }) else {
-                        continue
-                    }
-                    let previousHidden = item.isHidden
-                    item.isHidden = true
-                    previousHiddenStates.append((item, previousHidden))
-                } else {
-                    guard !previousViewHiddenStates.contains(where: { $0.item === item }) else {
-                        continue
-                    }
-                    if let view = item.view {
-                        let previousHidden = view.isHidden
-                        view.isHidden = true
-                        previousViewHiddenStates.append((item, previousHidden))
-                    }
-                }
-            }
-        }
-
-        private func applyResizeConstraints(to window: NSWindow) {
-            if previousContentMinSize == nil {
-                previousContentMinSize = window.contentMinSize
-                previousContentMaxSize = window.contentMaxSize
-            }
-
-            let nowPlayingMinSize = NSSize(
-                width: EnsembleScaffold.NowPlaying.viewportMacMinimumWindowWidth,
-                height: EnsembleScaffold.NowPlaying.viewportMacMinimumWindowHeight
-            )
-            if window.contentMinSize != nowPlayingMinSize {
-                window.contentMinSize = nowPlayingMinSize
-            }
-        }
-
-        private func shouldHideToolbarItem(_ item: NSToolbarItem) -> Bool {
-            let identifier = item.itemIdentifier
-
-            switch identifier {
-            case .flexibleSpace, .space:
-                return false
-            default:
-                return true
-            }
-        }
-
-        func restore() {
-            if let previousContentMinSize {
-                window?.contentMinSize = previousContentMinSize
-            }
-            if let previousContentMaxSize {
-                window?.contentMaxSize = previousContentMaxSize
-            }
-            previousContentMinSize = nil
-            previousContentMaxSize = nil
-
-            if #available(macOS 15.0, *) {
-                for entry in previousHiddenStates {
-                    entry.item.isHidden = entry.hidden
-                }
-                previousHiddenStates.removeAll()
-            } else {
-                for entry in previousViewHiddenStates {
-                    entry.item.view?.isHidden = entry.hidden
-                }
-                previousViewHiddenStates.removeAll()
-            }
-            window = nil
-        }
-    }
-
-    final class WindowObservationView: NSView {
-        weak var coordinator: Coordinator?
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            coordinator?.apply(to: window)
-        }
-
-        override func viewDidMoveToSuperview() {
-            super.viewDidMoveToSuperview()
-            coordinator?.apply(to: window)
-        }
-
-        override func layout() {
-            super.layout()
-            coordinator?.apply(to: window)
-        }
-    }
-}
-#endif

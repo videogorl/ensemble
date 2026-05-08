@@ -492,8 +492,6 @@ public enum EnsembleScaffold {
         public static let viewportSinglePanelMaxWidth: CGFloat = 560
         public static let viewportDualPanelMinimumWidth: CGFloat = 920
         public static let viewportDualPanelMinimumHeight: CGFloat = 620
-        public static let viewportMacMinimumWindowWidth: CGFloat = 760
-        public static let viewportMacMinimumWindowHeight: CGFloat = 560
         public static let viewportSinglePickerWidth: CGFloat = 390
         public static let viewportPickerWidth: CGFloat = 300
         public static let viewportMinimumPanelWidth: CGFloat = 320
@@ -557,10 +555,6 @@ public enum EnsembleScaffold {
             public static let inactiveIconSize: CGFloat = 12
             public static let inactiveOpacity = 0.4
             public static let verticalPadding = EnsembleDesign.Spacing.sm
-        }
-
-        public enum ToolbarSuppression {
-            public static let hostDimension = EnsembleDesign.Spacing.none
         }
     }
 
