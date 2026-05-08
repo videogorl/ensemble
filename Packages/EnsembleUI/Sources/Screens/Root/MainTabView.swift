@@ -29,10 +29,6 @@ public struct MainTabView: View {
     @State private var enabledTabs: [TabItem] = DependencyContainer.shared.settingsManager.enabledTabs
     @State private var accentColor: AppAccentColor = DependencyContainer.shared.settingsManager.accentColor
     @State private var auroraVisualizationEnabled: Bool = DependencyContainer.shared.settingsManager.auroraVisualizationEnabled
-    #if os(iOS)
-    @State private var keyboardVisible = false
-    #endif
-
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
         Array(enabledTabs.prefix(4))
@@ -55,14 +51,6 @@ public struct MainTabView: View {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self.nowPlayingVM = nowPlayingVM
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
-    }
-
-    private var isKeyboardVisible: Bool {
-        #if os(iOS)
-        return keyboardVisible
-        #else
-        return false
-        #endif
     }
 
     private var showsPhoneAuroraOverlay: Bool {
@@ -172,7 +160,7 @@ public struct MainTabView: View {
                 // The 70pt covers the mini player height + spacing above the tab bar.
                 .miniPlayerContainerInset(
                     TrackListLayoutMetrics.miniPlayerContainerInset,
-                    isVisible: !isShowingNowPlaying && !isKeyboardVisible && !rootChromeSuppressed
+                    isVisible: !isShowingNowPlaying && !rootChromeSuppressed
                 )
                 .zIndex(0)
             .task {
@@ -202,21 +190,6 @@ public struct MainTabView: View {
                     updateSettingsSnapshot()
                 }
             }
-            #if os(iOS)
-            .onReceive(Publishers.keyboardHeight.map { $0 > 0 }.removeDuplicates()) { newValue in
-                // Keep root chrome stable while auxiliary sheets own keyboard-driven layout changes.
-                if navigationCoordinator.activeAuxiliaryPresentation == nil {
-                    keyboardVisible = newValue
-                } else if !newValue {
-                    keyboardVisible = false
-                }
-            }
-            .onChange(of: navigationCoordinator.activeAuxiliaryPresentation != nil) { isPresented in
-                if isPresented {
-                    keyboardVisible = false
-                }
-            }
-            #endif
             #if os(iOS)
             .sheet(isPresented: profileSheetBinding, onDismiss: {
                 navigationCoordinator.dismissAuxiliaryPresentation()
@@ -260,9 +233,7 @@ public struct MainTabView: View {
                     .background(
                         RootChromeFrameRegistrationView(
                             bottomPadding: miniPlayerBottomLift,
-                            showsMiniPlayer: !isShowingNowPlaying &&
-                                !isKeyboardVisible &&
-                                !rootChromeSuppressed,
+                            showsMiniPlayer: !isShowingNowPlaying && !rootChromeSuppressed,
                             priority: 0
                         )
                     )
