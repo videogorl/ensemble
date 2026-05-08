@@ -149,10 +149,7 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
             return
         }
         uiView.isTransparent = isTransparent
-        // Defer to next runloop to ensure the nav controller hierarchy is available
-        DispatchQueue.main.async {
-            uiView.updateAppearance()
-        }
+        uiView.updateAppearance()
     }
 
     /// Probe view that walks up the responder chain to find the parent UINavigationController
@@ -166,10 +163,7 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
                 return
             }
             if window != nil {
-                // Force transparent on first appearance
-                DispatchQueue.main.async { [weak self] in
-                    self?.updateAppearance()
-                }
+                updateAppearance()
             }
         }
 
@@ -178,9 +172,9 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
                 return
             }
             guard lastAppliedState != isTransparent else { return }
-            lastAppliedState = isTransparent
 
             guard let navBar = findNavigationBar() else { return }
+            lastAppliedState = isTransparent
 
             if isTransparent {
                 let appearance = UINavigationBarAppearance()

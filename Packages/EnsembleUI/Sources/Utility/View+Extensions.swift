@@ -335,10 +335,7 @@ private struct MiniPlayerContainerInsetter: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            // Defer to next runloop to ensure the VC hierarchy is fully set up
-            DispatchQueue.main.async { [weak self] in
-                self?.applyInsets()
-            }
+            applyInsets()
         }
 
         func applyInsets() {
