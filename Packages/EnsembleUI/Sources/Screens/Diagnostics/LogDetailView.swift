@@ -206,8 +206,6 @@ public struct LogDetailView: View {
     /// Flush buffered writes then reload the file.
     private func refreshLogContent() async {
         logService.flushSession()
-        // Brief pause lets the async flush hit disk before the read
-        try? await Task.sleep(nanoseconds: 50_000_000)
         await loadLogContent()
     }
 

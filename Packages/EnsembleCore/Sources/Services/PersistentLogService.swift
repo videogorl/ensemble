@@ -341,7 +341,7 @@ private final class LogFileWriter: @unchecked Sendable {
     /// Flush pending writes to disk without closing the handle.
     /// Keeps the file open so logging continues during background activity.
     func flush() {
-        queue.async { [weak self] in
+        queue.sync { [weak self] in
             self?.fileHandle?.synchronizeFile()
             self?.writeCount = 0
         }
