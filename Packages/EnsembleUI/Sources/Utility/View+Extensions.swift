@@ -20,6 +20,10 @@ private struct LargeScreenBrowseDetailPaneKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct StageFlowActiveKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 /// Tracks keyboard-heavy editor presentation from the presenting view so root
 /// chrome can settle before the editor enters the hierarchy, regardless of
 /// whether the editor is shown in a sheet or another presentation shell.
@@ -83,6 +87,11 @@ public extension EnvironmentValues {
         get { self[LargeScreenBrowseDetailPaneKey.self] }
         set { self[LargeScreenBrowseDetailPaneKey.self] = newValue }
     }
+
+    var isStageFlowActive: Bool {
+        get { self[StageFlowActiveKey.self] }
+        set { self[StageFlowActiveKey.self] = newValue }
+    }
 }
 
 /// Applies aurora background transparency in dark mode only.
@@ -142,7 +151,7 @@ public extension View {
         #endif
     }
 
-    /// Enables/disables landscape rotation support while this view is active.
+    /// Enables/disables StageFlow landscape rotation support from the root shell.
     @ViewBuilder
     func stageFlowRotationSupport(isEnabled: Bool, source: String = #fileID) -> some View {
         #if os(iOS)

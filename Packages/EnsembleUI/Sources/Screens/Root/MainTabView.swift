@@ -38,6 +38,18 @@ public struct MainTabView: View {
         Array(enabledTabs.prefix(4))
     }
 
+    private var selectedRootTab: TabItem {
+        if !didSetInitialTab {
+            return barTabs.first ?? .home
+        }
+
+        let selectedTab = navigationCoordinator.selectedTab
+        if barTabs.contains(selectedTab) || selectedTab == .settings {
+            return selectedTab
+        }
+        return barTabs.first ?? .home
+    }
+
     @MainActor
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
@@ -93,15 +105,11 @@ public struct MainTabView: View {
         isImmersiveMode || navigationCoordinator.isKeyboardEditorPresented
     }
 
-    private func shouldForceStageFlowImmersive(for size: CGSize) -> Bool {
+    private var selectedTabSupportsStageFlow: Bool {
         #if os(iOS)
         guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
-        if #available(iOS 16.0, *) {
-            return false
-        }
-        guard size.width > size.height else { return false }
 
-        switch navigationCoordinator.selectedTab {
+        switch selectedRootTab {
         case .albums, .songs, .playlists:
             return true
         default:
@@ -110,6 +118,10 @@ public struct MainTabView: View {
         #else
         return false
         #endif
+    }
+
+    private func isStageFlowActive(for size: CGSize) -> Bool {
+        selectedTabSupportsStageFlow && size.width > size.height
     }
 
     public var body: some View {
@@ -122,21 +134,30 @@ public struct MainTabView: View {
                     return TrackListLayoutMetrics.miniPlayerBottomLiftBase + geometry.safeAreaInsets.bottom
                 }
             }()
-            let stageFlowFallbackImmersive = shouldForceStageFlowImmersive(for: geometry.size)
-            let rootChromeSuppressed = isRootChromeSuppressed || stageFlowFallbackImmersive
+            let rootStageFlowActive = isStageFlowActive(for: geometry.size)
+            let rootChromeSuppressed = isRootChromeSuppressed || rootStageFlowActive
 
             let rootView = VStack(spacing: EnsembleDesign.Spacing.none) {
                 tabBarVisibility(
                     TabView(selection: tabBinding) {
                         ForEach(barTabs) { tab in
-                            tabRootView(for: tab)
+                            tabRootView(
+                                for: tab,
+                                rootChromeSuppressed: rootChromeSuppressed,
+                                isStageFlowActive: rootStageFlowActive && selectedRootTab == tab
+                            )
                                 .tag(tab)
                                 .tabItem {
                                     Label(tab.displayTitle, systemImage: tab.designSystemImage)
                                 }
                         }
 
-                        tabRootView(for: .settings, isMoreRoot: true)
+                        tabRootView(
+                            for: .settings,
+                            isMoreRoot: true,
+                            rootChromeSuppressed: rootChromeSuppressed,
+                            isStageFlowActive: false
+                        )
                             .tag(TabItem.settings)
                             .tabItem {
                                 Label("More", systemImage: EnsembleDesign.Icon.more)
@@ -249,6 +270,7 @@ public struct MainTabView: View {
             applyChromeVisibilityObservation(
                 to: rootView
                     .environmentObject(contextMenuMetadataEditorCoordinator)
+                    .stageFlowRotationSupport(isEnabled: selectedTabSupportsStageFlow)
                     .background(
                         RootChromeFrameRegistrationView(
                             bottomPadding: miniPlayerBottomLift,
@@ -353,7 +375,7 @@ public struct MainTabView: View {
     
     private var tabBinding: Binding<TabItem> {
         Binding(
-            get: { navigationCoordinator.selectedTab },
+            get: { selectedRootTab },
             set: { handleTabTap($0) }
         )
     }
@@ -397,7 +419,12 @@ public struct MainTabView: View {
     }
     
     @ViewBuilder
-    private func tabRootView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
+    private func tabRootView(
+        for tab: TabItem,
+        isMoreRoot: Bool = false,
+        rootChromeSuppressed: Bool,
+        isStageFlowActive: Bool
+    ) -> some View {
         Group {
             if #available(iOS 16.0, macOS 13.0, *) {
                 NavigationStack(path: navigationCoordinator.pathBinding(for: tab)) {
@@ -429,12 +456,14 @@ public struct MainTabView: View {
                 #endif
             }
         }
+        .environment(\.isStageFlowActive, isStageFlowActive)
+        .hideTabBarIfAvailable(isHidden: rootChromeSuppressed)
         .overlay(alignment: .bottom) {
             if showsPhoneAuroraOverlay &&
-                navigationCoordinator.selectedTab == tab &&
+                selectedRootTab == tab &&
                 auroraVisualizationEnabled &&
                 !isShowingNowPlaying &&
-                !isRootChromeSuppressed &&
+                !rootChromeSuppressed &&
                 !navigationCoordinator.isKeyboardEditorPresented &&
                 navigationCoordinator.activeAuxiliaryPresentation == nil {
                 AuroraVisualizationView(

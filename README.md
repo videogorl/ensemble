@@ -198,7 +198,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - Multi-library Plex support with network resilience
 - Hub-based home screen with offline-first loading and DetailLoader pattern
 - Customizable hub section ordering with drag-to-reorder interface
-- StageFlow immersive carousel for songs and playlists in iPhone landscape
+- StageFlow immersive carousel for albums, songs, and playlists in iPhone landscape
 - Smart navigation with tab fallback logic from Now Playing
 - Advanced filtering and customization
 - Persistent artwork caching system with hub support

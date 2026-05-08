@@ -97,9 +97,9 @@ if #available(iOS 16.0, macOS 13.0, *) {
 
 ### CoverFlow + Rotation Policy
 - CoverFlow is **iPhone-only** (`UIDevice.current.userInterfaceIdiom == .phone`), even though iPad shares `os(iOS)`.
-- iPadOS and macOS always use their standard list/grid layouts for Songs, Albums, and Playlists. The iPhone Albums library also stays on the standard native grid; do not reintroduce Album StageFlow or Album root rotation registration without dedicated simulator proof around context-menu metadata sheets and keyboard dismissal.
-- iOS orientation is portrait-locked by default and only unlocks landscape while a CoverFlow-capable root view is active.
-- StageFlow rotation support is still used by the remaining StageFlow roots and is registered with a per-view token; keep it away from ordinary sheet-heavy browse grids where native portrait presentation should own the behavior.
+- iPadOS and macOS always use their standard list/grid layouts for Songs, Albums, and Playlists. iPhone Songs, Albums, and Playlists can render StageFlow in landscape when their tab is active.
+- iOS orientation is portrait-locked by default and only unlocks landscape while `MainTabView` is on a StageFlow-capable tab.
+- `MainTabView` owns StageFlow activation and the single rotation-support token. Browse screens consume `EnvironmentValues.isStageFlowActive`; do not add per-screen `GeometryReader` rotation detection or per-screen `stageFlowRotationSupport(...)` calls.
 - Large mini-player layouts with waveform should expose Previous, Play/Pause, Next, and a row-style ellipsis menu. Compact mini-player layouts keep the simpler Play/Pause + Next controls. On iPadOS, use a plain popover anchored to the ellipsis so the mini-player remains visible behind the menu. On macOS, host the menu with an AppKit `NSButton`/`NSMenu` so the control does not show a pull-down chevron.
 
 ### Large-Screen Browse Surfaces

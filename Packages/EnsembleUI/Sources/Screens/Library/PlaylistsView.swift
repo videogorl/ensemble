@@ -97,22 +97,16 @@ public struct PlaylistsView: View {
     @State private var renamePushDP: DisplayPlaylist?
     // Cached merge-aware playlist list — avoids recomputing grouping on every body evaluation
     @State private var cachedDisplayedPlaylists: [DisplayPlaylist] = []
-    // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
-    @State private var isStageFlowActive = false
-    @State private var latestContainerSize: CGSize = .zero
     @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @Environment(\.isStageFlowActive) private var rootStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
-    private var supportsStageFlow: Bool {
-        #if os(iOS)
-        UIDevice.current.userInterfaceIdiom == .phone
-        #else
-        false
-        #endif
+    private var isStageFlowActive: Bool {
+        presentationMode == .compactRoot && rootStageFlowActive
     }
 
     private var isPresenterChromeHidden: Bool {
@@ -251,46 +245,6 @@ public struct PlaylistsView: View {
                 rootContent
             }
         }
-        // Lightweight GeometryReader overlay — only updates @State isStageFlowActive
-        // instead of re-evaluating the entire body on every geometry change
-        .background(
-            GeometryReader { geometry in
-                Color.clear
-                    .onAppear {
-                        let active = supportsStageFlow && geometry.size.width > geometry.size.height
-                        if active != isStageFlowActive {
-                            latestContainerSize = geometry.size
-                            isStageFlowActive = active
-                        }
-                    }
-                    .onChange(of: geometry.size) { newSize in
-                        let shouldBeActive = supportsStageFlow && newSize.width > newSize.height
-                        guard shouldBeActive != isStageFlowActive else { return }
-
-                        latestContainerSize = newSize
-                        if shouldBeActive && !isStageFlowActive {
-                            isStageFlowActive = true
-                        } else if !shouldBeActive && isStageFlowActive {
-                            #if os(iOS)
-                            if #available(iOS 16.0, *) {
-                                isStageFlowActive = false
-                            } else {
-                                // iOS 15: delay exit to let rotation animation complete
-                                // before switching the view tree, preventing NavigationView
-                                // layout hangs from simultaneous nav bar + content changes.
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    if latestContainerSize.width < latestContainerSize.height {
-                                        isStageFlowActive = false
-                                    }
-                                }
-                            }
-                            #else
-                            isStageFlowActive = false
-                            #endif
-                        }
-                    }
-            }
-        )
             .alert("Delete Playlist?", isPresented: Binding(
                 get: { playlistPendingSwipeDelete != nil },
                 set: { isPresented in
@@ -341,10 +295,9 @@ public struct PlaylistsView: View {
                 }
             }
             .hideTabBarIfAvailable(isHidden: isPresenterChromeHidden)
-            .stageFlowRotationSupport(isEnabled: supportsStageFlow)
-            .stageFlowImmersiveMode(isActive: isPresenterChromeHidden)
+            .stageFlowImmersiveMode(isActive: isLocalSheetPresented)
             #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isPresenterChromeHidden)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isLocalSheetPresented)
             .navigationBarHidden(isPresenterChromeHidden)
             .if(isPresenterChromeHidden) { view in
                 if #available(iOS 16.0, *) {
@@ -439,9 +392,8 @@ public struct PlaylistsView: View {
             }
     }
 
-    /// StageFlow carousel for landscape mode.
-    /// Nav bar and status bar hiding are applied at the outer Group level
-    /// so SwiftUI diffs a parameter change rather than a view tree swap.
+    /// StageFlow carousel for landscape mode. MainTabView owns rotation and
+    /// root chrome; this screen only swaps its compact root content.
     private var landscapeStageFlowView: some View {
         stageFlowView
     }

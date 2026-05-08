@@ -225,7 +225,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `FilterSheet` -- Advanced filtering UI with artist/genre multi-select, year ranges
 - `AlbumDetailLoader` / `ArtistDetailLoader` / `PlaylistDetailLoader` -- Async loading wrappers for detail views
 - `WaveformView` -- Audio waveform visualization with real Plex loudness data or fallback generation
-- `StageFlowView` -- iPhone landscape stage carousel used by the remaining Songs/Playlists landscape roots, with snapping, inward-facing side cards, and a trailing track panel
+- `StageFlowView` -- iPhone landscape stage carousel used by Songs, Albums, and Playlists; `MainTabView` owns activation/rotation while each browse screen supplies content, playback resolution, and the trailing track panel
 - `TrackSwipeActionsSettingsView` -- Settings screen for swipe slot assignment
 - `AddPlexAccountView` -- PIN auth flow with grouped server/library checklist and copy-on-tap PIN
 - `MusicSourceAccountDetailView` -- Account-scoped server/library selection + per-library sync/connection status

@@ -4,8 +4,11 @@ import SwiftUI
 public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
+    @Environment(\.dependencies) private var deps
+    @Environment(\.isStageFlowActive) private var isStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
+    @State private var selectedAlbum: Album?
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedAlbumSections: [AlbumSection] = []
     // Monotonic token to drop stale async section computations.
@@ -66,18 +69,33 @@ public struct AlbumsView: View {
                 loadingView
             } else if libraryVM.albums.isEmpty {
                 emptyView
+            } else if isStageFlowActive {
+                stageFlowView
             } else {
                 albumGridView
             }
         }
-        .navigationTitle("Albums")
-        .searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
+        #if os(iOS)
+        .navigationBarHidden(isStageFlowActive)
+        .if(isStageFlowActive) { view in
+            if #available(iOS 16.0, *) {
+                view.toolbar(.hidden, for: .navigationBar)
+            } else {
+                view
+            }
+        }
+        .statusBar(hidden: isStageFlowActive)
+        #endif
+        .navigationTitle(isStageFlowActive ? "" : "Albums")
+        .if(!isStageFlowActive) { view in
+            view.searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
+        }
         .refreshable {
             await libraryVM.refreshFromServer()
         }
         .profileToolbar()
         .toolbar {
-            EnsembleBrowseToolbar(isVisible: !libraryVM.albums.isEmpty) {
+            EnsembleBrowseToolbar(isVisible: !libraryVM.albums.isEmpty && !isStageFlowActive) {
                 albumFilterButton
                 albumSortMenu
             }
@@ -236,6 +254,45 @@ public struct AlbumsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    private var stageFlowView: some View {
+        StageFlowView(
+            items: libraryVM.filteredAlbums,
+            nowPlayingVM: nowPlayingVM,
+            itemView: { album in
+                StageFlowItemView(album: album)
+            },
+            detailView: { selectedAlbum in
+                StageFlowTrackPanel(
+                    contentType: .album(
+                        id: selectedAlbum.id,
+                        sourceCompositeKey: selectedAlbum.sourceCompositeKey
+                    ),
+                    nowPlayingVM: nowPlayingVM
+                )
+            },
+            titleContent: { $0.title },
+            subtitleContent: { $0.artistName },
+            resolvePlaybackTracks: { album in
+                await resolveStageFlowTracks(for: album)
+            },
+            selectedItem: $selectedAlbum
+        )
+    }
+
+    private func resolveStageFlowTracks(for album: Album) async -> [Track] {
+        let cachedTracks: [CDTrack]
+        if let sourceCompositeKey = album.sourceCompositeKey {
+            cachedTracks = (try? await deps.libraryRepository.fetchTracks(
+                forAlbum: album.id,
+                sourceCompositeKey: sourceCompositeKey
+            )) ?? []
+        } else {
+            cachedTracks = (try? await deps.libraryRepository.fetchTracks(forAlbum: album.id)) ?? []
+        }
+
+        return cachedTracks.map { Track(from: $0) }
     }
 
     private var albumGenreChipBar: some View {

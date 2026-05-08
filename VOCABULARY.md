@@ -296,6 +296,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Filter badge | indicator | Red dot showing active filters | `hasActiveFilters` |
 | Sort menu | menu | Menu with sort options (title, artist, year, etc.) | `arrow.up.arrow.down` |
 | Scroll index | control | Right-edge alphabetical jump index | `ScrollIndex` |
+| StageFlow view | region | Landscape-only centered stage browsing mode for filtered albums | `StageFlowView` |
 | Loading state | state | Spinner during initial album load | `loadingView` |
 | Empty state | state | Message when no albums available | `emptyView` |
 

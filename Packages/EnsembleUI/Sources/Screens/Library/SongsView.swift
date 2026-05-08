@@ -11,27 +11,18 @@ import AppKit
 public struct SongsView: View {
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @Environment(\.isStageFlowActive) private var isStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var selectedAlbum: SongsStageFlowAlbum?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
-    @State private var isStageFlowActive = false
-    @State private var latestContainerSize: CGSize = .zero
     @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
     // Targeted observation: only re-evaluate when these specific values change,
     // not when any of offlineDownloadService's 5+ @Published props update
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
-
-    private var supportsStageFlow: Bool {
-        #if os(iOS)
-        UIDevice.current.userInterfaceIdiom == .phone
-        #else
-        false
-        #endif
-    }
 
     private var isKeyboardEditorActive: Bool {
         navigationCoordinator.isKeyboardEditorPresented
@@ -128,53 +119,7 @@ public struct SongsView: View {
                 trackListView
             }
         }
-        // Detect landscape for StageFlow via background GeometryReader.
-        // Placed in .background so it doesn't block the navigation controller
-        // from finding the ScrollView for large title collapse tracking.
-        .background(
-            GeometryReader { geometry in
-                Color.clear
-                    .onAppear {
-                        let active = supportsStageFlow && geometry.size.width > geometry.size.height
-                        if active != isStageFlowActive {
-                            latestContainerSize = geometry.size
-                            isStageFlowActive = active
-                        }
-                    }
-                    .onChange(of: geometry.size) { newSize in
-                        let shouldBeActive = supportsStageFlow && newSize.width > newSize.height
-                        guard shouldBeActive != isStageFlowActive else { return }
-
-                        latestContainerSize = newSize
-                        if shouldBeActive && !isStageFlowActive {
-                            isStageFlowActive = true
-                        } else if !shouldBeActive && isStageFlowActive {
-                            #if os(iOS)
-                            if #available(iOS 16.0, *) {
-                                isStageFlowActive = false
-                            } else {
-                                // iOS 15: delay exit to let rotation animation complete
-                                // before switching the view tree. Changing nav bar, status bar,
-                                // title display mode, and content simultaneously mid-rotation
-                                // causes NavigationView layout hangs on iOS 15.
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    if latestContainerSize.width < latestContainerSize.height {
-                                        isStageFlowActive = false
-                                    }
-                                }
-                            }
-                            #else
-                            isStageFlowActive = false
-                            #endif
-                        }
-                    }
-            }
-        )
-        .hideTabBarIfAvailable(isHidden: isPresenterChromeHidden)
-        .stageFlowRotationSupport(isEnabled: supportsStageFlow)
-        .stageFlowImmersiveMode(isActive: isPresenterChromeHidden)
         #if os(iOS)
-        .preference(key: ChromeVisibilityPreferenceKey.self, value: isPresenterChromeHidden)
         .navigationBarHidden(isPresenterChromeHidden)
         .statusBar(hidden: isStageFlowActive)
         #endif
@@ -222,10 +167,8 @@ public struct SongsView: View {
         }
     }
 
-    /// StageFlow carousel for landscape mode.
-    /// Nav bar and status bar hiding are applied at the outer Group level
-    /// so SwiftUI diffs a parameter change rather than a view tree swap,
-    /// which prevents NavigationView layout hangs on iOS 15 during rotation.
+    /// StageFlow carousel for landscape mode. MainTabView owns rotation and
+    /// root chrome; this screen only swaps its content for the active scene.
     private var landscapeAlbumStageFlowView: some View {
         albumStageFlowView
     }
