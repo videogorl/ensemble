@@ -44,9 +44,6 @@ public struct ProfilePresentationContainer: View {
     }
 }
 
-/// Legacy alias for backwards compatibility
-public typealias SettingsPresentationContainer = ProfilePresentationContainer
-
 public struct DownloadsPresentationContainer: View {
     @StateObject private var nowPlayingVM: NowPlayingViewModel
 
@@ -69,23 +66,6 @@ public struct DownloadsPresentationContainer: View {
                 .modifier(AuxiliaryDismissToolbarModifier())
         }
         #endif
-    }
-}
-
-public struct AuxiliaryPresentationView: View {
-    let destination: NavigationCoordinator.AuxiliaryPresentation
-
-    public init(destination: NavigationCoordinator.AuxiliaryPresentation) {
-        self.destination = destination
-    }
-
-    public var body: some View {
-        switch destination {
-        case .profile:
-            ProfilePresentationContainer()
-        case .downloads:
-            DownloadsPresentationContainer()
-        }
     }
 }
 

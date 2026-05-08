@@ -76,13 +76,11 @@ public struct MainTabView: View {
         )
     }
 
-    private var downloadsAuxiliaryBinding: Binding<NavigationCoordinator.AuxiliaryPresentation?> {
+    private var downloadsSheetBinding: Binding<Bool> {
         Binding(
-            get: {
-                navigationCoordinator.activeAuxiliaryPresentation == .downloads ? .downloads : nil
-            },
-            set: { destination in
-                guard destination == nil,
+            get: { navigationCoordinator.activeAuxiliaryPresentation == .downloads },
+            set: { isPresented in
+                guard !isPresented,
                       navigationCoordinator.activeAuxiliaryPresentation == .downloads else { return }
                 navigationCoordinator.dismissAuxiliaryPresentation()
             }
@@ -197,10 +195,10 @@ public struct MainTabView: View {
                 ProfilePresentationContainer()
                     .accentColor(accentColor.color)
             }
-            .sheet(item: downloadsAuxiliaryBinding, onDismiss: {
+            .sheet(isPresented: downloadsSheetBinding, onDismiss: {
                 navigationCoordinator.dismissAuxiliaryPresentation()
-            }) { destination in
-                AuxiliaryPresentationView(destination: destination)
+            }) {
+                DownloadsPresentationContainer()
                     .accentColor(accentColor.color)
             }
             #endif
@@ -539,13 +537,11 @@ public struct SidebarView: View {
         )
     }
 
-    private var downloadsAuxiliaryBinding: Binding<NavigationCoordinator.AuxiliaryPresentation?> {
+    private var downloadsSheetBinding: Binding<Bool> {
         Binding(
-            get: {
-                navigationCoordinator.activeAuxiliaryPresentation == .downloads ? .downloads : nil
-            },
-            set: { destination in
-                guard destination == nil,
+            get: { navigationCoordinator.activeAuxiliaryPresentation == .downloads },
+            set: { isPresented in
+                guard !isPresented,
                       navigationCoordinator.activeAuxiliaryPresentation == .downloads else { return }
                 navigationCoordinator.dismissAuxiliaryPresentation()
             }
@@ -875,10 +871,10 @@ public struct SidebarView: View {
             ProfilePresentationContainer()
                 .accentColor(accentColor.color)
         }
-        .sheet(item: downloadsAuxiliaryBinding, onDismiss: {
+        .sheet(isPresented: downloadsSheetBinding, onDismiss: {
             navigationCoordinator.dismissAuxiliaryPresentation()
-        }) { destination in
-            AuxiliaryPresentationView(destination: destination)
+        }) {
+            DownloadsPresentationContainer()
                 .accentColor(accentColor.color)
         }
         #endif
