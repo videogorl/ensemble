@@ -30,7 +30,6 @@ public struct ProfileView: View {
         profileContent
             .miniPlayerBottomSpacing()
             #if os(iOS)
-            .ignoresSafeArea(.keyboard)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .sheet(isPresented: $showingNameEditor) {

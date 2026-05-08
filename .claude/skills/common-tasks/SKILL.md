@@ -312,8 +312,8 @@ Use these patterns when extending gesture actions:
 
 1. Add/adjust action definitions in `SettingsManager.TrackSwipeAction` and keep `TrackSwipeLayout.default` sane (2 leading + 2 trailing).
 2. Ensure layout sanitization prevents duplicate assignments and malformed persisted payloads.
-3. For SwiftUI track rows, wrap row content in `TrackSwipeContainer` and pass closures for play next/last, add-to-playlist, and favorite toggle.
-4. For detail track tables, map the same actions in `MediaTrackList` via `leadingSwipeActionsConfigurationForRowAt` / `trailingSwipeActionsConfigurationForRowAt`.
+3. For track lists, prefer `MediaTrackList` or `SongsTrackListHost` so row actions stay native and shared across iOS/iPadOS/macOS.
+4. For detail track tables, map actions in `MediaTrackList` via `leadingSwipeActionsConfigurationForRowAt` / `trailingSwipeActionsConfigurationForRowAt`.
 5. For high-volume track rows/cards/tables, accept `TrackActionDispatching` for playback/queue/favorite/playlist commands and observe `NowPlayingRatingProjection` or row-local state instead of the full `NowPlayingViewModel`.
 6. For favorite mutations, call `NowPlayingViewModel.toggleTrackFavorite(_:)`, `setTrackFavorite(_:for:)`, or the matching `TrackActionDispatching` method so server rating + local cache stay consistent.
 7. For context menus, define the allowed action set in `MediaMenuCatalog` and render it through `SwiftUIMediaMenuRenderer`, `UIKitMediaMenuRenderer`, or `AppKitMediaMenuRenderer`. For standalone SwiftUI track cards/menus, use `TrackActionsContextMenu`. Parent views should add only scoped actions such as queue removal, pin/unpin, edit/delete, shuffle/repeat, playlist-picker presentation, or playlist management.

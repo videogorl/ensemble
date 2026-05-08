@@ -381,7 +381,7 @@ Sources/
 +-- Artwork/                         # Artwork loading, backgrounds, composites, and color extraction
 +-- Browse/                          # Browse split, filter sheet, GenreFilterHeader/GenreChipBar, scroll index, refresh command bridge
 +-- Cards/                           # Album, artist, playlist, and genre cards
-+-- TrackLists/                      # SwiftUI/UIKit/AppKit track row and table backends
++-- TrackLists/                      # Native UIKit/AppKit track-list backends and SwiftUI hosts
 |   +-- AppKit/
 |   |   +-- MacNativeTrackTableView.swift # NSTableView backend used by SongsTrackListHost on macOS
 |   +-- MediaTrackList.swift
@@ -392,9 +392,7 @@ Sources/
 |   +-- SongsTrackListHost.swift
 |   +-- StandardSwipeActions.swift
 |   +-- TrackListRuntimeObservation.swift # Shared download/availability and Now Playing projection observation modifiers for native track-list callers
-|   +-- TrackRow.swift
 |   +-- TrackRowInteractionModel.swift
-|   +-- TrackSwipeContainer.swift
 +-- DetailSurfaces/                  # Shared media-detail shell/header/action/list-card primitives
 +-- PlaybackChrome/                  # Mini player, AirPlay button, waveform
 |   +-- MiniPlayer.swift             # Core mini-player pill content, track info, waveform, and transport controls

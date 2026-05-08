@@ -116,7 +116,14 @@ public struct PlaylistsView: View {
     }
 
     private var isPresenterChromeHidden: Bool {
-        isStageFlowActive
+        isStageFlowActive || isLocalSheetPresented
+    }
+
+    private var isLocalSheetPresented: Bool {
+        showCreatePlaylistPush ||
+        renamePushPlaylist != nil ||
+        renamePushDP != nil ||
+        playlistForEditSheet != nil
     }
 
     private var shouldShowPlaylistSearch: Bool {
@@ -250,13 +257,17 @@ public struct PlaylistsView: View {
             GeometryReader { geometry in
                 Color.clear
                     .onAppear {
-                        latestContainerSize = geometry.size
                         let active = supportsStageFlow && geometry.size.width > geometry.size.height
-                        if active != isStageFlowActive { isStageFlowActive = active }
+                        if active != isStageFlowActive {
+                            latestContainerSize = geometry.size
+                            isStageFlowActive = active
+                        }
                     }
                     .onChange(of: geometry.size) { newSize in
-                        latestContainerSize = newSize
                         let shouldBeActive = supportsStageFlow && newSize.width > newSize.height
+                        guard shouldBeActive != isStageFlowActive else { return }
+
+                        latestContainerSize = newSize
                         if shouldBeActive && !isStageFlowActive {
                             isStageFlowActive = true
                         } else if !shouldBeActive && isStageFlowActive {
@@ -345,10 +356,49 @@ public struct PlaylistsView: View {
             .statusBar(hidden: isStageFlowActive)
             #endif
             .navigationTitle(isPresenterChromeHidden ? "" : "Playlists")
-            #if os(iOS)
-            .ignoresSafeArea(.keyboard)
-            #endif
-            // Text input editors
+            .if(shouldShowPlaylistSearch) { view in
+                view.searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
+            }
+            .task {
+                await viewModel.loadPlaylists()
+            }
+            // Keep cached displayed playlists in sync (avoids recomputing grouping on every body eval)
+            .onReceive(viewModel.$displayPlaylists) { displayPlaylists in
+                // During pull-to-refresh, freeze the cached list so intermediate
+                // CoreData states (partial data while sync rebuilds records) can't
+                // clobber the display. The ViewModel does its own loadPlaylists()
+                // after sync finishes, which emits the final correct data.
+                guard !viewModel.isRefreshingFromServer else { return }
+
+                cachedDisplayedPlaylists = filteredDisplayedPlaylists(displayPlaylists)
+            }
+            // When refresh completes, catch up immediately rather than waiting for the
+            // Combine pipeline's 150ms debounce to produce the next displayPlaylists emission.
+            .onReceive(viewModel.$isRefreshingFromServer) { isRefreshing in
+                guard !isRefreshing else { return }
+                refreshCachedDisplayedPlaylists()
+            }
+            .onReceive(PlaylistMutationEvent.publisher) { event in
+                handlePlaylistMutationEvent(event)
+            }
+            .refreshable {
+                await viewModel.refreshFromServer()
+            }
+            .refreshCommand("Refresh Playlists") {
+                await viewModel.refreshFromServer()
+            }
+            .profileToolbar()
+            .toolbar {
+                EnsembleBrowseToolbar(isVisible: !isPresenterChromeHidden) {
+                    playlistMergeButton
+                    PlaylistsNewButton {
+                        showCreatePlaylistPush = true
+                    }
+                    playlistSortMenu
+                }
+            }
+            // Keep modal presenters outside search/toolbar/chrome modifiers so
+            // field focus does not rebuild the sheet host.
             .sheet(isPresented: $showCreatePlaylistPush) {
                 CreatePlaylistView(
                     serverOptions: nowPlayingVM.playlistServerOptions(),
@@ -386,47 +436,6 @@ public struct PlaylistsView: View {
                         renamePlaylist(playlist, to: name)
                     }
                 }
-            }
-            .if(shouldShowPlaylistSearch) { view in
-                view.searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
-            }
-            .task {
-                await viewModel.loadPlaylists()
-            }
-            // Keep cached displayed playlists in sync (avoids recomputing grouping on every body eval)
-            .onReceive(viewModel.$displayPlaylists) { displayPlaylists in
-                // During pull-to-refresh, freeze the cached list so intermediate
-                // CoreData states (partial data while sync rebuilds records) can't
-                // clobber the display. The ViewModel does its own loadPlaylists()
-                // after sync finishes, which emits the final correct data.
-                guard !viewModel.isRefreshingFromServer else { return }
-
-                cachedDisplayedPlaylists = filteredDisplayedPlaylists(displayPlaylists)
-            }
-            // When refresh completes, catch up immediately rather than waiting for the
-            // Combine pipeline's 150ms debounce to produce the next displayPlaylists emission.
-            .onReceive(viewModel.$isRefreshingFromServer) { isRefreshing in
-                guard !isRefreshing else { return }
-                refreshCachedDisplayedPlaylists()
-            }
-            .onReceive(PlaylistMutationEvent.publisher) { event in
-                handlePlaylistMutationEvent(event)
-            }
-            .refreshable {
-                await viewModel.refreshFromServer()
-            }
-            .refreshCommand("Refresh Playlists") {
-                await viewModel.refreshFromServer()
-            }
-            .profileToolbar()
-                        .toolbar {
-            EnsembleBrowseToolbar(isVisible: !isStageFlowActive) {
-                playlistMergeButton
-                PlaylistsNewButton {
-                    showCreatePlaylistPush = true
-                }
-                playlistSortMenu
-            }
             }
     }
 
@@ -1325,22 +1334,9 @@ private struct CreatePlaylistView: View {
 
     var body: some View {
         navigationContainer
-        #if os(iOS)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
-        #endif
-        .onAppear {
-            // Default: select all servers when merge is enabled, first server otherwise
-            if serverOptions.count > 1 {
-                if isMergeEnabled {
-                    selectedServerIDs = Set(serverOptions.map(\.id))
-                } else if let first = serverOptions.first {
-                    selectedServerIDs = [first.id]
-                }
+            .onAppear {
+                initializeSelection()
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                isFocused = true
-            }
-        }
     }
 
     @ViewBuilder
@@ -1369,7 +1365,7 @@ private struct CreatePlaylistView: View {
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismissAfterKeyboard() }
+                Button("Cancel") { dismiss() }
             }
 
             ToolbarItem(placement: .confirmationAction) {
@@ -1380,6 +1376,16 @@ private struct CreatePlaylistView: View {
         #if os(iOS)
         .navigationBarBackButtonHidden(true)
         #endif
+    }
+
+    private func initializeSelection() {
+        guard selectedServerIDs.isEmpty, serverOptions.count > 1 else { return }
+
+        if isMergeEnabled {
+            selectedServerIDs = Set(serverOptions.map(\.id))
+        } else if let first = serverOptions.first {
+            selectedServerIDs = [first.id]
+        }
     }
 
     @ViewBuilder
@@ -1469,13 +1475,6 @@ private struct CreatePlaylistView: View {
         }
     }
 
-    private func dismissAfterKeyboard() {
-        isFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            dismiss()
-        }
-    }
-
     private func submit() {
         let trimmed = playlistName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -1484,10 +1483,7 @@ private struct CreatePlaylistView: View {
             ? [serverOptions[0].id]
             : Array(selectedServerIDs)
         guard !keys.isEmpty else { return }
-        isFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            dismiss()
-            onCreate(trimmed, keys)
-        }
+        dismiss()
+        onCreate(trimmed, keys)
     }
 }

@@ -66,11 +66,6 @@ struct MetadataEditSheet: View {
 
     var body: some View {
         navigationContainer
-            .onAppear {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    isFocused = true
-                }
-            }
     }
 
     @ViewBuilder
@@ -87,14 +82,7 @@ struct MetadataEditSheet: View {
 
     private var formContent: some View {
         Form {
-            Section {
-                TextField(kind.fieldLabel, text: $titleText)
-                    .focused($isFocused)
-                    .submitLabel(.done)
-                    .onSubmit { submit() }
-            } footer: {
-                Text("Changes are sent directly to Plex and then refreshed locally.")
-            }
+            editRows
         }
         .navigationTitle(kind.title)
         #if os(iOS)
@@ -119,6 +107,17 @@ struct MetadataEditSheet: View {
                     .disabled(titleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
+        }
+    }
+
+    private var editRows: some View {
+        Section {
+            TextField(kind.fieldLabel, text: $titleText)
+                .focused($isFocused)
+                .submitLabel(.done)
+                .onSubmit { submit() }
+        } footer: {
+            Text("Changes are sent directly to Plex and then refreshed locally.")
         }
     }
 

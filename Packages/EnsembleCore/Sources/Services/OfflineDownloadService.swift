@@ -113,7 +113,7 @@ public final class OfflineDownloadService: ObservableObject {
     @Published public private(set) var queueStatusReason: QueueStatusReason = .idle
     /// Per-target removal progress — keyed by target key, shown in DownloadsView during cleanup
     @Published public private(set) var removalInProgress: [String: RemovalProgress] = [:]
-    /// Track ratingKeys currently pending or actively downloading — used by TrackRow to show spinners.
+    /// Track ratingKeys currently pending or actively downloading, used by track-list rows to show spinners.
     @Published public private(set) var activeDownloadRatingKeys: Set<String> = []
     internal private(set) var lastHealingSummary: OfflineDownloadHealingSummary = .notRun
 

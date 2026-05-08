@@ -226,7 +226,6 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `AlbumDetailLoader` / `ArtistDetailLoader` / `PlaylistDetailLoader` -- Async loading wrappers for detail views
 - `WaveformView` -- Audio waveform visualization with real Plex loudness data or fallback generation
 - `StageFlowView` -- iPhone landscape stage carousel with snapping, inward-facing side cards, and a trailing track panel
-- `TrackSwipeContainer` -- Shared swipe-action wrapper for track rows on iOS/iPadOS
 - `TrackSwipeActionsSettingsView` -- Settings screen for swipe slot assignment
 - `AddPlexAccountView` -- PIN auth flow with grouped server/library checklist and copy-on-tap PIN
 - `MusicSourceAccountDetailView` -- Account-scoped server/library selection + per-library sync/connection status
@@ -408,7 +407,7 @@ Dynamic home screen powered by Plex's hub system:
   - enqueuing missing track downloads
   - reconciling after sync/playlist updates
   - reference-counted cleanup of shared tracks when targets are removed
-  - publishing `@Published activeDownloadRatingKeys: Set<String>` for UI download spinners in `TrackRow`/`MediaTrackList`
+  - publishing `@Published activeDownloadRatingKeys: Set<String>` for UI download spinners in native track-list rows such as `MediaTrackList`
 - `DownloadManager` stores download quality and uses source-aware lookup/delete (`ratingKey + sourceCompositeKey`) to prevent collisions.
 - Queue policy is Wi-Fi/wired only; active downloads pause on cellular/offline and resume when allowed.
 - Recovery policy runs through `OfflineDownloadService.recoverInterruptedDownloads`: launch/foreground/wake/background URLSession events mark stale `.downloading` records pending when downloads can run, otherwise paused. macOS sleep and BG continued-processing expiration pause active bookkeeping without failing downloads.
@@ -472,7 +471,7 @@ Multi-layered network resilience spanning endpoint management, push-based update
 ### Reactive Track Availability -- TrackAvailabilityResolver
 - **`TrackAvailabilityResolver`** (`EnsembleCore`, @MainActor ObservableObject) -- Publishes per-track availability by combining per-server connection state with per-track download state.
 - `TrackAvailability` enum: `.available`, `.availableDownloadedOnly`, `.unavailableServerOffline`, `.unavailableNetworkOffline`.
-- `TrackRow`, `CompactSearchRows`, and `MediaTrackList` use the resolver instead of inline offline checks for consistent dimming/blocking behavior.
+- `CompactSearchRows` and native track-list rows such as `MediaTrackList` use the resolver instead of inline offline checks for consistent dimming/blocking behavior.
 - Exposed via `DependencyContainer.trackAvailabilityResolver`.
 
 ### Two-Phase Stream Resolution
@@ -526,7 +525,7 @@ PlexAPIClient ──failover──> ServerConnectionRegistry <──writes──
                             TrackAvailabilityResolver (server state + download state -> per-track availability)
                                         |
                                         v
-                             TrackRow / CompactSearchRows / MediaTrackList (UI dimming/blocking)
+                             CompactSearchRows / MediaTrackList (UI dimming/blocking)
 
 PlaybackService ──makeStreamDecision──> SyncCoordinator ──> PlexMusicSourceSyncProvider ──> PlexAPIClient.makeStreamDecision()
 PlaybackService ──assembleStream──> SyncCoordinator ──> PlexMusicSourceSyncProvider ──> PlexAPIClient.assembleStreamResolution()
@@ -586,7 +585,7 @@ Server-backed playlist mutations with automatic local cache refresh:
 iOS/iPadOS gesture system for track swipe actions and long-press media actions:
 
 - Track swipe actions are layout-driven from `SettingsManager.trackSwipeLayout` and shared across Songs/Favorites/Mood/Search/detail track lists
-- SwiftUI track surfaces use `TrackSwipeContainer`; UIKit-backed detail lists use `MediaTrackList` `UIContextualAction` APIs
+- UIKit-backed detail and Songs lists use `MediaTrackList` `UIContextualAction` APIs; macOS Songs uses the AppKit table backend. Do not reintroduce the removed SwiftUI swipe wrapper for new track rows.
 - `NowPlayingViewModel` exposes `setTrackFavorite(_:for:)` and `toggleTrackFavorite(_:)` for non-current track favorite mutations
 - Album/artist/playlist cards and search rows expose `contextMenu` actions aligned with detail-view capabilities
 
@@ -620,7 +619,7 @@ Universal link and audio file sharing for tracks and albums:
    - Temp files stored in `NSTemporaryDirectory()/EnsembleShare/`, cleaned after share sheet dismissal
 3. **ShareSheetPresenter** (`EnsembleUI`) -- iOS 15-compatible `UIActivityViewController` wrapper with imperative presentation via topmost window scene. macOS uses `NSSharingServicePicker`.
 4. **ShareActions** (`EnsembleUI`) -- Static namespace bridging `ShareService` -> share sheet, with toast feedback for download progress and text fallback.
-5. **Context menu integration** -- "Share Link..." and "Share Audio File..." in `TrackRow`, `MediaTrackList`, and Now Playing ellipsis menu. "Share Link..." in `AlbumCard` context menu.
+5. **Context menu integration** -- "Share Link..." and "Share Audio File..." in `MediaTrackList` and Now Playing ellipsis menu. "Share Link..." in `AlbumCard` context menu.
 6. **Drag and drop (iPad/macOS)** -- `MediaDragPayload` provides internal track/album/playlist references for Ensemble drop targets and file representations for external track destinations. `MediaDragExportPolicy` owns copy-vs-move and external file-promise defaults and should be used by drag providers (`itemProvider`/macOS pasteboard writer) instead of calling payload export directly: tracks can copy to playlists/Finder, queue rows can move only inside the queue, albums/playlists are in-app payloads only. Playlist drop targets call Core `PlaylistDropResolver`; UI owns provider loading and toast presentation only.
 7. **MusicKit configuration** -- `com.apple.developer.music-kit` entitlement + `NSAppleMusicUsageDescription` in Info.plist. `#if canImport(MusicKit)` guard for watchOS 8.
 

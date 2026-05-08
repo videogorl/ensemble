@@ -172,9 +172,6 @@ public struct FilterSheet: View {
     private var iOSBody: some View {
         navigationContainer
         .onAppear(perform: initializeYearRange)
-        #if os(iOS)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
-        #endif
     }
 
     @ViewBuilder
@@ -203,7 +200,7 @@ public struct FilterSheet: View {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
-                        dismissAfterKeyboard()
+                        dismiss()
                     }
                 }
                 #else
@@ -390,17 +387,6 @@ public struct FilterSheet: View {
             return
         }
         filterOptions.yearRange = min...max
-    }
-
-    private func dismissAfterKeyboard() {
-        #if os(iOS)
-        focusedYearField = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + EnsembleScaffold.FilterSheet.keyboardDismissDelay) {
-            dismiss()
-        }
-        #else
-        dismiss()
-        #endif
     }
 
     #if os(macOS)

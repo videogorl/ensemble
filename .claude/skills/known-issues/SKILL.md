@@ -21,7 +21,8 @@ No unresolved critical issues currently documented.
 ### iOS 26 Keyboard Presenter Guardrails (Apr 13, 2026)
 - **Location:** `View+Extensions.swift`, `MainTabView.swift`, `PlaylistsView.swift`, `ProfileView.swift`, filter screens
 - **Issue:** A broad iPhone workaround pushed ordinary text-input flows into `keyboardSafeEditorPresentation(...)` and pre-hidden chrome. That masked the real root-layout issue, swallowed valid presentations, and forced unnecessary full-screen editors.
-- **Current rule:** Ordinary short rename/create/filter flows should use plain `.sheet` presentation again. The specialized keyboard helper is reserved for the small set of remaining root-owned presenters that still require isolation and have been explicitly validated as such.
+- **Root cause found:** Playlists create/rename sheets triggered an iOS 26 `NavigationBarContentView` observation feedback loop because the underlying Playlists searchable/navigation chrome stayed live behind the focused modal. The sheet content itself works with native `NavigationStack`/toolbar behavior once the parent screen withdraws its own chrome.
+- **Current rule:** Ordinary short rename/create/filter flows should use plain `.sheet` presentation again. Parent screens may suppress only their own active navigation/search chrome while presenting a local modal if logs prove that parent chrome is the loop source. The specialized keyboard helper is reserved for the small set of remaining root-owned presenters that still require isolation and have been explicitly validated as such.
 - **Remaining guarded surfaces:** Treat `MainTabView`'s pinned/sidebar playlist rename presenters as intentionally isolated. `MediaDetailView`'s shared filter presenter is still on the helper until it is revalidated with a normal sheet.
 - **Practical impact:** If a future change reaches for `keyboardSafeEditorPresentation(...)` by default, treat that as a likely regression unless the root presenter is demonstrably unstable with a normal sheet.
 
@@ -317,8 +318,8 @@ No unresolved critical issues currently documented.
   - `resolvePlayableQueue` only checked device-level offline, not per-server health
   - `next()`/`handleQueueExhausted` blindly advanced to next queue index
   - `@Environment` (EnvironmentKey) doesn't create SwiftUI observation bindings for nested ObservableObjects
-- **Fix:** Startup health checks populate `serverStates` before sync. AVPlayer KVO error path classifies server-unreachable errors and triggers targeted health checks. `resolvePlayableQueue`, `next()`, `handleQueueExhausted`, and `playQueueIndex` all filter by per-server availability. `ArtworkLoader` falls back to local cache when server is offline. Track row views use `@ObservedObject` on `DependencyContainer.shared.trackAvailabilityResolver` for reactive dimming.
-- **Key files:** `SyncCoordinator.swift`, `PlaybackService.swift`, `ArtworkLoader.swift`, `TrackRow.swift`, `CompactSearchRows.swift`, `MediaTrackList.swift`
+- **Fix:** Startup health checks populate `serverStates` before sync. AVPlayer KVO error path classifies server-unreachable errors and triggers targeted health checks. `resolvePlayableQueue`, `next()`, `handleQueueExhausted`, and `playQueueIndex` all filter by per-server availability. `ArtworkLoader` falls back to local cache when server is offline. Track row views use focused availability observation for reactive dimming.
+- **Key files:** `SyncCoordinator.swift`, `PlaybackService.swift`, `ArtworkLoader.swift`, `CompactSearchRows.swift`, `MediaTrackList.swift`
 
 ### HomePod Siri Media Intents handle() Never Called
 - **Resolved (February 26, 2026)**
@@ -447,11 +448,11 @@ No unresolved critical issues currently documented.
 - **Fix:** Replaced with `CurrentValueSubject<[Double], Never>`. `objectWillChange` no longer fires for band updates. `NowPlayingViewModel.applyLyricsPosition()` also guards against no-change assignments.
 - **Key files:** `PlaybackService.swift`, `NowPlayingViewModel.swift`
 
-### TrackRow Mass Re-Render on Availability Change
+### Legacy SwiftUI Track Row Mass Re-Render on Availability Change
 - **Resolved (March 11, 2026)**
-- **Previous:** `@ObservedObject availabilityResolver` (singleton) caused ALL visible TrackRows to re-render when generation counter bumped.
-- **Fix:** Replaced with `@State private var cachedAvailability` + `.onReceive` that only updates `@State` when THIS track's availability actually changed. Applied to both `TrackRow` and `CompactTrackRow`.
-- **Key files:** `TrackRow.swift`, `CompactSearchRows.swift`
+- **Previous:** `@ObservedObject availabilityResolver` (singleton) caused all visible SwiftUI track rows to re-render when the generation counter bumped. The old `TrackRow` type was removed in the May 2026 native-behavior cleanup.
+- **Fix:** Replaced with `@State private var cachedAvailability` + `.onReceive` that only updates `@State` when THIS track's availability actually changed. The active compact SwiftUI row path remains `CompactTrackRow`.
+- **Key files:** `CompactSearchRows.swift`
 
 ### Songs View 1500+ Track Choppiness
 - **Resolved (March 11, 2026)**

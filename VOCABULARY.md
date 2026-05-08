@@ -264,7 +264,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 |--------------|------|-------------|---------------------|
 | Track list | list | Main scrollable list of all songs | `trackListView`, `MediaTrackList` |
 | Section header | text | Alphabetical section divider (A, B, C...) | `sectionHeader` |
-| Track row | control | Individual song row with artwork, title, artist, duration | `TrackRow` |
+| Track row | control | Individual song row with artwork, title, artist, duration | `MediaTrackList`, `SongsTrackListHost`, `CompactTrackRow` |
 | Filter button | control | Toolbar button to open filter sheet (with badge) | `line.3.horizontal.decrease.circle` |
 | Filter badge | indicator | Red dot showing active filters | `hasActiveFilters` |
 | Sort menu | menu | Overflow menu with sort options and actions | `ellipsis.circle` |
@@ -797,10 +797,10 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 ---
 
-## TrackRow
+## Native Track List Row
 
-- **View name:** `TrackRow`
-- **Canonical name:** TrackRow
+- **View name:** Native track list row
+- **Canonical name:** Track List Row
 - **Area:** Shared
 - **Platform:** iOS, iPadOS, macOS
 - **Definition status:** Draft
@@ -809,7 +809,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Track artwork | artwork | Small thumbnail for track (44x44 or 48x48) | `ArtworkView`, `.tiny` |
+| Track artwork | artwork | Small thumbnail for track (44x44 or 48x48) | `MediaTrackList`, `CompactTrackRow`, `ArtworkView`, `.tiny` |
 | Track number | text | Numeric position in album/playlist | `track.trackNumber` |
 | Now playing indicator | indicator | Speaker icon when track is currently playing | `speaker.wave.2.fill` |
 | Track title | text | Song name with accent color when playing | `track.title` |
@@ -818,7 +818,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Download spinner | indicator | Spinning progress indicator for tracks being actively downloaded | `ProgressView()`, `isActivelyDownloading` |
 | Downloaded indicator | indicator | Arrow icon for locally downloaded tracks | `arrow.down.circle.fill` |
 | Duration | text | Track length in mm:ss format | `formattedDuration` |
-| Context menu | menu | Long-press menu with queue and playlist actions | `contextMenu` |
+| Context menu | menu | Long-press menu with queue and playlist actions | `NativeMediaTableActionBuilder`, `TrackActionsContextMenu`, `contextMenu` |
 | Play next action | action | Add track to front of queue | `Play Next` |
 | Play last action | action | Add track to end of queue | `Play Last` |
 | Add to playlist action | action | Open playlist picker sheet | `Add to Playlist...` |
@@ -942,7 +942,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
 | Songs track list host | component | Large-screen native Songs list that routes to UIKit on iPadOS and AppKit on macOS while keeping one caller-facing API | `SongsTrackListHost` |
-| Adaptive track row | control | Shared playable track row with artwork, favorite heart, duration, context menu, and optional wide metadata | `TrackRow(supplementalMetadataWidth:)`, `MediaTrackList(supplementalMetadataWidth:)`, `SongsTrackListHost` |
+| Adaptive track row | control | Shared playable track row with artwork, favorite heart, duration, context menu, and optional wide metadata | `MediaTrackList(supplementalMetadataWidth:)`, `SongsTrackListHost`, `MacNativeTrackTableView` |
 | Native swipe row | interaction | Large-screen row hosted by UIKit `MediaTrackList` on iPad and AppKit `NSTableView` on macOS so Apple handles swipe reveal and trackpad gestures without custom drag physics | `UISwipeActionsConfiguration`, `NSTableViewRowAction` |
 | Artist metadata column | text | Artist name shown beside the title when the browser is wide enough | `showsArtistMetadataColumn` |
 | Album metadata column | text | Album name shown beside artist when the browser has additional width | `showsAlbumMetadataColumn` |

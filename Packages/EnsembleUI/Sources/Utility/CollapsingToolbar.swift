@@ -14,30 +14,6 @@ struct TitleOffsetPreferenceKey: PreferenceKey {
     }
 }
 
-/// PreferenceKey that tracks the maxY position of action buttons in scroll coordinates.
-/// When the buttons scroll above the threshold, toolbar action icons appear.
-struct ActionButtonsOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = .infinity
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = min(value, nextValue())
-    }
-}
-
-/// Attaches a GeometryReader background to track action buttons' position in scroll coordinates.
-struct ActionButtonsOffsetTracker: View {
-    let coordinateSpace: String
-
-    var body: some View {
-        GeometryReader { geometry in
-            Color.clear
-                .preference(
-                    key: ActionButtonsOffsetPreferenceKey.self,
-                    value: geometry.frame(in: .named(coordinateSpace)).maxY
-                )
-        }
-    }
-}
-
 // MARK: - Collapsing Toolbar Title Modifier
 
 /// Modifier that shows a toolbar title when the inline title scrolls out of view.
@@ -81,10 +57,8 @@ struct CollapsingToolbarTitleModifier: ViewModifier {
                     #if os(iOS)
                     // iOS 16+: use SwiftUI toolbarBackground (respects iOS 26 Liquid Glass)
                     .modifier(ToolbarBackgroundModifier(isTransparent: !toolbarBackgroundIsVisible))
-                    // iOS 15 fallback: UIKit appearance configurator
-                    .background(
-                        NavigationBarAppearanceConfigurator(isTransparent: !toolbarBackgroundIsVisible)
-                    )
+                    // iOS 15 fallback only; newer OS releases own navigation chrome natively.
+                    .modifier(IOS15NavigationBarAppearanceModifier(isTransparent: !toolbarBackgroundIsVisible))
                     #endif
             } else {
                 content
@@ -132,6 +106,22 @@ private struct ToolbarBackgroundModifier: ViewModifier {
                 .toolbarBackground(isTransparent ? .hidden : .visible, for: .navigationBar)
         } else {
             content
+        }
+    }
+}
+
+/// Applies the UIKit navigation-bar fallback only on iOS 15.
+private struct IOS15NavigationBarAppearanceModifier: ViewModifier {
+    let isTransparent: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content
+        } else {
+            content
+                .background(
+                    NavigationBarAppearanceConfigurator(isTransparent: isTransparent)
+                )
         }
     }
 }

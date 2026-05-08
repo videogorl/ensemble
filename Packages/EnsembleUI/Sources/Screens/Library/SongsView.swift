@@ -135,13 +135,17 @@ public struct SongsView: View {
             GeometryReader { geometry in
                 Color.clear
                     .onAppear {
-                        latestContainerSize = geometry.size
                         let active = supportsStageFlow && geometry.size.width > geometry.size.height
-                        if active != isStageFlowActive { isStageFlowActive = active }
+                        if active != isStageFlowActive {
+                            latestContainerSize = geometry.size
+                            isStageFlowActive = active
+                        }
                     }
                     .onChange(of: geometry.size) { newSize in
-                        latestContainerSize = newSize
                         let shouldBeActive = supportsStageFlow && newSize.width > newSize.height
+                        guard shouldBeActive != isStageFlowActive else { return }
+
+                        latestContainerSize = newSize
                         if shouldBeActive && !isStageFlowActive {
                             isStageFlowActive = true
                         } else if !shouldBeActive && isStageFlowActive {

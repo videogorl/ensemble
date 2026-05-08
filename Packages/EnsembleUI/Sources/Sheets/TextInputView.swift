@@ -17,16 +17,9 @@ struct TextInputView: View {
 
     var body: some View {
         navigationContainer
-        #if os(iOS)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
-        #endif
-        .onAppear {
-            text = initialText
-            // Delay focus so the modal presentation settles before the keyboard animates.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                isFocused = true
+            .onAppear {
+                text = initialText
             }
-        }
     }
 
     @ViewBuilder
@@ -68,7 +61,7 @@ struct TextInputView: View {
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismissAfterKeyboard() }
+                Button("Cancel") { dismiss() }
             }
 
             ToolbarItem(placement: .confirmationAction) {
@@ -105,22 +98,10 @@ struct TextInputView: View {
             #endif
     }
 
-    /// Dismiss keyboard first, then dismiss the modal so the keyboard animation
-    /// doesn't overlap with the presentation teardown.
-    private func dismissAfterKeyboard() {
-        isFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            dismiss()
-        }
-    }
-
     private func submit() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        isFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            dismiss()
-            onSubmit(trimmed)
-        }
+        dismiss()
+        onSubmit(trimmed)
     }
 }

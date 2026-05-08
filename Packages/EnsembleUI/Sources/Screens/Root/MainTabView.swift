@@ -235,7 +235,7 @@ public struct MainTabView: View {
                     )
                 #endif
             }
-            .keyboardSafeEditorPresentation(item: $contextMenuMetadataEditorCoordinator.request) { request in
+            .phoneSafeAuxiliaryPresentation(item: $contextMenuMetadataEditorCoordinator.request) { request in
                 MetadataEditSheet(
                     kind: request.kind,
                     currentTitle: request.currentTitle,
@@ -930,7 +930,7 @@ public struct SidebarView: View {
                 )
             #endif
         }
-        .keyboardSafeEditorPresentation(item: $contextMenuMetadataEditorCoordinator.request) { request in
+        .phoneSafeAuxiliaryPresentation(item: $contextMenuMetadataEditorCoordinator.request) { request in
             MetadataEditSheet(
                 kind: request.kind,
                 currentTitle: request.currentTitle,

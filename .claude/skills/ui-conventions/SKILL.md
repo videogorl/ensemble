@@ -31,28 +31,28 @@ These are core design decisions that must be maintained throughout the app.
 - **iOS 15:** `NestedNavigationLink` recursive pattern in `MainTabView.swift`
 - **Feature detection:** Always wrap iOS 16+ features in `@available(iOS 16.0, *)` checks
 - **Bottom spacing for mini player/tab bar:** Use `.miniPlayerBottomSpacing(...)` from `View+Extensions.swift` instead of ad-hoc per-screen spacer blocks
-- **Shared list spacing:** Use `TrackListLayoutMetrics` for standard row height, leading insets, divider alignment/color, native separator color, and default mini-player clearance instead of repeating `68/54/16/140/70/52` or raw separator alpha across screens. SwiftUI `List` track rows should hide system row separators and draw `TrackListDivider` so Artist pages, Media Detail pages, and native table rows do not drift.
+- **Shared list spacing:** Use `TrackListLayoutMetrics` for standard row height, leading insets, divider alignment/color, native separator color, and default mini-player clearance instead of repeating `68/54/16/140/70/52` or raw separator alpha across screens. Native table rows and compact SwiftUI track/search rows should share these metrics so Artist pages, Media Detail pages, and Songs/Search rows do not drift.
 - **Utility sheet spacing:** Reuse `TrackListLayoutMetrics.rowInterItemSpacing` and `rowHorizontalPadding` for compact sheet rows, drag-order surfaces, and lightweight action pickers instead of introducing standalone `12/16` spacing constants
 - **Now Playing utility spacing:** Inside Now Playing cards, keep compact metadata rows, empty states, page indicators, and queue/status affordances on `TrackListLayoutMetrics` spacing tokens unless the layout truly needs its own card-scale rhythm
 - **Now Playing carousel readiness:** Carousel cards should separate visual readiness from live update activity: render the selected card plus adjacent cards during `.page` swipes so panels are complete before selection commits, while keeping high-frequency playback/lyrics work scoped to the active card or explicitly always-visible viewport cards.
 - **Detail gutter:** Treat the 40pt horizontal gutter used by Now Playing and queue surfaces as the app's premium detail inset. Reuse `TrackListLayoutMetrics.detailHorizontalPadding` and `utilityListRowInsets()` for downloads/settings/manual utility rows instead of hardcoding fresh edge values.
 - **MediaTrackList padding:** Do not wrap `MediaTrackList` in an extra outer horizontal padding layer for normal full-width track lists; the rows already own their horizontal inset through `TrackListLayoutMetrics`
 - **Detail action strips:** Reuse `TrackListLayoutMetrics.rowInterItemSpacing` and `rowHorizontalPadding` for repeated Play/Shuffle-style button rows and lightweight status banners in media/detail screens
-- **Shared row actions:** Use `TrackRowInteractionModel` to resolve per-track context-menu availability, recent-playlist gating, and favorite state for both `TrackRow` and native table paths. UIKit table menus should be built through `NativeMediaTableActionBuilder`; keep swipe gestures owned by `TrackSwipeContainer`/`MediaTrackList` so card and shelf interfaces do not inherit row gestures.
+- **Shared row actions:** Use `TrackRowInteractionModel` to resolve per-track context-menu availability, recent-playlist gating, and favorite state for native table paths and compact standalone track rows. UIKit table menus should be built through `NativeMediaTableActionBuilder`; keep row swipes owned by `MediaTrackList`/native table delegates so card and shelf interfaces do not inherit row gestures.
 
 ### Keyboard-Heavy Editors (iPhone)
 - Default to a normal `.sheet` for short rename/create/filter flows on iPhone, including profile-name, playlist creation, album/favorites/artists/songs filters, and the validated playlist rename flows.
-- Do **not** pre-emptively hide root tab, mini-player, or navigation/search chrome for those ordinary sheets. Broad chrome suppression was the workaround that masked the iOS 26 keyboard regression and also swallowed valid presentations.
+- Do **not** pre-emptively route ordinary sheets through full-screen keyboard presenters or broad app-wide chrome suppression. If runtime logs prove the presenting screen's own navigation/search chrome is causing a UIKit feedback loop, let that parent screen suppress only its own chrome while its local modal is active.
 - Reserve `keyboardSafeEditorPresentation(...)` for the few remaining root-owned presenters that are still intentionally isolated, such as the pinned/sidebar playlist rename presenters in `MainTabView` and any shared/root presenter that has not yet been revalidated with a normal sheet.
 - On iPhone, that helper still uses `fullScreenCover` so the presenting root container stays out of the keyboard layout pass when isolation is actually required.
 - Root tab shells should own keyboard/search avoidance decisions. Child detail views should not inherit an active search or keyboard presenter from an offscreen tab.
 - Context-menu metadata editors are a separate case: use `phoneSafeAuxiliaryPresentation(...)` with a short dismissal delay so the menu teardown finishes before presentation begins.
 - Profile should present as a normal sheet again on iPhone.
 - Profile and Downloads should use the same single-column rhythm on macOS auxiliary windows as they do on iOS sheets. Host them through `MacAuxiliaryWindowScaffold` at about 420pt max width, and compose macOS content with `EnsembleUtilityScreenScaffold`/`EnsembleUtilityCardSection` instead of raw `List` rows when the screen is menu-like.
-- Do not pre-hide root tab, mini-player, or searchable-header chrome for the entire auxiliary transition; only suppress root chrome for actual immersive modes or the remaining explicitly-isolated keyboard presenters.
+- Do not pre-hide root tab, mini-player, or searchable-header chrome for the entire auxiliary transition; suppress parent chrome only for actual immersive modes, the remaining explicitly-isolated keyboard presenters, or a proved local-presenter conflict such as Playlists hiding its own searchable/navigation chrome while create/rename/edit sheets are active.
 - The helper owns keyboard-editor registration timing; do not duplicate `beginKeyboardEditorPresentation()` or `endKeyboardEditorPresentation()` inside the editor view itself
 - Keyboard editors can use a local `NavigationStack`/`NavigationView` plus system toolbar actions for a native look whether they are hosted in a normal sheet or one of the remaining isolated presenters.
-- For any modal text-input flow with an explicit Done/Cancel action, dismiss the focused field first and delay the modal dismissal slightly so the keyboard animation completes before the presentation tears down
+- For modal text-input flows with explicit Done/Cancel actions, prefer direct native dismissal. Do not add keyboard delays or focus choreography unless a current simulator/hardware repro proves native dismissal is broken.
 
 **NestedNavigationLink Pattern** (in `MainTabView.swift`):
 ```swift
@@ -124,8 +124,8 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - Persistent list views that react to a family of related `NotificationCenter` events should fan them into a typed event publisher and route through one handler, so payload parsing, toast cleanup, and cached-list refresh policy do not drift across receivers.
 - Toolbar buttons nested inside persistent lists should project only the singleton state they need, such as `SyncCoordinator.isOffline`, with guarded `@State` updates instead of observing the whole singleton object.
 - Native track-list metadata columns must be fixed-width and right-pinned with equality constraints; only the title region should flex/truncate. Keep duration and status/download lanes fixed-width too. Do not chain artist/album/duration with `lessThanOrEqual` constraints, or mixed title/artist/album lengths, duration strings, or download state will shift columns per row.
-- Search song results and virtual collection/detail track lists such as Favorites, Mood, and Artist Favorited Tracks should use the same native track-list backends (`MediaTrackList` on iOS/iPadOS and `SongsTrackListHost`/AppKit table host on macOS) instead of `TrackListView` or hand-built compact track rows, so wide metadata columns, context menus, and native row actions stay aligned.
-- Do not replace compact `TrackRow` lists with table rows on iPhone. Compact Songs must keep genre chips, row swipe actions, and existing mini-player spacing.
+- Search song results and virtual collection/detail track lists such as Favorites, Mood, and Artist Favorited Tracks should use the same native track-list backends (`MediaTrackList` on iOS/iPadOS and `SongsTrackListHost`/AppKit table host on macOS) instead of reintroducing `TrackListView` or hand-built compact track rows, so wide metadata columns, context menus, and native row actions stay aligned.
+- Do not reintroduce the deleted `TrackRow`/`TrackSwipeContainer` stack for compact iPhone lists. Compact Songs should keep its current `MediaTrackList` path with genre chips, native row swipe actions, and existing mini-player spacing.
 - Refreshable root screens should also attach `.refreshCommand { ... }` so macOS View > Refresh invokes the focused screen's same async refresh action.
 
 ### Aurora Surfaces
@@ -178,12 +178,12 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Slot 1 on each edge is full-swipe enabled; slot 2 is reveal-only
 - Supported swipe action catalog in v1: `Play Next`, `Play Last`, `Add to Playlist…`, favorite toggle
 - Keep primary tap behavior unchanged (tap still plays/navigates as before)
-- Use `TrackSwipeContainer` for SwiftUI rows and `MediaTrackList` swipe delegates for UIKit-backed track lists
+- Use `MediaTrackList` swipe delegates for UIKit-backed track lists; do not bring back the deleted SwiftUI `TrackSwipeContainer` layer for new rows.
 - macOS keeps existing interaction model (no custom swipe gesture layer in v1)
 
 ### Long-Press Menus
 - Shared media context-menu policy lives in `MediaMenuCatalog`. New track, album, artist, playlist, or merged-playlist menus should use the catalog for action order, section grouping, and destructive/editing gating; parent views should add only local handlers such as queue removal, MiniPlayer shuffle/repeat, or pinned unpin behavior.
-- Use `TrackActionsContextMenu` for standalone SwiftUI track cards/menus outside `TrackRow` or native table rows, including feed cards, mini-player long-press menus, and queue/history fallback rows. It renders the shared catalog and lets the parent inject only navigation, playlist-picker presentation, or removal handlers.
+- Use `TrackActionsContextMenu` for standalone SwiftUI track cards/menus outside native table rows, including feed cards, mini-player long-press menus, and queue/history fallback rows. It renders the shared catalog and lets the parent inject only navigation, playlist-picker presentation, or removal handlers.
 - Add-to-playlist follow-up UI should be presented through `PlaylistActionPresentationHost` and `.playlistActionPresentation(request:nowPlayingVM:)`; menus and row actions should request the shared host instead of owning a local sheet payload.
 - Prefer `contextMenu` on album/artist/playlist cards/rows to mirror detail-view actions
 - Album menu: `Play`, `Shuffle`, `Play Next`, `Play Last`, `Radio`, `Add to Playlist…`, `Pin/Unpin`

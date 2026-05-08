@@ -1069,18 +1069,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         genreChipContent == nil ? 0 : EnsembleScaffold.Chip.barHeight + (EnsembleDesign.Spacing.sm * 2)
     }
 
-    private var macTableHeaderTopPadding: CGFloat {
-        EnsembleScaffold.DetailSurface.macWideHeaderTopPadding
-    }
-
-    private var macTableHeaderBottomPadding: CGFloat {
-        EnsembleScaffold.DetailSurface.macWideHeaderBottomPadding
-    }
-
-    private var macTableHeaderTopContentVerticalPadding: CGFloat {
-        genreChipContent == nil ? 0 : EnsembleDesign.Spacing.sm
-    }
-
     private var macDiscTrackGroups: [(disc: Int?, tracks: [(offset: Int, element: Track)])] {
         let indexedTracks = Array(viewModel.filteredTracks.enumerated())
         guard groupByDisc else {
@@ -1101,6 +1089,26 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     #endif
 
+    private var tableHeaderTopPadding: CGFloat {
+        #if os(iOS)
+        return EnsembleScaffold.DetailSurface.headerPadding
+        #else
+        return EnsembleScaffold.DetailSurface.macWideHeaderTopPadding
+        #endif
+    }
+
+    private var tableHeaderBottomPadding: CGFloat {
+        #if os(iOS)
+        return EnsembleScaffold.DetailSurface.headerPadding
+        #else
+        return EnsembleScaffold.DetailSurface.macWideHeaderBottomPadding
+        #endif
+    }
+
+    private var tableHeaderTopContentVerticalPadding: CGFloat {
+        genreChipContent == nil ? 0 : EnsembleDesign.Spacing.sm
+    }
+
     /// SwiftUI header content embedded as the UITableView's native tableHeaderView.
     /// Scrolls with the track list while preserving cell recycling.
     /// The header is structurally identical across all states (loading, empty, populated)
@@ -1108,9 +1116,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var tableHeaderForTrackList: some View {
         MediaDetailSurface<EmptyView>.Header(
             artworkWidth: ArtworkSize.medium.cgSize.width,
-            topPadding: macTableHeaderTopPadding,
-            bottomPadding: macTableHeaderBottomPadding,
-            topContentVerticalPadding: macTableHeaderTopContentVerticalPadding,
+            topPadding: tableHeaderTopPadding,
+            bottomPadding: tableHeaderBottomPadding,
+            topContentVerticalPadding: tableHeaderTopContentVerticalPadding,
             topContent: {
                 if let genreChipContent {
                     genreChipContent

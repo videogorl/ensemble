@@ -333,7 +333,6 @@ public enum EnsembleScaffold {
         public static let macFieldLabelSpacing = EnsembleDesign.Spacing.chipVertical
         public static let sectionBackgroundOpacity = 0.04
         public static let subtleSectionBackgroundOpacity = 0.1
-        public static let keyboardDismissDelay: TimeInterval = 0.35
         public static let selectionSheetMinimumWidth = EnsembleDesign.Breakpoint.auxiliaryWindowMaxWidth
         public static let selectionSheetMinimumHeight: CGFloat = 520
     }

@@ -47,9 +47,7 @@ public struct QueueCard: View {
                 .padding(.bottom, EnsembleScaffold.NowPlaying.headerBottomPadding)
 
             if shouldRenderContent {
-                // Queue list — QueueTableView manages its own scrolling now.
-                // No SwiftUI ScrollView wrapper — that was defeating cell recycling
-                // by forcing IntrinsicTableView to report full contentSize.
+                // QueueTableView manages its own scrolling so cell recycling remains native.
                 queueListView
                     .mask(
                         VStack(spacing: EnsembleDesign.Spacing.none) {
