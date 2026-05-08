@@ -813,9 +813,7 @@ public struct SidebarView: View {
 
     private func navigateFromPinnedMenu(to destination: NavigationCoordinator.Destination) {
         selection = SidebarSelection.selection(for: destination, fallback: selection)
-        DispatchQueue.main.async {
-            navigationCoordinator.push(destination, in: NavigationCoordinator.targetTab(for: destination))
-        }
+        navigationCoordinator.push(destination, in: NavigationCoordinator.targetTab(for: destination))
     }
 
     private func startPinnedPlaylistDelete(for playlist: Playlist) {
