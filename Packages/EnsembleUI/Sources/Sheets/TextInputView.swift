@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// A focused text-input editor used for short rename flows.
-/// Presenters decide whether this lives in a normal sheet or a specialized
-/// root-owned presenter based on the surrounding container.
+/// A focused text-input editor used for short sheet-based text flows.
+/// Use native alerts for playlist rename; keep this for form-style editors.
 struct TextInputView: View {
     let title: String
     var message: String = ""

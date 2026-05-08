@@ -94,7 +94,9 @@ public struct PlaylistsView: View {
     @State private var displayPlaylistPendingDelete: DisplayPlaylist?
     @State private var showCreatePlaylistPush = false
     @State private var renamePushPlaylist: Playlist?
+    @State private var renamePushPlaylistTitle = ""
     @State private var renamePushDP: DisplayPlaylist?
+    @State private var renamePushDPTitle = ""
     // Cached merge-aware playlist list — avoids recomputing grouping on every body evaluation
     @State private var cachedDisplayedPlaylists: [DisplayPlaylist] = []
     @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
@@ -115,8 +117,6 @@ public struct PlaylistsView: View {
 
     private var isLocalSheetPresented: Bool {
         showCreatePlaylistPush ||
-        renamePushPlaylist != nil ||
-        renamePushDP != nil ||
         playlistForEditSheet != nil
     }
 
@@ -360,35 +360,45 @@ public struct PlaylistsView: View {
                     createPlaylistOnServers(named: name, serverSourceKeys: serverKeys)
                 }
             }
-            .sheet(item: Binding(
-                get: { renamePushPlaylist },
-                set: { if $0 == nil { renamePushPlaylist = nil } }
-            )) { playlist in
-                TextInputView(
-                    title: "Rename Playlist",
-                    placeholder: "Playlist name",
-                    initialText: playlist.title,
-                    actionTitle: "Save"
-                ) { name in
-                    renamePlaylist(playlist, to: name)
+            .alert("Rename Playlist", isPresented: Binding(
+                get: { renamePushPlaylist != nil },
+                set: { if !$0 { renamePushPlaylist = nil } }
+            )) {
+                TextField("Playlist name", text: $renamePushPlaylistTitle)
+                Button("Cancel", role: .cancel) {
+                    renamePushPlaylist = nil
                 }
+                Button("Save") {
+                    guard let playlist = renamePushPlaylist else { return }
+                    let title = renamePushPlaylistTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    renamePushPlaylist = nil
+                    renamePlaylist(playlist, to: title)
+                }
+                .disabled(renamePushPlaylistTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            } message: {
+                Text("Choose a new playlist name.")
             }
-            .sheet(item: Binding(
-                get: { renamePushDP },
-                set: { if $0 == nil { renamePushDP = nil } }
-            )) { dp in
-                TextInputView(
-                    title: "Rename Playlist",
-                    message: "This will rename on \(dp.playlists.count) server\(dp.playlists.count == 1 ? "" : "s").",
-                    placeholder: "Playlist name",
-                    initialText: dp.title,
-                    actionTitle: "Save"
-                ) { name in
-                    viewModel.applyOptimisticRenameForMerged(dp, newTitle: name)
+            .alert("Rename Playlist", isPresented: Binding(
+                get: { renamePushDP != nil },
+                set: { if !$0 { renamePushDP = nil } }
+            )) {
+                TextField("Playlist name", text: $renamePushDPTitle)
+                Button("Cancel", role: .cancel) {
+                    renamePushDP = nil
+                }
+                Button("Save") {
+                    guard let dp = renamePushDP else { return }
+                    let title = renamePushDPTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    renamePushDP = nil
+                    viewModel.applyOptimisticRenameForMerged(dp, newTitle: title)
                     for playlist in dp.playlists {
-                        renamePlaylist(playlist, to: name)
+                        renamePlaylist(playlist, to: title)
                     }
                 }
+                .disabled(renamePushDPTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            } message: {
+                let count = renamePushDP?.playlists.count ?? 0
+                Text("This will rename on \(count) server\(count == 1 ? "" : "s").")
             }
     }
 
@@ -541,7 +551,7 @@ public struct PlaylistsView: View {
                                     displayPlaylist: dp,
                                     nowPlayingVM: nowPlayingVM,
                                     onRename: {
-                                        renamePushDP = dp
+                                        presentRenameAlert(for: dp)
                                     },
                                     onDelete: { displayPlaylistPendingDelete = dp }
                                 )
@@ -550,7 +560,7 @@ public struct PlaylistsView: View {
                                     playlist: dp.primaryPlaylist,
                                     nowPlayingVM: nowPlayingVM,
                                     onRename: {
-                                        renamePushPlaylist = dp.primaryPlaylist
+                                        presentRenameAlert(for: dp.primaryPlaylist)
                                     },
                                     onEdit: { playlistForEditSheet = dp.primaryPlaylist },
                                     onDelete: { playlistPendingSwipeDelete = dp.primaryPlaylist }
@@ -800,6 +810,16 @@ public struct PlaylistsView: View {
         }
     }
 
+    private func presentRenameAlert(for playlist: Playlist) {
+        renamePushPlaylistTitle = playlist.title
+        renamePushPlaylist = playlist
+    }
+
+    private func presentRenameAlert(for displayPlaylist: DisplayPlaylist) {
+        renamePushDPTitle = displayPlaylist.title
+        renamePushDP = displayPlaylist
+    }
+
 }
 
 // MARK: - "New Playlist" Toolbar Button
@@ -858,6 +878,7 @@ public struct PlaylistDetailView: View {
     let nowPlayingVM: NowPlayingViewModel
 
     @State private var showRenamePrompt = false
+    @State private var renamePromptText = ""
     @State private var showDeleteConfirmation = false
     @State private var isEditingPlaylist: Bool
     @State private var editedTracks: [Track] = []
@@ -923,6 +944,7 @@ public struct PlaylistDetailView: View {
                         canEdit: !viewModel.playlist.isSmart && !viewModel.tracks.isEmpty,
                         canDelete: !viewModel.playlist.isSmart,
                         onRename: {
+                            renamePromptText = viewModel.playlist.title
                             showRenamePrompt = true
                         },
                         onEdit: {
@@ -1000,61 +1022,15 @@ public struct PlaylistDetailView: View {
             }
             #endif
         }
-        .sheet(isPresented: $showRenamePrompt) {
-            TextInputView(
-                title: "Rename Playlist",
-                message: "Choose a new playlist name.",
-                placeholder: "Playlist name",
-                initialText: viewModel.playlist.title,
-                actionTitle: "Save"
-            ) { name in
-                let playlistID = viewModel.playlist.id
-                guard let start = deps.playlistMutationWorkflow.beginRename(
-                    playlist: viewModel.playlist,
-                    to: name
-                ) else { return }
-                let renamingToast = start.pendingToast
-                deps.toastCenter.show(renamingToast)
-                NotificationCenter.default.post(
-                    name: .playlistRenameStarted,
-                    object: nil,
-                    userInfo: [
-                        "playlistID": playlistID,
-                        "newTitle": start.trimmedTitle
-                    ]
-                )
-                Task {
-                    do {
-                        let renameResult = try await viewModel.renamePlaylist(
-                            toTrimmedTitle: start.trimmedTitle,
-                            using: deps.playlistMutationWorkflow
-                        )
-                        deps.toastCenter.dismiss(id: renamingToast.id)
-                        NotificationCenter.default.post(
-                            name: .playlistRenameSucceeded,
-                            object: nil,
-                            userInfo: [
-                                "playlistID": playlistID,
-                                "newTitle": start.trimmedTitle
-                            ]
-                        )
-                        deps.toastCenter.show(renameResult.successToast)
-                    } catch {
-                        deps.toastCenter.dismiss(id: renamingToast.id)
-                        NotificationCenter.default.post(
-                            name: .playlistRenameFailed,
-                            object: nil,
-                            userInfo: ["playlistID": playlistID]
-                        )
-                        deps.toastCenter.show(
-                            deps.playlistMutationWorkflow.renameFailureToast(
-                                playlist: viewModel.playlist,
-                                error: error
-                            )
-                        )
-                    }
-                }
+        .alert("Rename Playlist", isPresented: $showRenamePrompt) {
+            TextField("Playlist name", text: $renamePromptText)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                renamePlaylistFromPrompt()
             }
+            .disabled(renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("Choose a new playlist name.")
         }
         .alert("Delete Playlist?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -1140,6 +1116,60 @@ public struct PlaylistDetailView: View {
         #endif
     }
     
+    private func renamePlaylistFromPrompt() {
+        let newTitle = renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newTitle.isEmpty else { return }
+
+        let playlistID = viewModel.playlist.id
+        guard let start = deps.playlistMutationWorkflow.beginRename(
+            playlist: viewModel.playlist,
+            to: newTitle
+        ) else { return }
+
+        let renamingToast = start.pendingToast
+        deps.toastCenter.show(renamingToast)
+        NotificationCenter.default.post(
+            name: .playlistRenameStarted,
+            object: nil,
+            userInfo: [
+                "playlistID": playlistID,
+                "newTitle": start.trimmedTitle
+            ]
+        )
+
+        Task {
+            do {
+                let renameResult = try await viewModel.renamePlaylist(
+                    toTrimmedTitle: start.trimmedTitle,
+                    using: deps.playlistMutationWorkflow
+                )
+                deps.toastCenter.dismiss(id: renamingToast.id)
+                NotificationCenter.default.post(
+                    name: .playlistRenameSucceeded,
+                    object: nil,
+                    userInfo: [
+                        "playlistID": playlistID,
+                        "newTitle": start.trimmedTitle
+                    ]
+                )
+                deps.toastCenter.show(renameResult.successToast)
+            } catch {
+                deps.toastCenter.dismiss(id: renamingToast.id)
+                NotificationCenter.default.post(
+                    name: .playlistRenameFailed,
+                    object: nil,
+                    userInfo: ["playlistID": playlistID]
+                )
+                deps.toastCenter.show(
+                    deps.playlistMutationWorkflow.renameFailureToast(
+                        playlist: viewModel.playlist,
+                        error: error
+                    )
+                )
+            }
+        }
+    }
+
     private var headerData: MediaHeaderData {
         var metadataParts: [String] = []
         let playlist = viewModel.playlist

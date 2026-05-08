@@ -24,12 +24,8 @@ public struct SongsView: View {
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
 
-    private var isKeyboardEditorActive: Bool {
-        navigationCoordinator.isKeyboardEditorPresented
-    }
-
     private var isPresenterChromeHidden: Bool {
-        isStageFlowActive || isKeyboardEditorActive
+        isStageFlowActive
     }
     
     private var backgroundColor: Color {

@@ -102,7 +102,7 @@ public struct MainTabView: View {
     }
 
     private var isRootChromeSuppressed: Bool {
-        isImmersiveMode || navigationCoordinator.isKeyboardEditorPresented
+        isImmersiveMode
     }
 
     private var selectedTabSupportsStageFlow: Bool {
@@ -172,7 +172,7 @@ public struct MainTabView: View {
                 // The 70pt covers the mini player height + spacing above the tab bar.
                 .miniPlayerContainerInset(
                     TrackListLayoutMetrics.miniPlayerContainerInset,
-                    isVisible: !isShowingNowPlaying && !isKeyboardVisible && !rootChromeSuppressed && !navigationCoordinator.isKeyboardEditorPresented
+                    isVisible: !isShowingNowPlaying && !isKeyboardVisible && !rootChromeSuppressed
                 )
                 .zIndex(0)
             .task {
@@ -204,16 +204,14 @@ public struct MainTabView: View {
             }
             #if os(iOS)
             .onReceive(Publishers.keyboardHeight.map { $0 > 0 }.removeDuplicates()) { newValue in
-                // Keep the presenting shell stable while an auxiliary sheet or
-                // keyboard-heavy editor owns the keyboard-driven layout changes.
-                if navigationCoordinator.activeAuxiliaryPresentation == nil &&
-                    !navigationCoordinator.isKeyboardEditorPresented {
+                // Keep root chrome stable while auxiliary sheets own keyboard-driven layout changes.
+                if navigationCoordinator.activeAuxiliaryPresentation == nil {
                     keyboardVisible = newValue
                 } else if !newValue {
                     keyboardVisible = false
                 }
             }
-            .onChange(of: navigationCoordinator.activeAuxiliaryPresentation != nil || navigationCoordinator.isKeyboardEditorPresented) { isPresented in
+            .onChange(of: navigationCoordinator.activeAuxiliaryPresentation != nil) { isPresented in
                 if isPresented {
                     keyboardVisible = false
                 }
@@ -276,8 +274,7 @@ public struct MainTabView: View {
                             bottomPadding: miniPlayerBottomLift,
                             showsMiniPlayer: !isShowingNowPlaying &&
                                 !isKeyboardVisible &&
-                                !rootChromeSuppressed &&
-                                !navigationCoordinator.isKeyboardEditorPresented,
+                                !rootChromeSuppressed,
                             priority: 0
                         )
                     )
@@ -464,7 +461,6 @@ public struct MainTabView: View {
                 auroraVisualizationEnabled &&
                 !isShowingNowPlaying &&
                 !rootChromeSuppressed &&
-                !navigationCoordinator.isKeyboardEditorPresented &&
                 navigationCoordinator.activeAuxiliaryPresentation == nil {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
@@ -563,7 +559,9 @@ public struct SidebarView: View {
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var playlistForEditSheet: Playlist?
     @State private var playlistPendingRename: Playlist?
+    @State private var playlistPendingRenameTitle = ""
     @State private var mergedPlaylistPendingRename: DisplayPlaylist?
+    @State private var mergedPlaylistPendingRenameTitle = ""
     @State private var playlistPendingDelete: Playlist?
     @State private var mergedPlaylistPendingDelete: DisplayPlaylist?
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
@@ -982,29 +980,45 @@ public struct SidebarView: View {
                 )
             }
         }
-        .keyboardSafeEditorPresentation(item: $playlistPendingRename) { playlist in
-            TextInputView(
-                title: "Rename Playlist",
-                placeholder: "Playlist name",
-                initialText: playlist.title,
-                actionTitle: "Save"
-            ) { name in
-                renamePinnedPlaylist(playlist, to: name)
+        .alert("Rename Playlist", isPresented: Binding(
+            get: { playlistPendingRename != nil },
+            set: { if !$0 { playlistPendingRename = nil } }
+        )) {
+            TextField("Playlist name", text: $playlistPendingRenameTitle)
+            Button("Cancel", role: .cancel) {
+                playlistPendingRename = nil
             }
+            Button("Save") {
+                guard let playlist = playlistPendingRename else { return }
+                let title = playlistPendingRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                playlistPendingRename = nil
+                renamePinnedPlaylist(playlist, to: title)
+            }
+            .disabled(playlistPendingRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("Choose a new playlist name.")
         }
-        .keyboardSafeEditorPresentation(item: $mergedPlaylistPendingRename) { displayPlaylist in
-            TextInputView(
-                title: "Rename Playlist",
-                message: "This will rename on \(displayPlaylist.playlists.count) server\(displayPlaylist.playlists.count == 1 ? "" : "s").",
-                placeholder: "Playlist name",
-                initialText: displayPlaylist.title,
-                actionTitle: "Save"
-            ) { name in
-                playlistsVM.applyOptimisticRenameForMerged(displayPlaylist, newTitle: name)
+        .alert("Rename Playlist", isPresented: Binding(
+            get: { mergedPlaylistPendingRename != nil },
+            set: { if !$0 { mergedPlaylistPendingRename = nil } }
+        )) {
+            TextField("Playlist name", text: $mergedPlaylistPendingRenameTitle)
+            Button("Cancel", role: .cancel) {
+                mergedPlaylistPendingRename = nil
+            }
+            Button("Save") {
+                guard let displayPlaylist = mergedPlaylistPendingRename else { return }
+                let title = mergedPlaylistPendingRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                mergedPlaylistPendingRename = nil
+                playlistsVM.applyOptimisticRenameForMerged(displayPlaylist, newTitle: title)
                 for playlist in displayPlaylist.playlists {
-                    renamePinnedPlaylist(playlist, to: name)
+                    renamePinnedPlaylist(playlist, to: title)
                 }
             }
+            .disabled(mergedPlaylistPendingRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            let count = mergedPlaylistPendingRename?.playlists.count ?? 0
+            Text("This will rename on \(count) server\(count == 1 ? "" : "s").")
         }
         .alert("Delete Playlist?", isPresented: Binding(
             get: { playlistPendingDelete != nil },
@@ -1515,6 +1529,7 @@ public struct SidebarView: View {
                     nowPlayingVM: nowPlayingVM,
                     toastNamespace: "sidebar-playlist-menu",
                     onRename: {
+                        playlistPendingRenameTitle = playlist.title
                         playlistPendingRename = playlist
                     },
                     onEdit: {
@@ -1562,6 +1577,7 @@ public struct SidebarView: View {
                     toastNamespace: "sidebar-merged-playlist-menu",
                     context: .sidebar,
                     onRename: {
+                        mergedPlaylistPendingRenameTitle = displayPlaylist.title
                         mergedPlaylistPendingRename = displayPlaylist
                     },
                     onDelete: {

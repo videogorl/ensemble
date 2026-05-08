@@ -8,6 +8,7 @@ public struct MergedPlaylistDetailView: View {
     let nowPlayingVM: NowPlayingViewModel
 
     @State private var showRenamePrompt = false
+    @State private var renamePromptText = ""
     @State private var showDeleteConfirmation = false
     @State private var showEditPicker = false
     @State private var isDeletingPlaylist = false
@@ -49,6 +50,7 @@ public struct MergedPlaylistDetailView: View {
                 canEdit: !viewModel.displayPlaylist.isSmart && !viewModel.tracks.isEmpty,
                 canDelete: !viewModel.displayPlaylist.isSmart,
                 onRename: {
+                    renamePromptText = viewModel.displayPlaylist.title
                     showRenamePrompt = true
                 },
                 onEdit: {
@@ -80,30 +82,16 @@ public struct MergedPlaylistDetailView: View {
                 return deps.pinMutationWorkflow.areAllPinned(ids: ids)
             }
         )
-        // Rename all constituent playlists
-        .sheet(isPresented: $showRenamePrompt) {
-            TextInputView(
-                title: "Rename Playlist",
-                message: "This will rename the playlist on \(viewModel.displayPlaylist.playlists.count) server\(viewModel.displayPlaylist.playlists.count == 1 ? "" : "s").",
-                placeholder: "Playlist name",
-                initialText: viewModel.displayPlaylist.title,
-                actionTitle: "Save"
-            ) { name in
-                guard let start = deps.playlistMutationWorkflow.beginRenameAll(
-                    displayPlaylist: viewModel.displayPlaylist,
-                    to: name
-                ) else { return }
-                let renamingToast = start.pendingToast
-                deps.toastCenter.show(renamingToast)
-                Task {
-                    let result = await deps.playlistMutationWorkflow.finishRenameAll(
-                        displayPlaylist: viewModel.displayPlaylist,
-                        trimmedTitle: start.trimmedTitle
-                    )
-                    deps.toastCenter.dismiss(id: renamingToast.id)
-                    deps.toastCenter.show(result.resultToast)
-                }
+        .alert("Rename Playlist", isPresented: $showRenamePrompt) {
+            TextField("Playlist name", text: $renamePromptText)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                renameMergedPlaylistFromPrompt()
             }
+            .disabled(renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            let count = viewModel.displayPlaylist.playlists.count
+            Text("This will rename the playlist on \(count) server\(count == 1 ? "" : "s").")
         }
         // Delete all constituent playlists
         .alert("Delete Playlist?", isPresented: $showDeleteConfirmation) {
@@ -150,6 +138,26 @@ public struct MergedPlaylistDetailView: View {
     }
 
     // MARK: - Header
+
+    private func renameMergedPlaylistFromPrompt() {
+        let newTitle = renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newTitle.isEmpty else { return }
+        guard let start = deps.playlistMutationWorkflow.beginRenameAll(
+            displayPlaylist: viewModel.displayPlaylist,
+            to: newTitle
+        ) else { return }
+
+        let renamingToast = start.pendingToast
+        deps.toastCenter.show(renamingToast)
+        Task {
+            let result = await deps.playlistMutationWorkflow.finishRenameAll(
+                displayPlaylist: viewModel.displayPlaylist,
+                trimmedTitle: start.trimmedTitle
+            )
+            deps.toastCenter.dismiss(id: renamingToast.id)
+            deps.toastCenter.show(result.resultToast)
+        }
+    }
 
     private var headerData: MediaHeaderData {
         var metadataParts: [String] = []

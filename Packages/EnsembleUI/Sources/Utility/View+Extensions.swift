@@ -24,49 +24,6 @@ private struct StageFlowActiveKey: EnvironmentKey {
     static let defaultValue = false
 }
 
-/// Tracks keyboard-heavy editor presentation from the presenting view so root
-/// chrome can settle before the editor enters the hierarchy, regardless of
-/// whether the editor is shown in a sheet or another presentation shell.
-private struct KeyboardEditorPresentationTracker: ViewModifier {
-    let isActive: Bool
-
-    @State private var isRegistered = false
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-
-    func body(content: Content) -> some View {
-        content
-            .onAppear {
-                syncRegistration(with: isActive)
-            }
-            .onChange(of: isActive) { newValue in
-                syncRegistration(with: newValue)
-            }
-            .onDisappear {
-                unregisterIfNeeded()
-            }
-    }
-
-    private func syncRegistration(with isActive: Bool) {
-        if isActive {
-            registerIfNeeded()
-        } else {
-            unregisterIfNeeded()
-        }
-    }
-
-    private func registerIfNeeded() {
-        guard !isRegistered else { return }
-        isRegistered = true
-        navigationCoordinator.beginKeyboardEditorPresentation()
-    }
-
-    private func unregisterIfNeeded() {
-        guard isRegistered else { return }
-        isRegistered = false
-        navigationCoordinator.endKeyboardEditorPresentation()
-    }
-}
-
 public extension EnvironmentValues {
     var isViewportNowPlayingPresented: Bool {
         get { self[ViewportNowPlayingPresentedKey.self] }
@@ -239,50 +196,6 @@ public extension View {
         }
         #else
         self
-        #endif
-    }
-
-    /// Presents the remaining keyboard-sensitive root-owned editors in a
-    /// full-screen cover on iPhone. Most short rename/create/filter flows should
-    /// use a normal `.sheet` unless they are a known unstable root presenter.
-    @ViewBuilder
-    func keyboardSafeEditorPresentation<Content: View>(
-        isPresented: Binding<Bool>,
-        @ViewBuilder content: @escaping () -> Content
-    ) -> some View {
-        let presentingView = self.modifier(
-            KeyboardEditorPresentationTracker(isActive: isPresented.wrappedValue)
-        )
-
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            presentingView.fullScreenCover(isPresented: isPresented, content: content)
-        } else {
-            presentingView.sheet(isPresented: isPresented, content: content)
-        }
-        #else
-        presentingView.sheet(isPresented: isPresented, content: content)
-        #endif
-    }
-
-    /// Item-based variant of keyboardSafeEditorPresentation.
-    @ViewBuilder
-    func keyboardSafeEditorPresentation<Item: Identifiable, Content: View>(
-        item: Binding<Item?>,
-        @ViewBuilder content: @escaping (Item) -> Content
-    ) -> some View {
-        let presentingView = self.modifier(
-            KeyboardEditorPresentationTracker(isActive: item.wrappedValue != nil)
-        )
-
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            presentingView.fullScreenCover(item: item, content: content)
-        } else {
-            presentingView.sheet(item: item, content: content)
-        }
-        #else
-        presentingView.sheet(item: item, content: content)
         #endif
     }
 
