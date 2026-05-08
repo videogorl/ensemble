@@ -310,18 +310,16 @@ public struct RootView: View {
 
     private func updateAppearance() {
         #if canImport(UIKit) && !os(watchOS)
+        if #available(iOS 16.0, *) {
+            return
+        }
+
         let tabBarAppearance = UITabBarAppearance()
 
         if settingsManager.auroraVisualizationEnabled {
             tabBarAppearance.configureWithTransparentBackground()
         } else {
             tabBarAppearance.configureWithDefaultBackground()
-        }
-
-        if #available(iOS 16.0, *) {
-            UITabBar.appearance().standardAppearance = tabBarAppearance
-            UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
-            return
         }
 
         let navAppearance = UINavigationBarAppearance()
