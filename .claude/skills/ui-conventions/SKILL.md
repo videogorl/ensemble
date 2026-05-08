@@ -18,7 +18,7 @@ These are core design decisions that must be maintained throughout the app.
 - **Visible tabs sync:** `NavigationCoordinator.visibleTabs` synced from MainTabView for fallback logic
 - **Window-scoped navigation:** `RootView` creates the `NavigationCoordinator` for that scene/window and injects it with `.environmentObject(...)`. Do not read `DependencyContainer.shared.navigationCoordinator` from screen or component code for user-driven navigation, or multiple iPad/macOS windows will mirror each other's pushes.
 - **Top-level iPhone titles:** Root tab destinations should use the system large-title behavior by default. Don't force `.inline` on top-level browse/search screens; let the title appear large at rest and collapse naturally as content scrolls.
-- **Search chrome ownership:** In tab-based navigation, attach `.searchable` only while that tab is the active root screen. Collapse/remove search chrome before pushing detail or switching away so stale `UISearchController` state doesn't leak padding, keyboard state, or toolbar behavior into pushed views or other tabs.
+- **Search chrome ownership:** In tab-based navigation, attach `.searchable` only while that tab is the active root screen. Collapse/remove search chrome before pushing detail or switching away so stale `UISearchController` state doesn't leak padding, keyboard state, or toolbar behavior into pushed views or other tabs. Use SwiftUI's `dismissSearch` environment action to collapse search; do not force keyboard dismissal with `UIApplication.sendAction(...)`.
 
 ### Deep Linking
 - **NavigationCoordinator.Destination:** Use typed destinations (artist, album, playlist, view) for all deep links

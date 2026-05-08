@@ -1,8 +1,5 @@
 import EnsembleCore
 import SwiftUI
-#if os(iOS)
-import UIKit
-#endif
 
 public struct SearchView: View {
     @StateObject private var viewModel: SearchViewModel
@@ -30,6 +27,7 @@ public struct SearchView: View {
     @State private var isSearchTabActive = false
     @State private var isSearchPathEmpty = true
     @State private var isMoreSearchRootActive = false
+    @Environment(\.dismissSearch) private var dismissSearch
     @Environment(\.dependencies) private var deps
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
@@ -181,12 +179,10 @@ public struct SearchView: View {
     }
 
     private func collapseSearchPresentation() {
+        dismissSearch()
         if #available(iOS 18.0, macOS 15.0, *) {
             isSearchFieldFocused = false
         }
-        #if os(iOS)
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        #endif
     }
 
     // MARK: - Explore View (Empty State)
