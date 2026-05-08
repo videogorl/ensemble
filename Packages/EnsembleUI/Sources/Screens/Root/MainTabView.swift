@@ -1014,7 +1014,6 @@ public struct SidebarView: View {
                 ProfileToolbarButton()
             }
         }
-        .if_available_removeSidebarToggle()
         // Sync cached sidebar playlists from VM publisher. Using @State + .onReceive
         // instead of computed properties ensures updates survive NavigationSplitView
         // re-layouts on macOS that can swallow computed property changes.
