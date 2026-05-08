@@ -82,7 +82,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var currentLoadPath: String?
     @State private var showFilterSheet = false
     @State private var showToolbarTitle = false
-    @State private var showToolbarActions = false
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
@@ -174,38 +173,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     ) {
                         showFilterSheet = true
                     }
-                }
-            }
-            #endif
-            // Compact play/shuffle/radio icons appear when action buttons scroll out of view
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if showToolbarActions {
-                    HStack(spacing: EnsembleScaffold.DetailSurface.collapsedToolbarActionSpacing) {
-                        Button {
-                            nowPlayingVM.play(tracks: viewModel.filteredTracks)
-                        } label: {
-                            Image(systemName: EnsembleDesign.Icon.play)
-                        }
-                        .disabled(viewModel.filteredTracks.isEmpty)
-
-                        Button {
-                            nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
-                        } label: {
-                            Image(systemName: EnsembleDesign.Icon.shuffle)
-                        }
-                        .disabled(viewModel.filteredTracks.isEmpty)
-
-                        if hasRadioButton {
-                            Button {
-                                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
-                            } label: {
-                                Image(systemName: EnsembleDesign.Icon.radio)
-                            }
-                            .disabled(viewModel.filteredTracks.isEmpty)
-                        }
-                    }
-                    .transition(.opacity)
                 }
             }
             #endif

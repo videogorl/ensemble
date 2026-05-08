@@ -397,7 +397,6 @@ public enum EnsembleScaffold {
         public static let listCardCornerRadius = EnsembleDesign.Radius.card
         public static let listCardHorizontalPadding = EnsembleDesign.Spacing.lg
         public static let loadingTopPadding = TrackListLayoutMetrics.detailHorizontalPadding
-        public static let collapsedToolbarActionSpacing = EnsembleDesign.Spacing.lg
         public static let compactWideActionThreshold: CGFloat = 300
         public static let stackedWideActionThreshold: CGFloat = 420
         public static let compactWideActionHorizontalPadding: CGFloat = 18
