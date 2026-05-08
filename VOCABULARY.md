@@ -168,7 +168,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Offline indicator | indicator | Device-aware overlay showing network connectivity status | `OfflineIndicatorOverlay` |
 | Mini player | control | Floating persistent player widget above tab bar | `MiniPlayer` |
 | Tab selection | state | Currently active tab | `navigationCoordinator.selectedTab` |
-| Immersive mode | state | Hidden chrome state for StageFlow and other full-screen views | `isImmersiveMode` |
+| StageFlow chrome suppression | state | Hidden root chrome state derived from active iPhone landscape StageFlow geometry | `rootStageFlowActive`, `rootChromeSuppressed` |
 
 ---
 

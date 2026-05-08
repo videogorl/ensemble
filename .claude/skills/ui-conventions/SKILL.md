@@ -92,7 +92,7 @@ if #available(iOS 16.0, macOS 13.0, *) {
 
 ### Tab Bar
 - **Stay native:** Use SwiftUI's native `TabView` unless there's a compelling reason
-- **Immersive mode:** Tab bar hidden via `ChromeVisibilityPreferenceKey` (CoverFlow, full-screen)
+- **StageFlow chrome suppression:** `MainTabView` hides root chrome directly from active phone StageFlow landscape geometry. Do not reintroduce preference/notification bridges or delayed immersive-mode clear timers for this path.
 - **iOS 18+:** Uses `.sidebarAdaptable` tab view style when available
 - **Mini player offset:** MiniPlayer sits 56pt above tab bar on iPhone
 

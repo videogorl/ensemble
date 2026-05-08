@@ -206,7 +206,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - Playback tracking (timeline reporting every 10s and scrobbling at 90%)
 - Waveform visualization with Plex sonic analysis integration and deterministic fallback
 - iOS 15+ compatibility with NestedNavigationLink pattern
-- Immersive mode support with ChromeVisibilityPreferenceKey for full-screen experiences
+- StageFlow chrome suppression for iPhone landscape carousel experiences
 - Account-centric Music Sources flow with grouped server/library selection and integrated sync status/actions
 - Library visibility profile groundwork with source-level filtering seams in Library/Search/Home (no selector UI yet)
 - Siri media intents (track/album/artist/playlist) with thin extension resolution and in-app playback execution coordinator

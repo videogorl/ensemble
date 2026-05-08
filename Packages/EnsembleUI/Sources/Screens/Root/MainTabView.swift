@@ -21,8 +21,6 @@ public struct MainTabView: View {
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @State private var didSetInitialTab = false
-    @State private var isImmersiveMode = false
-    @State private var immersiveModeClearWorkItem: DispatchWorkItem?
     // Extracted observation state — avoids full root invalidation from singleton publishers
     @State private var networkState: NetworkState = DependencyContainer.shared.networkMonitor.networkState
     @State private var isLowPowerMode: Bool = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
@@ -87,10 +85,6 @@ public struct MainTabView: View {
         )
     }
 
-    private var isRootChromeSuppressed: Bool {
-        isImmersiveMode
-    }
-
     private var selectedTabSupportsStageFlow: Bool {
         #if os(iOS)
         guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
@@ -121,7 +115,7 @@ public struct MainTabView: View {
                 }
             }()
             let rootStageFlowActive = isStageFlowActive(for: geometry.size)
-            let rootChromeSuppressed = isRootChromeSuppressed || rootStageFlowActive
+            let rootChromeSuppressed = rootStageFlowActive
 
             let rootView = VStack(spacing: EnsembleDesign.Spacing.none) {
                 tabBarVisibility(
@@ -222,26 +216,24 @@ public struct MainTabView: View {
                 )
             }
 
-            applyChromeVisibilityObservation(
-                to: rootView
-                    .environmentObject(contextMenuMetadataEditorCoordinator)
-                    .stageFlowRotationSupport(isEnabled: selectedTabSupportsStageFlow)
-                    .background(
-                        RootChromeFrameRegistrationView(
-                            bottomPadding: miniPlayerBottomLift,
-                            showsMiniPlayer: !isShowingNowPlaying && !rootChromeSuppressed,
-                            priority: 0
-                        )
+            rootView
+                .environmentObject(contextMenuMetadataEditorCoordinator)
+                .stageFlowRotationSupport(isEnabled: selectedTabSupportsStageFlow)
+                .background(
+                    RootChromeFrameRegistrationView(
+                        bottomPadding: miniPlayerBottomLift,
+                        showsMiniPlayer: !isShowingNowPlaying && !rootChromeSuppressed,
+                        priority: 0
                     )
-                    .overlay(alignment: .top) {
-                        if !rootChromeSuppressed {
-                            OfflineIndicatorOverlay(
-                                networkState: networkState,
-                                topInset: geometry.safeAreaInsets.top
-                            )
-                        }
+                )
+                .overlay(alignment: .top) {
+                    if !rootChromeSuppressed {
+                        OfflineIndicatorOverlay(
+                            networkState: networkState,
+                            topInset: geometry.safeAreaInsets.top
+                        )
                     }
-            )
+                }
         }
     }
 
@@ -258,56 +250,6 @@ public struct MainTabView: View {
         }
         #else
         content
-        #endif
-    }
-
-    @ViewBuilder
-    private func applyChromeVisibilityObservation<Content: View>(to content: Content) -> some View {
-        #if os(iOS)
-        if #available(iOS 16.0, *) {
-            content.onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
-                // Avoid iOS 15/16 transition re-entrancy while Now Playing is presenting.
-                guard !isShowingNowPlaying else { return }
-
-                if isImmersiveMode != isHidden {
-                    isImmersiveMode = isHidden
-                }
-            }
-        } else {
-            // iOS 15: preference observation causes recursive HostPreferences crashes
-            // during modal presentation. Use notification-based approach instead.
-            content
-                .onReceive(
-                    NotificationCenter.default.publisher(
-                        for: AppOrientationNotifications.stageFlowImmersiveModeChanged
-                    )
-                ) { notification in
-                    guard let isHidden = notification.object as? Bool else { return }
-                    guard !isShowingNowPlaying else { return }
-                    immersiveModeClearWorkItem?.cancel()
-                    if isHidden {
-                        if isImmersiveMode != true {
-                            isImmersiveMode = true
-                        }
-                    } else {
-                        let clearWorkItem = DispatchWorkItem {
-                            if isImmersiveMode != false {
-                                isImmersiveMode = false
-                            }
-                        }
-                        immersiveModeClearWorkItem = clearWorkItem
-                        // iOS 15 posts transient "false" signals during landscape
-                        // geometry churn; delay clearing so root chrome doesn't flash.
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: clearWorkItem)
-                    }
-                }
-        }
-        #else
-        content.onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
-            if isImmersiveMode != isHidden {
-                isImmersiveMode = isHidden
-            }
-        }
         #endif
     }
 
