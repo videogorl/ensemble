@@ -11,7 +11,7 @@ Date: 2026-05-04
 
 | Cluster | Current drift | Target owner | Verification |
 |---|---|---|---|
-| Track context menus | SwiftUI `TrackRow`, UIKit/AppKit native table builders, `QueueCard`, `MiniPlayer`, and `ControlsCard` each build different track action sets. | `MediaMenuCatalog` action sections plus platform renderers in EnsembleUI. | Catalog tests for action IDs/order by context; renderer tests for UIKit/AppKit parity. |
+| Track context menus | Native UIKit/AppKit table builders, compact standalone rows, `QueueCard`, `MiniPlayer`, and `ControlsCard` each build different track action sets. | `MediaMenuCatalog` action sections plus platform renderers in EnsembleUI. | Catalog tests for action IDs/order by context; renderer tests for UIKit/AppKit parity. |
 | Album/artist/playlist context menus | `MediaContextMenus` shares some wrappers, but wrappers still mix rendering, track resolution, offline toggles, pin behavior, and mutation actions. | Keep wrappers temporarily; make them consume `MediaMenuCatalog` and shared media-resolution services. | Search menus remain non-destructive; library/sidebar/detail menus expose management actions only where allowed. |
 | Playlist add actions | `presentPlaylistPicker` and quick-add helpers are repeated across NPV cards, MiniPlayer, Songs, Artists, Favorites, Mood, Search, and StageFlow. | Core `PlaylistActionService`; EnsembleUI `PlaylistActionPresentationHost`. | Add-to-recent compatibility tests and UI smoke tests for every migrated surface. |
 | Sidebar playlist drops | `MainTabView.SidebarPlaylistDragDropHost` owns media payload resolution, source compatibility, dedupe, and toasts. | Core `MediaTrackResolver` and `PlaylistDropResolver`; UI owns only drag/drop presentation. | Drop resolver tests for track/album/playlist, smart/unresolved/cross-source, and dedupe. |
@@ -35,7 +35,7 @@ Date: 2026-05-04
 ## Migration Order
 
 1. Add `MediaMenuCatalog` and tests without changing UI.
-2. Move track row, UIKit table, AppKit table, queue, and MiniPlayer menus to the catalog.
+2. Move compact row, UIKit table, AppKit table, queue, and MiniPlayer menus to the catalog.
 3. Make album/artist/playlist wrappers consume catalog sections while preserving existing wrapper call sites.
 4. Extract playlist action and track-resolution services, then remove duplicated helper methods.
 5. Extract source identity, filters, formatters, Siri shared code, and mutation workflows in separate commits.
