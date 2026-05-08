@@ -310,51 +310,51 @@ public struct RootView: View {
 
     private func updateAppearance() {
         #if canImport(UIKit) && !os(watchOS)
-        let navAppearance = UINavigationBarAppearance()
         let tabBarAppearance = UITabBarAppearance()
 
         if settingsManager.auroraVisualizationEnabled {
-            // Transparent backgrounds for aurora visibility
-            navAppearance.configureWithTransparentBackground()
             tabBarAppearance.configureWithTransparentBackground()
         } else {
-            // Default opaque backgrounds
-            navAppearance.configureWithDefaultBackground()
             tabBarAppearance.configureWithDefaultBackground()
+        }
+
+        if #available(iOS 16.0, *) {
+            UITabBar.appearance().standardAppearance = tabBarAppearance
+            UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
+            return
+        }
+
+        let navAppearance = UINavigationBarAppearance()
+        if settingsManager.auroraVisualizationEnabled {
+            navAppearance.configureWithTransparentBackground()
+        } else {
+            navAppearance.configureWithDefaultBackground()
         }
 
         // iOS 15 fix: scrollEdgeAppearance via appearance proxy doesn't reliably
         // apply, leaving tab bar/toolbar with no background. Explicitly set a blur
         // effect so content doesn't scroll behind chrome.
-        if #available(iOS 16.0, *) {
-            // iOS 16+ handles this correctly — no extra work needed
-        } else {
-            let chromeRole = EnsembleDesign.Material.Role.sidebar
-            let bgAlpha = chromeRole.chromeBackgroundAlpha(
-                auroraEnabled: settingsManager.auroraVisualizationEnabled
-            )
-            let blurStyle = chromeRole.chromeBlurStyle
+        let chromeRole = EnsembleDesign.Material.Role.sidebar
+        let bgAlpha = chromeRole.chromeBackgroundAlpha(
+            auroraEnabled: settingsManager.auroraVisualizationEnabled
+        )
+        let blurStyle = chromeRole.chromeBlurStyle
 
-            // Nav bar
-            navAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
-            navAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
+        navAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
+        navAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
 
-            // Tab bar
-            tabBarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
-            tabBarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
+        tabBarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
+        tabBarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
 
-            // Toolbar
-            let toolbarAppearance = UIToolbarAppearance()
-            toolbarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
-            toolbarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
-            UIToolbar.appearance().standardAppearance = toolbarAppearance
-            UIToolbar.appearance().scrollEdgeAppearance = toolbarAppearance
-        }
+        let toolbarAppearance = UIToolbarAppearance()
+        toolbarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
+        toolbarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
+        UIToolbar.appearance().standardAppearance = toolbarAppearance
+        UIToolbar.appearance().scrollEdgeAppearance = toolbarAppearance
 
         UINavigationBar.appearance().standardAppearance = navAppearance
         UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
         UINavigationBar.appearance().compactAppearance = navAppearance
-
         UITabBar.appearance().standardAppearance = tabBarAppearance
         UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
         #endif
