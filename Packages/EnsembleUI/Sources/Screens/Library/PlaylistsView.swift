@@ -112,12 +112,7 @@ public struct PlaylistsView: View {
     }
 
     private var isPresenterChromeHidden: Bool {
-        isStageFlowActive || isLocalSheetPresented
-    }
-
-    private var isLocalSheetPresented: Bool {
-        showCreatePlaylistPush ||
-        playlistForEditSheet != nil
+        isStageFlowActive
     }
 
     private var shouldShowPlaylistSearch: Bool {
@@ -295,9 +290,7 @@ public struct PlaylistsView: View {
                 }
             }
             .hideTabBarIfAvailable(isHidden: isPresenterChromeHidden)
-            .stageFlowImmersiveMode(isActive: isLocalSheetPresented)
             #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isLocalSheetPresented)
             .navigationBarHidden(isPresenterChromeHidden)
             .if(isPresenterChromeHidden) { view in
                 if #available(iOS 16.0, *) {
