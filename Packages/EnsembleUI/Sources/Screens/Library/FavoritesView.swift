@@ -165,7 +165,7 @@ public struct FavoritesView: View {
                 iconSystemName: EnsembleDesign.Icon.favorite,
                 recovery: favoritesEmptyRecovery,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else {
             EnsembleStateScaffold(

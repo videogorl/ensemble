@@ -130,7 +130,7 @@ public struct HomeView: View {
                 iconSystemName: EnsembleDesign.Icon.library,
                 recovery: .restoringCloudSources,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else if !viewModel.hasConfiguredAccounts {
             EnsembleLibraryEmptyStateScaffold(
@@ -138,7 +138,7 @@ public struct HomeView: View {
                 iconSystemName: EnsembleDesign.Icon.library,
                 recovery: .noSources,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else if isSyncing {
             EnsembleLibraryEmptyStateScaffold(
@@ -146,7 +146,7 @@ public struct HomeView: View {
                 iconSystemName: EnsembleDesign.Icon.library,
                 recovery: .syncing,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else if !viewModel.hasEnabledLibraries {
             EnsembleLibraryEmptyStateScaffold(
@@ -154,7 +154,7 @@ public struct HomeView: View {
                 iconSystemName: EnsembleDesign.Icon.library,
                 recovery: .noEnabledLibraries,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else {
             EnsembleStateScaffold(

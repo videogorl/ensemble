@@ -179,7 +179,7 @@ public struct SongsView: View {
             iconSystemName: EnsembleDesign.Icon.musicNote,
             recovery: libraryEmptyRecovery(emptyMessage: "No songs found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openSettings() }
+            manageSources: { navigationCoordinator.openProfile() }
         )
     }
 

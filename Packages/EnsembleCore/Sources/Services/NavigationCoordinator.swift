@@ -217,11 +217,6 @@ public final class NavigationCoordinator: ObservableObject {
         requestAuxiliaryPresentation(.profile)
     }
 
-    /// Legacy alias — routes to openProfile()
-    public func openSettings() {
-        openProfile()
-    }
-
     public func openDownloads() {
         requestAuxiliaryPresentation(.downloads)
     }

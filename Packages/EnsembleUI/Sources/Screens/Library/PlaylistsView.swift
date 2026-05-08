@@ -420,7 +420,7 @@ public struct PlaylistsView: View {
             iconSystemName: EnsembleDesign.Icon.playlist,
             recovery: playlistEmptyRecovery(emptyMessage: "Create playlists in Plex to see them here"),
             addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openSettings() }
+            manageSources: { navigationCoordinator.openProfile() }
         )
     }
 

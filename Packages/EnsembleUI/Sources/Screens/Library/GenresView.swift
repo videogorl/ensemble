@@ -119,7 +119,7 @@ public struct GenresView: View {
             iconSystemName: EnsembleDesign.Icon.genreEmpty,
             recovery: libraryEmptyRecovery(emptyMessage: "No genres found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openSettings() }
+            manageSources: { navigationCoordinator.openProfile() }
         )
     }
 

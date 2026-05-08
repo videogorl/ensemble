@@ -237,7 +237,7 @@ public struct ArtistsView: View {
             iconSystemName: EnsembleDesign.Icon.artists,
             recovery: libraryEmptyRecovery(emptyMessage: "No artists found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openSettings() }
+            manageSources: { navigationCoordinator.openProfile() }
         )
     }
 

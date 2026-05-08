@@ -152,7 +152,7 @@ public struct AlbumsView: View {
             iconSystemName: EnsembleDesign.Icon.album,
             recovery: libraryEmptyRecovery(emptyMessage: "No albums found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openSettings() }
+            manageSources: { navigationCoordinator.openProfile() }
         )
     }
 

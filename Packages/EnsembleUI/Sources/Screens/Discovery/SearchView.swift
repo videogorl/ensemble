@@ -199,7 +199,7 @@ public struct SearchView: View {
                 iconSystemName: EnsembleDesign.Icon.playlist,
                 recovery: .restoringCloudSources,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else if !hasAnySources {
             EnsembleLibraryEmptyStateScaffold(
@@ -207,7 +207,7 @@ public struct SearchView: View {
                 iconSystemName: EnsembleDesign.Icon.playlist,
                 recovery: .noSources,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else {
             ScrollView {
@@ -773,7 +773,7 @@ public struct SearchView: View {
             iconSystemName: EnsembleDesign.Icon.playlist,
             recovery: exploreEmptyRecovery,
             addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openSettings() }
+            manageSources: { navigationCoordinator.openProfile() }
         )
     }
 
@@ -1085,7 +1085,7 @@ public struct SearchView: View {
                 iconSystemName: EnsembleDesign.Icon.musicNote,
                 recovery: noResultsRecovery,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else {
             EnsembleStateScaffold(
