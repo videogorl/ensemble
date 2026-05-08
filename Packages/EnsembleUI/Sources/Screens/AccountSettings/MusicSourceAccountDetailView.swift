@@ -5,7 +5,6 @@ import SwiftUI
 public struct MusicSourceAccountDetailView: View {
     @StateObject private var viewModel: MusicSourceAccountDetailViewModel
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.dependencies) private var deps
     @State private var showingRemoveSourceAlert = false
 
     public init(accountId: String) {
