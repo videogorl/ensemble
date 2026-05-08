@@ -75,8 +75,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// When nil, the default single-item pin behavior is used.
     let customPinAction: ((Bool) -> Void)?
     /// Custom pin state check for merged playlists.
-    /// When nil, uses pinManager.isPinned(id:) with the header's ratingKey.
-    let customIsPinned: (() -> Bool)?
+    /// When nil, checks the header's ratingKey in the current pinned ID snapshot.
+    let customIsPinned: ((Set<String>) -> Bool)?
 
     @State private var artworkImage: UIImage?
     @State private var currentLoadPath: String?
@@ -120,7 +120,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         albumMenuActions: AlbumDetailMenuActions? = nil,
         additionalFooterContent: AnyView? = nil,
         customPinAction: ((Bool) -> Void)? = nil,
-        customIsPinned: (() -> Bool)? = nil
+        customIsPinned: ((Set<String>) -> Bool)? = nil
     ) {
         self.viewModel = viewModel
         self.nowPlayingVM = nowPlayingVM
@@ -139,10 +139,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.customIsPinned = customIsPinned
 
         let initialPinState: Bool
+        let initialPinnedIDs = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.id))
         if let customIsPinned {
-            initialPinState = customIsPinned()
+            initialPinState = customIsPinned(initialPinnedIDs)
         } else if let ratingKey = headerData.ratingKey {
-            initialPinState = DependencyContainer.shared.pinManager.isPinned(id: ratingKey)
+            initialPinState = initialPinnedIDs.contains(ratingKey)
         } else {
             initialPinState = false
         }
@@ -248,10 +249,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             activeDownloadRatingKeys: $activeDownloadRatingKeys,
             availabilityGeneration: $availabilityGeneration
         )
-        .onReceive(pinManager.objectWillChange) { _ in
-            DispatchQueue.main.async {
-                updatePinStateForHeader()
-            }
+        .onReceive(pinManager.$pinnedItems) { pinnedItems in
+            updatePinStateForHeader(pinnedItems: pinnedItems)
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .confirmationDialog(
@@ -317,15 +316,15 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         return "\(firstTrackID):\(viewModel.filteredTracks.count):\(playlistTargetID)"
     }
 
-    private func updatePinStateForHeader() {
+    private func updatePinStateForHeader(pinnedItems: [PinnedItem]) {
+        let pinnedIDs = Set(pinnedItems.map(\.id))
         guard let ratingKey = headerData.ratingKey else {
-            if isPinnedForHeader {
-                isPinnedForHeader = false
-            }
+            let latest = customIsPinned?(pinnedIDs) ?? false
+            if latest != isPinnedForHeader { isPinnedForHeader = latest }
             return
         }
 
-        let latest = customIsPinned?() ?? pinManager.isPinned(id: ratingKey)
+        let latest = customIsPinned?(pinnedIDs) ?? pinnedIDs.contains(ratingKey)
         if latest != isPinnedForHeader {
             isPinnedForHeader = latest
         }

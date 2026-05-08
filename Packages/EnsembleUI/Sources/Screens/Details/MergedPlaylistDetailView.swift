@@ -78,9 +78,9 @@ public struct MergedPlaylistDetailView: View {
                     })
                 }
             },
-            customIsPinned: {
+            customIsPinned: { pinnedIDs in
                 let ids = Set(viewModel.displayPlaylist.playlists.map(\.id))
-                return deps.pinMutationWorkflow.areAllPinned(ids: ids)
+                return ids.allSatisfy { pinnedIDs.contains($0) }
             }
         )
         .alert("Rename Playlist", isPresented: $showRenamePrompt) {

@@ -403,7 +403,8 @@ public struct ArtistDetailView: View {
     ) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeArtistDetailViewModel(artist: artist))
         self.nowPlayingVM = nowPlayingVM
-        self._isArtistPinned = State(initialValue: DependencyContainer.shared.pinManager.isPinned(id: artist.id))
+        let pinnedIDs = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.id))
+        self._isArtistPinned = State(initialValue: pinnedIDs.contains(artist.id))
     }
 
     public var body: some View {
@@ -496,10 +497,8 @@ public struct ArtistDetailView: View {
             currentTrackId: $currentTrackId,
             recentPlaylistTitle: $nvmRecentPlaylistTitle
         )
-        .onReceive(pinManager.objectWillChange) { _ in
-            DispatchQueue.main.async {
-                updateArtistPinState()
-            }
+        .onReceive(pinManager.$pinnedItems) { pinnedItems in
+            updateArtistPinState(pinnedItems: pinnedItems)
         }
         .task {
             await viewModel.loadAlbums()
@@ -510,8 +509,8 @@ public struct ArtistDetailView: View {
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
     }
 
-    private func updateArtistPinState() {
-        let latest = pinManager.isPinned(id: viewModel.artist.id)
+    private func updateArtistPinState(pinnedItems: [PinnedItem]) {
+        let latest = pinnedItems.contains { $0.id == viewModel.artist.id }
         if latest != isArtistPinned {
             isArtistPinned = latest
         }
