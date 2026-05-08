@@ -13,6 +13,7 @@ public struct MergedPlaylistDetailView: View {
     @State private var showEditPicker = false
     @State private var isDeletingPlaylist = false
     @State private var editTarget: Playlist?
+    @State private var pendingEditTarget: Playlist?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
 
@@ -119,7 +120,7 @@ public struct MergedPlaylistDetailView: View {
             Text("This will permanently delete \"\(viewModel.displayPlaylist.title)\" from \(count) server\(count == 1 ? "" : "s").")
         }
         // Edit picker — choose which constituent playlist to edit
-        .sheet(isPresented: $showEditPicker) {
+        .sheet(isPresented: $showEditPicker, onDismiss: presentPendingEditTarget) {
             editPickerSheet
         }
         // Individual playlist edit sheet (opened after picking a constituent)
@@ -215,11 +216,8 @@ public struct MergedPlaylistDetailView: View {
             List {
                 ForEach(viewModel.displayPlaylist.playlists, id: \.id) { playlist in
                     Button {
+                        pendingEditTarget = playlist
                         showEditPicker = false
-                        // Delay so the edit picker dismisses before the edit sheet presents
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            editTarget = playlist
-                        }
                     } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
@@ -260,6 +258,12 @@ public struct MergedPlaylistDetailView: View {
     private func serverName(for playlist: Playlist) -> String {
         guard let sourceKey = playlist.sourceCompositeKey else { return "Unknown Server" }
         return DependencyContainer.shared.accountManager.serverName(for: sourceKey) ?? "Unknown Server"
+    }
+
+    private func presentPendingEditTarget() {
+        guard let playlist = pendingEditTarget else { return }
+        pendingEditTarget = nil
+        editTarget = playlist
     }
 }
 

@@ -51,6 +51,7 @@ These are core design decisions that must be maintained throughout the app.
 - Do not pre-hide root tab, mini-player, or searchable-header chrome for the entire auxiliary transition; suppress parent chrome only for actual immersive modes or a proved local-presenter conflict such as Playlists hiding its own searchable/navigation chrome while create/edit sheets are active.
 - Short iPhone text editors should avoid wrapping a single focused text field in a `NavigationStack`/`NavigationView`; on iOS 26 that sheet-local navigation bar can enter the same `NavigationBarContentView` feedback loop when the software keyboard appears. Use the shared `TextInputView` plain header + `Form` composition for short text entry. Larger editors that genuinely need navigation can still own a navigation container.
 - For modal text-input flows with explicit Done/Cancel actions, prefer direct native dismissal. Do not add keyboard delays or focus choreography unless a current simulator/hardware repro proves native dismissal is broken.
+- When one sheet needs to hand off to another sheet, store the pending target and present it from the first sheet's `onDismiss`; do not use arbitrary `DispatchQueue.main.asyncAfter` delays to wait for sheet teardown.
 
 **NestedNavigationLink Pattern** (in `MainTabView.swift`):
 ```swift
