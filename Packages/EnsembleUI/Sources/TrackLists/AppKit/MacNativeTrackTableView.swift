@@ -58,11 +58,10 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         column.resizingMask = .autoresizingMask
         tableView.addTableColumn(column)
 
-        let scrollView = MacNativeTrackScrollView()
+        let scrollView = NSScrollView()
         scrollView.drawsBackground = false
-        scrollView.automaticallyAdjustsContentInsets = false
-        scrollView.contentInsets = NSEdgeInsetsZero
-        scrollView.scrollerInsets = NSEdgeInsetsZero
+        scrollView.backgroundColor = .clear
+        scrollView.contentView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -93,14 +92,6 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
         context.coordinator.onRemoveFromPlaylist = onRemoveFromPlaylist
         context.coordinator.rebuildRows()
-        if let trackScrollView = scrollView as? MacNativeTrackScrollView {
-            trackScrollView.bottomContentInset = bottomContentInset
-        } else {
-            let contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: bottomContentInset, right: 0)
-            if !scrollView.contentInsets.isApproximatelyEqual(to: contentInsets) {
-                scrollView.contentInsets = contentInsets
-            }
-        }
 
         if tableView.numberOfRows != context.coordinator.rows.count {
             tableView.reloadData()
@@ -224,7 +215,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 sections: sections,
                 hasHeader: tableHeaderContent != nil,
                 hasFooter: tableFooterContent != nil,
-                bottomContentInset: 0
+                bottomContentInset: bottomContentInset
             )
         }
 
@@ -532,64 +523,6 @@ private final class MacNativeContextMenuTableView: NSTableView {
     }
 }
 
-final class MacNativeTrackScrollView: NSScrollView {
-    var bottomContentInset: CGFloat = 0 {
-        didSet {
-            updateContentInsets()
-        }
-    }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        installTopAlignedClipView()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        installTopAlignedClipView()
-    }
-
-    override func layout() {
-        super.layout()
-        updateContentInsets()
-    }
-
-    private func installTopAlignedClipView() {
-        let clipView = MacNativeTrackTopAlignedClipView(frame: contentView.frame)
-        clipView.drawsBackground = contentView.drawsBackground
-        contentView = clipView
-    }
-
-    private func updateContentInsets() {
-        let insets = NSEdgeInsets(
-            top: 0,
-            left: 0,
-            bottom: bottomContentInset,
-            right: 0
-        )
-        if !contentInsets.isApproximatelyEqual(to: insets) {
-            contentInsets = insets
-        }
-        scrollerInsets = NSEdgeInsetsZero
-    }
-}
-
-private final class MacNativeTrackTopAlignedClipView: NSClipView {
-    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
-        var bounds = super.constrainBoundsRect(proposedBounds)
-        guard let documentView,
-              documentView.isFlipped,
-              documentView.frame.height <= bounds.height else {
-            return bounds
-        }
-
-        // NSTableView is flipped. Keep short loading tables pinned to the same
-        // origin as populated tables so content does not drift as rows arrive.
-        bounds.origin.y = 0
-        return bounds
-    }
-}
-
 private final class MacNativeTrackHostingCell: NSTableCellView {
     private var hostingView: NSHostingView<AnyView>?
 
@@ -610,15 +543,6 @@ private final class MacNativeTrackHostingCell: NSTableCellView {
             ])
             self.hostingView = hostingView
         }
-    }
-}
-
-private extension NSEdgeInsets {
-    func isApproximatelyEqual(to other: NSEdgeInsets) -> Bool {
-        abs(top - other.top) < 0.5 &&
-        abs(left - other.left) < 0.5 &&
-        abs(bottom - other.bottom) < 0.5 &&
-        abs(right - other.right) < 0.5
     }
 }
 

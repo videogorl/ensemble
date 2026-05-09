@@ -687,8 +687,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     /// Base content without filter UI — shared between filtered and unfiltered modes.
     /// iOS embeds the header in `MediaTrackList`; macOS embeds the same header in
-    /// `NativeTrackListHost`. The detail root owns toolbar/titlebar bleed so the
-    /// artwork wash behaves consistently with Artist detail.
+    /// `NativeTrackListHost`. Both paths let the scrolling content bleed behind
+    /// transparent toolbar chrome while the platform owns the actual toolbar.
     private var baseContent: some View {
         MediaDetailSurface(artworkImage: artworkImage) {
             #if os(iOS)
