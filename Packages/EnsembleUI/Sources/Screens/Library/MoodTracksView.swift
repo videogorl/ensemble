@@ -1,12 +1,6 @@
 import EnsembleCore
 import SwiftUI
 
-#if canImport(UIKit)
-import UIKit
-#elseif canImport(AppKit)
-import AppKit
-#endif
-
 public struct MoodTracksView: View {
     let mood: Mood
     let nowPlayingVM: NowPlayingViewModel
@@ -59,7 +53,6 @@ public struct MoodTracksView: View {
                 }
                 nowPlayingVM.play(tracks: moodTracks, startingAt: index)
             }
-            .ignoresSafeArea(.container, edges: [.top, .bottom])
             .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
             #else
             NativeTrackListHost(

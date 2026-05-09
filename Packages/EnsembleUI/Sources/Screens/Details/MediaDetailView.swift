@@ -678,17 +678,20 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     /// Base content without filter UI — shared between filtered and unfiltered modes.
     /// iOS embeds the header in `MediaTrackList`; macOS embeds the same header in
-    /// `NativeTrackListHost`. Both paths let the scrolling content bleed behind
-    /// transparent toolbar chrome while the platform owns the actual toolbar.
+    /// `NativeTrackListHost`. The only safe-area override left here is the top
+    /// toolbar bleed for artwork-backed detail chrome; bottom spacing stays owned
+    /// by the native table/list inset and the root mini-player container.
     private var baseContent: some View {
         MediaDetailSurface(artworkImage: artworkImage) {
             #if os(iOS)
             // Always use MediaTrackList (UITableView), even with 0 tracks.
             // Loading/empty indicators are shown via tableFooterContent.
             // This keeps the header (genre chips + artwork + buttons) in a single
-            // code path with consistent safe area handling.
+            // code path with consistent safe area handling. The table uses UIKit's
+            // automatic top content inset so rows can pass under transparent toolbar
+            // chrome without a SwiftUI spacer or titlebar compensation shim.
             tracksSection
-                .ignoresSafeArea(.container, edges: [.top, .bottom])
+                .ignoresSafeArea(.container, edges: .top)
             #else
             VStack(spacing: EnsembleDesign.Spacing.none) {
                 tracksSection

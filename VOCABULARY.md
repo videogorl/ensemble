@@ -744,12 +744,11 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Navigation row | control | Row linking to a view not in tab bar | `NavigationLink` |
 | Edit button | control | Toolbar button to enter tab customization mode | `Edit` |
 | Done button | control | Toolbar button to exit edit mode | `Done` |
-| Tab bar items section | region | Draggable section of current tab bar items (edit mode) | `EditTabsView`, `tabBarSection` |
-| Available items section | region | Draggable section of items not in tab bar (edit mode) | `availableSection` |
-| Drag handle | control | Reorder handle for tab items | `line.3.horizontal` |
-| Instructions text | text | Help text explaining tab customization | |
-| Tab bar drop delegate | behavior | Accepts drops to add/reorder items in tab bar, bumps last if at 4 | `TabBarDropDelegate` |
-| Available drop delegate | behavior | Accepts drops from tab bar to remove (min 1 enforced) | `AvailableDropDelegate` |
+| Tab bar items section | region | Native edit-mode list section of current tab bar items | `EditTabsView`, `List`, `onMove` |
+| Available items section | region | Native list section of items not in tab bar | `EditTabsView`, `availableTabs` |
+| Reorder control | control | System-provided edit-mode reorder affordance for tab items | `List`, `onMove` |
+| Add tab action | control | Tap action that adds an available item to the tab bar | `addTabToBar(_:)` |
+| Remove tab action | control | Tap action that removes a visible tab item while preserving at least one tab | `removeTabFromBar(_:)` |
 
 ---
 

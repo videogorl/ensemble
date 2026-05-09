@@ -64,6 +64,9 @@ public struct LargeScreenBrowseSplitView<
     }
 
     public var body: some View {
+        // Width is the actual input for the adaptive split decision and resize
+        // clamp. Keep geometry scoped to this shell instead of leaking pane math
+        // into Artists/Playlists/Genres screens.
         GeometryReader { geometry in
             if usesSplitLayout(for: geometry.size) {
                 splitLayout(for: geometry.size)
@@ -101,7 +104,6 @@ public struct LargeScreenBrowseSplitView<
         return HStack(spacing: EnsembleDesign.Spacing.none) {
             sidebar
                 .frame(width: currentSidebarWidth)
-                .frame(maxHeight: .infinity)
                 .clipped()
                 .zIndex(0)
 

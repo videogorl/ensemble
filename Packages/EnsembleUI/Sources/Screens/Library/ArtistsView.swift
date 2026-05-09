@@ -1,9 +1,6 @@
 import EnsembleCore
 import SwiftUI
 import Nuke
-#if os(iOS)
-import UIKit
-#endif
 
 public struct ArtistsView: View {
     public enum PresentationMode {
@@ -411,55 +408,17 @@ public struct ArtistDetailView: View {
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(spacing: EnsembleDesign.Spacing.none) {
-                artistHeader
-
-                // Albums Section
-                if viewModel.isLoading && viewModel.albums.isEmpty {
-                    ProgressView()
-                        .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
-                } else if !viewModel.albums.isEmpty {
-                    albumsSection
-                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
-                }
-
-                // Favorited Tracks (4+ stars)
-                if !viewModel.favoritedTracks.isEmpty {
-                    favoritedTracksSection
-                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
-                }
-
-                // About section (quick facts + bio + Wikipedia)
-                if hasAboutContent {
-                    aboutSection
-                        .padding(.horizontal)
-                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
-                }
-
-                // Related Artists (only those in user's library)
-                if !viewModel.resolvedSimilarArtists.isEmpty {
-                    relatedArtistsSection(artists: viewModel.resolvedSimilarArtists)
-                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
-                }
-            }
+        MediaDetailSurface(
+            artworkImage: artworkImage,
+            backgroundHeight: EnsembleScaffold.ArtistDetail.backgroundHeight,
+            darkLegibilityOpacity: EnsembleScaffold.ArtistDetail.darkLegibilityOverlayOpacity,
+            lightLegibilityOpacity: EnsembleScaffold.ArtistDetail.lightLegibilityOverlayOpacity
+        ) {
+            artistDetailScrollContent
         }
         .modifier(ArtistDetailScrollEdgeEffectModifier(isHidden: !showToolbarBackground))
         .coordinateSpace(name: "artistDetailScroll")
         .ignoresSafeArea(edges: .top)
-        // Background gradient as background modifier so it extends behind safe areas
-        // without affecting the ScrollView's safe area layout (ZStack + ignoresSafeArea
-        // on a sibling was causing the ScrollView to ignore bottom safe area on iOS 15)
-        .background(
-            // VStack + Spacer pins the gradient to the top of the viewport
-            // so it doesn't drift down when the ScrollView frame is taller
-            // than the gradient's 600pt height.
-            VStack(spacing: EnsembleDesign.Spacing.none) {
-                backgroundGradient
-                Spacer(minLength: 0)
-            }
-            .ignoresSafeArea()
-        )
         .collapsingToolbarTitle(
             viewModel.artist.name,
             threshold: 0,
@@ -512,6 +471,42 @@ public struct ArtistDetailView: View {
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
     }
 
+    private var artistDetailScrollContent: some View {
+        ScrollView {
+            VStack(spacing: EnsembleDesign.Spacing.none) {
+                artistHeader
+
+                // Albums Section
+                if viewModel.isLoading && viewModel.albums.isEmpty {
+                    ProgressView()
+                        .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
+                } else if !viewModel.albums.isEmpty {
+                    albumsSection
+                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                }
+
+                // Favorited Tracks (4+ stars)
+                if !viewModel.favoritedTracks.isEmpty {
+                    favoritedTracksSection
+                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                }
+
+                // About section (quick facts + bio + Wikipedia)
+                if hasAboutContent {
+                    aboutSection
+                        .padding(.horizontal)
+                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                }
+
+                // Related Artists (only those in user's library)
+                if !viewModel.resolvedSimilarArtists.isEmpty {
+                    relatedArtistsSection(artists: viewModel.resolvedSimilarArtists)
+                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                }
+            }
+        }
+    }
+
     private func updateArtistPinState(pinnedItems: [PinnedItem]) {
         let latest = pinnedItems.contains { $0.id == viewModel.artist.id }
         if latest != isArtistPinned {
@@ -556,15 +551,6 @@ public struct ArtistDetailView: View {
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
         }
-    }
-    
-    private var backgroundGradient: some View {
-        ArtworkDetailBackground(
-            image: artworkImage,
-            height: EnsembleScaffold.ArtistDetail.backgroundHeight,
-            darkLegibilityOpacity: EnsembleScaffold.ArtistDetail.darkLegibilityOverlayOpacity,
-            lightLegibilityOpacity: EnsembleScaffold.ArtistDetail.lightLegibilityOverlayOpacity
-        )
     }
     
     private func loadArtworkImage() async {

@@ -219,7 +219,8 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 **Key Views:**
 - `RootView` / app commands -- Adapt through `EnsemblePlatformFeaturePolicy`: tab navigation on iPhone/unsupported split-view platforms, sidebar on iPad/macOS when the OS supports the split shell, and shared command availability for Settings, refresh, and the macOS Playback menu. Platform renderers stay native; feature rules live in the policy. Root also owns the root aurora layer, the single shared mini player overlay, and the scene-local navigation/Now Playing coordinators. On iPadOS/macOS, `SidebarView` keeps one stable app sidebar/detail shell and hosts Artists, Playlists, and Genres browse-list/detail splits inside the detail host.
 - `MiniPlayer` -- Persistent compact player overlay across all screens. Its track, controls, waveform, menu, and background slices observe focused Now Playing projections and keep the full `NowPlayingViewModel` only for action dispatch.
-- `MediaDetailView` -- Unified detail view using `MediaDetailViewModelProtocol` (supports Artist, Album, Playlist, Favorites)
+- `MediaDetailSurface` / `MediaDetailView` -- Shared artwork-backed detail surface and unified detail view using `MediaDetailViewModelProtocol` for album/playlist-style screens. Artist detail keeps its specialized hero layout but shares `MediaDetailSurface` for backdrop/chrome ownership.
+- `MoreView` -- Overflow tab root. Its editor uses native `List` edit-mode reordering for visible tab items plus tap-to-add/remove actions; avoid rebuilding custom drag/drop row-frame sorting.
 - `ArtworkView` -- Local-first artwork loading with automatic fallback to network
 - `HomeView` -- Hub-based home screen with horizontally-scrolling sections
 - `FilterSheet` -- Advanced filtering UI with artist/genre multi-select, year ranges
