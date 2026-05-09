@@ -307,7 +307,6 @@ public enum EnsembleScaffold {
         public enum Style: Equatable {
             case toolbarPopover
             case sheet
-            case inline
         }
 
         #if os(iOS)
@@ -1008,7 +1007,7 @@ public struct EnsembleFilterPresentationModifier<PresentedContent: View>: ViewMo
             content.popover(isPresented: $isPresented, arrowEdge: .top) {
                 presentedContent()
             }
-        case .sheet, .inline:
+        case .sheet:
             content.sheet(isPresented: $isPresented) {
                 presentedContent()
             }
@@ -1019,7 +1018,7 @@ public struct EnsembleFilterPresentationModifier<PresentedContent: View>: ViewMo
             content.popover(isPresented: $isPresented, arrowEdge: .top) {
                 presentedContent()
             }
-        case .sheet, .inline:
+        case .sheet:
             content.sheet(isPresented: $isPresented) {
                 presentedContent()
             }

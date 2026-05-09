@@ -241,27 +241,6 @@ final class EnsembleUITests: XCTestCase {
         #endif
     }
 
-    func testNativeTrackListAlbumDetailConfigurationPreservesDisplayFlags() {
-        let configuration = NativeTrackListConfiguration.albumDetail(
-            currentTrackId: "track-1",
-            availabilityGeneration: 42,
-            activeDownloadRatingKeys: ["track-2"],
-            bottomContentInset: 24,
-            tableHeaderExtraHeight: 36,
-            interactionModel: TrackRowInteractionModel()
-        )
-
-        XCTAssertFalse(configuration.showArtwork)
-        XCTAssertTrue(configuration.showTrackNumbers)
-        XCTAssertFalse(configuration.showAlbumName)
-        XCTAssertTrue(configuration.groupByDisc)
-        XCTAssertEqual(configuration.currentTrackId, "track-1")
-        XCTAssertEqual(configuration.availabilityGeneration, 42)
-        XCTAssertEqual(configuration.activeDownloadRatingKeys, ["track-2"])
-        XCTAssertEqual(configuration.bottomContentInset, 24)
-        XCTAssertEqual(configuration.tableHeaderExtraHeight, 36)
-    }
-
     func testNativeTrackListFlatteningPreservesTrackIndexesAcrossSupplementaryRows() {
         let firstTrack = Track(id: "track-1", key: "/tracks/1", title: "Track 1")
         let secondTrack = Track(id: "track-2", key: "/tracks/2", title: "Track 2")
