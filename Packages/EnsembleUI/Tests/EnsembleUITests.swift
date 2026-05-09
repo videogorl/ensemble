@@ -253,15 +253,6 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(insets.trailing, TrackListLayoutMetrics.rowHorizontalPadding)
     }
 
-    func testTrackListLayoutMetricsUtilityListRowInsets() {
-        let insets = TrackListLayoutMetrics.utilityListRowInsets(verticalPadding: 4)
-
-        XCTAssertEqual(insets.top, 4)
-        XCTAssertEqual(insets.leading, TrackListLayoutMetrics.detailHorizontalPadding)
-        XCTAssertEqual(insets.bottom, 4)
-        XCTAssertEqual(insets.trailing, TrackListLayoutMetrics.detailHorizontalPadding)
-    }
-
     func testTrackListLayoutMetricsDividerTokens() {
         XCTAssertEqual(TrackListLayoutMetrics.nativeDividerAlpha, 0.18)
         _ = TrackListLayoutMetrics.dividerColor

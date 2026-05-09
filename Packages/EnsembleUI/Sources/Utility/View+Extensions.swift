@@ -118,26 +118,6 @@ public extension View {
         #endif
     }
 
-    /// Hides the list row separator, with a macOS 13+ availability guard.
-    @ViewBuilder
-    func hideListRowSeparator() -> some View {
-        #if os(macOS)
-        if #available(macOS 13.0, *) {
-            self.listRowSeparator(.hidden)
-        } else {
-            self
-        }
-        #else
-        self.listRowSeparator(.hidden)
-        #endif
-    }
-
-    /// Applies the shared wider inset used by utility/detail list rows so
-    /// grouped settings/download screens align with the app's detail panels.
-    func utilityListRowInsets(_ verticalPadding: CGFloat = TrackListLayoutMetrics.rowVerticalPadding) -> some View {
-        self.listRowInsets(TrackListLayoutMetrics.utilityListRowInsets(verticalPadding: verticalPadding))
-    }
-
     /// Adds bottom spacing for the mini player/tab bar area so content can
     /// scroll clear of the floating player overlay.
     /// iOS 15 is a no-op here — the inset is applied once at the container level via

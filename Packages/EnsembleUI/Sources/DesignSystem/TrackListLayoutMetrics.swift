@@ -82,15 +82,6 @@ public enum TrackListLayoutMetrics {
         )
     }
 
-    public static func utilityListRowInsets(verticalPadding: CGFloat = rowVerticalPadding) -> EdgeInsets {
-        EdgeInsets(
-            top: verticalPadding,
-            leading: detailHorizontalPadding,
-            bottom: verticalPadding,
-            trailing: detailHorizontalPadding
-        )
-    }
-
     #if os(iOS)
     public static var nativeSeparatorColor: UIColor {
         UIColor.secondaryLabel.withAlphaComponent(nativeDividerAlpha)
