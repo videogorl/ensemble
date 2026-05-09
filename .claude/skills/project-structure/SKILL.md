@@ -376,7 +376,7 @@ Sources/
 |   +-- TrackListLayoutMetrics.swift
 |   +-- ArtworkCornerRadius.swift
 |   +-- View+DesignModifiers.swift
-+-- Artwork/                         # Artwork loading, backgrounds, composites, and color extraction
++-- Artwork/                         # Artwork loading, backgrounds, and composites
 +-- Browse/                          # Browse split, filter sheet, GenreFilterHeader/GenreChipBar, scroll index, refresh command bridge
 +-- Cards/                           # Album, artist, playlist, and genre cards
 +-- TrackLists/                      # Native UIKit/AppKit track-list backends and SwiftUI hosts

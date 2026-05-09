@@ -1,3 +1,4 @@
+import EnsembleCore
 import SwiftUI
 
 /// A background view that uses a heavily blurred version of artwork.
@@ -5,8 +6,8 @@ import SwiftUI
 /// blur/contrast/saturation/brightness modifiers — saving 4 GPU render passes
 /// on every SwiftUI body evaluation.
 public struct BlurredArtworkBackground: View {
-    let image: UIImage?
-    let preBlurredImage: UIImage?
+    let image: PlatformImage?
+    let preBlurredImage: PlatformImage?
     let blurRadius: CGFloat
     let contrast: Double
     let saturation: Double
@@ -18,8 +19,8 @@ public struct BlurredArtworkBackground: View {
     let overlayColor: Color
 
     public init(
-        image: UIImage?,
-        preBlurredImage: UIImage? = nil,
+        image: PlatformImage?,
+        preBlurredImage: PlatformImage? = nil,
         blurRadius: CGFloat = 80,
         contrast: Double = 2.0,
         saturation: Double = 1.9,

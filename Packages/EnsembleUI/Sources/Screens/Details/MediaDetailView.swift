@@ -78,7 +78,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// When nil, checks the header's ratingKey in the current pinned ID snapshot.
     let customIsPinned: ((Set<String>) -> Bool)?
 
-    @State private var artworkImage: UIImage?
+    @State private var artworkImage: PlatformImage?
     @State private var currentLoadPath: String?
     @State private var showFilterSheet = false
     @State private var showToolbarTitle = false

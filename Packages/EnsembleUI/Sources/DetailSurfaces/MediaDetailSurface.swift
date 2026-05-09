@@ -1,3 +1,4 @@
+import EnsembleCore
 import SwiftUI
 
 private struct NativeTrackListHeaderWidthKey: EnvironmentKey {
@@ -21,11 +22,11 @@ extension View {
 /// The root owns the blurred artwork backdrop, while nested helpers keep the
 /// header layout and list-card styling aligned across detail variants.
 struct MediaDetailSurface<Content: View>: View {
-    let artworkImage: UIImage?
+    let artworkImage: PlatformImage?
     @ViewBuilder private let content: () -> Content
 
     init(
-        artworkImage: UIImage?,
+        artworkImage: PlatformImage?,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.artworkImage = artworkImage

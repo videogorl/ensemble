@@ -392,7 +392,7 @@ public struct ArtistDetailView: View {
     @State private var nvmRecentPlaylistTitle: String?
     @State private var isArtistPinned: Bool
     @State private var isBioExpanded = false
-    @State private var artworkImage: UIImage?
+    @State private var artworkImage: PlatformImage?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var showToolbarTitle = false
     @State private var showToolbarBackground = false
