@@ -168,9 +168,6 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var hasIntroInstrumentalGap: Bool = false
     // Whether there's an instrumental gap after the last lyric (outro)
     @Published public private(set) var hasOutroInstrumentalGap: Bool = false
-    // Suppresses auto-scroll and disables blur when user is manually scrolling lyrics
-    @Published public private(set) var isUserScrollingLyrics: Bool = false
-    private var userScrollResumeTask: Task<Void, Never>?
 
     // Instrumental mode (vocal attenuation)
     @Published public private(set) var isInstrumentalModeActive: Bool = false
@@ -621,13 +618,6 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        $isUserScrollingLyrics
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isScrolling in
-                self?.lyricsProjection.updateUserScrollingLyrics(isScrolling)
-            }
-            .store(in: &cancellables)
-
         $isInstrumentalModeActive
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isActive in
@@ -721,37 +711,17 @@ public final class NowPlayingViewModel: ObservableObject {
             newLineIndex = activeIndex
         }
 
-        let newScrollTarget = self.isUserScrollingLyrics ? self.lyricsScrollTargetIndex : activeIndex
-
-        // Skip assignment if nothing changed — avoids firing @Published for 4 properties
+        // Skip assignment if nothing changed — avoids firing @Published for 3 properties
         // every 0.5s when the active line hasn't changed
         if newLineIndex == self.currentLyricsLineIndex
             && progress == self.instrumentalProgress
-            && newScrollTarget == self.lyricsScrollTargetIndex {
+            && activeIndex == self.lyricsScrollTargetIndex {
             return
         }
 
         self.instrumentalProgress = progress
         self.currentLyricsLineIndex = newLineIndex
-        if !self.isUserScrollingLyrics {
-            self.lyricsScrollTargetIndex = activeIndex
-        }
-    }
-
-    /// Called by the lyrics view when user manually scrolls.
-    /// Suppresses auto-scroll for 5 seconds so the user can browse freely.
-    public func userDidScrollLyrics() {
-        // Only fire @Published change when transitioning from false → true
-        if !isUserScrollingLyrics {
-            isUserScrollingLyrics = true
-        }
-        // Always reset the 5s resume timer
-        userScrollResumeTask?.cancel()
-        userScrollResumeTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
-            guard !Task.isCancelled else { return }
-            self?.isUserScrollingLyrics = false
-        }
+        self.lyricsScrollTargetIndex = activeIndex
     }
 
     public func retryLyrics() {

@@ -205,7 +205,6 @@ public final class NowPlayingLyricsProjection: ObservableObject {
     @Published public private(set) var instrumentalGapAfterIndices: Set<Int> = []
     @Published public private(set) var hasIntroInstrumentalGap = false
     @Published public private(set) var hasOutroInstrumentalGap = false
-    @Published public private(set) var isUserScrollingLyrics = false
     @Published public private(set) var isInstrumentalModeActive = false
     public let isInstrumentalModeSupported: Bool
 
@@ -278,11 +277,6 @@ public final class NowPlayingLyricsProjection: ObservableObject {
     func updateHasOutroInstrumentalGap(_ hasGap: Bool) {
         guard hasOutroInstrumentalGap != hasGap else { return }
         hasOutroInstrumentalGap = hasGap
-    }
-
-    func updateUserScrollingLyrics(_ isScrolling: Bool) {
-        guard isUserScrollingLyrics != isScrolling else { return }
-        isUserScrollingLyrics = isScrolling
     }
 
     func updateInstrumentalModeActive(_ isActive: Bool) {
