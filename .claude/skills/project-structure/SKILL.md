@@ -425,7 +425,7 @@ Sources/
 |   +-- Discovery/                    # Home/Feed and Search
 |   +-- AccountSettings/              # Profile, settings, account setup, source detail, sync/swipe settings
 |   +-- Downloads/                    # Downloads, download details/settings, pending mutations
-|   +-- NowPlaying/                   # Now Playing sheet, viewport root, external display
+|   +-- NowPlaying/                   # Now Playing sheet, shared wide panel layout, viewport root, external display
 |   +-- Diagnostics/                  # Logs list/detail
 +-- EnsembleLogger.swift              # Package logger categories
 +-- EnsembleUI.swift                  # Public exports

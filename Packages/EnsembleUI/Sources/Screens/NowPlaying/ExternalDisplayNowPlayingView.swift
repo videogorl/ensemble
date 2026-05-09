@@ -3,17 +3,15 @@ import SwiftUI
 
 /// Non-interactive Now Playing view shown on an external display via AirPlay screen mirroring.
 ///
-/// This is a variant of `NowPlayingViewportRoot` adapted for TV display:
-/// - No dismiss button or segmented picker (no user interaction possible on TV)
+/// This wraps the same wide Now Playing layout used by iPad, adapted for TV display:
 /// - Panel selection follows `viewModel.currentPage` from the device automatically
 /// - Forces dark color scheme (better for TV viewing)
 /// - When nothing is playing, the existing `ControlsCard.emptyStateView` handles the idle state
 /// - Content is constrained to a 4:3 aspect ratio so panels don't stretch too wide on 16:9 TVs
 /// - Uses a reference iPad layout (1024×768) scaled up to the TV via `scaleEffect`
 ///
-/// The view reuses all existing card components (`ControlsCard`, `QueueCard`, `LyricsCard`,
-/// `InfoCard`) and shares the same `NowPlayingViewModel` instance as the main UI so all
-/// state (playback, lyrics, queue, panel selection) stays in sync with zero duplicate work.
+/// The view shares the same `NowPlayingViewModel` instance as the main UI so playback,
+/// lyrics, queue, and panel selection stay in sync with zero duplicate work.
 ///
 /// ## Known limitation
 ///
@@ -26,11 +24,6 @@ public struct ExternalDisplayNowPlayingView: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
-
-    /// Tracks the last detail page (Queue/Lyrics/Info) the user was viewing.
-    /// When the user swipes to Controls (page 1) on their device, the external
-    /// display keeps showing this panel instead of going blank.
-    @State private var lastDetailPage: Int = 0
 
     public init(viewModel: NowPlayingViewModel) {
         self.viewModel = viewModel
@@ -55,7 +48,10 @@ public struct ExternalDisplayNowPlayingView: View {
 
                 // Content constrained to 4:3, laid out at iPad reference size
                 // then scaled up proportionally via scaleEffect.
-                contentView
+                NowPlayingWidePanelLayout(
+                    viewModel: viewModel,
+                    currentPage: $viewModel.currentPage
+                )
                     .frame(
                         width: container.width / scale,
                         height: container.height / scale
@@ -67,81 +63,6 @@ public struct ExternalDisplayNowPlayingView: View {
         }
         .accentColor(settingsManager.accentColor.color)
         .preferredColorScheme(.dark)
-        .onAppear {
-            // Viewport layout always shows ControlsCard on the left.
-            // Carousel page 1 (Controls) has no panel equivalent in this layout —
-            // seed lastDetailPage so the right panel shows Queue by default.
-            if viewModel.currentPage == 1 {
-                lastDetailPage = 0
-            } else {
-                lastDetailPage = viewModel.currentPage
-            }
-        }
-        .onChange(of: viewModel.currentPage) { newPage in
-            // When the user navigates to a detail panel (Queue/Lyrics/Info),
-            // remember it. When they swipe to Controls (page 1), we keep
-            // showing the last detail panel on the external display.
-            if newPage != 1 {
-                lastDetailPage = newPage
-            }
-        }
-    }
-
-    // MARK: - Content
-
-    /// Two-column Now Playing layout (controls + detail panel).
-    private var contentView: some View {
-        HStack(alignment: .top, spacing: EnsembleScaffold.NowPlaying.viewportContentPadding) {
-            // Left panel: artwork, scrubber, playback controls (always visible)
-            ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage, isAlwaysVisible: true)
-                .frame(maxWidth: .infinity)
-                .frame(maxHeight: .infinity, alignment: .topLeading)
-
-            // Right panel: follows whatever the user has selected on their device
-            detailPanel
-                .frame(maxWidth: .infinity)
-                .frame(maxHeight: .infinity, alignment: .topLeading)
-        }
-        .padding(.horizontal, EnsembleDesign.Spacing.xxxl)
-        .padding(.vertical, EnsembleDesign.Spacing.xxxl)
-    }
-
-    // MARK: - Detail Panel
-
-    /// The page index used for the right detail panel.
-    /// When the user is on Controls (page 1) on their device, we show the last
-    /// detail panel they were viewing instead of a blank/default panel.
-    private var effectiveDetailPage: Int {
-        viewModel.currentPage == 1 ? lastDetailPage : viewModel.currentPage
-    }
-
-    /// Binding that tells detail cards they are renderable even when the device
-    /// is on the Controls page (page 1). The effective page keeps the selected
-    /// detail panel alive while writes still go through to `viewModel.currentPage`.
-    private var effectivePageBinding: Binding<Int> {
-        Binding(
-            get: { effectiveDetailPage },
-            set: { viewModel.currentPage = $0 }
-        )
-    }
-
-    /// Switches the right panel based on the device's current page selection.
-    /// When the device is on Controls (page 1), keeps the last detail panel visible.
-    /// NOTE: If you add a new card/panel to NowPlayingViewportRoot or NowPlayingCarousel,
-    /// you MUST also add it here so it appears on the external display.
-    @ViewBuilder
-    private var detailPanel: some View {
-        if effectiveDetailPage == 3 {
-            InfoCard(viewModel: viewModel, currentPage: effectivePageBinding)
-        } else if effectiveDetailPage == 2 {
-            LyricsCard(
-                viewModel: viewModel,
-                currentPage: effectivePageBinding,
-                isLowPowerMode: powerStateMonitor.isLowPowerMode
-            )
-        } else {
-            QueueCard(viewModel: viewModel, currentPage: effectivePageBinding)
-        }
     }
 
     // MARK: - Background

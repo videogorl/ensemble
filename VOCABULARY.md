@@ -20,7 +20,7 @@ The Now Playing interface uses a **card-based carousel** layout with four swipea
 - **Lyrics Card** (center-right): Karaoke-style time-synced lyrics display; shows loading spinner, "No Lyrics" state, or scrolling highlighted lines
 - **Info Card** (right): Track metadata and streaming/connection details
 
-On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on left, Lyrics/Queue carousel on right.
+On iPad and AirPlay external display, the layout switches to a shared **side-by-side** wide panel: Controls on the left and Queue/Lyrics/Info on the right. macOS keeps a viewport-specific variant for window chrome.
 
 ### Elements
 
@@ -29,6 +29,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Background gradient | region | Vibrant blurred artwork background with legibility overlay (30% dark, 50% light) | `backgroundView`, `BlurredArtworkBackground` |
 | Dismiss pill | control | Capsule-shaped indicator at top for vertical swipe dismissal | `dismissPill` |
 | Horizontal carousel | region | TabView-based page navigation between Lyrics/Controls/Queue | `NowPlayingCarousel` |
+| Wide panel layout | region | Shared iPad/AirPlay two-column layout with Controls on the left and selected detail panel on the right | `NowPlayingWidePanelLayout` |
 | Page indicator | indicator | Three-dot indicator showing current page (left/center/right icons) | `PageIndicator` |
 
 #### Lyrics Card (Left)
