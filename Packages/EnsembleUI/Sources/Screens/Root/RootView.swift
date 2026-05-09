@@ -129,46 +129,6 @@ private struct RootMiniPlayerOverlay: View {
     }
 }
 
-private struct RootMiniPlayerOverlayHost: View {
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    let currentLayout: RootChromeLayout
-    let accentColor: Color
-    let namespace: Namespace.ID
-    let animationID: String
-    let presentNowPlaying: () -> Void
-
-    @State private var retainedLayout: RootChromeLayout = .hidden
-
-    private var effectiveLayout: RootChromeLayout {
-        currentLayout.hasRenderableFrame ? currentLayout : retainedLayout
-    }
-
-    var body: some View {
-        RootMiniPlayerOverlay(
-            nowPlayingVM: nowPlayingVM,
-            layout: effectiveLayout,
-            accentColor: accentColor,
-            namespace: namespace,
-            animationID: animationID,
-            presentNowPlaying: presentNowPlaying
-        )
-        .onAppear {
-            captureLayoutIfNeeded(currentLayout)
-        }
-        .onChange(of: currentLayout) { newLayout in
-            captureLayoutIfNeeded(newLayout)
-        }
-    }
-
-    private func captureLayoutIfNeeded(_ layout: RootChromeLayout) {
-        guard layout.hasRenderableFrame else {
-            return
-        }
-
-        retainedLayout = layout
-    }
-}
-
 /// Root view that renders the main content directly (no auth gate)
 @available(iOS 15.0, macOS 12.0, watchOS 8.0, *)
 public struct RootView: View {
@@ -257,9 +217,9 @@ public struct RootView: View {
             .coordinateSpace(name: RootChromeCoordinateSpace.name)
             .overlayPreferenceValue(RootChromeRegistrationPreferenceKey.self) { registration in
                 if !isNowPlayingPresented {
-                    RootMiniPlayerOverlayHost(
+                    RootMiniPlayerOverlay(
                         nowPlayingVM: nowPlayingVM,
-                        currentLayout: resolvedRootChromeLayout(from: registration, in: proxy),
+                        layout: resolvedRootChromeLayout(from: registration, in: proxy),
                         accentColor: settingsManager.accentColor.color,
                         namespace: playerNamespace,
                         animationID: artworkAnimationID,

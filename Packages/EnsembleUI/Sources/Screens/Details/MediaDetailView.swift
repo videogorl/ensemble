@@ -146,7 +146,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     public var body: some View {
-        contentWithOptionalFilter
+        baseContent
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -205,6 +205,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             updatePinStateForHeader(pinnedItems: pinnedItems)
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .sheet(isPresented: $showFilterSheet) {
+            FilterSheet(filterOptions: $viewModel.filterOptions)
+        }
         .sheet(item: $metadataEditorRequest) { request in
             TextInputView(
                 title: request.kind.title,
@@ -249,18 +252,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             currentTrackId: $currentTrackId,
             lastPlaylistTargetId: $nvmLastPlaylistTargetId
         )
-    }
-
-    @ViewBuilder
-    private var contentWithOptionalFilter: some View {
-        if showFilter {
-            baseContent
-                .sheet(isPresented: $showFilterSheet) {
-                    FilterSheet(filterOptions: $viewModel.filterOptions)
-                }
-        } else {
-            baseContent
-        }
     }
 
     /// Whether the radio button should be shown (artist or album detail views)
