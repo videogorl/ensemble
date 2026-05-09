@@ -93,7 +93,7 @@ public struct FavoritesView: View {
                 hasCompletedInitialLoad = true
             }
         }
-        .ensembleFilterPresentation(isPresented: $showFilterSheet) {
+        .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $viewModel.filterOptions
             )

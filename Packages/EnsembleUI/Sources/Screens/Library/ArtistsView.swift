@@ -64,7 +64,7 @@ public struct ArtistsView: View {
         .task(id: sectionInput) {
             await updateArtistSections(for: sectionInput)
         }
-        .ensembleFilterPresentation(isPresented: $showFilterSheet) {
+        .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.artistsFilterOptions,
                 availableGenres: libraryVM.availableArtistGenres,

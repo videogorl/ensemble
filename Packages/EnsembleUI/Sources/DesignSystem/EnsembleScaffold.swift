@@ -951,41 +951,6 @@ public extension View {
     }
 }
 
-/// Presents filter UI as a native sheet on every platform.
-public struct EnsembleFilterPresentationModifier<PresentedContent: View>: ViewModifier {
-    @Binding var isPresented: Bool
-    @ViewBuilder let presentedContent: () -> PresentedContent
-
-    public init(
-        isPresented: Binding<Bool>,
-        @ViewBuilder presentedContent: @escaping () -> PresentedContent
-    ) {
-        self._isPresented = isPresented
-        self.presentedContent = presentedContent
-    }
-
-    @ViewBuilder
-    public func body(content: Content) -> some View {
-        content.sheet(isPresented: $isPresented) {
-            presentedContent()
-        }
-    }
-}
-
-public extension View {
-    func ensembleFilterPresentation<PresentedContent: View>(
-        isPresented: Binding<Bool>,
-        @ViewBuilder content: @escaping () -> PresentedContent
-    ) -> some View {
-        modifier(
-            EnsembleFilterPresentationModifier(
-                isPresented: isPresented,
-                presentedContent: content
-            )
-        )
-    }
-}
-
 /// Consistent empty/loading/error state used by browse and utility screens.
 public struct EnsembleStateScaffold<Action: View>: View {
     public enum Presentation {
