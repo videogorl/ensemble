@@ -275,7 +275,7 @@ func testFilterOptionsMatchesByGenre() {
 | `ServerHealthCheckerClassificationTests.swift` | failure taxonomy classification (`localOnlyReachable`, `tlsPolicyBlocked`, etc.) |
 | `SettingsManagerConnectionPolicyTests.swift` | persisted insecure-policy default + round-trip persistence |
 | `AccountManagerAuthPolicyTests.swift` | auth migration cutover and expired-account pruning |
-| `HomeViewModelRefreshPolicyTests.swift` | scroll-time refresh deferral, coalescing, idle flush, manual-refresh bypass |
+| `HomeViewModelRefreshPolicyTests.swift` | Feed visibility/cadence refresh policy, coalescing, 10-minute automatic refresh gating, manual-refresh bypass |
 | `LibraryVisibilityProfileTests.swift` | visibility profile persistence + source-level filtering seams (without changing sync enablement) |
 | `LibraryRepositoryTests.swift` | `CoreDataStack` initialization (minimal — expand as needed) |
 

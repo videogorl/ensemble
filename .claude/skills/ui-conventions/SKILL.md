@@ -215,8 +215,8 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Use `EnsembleDesign` for semantic UI values instead of introducing new raw literals for repeatable roles.
 - Token groups cover spacing, radius, typography, color, icons, breakpoints, effects, and semantic material roles.
 - Keep specialized existing helpers where they encode behavior, such as `TrackListLayoutMetrics` for track rows and `ArtworkCornerRadius` for media artwork. These bridge into `EnsembleDesign` instead of being replaced by unrelated literals.
-- Use `EnsembleScaffold` for larger adaptive patterns, such as OS-aware filter presentation and shared empty/loading/error states.
-- Filter presenters should use `.ensembleFilterPresentation(...)` instead of raw `.sheet` when presenting `FilterSheet`, so iPhone and macOS stay sheet-based while regular-width modern iPadOS can use a toolbar popover.
+- Use `EnsembleScaffold` for larger adaptive patterns, such as shared filter presentation and shared empty/loading/error states.
+- Filter presenters should use `.ensembleFilterPresentation(...)` when presenting `FilterSheet`; that shared wrapper intentionally presents a native sheet on iPhone, iPadOS, and macOS instead of branching to toolbar popovers.
 - Large-screen browse splits should use `LargeScreenBrowseSplitView` with `EnsembleScaffold.BrowseSplit.Configuration` presets instead of repeating raw pane width, breakpoint, and resize-handle values per screen.
 - Media-style detail screens should keep header/list/action/shadow metrics under `EnsembleScaffold.DetailSurface` and render through `MediaDetailSurface` helpers rather than inventing parallel detail surface constants.
 - Artist detail's custom square/circular adaptive header should keep its specialized thresholds, hero dimensions, section rhythm, and overlay strengths under `EnsembleScaffold.ArtistDetail`.

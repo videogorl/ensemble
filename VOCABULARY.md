@@ -209,7 +209,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 |--------------|------|-------------|---------------------|
 | Browse toolbar group | region | Shared sort/filter/overflow toolbar action host for browse screens | `EnsembleBrowseToolbar` |
 | Filter button | control | Standard browse filter button with active-filter badge | `EnsembleBrowseFilterButton` |
-| Filter presentation | presentation | Adaptive filter host that chooses compact sheets or large-screen toolbar popovers | `ensembleFilterPresentation`, `EnsembleScaffold.FilterPresentation` |
+| Filter presentation | presentation | Shared filter host that presents native sheets on iPhone, iPadOS, and macOS | `ensembleFilterPresentation` |
 | Active filter badge | indicator | Small red dot shown when a browse filter has active constraints | `hasActiveFilters` |
 | Sort menu | menu | Per-screen sort menu hosted inside the shared toolbar group | `Sort By` |
 

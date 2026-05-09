@@ -303,30 +303,6 @@ public enum EnsembleScaffold {
         public static let successTint = EnsembleDesign.Color.success
     }
 
-    public enum FilterPresentation {
-        public enum Style: Equatable {
-            #if os(iOS)
-            case toolbarPopover
-            #endif
-            case sheet
-        }
-
-        #if os(iOS)
-        /// Default filter presentation policy for iOS and iPadOS library browse screens.
-        public static func preferredStyle(horizontalSizeClass: UserInterfaceSizeClass?) -> Style {
-            if #available(iOS 26.0, *), horizontalSizeClass == .regular {
-                return .toolbarPopover
-            }
-            return .sheet
-        }
-        #else
-        /// Default filter presentation policy for macOS library browse screens.
-        public static func preferredStyle() -> Style {
-            .sheet
-        }
-        #endif
-    }
-
     public enum FilterSheet {
         public static let macContentMaxWidth: CGFloat = 640
         public static let macMinimumWidth: CGFloat = EnsembleScaffold.AccountSetup.macMinimumWidth
@@ -982,14 +958,10 @@ public extension View {
     }
 }
 
-/// Presents filter UI using the shared platform policy: iPhone and macOS use
-/// sheets, while regular-width modern iPadOS can use a toolbar popover.
+/// Presents filter UI as a native sheet on every platform.
 public struct EnsembleFilterPresentationModifier<PresentedContent: View>: ViewModifier {
     @Binding var isPresented: Bool
     @ViewBuilder let presentedContent: () -> PresentedContent
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    #endif
 
     public init(
         isPresented: Binding<Bool>,
@@ -1001,25 +973,9 @@ public struct EnsembleFilterPresentationModifier<PresentedContent: View>: ViewMo
 
     @ViewBuilder
     public func body(content: Content) -> some View {
-        #if os(iOS)
-        switch EnsembleScaffold.FilterPresentation.preferredStyle(horizontalSizeClass: horizontalSizeClass) {
-        case .toolbarPopover:
-            content.popover(isPresented: $isPresented, arrowEdge: .top) {
-                presentedContent()
-            }
-        case .sheet:
-            content.sheet(isPresented: $isPresented) {
-                presentedContent()
-            }
+        content.sheet(isPresented: $isPresented) {
+            presentedContent()
         }
-        #else
-        switch EnsembleScaffold.FilterPresentation.preferredStyle() {
-        case .sheet:
-            content.sheet(isPresented: $isPresented) {
-                presentedContent()
-            }
-        }
-        #endif
     }
 }
 
