@@ -134,9 +134,21 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         var cachedSnapshot: HomeHubSnapshot
         var networkSnapshot: HomeHubSnapshot?
 
-        init(cachedHubs: [Hub] = [], networkHubs: [Hub]? = nil) {
-            self.cachedSnapshot = Self.snapshot(hubs: cachedHubs)
-            self.networkSnapshot = networkHubs.map(Self.snapshot(hubs:))
+        init(
+            cachedHubs: [Hub] = [],
+            networkHubs: [Hub]? = nil,
+            cachedFetchedAt: Date? = nil,
+            cachedFreshnessState: HomeFeedSnapshotFreshnessState? = nil
+        ) {
+            self.cachedSnapshot = Self.snapshot(
+                hubs: cachedHubs,
+                networkFetchCompletedAt: nil,
+                cacheFetchedAt: cachedFetchedAt,
+                freshnessState: cachedFreshnessState
+            )
+            self.networkSnapshot = networkHubs.map {
+                Self.snapshot(hubs: $0, networkFetchCompletedAt: Date())
+            }
         }
 
         func loadCachedSnapshot() async throws -> HomeHubSnapshot {
@@ -149,7 +161,12 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
 
         func clearFailedHubKeys() {}
 
-        private static func snapshot(hubs: [Hub]) -> HomeHubSnapshot {
+        private static func snapshot(
+            hubs: [Hub],
+            networkFetchCompletedAt: Date?,
+            cacheFetchedAt: Date? = nil,
+            freshnessState: HomeFeedSnapshotFreshnessState? = nil
+        ) -> HomeHubSnapshot {
             HomeHubSnapshot(
                 orderedHubs: hubs,
                 failedHubKeys: [],
@@ -158,7 +175,9 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
                     currentSourceName: "Editing Music",
                     fetchTaskCount: 1,
                     usedGlobalFallback: false,
-                    networkFetchCompletedAt: Date()
+                    networkFetchCompletedAt: networkFetchCompletedAt,
+                    cacheFetchedAt: cacheFetchedAt,
+                    freshnessState: freshnessState
                 )
             )
         }
@@ -395,6 +414,27 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         await sut.loadHubsIfNeeded()
 
         XCTAssertEqual(loadCount, 1)
+    }
+
+    func testAutomaticFeedLoadSkipsFreshCachedSnapshotAfterViewModelRecreation() async {
+        let cachedHub = makeHub()
+        let loader = MockHomeHubLoader(
+            cachedHubs: [cachedHub],
+            cachedFetchedAt: Date(),
+            cachedFreshnessState: .fresh
+        )
+        let (sut, _) = makeViewModel(hubLoader: loader)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.seedHubsForTesting([cachedHub])
+        var loadCount = 0
+        sut.loadHubsRunnerForTesting = { _ in
+            loadCount += 1
+        }
+
+        await sut.loadHubsIfNeeded()
+
+        XCTAssertEqual(loadCount, 0)
     }
 
     func testPeriodicRefreshDoesNotRunWhenViewHidden() async {

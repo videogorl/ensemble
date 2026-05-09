@@ -107,7 +107,9 @@ public final class HomeViewModel: ObservableObject {
                 self.currentSourceKey = cachedSnapshot.metadata.currentSourceKey
                 self.currentSourceName = cachedSnapshot.metadata.currentSourceName
                 self.lastFeedCacheRefreshDate = cachedSnapshot.metadata.cacheFetchedAt
-                self.isFeedCacheStale = self.isCachedFeedStale(cachedSnapshot.metadata)
+                let cacheIsStale = self.isCachedFeedStale(cachedSnapshot.metadata)
+                self.isFeedCacheStale = cacheIsStale
+                self.lastNetworkHubFetchTime = cacheIsStale ? nil : cachedSnapshot.metadata.cacheFetchedAt
 
                 if !cachedSnapshot.orderedHubs.isEmpty {
                     self.rawHubSnapshot = cachedSnapshot.orderedHubs
@@ -717,6 +719,7 @@ public final class HomeViewModel: ObservableObject {
         error = nil
         isFeedCacheStale = false
         lastFeedCacheRefreshDate = nil
+        lastNetworkHubFetchTime = nil
         rawHubSnapshot = []
         unfilteredHubs = []
         hubs = []
