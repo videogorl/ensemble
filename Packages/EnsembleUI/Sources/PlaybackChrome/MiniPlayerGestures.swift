@@ -64,27 +64,16 @@ struct MiniPlayerHorizontalSwipeModifier: ViewModifier {
                     .onEnded { value in
                         let threshold = EnsembleScaffold.MiniPlayer.horizontalSwipeThreshold
                         if value.translation.width > threshold {
-                            dismissThenReset(offset: EnsembleScaffold.MiniPlayer.horizontalSwipeDismissOffset, action: onPrevious)
+                            onPrevious()
                         } else if value.translation.width < -threshold {
-                            dismissThenReset(offset: -EnsembleScaffold.MiniPlayer.horizontalSwipeDismissOffset, action: onNext)
+                            onNext()
                         } else {
-                            reset()
                         }
+                        reset()
                     }
             )
         } else {
             content
-        }
-    }
-
-    private func dismissThenReset(offset: CGFloat, action: @escaping () -> Void) {
-        withAnimation(.spring(response: 0.3)) {
-            dragOffset = offset
-            opacity = 0
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + EnsembleScaffold.MiniPlayer.horizontalSwipeResetDelay) {
-            action()
-            reset()
         }
     }
 

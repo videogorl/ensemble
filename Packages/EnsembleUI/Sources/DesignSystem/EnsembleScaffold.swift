@@ -605,8 +605,6 @@ public enum EnsembleScaffold {
         public static let horizontalSwipeFadeDistance: CGFloat = 200
         public static let horizontalSwipeMaximumFade = 0.5
         public static let horizontalSwipeThreshold: CGFloat = 80
-        public static let horizontalSwipeDismissOffset: CGFloat = 200
-        public static let horizontalSwipeResetDelay: TimeInterval = 0.1
         public static let controlSpacing: CGFloat = 18
         public static let controlLoadingScale: CGFloat = 0.8
         public static let unavailableControlOpacity = EnsembleScaffold.NowPlaying.unavailableControlOpacity
