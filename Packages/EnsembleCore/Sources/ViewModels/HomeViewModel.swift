@@ -39,11 +39,7 @@ public final class HomeViewModel: ObservableObject {
     private var lastLoadTime: Date?
     private var currentSourceKey: String?
     private var isViewVisible = false
-    private var isUserInteracting = false
     private var pendingAutoRefreshReasons = Set<AutoRefreshReason>()
-    private var deferredAutoRefreshTask: Task<Void, Never>?
-    private var pendingHubSnapshot: [Hub]?
-    private var pendingHubApplyTask: Task<Void, Never>?
     // Preserve the server snapshot separately so Feed can stay a local-library
     // projection without mutating the cached hub payload itself.
     private var rawHubSnapshot: [Hub] = []
@@ -64,7 +60,6 @@ public final class HomeViewModel: ObservableObject {
     
     // Debounce interval to prevent rapid successive loads
     private let debounceInterval: TimeInterval = 2.0
-    private let idleApplyDebounceNanoseconds: UInt64 = 350_000_000
     private let startupHealthCheckPollNanoseconds: UInt64 = 100_000_000
     private let startupHealthCheckWaitTimeout: TimeInterval = 12.0
     private let feedCacheStaleInterval: TimeInterval = 6 * 60 * 60
@@ -80,10 +75,8 @@ public final class HomeViewModel: ObservableObject {
         let index = refreshCount % Self.hubCountOptions.count
         return String(Self.hubCountOptions[index])
     }
-    internal private(set) var deferredAutoRefreshCount = 0
-    internal private(set) var coalescedAutoRefreshCount = 0
     internal var autoRefreshRunnerForTesting: ((AutoRefreshReason) async -> Void)?
-    internal var loadHubsRunnerForTesting: ((Bool, Bool) async -> Void)?
+    internal var loadHubsRunnerForTesting: ((Bool) async -> Void)?
     internal var waitForStartupHealthChecksRunnerForTesting: (() async -> Void)?
     
     public init(
@@ -156,16 +149,11 @@ public final class HomeViewModel: ObservableObject {
     deinit {
         // Invalidate timer directly without calling @MainActor method from nonisolated deinit
         hubRefreshTimer?.invalidate()
-        deferredAutoRefreshTask?.cancel()
-        pendingHubApplyTask?.cancel()
         refreshTriggerCancellables.removeAll()
     }
     
     /// Load hubs from all configured accounts with debouncing and offline-first caching
-    public func loadHubs(
-        applySavedOrder: Bool = true,
-        deferUIUpdatesWhileInteracting: Bool = true
-    ) async {
+    public func loadHubs(applySavedOrder: Bool = true) async {
         updateSourceAvailability()
         guard hasEnabledLibraries else {
             clearHubContentForUnavailableSources()
@@ -188,7 +176,7 @@ public final class HomeViewModel: ObservableObject {
         lastLoadTime = Date()
 
         if let loadHubsRunnerForTesting {
-            await loadHubsRunnerForTesting(applySavedOrder, deferUIUpdatesWhileInteracting)
+            await loadHubsRunnerForTesting(applySavedOrder)
             return
         }
 
@@ -227,11 +215,7 @@ public final class HomeViewModel: ObservableObject {
 
             currentSourceKey = snapshot.metadata.currentSourceKey
             currentSourceName = snapshot.metadata.currentSourceName
-            await applyHubSnapshot(
-                snapshot.orderedHubs,
-                deferIfInteracting: deferUIUpdatesWhileInteracting,
-                source: "network"
-            )
+            await applyHubSnapshot(snapshot.orderedHubs, source: "network")
 
             isLoading = false
             initialLoadCompleted = true
@@ -289,7 +273,7 @@ public final class HomeViewModel: ObservableObject {
         lastLoadTime = nil
         refreshCount += 1
         hubLoader.clearFailedHubKeys()
-        await loadHubs(deferUIUpdatesWhileInteracting: false)
+        await loadHubs()
     }
 
     public func handleViewVisibilityChange(isVisible: Bool) {
@@ -300,25 +284,11 @@ public final class HomeViewModel: ObservableObject {
         if isVisible {
             startRefreshTriggerObservation()
             startPeriodicRefresh()
-            flushDeferredUpdatesIfIdle()
+            flushDeferredAutoRefreshIfVisible()
         } else {
             stopRefreshTriggerObservation()
             stopPeriodicRefresh()
-            isUserInteracting = false
             pendingAutoRefreshReasons.removeAll()
-            deferredAutoRefreshTask?.cancel()
-            deferredAutoRefreshTask = nil
-        }
-    }
-
-    public func handleScrollInteraction(isInteracting: Bool) {
-        guard isUserInteracting != isInteracting else { return }
-        isUserInteracting = isInteracting
-
-        if !isInteracting {
-            flushDeferredUpdatesIfIdle()
-        } else {
-            pendingHubApplyTask?.cancel()
         }
     }
 
@@ -351,14 +321,11 @@ public final class HomeViewModel: ObservableObject {
             return
         }
 
-        if !isViewVisible || isUserInteracting {
-            if !pendingAutoRefreshReasons.insert(reason).inserted {
-                coalescedAutoRefreshCount += 1
-            }
+        if !isViewVisible {
+            _ = pendingAutoRefreshReasons.insert(reason)
             EnsembleLogger.debug(
-                "🏠 Home auto-refresh deferred reason=\(reason.rawValue), visible=\(isViewVisible), interacting=\(isUserInteracting), pending=\(pendingAutoRefreshReasons.count)"
+                "🏠 Home auto-refresh deferred reason=\(reason.rawValue), visible=false, pending=\(pendingAutoRefreshReasons.count)"
             )
-            scheduleDeferredAutoRefresh()
             return
         }
 
@@ -368,22 +335,10 @@ public final class HomeViewModel: ObservableObject {
             return
         }
 
-        deferredAutoRefreshTask?.cancel()
-        deferredAutoRefreshTask = nil
         EnsembleLogger.debug("🏠 Home auto-refresh scheduled reason=\(reason.rawValue)")
 
         Task { @MainActor [weak self] in
             await self?.performAutoRefresh(triggeringReason: reason)
-        }
-    }
-
-    private func scheduleDeferredAutoRefresh() {
-        deferredAutoRefreshTask?.cancel()
-        deferredAutoRefreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(nanoseconds: idleApplyDebounceNanoseconds)
-            guard !Task.isCancelled else { return }
-            self.flushDeferredUpdatesIfIdle()
         }
     }
 
@@ -396,32 +351,22 @@ public final class HomeViewModel: ObservableObject {
         }
 
         EnsembleLogger.debug("🏠 Home auto-refresh executing reason=\(reason.rawValue)")
-        await loadHubs(deferUIUpdatesWhileInteracting: true)
+        await loadHubs()
     }
 
-    private func flushDeferredUpdatesIfIdle() {
-        guard isViewVisible, !isUserInteracting else { return }
+    private func flushDeferredAutoRefreshIfVisible() {
+        guard isViewVisible else { return }
 
         if !pendingAutoRefreshReasons.isEmpty {
-            deferredAutoRefreshCount += 1
             let reason = pendingAutoRefreshReasons.first ?? .periodicTimer
             pendingAutoRefreshReasons.removeAll()
-            deferredAutoRefreshTask?.cancel()
-            deferredAutoRefreshTask = nil
             Task { @MainActor [weak self] in
                 await self?.performAutoRefresh(triggeringReason: reason)
             }
         }
-
-        if let pendingHubSnapshot {
-            EnsembleLogger.debug("🏠 Applying deferred hub snapshot with \(pendingHubSnapshot.count) hubs")
-            self.pendingHubSnapshot = nil
-            self.hubs = pendingHubSnapshot
-            // Don't overwrite editableHubs — user may be actively reordering
-        }
     }
 
-    private func applyHubSnapshot(_ snapshot: [Hub], deferIfInteracting: Bool, source: String) async {
+    private func applyHubSnapshot(_ snapshot: [Hub], source: String) async {
         rawHubSnapshot = snapshot
         let availableSnapshot = await filterHubsForLocalAvailability(snapshot)
         unfilteredHubs = availableSnapshot
@@ -430,21 +375,7 @@ public final class HomeViewModel: ObservableObject {
             hiddenSourceCompositeKeys: visibilityStore.hiddenSourceCompositeKeys
         )
 
-        if deferIfInteracting && isViewVisible && isUserInteracting && !hubs.isEmpty {
-            pendingHubSnapshot = visibleSnapshot
-            pendingHubApplyTask?.cancel()
-            pendingHubApplyTask = Task { @MainActor [weak self] in
-                guard let self else { return }
-                try? await Task.sleep(nanoseconds: idleApplyDebounceNanoseconds)
-                guard !Task.isCancelled else { return }
-                self.flushDeferredUpdatesIfIdle()
-            }
-            EnsembleLogger.debug("🏠 Deferred hub snapshot update source=\(source) count=\(visibleSnapshot.count)")
-            return
-        }
-
-        pendingHubSnapshot = nil
-        pendingHubApplyTask?.cancel()
+        EnsembleLogger.debug("🏠 Applying hub snapshot source=\(source) count=\(visibleSnapshot.count)")
         hubs = visibleSnapshot
         // Don't overwrite editableHubs — user may be actively reordering
     }
@@ -455,13 +386,6 @@ public final class HomeViewModel: ObservableObject {
             hiddenSourceCompositeKeys: visibilityStore.hiddenSourceCompositeKeys
         )
 
-        if isViewVisible && isUserInteracting && !hubs.isEmpty {
-            pendingHubSnapshot = visibleHubs
-            return
-        }
-
-        pendingHubSnapshot = nil
-        pendingHubApplyTask?.cancel()
         hubs = visibleHubs
         // Don't overwrite editableHubs — user may be actively reordering
     }
@@ -476,8 +400,6 @@ public final class HomeViewModel: ObservableObject {
 
     internal func clearPendingAutoRefreshForTesting() {
         pendingAutoRefreshReasons.removeAll()
-        deferredAutoRefreshTask?.cancel()
-        deferredAutoRefreshTask = nil
     }
 
     /// Mark the initial load as complete so auto-refresh tests can proceed
@@ -777,11 +699,7 @@ public final class HomeViewModel: ObservableObject {
         hubs = []
         editableHubs = []
         isEditingOrder = false
-        pendingHubSnapshot = nil
-        pendingHubApplyTask?.cancel()
         pendingAutoRefreshReasons.removeAll()
-        deferredAutoRefreshTask?.cancel()
-        deferredAutoRefreshTask = nil
     }
 
     private func isCachedFeedStale(_ metadata: HomeHubSnapshotMetadata) -> Bool {
@@ -863,7 +781,7 @@ public final class HomeViewModel: ObservableObject {
         let orderedServerHubs = hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
         let orderedSnapshot = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: unfilteredHubs)
         Task { @MainActor [weak self] in
-            await self?.applyHubSnapshot(orderedSnapshot, deferIfInteracting: false, source: "resetOrder")
+            await self?.applyHubSnapshot(orderedSnapshot, source: "resetOrder")
         }
 
         // Clear debounce and reload hubs to show the reset order
@@ -872,7 +790,7 @@ public final class HomeViewModel: ObservableObject {
         // Reload hubs to get fresh data from server
         EnsembleLogger.debug("[HubOrder] Triggering background refresh from server")
         Task {
-            await loadHubs(applySavedOrder: false, deferUIUpdatesWhileInteracting: false)
+            await loadHubs(applySavedOrder: false)
             if isEditingOrder {
                 editableHubs = hubs
             }

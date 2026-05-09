@@ -184,15 +184,6 @@ public struct HomeView: View {
             }
             .padding(.vertical)
         }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 1)
-                .onChanged { _ in
-                    viewModel.handleScrollInteraction(isInteracting: true)
-                }
-                .onEnded { _ in
-                    viewModel.handleScrollInteraction(isInteracting: false)
-                }
-        )
         .miniPlayerBottomSpacing()
     }
 

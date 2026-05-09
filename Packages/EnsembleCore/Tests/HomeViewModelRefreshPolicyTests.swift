@@ -312,7 +312,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         )
     }
 
-    func testSyncCompleteTriggerDefersWhileInteracting() async {
+    func testHiddenFeedDefersAutoRefreshUntilVisible() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
@@ -320,8 +320,6 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         var refreshCount = 0
         sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
 
-        sut.handleScrollInteraction(isInteracting: true)
-        sut.handleViewVisibilityChange(isVisible: true)
         sut.requestAutoRefreshForTesting(reason: .syncCompleted)
 
         try? await Task.sleep(nanoseconds: 60_000_000)
@@ -330,7 +328,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertTrue(sut.hasPendingAutoRefreshForTesting)
     }
 
-    func testMultipleDeferredTriggersCoalesceToSingleRefresh() async {
+    func testDeferredRefreshRunsWhenFeedBecomesVisible() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
@@ -338,55 +336,33 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         var refreshCount = 0
         sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
 
-        sut.handleScrollInteraction(isInteracting: true)
-        sut.handleViewVisibilityChange(isVisible: true)
-        sut.requestAutoRefreshForTesting(reason: .syncCompleted)
-        sut.requestAutoRefreshForTesting(reason: .accountChange)
-
-        sut.handleScrollInteraction(isInteracting: false)
-        try? await Task.sleep(nanoseconds: 420_000_000)
-
-        XCTAssertEqual(refreshCount, 1)
-    }
-
-    func testDeferredRefreshRunsAfterIdleTransition() async {
-        let sut = makeViewModel()
-        try? await Task.sleep(nanoseconds: 30_000_000)
-        sut.markInitialLoadCompletedForTesting()
-        sut.clearPendingAutoRefreshForTesting()
-        var refreshCount = 0
-        sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
-
-        sut.handleScrollInteraction(isInteracting: true)
-        sut.handleViewVisibilityChange(isVisible: true)
         sut.requestAutoRefreshForTesting(reason: .syncCompleted)
 
-        sut.handleScrollInteraction(isInteracting: false)
-        try? await Task.sleep(nanoseconds: 420_000_000)
+        sut.handleViewVisibilityChange(isVisible: true)
+        try? await Task.sleep(nanoseconds: 60_000_000)
 
         XCTAssertEqual(refreshCount, 1)
         XCTAssertFalse(sut.hasPendingAutoRefreshForTesting)
     }
 
-    func testManualRefreshBypassesInteractionDeferral() async {
+    func testManualRefreshRunsImmediately() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
         sut.clearPendingAutoRefreshForTesting()
         var loadCount = 0
-        var deferFlags: [Bool] = []
-        sut.loadHubsRunnerForTesting = { _, deferUI in
+        var applySavedOrderFlags: [Bool] = []
+        sut.loadHubsRunnerForTesting = { applySavedOrder in
             loadCount += 1
-            deferFlags.append(deferUI)
+            applySavedOrderFlags.append(applySavedOrder)
         }
 
         sut.handleViewVisibilityChange(isVisible: true)
-        sut.handleScrollInteraction(isInteracting: true)
 
         await sut.refresh()
 
         XCTAssertEqual(loadCount, 1)
-        XCTAssertEqual(deferFlags, [false])
+        XCTAssertEqual(applySavedOrderFlags, [true])
     }
 
     func testPeriodicRefreshDoesNotRunWhenViewHidden() async {
@@ -404,20 +380,22 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(refreshCount, 0)
     }
 
-    func testHiddenViewClearsDeferredAutoRefresh() async {
+    func testMultipleHiddenRefreshTriggersRunOnceWhenFeedBecomesVisible() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
         sut.clearPendingAutoRefreshForTesting()
+        var refreshCount = 0
+        sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
 
-        sut.handleViewVisibilityChange(isVisible: true)
-        sut.handleScrollInteraction(isInteracting: true)
         sut.requestAutoRefreshForTesting(reason: .syncCompleted)
+        sut.requestAutoRefreshForTesting(reason: .accountChange)
         XCTAssertTrue(sut.hasPendingAutoRefreshForTesting)
 
-        sut.handleViewVisibilityChange(isVisible: false)
+        sut.handleViewVisibilityChange(isVisible: true)
         try? await Task.sleep(nanoseconds: 60_000_000)
 
+        XCTAssertEqual(refreshCount, 1)
         XCTAssertFalse(sut.hasPendingAutoRefreshForTesting)
     }
 
@@ -671,7 +649,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             waitStarted.fulfill()
             await self.fulfillment(of: [releaseWait], timeout: 1.0)
         }
-        sut.loadHubsRunnerForTesting = { _, _ in
+        sut.loadHubsRunnerForTesting = { _ in
             loadCount += 1
         }
 
@@ -698,7 +676,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         sut.waitForStartupHealthChecksRunnerForTesting = {
             waitCallCount += 1
         }
-        sut.loadHubsRunnerForTesting = { _, _ in
+        sut.loadHubsRunnerForTesting = { _ in
             loadCount += 1
         }
 

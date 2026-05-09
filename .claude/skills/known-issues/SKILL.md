@@ -357,7 +357,7 @@ No unresolved critical issues currently documented.
 - `PlaybackService` now heals upcoming queue items on reconnect/interface-switch transitions.
 - `NetworkMonitor` lifecycle is restart-safe across background/foreground transitions.
 - `SyncCoordinator` coalesces network-health refreshes and applies cooldown/staleness guards.
-- `HomeViewModel` defers hub refresh/apply while users are scrolling to prevent feed jumps.
+- Feed now lets native `ScrollView` gesture ownership stand alone; hidden-feed auto-refreshes are deferred until the view is visible, but visible hub snapshots apply directly instead of using a scroll-drag idle workaround.
 
 ### Plex Endpoint Policy + Auth Lifecycle Parity
 - **Resolved (February 22, 2026)**
