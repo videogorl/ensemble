@@ -19,6 +19,9 @@ public struct LyricsCard: View {
     @State private var currentLyricsLineIndex: Int?
     @State private var lyricsScrollTargetIndex: Int?
     @State private var instrumentalProgress: Double?
+    @State private var isManualLyricsScrollActive = false
+    @State private var manualLyricsScrollResetToken = 0
+    @State private var lyricsRecenterRequestToken = 0
 
     public init(
         viewModel: NowPlayingViewModel,
@@ -58,8 +61,18 @@ public struct LyricsCard: View {
             syncLyricsSnapshot()
         }
         .onChange(of: currentPage) { newPage in
-            guard NowPlayingPanelPage.lyrics.shouldRenderContent(currentPage: newPage) else { return }
+            guard NowPlayingPanelPage.lyrics.shouldRenderContent(currentPage: newPage) else {
+                isManualLyricsScrollActive = false
+                return
+            }
             syncLyricsSnapshot()
+        }
+        .task(id: manualLyricsScrollResetToken) {
+            guard isManualLyricsScrollActive else { return }
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            isManualLyricsScrollActive = false
+            lyricsRecenterRequestToken &+= 1
         }
         .onReceive(viewModel.currentLyricsLineIndexPublisher) { index in
             guard NowPlayingPanelPage.lyrics.isActive(currentPage: currentPage) else { return }
@@ -172,7 +185,7 @@ public struct LyricsCard: View {
 
     private func lyricsScrollView(lyrics: ParsedLyrics) -> some View {
         ScrollViewReader { proxy in
-            ScrollView(showsIndicators: false) {
+            observedLyricsScrollView {
                 LazyVStack(spacing: lyrics.isTimed
                     ? EnsembleScaffold.NowPlaying.lyricTimedLineSpacing
                     : EnsembleScaffold.NowPlaying.lyricPlainLineSpacing
@@ -305,6 +318,18 @@ public struct LyricsCard: View {
                     }
                 }
             }
+            .onChange(of: lyricsRecenterRequestToken) { _ in
+                guard lyrics.isTimed else { return }
+                let scrollTarget: AnyHashable
+                if let index = lyricsScrollTargetIndex {
+                    scrollTarget = index
+                } else {
+                    scrollTarget = "intro-instrumental"
+                }
+                withAnimation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration)) {
+                    proxy.scrollTo(scrollTarget, anchor: .center)
+                }
+            }
         }
     }
 
@@ -317,6 +342,41 @@ public struct LyricsCard: View {
         }
         if viewModel.instrumentalProgress != instrumentalProgress {
             instrumentalProgress = viewModel.instrumentalProgress
+        }
+    }
+
+    @ViewBuilder
+    private func observedLyricsScrollView<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let scrollView = ScrollView(showsIndicators: false) {
+            content()
+        }
+
+        if #available(iOS 18.0, macOS 15.0, *) {
+            scrollView
+                .onScrollPhaseChange { _, newPhase in
+                    handleLyricsScrollPhaseChange(newPhase)
+                }
+        } else {
+            scrollView
+        }
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    private func handleLyricsScrollPhaseChange(_ phase: ScrollPhase) {
+        let isUserDrivenScroll = phase == .tracking
+            || phase == .interacting
+            || phase == .decelerating
+        handleLyricsScrollPhaseChange(isUserDrivenScroll: isUserDrivenScroll)
+    }
+
+    private func handleLyricsScrollPhaseChange(isUserDrivenScroll: Bool) {
+        guard NowPlayingPanelPage.lyrics.isActive(currentPage: currentPage) else { return }
+
+        if isUserDrivenScroll {
+            isManualLyricsScrollActive = true
+            manualLyricsScrollResetToken &+= 1
         }
     }
 
@@ -442,7 +502,7 @@ public struct LyricsCard: View {
     /// Lines close to the active line are sharp; distant lines blur progressively.
     /// Disabled for plain text lyrics and in Low Power Mode.
     private func lineBlurRadius(index: Int, isTimed: Bool) -> CGFloat {
-        guard isTimed, !isLowPowerMode else { return 0 }
+        guard isTimed, !isLowPowerMode, !isManualLyricsScrollActive else { return 0 }
 
         // Use active line index, fall back to scroll target during instrumental gaps
         let center = currentLyricsLineIndex
