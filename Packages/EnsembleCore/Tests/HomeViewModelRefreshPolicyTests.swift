@@ -105,7 +105,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         func saveHubs(_ hubs: [Hub]) async throws {}
         func deleteAllHubs() async throws {}
         func fetchLatestHomeFeedSnapshot(sourceScopeKey: String?) async throws -> HomeFeedCachedSnapshot? {
-            cachedSnapshot
+            return cachedSnapshot
         }
         func saveHomeFeedSnapshot(_ snapshot: HomeFeedCachedSnapshot) async throws {
             cachedSnapshot = snapshot
@@ -133,6 +133,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     private final class MockHomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         var cachedSnapshot: HomeHubSnapshot
         var networkSnapshot: HomeHubSnapshot?
+        var loadSnapshotHandler: ((Bool, String) async -> HomeHubSnapshot?)?
 
         init(
             cachedHubs: [Hub] = [],
@@ -152,11 +153,15 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         }
 
         func loadCachedSnapshot() async throws -> HomeHubSnapshot {
-            cachedSnapshot
+            return cachedSnapshot
         }
 
         func loadSnapshot(applySavedOrder: Bool, hubCount: String) async -> HomeHubSnapshot? {
-            networkSnapshot
+            if let loadSnapshotHandler {
+                return await loadSnapshotHandler(applySavedOrder, hubCount)
+            }
+
+            return networkSnapshot
         }
 
         func clearFailedHubKeys() {}
@@ -400,7 +405,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(loadCount, 0)
     }
 
-    func testAutomaticFeedLoadRunsWhenNetworkSnapshotIsStale() async {
+    func testFeedEntrySkipsExistingCachedContentEvenWhenNetworkSnapshotIsStale() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
@@ -413,7 +418,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
 
         await sut.loadHubsIfNeeded()
 
-        XCTAssertEqual(loadCount, 1)
+        XCTAssertEqual(loadCount, 0)
     }
 
     func testAutomaticFeedLoadSkipsFreshCachedSnapshotAfterViewModelRecreation() async {
@@ -435,6 +440,52 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         await sut.loadHubsIfNeeded()
 
         XCTAssertEqual(loadCount, 0)
+    }
+
+    func testFeedEntrySkipsExistingCachedContentWithoutNetworkTimestamp() async {
+        let sut = makeViewModel()
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.seedHubsForTesting([makeHub()])
+        var loadCount = 0
+        sut.loadHubsRunnerForTesting = { _ in
+            loadCount += 1
+        }
+
+        await sut.loadHubsIfNeeded()
+        await sut.loadHubsIfNeeded()
+
+        XCTAssertEqual(loadCount, 0)
+    }
+
+    func testHiddenNetworkRefreshDoesNotReplaceVisibleFeedContent() async {
+        let cachedHub = makeHub(id: "cached-hub")
+        let networkHub = makeHub(id: "network-hub")
+        let loader = MockHomeHubLoader(cachedHubs: [cachedHub], networkHubs: [networkHub])
+        let (sut, _) = makeViewModel(hubLoader: loader)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.seedHubsForTesting([cachedHub])
+        sut.handleViewVisibilityChange(isVisible: true)
+
+        let loadStarted = expectation(description: "network load started")
+        let allowCompletion = expectation(description: "allow network load completion")
+        loader.loadSnapshotHandler = { [self] _, _ in
+            loadStarted.fulfill()
+            await self.fulfillment(of: [allowCompletion], timeout: 1.0)
+            return loader.networkSnapshot
+        }
+
+        let loadTask = Task {
+            await sut.loadHubs()
+        }
+
+        await fulfillment(of: [loadStarted], timeout: 1.0)
+        sut.handleViewVisibilityChange(isVisible: false)
+        allowCompletion.fulfill()
+        await loadTask.value
+
+        XCTAssertEqual(sut.hubs.map(\.id), [cachedHub.id])
     }
 
     func testPeriodicRefreshDoesNotRunWhenViewHidden() async {

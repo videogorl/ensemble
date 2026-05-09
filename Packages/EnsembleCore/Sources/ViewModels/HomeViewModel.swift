@@ -35,6 +35,7 @@ public final class HomeViewModel: ObservableObject {
     private let playlistRepository: PlaylistRepositoryProtocol
     private var cancellables = Set<AnyCancellable>()
     private var refreshTriggerCancellables = Set<AnyCancellable>()
+    private var cachedSnapshotRestoreTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
     private var lastLoadTime: Date?
     private var currentSourceKey: String?
@@ -52,6 +53,7 @@ public final class HomeViewModel: ObservableObject {
     // Tracks when the last network hub fetch completed, so Feed can render
     // cached content on navigation without reloading until the refresh window.
     private var lastNetworkHubFetchTime: Date?
+    private var lastAutomaticHubRefreshAttemptTime: Date?
 
     // Automatic Feed refresh cadence. Manual pull-to-refresh bypasses this.
     private var hubRefreshTimer: Timer?
@@ -100,32 +102,9 @@ public final class HomeViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$isRestoringCloudSources)
         
-        // Load cached hubs immediately for offline-first experience
-        Task { @MainActor in
-            do {
-                let cachedSnapshot = try await hubLoader.loadCachedSnapshot()
-                self.currentSourceKey = cachedSnapshot.metadata.currentSourceKey
-                self.currentSourceName = cachedSnapshot.metadata.currentSourceName
-                self.lastFeedCacheRefreshDate = cachedSnapshot.metadata.cacheFetchedAt
-                let cacheIsStale = self.isCachedFeedStale(cachedSnapshot.metadata)
-                self.isFeedCacheStale = cacheIsStale
-                self.lastNetworkHubFetchTime = cacheIsStale ? nil : cachedSnapshot.metadata.cacheFetchedAt
-
-                if !cachedSnapshot.orderedHubs.isEmpty {
-                    self.rawHubSnapshot = cachedSnapshot.orderedHubs
-                    let availableHubs = await self.filterHubsForLocalAvailability(cachedSnapshot.orderedHubs)
-                    self.unfilteredHubs = availableHubs
-                    self.hubs = Self.filterHubsForVisibility(
-                        availableHubs,
-                        hiddenSourceCompositeKeys: self.visibilityStore.hiddenSourceCompositeKeys
-                    )
-                    EnsembleStartupTiming.logTTFMP(milestone: "Cached hubs visible (\(self.hubs.count) hubs)")
-                } else {
-                    self.clearHubContentForUnavailableSources()
-                }
-            } catch {
-                EnsembleLogger.debug("[HomeViewModel] Failed to load cached hubs: \(error.localizedDescription)")
-            }
+        // Load cached hubs immediately for offline-first experience.
+        cachedSnapshotRestoreTask = Task { @MainActor [weak self] in
+            await self?.restoreCachedHubs()
         }
         
         self.visibilityStore.$profiles
@@ -163,11 +142,20 @@ public final class HomeViewModel: ObservableObject {
             return
         }
 
+        await cachedSnapshotRestoreTask?.value
+
+        guard hubs.isEmpty else {
+            initialLoadCompleted = true
+            EnsembleLogger.debug("🏠 Feed automatic load skipped detail=cachedContent")
+            return
+        }
+
         guard shouldRefreshHubsForAutomaticLoad else {
             EnsembleLogger.debug("🏠 Feed automatic load skipped detail=fresh")
             return
         }
 
+        lastAutomaticHubRefreshAttemptTime = Date()
         await loadHubs(applySavedOrder: applySavedOrder)
     }
 
@@ -234,7 +222,11 @@ public final class HomeViewModel: ObservableObject {
 
             currentSourceKey = snapshot.metadata.currentSourceKey
             currentSourceName = snapshot.metadata.currentSourceName
-            await applyHubSnapshot(snapshot.orderedHubs, source: "network")
+            if isViewVisible || hubs.isEmpty {
+                await applyHubSnapshot(snapshot.orderedHubs, source: "network")
+            } else {
+                EnsembleLogger.debug("🏠 Feed preserving visible hubs after hidden network refresh")
+            }
 
             isLoading = false
             initialLoadCompleted = true
@@ -283,6 +275,36 @@ public final class HomeViewModel: ObservableObject {
         EnsembleLogger.debug(
             "🏠 Initial Feed network fetch unblocked reason=\(reason) elapsed=\(String(format: "%.1f", elapsed))s"
         )
+    }
+
+    private func restoreCachedHubs() async {
+        do {
+            let cachedSnapshot = try await hubLoader.loadCachedSnapshot()
+            currentSourceKey = cachedSnapshot.metadata.currentSourceKey
+            currentSourceName = cachedSnapshot.metadata.currentSourceName
+            lastFeedCacheRefreshDate = cachedSnapshot.metadata.cacheFetchedAt
+            let cacheIsStale = isCachedFeedStale(cachedSnapshot.metadata)
+            isFeedCacheStale = cacheIsStale
+            lastNetworkHubFetchTime = cacheIsStale ? nil : cachedSnapshot.metadata.cacheFetchedAt
+
+            if !cachedSnapshot.orderedHubs.isEmpty {
+                rawHubSnapshot = cachedSnapshot.orderedHubs
+                let availableHubs = await filterHubsForLocalAvailability(cachedSnapshot.orderedHubs)
+                unfilteredHubs = availableHubs
+                hubs = Self.filterHubsForVisibility(
+                    availableHubs,
+                    hiddenSourceCompositeKeys: visibilityStore.hiddenSourceCompositeKeys
+                )
+                if lastNetworkHubFetchTime == nil {
+                    lastAutomaticHubRefreshAttemptTime = Date()
+                }
+                EnsembleStartupTiming.logTTFMP(milestone: "Cached hubs visible (\(hubs.count) hubs)")
+            } else {
+                clearHubContentForUnavailableSources()
+            }
+        } catch {
+            EnsembleLogger.debug("[HomeViewModel] Failed to load cached hubs: \(error.localizedDescription)")
+        }
     }
     
     /// Refresh hubs (clears debounce to force immediate reload)
@@ -366,6 +388,7 @@ public final class HomeViewModel: ObservableObject {
         }
 
         EnsembleLogger.debug("🏠 Home auto-refresh executing reason=\(reason.rawValue)")
+        lastAutomaticHubRefreshAttemptTime = Date()
         await loadHubs()
     }
 
@@ -434,8 +457,11 @@ public final class HomeViewModel: ObservableObject {
 
     private var shouldRefreshHubsForAutomaticLoad: Bool {
         guard !hubs.isEmpty else { return true }
-        guard let lastFetch = lastNetworkHubFetchTime else { return true }
-        return Date().timeIntervalSince(lastFetch) >= hubRefreshInterval
+        let lastAutomaticRefresh = [lastNetworkHubFetchTime, lastAutomaticHubRefreshAttemptTime]
+            .compactMap { $0 }
+            .max()
+        guard let lastAutomaticRefresh else { return true }
+        return Date().timeIntervalSince(lastAutomaticRefresh) >= hubRefreshInterval
     }
 
     private func startRefreshTriggerObservation() {
@@ -720,6 +746,7 @@ public final class HomeViewModel: ObservableObject {
         isFeedCacheStale = false
         lastFeedCacheRefreshDate = nil
         lastNetworkHubFetchTime = nil
+        lastAutomaticHubRefreshAttemptTime = nil
         rawHubSnapshot = []
         unfilteredHubs = []
         hubs = []
