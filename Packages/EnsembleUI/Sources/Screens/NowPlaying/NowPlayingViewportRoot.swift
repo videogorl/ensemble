@@ -1,7 +1,7 @@
 import EnsembleCore
 import SwiftUI
 
-/// Dedicated large-screen Now Playing presentation surface used by macOS and iPadOS.
+/// Dedicated large-screen Now Playing presentation surface used by macOS.
 /// This owns the viewport layout while leaving window chrome to the root scene.
 struct NowPlayingViewportRoot: View {
     private enum LayoutMode {
@@ -16,11 +16,7 @@ struct NowPlayingViewportRoot: View {
 
     private let dismissAction: () -> Void
     private var auroraActiveContentMaxWidth: CGFloat? {
-        #if os(iOS)
-        return nil
-        #else
         return EnsembleScaffold.NowPlaying.auroraActiveContentMaxWidth
-        #endif
     }
 
     init(
@@ -222,44 +218,17 @@ struct NowPlayingViewportRoot: View {
     private var contentMaxHeight: CGFloat { EnsembleScaffold.NowPlaying.viewportContentMaxHeight }
 
     private func topInset(for geometry: GeometryProxy) -> CGFloat {
-        #if os(macOS)
         return max(
             geometry.safeAreaInsets.top + EnsembleScaffold.NowPlaying.viewportMacTopSafeAreaPadding,
             EnsembleScaffold.NowPlaying.viewportMacMinimumTopInset
         )
-        #else
-        if #available(iOS 26.0, *) {
-            return max(
-                geometry.safeAreaInsets.top + EnsembleScaffold.NowPlaying.viewportModernTopSafeAreaPadding,
-                EnsembleScaffold.NowPlaying.viewportModernMinimumTopInset
-            )
-        }
-        return max(
-            geometry.safeAreaInsets.top + EnsembleScaffold.NowPlaying.viewportLegacyTopSafeAreaPadding,
-            EnsembleScaffold.NowPlaying.viewportLegacyMinimumTopInset
-        )
-        #endif
     }
 
     private func leadingSystemChromeInset(for geometry: GeometryProxy) -> CGFloat {
-        #if os(macOS)
         return max(geometry.safeAreaInsets.leading + trafficLightClearance, trafficLightClearance)
-        #else
-        if #available(iOS 26.0, *) {
-            return max(geometry.safeAreaInsets.leading + trafficLightClearance, trafficLightClearance)
-        }
-        return EnsembleScaffold.NowPlaying.viewportLegacyChromeInset
-        #endif
     }
 
     private var trafficLightClearance: CGFloat {
-        #if os(macOS)
         return EnsembleScaffold.NowPlaying.viewportMacTrafficLightClearance
-        #else
-        if #available(iOS 26.0, *) {
-            return EnsembleScaffold.NowPlaying.viewportModernTrafficLightClearance
-        }
-        return EnsembleScaffold.NowPlaying.viewportLegacyChromeInset
-        #endif
     }
 }

@@ -19,8 +19,8 @@ public struct LyricsCard: View {
     @State private var currentLyricsLineIndex: Int?
     @State private var lyricsScrollTargetIndex: Int?
     @State private var instrumentalProgress: Double?
-    @State private var isManualLyricsScrollActive = false
-    @State private var manualLyricsScrollResetToken = 0
+    @State private var isUserDrivenLyricsScrollActive = false
+    @State private var lyricsScrollPhaseResetToken = 0
     @State private var lyricsRecenterRequestToken = 0
 
     public init(
@@ -62,16 +62,16 @@ public struct LyricsCard: View {
         }
         .onChange(of: currentPage) { newPage in
             guard NowPlayingPanelPage.lyrics.shouldRenderContent(currentPage: newPage) else {
-                isManualLyricsScrollActive = false
+                isUserDrivenLyricsScrollActive = false
                 return
             }
             syncLyricsSnapshot()
         }
-        .task(id: manualLyricsScrollResetToken) {
-            guard isManualLyricsScrollActive else { return }
+        .task(id: lyricsScrollPhaseResetToken) {
+            guard isUserDrivenLyricsScrollActive else { return }
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             guard !Task.isCancelled else { return }
-            isManualLyricsScrollActive = false
+            isUserDrivenLyricsScrollActive = false
             lyricsRecenterRequestToken &+= 1
         }
         .onReceive(viewModel.currentLyricsLineIndexPublisher) { index in
@@ -375,8 +375,8 @@ public struct LyricsCard: View {
         guard NowPlayingPanelPage.lyrics.isActive(currentPage: currentPage) else { return }
 
         if isUserDrivenScroll {
-            isManualLyricsScrollActive = true
-            manualLyricsScrollResetToken &+= 1
+            isUserDrivenLyricsScrollActive = true
+            lyricsScrollPhaseResetToken &+= 1
         }
     }
 
@@ -500,9 +500,9 @@ public struct LyricsCard: View {
 
     /// Progressive blur based on distance from the active line (which is centered in viewport).
     /// Lines close to the active line are sharp; distant lines blur progressively.
-    /// Disabled when native scroll-phase observation is unavailable so manual scrolling stays readable.
+    /// Disabled when native scroll-phase observation is unavailable so user scrolling stays readable.
     private func lineBlurRadius(index: Int, isTimed: Bool) -> CGFloat {
-        guard isTimed, supportsProgressiveLyricsBlur, !isLowPowerMode, !isManualLyricsScrollActive else { return 0 }
+        guard isTimed, supportsProgressiveLyricsBlur, !isLowPowerMode, !isUserDrivenLyricsScrollActive else { return 0 }
 
         // Use active line index, fall back to scroll target during instrumental gaps
         let center = currentLyricsLineIndex

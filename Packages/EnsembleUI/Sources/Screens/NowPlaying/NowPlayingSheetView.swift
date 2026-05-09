@@ -2,7 +2,7 @@ import EnsembleCore
 import SwiftUI
 
 /// Main sheet container for iPhone-style Now Playing presentation.
-/// Large-screen viewport presentation lives in `NowPlayingViewportRoot`.
+/// macOS viewport presentation lives in `NowPlayingViewportRoot`.
 public struct NowPlayingSheetView: View {
     let viewModel: NowPlayingViewModel
     @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
@@ -11,13 +11,11 @@ public struct NowPlayingSheetView: View {
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
-    @State private var dismissDragOffset: CGFloat = 0
     @State private var currentPage: Int
 
     private let namespace: Namespace.ID?
     private let animationID: String?
     private let dismissAction: (() -> Void)?
-    private let dismissThreshold: CGFloat = EnsembleScaffold.NowPlaying.dismissDragThreshold
     private var auroraActiveContentMaxWidth: CGFloat? {
         #if os(iOS)
         return nil
@@ -54,7 +52,6 @@ public struct NowPlayingSheetView: View {
                         .onTapGesture {
                             handleDismiss()
                         }
-                        .gesture(dismissDragGesture)
 
                     if usesWideNowPlayingLayout(for: geometry.size) {
                         wideLayout(for: geometry)
@@ -67,8 +64,6 @@ public struct NowPlayingSheetView: View {
         .onAppear {
             currentPage = viewModel.currentPage
         }
-        .offset(y: dismissDragOffset)
-        .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.86), value: dismissDragOffset)
     }
 
     private var currentPageBinding: Binding<Int> {
@@ -225,28 +220,7 @@ public struct NowPlayingSheetView: View {
         return max((available - EnsembleScaffold.NowPlaying.viewportInnerSpacing) / 2, 0)
     }
 
-    private var dismissDragGesture: some Gesture {
-        DragGesture(minimumDistance: 8)
-            .onChanged { value in
-                guard value.translation.height > 0 else {
-                    dismissDragOffset = 0
-                    return
-                }
-
-                // Keep dismissal responsive without letting the view lag too far behind the finger.
-                dismissDragOffset = value.translation.height * 0.72
-            }
-            .onEnded { value in
-                if value.translation.height > dismissThreshold || value.predictedEndTranslation.height > dismissThreshold {
-                    handleDismiss()
-                } else {
-                    dismissDragOffset = 0
-                }
-            }
-    }
-
     private func handleDismiss() {
-        dismissDragOffset = 0
         if let dismissAction {
             dismissAction()
         } else {
