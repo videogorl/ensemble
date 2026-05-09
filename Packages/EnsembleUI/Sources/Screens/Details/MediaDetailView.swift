@@ -194,6 +194,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             threshold: 0,
             showToolbarTitle: $showToolbarTitle
         )
+        .artworkDetailToolbarBleed()
         // Native track lists manage their own bottom inset so rows can scroll
         // behind the floating mini player without shrinking the table host.
         .trackListRuntimeObservation(
@@ -685,9 +686,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     /// Base content without filter UI — shared between filtered and unfiltered modes.
-    /// On iOS, uses a single self-scrolling MediaTrackList (UITableView) with the header
-    /// embedded as the table's `tableHeaderView`. This lets the album art and action buttons
-    /// scroll naturally with the track list while preserving UIKit cell recycling.
+    /// iOS embeds the header in `MediaTrackList`; macOS embeds the same header in
+    /// `NativeTrackListHost`. The detail root owns toolbar/titlebar bleed so the
+    /// artwork wash behaves consistently with Artist detail.
     private var baseContent: some View {
         MediaDetailSurface(artworkImage: artworkImage) {
             #if os(iOS)
@@ -703,6 +704,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 Spacer(minLength: EnsembleDesign.Spacing.none)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .ignoresSafeArea(edges: .top)
             #endif
         }
         .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)

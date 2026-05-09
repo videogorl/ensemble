@@ -247,4 +247,37 @@ extension View {
             showToolbarBackground: showToolbarBackground
         ))
     }
+
+    /// Keeps artwork-backed detail washes visible behind platform toolbar chrome.
+    func artworkDetailToolbarBleed() -> some View {
+        modifier(ArtworkDetailToolbarBleedModifier())
+    }
+}
+
+private struct ArtworkDetailToolbarBleedModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            if #available(iOS 16.0, *) {
+                content
+                    .toolbarBackground(.hidden, for: .navigationBar)
+            } else {
+                content
+                    .background(NavigationBarAppearanceConfigurator(isTransparent: true))
+            }
+        } else {
+            content
+        }
+        #elseif os(macOS)
+        if #available(macOS 13.0, *) {
+            content
+                .toolbarBackground(.hidden, for: .windowToolbar)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
 }

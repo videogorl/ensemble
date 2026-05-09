@@ -482,7 +482,7 @@ public struct ArtistDetailView: View {
             }
             #endif
         }
-        .modifier(ArtistDetailToolbarBleedModifier())
+        .artworkDetailToolbarBleed()
         .miniPlayerBottomSpacing()
         .onPreferenceChange(ArtistHeroToolbarBackgroundPreferenceKey.self) { shouldShowBackground in
             if shouldShowBackground != showToolbarBackground {
@@ -1119,34 +1119,5 @@ public struct ArtistDetailView: View {
 
     private func recentPlaylistTitle(for track: Track) -> String? {
         PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
-    }
-}
-
-/// Keeps the large-screen artist wash visible behind platform toolbar chrome.
-private struct ArtistDetailToolbarBleedModifier: ViewModifier {
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            if #available(iOS 16.0, *) {
-                content
-                    .toolbarBackground(.hidden, for: .navigationBar)
-            } else {
-                content
-                    .background(NavigationBarAppearanceConfigurator(isTransparent: true))
-            }
-        } else {
-            content
-        }
-        #elseif os(macOS)
-        if #available(macOS 13.0, *) {
-            content
-                .toolbarBackground(.hidden, for: .windowToolbar)
-        } else {
-            content
-        }
-        #else
-        content
-        #endif
     }
 }

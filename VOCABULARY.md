@@ -322,6 +322,8 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Track list | list | Ordered list of album tracks | `MediaDetailView` |
 | Disc grouping | region | Tracks grouped by disc number for multi-disc albums | `groupByDisc: true` |
 | Track number | text | Track position within album/disc | `showTrackNumbers: true` |
+| More by artist albums | region | Related albums by the same artist; horizontal shelf on iOS and adaptive non-scrolling grid on macOS detail footers | `moreByArtistSection`, `albumCardCollection` |
+| Related albums | region | Plex related/similar albums; horizontal shelf on iOS and adaptive non-scrolling grid on macOS detail footers | `similarAlbumsSection`, `albumCardCollection` |
 | Pin menu | menu | Actions menu with pin/unpin and queue options | (needs confirmation) |
 | Play next action | action | Add album tracks to front of queue | `onPlayNext` |
 | Play last action | action | Add album tracks to end of queue | `onPlayLast` |
@@ -336,21 +338,21 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 - **Platform:** iOS, iPadOS, macOS
 - **Definition status:** Draft
 
-Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterized by `MediaDetailViewModelProtocol`.
+Generic detail view used by Album, Playlist, merged playlist, and similar media-backed detail screens. Parameterized by `MediaDetailViewModelProtocol`.
 
 ### Elements
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Header | region | Artwork, title, subtitle, metadata line | `headerView`, `MediaHeaderData` |
+| Header | region | Artwork, title, subtitle, metadata line | `tableHeaderForTrackList`, `MediaHeaderData` |
 | Collapsing toolbar title | control | Title appears in toolbar when header scrolls out of view | `CollapsingToolbarTitleModifier`, `showToolbarTitle` |
-| Sticky action buttons | region | Play/Shuffle/Radio buttons that pin when scrolled past | `stickyActionButtons`, `LazyVStack(pinnedViews:)` |
+| Toolbar bleed | behavior | Artwork-backed detail wash continues behind native toolbar/titlebar chrome | `artworkDetailToolbarBleed()` |
 | Action buttons | region | Play, Shuffle, and optional Radio buttons | `actionButtons` |
 | Detail action label | component | Shared filled/secondary Play and Shuffle button label treatment | `MediaDetailSurface.ActionLabel` |
 | Detail symbol artwork | component | Shared virtual-collection artwork surface for Favorites, moods, and similar non-album headers | `MediaDetailSurface.SymbolArtwork` |
 | Detail surface policy | policy | Semantic metrics for media-style detail headers, artwork shadows, action labels, and list cards | `EnsembleScaffold.DetailSurface` |
-| Track list | list | Ordered track list (UIKit-backed on iOS for swipe actions) | `tracksSection`, `MediaTrackList` |
-| Background gradient | region | Blurred artwork background fading to content | `backgroundGradient`, `BlurredArtworkBackground` |
+| Track list | list | Ordered track list (UIKit-backed on iOS, AppKit-backed on macOS for native row actions) | `tracksSection`, `MediaTrackList`, `NativeTrackListHost` |
+| Background wash | region | Blurred artwork background fading to content | `ArtworkDetailBackground`, `MediaDetailSurface` |
 | Pin menu | menu | Toolbar overflow with pin/unpin, download, playlist actions | `pinMenuButton` |
 
 ---

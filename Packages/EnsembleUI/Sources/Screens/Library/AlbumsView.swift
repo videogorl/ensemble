@@ -602,47 +602,68 @@ public struct AlbumDetailView: View {
 
     // MARK: - More by Artist / Similar Albums
 
-    /// Horizontal album card scroll — needs explicit height because LazyHStack
-    /// inside a horizontal ScrollView doesn't report intrinsic height to
-    /// UIHostingController's systemLayoutSizeFitting (used for table footer sizing).
-    private func albumCardScroll(albums: [Album]) -> some View {
+    /// Related album cards in the album-detail footer.
+    ///
+    /// iOS keeps the horizontal shelf because the UIKit table footer needs a
+    /// deterministic height. macOS uses an adaptive grid so AppKit's native
+    /// detail table remains the only scroll view in the footer path.
+    @ViewBuilder
+    private func albumCardCollection(albums: [Album]) -> some View {
+        #if os(macOS)
+        LazyVGrid(
+            columns: AlbumCardLayoutMetrics.shelf.gridColumns,
+            alignment: .leading,
+            spacing: AlbumCardLayoutMetrics.shelf.rowSpacing
+        ) {
+            ForEach(albums) { scrollAlbum in
+                albumCardLink(for: scrollAlbum)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        #else
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: EnsembleDesign.Spacing.lg) {
                 ForEach(albums) { scrollAlbum in
-                    if #available(iOS 16.0, macOS 13.0, *) {
-                        NavigationLink(
-                            value: NavigationCoordinator.Destination.album(
-                                id: scrollAlbum.id,
-                                sourceKey: scrollAlbum.sourceCompositeKey
-                            )
-                        ) {
-                            AlbumCard(album: scrollAlbum, layout: .shelf)
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        NavigationLink {
-                            AlbumDetailLoader(
-                                albumId: scrollAlbum.id,
-                                albumSourceKey: scrollAlbum.sourceCompositeKey,
-                                nowPlayingVM: nowPlayingVM
-                            )
-                        } label: {
-                            AlbumCard(album: scrollAlbum, layout: .shelf)
-                        }
-                        .buttonStyle(.plain)
-                    }
+                    albumCardLink(for: scrollAlbum)
                 }
             }
         }
         // Fixed height keeps horizontal album shelves from collapsing under the larger card size.
         .frame(height: AlbumCardLayoutMetrics.shelf.horizontalScrollHeight)
+        #endif
+    }
+
+    @ViewBuilder
+    private func albumCardLink(for scrollAlbum: Album) -> some View {
+        if #available(iOS 16.0, macOS 13.0, *) {
+            NavigationLink(
+                value: NavigationCoordinator.Destination.album(
+                    id: scrollAlbum.id,
+                    sourceKey: scrollAlbum.sourceCompositeKey
+                )
+            ) {
+                AlbumCard(album: scrollAlbum, layout: .shelf)
+            }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink {
+                AlbumDetailLoader(
+                    albumId: scrollAlbum.id,
+                    albumSourceKey: scrollAlbum.sourceCompositeKey,
+                    nowPlayingVM: nowPlayingVM
+                )
+            } label: {
+                AlbumCard(album: scrollAlbum, layout: .shelf)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     private var moreByArtistSection: some View {
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
             EnsembleContentSectionHeader("More by \(album.artistName ?? "Artist")")
 
-            albumCardScroll(albums: viewModel.relatedAlbums)
+            albumCardCollection(albums: viewModel.relatedAlbums)
         }
     }
 
@@ -650,7 +671,7 @@ public struct AlbumDetailView: View {
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
             EnsembleContentSectionHeader("Related Albums")
 
-            albumCardScroll(albums: viewModel.similarAlbums)
+            albumCardCollection(albums: viewModel.similarAlbums)
         }
     }
 }
