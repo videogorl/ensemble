@@ -16,12 +16,10 @@ public enum AppOrientationNotifications {
     public struct StageFlowRotationSupportChange: Sendable {
         public let token: UUID
         public let isEnabled: Bool
-        public let source: String
 
-        public init(token: UUID, isEnabled: Bool, source: String) {
+        public init(token: UUID, isEnabled: Bool) {
             self.token = token
             self.isEnabled = isEnabled
-            self.source = source
         }
     }
 

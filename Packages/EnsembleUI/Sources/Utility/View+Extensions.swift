@@ -110,9 +110,9 @@ public extension View {
 
     /// Enables/disables StageFlow landscape rotation support from the root shell.
     @ViewBuilder
-    func stageFlowRotationSupport(isEnabled: Bool, source: String = #fileID) -> some View {
+    func stageFlowRotationSupport(isEnabled: Bool) -> some View {
         #if os(iOS)
-        self.modifier(StageFlowRotationSupportModifier(isEnabled: isEnabled, source: source))
+        self.modifier(StageFlowRotationSupportModifier(isEnabled: isEnabled))
         #else
         self
         #endif
@@ -202,7 +202,6 @@ public extension View {
 #if os(iOS)
 private struct StageFlowRotationSupportModifier: ViewModifier {
     let isEnabled: Bool
-    let source: String
     @State private var token = UUID()
     @State private var isRegistered = false
 
@@ -223,15 +222,11 @@ private struct StageFlowRotationSupportModifier: ViewModifier {
         guard isRegistered != isEnabled else { return }
 
         isRegistered = isEnabled
-        EnsembleLogger.debug(
-            "📐 StageFlow rotation \(isEnabled ? "register" : "unregister") source=\(source) token=\(token.uuidString)"
-        )
         NotificationCenter.default.post(
             name: AppOrientationNotifications.stageFlowRotationSupportChanged,
             object: AppOrientationNotifications.StageFlowRotationSupportChange(
                 token: token,
-                isEnabled: isEnabled,
-                source: source
+                isEnabled: isEnabled
             )
         )
     }
