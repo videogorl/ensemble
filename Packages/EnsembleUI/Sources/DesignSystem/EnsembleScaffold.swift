@@ -305,7 +305,9 @@ public enum EnsembleScaffold {
 
     public enum FilterPresentation {
         public enum Style: Equatable {
+            #if os(iOS)
             case toolbarPopover
+            #endif
             case sheet
         }
 
@@ -320,7 +322,7 @@ public enum EnsembleScaffold {
         #else
         /// Default filter presentation policy for macOS library browse screens.
         public static func preferredStyle() -> Style {
-            .toolbarPopover
+            .sheet
         }
         #endif
     }
@@ -982,8 +984,8 @@ public extension View {
     }
 }
 
-/// Presents filter UI using the shared platform policy: compact screens keep sheets, while
-/// regular-width modern iPadOS and macOS use toolbar popovers.
+/// Presents filter UI using the shared platform policy: iPhone and macOS use
+/// sheets, while regular-width modern iPadOS can use a toolbar popover.
 public struct EnsembleFilterPresentationModifier<PresentedContent: View>: ViewModifier {
     @Binding var isPresented: Bool
     @ViewBuilder let presentedContent: () -> PresentedContent
@@ -1014,10 +1016,6 @@ public struct EnsembleFilterPresentationModifier<PresentedContent: View>: ViewMo
         }
         #else
         switch EnsembleScaffold.FilterPresentation.preferredStyle() {
-        case .toolbarPopover:
-            content.popover(isPresented: $isPresented, arrowEdge: .top) {
-                presentedContent()
-            }
         case .sheet:
             content.sheet(isPresented: $isPresented) {
                 presentedContent()

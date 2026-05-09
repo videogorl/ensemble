@@ -214,7 +214,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Token groups cover spacing, radius, typography, color, icons, breakpoints, effects, and semantic material roles.
 - Keep specialized existing helpers where they encode behavior, such as `TrackListLayoutMetrics` for track rows and `ArtworkCornerRadius` for media artwork. These bridge into `EnsembleDesign` instead of being replaced by unrelated literals.
 - Use `EnsembleScaffold` for larger adaptive patterns, such as OS-aware filter presentation and shared empty/loading/error states.
-- Filter presenters should use `.ensembleFilterPresentation(...)` instead of raw `.sheet` when presenting `FilterSheet`, so compact iPhone stays sheet-based while regular-width modern iPadOS and macOS can use toolbar popovers.
+- Filter presenters should use `.ensembleFilterPresentation(...)` instead of raw `.sheet` when presenting `FilterSheet`, so iPhone and macOS stay sheet-based while regular-width modern iPadOS can use a toolbar popover.
 - Large-screen browse splits should use `LargeScreenBrowseSplitView` with `EnsembleScaffold.BrowseSplit.Configuration` presets instead of repeating raw pane width, breakpoint, and resize-handle values per screen.
 - Media-style detail screens should keep header/list/action/shadow metrics under `EnsembleScaffold.DetailSurface` and render through `MediaDetailSurface` helpers rather than inventing parallel detail surface constants.
 - Artist detail's custom square/circular adaptive header should keep its specialized thresholds, hero dimensions, section rhythm, and overlay strengths under `EnsembleScaffold.ArtistDetail`.
