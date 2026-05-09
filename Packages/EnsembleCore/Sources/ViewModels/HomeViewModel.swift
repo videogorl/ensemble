@@ -49,12 +49,11 @@ public final class HomeViewModel: ObservableObject {
     // auto-refresh should not fire additional loads until it completes.
     private var initialLoadCompleted = false
 
-    // Tracks when the last network hub fetch completed, so auto-refresh
-    // can skip redundant fetches if one just happened (10s guard)
+    // Tracks when the last network hub fetch completed, so Feed can render
+    // cached content on navigation without reloading until the refresh window.
     private var lastNetworkHubFetchTime: Date?
-    private let networkHubFetchCooldown: TimeInterval = 10.0
 
-    // Periodic hub refresh
+    // Automatic Feed refresh cadence. Manual pull-to-refresh bypasses this.
     private var hubRefreshTimer: Timer?
     private let hubRefreshInterval: TimeInterval = 10 * 60  // 10 minutes
     
@@ -152,6 +151,24 @@ public final class HomeViewModel: ObservableObject {
         refreshTriggerCancellables.removeAll()
     }
     
+    /// Load the Feed when the current app session has no fresh network snapshot.
+    /// Cached hubs are shown immediately from init; this only controls whether
+    /// entering Feed should revalidate them with Plex.
+    public func loadHubsIfNeeded(applySavedOrder: Bool = true) async {
+        updateSourceAvailability()
+        guard hasEnabledLibraries else {
+            clearHubContentForUnavailableSources()
+            return
+        }
+
+        guard shouldRefreshHubsForAutomaticLoad else {
+            EnsembleLogger.debug("🏠 Feed automatic load skipped detail=fresh")
+            return
+        }
+
+        await loadHubs(applySavedOrder: applySavedOrder)
+    }
+
     /// Load hubs from all configured accounts with debouncing and offline-first caching
     public func loadHubs(applySavedOrder: Bool = true) async {
         updateSourceAvailability()
@@ -310,13 +327,9 @@ public final class HomeViewModel: ObservableObject {
             return
         }
 
-        // Skip if we recently completed a network hub fetch (prevents
-        // duplicate fetches when sync-completed fires shortly after a load)
-        if reason != .accountChange,
-           let lastFetch = lastNetworkHubFetchTime,
-           Date().timeIntervalSince(lastFetch) < networkHubFetchCooldown {
+        if reason != .accountChange, !shouldRefreshHubsForAutomaticLoad {
             EnsembleLogger.debug(
-                "🏠 Home auto-refresh skipped reason=\(reason.rawValue) detail=cooldown elapsed=\(String(format: "%.1f", Date().timeIntervalSince(lastFetch)))"
+                "🏠 Home auto-refresh skipped reason=\(reason.rawValue) detail=fresh"
             )
             return
         }
@@ -411,6 +424,16 @@ public final class HomeViewModel: ObservableObject {
         rawHubSnapshot = hubs
         unfilteredHubs = hubs
         self.hubs = hubs
+    }
+
+    internal func seedLastNetworkHubFetchTimeForTesting(_ date: Date?) {
+        lastNetworkHubFetchTime = date
+    }
+
+    private var shouldRefreshHubsForAutomaticLoad: Bool {
+        guard !hubs.isEmpty else { return true }
+        guard let lastFetch = lastNetworkHubFetchTime else { return true }
+        return Date().timeIntervalSince(lastFetch) >= hubRefreshInterval
     }
 
     private func startRefreshTriggerObservation() {

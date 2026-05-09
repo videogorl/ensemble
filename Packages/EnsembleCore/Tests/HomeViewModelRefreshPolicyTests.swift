@@ -365,6 +365,38 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(applySavedOrderFlags, [true])
     }
 
+    func testAutomaticFeedLoadSkipsRecentNetworkSnapshot() async {
+        let sut = makeViewModel()
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.seedHubsForTesting([makeHub()])
+        sut.seedLastNetworkHubFetchTimeForTesting(Date())
+        var loadCount = 0
+        sut.loadHubsRunnerForTesting = { _ in
+            loadCount += 1
+        }
+
+        await sut.loadHubsIfNeeded()
+
+        XCTAssertEqual(loadCount, 0)
+    }
+
+    func testAutomaticFeedLoadRunsWhenNetworkSnapshotIsStale() async {
+        let sut = makeViewModel()
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.seedHubsForTesting([makeHub()])
+        sut.seedLastNetworkHubFetchTimeForTesting(Date(timeIntervalSinceNow: -(10 * 60 + 1)))
+        var loadCount = 0
+        sut.loadHubsRunnerForTesting = { _ in
+            loadCount += 1
+        }
+
+        await sut.loadHubsIfNeeded()
+
+        XCTAssertEqual(loadCount, 1)
+    }
+
     func testPeriodicRefreshDoesNotRunWhenViewHidden() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)

@@ -60,7 +60,7 @@ public struct HomeView: View {
             if syncing != isSyncing { isSyncing = syncing }
         }
         .task {
-            await viewModel.loadHubs()
+            await viewModel.loadHubsIfNeeded()
         }
         .task(id: profileBackgroundReloadKey) {
             loadProfileBackgroundImage()

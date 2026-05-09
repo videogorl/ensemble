@@ -140,6 +140,7 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - Search song results and virtual collection/detail track lists such as Favorites, Mood, and Artist Favorited Tracks should use the same native track-list backends (`MediaTrackList` on iOS/iPadOS and `SongsTrackListHost`/AppKit table host on macOS) instead of reintroducing `TrackListView` or hand-built compact track rows, so wide metadata columns, context menus, and native row actions stay aligned.
 - Do not reintroduce the deleted `TrackRow`/`TrackSwipeContainer` stack for compact iPhone lists. Compact Songs should keep its current `MediaTrackList` path with genre chips, native row swipe actions, and existing mini-player spacing.
 - Refreshable root screens should also attach `.refreshCommand { ... }` so macOS View > Refresh invokes the focused screen's same async refresh action.
+- Feed uses a stale-while-revalidate cadence: show cached hubs immediately, fetch once per app session/when the last network snapshot is at least 10 minutes old, and let manual pull-to-refresh bypass the cadence. Do not call `loadHubs()` unconditionally from `HomeView.task`.
 
 ### Aurora Surfaces
 - `AuroraVisualizationView` should use the shared `MetalAuroraSurface` renderer when Metal is available, with the Canvas path kept as the compatibility fallback.
