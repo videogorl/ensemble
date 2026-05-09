@@ -105,14 +105,9 @@ public struct MainTabView: View {
 
     public var body: some View {
         GeometryReader { geometry in
-            // Keep mini-player spacing aligned with the active tab bar style.
-            let miniPlayerBottomLift: CGFloat = {
-                if #available(iOS 18.0, *) {
-                    return TrackListLayoutMetrics.miniPlayerBottomLiftBase
-                } else {
-                    return TrackListLayoutMetrics.miniPlayerBottomLiftBase + geometry.safeAreaInsets.bottom
-                }
-            }()
+            // The registered root chrome frame already reflects the platform's
+            // tab bar and safe-area geometry, including the iOS 15 inset bridge.
+            let miniPlayerBottomLift = TrackListLayoutMetrics.miniPlayerBottomLiftBase
             let rootStageFlowActive = isStageFlowActive(for: geometry.size)
             let rootChromeSuppressed = rootStageFlowActive
 
