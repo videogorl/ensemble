@@ -29,6 +29,7 @@ On iPad and AirPlay external display, the layout switches to a shared **side-by-
 | Background gradient | region | Vibrant blurred artwork background with legibility overlay (30% dark, 50% light) | `backgroundView`, `BlurredArtworkBackground` |
 | Dismiss pill | control | Capsule-shaped indicator at top for vertical swipe dismissal | `dismissPill` |
 | Horizontal carousel | region | TabView-based page navigation between Lyrics/Controls/Queue | `NowPlayingCarousel` |
+| Detail panel | region | Shared Queue/Lyrics/Info panel renderer for wide Now Playing surfaces | `NowPlayingDetailPanel` |
 | Wide panel layout | region | Shared iPad/AirPlay two-column layout with Controls on the left and selected detail panel on the right | `NowPlayingWidePanelLayout` |
 | Page indicator | indicator | Three-dot indicator showing current page (left/center/right icons) | `PageIndicator` |
 

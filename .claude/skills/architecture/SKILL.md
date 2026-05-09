@@ -594,10 +594,11 @@ Non-interactive Now Playing UI shown on an external display when the user activa
 
 - `ExternalDisplaySceneDelegate` (app target) handles the `UIWindowSceneSessionRoleExternalDisplayNonInteractive` scene lifecycle — creates a `UIWindow` with a `UIHostingController` hosting the SwiftUI view
 - `ExternalDisplayNowPlayingView` (EnsembleUI) is the TV-adapted shell around `NowPlayingWidePanelLayout` — it keeps the iPad two-column controls/detail layout in sync with the mirroring device while forcing dark TV background, 4:3 scaling, and the external-display Aurora consumer
+- `NowPlayingDetailPanel` owns the shared Queue/Lyrics/Info panel switch for iPad, AirPlay, and macOS viewport detail panels; macOS keeps only the compact single-panel Controls branch in `NowPlayingViewportRoot`
 - The external display observes the **same** `NowPlayingViewModel` instance as the main UI via `DependencyContainer.activeNowPlayingViewModel` — all state (playback, lyrics, queue, panel selection) stays in sync
 - `AppDelegate.configurationForConnecting` routes the external display role to `ExternalDisplaySceneDelegate`; Stage Manager extended desktop uses the `windowApplication` role and is unaffected
 - The Info.plist declares a `UIWindowSceneSessionRoleExternalDisplayNonInteractive` scene configuration
-- **Important:** When adding a new card/panel, add it to `NowPlayingCarousel`, `NowPlayingWidePanelLayout`, and `NowPlayingViewportRoot`. Do not add a separate AirPlay-only panel switch unless the external display needs truly different behavior.
+- **Important:** When adding a new card/panel, add it to `NowPlayingCarousel` and `NowPlayingDetailPanel`; only touch `NowPlayingViewportRoot` when compact macOS behavior changes. Do not add a separate AirPlay-only panel switch unless the external display needs truly different behavior.
 
 ## Subsystem: Pinned Content
 

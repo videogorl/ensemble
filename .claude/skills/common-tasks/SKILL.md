@@ -76,10 +76,10 @@ When adding or changing a StageFlow-capable browse screen:
 When adding a new card/panel to the Now Playing view, it must be added in the shared page surfaces:
 
 1. `NowPlayingCarousel.swift` — iPhone swipe carousel (TabView pages)
-2. `NowPlayingWidePanelLayout.swift` — iPad wide sheet and AirPlay external display two-column detail panel
-3. `NowPlayingViewportRoot.swift` — macOS viewport detail panel
+2. `NowPlayingDetailPanel.swift` — shared Queue/Lyrics/Info renderer used by iPad, AirPlay, and macOS detail panels
+3. `NowPlayingViewportRoot.swift` — macOS single-panel Controls branch only if the new panel changes compact viewport behavior
 
-Assign your new card a page index and add a case in each file's `detailPanel` / carousel body. `ExternalDisplayNowPlayingView` should stay a TV/dark/background shell around `NowPlayingWidePanelLayout`, not grow its own panel switch.
+Assign your new card a page index and add a case in the carousel body plus `NowPlayingDetailPanel`. `NowPlayingWidePanelLayout` should keep using the shared detail renderer, and `ExternalDisplayNowPlayingView` should stay a TV/dark/background shell around `NowPlayingWidePanelLayout`, not grow its own panel switch.
 
 ## Adding a New CoreData Entity
 

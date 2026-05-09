@@ -80,19 +80,12 @@ struct NowPlayingWidePanelLayout: View {
         )
     }
 
-    @ViewBuilder
     private var detailPanel: some View {
-        if currentPage == NowPlayingPanelPage.info.rawValue {
-            InfoCard(viewModel: viewModel, currentPage: $currentPage)
-        } else if currentPage == NowPlayingPanelPage.lyrics.rawValue {
-            LyricsCard(
-                viewModel: viewModel,
-                currentPage: $currentPage,
-                isLowPowerMode: powerStateMonitor.isLowPowerMode
-            )
-        } else {
-            QueueCard(viewModel: viewModel, currentPage: $currentPage)
-        }
+        NowPlayingDetailPanel(
+            viewModel: viewModel,
+            currentPage: $currentPage,
+            isLowPowerMode: powerStateMonitor.isLowPowerMode
+        )
     }
 
     private func panelWidth(for geometry: GeometryProxy) -> CGFloat {

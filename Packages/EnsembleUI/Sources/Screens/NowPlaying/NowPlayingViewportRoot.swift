@@ -154,41 +154,26 @@ struct NowPlayingViewportRoot: View {
         )
     }
 
-    @ViewBuilder
     private var detailPanel: some View {
-        if viewModel.currentPage == 3 {
-            InfoCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
-        } else if viewModel.currentPage == 2 {
-            LyricsCard(
-                viewModel: viewModel,
-                currentPage: $viewModel.currentPage,
-                isLowPowerMode: powerStateMonitor.isLowPowerMode,
-                showsTransportControls: false
-            )
-        } else {
-            QueueCard(
-                viewModel: viewModel,
-                currentPage: $viewModel.currentPage,
-                isAlwaysVisible: true
-            )
-        }
+        NowPlayingDetailPanel(
+            viewModel: viewModel,
+            currentPage: $viewModel.currentPage,
+            isLowPowerMode: powerStateMonitor.isLowPowerMode,
+            showsLyricsTransportControls: false,
+            keepsQueueAlwaysVisible: true
+        )
     }
 
     @ViewBuilder
     private var singlePanel: some View {
         if viewModel.currentPage == 1 {
             ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
-        } else if viewModel.currentPage == 3 {
-            InfoCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
-        } else if viewModel.currentPage == 2 {
-            LyricsCard(
+        } else {
+            NowPlayingDetailPanel(
                 viewModel: viewModel,
                 currentPage: $viewModel.currentPage,
-                isLowPowerMode: powerStateMonitor.isLowPowerMode,
-                showsTransportControls: true
+                isLowPowerMode: powerStateMonitor.isLowPowerMode
             )
-        } else {
-            QueueCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
         }
     }
 
