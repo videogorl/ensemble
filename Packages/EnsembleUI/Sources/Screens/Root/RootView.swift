@@ -521,27 +521,16 @@ private struct NowPlayingPresentationModifier: ViewModifier {
             ) {
                 rootView.nowPlayingPresentationContent
             }
-        } else if !rootView.supportsViewportNowPlayingPresentation {
+        } else {
             content.sheet(
                 isPresented: rootView.nowPlayingPresentationBinding,
                 onDismiss: rootView.completeNowPlayingDismissal
             ) {
                 rootView.nowPlayingPresentationContent
             }
-        } else {
-            content
         }
         #else
-        if !rootView.supportsViewportNowPlayingPresentation {
-            content.sheet(
-                isPresented: rootView.nowPlayingPresentationBinding,
-                onDismiss: rootView.completeNowPlayingDismissal
-            ) {
-                rootView.nowPlayingPresentationContent
-            }
-        } else {
-            content
-        }
+        content
         #endif
     }
 }
