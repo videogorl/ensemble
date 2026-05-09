@@ -500,9 +500,9 @@ public struct LyricsCard: View {
 
     /// Progressive blur based on distance from the active line (which is centered in viewport).
     /// Lines close to the active line are sharp; distant lines blur progressively.
-    /// Disabled for plain text lyrics and in Low Power Mode.
+    /// Disabled when native scroll-phase observation is unavailable so manual scrolling stays readable.
     private func lineBlurRadius(index: Int, isTimed: Bool) -> CGFloat {
-        guard isTimed, !isLowPowerMode, !isManualLyricsScrollActive else { return 0 }
+        guard isTimed, supportsProgressiveLyricsBlur, !isLowPowerMode, !isManualLyricsScrollActive else { return 0 }
 
         // Use active line index, fall back to scroll target during instrumental gaps
         let center = currentLyricsLineIndex
@@ -515,6 +515,13 @@ public struct LyricsCard: View {
             CGFloat(distance - EnsembleScaffold.NowPlaying.lyricBlurStartDistance) * EnsembleScaffold.NowPlaying.lyricBlurStep,
             EnsembleScaffold.NowPlaying.lyricMaxBlur
         )
+    }
+
+    private var supportsProgressiveLyricsBlur: Bool {
+        if #available(iOS 18.0, macOS 15.0, *) {
+            return true
+        }
+        return false
     }
 
     /// Whether a line is in the past (before the current active line)
