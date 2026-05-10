@@ -186,6 +186,7 @@ public struct HomeView: View {
             .padding(.vertical)
         }
         .miniPlayerBottomSpacing()
+        .feedScrollToolbarBleed()
     }
 
     private func loadProfileBackgroundImage() {
@@ -200,6 +201,24 @@ public struct HomeView: View {
         profileBackgroundImage = NSImage(contentsOf: url)
         #endif
     }
+}
+
+private extension View {
+    @ViewBuilder
+    func feedScrollToolbarBleed() -> some View {
+        #if os(macOS)
+        if #available(macOS 26.0, *) {
+            self
+                .ignoresSafeArea(.container, edges: .top)
+                .safeAreaPadding(.top, EnsembleScaffold.Discovery.macToolbarContentInset)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+
 }
 
 // MARK: - Hub Section

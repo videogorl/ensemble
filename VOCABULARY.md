@@ -348,7 +348,8 @@ Generic detail view used by Album, Playlist, merged playlist, and similar media-
 |--------------|------|-------------|---------------------|
 | Header | region | Artwork, title, subtitle, metadata line | `tableHeaderForTrackList`, `MediaHeaderData` |
 | Collapsing toolbar title | control | Title appears in toolbar when header scrolls out of view | `CollapsingToolbarTitleModifier`, `showToolbarTitle` |
-| Toolbar bleed | behavior | Artwork-backed root/detail wash and scrolling content continue behind native translucent toolbar chrome | `artworkBackedToolbarBleed()` |
+| Toolbar bleed | behavior | Artwork-backed root/detail wash extends into native translucent toolbar chrome, using macOS 26 background extension for Liquid Glass color sampling | `artworkBackedToolbarBleed()`, `backgroundExtensionEffect()` |
+| Feed toolbar bleed | behavior | macOS 26 Feed scroll content fills the top toolbar region while preserving a readable first-row inset | `feedScrollToolbarBleed()`, `EnsembleScaffold.Discovery.macToolbarContentInset` |
 | Action buttons | region | Play, Shuffle, and optional Radio buttons | `actionButtons` |
 | Detail action label | component | Shared filled/secondary Play and Shuffle button label treatment | `MediaDetailSurface.ActionLabel` |
 | Detail symbol artwork | component | Shared virtual-collection artwork surface for Favorites, moods, and similar non-album headers | `MediaDetailSurface.SymbolArtwork` |

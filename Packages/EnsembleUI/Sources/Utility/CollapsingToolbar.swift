@@ -270,9 +270,10 @@ private struct ArtworkBackedToolbarBleedModifier: ViewModifier {
             content
         }
         #elseif os(macOS)
-        if #available(macOS 13.0, *) {
+        if #available(macOS 26.0, *) {
             content
-                .toolbarBackground(.hidden, for: .windowToolbar)
+                .toolbarBackgroundVisibility(.automatic, for: .windowToolbar)
+                .scrollEdgeEffectStyle(.automatic, for: .top)
         } else {
             content
         }

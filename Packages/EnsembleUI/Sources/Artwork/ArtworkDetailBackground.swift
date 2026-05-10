@@ -53,6 +53,7 @@ struct ArtworkDetailBackground: View {
             )
         )
         .frame(height: height)
+        .artworkBackgroundExtensionEffect()
         .animation(
             .easeInOut(duration: EnsembleScaffold.DetailSurface.backgroundFadeDuration),
             value: backgroundImageIdentity
@@ -65,5 +66,20 @@ struct ArtworkDetailBackground: View {
 
     private var backgroundImageIdentity: ObjectIdentifier? {
         image.map(ObjectIdentifier.init)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func artworkBackgroundExtensionEffect() -> some View {
+        #if os(macOS)
+        if #available(macOS 26.0, *) {
+            self.backgroundExtensionEffect()
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
     }
 }
