@@ -164,7 +164,6 @@ public enum EnsembleScaffold {
         public static let recentSearchCornerRadius = EnsembleDesign.Radius.control
         public static let editControlTrailingPadding = EnsembleDesign.Spacing.xs
         public static let editingBadgeOffset = EnsembleDesign.Spacing.sm
-        public static let macToolbarContentInset: CGFloat = 44
     }
 
     public enum ArtistDetail {

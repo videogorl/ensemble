@@ -21,11 +21,11 @@ public struct HomeView: View {
     
     public var body: some View {
         ZStack(alignment: .top) {
-            if profileBackgroundImage != nil {
-                ArtworkDetailBackground(image: profileBackgroundImage, height: profileBackgroundHeight)
-                    .allowsHitTesting(false)
-                    .ignoresSafeArea()
-            }
+            // Mount the extension-backed background before profile artwork loads
+            // so macOS Liquid Glass keeps the same scroll-edge sampling path.
+            ArtworkDetailBackground(image: profileBackgroundImage, height: profileBackgroundHeight)
+                .allowsHitTesting(false)
+                .ignoresSafeArea()
 
             Group {
                 if viewModel.isLoading && viewModel.hubs.isEmpty {
@@ -186,7 +186,6 @@ public struct HomeView: View {
             .padding(.vertical)
         }
         .miniPlayerBottomSpacing()
-        .feedScrollToolbarBleed()
     }
 
     private func loadProfileBackgroundImage() {
@@ -201,24 +200,6 @@ public struct HomeView: View {
         profileBackgroundImage = NSImage(contentsOf: url)
         #endif
     }
-}
-
-private extension View {
-    @ViewBuilder
-    func feedScrollToolbarBleed() -> some View {
-        #if os(macOS)
-        if #available(macOS 26.0, *) {
-            self
-                .ignoresSafeArea(.container, edges: .top)
-                .safeAreaPadding(.top, EnsembleScaffold.Discovery.macToolbarContentInset)
-        } else {
-            self
-        }
-        #else
-        self
-        #endif
-    }
-
 }
 
 // MARK: - Hub Section
