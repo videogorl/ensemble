@@ -62,28 +62,6 @@ public struct MainTabView: View {
         isViewportNowPlayingPresented
     }
 
-    private var profileSheetBinding: Binding<Bool> {
-        Binding(
-            get: { navigationCoordinator.activeAuxiliaryPresentation == .profile },
-            set: { isPresented in
-                guard !isPresented,
-                      navigationCoordinator.activeAuxiliaryPresentation == .profile else { return }
-                navigationCoordinator.dismissAuxiliaryPresentation()
-            }
-        )
-    }
-
-    private var downloadsSheetBinding: Binding<Bool> {
-        Binding(
-            get: { navigationCoordinator.activeAuxiliaryPresentation == .downloads },
-            set: { isPresented in
-                guard !isPresented,
-                      navigationCoordinator.activeAuxiliaryPresentation == .downloads else { return }
-                navigationCoordinator.dismissAuxiliaryPresentation()
-            }
-        )
-    }
-
     private var selectedTabSupportsStageFlow: Bool {
         #if os(iOS)
         guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
@@ -174,31 +152,8 @@ public struct MainTabView: View {
             .onReceive(settingsManager.objectWillChange) { _ in
                 updateSettingsSnapshot()
             }
-            #if os(iOS)
-            .sheet(isPresented: profileSheetBinding, onDismiss: {
-                navigationCoordinator.dismissAuxiliaryPresentation()
-            }) {
-                ProfilePresentationContainer()
-                    .accentColor(accentColor.color)
-            }
-            .sheet(isPresented: downloadsSheetBinding, onDismiss: {
-                navigationCoordinator.dismissAuxiliaryPresentation()
-            }) {
-                DownloadsPresentationContainer()
-                    .accentColor(accentColor.color)
-            }
-            #endif
-            // Add account sheet presented at root level so it survives
-            // TabView content recreation on iOS 15 foreground transitions
-            .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
-                AddPlexAccountView()
-                #if os(macOS)
-                    .frame(
-                        width: EnsembleScaffold.AccountSetup.macMinimumWidth,
-                        height: EnsembleScaffold.AccountSetup.macMinimumHeight
-                    )
-                #endif
-            }
+            .auxiliaryPresentationSheets(accentColor: accentColor)
+            .addAccountPresentationSheet()
             rootView
                 .stageFlowRotationSupport(isEnabled: selectedTabSupportsStageFlow)
                 .background(
@@ -446,28 +401,6 @@ public struct SidebarView: View {
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
     @State private var accentColor: AppAccentColor = DependencyContainer.shared.settingsManager.accentColor
-
-    private var profileSheetBinding: Binding<Bool> {
-        Binding(
-            get: { navigationCoordinator.activeAuxiliaryPresentation == .profile },
-            set: { isPresented in
-                guard !isPresented,
-                      navigationCoordinator.activeAuxiliaryPresentation == .profile else { return }
-                navigationCoordinator.dismissAuxiliaryPresentation()
-            }
-        )
-    }
-
-    private var downloadsSheetBinding: Binding<Bool> {
-        Binding(
-            get: { navigationCoordinator.activeAuxiliaryPresentation == .downloads },
-            set: { isPresented in
-                guard !isPresented,
-                      navigationCoordinator.activeAuxiliaryPresentation == .downloads else { return }
-                navigationCoordinator.dismissAuxiliaryPresentation()
-            }
-        )
-    }
 
     // Cached sidebar playlist items driven by .onReceive — avoids computed property
     // re-evaluation issues on macOS where NavigationSplitView can swallow updates.
@@ -785,20 +718,7 @@ public struct SidebarView: View {
 
     public var body: some View {
         splitNavigationView
-        #if os(iOS)
-        .sheet(isPresented: profileSheetBinding, onDismiss: {
-            navigationCoordinator.dismissAuxiliaryPresentation()
-        }) {
-            ProfilePresentationContainer()
-                .accentColor(accentColor.color)
-        }
-        .sheet(isPresented: downloadsSheetBinding, onDismiss: {
-            navigationCoordinator.dismissAuxiliaryPresentation()
-        }) {
-            DownloadsPresentationContainer()
-                .accentColor(accentColor.color)
-        }
-        #endif
+        .auxiliaryPresentationSheets(accentColor: accentColor)
         .onReceive(settingsManager.objectWillChange) { _ in
             updateSettingsSnapshot()
         }
@@ -810,17 +730,7 @@ public struct SidebarView: View {
             navigationCoordinator.dismissAuxiliaryPresentation()
         }
         #endif
-        // Add account sheet presented at root level so it survives
-        // view content recreation on foreground transitions
-        .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
-            AddPlexAccountView()
-            #if os(macOS)
-                .frame(
-                    width: EnsembleScaffold.AccountSetup.macMinimumWidth,
-                    height: EnsembleScaffold.AccountSetup.macMinimumHeight
-                )
-            #endif
-        }
+        .addAccountPresentationSheet()
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .sheet(item: $playlistForEditSheet) { playlist in
             NavigationView {
