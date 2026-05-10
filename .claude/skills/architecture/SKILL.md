@@ -100,7 +100,7 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
   - `visibleTabs: [TabItem]` -- Synced from MainTabView to enable fallback logic
   - `navigateFromNowPlaying()` -- Falls back to first visible tab when navigating from Search
   - `pendingNavigation` -- Deferred navigation executed by `RootView` from the Now Playing presenter dismissal; tab/sidebar shells should not use timer-based handoffs
-  - `openSettings()` / `openDownloads()` -- Shared auxiliary presentation entry points for large-screen sidebar/actions
+  - `openProfile()` / `openDownloads()` -- Shared auxiliary presentation entry points for large-screen sidebar/actions
   - `activeAuxiliaryPresentation` / `auxiliaryWindowRequest` -- Root-level modal/window routing state; screens should request presentation through the coordinator instead of owning duplicated sheet state
   - On iPhone, `Profile` and `Downloads` are routed through `activeAuxiliaryPresentation` and presented as normal root sheets in `MainTabView`; avoid reintroducing broad full-screen auxiliary presenters unless simulator proof shows native sheets are unstable
 - `RootView` owns the scene/window-scoped `NavigationCoordinator` and `NowPlayingViewModel`, while playback services remain shared through `DependencyContainer`. This keeps multiple iPad/macOS windows on independent navigation paths without forking playback state.
@@ -737,7 +737,7 @@ User-editable profile (display name, profile image) with iCloud private database
 4. **ProfileView** (`EnsembleUI/Screens/AccountSettings`) -- Full profile screen that owns user profile and settings content directly.
 5. **ProfileHeaderView** (`EnsembleUI/Utility`) -- Circular profile image + display name header with photo picker integration.
 6. **ProfileToolbarButton** (`EnsembleUI/Utility`) -- 28x28pt circular profile image button rendered by `MainTabView` on iPhone root tab destinations and by the sidebar toolbar on iPad/macOS.
-7. **Navigation change:** `AuxiliaryPresentation.settings` renamed to `.profile`; `openSettings()` renamed to `openProfile()` (legacy alias kept for backward compatibility).
+7. **Navigation change:** the old settings auxiliary route was replaced by the profile route and `openProfile()`.
 8. **DependencyContainer** wires `UserProfileStore` and `CloudSyncService` as singleton services and triggers a foreground profile reconcile path on iOS/macOS activation so missed silent pushes self-heal quickly.
 
 - **Key types:** `UserProfile`, `UserProfileStore`, `CloudSyncService`

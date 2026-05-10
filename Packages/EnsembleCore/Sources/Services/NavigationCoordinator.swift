@@ -212,7 +212,7 @@ public final class NavigationCoordinator: ObservableObject {
         return true
     }
 
-    /// Open the profile sheet/window (replaces legacy openSettings)
+    /// Open the profile sheet/window.
     public func openProfile() {
         requestAuxiliaryPresentation(.profile)
     }
