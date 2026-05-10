@@ -1,6 +1,79 @@
 import EnsembleCore
 import SwiftUI
 
+/// Shared artwork/aurora backdrop for large Now Playing surfaces.
+struct NowPlayingBackdrop: View {
+    @ObservedObject var viewModel: NowPlayingViewModel
+    let consumer: VisualizationConsumer
+    let activeContentMaxWidth: CGFloat?
+    let forceDarkPresentation: Bool
+
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            baseBackgroundColor
+                .ignoresSafeArea()
+
+            BlurredArtworkBackground(
+                image: viewModel.artworkImage,
+                preBlurredImage: viewModel.blurredArtworkImage,
+                overlayColor: overlayColor
+            )
+            .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
+
+            readabilityOverlay
+                .allowsHitTesting(false)
+
+            if settingsManager.auroraVisualizationEnabled {
+                AuroraVisualizationView(
+                    playbackService: DependencyContainer.shared.playbackService,
+                    consumer: consumer,
+                    accentColor: settingsManager.accentColor.color,
+                    isLowPowerMode: powerStateMonitor.isLowPowerMode,
+                    activeContentMaxWidth: activeContentMaxWidth
+                )
+                .allowsHitTesting(false)
+                .opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity)
+            }
+        }
+        .ignoresSafeArea()
+    }
+
+    private var usesDarkPresentation: Bool {
+        forceDarkPresentation || colorScheme == .dark
+    }
+
+    private var baseBackgroundColor: Color {
+        usesDarkPresentation ? .black : platformBackgroundColor
+    }
+
+    private var overlayColor: Color {
+        usesDarkPresentation ? .black : platformBackgroundColor
+    }
+
+    @ViewBuilder
+    private var readabilityOverlay: some View {
+        if usesDarkPresentation {
+            Color.black.opacity(EnsembleScaffold.NowPlaying.backgroundDarkOverlayOpacity)
+        } else {
+            platformBackgroundColor.opacity(EnsembleScaffold.NowPlaying.backgroundLightOverlayOpacity)
+        }
+    }
+
+    private var platformBackgroundColor: Color {
+        #if os(iOS)
+        return Color(uiColor: .systemBackground)
+        #elseif os(macOS)
+        return Color(nsColor: .windowBackgroundColor)
+        #else
+        return .white
+        #endif
+    }
+}
+
 /// Dedicated large-screen Now Playing presentation surface used by macOS.
 /// This owns the viewport layout while leaving window chrome to the root scene.
 struct NowPlayingViewportRoot: View {
@@ -10,9 +83,7 @@ struct NowPlayingViewportRoot: View {
     }
 
     @ObservedObject var viewModel: NowPlayingViewModel
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
-    @Environment(\.colorScheme) private var colorScheme
 
     private let dismissAction: () -> Void
     private var auroraActiveContentMaxWidth: CGFloat? {
@@ -30,7 +101,12 @@ struct NowPlayingViewportRoot: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                backgroundView
+                NowPlayingBackdrop(
+                    viewModel: viewModel,
+                    consumer: .nowPlayingViewport,
+                    activeContentMaxWidth: auroraActiveContentMaxWidth,
+                    forceDarkPresentation: false
+                )
 
                 let mode = layoutMode(for: geometry)
                 VStack(spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
@@ -58,53 +134,6 @@ struct NowPlayingViewportRoot: View {
                 .padding(.bottom, EnsembleScaffold.NowPlaying.viewportContentPadding)
             }
         }
-    }
-
-    private var backgroundView: some View {
-        let lightOverlayColor: Color = {
-            #if os(iOS)
-            return Color(uiColor: .systemBackground)
-            #elseif os(macOS)
-            return Color(nsColor: .windowBackgroundColor)
-            #else
-            return .white
-            #endif
-        }()
-
-        let baseBackgroundColor = colorScheme == .dark ? Color.black : lightOverlayColor
-
-        return ZStack {
-            baseBackgroundColor
-                .ignoresSafeArea()
-
-            BlurredArtworkBackground(
-                image: viewModel.artworkImage,
-                preBlurredImage: viewModel.blurredArtworkImage,
-                overlayColor: colorScheme == .dark ? .black : lightOverlayColor
-            )
-            .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
-
-            if colorScheme == .dark {
-                Color.black.opacity(EnsembleScaffold.NowPlaying.backgroundDarkOverlayOpacity)
-                    .allowsHitTesting(false)
-            } else {
-                lightOverlayColor.opacity(EnsembleScaffold.NowPlaying.backgroundLightOverlayOpacity)
-                    .allowsHitTesting(false)
-            }
-
-            if settingsManager.auroraVisualizationEnabled {
-                AuroraVisualizationView(
-                    playbackService: DependencyContainer.shared.playbackService,
-                    consumer: .nowPlayingViewport,
-                    accentColor: settingsManager.accentColor.color,
-                    isLowPowerMode: powerStateMonitor.isLowPowerMode,
-                    activeContentMaxWidth: auroraActiveContentMaxWidth
-                )
-                .allowsHitTesting(false)
-                .opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity)
-            }
-        }
-        .ignoresSafeArea()
     }
 
     private func header(for geometry: GeometryProxy, mode: LayoutMode) -> some View {

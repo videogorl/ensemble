@@ -22,7 +22,6 @@ import SwiftUI
 /// QueueTableView rows) and images render at full resolution.
 public struct ExternalDisplayNowPlayingView: View {
     @ObservedObject var viewModel: NowPlayingViewModel
-    @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
 
     public init(viewModel: NowPlayingViewModel) {
@@ -44,7 +43,12 @@ public struct ExternalDisplayNowPlayingView: View {
 
             ZStack {
                 // Background fills the entire TV screen (edge-to-edge blur)
-                backgroundView(activeContentMaxWidth: container.width)
+                NowPlayingBackdrop(
+                    viewModel: viewModel,
+                    consumer: .externalDisplay,
+                    activeContentMaxWidth: container.width,
+                    forceDarkPresentation: true
+                )
 
                 // Content constrained to 4:3, laid out at iPad reference size
                 // then scaled up proportionally via scaleEffect.
@@ -63,36 +67,6 @@ public struct ExternalDisplayNowPlayingView: View {
         }
         .accentColor(settingsManager.accentColor.color)
         .preferredColorScheme(.dark)
-    }
-
-    // MARK: - Background
-
-    private func backgroundView(activeContentMaxWidth: CGFloat) -> some View {
-        ZStack {
-            BlurredArtworkBackground(
-                image: viewModel.artworkImage,
-                preBlurredImage: viewModel.blurredArtworkImage,
-                overlayColor: .black
-            )
-            .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
-
-            // Dark overlay for readability on TV
-            Color.black.opacity(EnsembleScaffold.NowPlaying.backgroundDarkOverlayOpacity)
-                .allowsHitTesting(false)
-
-            if settingsManager.auroraVisualizationEnabled {
-                AuroraVisualizationView(
-                    playbackService: DependencyContainer.shared.playbackService,
-                    consumer: .externalDisplay,
-                    accentColor: settingsManager.accentColor.color,
-                    isLowPowerMode: powerStateMonitor.isLowPowerMode,
-                    activeContentMaxWidth: activeContentMaxWidth
-                )
-                .allowsHitTesting(false)
-                .opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity)
-            }
-        }
-        .ignoresSafeArea()
     }
 
     // MARK: - Layout
