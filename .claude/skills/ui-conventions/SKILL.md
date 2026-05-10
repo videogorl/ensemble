@@ -98,17 +98,17 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - **Stay native:** Use SwiftUI's native `TabView` unless there's a compelling reason
 - **StageFlow chrome suppression:** `MainTabView` hides root chrome directly from active phone StageFlow landscape geometry. Do not reintroduce preference/notification bridges or delayed immersive-mode clear timers for this path.
 - **iOS 18+:** Uses `.sidebarAdaptable` tab view style when available
-- **Mini player offset:** MiniPlayer sits 56pt above tab bar on iPhone
+- **Mini player offset:** Root chrome registration owns MiniPlayer placement. Use `TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom:)` so modern iOS keeps the standard floating lift while iOS 15 derives the lift from the live tab/safe-area edge. Do not add per-screen mini-player offsets.
 
 ### CoverFlow + Rotation Policy
 - CoverFlow is **iPhone-only** (`UIDevice.current.userInterfaceIdiom == .phone`), even though iPad shares `os(iOS)`.
 - iPadOS and macOS always use their standard list/grid layouts for Songs, Albums, and Playlists. iPhone Songs, Albums, and Playlists can render StageFlow in landscape when their tab is active.
 - iOS orientation is portrait-locked by default and only unlocks landscape while `MainTabView` is on a StageFlow-capable tab.
-- `MainTabView` owns StageFlow activation, root tab-bar/mini-player suppression, and the single rotation-support token. Browse screens consume `EnvironmentValues.isStageFlowActive`; they may hide local navigation/search chrome for StageFlow, but must not add per-screen tab-bar hiding, `GeometryReader` rotation detection, or `stageFlowRotationSupport(...)` calls.
+- `MainTabView` owns StageFlow activation, root tab-bar/mini-player suppression, and the single rotation-support token. Browse screens consume `EnvironmentValues.isStageFlowActive`; they may hide local navigation/search chrome for StageFlow, but must not add per-screen tab-bar hiding, `GeometryReader` rotation detection, `UIScreen` height clamps, or `stageFlowRotationSupport(...)` calls.
 - Leaving a StageFlow-capable tab should unregister landscape support immediately. Do not add delayed orientation unregisters; unsupported tabs can otherwise remain briefly in landscape and lay out root chrome/mini-player in the wrong coordinate space.
 - Large mini-player layouts with waveform should expose Previous, Play/Pause, Next, and a row-style ellipsis menu. Compact mini-player layouts keep the simpler Play/Pause + Next controls. On iPadOS, use a plain popover anchored to the ellipsis so the mini-player remains visible behind the menu. On macOS, host the menu with an AppKit `NSButton`/`NSMenu` so the control does not show a pull-down chevron.
 - Mini-player swipe gestures should resolve immediately at gesture end, matching the native transport buttons. Do not add arbitrary timers to wait for swipe-out animations before previous/next playback changes.
-- External-display Now Playing should reuse `NowPlayingWidePanelLayout`, `NowPlayingDetailPanel`, and `NowPlayingBackdrop`; keep AirPlay-specific code limited to dark presentation, TV aspect-ratio scaling, and the external visualization consumer.
+- External-display, iPad sheet, and macOS viewport Now Playing should reuse `NowPlayingWidePanelLayout`, `NowPlayingDetailPanel`, and `NowPlayingBackdrop`; keep platform-specific code limited to presentation chrome such as dismissal, dark presentation, TV aspect-ratio scaling, and the visualization consumer.
 
 ### Large-Screen Browse Surfaces
 - Artists, Playlists, and Genres keep the app's root `NavigationSplitView` as a stable two-column sidebar/detail shell on iPadOS/macOS. Their browse list + selected detail split lives inside the detail host so switching sections does not recreate the app sidebar or reset its scroll state.

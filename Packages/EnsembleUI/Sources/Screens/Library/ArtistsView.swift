@@ -357,23 +357,6 @@ private struct ArtistHeroToolbarBackgroundPreferenceKey: PreferenceKey {
     }
 }
 
-private struct ArtistDetailScrollEdgeEffectModifier: ViewModifier {
-    let isHidden: Bool
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        #if os(iOS)
-        if #available(iOS 26.0, *) {
-            content.scrollEdgeEffectHidden(isHidden, for: .top)
-        } else {
-            content
-        }
-        #else
-        content
-        #endif
-    }
-}
-
 public struct ArtistDetailView: View {
     @StateObject private var viewModel: ArtistDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
@@ -417,7 +400,6 @@ public struct ArtistDetailView: View {
         ) {
             artistDetailScrollContent
         }
-        .modifier(ArtistDetailScrollEdgeEffectModifier(isHidden: !showToolbarBackground))
         .coordinateSpace(name: "artistDetailScroll")
         .collapsingToolbarTitle(
             viewModel.artist.name,
@@ -441,7 +423,7 @@ public struct ArtistDetailView: View {
             }
             #endif
         }
-        .artworkBackedToolbarBleed()
+        .artworkBackedToolbarBleed(hidesTopScrollEdgeEffect: !showToolbarBackground)
         .miniPlayerBottomSpacing()
         .onPreferenceChange(ArtistHeroToolbarBackgroundPreferenceKey.self) { shouldShowBackground in
             if shouldShowBackground != showToolbarBackground {

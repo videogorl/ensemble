@@ -540,7 +540,6 @@ public enum EnsembleScaffold {
         public static let inlineHorizontalPadding = EnsembleDesign.Spacing.md
         public static let floatingBottomPadding = EnsembleDesign.Spacing.chipVertical
         public static let inlineBottomPadding = EnsembleDesign.Spacing.xs
-        public static let containerBottomPadding: CGFloat = 70
         public static let verticalSwipeRubberBandFactor: CGFloat = 0.5
         public static let verticalOpenThreshold: CGFloat = 50
         public static let artworkDimension: CGFloat = 32

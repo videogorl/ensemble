@@ -5,12 +5,42 @@ import SwiftUI
 struct NowPlayingWidePanelLayout: View {
     let viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
+    private let dismissAction: (() -> Void)?
+    private let topPadding: CGFloat?
+    private let maxContentWidth: CGFloat
+    private let maxContentHeight: CGFloat?
+    private let headerLeadingPadding: CGFloat
+    private let headerTrailingPadding: CGFloat
+    private let showsTrackHeader: Bool
+    private let keepsQueueAlwaysVisible: Bool
+    private let showsLyricsTransportControls: Bool
     @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
 
-    init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
+    init(
+        viewModel: NowPlayingViewModel,
+        currentPage: Binding<Int>,
+        dismissAction: (() -> Void)? = nil,
+        topPadding: CGFloat? = nil,
+        maxContentWidth: CGFloat = EnsembleScaffold.NowPlaying.viewportHeaderMaxWidth,
+        maxContentHeight: CGFloat? = nil,
+        headerLeadingPadding: CGFloat = 0,
+        headerTrailingPadding: CGFloat = 0,
+        showsTrackHeader: Bool = true,
+        keepsQueueAlwaysVisible: Bool = false,
+        showsLyricsTransportControls: Bool = true
+    ) {
         self.viewModel = viewModel
         self._currentPage = currentPage
+        self.dismissAction = dismissAction
+        self.topPadding = topPadding
+        self.maxContentWidth = maxContentWidth
+        self.maxContentHeight = maxContentHeight
+        self.headerLeadingPadding = headerLeadingPadding
+        self.headerTrailingPadding = headerTrailingPadding
+        self.showsTrackHeader = showsTrackHeader
+        self.keepsQueueAlwaysVisible = keepsQueueAlwaysVisible
+        self.showsLyricsTransportControls = showsLyricsTransportControls
         self._playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
     }
 
@@ -29,28 +59,32 @@ struct NowPlayingWidePanelLayout: View {
                         .frame(maxHeight: .infinity, alignment: .topLeading)
                 }
             }
+            .frame(maxWidth: maxContentWidth, maxHeight: maxContentHeight)
             .padding(.horizontal, EnsembleScaffold.NowPlaying.viewportContentPadding)
-            .padding(.top, max(geometry.safeAreaInsets.top, EnsembleDesign.Spacing.sm))
+            .padding(.top, topPadding ?? max(geometry.safeAreaInsets.top, EnsembleDesign.Spacing.sm))
             .padding(.bottom, EnsembleScaffold.NowPlaying.viewportContentPadding)
         }
     }
 
     private var header: some View {
         HStack(alignment: .center, spacing: EnsembleScaffold.NowPlaying.sectionTopPadding) {
-            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                Text(playbackProjection.currentTrack?.title ?? "Now Playing")
-                    .font(EnsembleDesign.Typography.detailSubtitle.weight(.semibold))
-                    .lineLimit(1)
-
-                if let artist = playbackProjection.currentTrack?.artistName, !artist.isEmpty {
-                    Text(artist)
-                        .font(EnsembleDesign.Typography.stateMessage)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+            if showsTrackHeader {
+                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
+                    Text(playbackProjection.currentTrack?.title ?? "Now Playing")
+                        .font(EnsembleDesign.Typography.detailSubtitle.weight(.semibold))
                         .lineLimit(1)
-                }
-            }
 
-            Spacer()
+                    if let artist = playbackProjection.currentTrack?.artistName, !artist.isEmpty {
+                        Text(artist)
+                            .font(EnsembleDesign.Typography.stateMessage)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+            } else {
+                Spacer()
+            }
 
             Picker("Panel", selection: panelSelection) {
                 Text("Queue").tag(NowPlayingPanelPage.queue.rawValue)
@@ -59,8 +93,22 @@ struct NowPlayingWidePanelLayout: View {
             }
             .pickerStyle(.segmented)
             .frame(width: EnsembleScaffold.NowPlaying.viewportPickerWidth)
+
+            if let dismissAction {
+                Button {
+                    dismissAction()
+                } label: {
+                    Image(systemName: EnsembleDesign.Icon.closeCircle)
+                        .font(.system(size: EnsembleDesign.Spacing.xl))
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+            }
         }
-        .frame(maxWidth: EnsembleScaffold.NowPlaying.viewportHeaderMaxWidth)
+        .frame(maxWidth: maxContentWidth)
+        .padding(.leading, headerLeadingPadding)
+        .padding(.trailing, headerTrailingPadding)
     }
 
     private var panelSelection: Binding<Int> {
@@ -84,14 +132,16 @@ struct NowPlayingWidePanelLayout: View {
         NowPlayingDetailPanel(
             viewModel: viewModel,
             currentPage: $currentPage,
-            isLowPowerMode: powerStateMonitor.isLowPowerMode
+            isLowPowerMode: powerStateMonitor.isLowPowerMode,
+            showsLyricsTransportControls: showsLyricsTransportControls,
+            keepsQueueAlwaysVisible: keepsQueueAlwaysVisible
         )
     }
 
     private func panelWidth(for geometry: GeometryProxy) -> CGFloat {
         let available = min(
             geometry.size.width - (EnsembleScaffold.NowPlaying.viewportContentPadding * 2),
-            EnsembleScaffold.NowPlaying.viewportHeaderMaxWidth
+            maxContentWidth
         )
         return max((available - EnsembleScaffold.NowPlaying.viewportInnerSpacing) / 2, 0)
     }

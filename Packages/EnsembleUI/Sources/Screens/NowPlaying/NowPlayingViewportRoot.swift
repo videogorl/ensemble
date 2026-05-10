@@ -109,29 +109,32 @@ struct NowPlayingViewportRoot: View {
                 )
 
                 let mode = layoutMode(for: geometry)
-                VStack(spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
-                    header(for: geometry, mode: mode)
-
-                    if mode == .dualPanel {
-                        HStack(alignment: .top, spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
-                            ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage, isAlwaysVisible: true)
-                                .frame(width: panelWidth(for: geometry))
-                                .frame(maxHeight: .infinity, alignment: .topLeading)
-
-                            detailPanel
-                                .frame(width: panelWidth(for: geometry))
-                                .frame(maxHeight: .infinity, alignment: .topLeading)
-                        }
-                    } else {
+                if mode == .dualPanel {
+                    NowPlayingWidePanelLayout(
+                        viewModel: viewModel,
+                        currentPage: $viewModel.currentPage,
+                        dismissAction: dismissAction,
+                        topPadding: topInset(for: geometry),
+                        maxContentWidth: contentMaxWidth,
+                        maxContentHeight: contentMaxHeight,
+                        headerLeadingPadding: leadingSystemChromeInset(for: geometry),
+                        headerTrailingPadding: EnsembleScaffold.NowPlaying.viewportNarrowTrailingPadding,
+                        showsTrackHeader: false,
+                        keepsQueueAlwaysVisible: true,
+                        showsLyricsTransportControls: false
+                    )
+                } else {
+                    VStack(spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
+                        header(for: geometry, mode: mode)
                         singlePanel
                             .frame(width: singlePanelWidth(for: geometry))
                             .frame(maxHeight: .infinity, alignment: .topLeading)
                     }
+                    .frame(maxWidth: contentMaxWidth, maxHeight: contentMaxHeight)
+                    .padding(.horizontal, EnsembleScaffold.NowPlaying.viewportContentPadding)
+                    .padding(.top, topInset(for: geometry))
+                    .padding(.bottom, EnsembleScaffold.NowPlaying.viewportContentPadding)
                 }
-                .frame(maxWidth: contentMaxWidth, maxHeight: contentMaxHeight)
-                .padding(.horizontal, EnsembleScaffold.NowPlaying.viewportContentPadding)
-                .padding(.top, topInset(for: geometry))
-                .padding(.bottom, EnsembleScaffold.NowPlaying.viewportContentPadding)
             }
         }
     }
@@ -183,16 +186,6 @@ struct NowPlayingViewportRoot: View {
         )
     }
 
-    private var detailPanel: some View {
-        NowPlayingDetailPanel(
-            viewModel: viewModel,
-            currentPage: $viewModel.currentPage,
-            isLowPowerMode: powerStateMonitor.isLowPowerMode,
-            showsLyricsTransportControls: false,
-            keepsQueueAlwaysVisible: true
-        )
-    }
-
     @ViewBuilder
     private var singlePanel: some View {
         if viewModel.currentPage == 1 {
@@ -204,14 +197,6 @@ struct NowPlayingViewportRoot: View {
                 isLowPowerMode: powerStateMonitor.isLowPowerMode
             )
         }
-    }
-
-    /// Equal panel width for the two-column layout (controls + detail).
-    /// Computed from geometry so both sides are always exactly the same width.
-    private func panelWidth(for geometry: GeometryProxy) -> CGFloat {
-        let horizontalPadding = EnsembleScaffold.NowPlaying.viewportContentPadding * 2
-        let available = min(geometry.size.width - horizontalPadding, contentMaxWidth)
-        return max((available - EnsembleScaffold.NowPlaying.viewportInnerSpacing) / 2, 0)
     }
 
     private func singlePanelWidth(for geometry: GeometryProxy) -> CGFloat {

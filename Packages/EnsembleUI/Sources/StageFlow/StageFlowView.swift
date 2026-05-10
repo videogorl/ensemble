@@ -558,24 +558,11 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     }
 
     private func baseItemSize(for geometry: GeometryProxy) -> CGFloat {
-        let viewportHeight = max(geometry.size.height, stageViewportHeightFloor())
-        return max(0, min(viewportHeight * 0.62, geometry.size.width * 0.34) - 7)
+        max(0, min(geometry.size.height * 0.62, geometry.size.width * 0.34) - 7)
     }
 
     private func centeredItemSize(for geometry: GeometryProxy) -> CGFloat {
         baseItemSize(for: geometry) * layoutMetrics.centerScale
-    }
-
-    /// Cold-launch landscape can report a reduced container height before the
-    /// immersive chrome fully settles. Clamp to the physical screen's short edge
-    /// so StageFlow starts at the same card size it uses after a rotation pass.
-    private func stageViewportHeightFloor() -> CGFloat {
-        #if os(iOS)
-        guard UIDevice.current.userInterfaceIdiom == .phone else { return 0 }
-        return min(UIScreen.main.bounds.width, UIScreen.main.bounds.height)
-        #else
-        return 0
-        #endif
     }
 
     private func detailPanelWidth(for geometry: GeometryProxy) -> CGFloat {
@@ -591,8 +578,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     }
 
     private func stageCenterY(for geometry: GeometryProxy) -> CGFloat {
-        let viewportHeight = max(geometry.size.height, stageViewportHeightFloor())
-        return viewportHeight * 0.45
+        geometry.size.height * 0.45
     }
 
     private func detailSurfaceCenterY(for geometry: GeometryProxy) -> CGFloat {

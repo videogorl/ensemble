@@ -83,9 +83,9 @@ public struct MainTabView: View {
 
     public var body: some View {
         GeometryReader { geometry in
-            // The registered root chrome frame already reflects the platform's
-            // tab bar and safe-area geometry, including the iOS 15 inset bridge.
-            let miniPlayerBottomLift = TrackListLayoutMetrics.miniPlayerBottomLiftBase
+            let miniPlayerBottomLift = TrackListLayoutMetrics.rootMiniPlayerBottomLift(
+                safeAreaBottom: geometry.safeAreaInsets.bottom
+            )
             let rootStageFlowActive = isStageFlowActive(for: geometry.size)
             let rootChromeSuppressed = rootStageFlowActive
 

@@ -249,12 +249,14 @@ extension View {
     }
 
     /// Keeps artwork-backed surfaces visible behind platform toolbar chrome.
-    func artworkBackedToolbarBleed() -> some View {
-        modifier(ArtworkBackedToolbarBleedModifier())
+    func artworkBackedToolbarBleed(hidesTopScrollEdgeEffect: Bool = false) -> some View {
+        modifier(ArtworkBackedToolbarBleedModifier(hidesTopScrollEdgeEffect: hidesTopScrollEdgeEffect))
     }
 }
 
 private struct ArtworkBackedToolbarBleedModifier: ViewModifier {
+    let hidesTopScrollEdgeEffect: Bool
+
     @ViewBuilder
     func body(content: Content) -> some View {
         #if os(iOS)
@@ -267,7 +269,7 @@ private struct ArtworkBackedToolbarBleedModifier: ViewModifier {
                     .background(NavigationBarAppearanceConfigurator(isTransparent: true))
             }
         } else {
-            content
+            phoneContent(content)
         }
         #elseif os(macOS)
         if #available(macOS 26.0, *) {
@@ -281,4 +283,15 @@ private struct ArtworkBackedToolbarBleedModifier: ViewModifier {
         content
         #endif
     }
+
+    #if os(iOS)
+    @ViewBuilder
+    private func phoneContent(_ content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.scrollEdgeEffectHidden(hidesTopScrollEdgeEffect, for: .top)
+        } else {
+            content
+        }
+    }
+    #endif
 }
