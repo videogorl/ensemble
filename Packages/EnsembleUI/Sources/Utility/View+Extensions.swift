@@ -363,6 +363,23 @@ public extension ToolbarItemPlacement {
 }
 
 extension View {
+    /// Hosts short sheet content in the platform's native navigation container.
+    @ViewBuilder
+    func nativeSheetNavigationContainer() -> some View {
+        if #available(iOS 16.0, macOS 13.0, *) {
+            NavigationStack {
+                self
+            }
+        } else {
+            NavigationView {
+                self
+            }
+            #if os(iOS)
+            .navigationViewStyle(.stack)
+            #endif
+        }
+    }
+
     /// Applies the editor toolbar role on macOS 13+ so primary actions land on
     /// the trailing edge instead of clustering beside the sidebar/title area.
     @ViewBuilder

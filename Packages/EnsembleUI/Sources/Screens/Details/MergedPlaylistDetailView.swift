@@ -125,13 +125,12 @@ public struct MergedPlaylistDetailView: View {
         }
         // Individual playlist edit sheet (opened after picking a constituent)
         .sheet(item: $editTarget) { playlist in
-            NavigationView {
-                PlaylistDetailView(
-                    playlist: playlist,
-                    nowPlayingVM: nowPlayingVM,
-                    startInEditMode: true
-                )
-            }
+            PlaylistDetailView(
+                playlist: playlist,
+                nowPlayingVM: nowPlayingVM,
+                startInEditMode: true
+            )
+            .nativeSheetNavigationContainer()
         }
         .refreshable {
             await viewModel.refreshFromServer()
@@ -212,47 +211,46 @@ public struct MergedPlaylistDetailView: View {
 
     /// Sheet listing each constituent playlist with server name — tap to edit individually
     private var editPickerSheet: some View {
-        NavigationView {
-            List {
-                ForEach(viewModel.displayPlaylist.playlists, id: \.id) { playlist in
-                    Button {
-                        pendingEditTarget = playlist
-                        showEditPicker = false
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                                Text(serverName(for: playlist))
-                                    .font(EnsembleDesign.Typography.rowPrimary)
-                                Text("\(playlist.trackCount) songs")
-                                    .font(EnsembleDesign.Typography.rowSecondary)
-                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            }
-                            Spacer()
-                            Image(systemName: EnsembleDesign.Icon.chevronRight)
+        List {
+            ForEach(viewModel.displayPlaylist.playlists, id: \.id) { playlist in
+                Button {
+                    pendingEditTarget = playlist
+                    showEditPicker = false
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
+                            Text(serverName(for: playlist))
+                                .font(EnsembleDesign.Typography.rowPrimary)
+                            Text("\(playlist.trackCount) songs")
                                 .font(EnsembleDesign.Typography.rowSecondary)
                                 .foregroundColor(EnsembleDesign.Color.secondaryText)
                         }
+                        Spacer()
+                        Image(systemName: EnsembleDesign.Icon.chevronRight)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
-                    .foregroundColor(EnsembleDesign.Color.primaryText)
                 }
-            }
-            .listStyle(.plain)
-            .navigationTitle("Choose Playlist to Edit")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Cancel") { showEditPicker = false }
-                }
-                #else
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showEditPicker = false }
-                }
-                #endif
+                .foregroundColor(EnsembleDesign.Color.primaryText)
             }
         }
+        .listStyle(.plain)
+        .navigationTitle("Choose Playlist to Edit")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Cancel") { showEditPicker = false }
+            }
+            #else
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { showEditPicker = false }
+            }
+            #endif
+        }
+        .nativeSheetNavigationContainer()
     }
 
     private func serverName(for playlist: Playlist) -> String {

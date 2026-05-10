@@ -46,7 +46,8 @@ public struct PlaylistPickerSheet: View {
         #if os(macOS)
         macOSBody
         #else
-        navigationBody
+        listContent
+            .nativeSheetNavigationContainer()
         #endif
     }
 
@@ -95,20 +96,6 @@ public struct PlaylistPickerSheet: View {
     }
     #endif
 
-    private var navigationBody: some View {
-        Group {
-            if #available(iOS 16.0, macOS 13.0, *) {
-                NavigationStack { listContent }
-            } else {
-                NavigationView { listContent }
-                    #if os(iOS)
-                    .navigationViewStyle(.stack)
-                    #endif
-            }
-        }
-    }
-
-    // Extracted so both NavigationStack and NavigationView share the same content
     private var listContent: some View {
         playlistList
             .searchable(text: $searchText, prompt: "Find or create playlist")

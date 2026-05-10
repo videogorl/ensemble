@@ -170,24 +170,9 @@ public struct FilterSheet: View {
     #endif
 
     private var iOSBody: some View {
-        navigationContainer
-        .onAppear(perform: initializeYearRange)
-    }
-
-    @ViewBuilder
-    private var navigationContainer: some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationStack {
-                filterContent
-            }
-        } else {
-            NavigationView {
-                filterContent
-            }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
-        }
+        filterContent
+            .nativeSheetNavigationContainer()
+            .onAppear(perform: initializeYearRange)
     }
 
     private var filterContent: some View {

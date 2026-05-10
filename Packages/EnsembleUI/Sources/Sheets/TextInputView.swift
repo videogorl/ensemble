@@ -48,7 +48,8 @@ struct TextInputView: View {
     }
 
     var body: some View {
-        navigationContainer
+        formContent
+            .nativeSheetNavigationContainer()
             .onAppear {
                 text = initialText
             }
@@ -57,22 +58,6 @@ struct TextInputView: View {
                 isFocused = false
             }
             #endif
-    }
-
-    @ViewBuilder
-    private var navigationContainer: some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationStack {
-                formContent
-            }
-        } else {
-            NavigationView {
-                formContent
-            }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
-        }
     }
 
     private var formContent: some View {

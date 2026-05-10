@@ -277,13 +277,12 @@ public struct PlaylistsView: View {
                 Text("This will permanently delete \"\(displayPlaylistPendingDelete?.title ?? "")\" from \(count) server\(count == 1 ? "" : "s").")
             }
             .sheet(item: $playlistForEditSheet) { playlist in
-                NavigationView {
-                    PlaylistDetailView(
-                        playlist: playlist,
-                        nowPlayingVM: nowPlayingVM,
-                        startInEditMode: true
-                    )
-                }
+                PlaylistDetailView(
+                    playlist: playlist,
+                    nowPlayingVM: nowPlayingVM,
+                    startInEditMode: true
+                )
+                .nativeSheetNavigationContainer()
             }
             #if os(iOS)
             .navigationBarHidden(isStageFlowActive)
@@ -1299,26 +1298,11 @@ private struct CreatePlaylistView: View {
     }
 
     var body: some View {
-        navigationContainer
+        formContent
+            .nativeSheetNavigationContainer()
             .onAppear {
                 initializeSelection()
             }
-    }
-
-    @ViewBuilder
-    private var navigationContainer: some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationStack {
-                formContent
-            }
-        } else {
-            NavigationView {
-                formContent
-            }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
-        }
     }
 
     private var formContent: some View {

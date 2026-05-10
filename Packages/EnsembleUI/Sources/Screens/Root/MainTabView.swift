@@ -733,13 +733,12 @@ public struct SidebarView: View {
         .addAccountPresentationSheet()
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .sheet(item: $playlistForEditSheet) { playlist in
-            NavigationView {
-                PlaylistDetailView(
-                    playlist: playlist,
-                    nowPlayingVM: nowPlayingVM,
-                    startInEditMode: true
-                )
-            }
+            PlaylistDetailView(
+                playlist: playlist,
+                nowPlayingVM: nowPlayingVM,
+                startInEditMode: true
+            )
+            .nativeSheetNavigationContainer()
         }
         .alert("Rename Playlist", isPresented: Binding(
             get: { playlistPendingRename != nil },

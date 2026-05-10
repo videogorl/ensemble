@@ -31,15 +31,13 @@ public struct ProfilePresentationContainer: View {
         MacAuxiliaryWindowScaffold(
             configuration: .profile
         ) {
-            navigationContainer {
-                ProfileView()
-            }
+            ProfileView()
+                .nativeSheetNavigationContainer()
         }
         #else
-        navigationContainer {
-            ProfileView()
-                .modifier(AuxiliaryDismissToolbarModifier())
-        }
+        ProfileView()
+            .modifier(AuxiliaryDismissToolbarModifier())
+            .nativeSheetNavigationContainer()
         #endif
     }
 }
@@ -56,15 +54,13 @@ public struct DownloadsPresentationContainer: View {
         MacAuxiliaryWindowScaffold(
             configuration: .downloads
         ) {
-            navigationContainer {
-                DownloadsView(nowPlayingVM: nowPlayingVM)
-            }
+            DownloadsView(nowPlayingVM: nowPlayingVM)
+                .nativeSheetNavigationContainer()
         }
         #else
-        navigationContainer {
-            DownloadsView(nowPlayingVM: nowPlayingVM)
-                .modifier(AuxiliaryDismissToolbarModifier())
-        }
+        DownloadsView(nowPlayingVM: nowPlayingVM)
+            .modifier(AuxiliaryDismissToolbarModifier())
+            .nativeSheetNavigationContainer()
         #endif
     }
 }
@@ -140,21 +136,5 @@ public extension View {
     /// Presents the root add-account sheet from the active navigation shell.
     func addAccountPresentationSheet() -> some View {
         modifier(AddAccountPresentationSheetModifier())
-    }
-}
-
-@ViewBuilder
-private func navigationContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-    if #available(iOS 16.0, macOS 13.0, *) {
-        NavigationStack {
-            content()
-        }
-    } else {
-        NavigationView {
-            content()
-        }
-        #if os(iOS)
-        .navigationViewStyle(.stack)
-        #endif
     }
 }
