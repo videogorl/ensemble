@@ -11,6 +11,13 @@ No unresolved critical issues currently documented.
 
 ## Known Limitations
 
+### macOS 26 Feed Toolbar Liquid Glass Sampling (May 10, 2026)
+- **Location:** `HomeView.swift`, `CollapsingToolbar.swift`, `ArtworkDetailBackground.swift`
+- **Issue:** Feed's macOS 26 toolbar no longer shows an opaque custom background, but native Liquid Glass scroll-edge color bleed is still not fully equivalent to the post-navigation state. The toolbar starts closer to the desired translucent state after the background host is mounted immediately, yet the OS-provided bleed can still be less vivid until navigation invalidates the detail hierarchy.
+- **Root cause hypothesis:** The Feed artwork wash is loaded asynchronously and the root `NavigationSplitView`/toolbar scroll-edge relationship appears to cache its sampling source before the final artwork-backed surface is in place. Pushing into an item and returning forces SwiftUI/AppKit to rebuild enough of the detail column for native sampling to behave as expected.
+- **Rejected workaround:** Forcing the Feed `ScrollView` under the toolbar with `.ignoresSafeArea(.container, edges: .top)` and a hardcoded top safe-area padding clipped the first row. A window-level `containerBackground(for: .window)` made the whole Feed look washed instead of letting the toolbar sample real content.
+- **Current status:** Keep the extension-backed `ArtworkDetailBackground` mounted from first render, keep macOS 26 toolbar background hidden, and avoid custom scroll padding/window-wide backgrounds. Future work should look for a root `NavigationSplitView`/detail-column ownership fix rather than adding leaf-view toolbar shims.
+
 ### watchOS Companion Shell Only (May 6, 2026)
 - **Location:** `EnsembleWatch/Views/WatchRootView.swift`
 - **Issue:** The watch target currently ships as a standalone shell and does not provide Plex auth, library browsing, or playback control.

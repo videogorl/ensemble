@@ -291,14 +291,9 @@ public enum EnsembleScaffold {
     }
 
     public enum FilterSheet {
-        public static let macContentMaxWidth: CGFloat = 640
         public static let macMinimumWidth: CGFloat = EnsembleScaffold.AccountSetup.macMinimumWidth
         public static let macMinimumHeight: CGFloat = EnsembleScaffold.AccountSetup.macMinimumHeight
-        public static let macFieldLabelSpacing = EnsembleDesign.Spacing.chipVertical
-        public static let sectionBackgroundOpacity = 0.04
         public static let subtleSectionBackgroundOpacity = 0.1
-        public static let selectionSheetMinimumWidth = EnsembleDesign.Breakpoint.auxiliaryWindowMaxWidth
-        public static let selectionSheetMinimumHeight: CGFloat = 520
     }
 
     public enum BrowseSplit {

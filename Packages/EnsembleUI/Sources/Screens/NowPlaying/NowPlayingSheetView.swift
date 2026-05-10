@@ -5,23 +5,12 @@ import SwiftUI
 /// macOS viewport presentation lives in `NowPlayingViewportRoot`.
 public struct NowPlayingSheetView: View {
     let viewModel: NowPlayingViewModel
-    @ObservedObject private var artworkProjection: NowPlayingArtworkProjection
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
-    @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
     @State private var currentPage: Int
 
     private let namespace: Namespace.ID?
     private let animationID: String?
     private let dismissAction: (() -> Void)?
-    private var auroraActiveContentMaxWidth: CGFloat? {
-        #if os(iOS)
-        return nil
-        #else
-        return EnsembleScaffold.NowPlaying.auroraActiveContentMaxWidth
-        #endif
-    }
 
     public init(
         viewModel: NowPlayingViewModel,
@@ -30,7 +19,6 @@ public struct NowPlayingSheetView: View {
         dismissAction: (() -> Void)? = nil
     ) {
         self.viewModel = viewModel
-        self._artworkProjection = ObservedObject(wrappedValue: viewModel.artworkProjection)
         self._currentPage = State(initialValue: viewModel.currentPage)
         self.namespace = namespace
         self.animationID = animationID
@@ -75,46 +63,20 @@ public struct NowPlayingSheetView: View {
     }
 
     private var backgroundView: some View {
-        // Adaptive overlay: light mode uses system background tint, dark mode uses black
-        let lightOverlayColor: Color = {
-            #if os(iOS)
-            return Color(uiColor: .systemBackground)
-            #elseif os(macOS)
-            return Color(nsColor: .windowBackgroundColor)
-            #else
-            return .white
-            #endif
-        }()
+        NowPlayingBackdrop(
+            viewModel: viewModel,
+            consumer: .nowPlayingSheet,
+            activeContentMaxWidth: nowPlayingSheetAuroraActiveContentMaxWidth,
+            forceDarkPresentation: false
+        )
+    }
 
-        return ZStack {
-            BlurredArtworkBackground(
-                image: artworkProjection.artworkImage,
-                preBlurredImage: artworkProjection.blurredArtworkImage,
-                overlayColor: colorScheme == .dark ? .black : lightOverlayColor
-            )
-            .animation(.easeInOut(duration: 0.8), value: artworkProjection.artworkImage)
-
-            if colorScheme == .dark {
-                Color.black.opacity(EnsembleScaffold.NowPlaying.backgroundDarkOverlayOpacity)
-                    .allowsHitTesting(false)
-            } else {
-                lightOverlayColor.opacity(EnsembleScaffold.NowPlaying.backgroundLightOverlayOpacity)
-                    .allowsHitTesting(false)
-            }
-
-            if settingsManager.auroraVisualizationEnabled {
-                AuroraVisualizationView(
-                    playbackService: DependencyContainer.shared.playbackService,
-                    consumer: .nowPlayingSheet,
-                    accentColor: settingsManager.accentColor.color,
-                    isLowPowerMode: powerStateMonitor.isLowPowerMode,
-                    activeContentMaxWidth: auroraActiveContentMaxWidth
-                )
-                .allowsHitTesting(false)
-                .opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity)
-            }
-        }
-        .ignoresSafeArea()
+    private var nowPlayingSheetAuroraActiveContentMaxWidth: CGFloat? {
+        #if os(iOS)
+        return nil
+        #else
+        return EnsembleScaffold.NowPlaying.auroraActiveContentMaxWidth
+        #endif
     }
 
     private var dismissPill: some View {
