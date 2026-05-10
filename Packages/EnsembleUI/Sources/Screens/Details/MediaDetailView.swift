@@ -194,7 +194,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             threshold: 0,
             showToolbarTitle: $showToolbarTitle
         )
-        .artworkDetailToolbarBleed()
+        .artworkBackedToolbarBleed()
         // Native track lists manage their own bottom inset so rows can scroll
         // behind the floating mini player without shrinking the table host.
         .trackListRuntimeObservation(

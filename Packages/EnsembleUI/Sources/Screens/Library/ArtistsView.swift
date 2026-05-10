@@ -441,7 +441,7 @@ public struct ArtistDetailView: View {
             }
             #endif
         }
-        .artworkDetailToolbarBleed()
+        .artworkBackedToolbarBleed()
         .miniPlayerBottomSpacing()
         .onPreferenceChange(ArtistHeroToolbarBackgroundPreferenceKey.self) { shouldShowBackground in
             if shouldShowBackground != showToolbarBackground {

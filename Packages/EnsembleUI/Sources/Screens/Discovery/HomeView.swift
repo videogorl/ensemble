@@ -56,6 +56,7 @@ public struct HomeView: View {
             HubOrderingSheet(viewModel: viewModel)
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .artworkBackedToolbarBleed()
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }

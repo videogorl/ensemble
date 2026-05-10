@@ -248,13 +248,13 @@ extension View {
         ))
     }
 
-    /// Keeps artwork-backed detail washes visible behind platform toolbar chrome.
-    func artworkDetailToolbarBleed() -> some View {
-        modifier(ArtworkDetailToolbarBleedModifier())
+    /// Keeps artwork-backed surfaces visible behind platform toolbar chrome.
+    func artworkBackedToolbarBleed() -> some View {
+        modifier(ArtworkBackedToolbarBleedModifier())
     }
 }
 
-private struct ArtworkDetailToolbarBleedModifier: ViewModifier {
+private struct ArtworkBackedToolbarBleedModifier: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         #if os(iOS)
