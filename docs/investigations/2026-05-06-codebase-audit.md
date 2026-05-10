@@ -66,7 +66,7 @@ Project-specific rules were treated as higher priority than generic guidance. Ge
 3. API debug logging: `PlexAPIClient.swift`, its endpoint extensions, `ConnectionFailoverManager.swift`, and `PlexWebSocketManager.swift` contain most of the 211 logger calls inside `#if DEBUG`. The project skill explicitly says logger calls should not be compiled out unless the surrounding code itself is debug-only.
 4. Streaming/download legacy paths: `PlexAPIClient+Playback.swift`, `PlaybackService.swift`, `PlaybackQueueStore.swift`, and `DownloadManager.swift` retain intentional legacy compatibility paths. These should be cleaned only with migration tests and rollback notes.
 5. CoreData/domain migration: `ModelMappers.swift` still notes `Track.streamId` is not stored in CoreData and would require migration. This matters for waveform/loudness features if they need persistent stream IDs.
-6. Deprecated local APIs: old artwork download wrappers are still present for compatibility. They should be removed only after call-site and persisted-state checks.
+6. Deprecated local APIs: no current wrapper-only deletion candidates remain after the May 2026 cleanup pass; future candidates should be backed by call-site and persisted-state checks.
 7. iOS 15 navigation fallbacks are expected compatibility debt. Do not remove them during broad cleanup.
 
 ## Cleanup Backlog
