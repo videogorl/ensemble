@@ -557,8 +557,6 @@ private struct DownloadedItemRow: View {
 
 }
 
-// PendingChangesRow is now a shared component in Components/PendingChangesRow.swift
-
 /// Shows a spinner + progress bar while a target is being removed
 private struct RemovalProgressRow: View {
     let progress: RemovalProgress
