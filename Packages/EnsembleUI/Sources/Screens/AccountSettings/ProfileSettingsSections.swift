@@ -1,17 +1,6 @@
 import EnsembleCore
 import SwiftUI
 
-/// Legacy settings view — redirects to ProfileView.
-/// Kept for backward compatibility and for sub-views defined in this file
-/// (AudioQualitySettingsView, ConnectionPolicySettingsView, etc.)
-public struct SettingsView: View {
-    public init() {}
-
-    public var body: some View {
-        ProfileView()
-    }
-}
-
 // MARK: - Music Source Account Row
 
 struct MusicSourceAccountRow: View {

@@ -392,7 +392,7 @@ Dynamic home screen powered by Plex's hub system:
 - Add-account flow uses `PlexAccountDiscoveryService` to fetch account identity, servers, and music libraries in one pass.
 - Discovery flow also fetches per-server capabilities (`getServerCapabilities`) and populates `PlexSubscription` (account), `PlexServerCapabilities` (server), and `allowSync` (library) for feature gating.
 - `MusicSourceAccountDetailView` displays `ServerFeatureBadges` (Plex Pass, hardware transcoding) and per-library download badges based on discovered capabilities.
-- `SettingsView` shows account-level source rows (title + account identifier subtitle) instead of per-library rows.
+- `ProfileView` shows account-level source rows (title + account identifier subtitle) instead of per-library rows.
 - `MusicSourceAccountDetailViewModel`/`MusicSourceAccountDetailView` own library enablement, reconciliation, and sync status actions.
 - Reconciliation defaults newly discovered libraries to unchecked and auto-disables/cleans removed libraries.
 - Unchecking a library purges that library only; disabling/removing the last enabled library on a server also purges server-level playlists.
@@ -734,7 +734,7 @@ User-editable profile (display name, profile image) with iCloud private database
 1. **UserProfile** (`EnsembleCore/Models`) -- Data model with `displayName`, `profileImagePath`, and `lastModified` fields.
 2. **UserProfileStore** (`EnsembleCore/Services`, @MainActor ObservableObject) -- Local profile persistence and image processing. Publishes the current profile for UI binding.
 3. **CloudSyncService** (`EnsembleCore/Services`, actor) -- CloudKit private database sync using container `iCloud.com.videogorl.ensemble`, record type `UserProfile`. Supports push, pull, subscription setup, silent-push delivery handling, and foreground recovery refresh. Prefers CloudKit server `modificationDate` when ordering pulled profile changes, and exposes transport state (`available`, `notAuthenticated`, `networkUnavailable`, etc.) so profile sync can degrade independently from KVS-backed features.
-4. **ProfileView** (`EnsembleUI/Screens/AccountSettings`) -- Full profile screen replacing the previous SettingsView content. Settings are migrated into ProfileView; SettingsView redirects here.
+4. **ProfileView** (`EnsembleUI/Screens/AccountSettings`) -- Full profile screen that owns user profile and settings content directly.
 5. **ProfileHeaderView** (`EnsembleUI/Utility`) -- Circular profile image + display name header with photo picker integration.
 6. **ProfileToolbarButton** (`EnsembleUI/Utility`) -- 28x28pt circular profile image button rendered by `MainTabView` on iPhone root tab destinations and by the sidebar toolbar on iPad/macOS.
 7. **Navigation change:** `AuxiliaryPresentation.settings` renamed to `.profile`; `openSettings()` renamed to `openProfile()` (legacy alias kept for backward compatibility).

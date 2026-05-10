@@ -37,7 +37,7 @@ struct NavigationDestinationFactory {
             case .downloads:
                 DownloadsView(nowPlayingVM: nowPlayingVM)
             case .settings:
-                SettingsView()
+                ProfileView()
             }
         }
     }

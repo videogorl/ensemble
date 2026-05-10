@@ -547,10 +547,10 @@ Generic detail view used by Album, Playlist, merged playlist, and similar media-
 
 ---
 
-## SettingsView
+## ProfileView
 
-- **View name:** `SettingsView`
-- **Canonical name:** SettingsView
+- **View name:** `ProfileView`
+- **Canonical name:** ProfileView
 - **Area:** Settings
 - **Platform:** iOS, iPadOS, macOS
 - **Definition status:** Draft

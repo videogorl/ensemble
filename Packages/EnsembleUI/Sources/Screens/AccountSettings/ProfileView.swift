@@ -1,7 +1,7 @@
 import EnsembleCore
 import SwiftUI
 
-/// Main profile view that replaces SettingsView.
+/// Main profile view that owns profile and settings content.
 /// Shows profile header (image + name) followed by all settings sections.
 /// Modeled after Apple's iCloud Settings panel aesthetic.
 public struct ProfileView: View {

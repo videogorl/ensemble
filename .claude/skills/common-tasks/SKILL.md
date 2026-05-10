@@ -167,7 +167,7 @@ When adding support for new music sources (Apple Music, Spotify, etc.):
 ## Updating Plex Source Selection (Account-Centric Flow)
 
 When modifying Plex library enablement/sync behavior:
-1. Keep source entry points in `SettingsView` and `MusicSourceAccountDetailView` (do not reintroduce standalone sync-panel routes).
+1. Keep source entry points in `ProfileView` and `MusicSourceAccountDetailView` (do not reintroduce standalone sync-panel routes).
 2. Use `MusicSourceAccountDetailViewModel.refreshInventory()` reconciliation semantics:
    - Newly discovered libraries default to unchecked.
    - Removed libraries are auto-disabled and purged.
@@ -311,7 +311,7 @@ Background/recovery rules:
 - Stale `.downloading` records from a previous process/session must be normalized to `.pending` or `.paused`; never leave them stuck in `.downloading`.
 
 UI integration rules:
-- Settings manager entry point remains `SettingsView` -> `DownloadManagerSettingsView` (do not repurpose `DownloadsView`).
+- Settings manager entry point remains `ProfileView` -> `DownloadManagerSettingsView` (do not repurpose `DownloadsView`).
 - Keep library-wide offline toggles inside `DownloadManagerSettingsView`; only include sync-enabled libraries.
 - Album/artist/playlist download toggles are context/detail menu actions (`Download` / `Remove Download`), not inline buttons.
 - Track rows should dim and block taps offline when `!track.isDownloaded`, with toast feedback.
