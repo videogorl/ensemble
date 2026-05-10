@@ -54,9 +54,6 @@ public final class SearchViewModel: ObservableObject {
     @Published public private(set) var isLoadingExplore = false
     @Published public private(set) var exploreError: String?
     
-    // Legacy support
-    public var results: [Track] { trackResults }
-    
     public let focusRequested = PassthroughSubject<Void, Never>()
 
     private let libraryRepository: LibraryRepositoryProtocol
