@@ -98,7 +98,7 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - **Stay native:** Use SwiftUI's native `TabView` unless there's a compelling reason
 - **StageFlow chrome suppression:** `MainTabView` hides root chrome directly from active phone StageFlow landscape geometry. Do not reintroduce preference/notification bridges or delayed immersive-mode clear timers for this path.
 - **iOS 18+:** Uses `.sidebarAdaptable` tab view style when available
-- **Mini player offset:** Root chrome registration owns MiniPlayer placement. Use `TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom:)` so modern iOS keeps the standard floating lift while iOS 15 derives the lift from the live tab/safe-area edge. Do not add per-screen mini-player offsets.
+- **Mini player offset:** Root chrome registration owns MiniPlayer placement. Use `TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom:)` for tab-root chrome and `TrackListLayoutMetrics.detailMiniPlayerBottomLift(safeAreaBottom:)` for registered split/detail panes. Modern iOS keeps the standard floating lift while iOS 15 derives the root lift from the live tab/safe-area edge. Do not add per-screen mini-player offsets.
 
 ### CoverFlow + Rotation Policy
 - CoverFlow is **iPhone-only** (`UIDevice.current.userInterfaceIdiom == .phone`), even though iPad shares `os(iOS)`.

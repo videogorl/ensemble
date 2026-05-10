@@ -222,6 +222,8 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertGreaterThan(TrackListLayoutMetrics.durationColumnWidth, TrackListLayoutMetrics.durationMinimumWidth)
         XCTAssertEqual(TrackListLayoutMetrics.miniPlayerBottomSpacing, 140)
         XCTAssertEqual(TrackListLayoutMetrics.compactMiniPlayerBottomSpacing, 110)
+        XCTAssertEqual(TrackListLayoutMetrics.detailMiniPlayerBottomLift(safeAreaBottom: 0), 20)
+        XCTAssertEqual(TrackListLayoutMetrics.detailMiniPlayerBottomLift(safeAreaBottom: 20), 32)
     }
 
     func testTrackListLayoutMetricsRowInsets() {

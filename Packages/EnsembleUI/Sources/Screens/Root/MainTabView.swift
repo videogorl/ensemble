@@ -1113,7 +1113,9 @@ public struct SidebarView: View {
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .background(
                 RootChromeFrameRegistrationView(
-                    bottomPadding: min(max(proxy.safeAreaInsets.bottom + 12, 20), 32),
+                    bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
+                        safeAreaBottom: proxy.safeAreaInsets.bottom
+                    ),
                     showsMiniPlayer: !isShowingNowPlaying,
                     priority: priority
                 )

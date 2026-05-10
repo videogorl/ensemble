@@ -61,6 +61,10 @@ public enum TrackListLayoutMetrics {
     public static let miniPlayerContainerInset: CGFloat = 70
     public static let miniPlayerBottomLiftBase: CGFloat = 52
 
+    public static func detailMiniPlayerBottomLift(safeAreaBottom: CGFloat) -> CGFloat {
+        min(max(safeAreaBottom + 12, 20), 32)
+    }
+
     public static func rootMiniPlayerBottomLift(safeAreaBottom: CGFloat) -> CGFloat {
         #if os(iOS)
         if #available(iOS 16.0, *) {
