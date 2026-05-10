@@ -412,13 +412,13 @@ public struct ArtistDetailView: View {
             artworkImage: artworkImage,
             backgroundHeight: EnsembleScaffold.ArtistDetail.backgroundHeight,
             darkLegibilityOpacity: EnsembleScaffold.ArtistDetail.darkLegibilityOverlayOpacity,
-            lightLegibilityOpacity: EnsembleScaffold.ArtistDetail.lightLegibilityOverlayOpacity
+            lightLegibilityOpacity: EnsembleScaffold.ArtistDetail.lightLegibilityOverlayOpacity,
+            contentBleedsUnderTopChrome: true
         ) {
             artistDetailScrollContent
         }
         .modifier(ArtistDetailScrollEdgeEffectModifier(isHidden: !showToolbarBackground))
         .coordinateSpace(name: "artistDetailScroll")
-        .ignoresSafeArea(edges: .top)
         .collapsingToolbarTitle(
             viewModel.artist.name,
             threshold: 0,

@@ -26,6 +26,7 @@ struct MediaDetailSurface<Content: View>: View {
     let backgroundHeight: CGFloat
     let darkLegibilityOpacity: Double
     let lightLegibilityOpacity: Double
+    let contentBleedsUnderTopChrome: Bool
     @ViewBuilder private let content: () -> Content
 
     init(
@@ -33,12 +34,14 @@ struct MediaDetailSurface<Content: View>: View {
         backgroundHeight: CGFloat = 500,
         darkLegibilityOpacity: Double = EnsembleScaffold.DetailSurface.darkLegibilityOverlayOpacity,
         lightLegibilityOpacity: Double = EnsembleScaffold.DetailSurface.lightLegibilityOverlayOpacity,
+        contentBleedsUnderTopChrome: Bool = false,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.artworkImage = artworkImage
         self.backgroundHeight = backgroundHeight
         self.darkLegibilityOpacity = darkLegibilityOpacity
         self.lightLegibilityOpacity = lightLegibilityOpacity
+        self.contentBleedsUnderTopChrome = contentBleedsUnderTopChrome
         self.content = content
     }
 
@@ -53,7 +56,12 @@ struct MediaDetailSurface<Content: View>: View {
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
 
-            content()
+            if contentBleedsUnderTopChrome {
+                content()
+                    .ignoresSafeArea(.container, edges: .top)
+            } else {
+                content()
+            }
         }
     }
 }

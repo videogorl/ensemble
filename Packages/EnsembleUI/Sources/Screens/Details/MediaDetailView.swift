@@ -682,7 +682,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// toolbar bleed for artwork-backed detail chrome; bottom spacing stays owned
     /// by the native table/list inset and the root mini-player container.
     private var baseContent: some View {
-        MediaDetailSurface(artworkImage: artworkImage) {
+        MediaDetailSurface(
+            artworkImage: artworkImage,
+            contentBleedsUnderTopChrome: true
+        ) {
             #if os(iOS)
             // Always use MediaTrackList (UITableView), even with 0 tracks.
             // Loading/empty indicators are shown via tableFooterContent.
@@ -691,14 +694,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             // automatic top content inset so rows can pass under transparent toolbar
             // chrome without a SwiftUI spacer or titlebar compensation shim.
             tracksSection
-                .ignoresSafeArea(.container, edges: .top)
             #else
             VStack(spacing: EnsembleDesign.Spacing.none) {
                 tracksSection
                 Spacer(minLength: EnsembleDesign.Spacing.none)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .ignoresSafeArea(edges: .top)
             #endif
         }
         .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
