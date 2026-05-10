@@ -133,7 +133,7 @@ struct StageFlowTrackPanel: View {
                     nowPlayingVM.play(tracks: tracks, startingAt: index)
                 }
                 #else
-                NativeTrackListHost(
+                SongsTrackListHost(
                     tracks: tracks,
                     configuration: NativeTrackListConfiguration(
                         showArtwork: true,

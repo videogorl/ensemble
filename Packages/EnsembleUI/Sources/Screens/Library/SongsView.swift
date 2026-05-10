@@ -334,9 +334,9 @@ public struct SongsView: View {
         #endif
     }
 
-    private var largeScreenTrackSections: [SongsTrackListSection] {
+    private var largeScreenTrackSections: [NativeTrackListSection] {
         libraryVM.trackSections.map { section in
-            SongsTrackListSection(
+            NativeTrackListSection(
                 id: section.letter,
                 title: section.letter,
                 tracks: section.tracks

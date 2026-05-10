@@ -19,7 +19,7 @@ struct TrackSectionScrollRequest: Equatable {
 /// `NSTableView`. The calling view owns filtering/sorting; this host owns the
 /// native row backend and section index wiring.
 public struct SongsTrackListHost: View {
-    private let sections: [SongsTrackListSection]
+    private let sections: [NativeTrackListSection]
     private let configuration: NativeTrackListConfiguration
     private let tableHeaderContent: AnyView?
     private let tableFooterContent: AnyView?
@@ -44,7 +44,7 @@ public struct SongsTrackListHost: View {
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
         self.sections = [
-            SongsTrackListSection(id: "all", title: "", tracks: tracks)
+            NativeTrackListSection(id: "all", title: "", tracks: tracks)
         ]
         self.configuration = configuration
         self.tableHeaderContent = tableHeaderContent
@@ -55,7 +55,7 @@ public struct SongsTrackListHost: View {
     }
 
     public init(
-        sections: [SongsTrackListSection],
+        sections: [NativeTrackListSection],
         configuration: NativeTrackListConfiguration,
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
@@ -105,7 +105,7 @@ public struct SongsTrackListHost: View {
     }
 
     public init(
-        sections: [SongsTrackListSection],
+        sections: [NativeTrackListSection],
         currentTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadRatingKeys: Set<String> = [],
@@ -195,7 +195,7 @@ public struct SongsTrackListHost: View {
     }
 
     private func iOSSection(
-        _ section: SongsTrackListSection,
+        _ section: NativeTrackListSection,
         allTracks: [Track]
     ) -> some View {
         let height = CGFloat(section.tracks.count) * configuration.rowHeight
@@ -297,5 +297,3 @@ public struct SongsTrackListHost: View {
         #endif
     }
 }
-
-public typealias NativeTrackListHost = SongsTrackListHost

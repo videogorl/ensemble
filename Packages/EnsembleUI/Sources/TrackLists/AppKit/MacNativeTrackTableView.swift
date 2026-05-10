@@ -6,7 +6,7 @@ import Nuke
 import AppKit
 
 struct MacNativeTrackTableView: NSViewRepresentable {
-    let sections: [SongsTrackListSection]
+    let sections: [NativeTrackListSection]
     let showArtwork: Bool
     let showTrackNumbers: Bool
     let showAlbumName: Bool
@@ -140,7 +140,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
-        var sections: [SongsTrackListSection]
+        var sections: [NativeTrackListSection]
         var showArtwork: Bool
         var showTrackNumbers: Bool
         var showAlbumName: Bool
@@ -165,7 +165,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         private(set) var rows: [NativeTrackListFlattenedRow] = []
 
         init(
-            sections: [SongsTrackListSection],
+            sections: [NativeTrackListSection],
             showArtwork: Bool,
             showTrackNumbers: Bool,
             showAlbumName: Bool,
@@ -396,22 +396,22 @@ struct MacNativeTrackTableView: NSViewRepresentable {
 
         private func rowAction(for action: TrackSwipeAction, track: Track) -> NSTableViewRowAction? {
             let resolvedActions = interactionModel.resolve(for: track)
-            guard NativeTrackSwipeActionPresenter.isSupported(action, resolvedActions: resolvedActions) else { return nil }
+            guard TrackActionPresentation.isSupported(action, resolvedActions: resolvedActions) else { return nil }
 
             let rowAction = NSTableViewRowAction(
                 style: .regular,
-                title: NativeTrackSwipeActionPresenter.title(for: action, resolvedActions: resolvedActions)
+                title: TrackActionPresentation.title(for: action, resolvedActions: resolvedActions)
             ) { [weak self] _, _ in
                 if action == .favoriteToggle {
                     self?.showFavoriteLoadingToast(for: track, willFavorite: !resolvedActions.isFavorited)
                 }
-                NativeTrackSwipeActionPresenter.execute(action, track: track, resolvedActions: resolvedActions)
+                TrackActionPresentation.execute(action, track: track, resolvedActions: resolvedActions)
                 self?.showSwipeConfirmation(for: action, track: track)
             }
-            rowAction.backgroundColor = NSColor(NativeTrackSwipeActionPresenter.tint(for: action, resolvedActions: resolvedActions))
+            rowAction.backgroundColor = NSColor(TrackActionPresentation.tint(for: action, resolvedActions: resolvedActions))
             rowAction.image = NSImage(
-                systemSymbolName: NativeTrackSwipeActionPresenter.systemImage(for: action, resolvedActions: resolvedActions),
-                accessibilityDescription: NativeTrackSwipeActionPresenter.title(for: action, resolvedActions: resolvedActions)
+                systemSymbolName: TrackActionPresentation.systemImage(for: action, resolvedActions: resolvedActions),
+                accessibilityDescription: TrackActionPresentation.title(for: action, resolvedActions: resolvedActions)
             )
             return rowAction
         }
@@ -488,7 +488,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         }
 
         private func showSwipeConfirmation(for action: TrackSwipeAction, track: Track) {
-            guard let toast = NativeTrackSwipeActionPresenter.confirmationToast(
+            guard let toast = TrackActionPresentation.confirmationToast(
                 for: action,
                 track: track,
                 dedupeNamespace: "mac-songs-table"
@@ -500,7 +500,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
 
         private func showFavoriteLoadingToast(for track: Track, willFavorite: Bool) {
             Task { @MainActor in
-                toastCenter.show(NativeTrackSwipeActionPresenter.favoriteLoadingToast(
+                toastCenter.show(TrackActionPresentation.favoriteLoadingToast(
                     for: track,
                     willFavorite: willFavorite,
                     dedupeNamespace: "mac-songs-table"
@@ -880,10 +880,10 @@ private final class MacNativeTrackTableCell: NSTableCellView {
 }
 
 private extension NSUserInterfaceItemIdentifier {
-    static let track = NSUserInterfaceItemIdentifier("NativeTrackListHost.TrackColumn")
-    static let trackRow = NSUserInterfaceItemIdentifier("NativeTrackListHost.TrackRow")
-    static let hostingRow = NSUserInterfaceItemIdentifier("NativeTrackListHost.HostingRow")
-    static let sectionHeader = NSUserInterfaceItemIdentifier("NativeTrackListHost.SectionHeader")
-    static let bottomSpacer = NSUserInterfaceItemIdentifier("NativeTrackListHost.BottomSpacer")
+    static let track = NSUserInterfaceItemIdentifier("SongsTrackListHost.TrackColumn")
+    static let trackRow = NSUserInterfaceItemIdentifier("SongsTrackListHost.TrackRow")
+    static let hostingRow = NSUserInterfaceItemIdentifier("SongsTrackListHost.HostingRow")
+    static let sectionHeader = NSUserInterfaceItemIdentifier("SongsTrackListHost.SectionHeader")
+    static let bottomSpacer = NSUserInterfaceItemIdentifier("SongsTrackListHost.BottomSpacer")
 }
 #endif

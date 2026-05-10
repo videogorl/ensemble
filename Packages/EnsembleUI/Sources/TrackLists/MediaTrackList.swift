@@ -1263,10 +1263,10 @@ public struct MediaTrackList: UIViewRepresentable {
             let resolvedActions = interactionModel.resolve(for: track)
             return configured.compactMap { candidate -> UIContextualAction? in
                 guard let action = candidate,
-                      NativeTrackSwipeActionPresenter.isSupported(action, resolvedActions: resolvedActions) else { return nil }
+                      TrackActionPresentation.isSupported(action, resolvedActions: resolvedActions) else { return nil }
                 let contextual = UIContextualAction(
                     style: .normal,
-                    title: NativeTrackSwipeActionPresenter.title(for: action, resolvedActions: resolvedActions)
+                    title: TrackActionPresentation.title(for: action, resolvedActions: resolvedActions)
                 ) { [weak self] _, _, completion in
                     guard let self else {
                         completion(false)
@@ -1275,18 +1275,18 @@ public struct MediaTrackList: UIViewRepresentable {
                     if action == .favoriteToggle {
                         self.showFavoriteLoadingToast(for: track, willFavorite: !resolvedActions.isFavorited)
                     }
-                    NativeTrackSwipeActionPresenter.execute(action, track: track, resolvedActions: resolvedActions)
+                    TrackActionPresentation.execute(action, track: track, resolvedActions: resolvedActions)
                     self.showSwipeConfirmation(for: action, track: track)
                     completion(true)
                 }
-                contextual.backgroundColor = UIColor(NativeTrackSwipeActionPresenter.tint(for: action, resolvedActions: resolvedActions))
-                contextual.image = UIImage(systemName: NativeTrackSwipeActionPresenter.systemImage(for: action, resolvedActions: resolvedActions))
+                contextual.backgroundColor = UIColor(TrackActionPresentation.tint(for: action, resolvedActions: resolvedActions))
+                contextual.image = UIImage(systemName: TrackActionPresentation.systemImage(for: action, resolvedActions: resolvedActions))
                 return contextual
             }
         }
 
         private func showSwipeConfirmation(for action: TrackSwipeAction, track: Track) {
-            guard let toast = NativeTrackSwipeActionPresenter.confirmationToast(
+            guard let toast = TrackActionPresentation.confirmationToast(
                 for: action,
                 track: track,
                 dedupeNamespace: "media-table"
@@ -1297,7 +1297,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
 
         private func showFavoriteLoadingToast(for track: Track, willFavorite: Bool) {
-            let toast = NativeTrackSwipeActionPresenter.favoriteLoadingToast(
+            let toast = TrackActionPresentation.favoriteLoadingToast(
                 for: track,
                 willFavorite: willFavorite,
                 dedupeNamespace: "media-table"

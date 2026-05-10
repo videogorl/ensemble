@@ -203,7 +203,7 @@ struct GenreDetailContentView: View {
     var body: some View {
         let tracks = tracks(for: genre)
         #if os(macOS)
-        NativeTrackListHost(
+        SongsTrackListHost(
             tracks: tracks,
             configuration: .songs(
                 currentTrackId: nowPlayingVM.currentTrack?.id,

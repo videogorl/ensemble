@@ -281,7 +281,7 @@ public struct FavoritesView: View {
         #else
         // macOS: AppKit-backed table owns the header and scroll range.
         VStack(spacing: EnsembleDesign.Spacing.none) {
-            NativeTrackListHost(
+            SongsTrackListHost(
                 tracks: viewModel.filteredTracks,
                 configuration: .songs(
                     currentTrackId: currentTrackId,

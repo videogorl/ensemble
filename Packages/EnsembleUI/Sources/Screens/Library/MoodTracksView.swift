@@ -55,7 +55,7 @@ public struct MoodTracksView: View {
             }
             .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
             #else
-            NativeTrackListHost(
+            SongsTrackListHost(
                 tracks: moodTracks,
                 configuration: .songs(
                     currentTrackId: currentTrackId,

@@ -133,8 +133,6 @@ enum TrackActionPresentation {
     }
 }
 
-typealias NativeTrackSwipeActionPresenter = TrackActionPresentation
-
 #if canImport(UIKit)
 
 /// Builds native UIKit menu actions for table-backed media rows.

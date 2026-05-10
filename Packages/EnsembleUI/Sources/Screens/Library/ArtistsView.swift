@@ -1071,7 +1071,7 @@ public struct ArtistDetailView: View {
             }
             .frame(height: height)
             #else
-            NativeTrackListHost(
+            SongsTrackListHost(
                 tracks: viewModel.favoritedTracks,
                 configuration: .songs(
                     currentTrackId: currentTrackId,

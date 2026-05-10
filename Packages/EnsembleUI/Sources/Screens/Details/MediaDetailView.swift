@@ -678,7 +678,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     /// Base content without filter UI — shared between filtered and unfiltered modes.
     /// iOS embeds the header in `MediaTrackList`; macOS embeds the same header in
-    /// `NativeTrackListHost`. The only safe-area override left here is the top
+    /// `SongsTrackListHost`. The only safe-area override left here is the top
     /// toolbar bleed for artwork-backed detail chrome; bottom spacing stays owned
     /// by the native table/list inset and the root mini-player container.
     private var baseContent: some View {
@@ -988,7 +988,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
         #else
-        NativeTrackListHost(
+        SongsTrackListHost(
             sections: macNativeTrackSections,
             configuration: NativeTrackListConfiguration(
                 showArtwork: showArtwork,
