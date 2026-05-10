@@ -38,7 +38,7 @@ final class AddPlexAccountViewModelTests: XCTestCase {
             accountManager: accountManager,
             libraryRepository: LibraryRepository(coreDataStack: stack),
             playlistRepository: PlaylistRepository(coreDataStack: stack),
-            artworkDownloadManager: ArtworkDownloadManager(coreDataStack: stack),
+            artworkDownloadManager: ArtworkDownloadManager(),
             networkMonitor: networkMonitor,
             serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         )

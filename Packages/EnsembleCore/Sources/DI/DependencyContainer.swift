@@ -301,7 +301,7 @@ public final class DependencyContainer: @unchecked Sendable {
             moodRepository: MoodRepository(coreDataStack: coreDataStack),
             downloadManager: DownloadManager(coreDataStack: coreDataStack),
             offlineDownloadTargetRepository: OfflineDownloadTargetRepository(coreDataStack: coreDataStack),
-            artworkDownloadManager: ArtworkDownloadManager(coreDataStack: coreDataStack),
+            artworkDownloadManager: ArtworkDownloadManager(),
             pendingMutationRepository: PendingMutationRepository(coreDataStack: coreDataStack),
             settingsManager: MainActor.assumeIsolated { SettingsManager() },
             navigationCoordinator: MainActor.assumeIsolated { NavigationCoordinator() },

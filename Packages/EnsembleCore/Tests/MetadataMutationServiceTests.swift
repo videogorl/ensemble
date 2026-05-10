@@ -142,7 +142,7 @@ final class MetadataMutationServiceTests: XCTestCase {
         let libraryRepository = LibraryRepository(coreDataStack: stack)
         let downloadManager = DownloadManager(coreDataStack: stack)
         let targetRepository = OfflineDownloadTargetRepository(coreDataStack: stack)
-        let artworkDownloadManager = ArtworkDownloadManager(coreDataStack: stack)
+        let artworkDownloadManager = ArtworkDownloadManager()
         let sourceKey = "plex:acc:srv:lib"
 
         _ = try await libraryRepository.upsertMusicSource(

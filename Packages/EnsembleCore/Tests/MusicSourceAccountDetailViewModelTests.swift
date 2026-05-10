@@ -557,7 +557,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             accountManager: accountManager,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
-            artworkDownloadManager: ArtworkDownloadManager(coreDataStack: stack),
+            artworkDownloadManager: ArtworkDownloadManager(),
             networkMonitor: networkMonitor,
             serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         )

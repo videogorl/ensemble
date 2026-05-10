@@ -37,12 +37,9 @@ public protocol ArtworkDownloadManagerProtocol: Sendable {
 }
 
 public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
-    private let coreDataStack: CoreDataStack
     private let session: URLSession
     
-    public init(coreDataStack: CoreDataStack = .shared) {
-        self.coreDataStack = coreDataStack
-        
+    public init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: config)
