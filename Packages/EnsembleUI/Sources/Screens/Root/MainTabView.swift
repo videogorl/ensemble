@@ -62,23 +62,28 @@ public struct MainTabView: View {
         isViewportNowPlayingPresented
     }
 
-    private var selectedTabSupportsStageFlow: Bool {
+    private var activeStageFlowRootTab: TabItem? {
         #if os(iOS)
-        guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
-
-        switch selectedRootTab {
-        case .albums, .songs, .playlists:
-            return true
-        default:
-            return false
-        }
+        return MainTabStageFlowPolicy.activeRootTab(
+            selectedRootTab: selectedRootTab,
+            morePath: navigationCoordinator.pathSnapshot(for: .settings),
+            isPhone: UIDevice.current.userInterfaceIdiom == .phone
+        )
         #else
-        return false
+        return nil
         #endif
     }
 
-    private func isStageFlowActive(for size: CGSize) -> Bool {
-        selectedTabSupportsStageFlow && size.width > size.height
+    private var selectedTabSupportsStageFlow: Bool {
+        activeStageFlowRootTab != nil
+    }
+
+    private func isStageFlowActive(for size: CGSize, activeTab: TabItem?) -> Bool {
+        #if os(iOS)
+        return activeTab != nil && size.width > size.height
+        #else
+        return false
+        #endif
     }
 
     public var body: some View {
@@ -86,7 +91,8 @@ public struct MainTabView: View {
             let miniPlayerBottomLift = TrackListLayoutMetrics.rootMiniPlayerBottomLift(
                 safeAreaBottom: geometry.safeAreaInsets.bottom
             )
-            let rootStageFlowActive = isStageFlowActive(for: geometry.size)
+            let activeStageFlowRootTab = activeStageFlowRootTab
+            let rootStageFlowActive = isStageFlowActive(for: geometry.size, activeTab: activeStageFlowRootTab)
             let rootChromeSuppressed = rootStageFlowActive
 
             let rootView = VStack(spacing: EnsembleDesign.Spacing.none) {
@@ -96,7 +102,7 @@ public struct MainTabView: View {
                             tabRootView(
                                 for: tab,
                                 rootChromeSuppressed: rootChromeSuppressed,
-                                isStageFlowActive: rootStageFlowActive && selectedRootTab == tab
+                                isStageFlowActive: rootStageFlowActive && activeStageFlowRootTab == tab
                             )
                                 .tag(tab)
                                 .tabItem {
@@ -108,7 +114,7 @@ public struct MainTabView: View {
                             for: .settings,
                             isMoreRoot: true,
                             rootChromeSuppressed: rootChromeSuppressed,
-                            isStageFlowActive: false
+                            isStageFlowActive: rootStageFlowActive && selectedRootTab == .settings
                         )
                             .tag(TabItem.settings)
                             .tabItem {
@@ -347,6 +353,45 @@ public struct MainTabView: View {
         #else
         return false
         #endif
+    }
+}
+
+enum MainTabStageFlowPolicy {
+    static func activeRootTab(
+        selectedRootTab: TabItem,
+        morePath: [NavigationCoordinator.Destination],
+        isPhone: Bool
+    ) -> TabItem? {
+        guard isPhone else {
+            return nil
+        }
+
+        if supportsStageFlow(selectedRootTab) {
+            return selectedRootTab
+        }
+
+        guard selectedRootTab == .settings else {
+            return nil
+        }
+
+        return morePath
+            .compactMap { destination -> TabItem? in
+                guard case .view(let tab) = destination,
+                      supportsStageFlow(tab) else {
+                    return nil
+                }
+                return tab
+            }
+            .last
+    }
+
+    private static func supportsStageFlow(_ tab: TabItem) -> Bool {
+        switch tab {
+        case .albums, .songs, .playlists:
+            return true
+        default:
+            return false
+        }
     }
 }
 
