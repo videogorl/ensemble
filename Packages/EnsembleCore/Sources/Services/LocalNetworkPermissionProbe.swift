@@ -49,12 +49,11 @@ public enum LocalNetworkPermissionProbe {
 
             browser.start(queue: .global(qos: .userInitiated))
 
-            // Safety timeout so we never block the UI indefinitely
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-                Task {
-                    await gate.resumeOnce(continuation)
-                    browser.cancel()
-                }
+            // Safety timeout so we never block the UI indefinitely.
+            Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await gate.resumeOnce(continuation)
+                browser.cancel()
             }
         }
     }

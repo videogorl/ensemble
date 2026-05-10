@@ -931,7 +931,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// True while rate-based fast-seeking (long-press skip) is active.
     private var isFastSeeking = false
     private var fastSeekForward = true
-    private var fallbackReverseTimer: Timer?
+    private var fastSeekTask: Task<Void, Never>?
     private var presentationRouteKind: PresentationRouteKind = .builtInOrWired
     private var effectivePresentationLatency: TimeInterval = 0
 
@@ -2695,8 +2695,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         endTrackTransitionBackgroundTask()
         cleanup()
         cancelNowPlayingArtworkLoad(clearArtwork: true)
-        fallbackReverseTimer?.invalidate()
-        fallbackReverseTimer = nil
+        fastSeekTask?.cancel()
+        fastSeekTask = nil
         isFastSeeking = false
         currentTrack = nil
         playbackState = .stopped
@@ -2899,24 +2899,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Stop fast seeking and update NowPlaying info.
     public func stopFastSeeking() {
-        fallbackReverseTimer?.invalidate()
-        fallbackReverseTimer = nil
+        fastSeekTask?.cancel()
+        fastSeekTask = nil
         isFastSeeking = false
         updateNowPlayingInfo()
     }
 
-    /// Timer-based seeking for both forward and backward directions.
+    /// Task-based seeking for both forward and backward long-press directions.
     private func startFallbackReverseSeeking() {
-        fallbackReverseTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            DispatchQueue.main.async {
-                guard let self, self.isFastSeeking else {
-                    self?.fallbackReverseTimer?.invalidate()
-                    self?.fallbackReverseTimer = nil
-                    return
-                }
-                let step: TimeInterval = self.fastSeekForward ? 2.0 : -2.0
-                let newTime = max(0, self.currentTime + step)
-                self.seek(to: newTime)
+        fastSeekTask?.cancel()
+        fastSeekTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.isFastSeeking else { return }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                guard !Task.isCancelled, self.isFastSeeking else { return }
+                self.seek(to: max(0, self.currentTime + (self.fastSeekForward ? 2.0 : -2.0)))
             }
         }
     }
@@ -4994,6 +4991,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Cancel loading state
         loadingStateTask?.cancel()
         loadingStateTask = nil
+        fastSeekTask?.cancel()
+        fastSeekTask = nil
+        isFastSeeking = false
         cancelNowPlayingArtworkLoad(clearArtwork: true)
 
         bufferedProgress = 0
