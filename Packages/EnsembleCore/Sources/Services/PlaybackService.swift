@@ -234,25 +234,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     typealias PlaybackBufferingProfile = PlaybackRecoveryPolicy.BufferingProfile
     typealias AdaptiveBufferingState = PlaybackRecoveryPolicy.AdaptiveState
 
-    // MARK: - Seek Operation
-
-    /// Encapsulates an in-flight seek — replaces the six scattered pendingSeek* flags.
-    private final class SeekOperation {
-        let id: UInt64
-        let targetTime: TimeInterval
-        let trackID: String?
-        let shouldResume: Bool
-        let startedAt: Date
-
-        init(id: UInt64, targetTime: TimeInterval, trackID: String?, shouldResume: Bool) {
-            self.id = id
-            self.targetTime = targetTime
-            self.trackID = trackID
-            self.shouldResume = shouldResume
-            self.startedAt = Date()
-        }
-    }
-
     // MARK: - Playback Source / Seek Mode
 
     /// Where the audio data for the current track comes from.
@@ -946,7 +927,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func currentTransportNetworkState() -> NetworkState {
         networkMonitor.networkState
     }
-    private var activeSeek: SeekOperation?
     private var seekCounter: UInt64 = 0
     /// True while rate-based fast-seeking (long-press skip) is active.
     private var isFastSeeking = false
@@ -4889,7 +4869,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         audioEngine?.stop()
         clearFileURLCache()
         cancelNowPlayingArtworkLoad(clearArtwork: true)
-        // No-op: activeSeek removed
 
         queue = []
         originalQueue = []
