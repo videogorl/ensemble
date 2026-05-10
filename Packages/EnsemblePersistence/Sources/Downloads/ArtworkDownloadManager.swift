@@ -26,8 +26,6 @@ public enum ArtworkType {
 }
 
 public protocol ArtworkDownloadManagerProtocol: Sendable {
-    func predownloadArtwork(for albums: [CDAlbum], size: Int) async throws -> Int
-    func predownloadArtwork(for artists: [CDArtist], size: Int) async throws -> Int
     func getLocalArtworkPath(for album: CDAlbum) async throws -> String?
     func getLocalArtworkPath(for artist: CDArtist) async throws -> String?
     func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String?
@@ -64,14 +62,6 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
     
     // MARK: - Album Artwork
     
-    /// Pre-download artwork for albums
-    /// Note: This is a placeholder - actual downloading should be done via downloadAndCacheArtwork(from:ratingKey:type:)
-    /// which requires resolved URLs from the sync coordinator
-    public func predownloadArtwork(for albums: [CDAlbum], size: Int = 500) async throws -> Int {
-        // Deprecated - use downloadAndCacheArtwork(from:ratingKey:type:) directly from SyncCoordinator
-        return 0
-    }
-    
     public func getLocalArtworkPath(for album: CDAlbum) async throws -> String? {
         let ratingKey = album.ratingKey
         let filename = "\(ratingKey)_album.jpg"
@@ -81,14 +71,6 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
     }
     
     // MARK: - Artist Artwork
-    
-    /// Pre-download artwork for artists
-    /// Note: This is a placeholder - actual downloading should be done via downloadAndCacheArtwork(from:ratingKey:type:)
-    /// which requires resolved URLs from the sync coordinator
-    public func predownloadArtwork(for artists: [CDArtist], size: Int = 500) async throws -> Int {
-        // Deprecated - use downloadAndCacheArtwork(from:ratingKey:type:) directly from SyncCoordinator
-        return 0
-    }
     
     public func getLocalArtworkPath(for artist: CDArtist) async throws -> String? {
         let ratingKey = artist.ratingKey
