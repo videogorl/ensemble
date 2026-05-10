@@ -353,7 +353,7 @@ Generic detail view used by Album, Playlist, merged playlist, and similar media-
 | Detail action label | component | Shared filled/secondary Play and Shuffle button label treatment | `MediaDetailSurface.ActionLabel` |
 | Detail symbol artwork | component | Shared virtual-collection artwork surface for Favorites, moods, and similar non-album headers | `MediaDetailSurface.SymbolArtwork` |
 | Detail surface policy | policy | Semantic metrics for media-style detail headers, artwork shadows, action labels, and list cards | `EnsembleScaffold.DetailSurface` |
-| Track list | list | Ordered track list (UIKit-backed on iOS, AppKit-backed on macOS for native row actions) | `tracksSection`, `MediaTrackList`, `NativeTrackListHost` |
+| Track list | list | Ordered track list (UIKit-backed on iOS, AppKit-backed on macOS for native row actions) | `tracksSection`, `MediaTrackList`, `SongsTrackListHost` |
 | Background wash | region | Blurred artwork background fading to content | `ArtworkDetailBackground`, `MediaDetailSurface` |
 | Pin menu | menu | Toolbar overflow with pin/unpin, download, playlist actions | `pinMenuButton` |
 
