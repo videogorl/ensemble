@@ -1,4 +1,3 @@
-import CoreData
 import Foundation
 
 public enum ArtworkDownloadError: Error, LocalizedError {
