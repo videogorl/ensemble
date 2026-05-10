@@ -287,10 +287,12 @@ public struct QueueCard: View {
                         .contextMenu { queueContextMenu(for: item, at: capturedCurrentIndex + 1 + index) }
                 }
                 .onMove { source, destination in
-                    guard let fromOffset = source.first else { return }
+                    guard let fromOffset = source.first,
+                          queueItemsToShow.indices.contains(fromOffset) else { return }
+                    let item = queueItemsToShow[fromOffset]
                     let absoluteFrom = capturedCurrentIndex + 1 + fromOffset
                     let absoluteTo = capturedCurrentIndex + 1 + destination
-                    viewModel.moveQueueItem(from: absoluteFrom, to: absoluteTo)
+                    viewModel.moveQueueItem(byId: item.id, from: absoluteFrom, to: absoluteTo)
                 }
             }
             .listStyle(.plain)

@@ -417,30 +417,6 @@ public final class QueueManager {
         flattenAutoplayItemsBeforeIndex(adjustedDest)
     }
 
-    /// Move a queue item from one relative position to another (relative to currentQueueIndex).
-    /// @deprecated Use moveQueueItem(byId:from:to:) instead.
-    public func moveQueueItem(from sourceIndex: Int, to destinationIndex: Int) {
-        let queueStartIndex = currentQueueIndex + 1
-        let absSource = queueStartIndex + sourceIndex
-        let absDest = queueStartIndex + destinationIndex
-
-        guard absSource >= queueStartIndex, absSource < queue.count,
-              absDest >= queueStartIndex, absDest <= queue.count else { return }
-
-        var item = queue.remove(at: absSource)
-
-        // If an autoplay item is moved by the user, flatten it to continuePlaying
-        if item.source == .autoplay {
-            item.source = .continuePlaying
-        }
-
-        let adjustedDest = absDest > absSource ? absDest - 1 : absDest
-        queue.insert(item, at: adjustedDest)
-
-        // Flatten autoplay items that now appear before the moved item
-        flattenAutoplayItemsBeforeIndex(adjustedDest)
-    }
-
     // MARK: - Shuffle
 
     /// Toggle shuffle mode. When enabling, shuffles future non-autoplay tracks.
