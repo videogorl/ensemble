@@ -191,7 +191,7 @@ final class ServerConnectionController {
 
     /// Proactively refresh Plex server connections across configured accounts.
     /// Playback retry paths use this to recover from transient endpoint failures.
-    func refreshConnections(resetStreamFallbackState: () -> Void) async throws {
+    func refreshConnections() async throws {
         var refreshedAnyConnection = false
         var lastError: Error?
 
@@ -220,7 +220,6 @@ final class ServerConnectionController {
             throw lastError ?? PlexAPIError.noServerSelected
         }
 
-        resetStreamFallbackState()
     }
 
     func connectionStateAfterSuccessfulSync(

@@ -487,49 +487,4 @@ extension PlexAPIClient {
         return "/\(transcodeType)/:/transcode/universal/\(startComponent)"
     }
 
-    // MARK: - Legacy Playback URLs
-
-    /// Generate streaming URL for a track (legacy direct file access).
-    public func getStreamURL(for track: PlexTrack) throws -> URL {
-        EnsembleLogger.debug("🔍 PlexAPIClient.getStreamURL(for track): \(track.title)")
-        EnsembleLogger.debug("🔍 Track ratingKey: \(track.ratingKey)")
-        EnsembleLogger.debug("🔍 Track media count: \(track.media?.count ?? 0)")
-
-        if let media = track.media?.first {
-            EnsembleLogger.debug("🔍 First media - parts count: \(media.part?.count ?? 0)")
-            if let part = media.part?.first {
-                EnsembleLogger.debug("🔍 First part key: \(part.key ?? "nil")")
-            } else {
-                EnsembleLogger.debug("❌ No parts in media")
-            }
-        } else {
-            EnsembleLogger.debug("❌ No media array in track")
-        }
-
-        guard let partKey = track.media?.first?.part?.first?.key else {
-            EnsembleLogger.debug("❌ Cannot extract part key from track")
-            throw PlexAPIError.invalidURL
-        }
-
-        EnsembleLogger.debug("🔍 Building URL with partKey: \(partKey)")
-        EnsembleLogger.debug("🔍 Current server URL: \(currentServerURL)")
-        guard var components = URLComponents(string: currentServerURL) else {
-            EnsembleLogger.debug("❌ Failed to create URLComponents from current server URL")
-            throw PlexAPIError.invalidURL
-        }
-
-        components.path = partKey
-        components.queryItems = [
-            URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
-            URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
-        ]
-
-        guard let url = components.url else {
-            EnsembleLogger.debug("❌ Failed to construct final URL")
-            throw PlexAPIError.invalidURL
-        }
-
-        EnsembleLogger.debug("✅ Successfully created stream URL: \(url)")
-        return url
-    }
 }

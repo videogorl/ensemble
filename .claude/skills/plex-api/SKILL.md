@@ -75,11 +75,11 @@ Hub IDs encode this as `plex:{accountId}:{serverId}:{libraryKey}:{hubIdentifier}
 
 **Before making ANY code changes to streaming or playback, test the Plex endpoints with curl.** This is non-negotiable. A `.env` file at the project root contains `PLEX_ACCESS_TOKEN` for testing.
 
-### Known Streaming Facts (curl-verified 2026-03-07)
+### Known Streaming Facts (curl-verified 2026-05-10)
 
 - **Universal transcode endpoint WORKS** — returns 200, valid audio/mpeg
-- **Direct file stream (`/library/parts/...`) returns 503** — DO NOT fall back to direct stream
-- **DO NOT "disable universal endpoint" as a fix** — this has been tried multiple times and always makes things worse
+- **Direct file stream (`/library/parts/...`) can work for compatible originals** — current Minibar test returned 206 audio/flac for `Wedding Song` by Yeah Yeah Yeahs. Keep direct stream as a decision/fallback path; do not assume it is always unavailable.
+- **DO NOT "disable universal endpoint" as a fix** — that cooldown/fallback switch was removed because the current playback path either uses decision-based direct/progressive routing or falls back to a concrete direct stream URL.
 - The "resource unavailable" AVPlayer error is an **AVPlayer-specific issue** with how it handles the response, not a server problem
 - Universal response headers: `Transfer-Encoding: chunked`, `Accept-Ranges: none`, `Connection: close`, no `Content-Length`
 - Decision endpoint MUST be called before `start.mp3` (returns 400 without it)

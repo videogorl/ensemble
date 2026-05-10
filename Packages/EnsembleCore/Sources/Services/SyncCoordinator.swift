@@ -756,20 +756,7 @@ public final class SyncCoordinator: ObservableObject {
     /// Proactively refreshes Plex server connections across configured accounts.
     /// Playback retry paths use this to recover from transient connection failures.
     public func refreshConnection() async throws {
-        try await serverConnectionController.refreshConnections {
-            for provider in syncProviders.values {
-                provider.resetStreamFallbackState()
-            }
-        }
-    }
-    
-    /// Disable the universal transcode endpoint for the provider matching the given source key.
-    /// Called when AVPlayer reports a resource-unavailable error so subsequent stream URL
-    /// requests immediately fall back to direct file URLs without retrying the transcoder.
-    public func disableUniversalEndpoint(for sourceKey: String) {
-        if let provider = providerResolver.provider(sourceKey: sourceKey) {
-            provider.disableUniversalEndpoint()
-        }
+        try await serverConnectionController.refreshConnections()
     }
 
     /// Get the stream URL for a track, routing to the correct provider
