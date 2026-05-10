@@ -1,201 +1,25 @@
-import EnsembleCore
 import SwiftUI
 
 // MARK: - Generic Swipe Helpers
 
 public extension View {
-    /// Standard trailing swipe actions container used across list rows.
-    @ViewBuilder
-    func standardTrailingSwipeActions<Actions: View>(
-        allowsFullSwipe: Bool = false,
-        @ViewBuilder actions: @escaping () -> Actions
-    ) -> some View {
-        #if os(iOS) || os(macOS)
-        swipeActions(edge: .trailing, allowsFullSwipe: allowsFullSwipe) {
-            actions()
-        }
-        #else
-        self
-        #endif
-    }
-
     /// Standard trailing destructive swipe action used across list rows.
     @ViewBuilder
     func standardDeleteSwipeAction(
         allowsFullSwipe: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
-        standardTrailingSwipeActions(allowsFullSwipe: allowsFullSwipe) {
+        #if os(iOS) || os(macOS)
+        swipeActions(edge: .trailing, allowsFullSwipe: allowsFullSwipe) {
             Button(role: .destructive, action: action) {
                 Label("Delete", systemImage: EnsembleDesign.Icon.delete)
             }
         }
+        #else
+        self
+        #endif
     }
 }
-
-// MARK: - Track Swipe Actions (Native List .swipeActions for macOS trackpad)
-
-#if os(iOS) || os(macOS)
-extension View {
-    /// Applies the user's configured track swipe layout as native `.swipeActions`
-    /// on a `List` row. On macOS this enables two-finger trackpad swipe to reveal actions.
-    ///
-    /// - Parameters:
-    ///   - track: The track this row represents.
-    ///   - nowPlayingVM: View model for favorite state and playback actions.
-    ///   - onPlayNext: Callback when "Play Next" is triggered.
-    ///   - onPlayLast: Callback when "Play Last" is triggered.
-    ///   - onAddToPlaylist: Callback when "Add to Playlist" is triggered.
-    ///   - allowsLeadingFullSwipe: Whether leading-edge drag can continue past the revealed buttons and commit the first action.
-    ///   - allowsTrailingFullSwipe: Whether trailing-edge drag can continue past the revealed buttons and commit the first action.
-    func trackSwipeActions(
-        track: Track,
-        nowPlayingVM: NowPlayingViewModel,
-        onPlayNext: (() -> Void)? = nil,
-        onPlayLast: (() -> Void)? = nil,
-        onAddToPlaylist: (() -> Void)? = nil,
-        allowsLeadingFullSwipe: Bool = true,
-        allowsTrailingFullSwipe: Bool = true
-    ) -> some View {
-        let layout = DependencyContainer.shared.settingsManager.trackSwipeLayout
-        let toastCenter = DependencyContainer.shared.toastCenter
-
-        // Resolve supported actions for each edge
-        let leadingActions = layout.leading.compactMap { action -> TrackSwipeAction? in
-            guard let action else { return nil }
-            return isActionSupported(action, onPlayNext: onPlayNext, onPlayLast: onPlayLast, onAddToPlaylist: onAddToPlaylist) ? action : nil
-        }
-        let trailingActions = layout.trailing.compactMap { action -> TrackSwipeAction? in
-            guard let action else { return nil }
-            return isActionSupported(action, onPlayNext: onPlayNext, onPlayLast: onPlayLast, onAddToPlaylist: onAddToPlaylist) ? action : nil
-        }
-
-        return self
-            .swipeActions(edge: .leading, allowsFullSwipe: allowsLeadingFullSwipe && !leadingActions.isEmpty) {
-                ForEach(leadingActions, id: \.self) { action in
-                    swipeActionButton(
-                        for: action,
-                        track: track,
-                        nowPlayingVM: nowPlayingVM,
-                        toastCenter: toastCenter,
-                        onPlayNext: onPlayNext,
-                        onPlayLast: onPlayLast,
-                        onAddToPlaylist: onAddToPlaylist
-                    )
-                }
-            }
-            .swipeActions(edge: .trailing, allowsFullSwipe: allowsTrailingFullSwipe && !trailingActions.isEmpty) {
-                ForEach(trailingActions, id: \.self) { action in
-                    swipeActionButton(
-                        for: action,
-                        track: track,
-                        nowPlayingVM: nowPlayingVM,
-                        toastCenter: toastCenter,
-                        onPlayNext: onPlayNext,
-                        onPlayLast: onPlayLast,
-                        onAddToPlaylist: onAddToPlaylist
-                    )
-                }
-            }
-    }
-
-    // MARK: - Private Helpers
-
-    /// Builds a single swipe action button for the given action type.
-    @ViewBuilder
-    private func swipeActionButton(
-        for action: TrackSwipeAction,
-        track: Track,
-        nowPlayingVM: NowPlayingViewModel,
-        toastCenter: ToastCenter,
-        onPlayNext: (() -> Void)?,
-        onPlayLast: (() -> Void)?,
-        onAddToPlaylist: (() -> Void)?
-    ) -> some View {
-        switch action {
-        case .playNext:
-            Button {
-                onPlayNext?()
-                toastCenter.show(
-                    ToastPayload(
-                        style: .success,
-                        iconSystemName: EnsembleDesign.Icon.playNext,
-                        title: "Play Next",
-                        message: "Added \(track.title).",
-                        dedupeKey: "swipe-play-next-\(track.id)"
-                    )
-                )
-            } label: {
-                MediaActionLabel(kind: .playNext)
-            }
-            .tint(EnsembleDesign.Color.queueNext)
-
-        case .playLast:
-            Button {
-                onPlayLast?()
-                toastCenter.show(
-                    ToastPayload(
-                        style: .success,
-                        iconSystemName: EnsembleDesign.Icon.playLast,
-                        title: "Play Last",
-                        message: "Queued \(track.title) for later.",
-                        dedupeKey: "swipe-play-last-\(track.id)"
-                    )
-                )
-            } label: {
-                MediaActionLabel(kind: .playLast)
-            }
-            .tint(EnsembleDesign.Color.queueLast)
-
-        case .addToPlaylist:
-            Button {
-                onAddToPlaylist?()
-            } label: {
-                MediaActionLabel(kind: .addToPlaylist)
-            }
-            .tint(EnsembleDesign.Color.addToPlaylist)
-
-        case .favoriteToggle:
-            let isFavorited = nowPlayingVM.isTrackFavorited(track)
-            Button {
-                // Show loading toast
-                toastCenter.show(
-                    ToastPayload(
-                        style: .info,
-                        iconSystemName: isFavorited ? EnsembleDesign.Icon.favoriteRemoveFilled : EnsembleDesign.Icon.favoriteFilled,
-                        title: isFavorited ? "Removing from Favorites..." : "Adding to Favorites...",
-                        message: track.title,
-                        duration: 1.0,
-                        dedupeKey: "favorite-toggle-loading-\(track.id)",
-                        showsActivityIndicator: true
-                    )
-                )
-                Task {
-                    await nowPlayingVM.toggleTrackFavorite(track)
-                }
-            } label: {
-                MediaActionLabel(kind: .favorite(isFavorited: isFavorited, usesFilledIcon: true))
-            }
-            .tint(isFavorited ? EnsembleDesign.Color.secondaryText : EnsembleDesign.Color.favorite)
-        }
-    }
-
-    /// Whether the given action has a corresponding callback available.
-    private func isActionSupported(
-        _ action: TrackSwipeAction,
-        onPlayNext: (() -> Void)?,
-        onPlayLast: (() -> Void)?,
-        onAddToPlaylist: (() -> Void)?
-    ) -> Bool {
-        switch action {
-        case .playNext: return onPlayNext != nil
-        case .playLast: return onPlayLast != nil
-        case .addToPlaylist: return onAddToPlaylist != nil
-        case .favoriteToggle: return true
-        }
-    }
-}
-#endif
 
 // MARK: - ClearScrollContentBackgroundModifier
 
