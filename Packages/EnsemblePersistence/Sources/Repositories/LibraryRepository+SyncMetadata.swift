@@ -87,7 +87,7 @@ extension LibraryRepository {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in
                 do {
-                    for entityName in ["CDTrack", "CDAlbum", "CDArtist", "CDGenre", "CDPlaylist"] {
+                    for entityName in ["CDTrack", "CDAlbum", "CDArtist", "CDGenre", "CDMood", "CDPlaylist"] {
                         let request = NSFetchRequest<NSManagedObject>(entityName: entityName)
                         request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
                         let objects = try context.fetch(request)
@@ -115,8 +115,20 @@ extension LibraryRepository {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in
                 do {
-                    // Delete all library entities regardless of source
-                    for entityName in ["CDTrack", "CDAlbum", "CDArtist", "CDGenre", "CDPlaylist", "CDMusicSource", "CDServer"] {
+                    // Delete all library/cache entities regardless of source.
+                    for entityName in [
+                        "CDTrack",
+                        "CDAlbum",
+                        "CDArtist",
+                        "CDGenre",
+                        "CDMood",
+                        "CDPlaylist",
+                        "CDHubItem",
+                        "CDHub",
+                        "CDHomeFeedSnapshot",
+                        "CDMusicSource",
+                        "CDServer"
+                    ] {
                         let request = NSFetchRequest<NSManagedObject>(entityName: entityName)
                         let objects = try context.fetch(request)
                         for object in objects {

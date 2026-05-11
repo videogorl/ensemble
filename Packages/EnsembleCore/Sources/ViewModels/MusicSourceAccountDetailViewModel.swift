@@ -240,9 +240,8 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         error = nil
         defer { isRemovingAccount = false }
 
-        let enabledSources = account.servers.flatMap { server in
+        let accountSources = account.servers.flatMap { server in
             server.libraries.compactMap { library -> MusicSourceIdentifier? in
-                guard library.isEnabled else { return nil }
                 return MusicSourceIdentifier(
                     type: .plex,
                     accountId: account.id,
@@ -255,7 +254,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
 
         accountManager.removePlexAccount(id: account.id)
 
-        for source in enabledSources {
+        for source in accountSources {
             await syncCoordinator.cleanupRemovedSource(source)
         }
 
@@ -360,7 +359,6 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
 
                 if let existingServer {
                     for removedLibrary in existingServer.libraries where !discoveredKeys.contains(removedLibrary.key) {
-                        guard removedLibrary.isEnabled else { continue }
                         removedSources.insert(
                             MusicSourceIdentifier(
                                 type: .plex,
@@ -390,7 +388,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
 
         // Servers no longer present in discovery are considered removed.
         for existingServer in account.servers where !discoveredServerIDs.contains(existingServer.id) {
-            for library in existingServer.libraries where library.isEnabled {
+            for library in existingServer.libraries {
                 removedSources.insert(
                     MusicSourceIdentifier(
                         type: .plex,

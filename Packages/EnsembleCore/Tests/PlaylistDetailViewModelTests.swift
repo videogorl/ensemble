@@ -213,6 +213,36 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         )
     }
 
+    private func makePlaylistAccount(libraryEnabled: Bool) -> PlexAccountConfig {
+        PlexAccountConfig(
+            id: "account-1",
+            email: "user@example.com",
+            plexUsername: "felicity",
+            displayTitle: "Felicity",
+            authToken: "token",
+            servers: [
+                PlexServerConfig(
+                    id: "server-1",
+                    name: "Server One",
+                    url: "https://server.example.com",
+                    connections: [
+                        PlexConnectionConfig(uri: "https://server.example.com", local: false, relay: false, protocol: "https")
+                    ],
+                    token: "server-token",
+                    platform: "Linux",
+                    libraries: [
+                        PlexLibraryConfig(
+                            id: "lib-1",
+                            key: "lib-1",
+                            title: "Music",
+                            isEnabled: libraryEnabled
+                        )
+                    ]
+                )
+            ]
+        )
+    }
+
     private func makeTrack(
         id: String,
         duration: TimeInterval = 100,
@@ -333,6 +363,38 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
         XCTAssertNil(viewModel.error)
+    }
+
+    func testPlaylistViewModelClearsVisiblePlaylistsWhenAllLibrariesAreDisabled() async {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let accountManager = AccountManager(keychain: TestKeychain())
+        accountManager.addPlexAccount(makePlaylistAccount(libraryEnabled: true))
+        let context = CoreDataStack.inMemory().viewContext
+        let playlist = makePlaylist(id: "playlist-a", title: "Road", sourceCompositeKey: "plex:account-1:server-1")
+        playlistRepository.playlists[playlistRepository.playlistKey(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )] = makeCachedPlaylist(playlist, tracks: [], context: context)
+
+        let viewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            accountManager: accountManager
+        )
+
+        await viewModel.loadPlaylists()
+        XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
+
+        accountManager.updatePlexAccount(makePlaylistAccount(libraryEnabled: false))
+        await viewModel.loadPlaylists()
+
+        XCTAssertTrue(viewModel.playlists.isEmpty)
+        XCTAssertTrue(viewModel.displayPlaylists.isEmpty)
+        XCTAssertFalse(viewModel.isShowingStaleSnapshot)
     }
 
     func testPlaylistViewModelSeedsNewInstanceFromLastGoodSnapshot() async {

@@ -47,4 +47,68 @@ final class LibraryRepositoryTests: XCTestCase {
         let track = try XCTUnwrap(fetchedTrack)
         XCTAssertEqual(track.streamId, 456)
     }
+
+    func testDeleteAllLibraryDataPurgesFeedAndMoodCaches() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = LibraryRepository(coreDataStack: stack)
+
+        try await stack.viewContext.perform {
+            let mood = CDMood(context: stack.viewContext)
+            mood.id = "mood-1"
+            mood.key = "/library/sections/1/mood/1"
+            mood.title = "Dreamy"
+            mood.sourceCompositeKey = "plex:account-1:server-1:lib-1"
+
+            let snapshot = CDHomeFeedSnapshot(context: stack.viewContext)
+            snapshot.id = "snapshot-1"
+            snapshot.sourceScopeKey = nil
+            snapshot.sourceName = nil
+            snapshot.createdAt = Date()
+            snapshot.fetchedAt = Date()
+            snapshot.refreshReason = "test"
+            snapshot.freshnessState = "fresh"
+            snapshot.schemaVersion = 1
+            snapshot.isLastGood = true
+
+            let hub = CDHub(context: stack.viewContext)
+            hub.id = "hub-1"
+            hub.title = "Recently Added"
+            hub.type = "album"
+            hub.order = 0
+            hub.snapshot = snapshot
+
+            let item = CDHubItem(context: stack.viewContext)
+            item.id = "album-1"
+            item.type = "album"
+            item.title = "Album One"
+            item.sourceCompositeKey = "plex:account-1:server-1:lib-1"
+            item.order = 0
+            item.hub = hub
+
+            hub.items = NSOrderedSet(object: item)
+            snapshot.hubs = NSOrderedSet(object: hub)
+
+            try stack.viewContext.save()
+        }
+
+        try await repository.deleteAllLibraryData()
+
+        let remainingMoods = try await stack.viewContext.perform {
+            try stack.viewContext.fetch(CDMood.fetchRequest()).count
+        }
+        let remainingSnapshots = try await stack.viewContext.perform {
+            try stack.viewContext.fetch(CDHomeFeedSnapshot.fetchRequest()).count
+        }
+        let remainingHubs = try await stack.viewContext.perform {
+            try stack.viewContext.fetch(CDHub.fetchRequest()).count
+        }
+        let remainingHubItems = try await stack.viewContext.perform {
+            try stack.viewContext.fetch(CDHubItem.fetchRequest()).count
+        }
+
+        XCTAssertEqual(remainingMoods, 0)
+        XCTAssertEqual(remainingSnapshots, 0)
+        XCTAssertEqual(remainingHubs, 0)
+        XCTAssertEqual(remainingHubItems, 0)
+    }
 }

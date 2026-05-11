@@ -71,7 +71,8 @@ public extension DependencyContainer {
             playlistRepository: playlistRepository,
             syncCoordinator: syncCoordinator,
             mutationCoordinator: mutationCoordinator,
-            toastCenter: toastCenter
+            toastCenter: toastCenter,
+            accountManager: accountManager
         )
     }
 

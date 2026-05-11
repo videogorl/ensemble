@@ -467,13 +467,15 @@ public struct SidebarView: View {
     }
 
     private var sidebarPlaylistCacheInvalidations: AnyPublisher<Void, Never> {
-        Publishers.Merge5(
-            playlistsVM.$playlists.map { _ in () },
-            playlistsVM.$sortedDisplayPlaylists.map { _ in () },
-            playlistsVM.$playlistSortOption.map { _ in () },
-            playlistsVM.$filterOptions.map { _ in () },
-            playlistsVM.$isMergeEnabled.map { _ in () }
-        )
+        Publishers.MergeMany([
+            playlistsVM.$playlists.map { _ in () }.eraseToAnyPublisher(),
+            playlistsVM.$sortedDisplayPlaylists.map { _ in () }.eraseToAnyPublisher(),
+            playlistsVM.$playlistSortOption.map { _ in () }.eraseToAnyPublisher(),
+            playlistsVM.$filterOptions.map { _ in () }.eraseToAnyPublisher(),
+            playlistsVM.$isMergeEnabled.map { _ in () }.eraseToAnyPublisher(),
+            libraryVM.$hasEnabledLibraries.map { _ in () }.eraseToAnyPublisher(),
+            libraryVM.$isRestoringCloudSources.map { _ in () }.eraseToAnyPublisher()
+        ])
         .eraseToAnyPublisher()
     }
 
@@ -505,6 +507,12 @@ public struct SidebarView: View {
     /// Uses @State instead of computed properties to survive NavigationSplitView
     /// re-layouts on macOS that can drop computed property changes.
     private func rebuildCachedSidebarPlaylists() {
+        guard libraryVM.hasEnabledLibraries || libraryVM.isRestoringCloudSources else {
+            cachedSmartPlaylists = []
+            cachedRegularPlaylists = []
+            return
+        }
+
         let items = buildSidebarPlaylistItems()
         let newSmart = items.filter(\.isSmart)
         let newRegular = items.filter { !$0.isSmart }
