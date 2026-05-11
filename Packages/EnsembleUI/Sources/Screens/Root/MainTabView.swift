@@ -294,7 +294,6 @@ public struct MainTabView: View {
             }
         }
         .environment(\.isStageFlowActive, isStageFlowActive)
-        .hideTabBarIfAvailable(isHidden: rootChromeSuppressed)
         .overlay(alignment: .bottom) {
             if showsPhoneAuroraOverlay &&
                 selectedRootTab == tab &&

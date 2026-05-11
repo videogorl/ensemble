@@ -4,10 +4,10 @@ This document defines the canonical names for UI elements across the Ensemble ap
 
 ---
 
-## NowPlayingView
+## Now Playing
 
-- **View name:** `NowPlayingSheetView` (new card-based UI), `NowPlayingView` (legacy)
-- **Canonical name:** NowPlayingView
+- **View name:** `NowPlayingSheetView`, `NowPlayingViewportRoot`, `ExternalDisplayNowPlayingView`
+- **Canonical name:** Now Playing
 - **Area:** Player
 - **Platform:** iOS, iPadOS, macOS
 - **Definition status:** Draft

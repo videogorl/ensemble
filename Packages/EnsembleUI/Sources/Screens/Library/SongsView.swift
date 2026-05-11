@@ -10,7 +10,6 @@ import AppKit
 
 public struct SongsView: View {
     @Environment(\.dependencies) private var deps
-    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @Environment(\.isStageFlowActive) private var isStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @ObservedObject var libraryVM: LibraryViewModel

@@ -28,7 +28,6 @@ public struct FavoritesView: View {
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
     @State private var hasCompletedInitialLoad = false
     @Environment(\.dependencies) private var deps
-    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     private var backgroundColor: Color {

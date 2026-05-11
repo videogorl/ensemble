@@ -95,19 +95,6 @@ public extension View {
         }
     }
     
-    @ViewBuilder
-    func hideTabBarIfAvailable(isHidden: Bool) -> some View {
-        #if os(iOS)
-        if #available(iOS 16.0, *) {
-            self.toolbar(isHidden ? .hidden : .visible, for: .tabBar)
-        } else {
-            self
-        }
-        #else
-        self
-        #endif
-    }
-
     /// Enables/disables StageFlow landscape rotation support from the root shell.
     @ViewBuilder
     func stageFlowRotationSupport(isEnabled: Bool) -> some View {

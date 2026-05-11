@@ -184,8 +184,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 
 ## Known Issues
 
-- **watchOS (deferred as of February 21, 2026):** Authentication path references missing `AuthViewModel`, so the watch target does not currently compile/run.
-  - iOS/macOS remediation is prioritized first; watchOS restoration is intentionally out of scope for this pass.
+- **watchOS (deferred):** The watch target is currently a standalone companion shell. Authentication and playback controls are not shipped yet.
 - **Background continued processing limits (iOS 26+):** `BGContinuedProcessingTask` is best-effort; queued requests can be rejected or canceled by the system, and the app falls back to the persistent in-app queue.
 - **Artwork Pre-Caching:** Methods exist but not automatically called during sync
 - **Visibility Profile UI:** `LibraryVisibilityProfile` groundwork is implemented, but profile selector/editor UI is not shipped yet
@@ -215,7 +214,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - Optional iOS 26 `BGContinuedProcessingTask` acceleration path for user-initiated bulk offline downloads
 
 **Next Steps:**
-- Fix watchOS authentication
+- Design and implement watchOS companion authentication and playback
 - Add automatic artwork pre-caching during sync
 - Implement queue reordering and waveform seeking
 
@@ -238,7 +237,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [x] Search functionality
 - [x] iPad sidebar navigation
 - [x] Account-centric Music Sources settings and detail flow
-- [x] watchOS basic playback (historical implementation; currently blocked by deferred auth compile issue)
+- [ ] watchOS companion authentication and playback controls (deferred)
 - [x] **Hub-Based Home Screen** — Personalized content discovery (Recently Added, Recently Played, etc.)
 - [x] **Customizable Hub Order** — Drag-to-reorder hub sections per music source with reset-to—default
 - [x] **StageFlow** — Immersive landscape browsing with centered snapping, inward-facing side cards, and a slide-out track panel

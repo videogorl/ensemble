@@ -14,7 +14,6 @@ public struct ArtistsView: View {
     private let externalSelectedArtist: Binding<Artist?>?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
-    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedArtistSections: [ArtistSection] = []
     @State private var localSelectedArtist: Artist?
