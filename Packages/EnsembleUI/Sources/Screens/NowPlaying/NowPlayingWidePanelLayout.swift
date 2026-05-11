@@ -11,11 +11,7 @@ struct NowPlayingWidePanelLayout: View {
     private let maxContentHeight: CGFloat?
     private let headerLeadingPadding: CGFloat
     private let headerTrailingPadding: CGFloat
-    private let showsTrackHeader: Bool
-    private let keepsQueueAlwaysVisible: Bool
-    private let showsLyricsTransportControls: Bool
     private let centersContentInAvailableSpace: Bool
-    @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
 
     init(
@@ -27,9 +23,6 @@ struct NowPlayingWidePanelLayout: View {
         maxContentHeight: CGFloat? = nil,
         headerLeadingPadding: CGFloat = 0,
         headerTrailingPadding: CGFloat = 0,
-        showsTrackHeader: Bool = true,
-        keepsQueueAlwaysVisible: Bool = false,
-        showsLyricsTransportControls: Bool = true,
         centersContentInAvailableSpace: Bool = false
     ) {
         self.viewModel = viewModel
@@ -40,11 +33,7 @@ struct NowPlayingWidePanelLayout: View {
         self.maxContentHeight = maxContentHeight
         self.headerLeadingPadding = headerLeadingPadding
         self.headerTrailingPadding = headerTrailingPadding
-        self.showsTrackHeader = showsTrackHeader
-        self.keepsQueueAlwaysVisible = keepsQueueAlwaysVisible
-        self.showsLyricsTransportControls = showsLyricsTransportControls
         self.centersContentInAvailableSpace = centersContentInAvailableSpace
-        self._playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
     }
 
     var body: some View {
@@ -80,23 +69,7 @@ struct NowPlayingWidePanelLayout: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: EnsembleScaffold.NowPlaying.sectionTopPadding) {
-            if showsTrackHeader {
-                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                    Text(playbackProjection.currentTrack?.title ?? "Now Playing")
-                        .font(EnsembleDesign.Typography.detailSubtitle.weight(.semibold))
-                        .lineLimit(1)
-
-                    if let artist = playbackProjection.currentTrack?.artistName, !artist.isEmpty {
-                        Text(artist)
-                            .font(EnsembleDesign.Typography.stateMessage)
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer()
-            } else {
-                Spacer()
-            }
+            Spacer()
 
             Picker("Panel", selection: panelSelection) {
                 Text("Queue").tag(NowPlayingPanelPage.queue.rawValue)
@@ -145,8 +118,8 @@ struct NowPlayingWidePanelLayout: View {
             viewModel: viewModel,
             currentPage: $currentPage,
             isLowPowerMode: powerStateMonitor.isLowPowerMode,
-            showsLyricsTransportControls: showsLyricsTransportControls,
-            keepsQueueAlwaysVisible: keepsQueueAlwaysVisible
+            showsLyricsTransportControls: false,
+            keepsQueueAlwaysVisible: true
         )
     }
 

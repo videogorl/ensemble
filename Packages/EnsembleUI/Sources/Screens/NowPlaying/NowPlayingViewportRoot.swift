@@ -117,9 +117,6 @@ struct NowPlayingViewportRoot: View {
                         maxContentWidth: contentMaxWidth,
                         maxContentHeight: contentMaxHeight,
                         headerTrailingPadding: EnsembleScaffold.NowPlaying.viewportNarrowTrailingPadding,
-                        showsTrackHeader: false,
-                        keepsQueueAlwaysVisible: true,
-                        showsLyricsTransportControls: false,
                         centersContentInAvailableSpace: true
                     )
                 } else {
