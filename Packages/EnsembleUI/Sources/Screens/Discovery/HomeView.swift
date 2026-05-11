@@ -76,7 +76,7 @@ public struct HomeView: View {
         .onDisappear {
             viewModel.handleViewVisibilityChange(isVisible: false)
         }
-        .refreshCommand("Refresh Feed") {
+        .refreshCommand {
             await viewModel.refresh()
         }
     }

@@ -54,7 +54,7 @@ public struct GenresView: View {
         .refreshable {
             await libraryVM.refreshFromServer()
         }
-        .refreshCommand("Refresh Genres") {
+        .refreshCommand {
             await libraryVM.refreshFromServer()
         }
         .profileToolbar()

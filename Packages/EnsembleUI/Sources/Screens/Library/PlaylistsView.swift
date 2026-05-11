@@ -324,7 +324,7 @@ public struct PlaylistsView: View {
             .refreshable {
                 await viewModel.refreshFromServer()
             }
-            .refreshCommand("Refresh Playlists") {
+            .refreshCommand {
                 await viewModel.refreshFromServer()
             }
             .profileToolbar()

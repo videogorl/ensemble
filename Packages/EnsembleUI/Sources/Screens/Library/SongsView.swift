@@ -122,7 +122,7 @@ public struct SongsView: View {
         .refreshable {
             await libraryVM.refreshFromServer()
         }
-        .refreshCommand("Refresh Songs") {
+        .refreshCommand {
             await libraryVM.refreshFromServer()
         }
         .profileToolbar()

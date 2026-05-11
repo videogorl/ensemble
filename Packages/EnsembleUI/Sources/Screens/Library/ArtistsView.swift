@@ -48,7 +48,7 @@ public struct ArtistsView: View {
         .refreshable {
             await libraryVM.refreshFromServer()
         }
-        .refreshCommand("Refresh Artists") {
+        .refreshCommand {
             await libraryVM.refreshFromServer()
         }
         .profileToolbar()

@@ -54,7 +54,7 @@ public struct DownloadsView: View {
         .refreshable {
             await viewModel.refresh()
         }
-        .refreshCommand("Refresh Downloads") {
+        .refreshCommand {
             await viewModel.refresh()
         }
     }
