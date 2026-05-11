@@ -119,11 +119,9 @@ public struct AlbumCard: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        #if !os(watchOS)
         .onDrag {
             MediaDragExportPolicy.itemProvider(for: MediaDragPayload.album(album))
         }
-        #endif
     }
 }
 

@@ -1,7 +1,7 @@
 import Combine
 import EnsembleCore
 import SwiftUI
-#if canImport(UIKit) && !os(watchOS)
+#if canImport(UIKit)
 import UIKit
 #endif
 
@@ -130,7 +130,7 @@ private struct RootMiniPlayerOverlay: View {
 }
 
 /// Root view that renders the main content directly (no auth gate)
-@available(iOS 15.0, macOS 12.0, watchOS 8.0, *)
+@available(iOS 15.0, macOS 12.0, *)
 public struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
@@ -263,7 +263,7 @@ public struct RootView: View {
     }
 
     private func updateAppearance() {
-        #if canImport(UIKit) && !os(watchOS)
+        #if canImport(UIKit)
         if #available(iOS 16.0, *) {
             return
         }

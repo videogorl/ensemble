@@ -1,5 +1,5 @@
 import SwiftUI
-#if canImport(UIKit) && !os(watchOS)
+#if canImport(UIKit)
 import UIKit
 #endif
 

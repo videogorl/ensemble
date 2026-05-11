@@ -32,11 +32,9 @@ public struct PlaylistCard: View {
                 onTap?()
             }
         }
-        #if !os(watchOS)
         .onDrag {
             MediaDragExportPolicy.itemProvider(for: MediaDragPayload.playlist(playlist))
         }
-        #endif
     }
 }
 
@@ -164,11 +162,9 @@ public struct PlaylistRow: View {
         }
         .contentShape(Rectangle())
         .opacity(isDisabled ? 0.55 : 1.0)
-        #if !os(watchOS)
         .onDrag {
             MediaDragExportPolicy.itemProvider(for: MediaDragPayload.displayPlaylist(displayPlaylist))
         }
-        #endif
     }
 }
 

@@ -1427,7 +1427,6 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private func sidebarPlaylistDropDestination<Content: View>(_ content: Content, playlist: SidebarPlaylistItem) -> some View {
-        #if !os(watchOS)
         SidebarPlaylistDragDropHost(
             content: content,
             playlist: playlist,
@@ -1435,12 +1434,8 @@ public struct SidebarView: View {
             playlistsVM: playlistsVM,
             nowPlayingVM: nowPlayingVM
         )
-        #else
-        content
-        #endif
     }
 
-    #if !os(watchOS)
     private struct SidebarPlaylistDragDropHost<Content: View>: View {
         @Environment(\.dependencies) private var deps
 
@@ -1652,8 +1647,6 @@ public struct SidebarView: View {
             )
         }
     }
-
-    #endif
 
     @ViewBuilder
     private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
