@@ -642,12 +642,6 @@ public final class SiriPlaybackCoordinator {
         SiriMatchScorer.scoreMatch(query: query, candidate: candidate)
     }
 
-    private func trimmedNonEmpty(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
     private func playlistSearchSourceKeys(from enabledLibrarySourceKeys: Set<String>) -> Set<String> {
         var keys = enabledLibrarySourceKeys
 

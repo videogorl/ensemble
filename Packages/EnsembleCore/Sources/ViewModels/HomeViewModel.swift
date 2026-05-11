@@ -581,18 +581,6 @@ public final class HomeViewModel: ObservableObject {
         }
     }
 
-    private static func hubItemExistsInLocalLibrary(
-        _ item: HubItem,
-        libraryRepository: LibraryRepositoryProtocol,
-        playlistRepository: PlaylistRepositoryProtocol
-    ) async throws -> Bool {
-        try await resolveHubItemFromLocalLibrary(
-            item,
-            libraryRepository: libraryRepository,
-            playlistRepository: playlistRepository
-        ) != nil
-    }
-
     private static func resolveHubItemFromLocalLibrary(
         _ item: HubItem,
         libraryRepository: LibraryRepositoryProtocol,

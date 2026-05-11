@@ -386,25 +386,6 @@ public struct SearchView: View {
         }
     }
 
-    private func exploreListSection<T: Identifiable, Content: View>(
-        title: String,
-        items: [T],
-        @ViewBuilder content: @escaping (T) -> Content
-    ) -> some View {
-        Section {
-            LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
-                ForEach(items) { item in
-                    content(item)
-                }
-            }
-        } header: {
-            Text(title)
-                .font(EnsembleDesign.Typography.actionLabel)
-                .foregroundColor(EnsembleDesign.Color.primaryText)
-                .textCase(nil)
-        }
-    }
-    
     private func exploreSection<T: Identifiable, Content: View>(
         title: String,
         items: [T],

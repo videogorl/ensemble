@@ -1008,15 +1008,6 @@ public struct SidebarView: View {
         }
     }
 
-    /// SF Symbol for each pinned item type
-    private func iconForPinType(_ type: PinnedItemType) -> String {
-        switch type {
-        case .album: return EnsembleDesign.Icon.album
-        case .artist: return EnsembleDesign.Icon.artist
-        case .playlist: return EnsembleDesign.Icon.playlist
-        }
-    }
-
     @ViewBuilder
     private var detailView: some View {
         Group {

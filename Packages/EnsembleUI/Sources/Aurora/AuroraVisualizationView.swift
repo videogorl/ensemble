@@ -471,66 +471,6 @@ public struct AuroraVisualizationView: View {
         }
     }
     
-    /// Draws subtle peak hold indicators
-    private func drawPeakLayer(context: GraphicsContext, size: CGSize, peaks: [Double]) {
-        let bandWidth = size.width / CGFloat(bandCount)
-        let peakOpacity = (colorScheme == .dark ? 0.4 : 0.3)
-
-        for i in 0..<bandCount {
-            let peakIntensity = peaks[i]
-            guard peakIntensity > 0.1 else { continue }
-            
-            // Apply same bell curve to peaks for consistency
-            let normalizedPos = Double(i) / Double(bandCount - 1)
-            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.34, 2)))
-            
-            let peakHeight = minHeight + (maxHeight - minHeight) * CGFloat(pow(peakIntensity, 0.6) * bellFactor)
-            let centerX = (CGFloat(i) + 0.5) * bandWidth
-            let peakWidth = bandWidth * 2.0
-            
-            let peakY = size.height - peakHeight - poolHeight
-            
-            // Small ellipse at peak position
-            let peakRect = CGRect(
-                x: centerX - peakWidth / 2,
-                y: peakY - 2,
-                width: peakWidth,
-                height: 4
-            )
-            
-            var peakContext = context
-            peakContext.blendMode = .plusLighter
-            peakContext.addFilter(.blur(radius: 4))
-            
-            peakContext.fill(
-                Path(ellipseIn: peakRect),
-                with: .color(accentColor.opacity(peakOpacity * peakIntensity))
-            )
-        }
-    }
-
-    /// Draws a saturation gradient over the aurora: desaturated (~0.5) at the bottom,
-    /// fully saturated at the top. Uses the .saturation blend mode with a gray gradient —
-    /// gray has zero saturation so it reduces the destination's color intensity by its opacity.
-    private func drawSaturationGradient(context: GraphicsContext, size: CGSize) {
-        var satContext = context
-        satContext.blendMode = .saturation
-
-        let rect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
-        satContext.fill(
-            Path(rect),
-            with: .linearGradient(
-                Gradient(stops: [
-                    .init(color: .clear, location: 0.0),
-                    .init(color: .gray.opacity(0.15), location: 0.35),
-                    .init(color: .gray.opacity(0.5), location: 1.0)
-                ]),
-                startPoint: CGPoint(x: rect.midX, y: rect.minY),
-                endPoint: CGPoint(x: rect.midX, y: rect.maxY)
-            )
-        )
-    }
-
     /// Adds a soft accent haze where active bands dissolve into the bottom pool.
     private func drawBandPoolBridge(context: GraphicsContext, size: CGSize, energy: Double) {
         let activeWidth = activeContentMaxWidth.map { min(size.width, $0) } ?? size.width

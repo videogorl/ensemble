@@ -68,7 +68,6 @@ public final class SearchViewModel: ObservableObject {
     private var lastExploreLoadTime: Date?
     private let exploreDebounceInterval: TimeInterval = 2.0
     private let recentSearchesKey = "ensemble_recent_searches"
-    private var commitSearchTask: Task<Void, Never>?
     private var hasLoadedExploreContent = false
     private var unfilteredTrackResults: [Track] = []
     private var unfilteredArtistResults: [Artist] = []

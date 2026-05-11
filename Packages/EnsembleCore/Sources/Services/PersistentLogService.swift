@@ -36,9 +36,6 @@ public final class PersistentLogService: ObservableObject {
     /// Maximum number of session files to retain on disk.
     private static let maxSessions = 5
 
-    /// How many writes between forced disk flushes (synchronizeFile).
-    private static let flushInterval = 50
-
     /// UserDefaults key for the logging toggle.
     private static let enabledKey = "persistentLoggingEnabled"
 

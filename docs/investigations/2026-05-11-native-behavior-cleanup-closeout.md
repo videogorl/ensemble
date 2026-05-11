@@ -43,6 +43,7 @@ Remaining `GeometryReader` usage is concentrated in measurement or intentionally
 ### Removed Or Covered
 
 - The unused SwiftUI track-row/swipe layer is documented as removed and should not return.
+- The second pass removed private dead code that had no live call sites: stale playback seek/source scaffolding, a buffered-progress helper, analyzer/log constants, unused Search/StageFlow/MainTabView helpers, unused aurora drawing layers, and the old feed availability wrapper.
 - Root-owned StageFlow now has coverage for visible tabs, Albums-in-More, and Playlists-in-More.
 - Destructive library cleanup now has explicit test coverage that downloaded files and sidecar files are removed, not just CoreData download rows.
 - Feed documentation now matches current behavior: native scroll views own gestures, and automatic refresh is deferred only while Feed is off-screen.

@@ -234,20 +234,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     typealias PlaybackBufferingProfile = PlaybackRecoveryPolicy.BufferingProfile
     typealias AdaptiveBufferingState = PlaybackRecoveryPolicy.AdaptiveState
 
-    // MARK: - Playback Source / Seek Mode
-
-    /// Where the audio data for the current track comes from.
-    private enum PlaybackSource {
-        case localFile      // Downloaded track on disk — instant seeks, never buffers
-        case networkStream  // Remote or LAN stream — may need to buffer
-    }
-
-    /// How to handle UI state during a seek.
-    private enum SeekMode {
-        case transparent  // Data available — player pauses internally but UI stays .playing
-        case buffering    // Data unavailable — show .buffering, engage stall recovery
-    }
-
     static let stallEscalationThreshold = PlaybackRecoveryPolicy.stallEscalationThreshold
     static let stallEscalationWindow: TimeInterval = PlaybackRecoveryPolicy.stallEscalationWindow
     static let conservativeModeDuration: TimeInterval = PlaybackRecoveryPolicy.conservativeModeDuration
@@ -927,7 +913,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func currentTransportNetworkState() -> NetworkState {
         networkMonitor.networkState
     }
-    private var seekCounter: UInt64 = 0
     /// True while rate-based fast-seeking (long-press skip) is active.
     private var isFastSeeking = false
     private var fastSeekForward = true
@@ -4997,11 +4982,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         cancelNowPlayingArtworkLoad(clearArtwork: true)
 
         bufferedProgress = 0
-    }
-
-    private func updateBufferedProgress() {
-        // AudioPlaybackEngine plays from local files — always fully buffered
-        bufferedProgress = audioEngine?.currentTrackId != nil ? 1.0 : 0
     }
 
     // MARK: - Now Playing Info

@@ -569,10 +569,6 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         min(max(geometry.size.width * 0.42, 300), 380)
     }
 
-    private var detailPanelTrailingInset: CGFloat {
-        14
-    }
-
     private func stageCenterX(for geometry: GeometryProxy) -> CGFloat {
         geometry.size.width * 0.5
     }
