@@ -40,17 +40,6 @@ No unresolved critical issues currently documented.
 - **Verification:** Code search showed no direct `CHHapticPattern`/`CoreHaptics` usage in the Profile editor path; the only app-owned feedback calls are standard `UISelectionFeedbackGenerator`/`UIImpactFeedbackGenerator` usages outside startup text-input presentation
 - **Workarounds:** Ignore in simulator logs, use a connected hardware keyboard, or disable keyboard haptics in the simulator's Settings app if available
 
-### External Display (AirPlay) Pixelation (Mar 30, 2026)
-- **Location:** `ExternalDisplayNowPlayingView.swift`, `ExternalDisplaySceneDelegate.swift`
-- **Issue:** Some UI elements on the AirPlay external display appear slightly soft/pixelated — particularly MarqueeText labels, play/pause button, and panel header actions. UIKit-rendered elements (QueueTableView rows) and images render at full resolution.
-- **Root cause:** SwiftUI renders Metal drawables at `UIScreen.scale` (1x for AirPlay virtual screens). The `scaleEffect` transform used to scale the 1024×768 reference layout to TV resolution operates on the already-rasterized 1x texture. Elements with compositing boundaries (masks, conditional ZStacks) lose sharpness in the transform.
-- **Approaches tried and reverted:**
-  1. `contentScaleFactor` override — SwiftUI resets it on internal `_UIGraphicsView` instances during each render pass
-  2. `UITraitCollection(displayScale:)` via `setOverrideTraitCollection` — partial improvement but still pixelated for composited elements
-  3. Full TV-resolution rendering with `DynamicTypeSize(.accessibility4)` — broke card layouts completely (text scaled but padding/spacing didn't)
-- **Status:** Accepted as SwiftUI platform limitation for v1. The overall layout and functionality work well; only some text elements are slightly soft.
-- **Impact:** Cosmetic only — all features (lyrics sync, queue, info) work correctly on TV
-
 ### macOS Instrumental Mode — Complement-Based Vocal Removal (Mar 31, 2026)
 - **Location:** `AudioPlaybackEngine.swift` (`applyIsolationParameters`, `loadHighQualityVoiceModel`, `createIsolationEffect`)
 - **Issue:** On macOS, AUSoundIsolation always isolates vocals regardless of the `soundToIsolate` parameter or model loaded. On iOS, the v0 model with `soundToIsolate=0.0` directly outputs a clean instrumental stem. macOS has no equivalent direct instrumental output.

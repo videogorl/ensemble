@@ -7,19 +7,9 @@ import SwiftUI
 /// - Panel selection follows `viewModel.currentPage` from the device automatically
 /// - Forces dark color scheme (better for TV viewing)
 /// - When nothing is playing, the existing `ControlsCard.emptyStateView` handles the idle state
-/// - Content is constrained to a 4:3 aspect ratio so panels don't stretch too wide on 16:9 TVs
-/// - Uses a reference iPad layout (1024×768) scaled up to the TV via `scaleEffect`
 ///
 /// The view shares the same `NowPlayingViewModel` instance as the main UI so playback,
 /// lyrics, queue, and panel selection stay in sync with zero duplicate work.
-///
-/// ## Known limitation
-///
-/// SwiftUI renders Metal drawables at `UIScreen.scale` (1x for AirPlay TVs).
-/// `scaleEffect` scales the rendered texture, so some elements with compositing
-/// boundaries (MarqueeText masks, conditional ZStacks) may appear slightly soft.
-/// This is a SwiftUI platform limitation — UIKit-rendered elements (like
-/// QueueTableView rows) and images render at full resolution.
 public struct ExternalDisplayNowPlayingView: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
@@ -28,74 +18,21 @@ public struct ExternalDisplayNowPlayingView: View {
         self.viewModel = viewModel
     }
 
-    /// Reference size matching a landscape iPad layout. The card components are
-    /// designed for this viewing scale. We lay out at this size and use `scaleEffect`
-    /// to fill the 4:3 container.
-    private static let referenceSize = CGSize(
-        width: EnsembleScaffold.NowPlaying.viewportContentMaxWidth,
-        height: EnsembleScaffold.NowPlaying.viewportContentMaxHeight
-    )
-
     public var body: some View {
-        GeometryReader { geometry in
-            let container = containerSize(for: geometry.size)
-            let scale = layoutScale(for: container)
+        ZStack {
+            NowPlayingBackdrop(
+                viewModel: viewModel,
+                consumer: .externalDisplay,
+                activeContentMaxWidth: EnsembleScaffold.NowPlaying.viewportContentMaxWidth,
+                forceDarkPresentation: true
+            )
 
-            ZStack {
-                // Background fills the entire TV screen (edge-to-edge blur)
-                NowPlayingBackdrop(
-                    viewModel: viewModel,
-                    consumer: .externalDisplay,
-                    activeContentMaxWidth: container.width,
-                    forceDarkPresentation: true
-                )
-
-                // Content constrained to 4:3, laid out at iPad reference size
-                // then scaled up proportionally via scaleEffect.
-                NowPlayingWidePanelLayout(
-                    viewModel: viewModel,
-                    currentPage: $viewModel.currentPage
-                )
-                    .frame(
-                        width: container.width / scale,
-                        height: container.height / scale
-                    )
-                    .scaleEffect(scale)
-                    .frame(width: container.width, height: container.height)
-            }
-            .frame(width: geometry.size.width, height: geometry.size.height)
+            NowPlayingWidePanelLayout(
+                viewModel: viewModel,
+                currentPage: $viewModel.currentPage
+            )
         }
         .accentColor(settingsManager.accentColor.color)
         .preferredColorScheme(.dark)
-    }
-
-    // MARK: - Layout
-
-    /// Computes the largest 4:3 box that fits within the TV screen.
-    /// This keeps controls and panels at iPad-like proportions instead of
-    /// stretching across the full 16:9 (or wider) TV width.
-    private func containerSize(for screenSize: CGSize) -> CGSize {
-        let targetRatio = EnsembleScaffold.NowPlaying.externalDisplayAspectRatio
-        let screenRatio = screenSize.width / screenSize.height
-
-        if screenRatio > targetRatio {
-            // TV is wider than 4:3 — constrain width, use full height
-            let height = screenSize.height
-            let width = height * targetRatio
-            return CGSize(width: width, height: height)
-        } else {
-            // TV is narrower than 4:3 (unlikely) — use full width, constrain height
-            let width = screenSize.width
-            let height = width / targetRatio
-            return CGSize(width: width, height: height)
-        }
-    }
-
-    /// Scale factor from reference iPad size to 4:3 container.
-    /// Uses `min` so the content fits entirely without clipping.
-    private func layoutScale(for container: CGSize) -> CGFloat {
-        let scaleX = container.width / Self.referenceSize.width
-        let scaleY = container.height / Self.referenceSize.height
-        return max(min(scaleX, scaleY), 1.0)
     }
 }

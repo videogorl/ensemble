@@ -462,7 +462,6 @@ public enum EnsembleScaffold {
         public static let dismissPillWidth: CGFloat = 36
         public static let dismissPillHeight: CGFloat = 5
         public static let dismissPillOpacity = 0.3
-        public static let externalDisplayAspectRatio: CGFloat = 4.0 / 3.0
         public static let lyricTimedLineSpacing: CGFloat = 24
         public static let lyricPlainLineSpacing = EnsembleDesign.Spacing.md
         public static let lyricTopSpacerHeight: CGFloat = 120
