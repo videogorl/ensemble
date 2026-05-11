@@ -21,34 +21,6 @@ public struct LargeScreenBrowseSplitView<
 
     public init(
         selection: Binding<Selection?>,
-        minimumSplitWidth: CGFloat = EnsembleDesign.Breakpoint.browseSplitMinimumWidth,
-        sidebarWidth: CGFloat = 340,
-        minimumSidebarWidth: CGFloat = 260,
-        maximumSidebarWidth: CGFloat = 460,
-        minimumDetailWidth: CGFloat = 420,
-        @ViewBuilder compact: () -> Compact,
-        @ViewBuilder sidebar: () -> Sidebar,
-        @ViewBuilder detail: @escaping (Selection) -> Detail,
-        @ViewBuilder placeholder: () -> Placeholder
-    ) {
-        self.init(
-            selection: selection,
-            configuration: EnsembleScaffold.BrowseSplit.Configuration(
-                minimumSplitWidth: minimumSplitWidth,
-                sidebarWidth: sidebarWidth,
-                minimumSidebarWidth: minimumSidebarWidth,
-                maximumSidebarWidth: maximumSidebarWidth,
-                minimumDetailWidth: minimumDetailWidth
-            ),
-            compact: compact,
-            sidebar: sidebar,
-            detail: detail,
-            placeholder: placeholder
-        )
-    }
-
-    public init(
-        selection: Binding<Selection?>,
         configuration: EnsembleScaffold.BrowseSplit.Configuration,
         @ViewBuilder compact: () -> Compact,
         @ViewBuilder sidebar: () -> Sidebar,
@@ -69,7 +41,7 @@ public struct LargeScreenBrowseSplitView<
         // into Artists/Playlists/Genres screens.
         GeometryReader { geometry in
             if usesSplitLayout(for: geometry.size) {
-                splitLayout(for: geometry.size)
+                swiftUISplitLayout(for: geometry.size)
             } else {
                 compactLayout
             }
@@ -92,11 +64,6 @@ public struct LargeScreenBrowseSplitView<
             .modifier(CompactBrowseDetailBackButton {
                 self.selection = nil
             })
-    }
-
-    @ViewBuilder
-    private func splitLayout(for size: CGSize) -> some View {
-        swiftUISplitLayout(for: size)
     }
 
     private func swiftUISplitLayout(for size: CGSize) -> some View {
