@@ -204,7 +204,7 @@ public struct AuroraVisualizationView: View {
     }
 
     private var isMetalAuroraAvailable: Bool {
-        #if canImport(MetalKit) && !os(watchOS)
+        #if canImport(MetalKit)
         return MetalAuroraSurface.isAvailable
         #else
         return false
