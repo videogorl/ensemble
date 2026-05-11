@@ -14,6 +14,7 @@ ensemble/
 +-- CLAUDE.md                      # Agent instructions
 +-- README.md                      # User-facing documentation
 +-- .claude/skills/                # Project-specific agent skills and bundled helper scripts
+|   +-- native-behavior-cleanup/    # Automated UI workaround audit, classification, agent split, and verification workflow
 |   +-- trace-analysis/            # Instruments .trace export + correlation workflow
 +-- scripts/
 |   +-- compile_coredata_model.sh # Compiles SwiftPM CoreData model bundle for package tests

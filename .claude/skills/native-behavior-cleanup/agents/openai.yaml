@@ -1,0 +1,4 @@
+interface:
+  display_name: "Native Behavior Cleanup"
+  short_description: "Remove UI workarounds with tests"
+  default_prompt: "Audit this SwiftUI app for custom UI workarounds that fight native platform behavior. Use agents when explicitly requested, remove proven-dead code first, defer high-risk candidates without runtime proof, and verify with tests, simulator checks, and builds."
