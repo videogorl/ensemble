@@ -3,7 +3,17 @@ import Foundation
 extension PlexAPIClient {
     /// Get audio playlists
     public func getPlaylists() async throws -> [PlexPlaylist] {
-        let data = try await serverRequest(path: "/playlists", query: ["playlistType": "audio"])
+        try await getPlaylists(limit: nil)
+    }
+
+    /// Get audio playlists with an optional Plex container cap.
+    public func getPlaylists(limit: Int?) async throws -> [PlexPlaylist] {
+        var query = ["playlistType": "audio"]
+        if let limit {
+            query["X-Plex-Container-Start"] = "0"
+            query["X-Plex-Container-Size"] = String(limit)
+        }
+        let data = try await serverRequest(path: "/playlists", query: query)
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexPlaylist>.self,
             from: data

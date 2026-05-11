@@ -122,7 +122,7 @@ public struct EnsemblePlexCatalogLimits: Equatable, Sendable {
     public let playlists: Int
     public let recentlyAdded: Int
 
-    public init(pins: Int = 12, albums: Int = 80, artists: Int = 80, playlists: Int = 80, recentlyAdded: Int = 40) {
+    public init(pins: Int = 12, albums: Int = 36, artists: Int = 36, playlists: Int = 36, recentlyAdded: Int = 24) {
         self.pins = pins
         self.albums = albums
         self.artists = artists
@@ -328,13 +328,20 @@ public actor EnsemblePlexCatalogService {
     public init() {}
 
     public func selectedLibraries(from servers: [EnsemblePlexServer]) throws -> [EnsemblePlexLibrary] {
-        let libraries = servers.flatMap { server in
+        let enabledLibraries = servers.flatMap { server in
             server.libraries
                 .filter(\.isEnabled)
                 .map { EnsemblePlexLibrary(server: server, id: $0.id, key: $0.key, title: $0.title) }
         }
-        guard !libraries.isEmpty else { throw EnsemblePlexError.noSelectedLibraries }
-        return libraries
+        if !enabledLibraries.isEmpty {
+            return enabledLibraries
+        }
+
+        let discoveredLibraries = servers.flatMap { server in
+            server.libraries.map { EnsemblePlexLibrary(server: server, id: $0.id, key: $0.key, title: $0.title) }
+        }
+        guard !discoveredLibraries.isEmpty else { throw EnsemblePlexError.noSelectedLibraries }
+        return discoveredLibraries
     }
 
     public func refreshSnapshot(
@@ -353,9 +360,9 @@ public actor EnsemblePlexCatalogService {
             libraryRefs.append(EnsembleLibraryReference(id: library.id, key: library.key, title: library.title, isEnabled: true))
             let client = EnsemblePlexDiscoveryService.client(for: library)
 
-            async let libraryArtists = client.getArtists(sectionKey: library.key)
-            async let libraryAlbums = client.getAlbums(sectionKey: library.key)
-            async let serverPlaylists = client.getPlaylists()
+            async let libraryArtists = client.getArtists(sectionKey: library.key, limit: limits.artists)
+            async let libraryAlbums = client.getAlbums(sectionKey: library.key, limit: limits.albums)
+            async let serverPlaylists = client.getPlaylists(limit: limits.playlists)
             async let hubItems = recentlyAddedItems(client: client, library: library, limit: limits.recentlyAdded)
 
             let sourceKey = library.sourceKey

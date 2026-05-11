@@ -1,4 +1,5 @@
 import XCTest
+import EnsembleDomain
 @testable import EnsemblePlex
 
 final class EnsemblePlexTests: XCTestCase {
@@ -7,5 +8,25 @@ final class EnsemblePlexTests: XCTestCase {
             EnsemblePlexSourceKey.build(accountId: "a", serverId: "s", libraryKey: "3"),
             "plex:a:s:3"
         )
+    }
+
+    func testSelectedLibrariesFallsBackToDiscoveredLibrariesWhenAllHintsDisabled() async throws {
+        let account = EnsembleAccountCredential(accountId: "account", authToken: "token")
+        let server = EnsemblePlexServer(
+            account: account,
+            id: "server",
+            name: "Server",
+            token: "server-token",
+            url: "https://example.com",
+            connections: [],
+            libraries: [
+                EnsembleLibraryReference(id: "3", key: "3", title: "Music", isEnabled: false),
+                EnsembleLibraryReference(id: "5", key: "5", title: "More Music", isEnabled: false)
+            ]
+        )
+
+        let libraries = try await EnsemblePlexCatalogService().selectedLibraries(from: [server])
+
+        XCTAssertEqual(libraries.map(\.key), ["3", "5"])
     }
 }

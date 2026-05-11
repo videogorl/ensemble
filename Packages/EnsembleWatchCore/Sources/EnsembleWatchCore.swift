@@ -295,7 +295,12 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     private func bootstrap(forceRefresh: Bool = false) async {
-        bootstrapState = .loading
+        if !forceRefresh, catalogSnapshot != nil {
+            bootstrapState = .ready
+            statusMessage = "Refreshing"
+        } else {
+            bootstrapState = .loading
+        }
         statusMessage = "Checking iCloud credentials"
 
         do {
@@ -316,17 +321,26 @@ public final class WatchExperienceModel: ObservableObject {
         let flaggedServers = await applyCloudLibraryFlags(to: servers)
         libraries = try await catalog.selectedLibraries(from: flaggedServers)
 
-        if !forceRefresh, let snapshot = catalogStore.loadSnapshot() {
+        let cachedSnapshot = forceRefresh ? nil : catalogStore.loadSnapshot()
+        if let snapshot = cachedSnapshot {
             catalogSnapshot = snapshot
+            bootstrapState = .ready
+            statusMessage = "Refreshing"
         }
 
-        statusMessage = "Syncing selected libraries"
-        let pinnedIDs = await cloudPreferences.pinnedIDs()
-        let snapshot = try await catalog.refreshSnapshot(libraries: libraries, pinnedIDs: pinnedIDs)
-        catalogStore.saveSnapshot(snapshot)
-        catalogSnapshot = snapshot
-        bootstrapState = .ready
-        statusMessage = "Ready"
+        do {
+            statusMessage = "Syncing selected libraries"
+            let pinnedIDs = await cloudPreferences.pinnedIDs()
+            let snapshot = try await catalog.refreshSnapshot(libraries: libraries, pinnedIDs: pinnedIDs)
+            catalogStore.saveSnapshot(snapshot)
+            catalogSnapshot = snapshot
+            bootstrapState = .ready
+            statusMessage = "Ready"
+        } catch {
+            guard cachedSnapshot != nil else { throw error }
+            bootstrapState = .ready
+            statusMessage = error.localizedDescription
+        }
     }
 
     private func requestAndPollLink() async {
