@@ -148,8 +148,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     public var body: some View {
         baseContent
         .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
+            EnsembleDetailToolbarActions {
                 if shouldShowStandaloneFilterButton {
                     EnsembleBrowseFilterButton(
                         title: "Filter Tracks",
@@ -158,36 +157,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         showFilterSheet = true
                     }
                 }
-            }
-            #else
-            EnsembleDetailToolbarLeadingSpacer()
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                if shouldShowStandaloneFilterButton {
-                    EnsembleBrowseFilterButton(
-                        title: "Filter Tracks",
-                        hasActiveFilters: viewModel.filterOptions.hasActiveFilters
-                    ) {
-                        showFilterSheet = true
-                    }
-                }
-            }
-            #endif
-            // "More" menu button — always rightmost in trailing toolbar
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
+
                 if let mediaType = mediaType,
                    let ratingKey = headerData.ratingKey {
                     pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
                 }
             }
-            #else
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                if let mediaType = mediaType,
-                   let ratingKey = headerData.ratingKey {
-                    pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
-                }
-            }
-            #endif
         }
         .collapsingToolbarTitle(
             navigationTitle,

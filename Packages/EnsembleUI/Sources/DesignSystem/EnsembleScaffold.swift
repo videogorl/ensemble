@@ -646,6 +646,32 @@ public struct EnsembleBrowseToolbar<Content: View>: ToolbarContent {
     }
 }
 
+/// Platform-aligned detail toolbar host for media detail action groups.
+public struct EnsembleDetailToolbarActions<Content: View>: ToolbarContent {
+    @ViewBuilder let content: () -> Content
+
+    public init(@ViewBuilder content: @escaping () -> Content) {
+        self.content = content
+    }
+
+    public var body: some ToolbarContent {
+        #if os(iOS)
+        ToolbarItem(placement: .navigationBarTrailing) {
+            HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
+                content()
+            }
+        }
+        #else
+        EnsembleDetailToolbarLeadingSpacer()
+        ToolbarItem(placement: .primaryActionIfAvailable) {
+            HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
+                content()
+            }
+        }
+        #endif
+    }
+}
+
 /// Platform-aligned leading toolbar spacer for macOS action groups.
 /// SwiftUI's macOS toolbar layout can cluster primary actions near the title or
 /// search field unless a flexible toolbar item precedes the action group.

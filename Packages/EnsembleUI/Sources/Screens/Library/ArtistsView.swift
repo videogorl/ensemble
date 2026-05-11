@@ -402,16 +402,9 @@ public struct ArtistDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
+            EnsembleDetailToolbarActions {
                 artistPinMenuButton
             }
-            #else
-            EnsembleDetailToolbarLeadingSpacer()
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                artistPinMenuButton
-            }
-            #endif
         }
         .artworkBackedToolbarBleed()
         .miniPlayerBottomSpacing()
@@ -493,11 +486,7 @@ public struct ArtistDetailView: View {
                     isPinned: isPinned
                 )
             } label: {
-                if isPinned {
-                    Label("Unpin", systemImage: EnsembleDesign.Icon.unpin)
-                } else {
-                    Label("Pin to Pins", systemImage: EnsembleDesign.Icon.pin)
-                }
+                MediaActionLabel(kind: .pin(isPinned: isPinned))
             }
 
             Button {
@@ -508,10 +497,7 @@ public struct ArtistDetailView: View {
                     )
                 }
             } label: {
-                Label(
-                    isDownloaded ? "Remove Download" : "Download",
-                    systemImage: isDownloaded ? EnsembleDesign.Icon.removeDownload : EnsembleDesign.Icon.download
-                )
+                MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
             }
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
