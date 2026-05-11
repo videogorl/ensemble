@@ -433,7 +433,10 @@ private extension PlexConnection {
 public actor EnsemblePlexCatalogService {
     public init() {}
 
-    public func selectedLibraries(from servers: [EnsemblePlexServer]) throws -> [EnsemblePlexLibrary] {
+    public nonisolated func selectedLibraries(
+        from servers: [EnsemblePlexServer],
+        fallbackToAllDiscovered: Bool = true
+    ) throws -> [EnsemblePlexLibrary] {
         let enabledLibraries = servers.flatMap { server in
             server.libraries
                 .filter(\.isEnabled)
@@ -442,6 +445,8 @@ public actor EnsemblePlexCatalogService {
         if !enabledLibraries.isEmpty {
             return enabledLibraries
         }
+
+        guard fallbackToAllDiscovered else { return [] }
 
         let discoveredLibraries = servers.flatMap { server in
             server.libraries.map { EnsemblePlexLibrary(server: server, id: $0.id, key: $0.key, title: $0.title) }

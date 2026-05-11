@@ -150,6 +150,11 @@ struct WatchRootView: View {
                 }
                 .buttonStyle(.bordered)
 
+                NavigationLink(destination: WatchSourceSettingsView()) {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .buttonStyle(.bordered)
+
                 Text(experience.statusMessage)
                     .font(.caption2)
                     .foregroundColor(.secondary)
@@ -157,6 +162,75 @@ struct WatchRootView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 10)
+        }
+    }
+}
+
+private struct WatchSourceSettingsView: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
+
+    var body: some View {
+        List {
+            if experience.sourceAccounts.isEmpty {
+                Section {
+                    Text("No sources found.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            } else {
+                Section {
+                    Button {
+                        experience.syncSelectedLibraries()
+                    } label: {
+                        Label("Sync Selected Libraries", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(experience.libraries.isEmpty)
+                }
+
+                ForEach(experience.sourceAccounts) { account in
+                    ForEach(account.servers) { server in
+                        Section {
+                            ForEach(server.libraries) { library in
+                                Toggle(isOn: Binding(
+                                    get: { library.isEnabled },
+                                    set: { _ in experience.toggleLibrarySelection(library) }
+                                )) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(library.title)
+                                            .font(.headline)
+                                            .lineLimit(2)
+                                        Text(library.isEnabled ? "Synced" : "Not synced")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                            }
+                        } header: {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(server.title)
+                                Text(account.title)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    Text(experience.statusMessage)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .navigationTitle("Settings")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                NavigationLink(destination: WatchNowPlayingView()) {
+                    Image(systemName: "music.note")
+                }
+                .accessibilityLabel("Now Playing")
+            }
         }
     }
 }

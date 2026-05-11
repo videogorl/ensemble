@@ -10,7 +10,7 @@ final class EnsemblePlexTests: XCTestCase {
         )
     }
 
-    func testSelectedLibrariesFallsBackToDiscoveredLibrariesWhenAllHintsDisabled() async throws {
+    func testSelectedLibrariesFallsBackToDiscoveredLibrariesWhenAllHintsDisabled() throws {
         let account = EnsembleAccountCredential(accountId: "account", authToken: "token")
         let server = EnsemblePlexServer(
             account: account,
@@ -25,8 +25,30 @@ final class EnsemblePlexTests: XCTestCase {
             ]
         )
 
-        let libraries = try await EnsemblePlexCatalogService().selectedLibraries(from: [server])
+        let libraries = try EnsemblePlexCatalogService().selectedLibraries(from: [server])
 
         XCTAssertEqual(libraries.map(\.key), ["3", "5"])
+    }
+
+    func testSelectedLibrariesCanRespectAllDisabledSelection() throws {
+        let account = EnsembleAccountCredential(accountId: "account", authToken: "token")
+        let server = EnsemblePlexServer(
+            account: account,
+            id: "server",
+            name: "Server",
+            token: "server-token",
+            url: "https://example.com",
+            connections: [],
+            libraries: [
+                EnsembleLibraryReference(id: "3", key: "3", title: "Music", isEnabled: false)
+            ]
+        )
+
+        let libraries = try EnsemblePlexCatalogService().selectedLibraries(
+            from: [server],
+            fallbackToAllDiscovered: false
+        )
+
+        XCTAssertTrue(libraries.isEmpty)
     }
 }

@@ -49,6 +49,7 @@ On iPad and AirPlay external display, the layout switches to a shared **side-by-
 | Watch pins section | region | Top home section for pinned or recently added fallback items, displayed as a three-column artwork grid with circular artist artwork and rounded square non-artist artwork | `EnsemblePlexCatalogSnapshot.pins`, `WatchPinArtworkTile` |
 | Watch media artwork thumbnail | artwork | Small artwork shown beside watch media and track rows; artist thumbnails are circular and non-artist thumbnails are rounded square | `WatchMediaArtworkThumbnail`, `WatchMediaRow`, `WatchTrackRow` |
 | Watch library categories | navigation | Albums, Artists, Playlists, and Recently Added rows that navigate to lists | `WatchCategoryView` |
+| Watch source settings | screen | Watch-native account, server, and library sync selection with a manual selected-library sync action | `WatchSourceSettingsView`, `WatchSourceAccountSection` |
 | Watch media detail | screen | Selected album/artist/playlist/track detail with playable track rows | `WatchMediaDetailView` |
 | Watch Now Playing button | toolbar control | Persistent top-right toolbar entry to open watch Now Playing | `WatchNowPlayingView` |
 | Watch Now Playing target toggle | control | Switches Now Playing between watch-local playback and phone remote control | `EnsemblePlaybackTarget.local`, `.remote` |

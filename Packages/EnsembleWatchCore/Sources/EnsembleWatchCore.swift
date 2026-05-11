@@ -33,6 +33,52 @@ public struct WatchLibraryFlagEntry: Codable, Equatable, Sendable {
     }
 }
 
+public struct WatchSourceAccountSection: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let servers: [WatchSourceServerSection]
+
+    public init(id: String, title: String, servers: [WatchSourceServerSection]) {
+        self.id = id
+        self.title = title
+        self.servers = servers
+    }
+}
+
+public struct WatchSourceServerSection: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let libraries: [WatchSourceLibraryRow]
+
+    public init(id: String, title: String, libraries: [WatchSourceLibraryRow]) {
+        self.id = id
+        self.title = title
+        self.libraries = libraries
+    }
+}
+
+public struct WatchSourceLibraryRow: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let accountId: String
+    public let serverId: String
+    public let libraryKey: String
+    public let title: String
+    public let isEnabled: Bool
+
+    public init(accountId: String, serverId: String, libraryKey: String, title: String, isEnabled: Bool) {
+        self.id = Self.flagKey(accountId: accountId, serverId: serverId, libraryKey: libraryKey)
+        self.accountId = accountId
+        self.serverId = serverId
+        self.libraryKey = libraryKey
+        self.title = title
+        self.isEnabled = isEnabled
+    }
+
+    public static func flagKey(accountId: String, serverId: String, libraryKey: String) -> String {
+        "\(accountId):\(serverId):\(libraryKey)"
+    }
+}
+
 public enum WatchKVSKey {
     public static let pins = "ensemble.sync.pins"
     public static let libraryFlags = "ensemble.sync.libraryFlags"
@@ -50,6 +96,7 @@ public final class WatchCatalogStore {
     private let defaults: UserDefaults
     private let snapshotKey = "ensemble.watch.catalogSnapshot"
     private let selectedLibraryKey = "ensemble.watch.selectedLibraries"
+    private let libraryFlagsKey = "ensemble.watch.libraryFlags"
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -72,6 +119,22 @@ public final class WatchCatalogStore {
     public func saveSelectedLibraryKeys(_ keys: Set<String>) {
         defaults.set(Array(keys).sorted(), forKey: selectedLibraryKey)
     }
+
+    public func loadLibraryFlags() -> [String: Bool] {
+        guard let data = defaults.data(forKey: libraryFlagsKey),
+              let entries = try? JSONDecoder().decode([WatchLibraryFlagEntry].self, from: data) else {
+            return [:]
+        }
+        return Dictionary(uniqueKeysWithValues: entries.map { ($0.key, $0.isEnabled) })
+    }
+
+    public func saveLibraryFlags(_ flags: [String: Bool]) {
+        let entries = flags.keys.sorted().map { key in
+            WatchLibraryFlagEntry(key: key, isEnabled: flags[key] ?? false)
+        }
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        defaults.set(data, forKey: libraryFlagsKey)
+    }
 }
 
 public actor WatchCloudPreferenceStore {
@@ -91,6 +154,16 @@ public actor WatchCloudPreferenceStore {
             return Dictionary(uniqueKeysWithValues: entries.map { ($0.key, $0.isEnabled) })
         }
         return (try? JSONDecoder().decode([String: Bool].self, from: data)) ?? [:]
+    }
+
+    public func saveSelectedLibraryFlags(_ flags: [String: Bool]) {
+        guard #available(watchOS 9.0, *) else { return }
+        let entries = flags.keys.sorted().map { key in
+            WatchLibraryFlagEntry(key: key, isEnabled: flags[key] ?? false)
+        }
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        NSUbiquitousKeyValueStore.default.set(data, forKey: WatchKVSKey.libraryFlags)
+        synchronize()
     }
 
     public func pinnedIDs() -> [String] {
@@ -207,6 +280,7 @@ public final class WatchExperienceModel: ObservableObject {
     @Published public private(set) var linkState: WatchLinkState?
     @Published public private(set) var catalogSnapshot: EnsemblePlexCatalogSnapshot?
     @Published public private(set) var libraries: [EnsemblePlexLibrary] = []
+    @Published public private(set) var sourceAccounts: [WatchSourceAccountSection] = []
     @Published public private(set) var detailTracks: [EnsembleTrack] = []
     @Published public private(set) var statusMessage = "Loading Ensemble"
     @Published public var playbackTarget: EnsemblePlaybackTarget = .local
@@ -219,6 +293,7 @@ public final class WatchExperienceModel: ObservableObject {
     private let cloudPreferences: WatchCloudPreferenceStore
     private let authService: PlexAuthService
 
+    private var discoveredServers: [EnsemblePlexServer] = []
     private var authPIN: PlexPIN?
     private var bootstrapTask: Task<Void, Never>?
     private var linkPollTask: Task<Void, Never>?
@@ -302,6 +377,33 @@ public final class WatchExperienceModel: ObservableObject {
         await catalog.artworkURL(for: track, in: libraries, size: size)
     }
 
+    public func toggleLibrarySelection(_ row: WatchSourceLibraryRow) {
+        var flags = currentLibraryFlagMap()
+        flags[row.id] = !row.isEnabled
+        catalogStore.saveLibraryFlags(flags)
+
+        Task { [weak self] in
+            guard let self else { return }
+            await cloudPreferences.saveSelectedLibraryFlags(flags)
+        }
+
+        discoveredServers = applyLibraryFlags(flags, to: discoveredServers)
+        sourceAccounts = Self.buildSourceAccounts(from: discoveredServers)
+        libraries = (try? catalog.selectedLibraries(from: discoveredServers, fallbackToAllDiscovered: false)) ?? []
+        statusMessage = libraries.isEmpty ? "Enable at least one library." : "Selection saved."
+    }
+
+    public func syncSelectedLibraries() {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await refreshSelectedCatalog()
+            } catch {
+                statusMessage = error.localizedDescription
+            }
+        }
+    }
+
     private func bootstrap(forceRefresh: Bool = false) async {
         if !forceRefresh, catalogSnapshot != nil {
             bootstrapState = .ready
@@ -332,8 +434,10 @@ public final class WatchExperienceModel: ObservableObject {
     private func finishBootstrap(credentials: [EnsembleAccountCredential], forceRefresh: Bool) async throws {
         statusMessage = "Finding Plex servers"
         let servers = try await discovery.discoverServers(from: credentials)
-        let flaggedServers = await applyCloudLibraryFlags(to: servers)
-        libraries = try await catalog.selectedLibraries(from: flaggedServers)
+        let flaggedServers = await applyStoredLibraryFlags(to: servers)
+        discoveredServers = flaggedServers
+        sourceAccounts = Self.buildSourceAccounts(from: flaggedServers)
+        libraries = try catalog.selectedLibraries(from: flaggedServers, fallbackToAllDiscovered: false)
 
         let cachedSnapshot = forceRefresh ? nil : catalogStore.loadSnapshot()
         if let snapshot = cachedSnapshot {
@@ -343,13 +447,11 @@ public final class WatchExperienceModel: ObservableObject {
         }
 
         do {
-            statusMessage = "Syncing selected libraries"
-            let pinnedIDs = await cloudPreferences.pinnedIDs()
-            let snapshot = try await catalog.refreshSnapshot(libraries: libraries, pinnedIDs: pinnedIDs)
-            catalogStore.saveSnapshot(snapshot)
-            catalogSnapshot = snapshot
+            try await refreshSelectedCatalog()
             bootstrapState = .ready
-            statusMessage = "Ready"
+            if !libraries.isEmpty {
+                statusMessage = "Ready"
+            }
         } catch {
             guard cachedSnapshot != nil else { throw error }
             bootstrapState = .ready
@@ -384,13 +486,51 @@ public final class WatchExperienceModel: ObservableObject {
         }
     }
 
-    private func applyCloudLibraryFlags(to servers: [EnsemblePlexServer]) async -> [EnsemblePlexServer] {
+    private func refreshSelectedCatalog() async throws {
+        guard !libraries.isEmpty else {
+            catalogSnapshot = EnsemblePlexCatalogSnapshot(
+                libraries: [],
+                pins: [],
+                albums: [],
+                artists: [],
+                playlists: [],
+                recentlyAdded: []
+            )
+            statusMessage = "Enable at least one library."
+            return
+        }
+
+        statusMessage = "Syncing selected libraries"
+        let pinnedIDs = await cloudPreferences.pinnedIDs()
+        let snapshot = try await catalog.refreshSnapshot(libraries: libraries, pinnedIDs: pinnedIDs)
+        catalogStore.saveSnapshot(snapshot)
+        catalogSnapshot = snapshot
+        statusMessage = "Ready"
+    }
+
+    private func applyStoredLibraryFlags(to servers: [EnsemblePlexServer]) async -> [EnsemblePlexServer] {
+        let localFlags = catalogStore.loadLibraryFlags()
+        if !localFlags.isEmpty {
+            return applyLibraryFlags(localFlags, to: servers)
+        }
+
         let flags = await cloudPreferences.selectedLibraryFlags()
+        if !flags.isEmpty {
+            catalogStore.saveLibraryFlags(flags)
+        }
+        return applyLibraryFlags(flags, to: servers)
+    }
+
+    private func applyLibraryFlags(_ flags: [String: Bool], to servers: [EnsemblePlexServer]) -> [EnsemblePlexServer] {
         guard !flags.isEmpty else { return servers }
 
         return servers.map { server in
             let libraries = server.libraries.map { library -> EnsembleLibraryReference in
-                let key = "\(server.account.accountId):\(server.id):\(library.key)"
+                let key = WatchSourceLibraryRow.flagKey(
+                    accountId: server.account.accountId,
+                    serverId: server.id,
+                    libraryKey: library.key
+                )
                 guard let enabled = flags[key] else { return library }
                 return EnsembleLibraryReference(
                     id: library.id,
@@ -407,6 +547,50 @@ public final class WatchExperienceModel: ObservableObject {
                 url: server.url,
                 connections: server.connections,
                 libraries: libraries
+            )
+        }
+    }
+
+    private func currentLibraryFlagMap() -> [String: Bool] {
+        let rows = sourceAccounts.flatMap { account in
+            account.servers.flatMap(\.libraries)
+        }
+        guard !rows.isEmpty else { return catalogStore.loadLibraryFlags() }
+        return Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.isEnabled) })
+    }
+
+    private static func buildSourceAccounts(from servers: [EnsemblePlexServer]) -> [WatchSourceAccountSection] {
+        let grouped = Dictionary(grouping: servers, by: { $0.account.accountId })
+        return grouped.keys.sorted().compactMap { accountId in
+            guard let accountServers = grouped[accountId],
+                  let account = accountServers.first?.account else {
+                return nil
+            }
+
+            let serverSections = accountServers
+                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+                .map { server in
+                    WatchSourceServerSection(
+                        id: "\(account.accountId):\(server.id)",
+                        title: server.name,
+                        libraries: server.libraries
+                            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+                            .map { library in
+                                WatchSourceLibraryRow(
+                                    accountId: account.accountId,
+                                    serverId: server.id,
+                                    libraryKey: library.key,
+                                    title: library.title,
+                                    isEnabled: library.isEnabled
+                                )
+                            }
+                    )
+                }
+
+            return WatchSourceAccountSection(
+                id: account.accountId,
+                title: account.displayName,
+                servers: serverSections
             )
         }
     }

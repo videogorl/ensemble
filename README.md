@@ -43,7 +43,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **AirPlay Support** — Stream to AirPlay devices with native picker
 - **Background Audio** — Continues playing when app is backgrounded
 - **Lock Screen Controls** — Play/pause/skip from iOS Control Center and lock screen
-- **Apple Watch App** — Standalone watchOS experience with iCloud Keychain/Plex Link setup, pins-first library browsing, watch-local streaming playback, and phone remote control through WatchConnectivity
+- **Apple Watch App** — Standalone watchOS experience with iCloud Keychain/Plex Link setup, watch-native source/library selection, pins-first library browsing, watch-local streaming playback, and phone remote control through WatchConnectivity
 
 **Management:**
 - **Account-Centric Music Sources** — Manage Plex accounts as sources, with account identifier subtitles, server-grouped library checklists, per-library sync/connection status, and “Sync Enabled Libraries” in one detail screen
@@ -117,7 +117,7 @@ Ensemble uses a **layered modular architecture** with Swift Package Manager:
 | **EnsembleAPI** | Plex networking & auth | `PlexAPIClient` (with timeline/scrobble support), `PlexAuthService`, `KeychainService`, `ConnectionFailoverManager` |
 | **EnsembleDomain** | Portable domain models | Watch-safe account credentials, media summaries, tracks, library categories, playback target/status |
 | **EnsemblePlex** | Portable Plex facade | Watch account discovery, selected-library catalog snapshots, detail track loading, low-bitrate stream URL resolution |
-| **EnsembleWatchCore** | watchOS runtime | Plex Link fallback, iCloud credential restore, local catalog cache, watch-local playback, local/remote Now Playing target |
+| **EnsembleWatchCore** | watchOS runtime | Plex Link fallback, iCloud credential restore, watch-local library selection, local catalog cache, watch-local playback, local/remote Now Playing target |
 | **EnsemblePersistence** | CoreData & downloads | `CoreDataStack`, `LibraryRepository`, `HubRepository`, `DownloadManager`, `ArtworkDownloadManager` |
 | **EnsembleCore** | Business logic | `DependencyContainer`, `SyncCoordinator`, `PlaybackService` (with playback tracking), `PlexAccountDiscoveryService`, `LibraryVisibilityStore`, `ArtworkLoader`, `NetworkMonitor`, `ServerHealthChecker`, `SettingsManager`, `NavigationCoordinator`, `HubOrderManager`, ViewModels |
 | **EnsembleUI** | User interface | `RootView`, `HomeView` (with `HubSection`/`HubItemCard`), `MediaDetailView`, `MiniPlayer`, `FilterSheet`, `ArtworkView`, `DetailLoaders`, `StageFlowView`, `HubOrderingSheet`, `WaveformView`, `MarqueeText` |
