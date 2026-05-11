@@ -40,7 +40,11 @@ public struct NowPlayingSheetView: View {
                         }
 
                     if usesWideNowPlayingLayout(for: geometry.size) {
-                        NowPlayingWidePanelLayout(viewModel: viewModel, currentPage: currentPageBinding)
+                        NowPlayingWidePanelLayout(
+                            viewModel: viewModel,
+                            currentPage: currentPageBinding,
+                            centersContentInAvailableSpace: true
+                        )
                     } else {
                         NowPlayingCarousel(viewModel: viewModel, currentPage: currentPageBinding)
                     }

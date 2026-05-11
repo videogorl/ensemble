@@ -109,7 +109,7 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - Large mini-player layouts with waveform should expose Previous, Play/Pause, Next, and a row-style ellipsis menu. Compact mini-player layouts keep the simpler Play/Pause + Next controls. On iPadOS, use a plain popover anchored to the ellipsis so the mini-player remains visible behind the menu. On macOS, host the menu with an AppKit `NSButton`/`NSMenu` so the control does not show a pull-down chevron.
 - Mini-player swipe gestures should resolve immediately at gesture end, matching the native transport buttons. Do not add arbitrary timers to wait for swipe-out animations before previous/next playback changes.
 - External-display, iPad sheet, and macOS viewport Now Playing should reuse `NowPlayingWidePanelLayout`, `NowPlayingDetailPanel`, and `NowPlayingBackdrop`; keep platform-specific code limited to presentation chrome such as dismissal, dark presentation, and the visualization consumer.
-- `NowPlayingWidePanelLayout` should center its constrained content for full-window surfaces such as macOS viewport and AirPlay external display, while embedded sheet callers keep their existing top-flow layout.
+- `NowPlayingWidePanelLayout` should center its constrained content for wide Now Playing surfaces such as the iPad sheet, macOS viewport, and AirPlay external display. Compact carousel callers keep their existing paging layout.
 - macOS viewport Now Playing should keep content in the root's native safe area while `NowPlayingBackdrop` handles edge-to-edge artwork/aurora bleed. Do not add leaf-level titlebar or traffic-light padding constants; if window chrome ownership changes, fix it at the root/window shell.
 
 ### Large-Screen Browse Surfaces
