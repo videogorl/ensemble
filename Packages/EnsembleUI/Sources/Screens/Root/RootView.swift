@@ -246,9 +246,6 @@ public struct RootView: View {
                     NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
                 }
             }
-            .onChange(of: settingsManager.accentColor) { _ in
-                updateAppearance()
-            }
             .onChange(of: settingsManager.auroraVisualizationEnabled) { _ in
                 updateAppearance()
             }
