@@ -27,6 +27,6 @@ public extension View {
         _ title: String = "Refresh",
         perform: @escaping @MainActor () async -> Void
     ) -> some View {
-        focusedValue(\.ensembleRefreshAction, RefreshCommandAction(title: title, perform: perform))
+        focusedSceneValue(\.ensembleRefreshAction, RefreshCommandAction(title: title, perform: perform))
     }
 }

@@ -29,9 +29,13 @@ public struct HomeView: View {
 
             Group {
                 if viewModel.isLoading && viewModel.hubs.isEmpty {
-                    loadingView
+                    refreshableStateScrollView {
+                        loadingView
+                    }
                 } else if viewModel.hubs.isEmpty {
-                    emptyView
+                    refreshableStateScrollView {
+                        emptyView
+                    }
                 } else {
                     hubsScrollView
                 }
@@ -72,10 +76,7 @@ public struct HomeView: View {
         .onDisappear {
             viewModel.handleViewVisibilityChange(isVisible: false)
         }
-        .refreshable {
-            await viewModel.refresh()
-        }
-        .refreshCommand {
+        .refreshCommand("Refresh Feed") {
             await viewModel.refresh()
         }
     }
@@ -185,7 +186,26 @@ public struct HomeView: View {
             }
             .padding(.vertical)
         }
+        .refreshable {
+            await viewModel.refresh()
+        }
         .miniPlayerBottomSpacing()
+    }
+
+    private func refreshableStateScrollView<Content: View>(
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        GeometryReader { geometry in
+            ScrollView {
+                content()
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: geometry.size.height)
+            }
+            .refreshable {
+                await viewModel.refresh()
+            }
+            .miniPlayerBottomSpacing()
+        }
     }
 
     private func loadProfileBackgroundImage() {
