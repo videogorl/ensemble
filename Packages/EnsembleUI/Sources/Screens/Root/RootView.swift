@@ -209,7 +209,6 @@ public struct RootView: View {
                         dismissAction: dismissNowPlaying
                     )
                     .accentColor(settingsManager.accentColor.color)
-                    .ignoresSafeArea()
                     .transition(.opacity)
                     .zIndex(10)
                 }

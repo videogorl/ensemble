@@ -114,10 +114,8 @@ struct NowPlayingViewportRoot: View {
                         viewModel: viewModel,
                         currentPage: $viewModel.currentPage,
                         dismissAction: dismissAction,
-                        topPadding: topInset(for: geometry),
                         maxContentWidth: contentMaxWidth,
                         maxContentHeight: contentMaxHeight,
-                        headerLeadingPadding: leadingSystemChromeInset(for: geometry),
                         headerTrailingPadding: EnsembleScaffold.NowPlaying.viewportNarrowTrailingPadding,
                         showsTrackHeader: false,
                         keepsQueueAlwaysVisible: true,
@@ -125,37 +123,32 @@ struct NowPlayingViewportRoot: View {
                     )
                 } else {
                     VStack(spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
-                        header(for: geometry, mode: mode)
+                        header
                         singlePanel
                             .frame(width: singlePanelWidth(for: geometry))
                             .frame(maxHeight: .infinity, alignment: .topLeading)
                     }
                     .frame(maxWidth: contentMaxWidth, maxHeight: contentMaxHeight)
                     .padding(.horizontal, EnsembleScaffold.NowPlaying.viewportContentPadding)
-                    .padding(.top, topInset(for: geometry))
+                    .padding(.top, max(geometry.safeAreaInsets.top, EnsembleDesign.Spacing.sm))
                     .padding(.bottom, EnsembleScaffold.NowPlaying.viewportContentPadding)
                 }
             }
         }
     }
 
-    private func header(for geometry: GeometryProxy, mode: LayoutMode) -> some View {
+    private var header: some View {
         HStack(alignment: .center, spacing: EnsembleScaffold.NowPlaying.sectionTopPadding) {
             Spacer()
 
-            Picker("Panel", selection: panelSelection(for: mode)) {
+            Picker("Panel", selection: panelSelection) {
                 Text("Queue").tag(0)
-                if mode == .singlePanel {
-                    Text("Controls").tag(1)
-                }
+                Text("Controls").tag(1)
                 Text("Lyrics").tag(2)
                 Text("Info").tag(3)
             }
             .pickerStyle(.segmented)
-            .frame(width: mode == .singlePanel
-                ? EnsembleScaffold.NowPlaying.viewportSinglePickerWidth
-                : EnsembleScaffold.NowPlaying.viewportPickerWidth
-            )
+            .frame(width: EnsembleScaffold.NowPlaying.viewportSinglePickerWidth)
 
             Button {
                 dismissAction()
@@ -168,14 +161,13 @@ struct NowPlayingViewportRoot: View {
             .keyboardShortcut(.cancelAction)
         }
         .frame(maxWidth: EnsembleScaffold.NowPlaying.viewportHeaderMaxWidth)
-        .padding(.leading, leadingSystemChromeInset(for: geometry))
         .padding(.trailing, EnsembleScaffold.NowPlaying.viewportNarrowTrailingPadding)
     }
 
-    private func panelSelection(for mode: LayoutMode) -> Binding<Int> {
+    private var panelSelection: Binding<Int> {
         Binding(
             get: {
-                if mode == .singlePanel && viewModel.currentPage == 1 { return 1 }
+                if viewModel.currentPage == 1 { return 1 }
                 if viewModel.currentPage == 3 { return 3 }
                 if viewModel.currentPage == 2 { return 2 }
                 return 0
@@ -215,19 +207,4 @@ struct NowPlayingViewportRoot: View {
     private var contentMaxWidth: CGFloat { EnsembleScaffold.NowPlaying.viewportContentMaxWidth }
 
     private var contentMaxHeight: CGFloat { EnsembleScaffold.NowPlaying.viewportContentMaxHeight }
-
-    private func topInset(for geometry: GeometryProxy) -> CGFloat {
-        return max(
-            geometry.safeAreaInsets.top + EnsembleScaffold.NowPlaying.viewportMacTopSafeAreaPadding,
-            EnsembleScaffold.NowPlaying.viewportMacMinimumTopInset
-        )
-    }
-
-    private func leadingSystemChromeInset(for geometry: GeometryProxy) -> CGFloat {
-        return max(geometry.safeAreaInsets.leading + trafficLightClearance, trafficLightClearance)
-    }
-
-    private var trafficLightClearance: CGFloat {
-        return EnsembleScaffold.NowPlaying.viewportMacTrafficLightClearance
-    }
 }

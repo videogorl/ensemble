@@ -455,9 +455,6 @@ public enum EnsembleScaffold {
         public static let viewportPickerWidth: CGFloat = 300
         public static let viewportMinimumPanelWidth: CGFloat = 320
         public static let viewportWideAspectMultiplier: CGFloat = 0.82
-        public static let viewportMacTopSafeAreaPadding = EnsembleDesign.Spacing.lg
-        public static let viewportMacMinimumTopInset: CGFloat = 60
-        public static let viewportMacTrafficLightClearance: CGFloat = 88
         public static let dismissPillTopPadding: CGFloat = 28
         public static let dismissPillWidth: CGFloat = 36
         public static let dismissPillHeight: CGFloat = 5
