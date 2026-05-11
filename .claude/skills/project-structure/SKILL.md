@@ -230,6 +230,7 @@ Sources/
 |   +-- ProgressiveStreamLoader.swift  # AVAssetResourceLoaderDelegate bridge for chunked transcode streams
 |   +-- ArtworkLoader.swift            # Persistent artwork caching & loading
 |   +-- CacheManager.swift             # Cache size tracking & management (MainActor)
+|   +-- SourceCacheCleanupService.swift # Utility-priority source/all-library cache eviction for library rows, downloads, targets, lyrics, and artwork
 |   +-- NetworkMonitor.swift           # Network connectivity monitoring (NWPathMonitor)
 |   +-- ServerHealthChecker.swift      # Concurrent server health checks
 |   +-- ServerConnectionController.swift # Registry subscription, playback readiness checks, source-key API-client lookup, endpoint refresh/fan-out, and post-sync URL resolution extracted from SyncCoordinator

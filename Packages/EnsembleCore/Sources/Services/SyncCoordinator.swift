@@ -142,9 +142,8 @@ public final class SyncCoordinator: ObservableObject {
     /// Used by ArtworkLoader to invalidate stale artwork for affected albums.
     public var onTrackAlbumChanged: (([TrackReparentInfo]) async -> Void)?
 
-    /// Called when a source is being removed, allowing dependents to clean up
-    /// source-specific caches (e.g. lyrics persistent cache, download stubs).
-    public var onSourceCleanup: ((String) async -> Void)?
+    /// Worker that owns source-specific cache and file cleanup outside the coordinator's UI-facing actor.
+    public var sourceCacheCleanupService: SourceCacheCleaning?
     internal var healthCheckRunnerForTesting: ((Bool, Set<String>) async -> ServerHealthChecker.CheckSummary)?
     internal var refreshAPIClientConnectionsRunnerForTesting: (() async -> Void)?
 
@@ -1012,29 +1011,10 @@ public final class SyncCoordinator: ObservableObject {
         do {
             EnsembleLogger.debug("🗑️ Cleaning up data for removed source: \(sourceId.compositeKey)")
 
-            // Collect artwork ratingKeys BEFORE deleting CoreData records
-            var artworkKeysToDelete = Set<String>()
-            if let albums = try? await libraryRepository.fetchAlbums() {
-                for album in albums where album.sourceCompositeKey == sourceId.compositeKey {
-                    artworkKeysToDelete.insert(album.ratingKey)
-                }
-            }
-            if let artists = try? await libraryRepository.fetchArtists() {
-                for artist in artists where artist.sourceCompositeKey == sourceId.compositeKey {
-                    artworkKeysToDelete.insert(artist.ratingKey)
-                }
-            }
-
-            // Clean up source-specific caches before deleting CoreData tracks so
-            // download cleanup can still resolve track.sourceCompositeKey.
-            await onSourceCleanup?(sourceId.compositeKey)
-
-            try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceId.compositeKey)
-
-            // Delete cached artwork files for the removed source
-            if !artworkKeysToDelete.isEmpty {
-                artworkDownloadManager.deleteArtwork(forRatingKeys: artworkKeysToDelete)
-                EnsembleLogger.debug("🗑️ Deleted \(artworkKeysToDelete.count) artwork files for source: \(sourceId.compositeKey)")
+            if let sourceCacheCleanupService {
+                _ = try await sourceCacheCleanupService.cleanupSource(sourceId.compositeKey)
+            } else {
+                try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceId.compositeKey)
             }
 
             // Remove from status tracking

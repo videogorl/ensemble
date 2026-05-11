@@ -40,6 +40,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let artworkLoader: ArtworkLoaderProtocol
     public let settingsManager: SettingsManager
     public let cacheManager: CacheManager
+    public let sourceCacheCleanupService: SourceCacheCleaning
     public let homeHubLoader: HomeHubLoaderProtocol
     public let backgroundRefreshCoordinator: BackgroundRefreshCoordinating
     public let navigationCoordinator: NavigationCoordinator
@@ -236,6 +237,26 @@ public final class DependencyContainer: @unchecked Sendable {
         cacheManager = playback.cacheManager
         songLinkService = playback.songLinkService
         shareService = playback.shareService
+        sourceCacheCleanupService = SourceCacheCleanupService(
+            libraryRepository: libraryRepository,
+            downloadManager: downloadManager,
+            targetRepository: offlineDownloadTargetRepository,
+            artworkDownloadManager: artworkDownloadManager,
+            fetchArtworkRatingKeys: { [libraryRepository = core.libraryRepository] sourceKey in
+                guard let repository = libraryRepository as? LibraryRepository else { return [] }
+                return try await repository.fetchArtworkRatingKeys(forSourceCompositeKey: sourceKey)
+            },
+            clearLyricsCache: { [lyricsService = playback.lyricsService] sourceKey in
+                await MainActor.run {
+                    lyricsService.clearCache(forSourceCompositeKey: sourceKey)
+                }
+            },
+            clearAllLyricsCaches: { [lyricsService = playback.lyricsService] in
+                await MainActor.run {
+                    lyricsService.clearAllCaches()
+                }
+            }
+        )
         let builtHomeHubLoader = HomeHubLoader(
             accountManager: accountManager,
             hubRepository: hubRepository,
@@ -770,12 +791,7 @@ public final class DependencyContainer: @unchecked Sendable {
                 await artworkLoader.invalidateArtwork(ratingKey: info.trackRatingKey, type: .album)
             }
         }
-        syncCoordinator.onSourceCleanup = { [weak self] sourceKey in
-            guard let self else { return }
-            self.lyricsService.clearCache(forSourceCompositeKey: sourceKey)
-            try? await self.offlineDownloadTargetRepository.deleteTargets(forSourceCompositeKey: sourceKey)
-            try? await self.downloadManager.deleteDownloads(forSourceCompositeKey: sourceKey)
-        }
+        syncCoordinator.sourceCacheCleanupService = sourceCacheCleanupService
     }
 
     @MainActor

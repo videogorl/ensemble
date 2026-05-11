@@ -111,6 +111,32 @@ extension LibraryRepository {
         }
     }
 
+    public func fetchArtworkRatingKeys(forSourceCompositeKey sourceKey: String) async throws -> Set<String> {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Set<String>, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    var ratingKeys = Set<String>()
+                    for entityName in ["CDAlbum", "CDArtist"] {
+                        let request = NSFetchRequest<NSDictionary>(entityName: entityName)
+                        request.resultType = .dictionaryResultType
+                        request.propertiesToFetch = ["ratingKey"]
+                        request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+
+                        let rows = try context.fetch(request)
+                        for row in rows {
+                            if let ratingKey = row["ratingKey"] as? String, !ratingKey.isEmpty {
+                                ratingKeys.insert(ratingKey)
+                            }
+                        }
+                    }
+                    continuation.resume(returning: ratingKeys)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func deleteAllLibraryData() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in

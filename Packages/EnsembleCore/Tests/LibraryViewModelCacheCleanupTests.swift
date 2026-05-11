@@ -35,11 +35,8 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
 
     func testLoadLibraryPurgesAllCachedLibraryDataWhenNoAccountsExist() async throws {
         let harness = makeHarness()
-        let cleanupRecorder = CleanupRecorder()
-        harness.syncCoordinator.onSourceCleanup = { sourceKey in
-            await cleanupRecorder.record(sourceKey)
-        }
         try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: "plex:account-1:server-1:lib-1")
+        try await seedOfflineDownload(harness: harness, sourceKey: "plex:account-1:server-1:lib-1", trackRatingKey: "track-lib-1")
 
         let viewModel = makeViewModel(harness: harness)
         await viewModel.loadLibrary()
@@ -49,16 +46,11 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertTrue(viewModel.artists.isEmpty)
         XCTAssertTrue(viewModel.genres.isEmpty)
         try await waitForDeferredCleanup(repository: harness.libraryRepository)
-        let cleanedSourceKeys = await cleanupRecorder.recordedSourceKeys()
-        XCTAssertEqual(cleanedSourceKeys, ["plex:account-1:server-1:lib-1"])
+        try await waitForDeferredOfflineCleanup(harness: harness)
     }
 
     func testLoadLibraryPurgesAllCachedLibraryDataWhenNoLibrariesAreEnabled() async throws {
         let harness = makeHarness()
-        let cleanupRecorder = CleanupRecorder()
-        harness.syncCoordinator.onSourceCleanup = { sourceKey in
-            await cleanupRecorder.record(sourceKey)
-        }
         harness.accountManager.addPlexAccount(
             makeAccount(libraries: [("lib-1", "Library One", false)])
         )
@@ -69,14 +61,11 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
 
         XCTAssertTrue(viewModel.tracks.isEmpty)
         try await waitForDeferredCleanup(repository: harness.libraryRepository)
-        let cleanedSourceKeys = await cleanupRecorder.recordedSourceKeys()
-        XCTAssertEqual(cleanedSourceKeys, ["plex:account-1:server-1:lib-1"])
     }
 
     func testLoadLibraryPurgesCachedSourcesThatAreNoLongerEnabled() async throws {
-        let harness = makeHarness()
         let cleanupRecorder = CleanupRecorder()
-        harness.syncCoordinator.onSourceCleanup = { sourceKey in
+        let harness = makeHarness { sourceKey in
             await cleanupRecorder.record(sourceKey)
         }
         harness.accountManager.addPlexAccount(
@@ -108,13 +97,22 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         let accountManager: AccountManager
         let syncCoordinator: SyncCoordinator
         let libraryRepository: LibraryRepository
+        let downloadManager: DownloadManager
+        let targetRepository: OfflineDownloadTargetRepository
+        let sourceCacheCleanupService: SourceCacheCleaning
     }
 
-    private func makeHarness() -> Harness {
+    private func makeHarness(
+        clearLyricsCache: @escaping SourceCacheCleanupService.LyricsCacheCleanup = { _ in },
+        clearAllLyricsCaches: @escaping SourceCacheCleanupService.AllLyricsCacheCleanup = {}
+    ) -> Harness {
         let accountManager = AccountManager(keychain: TestKeychain())
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
         let playlistRepository = PlaylistRepository(coreDataStack: stack)
+        let downloadManager = DownloadManager(coreDataStack: stack)
+        let targetRepository = OfflineDownloadTargetRepository(coreDataStack: stack)
+        let artworkDownloadManager = ArtworkDownloadManager()
         let networkMonitor = NetworkMonitor(
             debounceNanoseconds: 1_000,
             monitorQueue: DispatchQueue(label: "test.library-cache-cleanup.network"),
@@ -124,15 +122,30 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             accountManager: accountManager,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
-            artworkDownloadManager: ArtworkDownloadManager(),
+            artworkDownloadManager: artworkDownloadManager,
             networkMonitor: networkMonitor,
             serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         )
+        let sourceCacheCleanupService = SourceCacheCleanupService(
+            libraryRepository: libraryRepository,
+            downloadManager: downloadManager,
+            targetRepository: targetRepository,
+            artworkDownloadManager: artworkDownloadManager,
+            fetchArtworkRatingKeys: { sourceKey in
+                try await libraryRepository.fetchArtworkRatingKeys(forSourceCompositeKey: sourceKey)
+            },
+            clearLyricsCache: clearLyricsCache,
+            clearAllLyricsCaches: clearAllLyricsCaches
+        )
+        syncCoordinator.sourceCacheCleanupService = sourceCacheCleanupService
 
         return Harness(
             accountManager: accountManager,
             syncCoordinator: syncCoordinator,
-            libraryRepository: libraryRepository
+            libraryRepository: libraryRepository,
+            downloadManager: downloadManager,
+            targetRepository: targetRepository,
+            sourceCacheCleanupService: sourceCacheCleanupService
         )
     }
 
@@ -156,10 +169,28 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertEqual(trackSourceKeys, expectedSourceKeys)
     }
 
+    private func waitForDeferredOfflineCleanup(harness: Harness) async throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            let downloads = try await harness.downloadManager.fetchDownloads()
+            let targets = try await harness.targetRepository.fetchTargets()
+            if downloads.isEmpty && targets.isEmpty {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+
+        let downloads = try await harness.downloadManager.fetchDownloads()
+        let targets = try await harness.targetRepository.fetchTargets()
+        XCTAssertTrue(downloads.isEmpty)
+        XCTAssertTrue(targets.isEmpty)
+    }
+
     private func makeViewModel(harness: Harness) -> LibraryViewModel {
         LibraryViewModel(
             libraryRepository: harness.libraryRepository,
             syncCoordinator: harness.syncCoordinator,
+            sourceCacheCleanupService: harness.sourceCacheCleanupService,
             accountManager: harness.accountManager,
             visibilityStore: LibraryVisibilityStore(),
             toastCenter: ToastCenter()
@@ -229,6 +260,27 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             rating: nil,
             playCount: nil,
             sourceCompositeKey: sourceKey
+        )
+    }
+
+    private func seedOfflineDownload(harness: Harness, sourceKey: String, trackRatingKey: String) async throws {
+        _ = try await harness.downloadManager.createDownload(
+            forTrackRatingKey: trackRatingKey,
+            sourceCompositeKey: sourceKey,
+            quality: "high"
+        )
+        _ = try await harness.targetRepository.upsertTarget(
+            key: "library:\(sourceKey)",
+            kind: .library,
+            ratingKey: nil,
+            sourceCompositeKey: sourceKey,
+            displayName: "Library"
+        )
+        try await harness.targetRepository.replaceMemberships(
+            targetKey: "library:\(sourceKey)",
+            trackReferences: [
+                OfflineTrackReference(trackRatingKey: trackRatingKey, trackSourceCompositeKey: sourceKey)
+            ]
         )
     }
 }

@@ -49,6 +49,7 @@ public final class LibraryViewModel: ObservableObject {
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
+    private let sourceCacheCleanupService: SourceCacheCleaning
     private let toastCenter: ToastCenter
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
@@ -63,12 +64,14 @@ public final class LibraryViewModel: ObservableObject {
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
+        sourceCacheCleanupService: SourceCacheCleaning,
         accountManager: AccountManager,
         visibilityStore: LibraryVisibilityStore? = nil,
         toastCenter: ToastCenter
     ) {
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
+        self.sourceCacheCleanupService = sourceCacheCleanupService
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore ?? .shared
         self.toastCenter = toastCenter
@@ -418,21 +421,21 @@ public final class LibraryViewModel: ObservableObject {
         guard !sourceKeys.isEmpty || deleteAllLibraryData else { return }
 
         cachedSourceCleanupTask?.cancel()
-        cachedSourceCleanupTask = Task(priority: .utility) { @MainActor [weak self] in
+        let cleanupService = sourceCacheCleanupService
+        cachedSourceCleanupTask = Task(priority: .utility) { [cleanupService] in
             try? await Task.sleep(nanoseconds: Self.cachedSourceCleanupDelayNs)
             guard !Task.isCancelled else { return }
-            guard let self else { return }
             do {
-                for sourceKey in sourceKeys {
-                    guard !Task.isCancelled else { return }
-                    try await self.cleanupCachedSource(sourceKey)
-                    await Task.yield()
-                }
-
-                guard !Task.isCancelled else { return }
                 if deleteAllLibraryData {
-                    try await self.libraryRepository.deleteAllLibraryData()
+                    _ = try await cleanupService.cleanupAllLibraryData(cachedSourceKeys: sourceKeys)
+                } else {
+                    for sourceKey in sourceKeys {
+                        guard !Task.isCancelled else { return }
+                        _ = try await cleanupService.cleanupSource(sourceKey)
+                        await Task.yield()
+                    }
                 }
+                guard !Task.isCancelled else { return }
                 EnsembleLogger.info(
                     "LibraryViewModel: completed deferred cached-source cleanup (sources=\(sourceKeys.count), deleteAll=\(deleteAllLibraryData))"
                 )
@@ -440,29 +443,6 @@ public final class LibraryViewModel: ObservableObject {
                 EnsembleLogger.debug("LibraryViewModel: deferred cached-source cleanup failed: \(error.localizedDescription)")
             }
         }
-    }
-
-    private func cleanupCachedSource(_ sourceKey: String) async throws {
-        guard let sourceId = Self.sourceIdentifier(from: sourceKey) else {
-            try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceKey)
-            return
-        }
-
-        await syncCoordinator.cleanupRemovedSource(sourceId)
-    }
-
-    private static func sourceIdentifier(from sourceKey: String) -> MusicSourceIdentifier? {
-        guard let identity = MediaSourceIdentity.parse(sourceKey),
-              let sourceType = MusicSourceType(rawValue: identity.type),
-              let libraryId = identity.libraryId else {
-            return nil
-        }
-        return MusicSourceIdentifier(
-            type: sourceType,
-            accountId: identity.accountId,
-            serverId: identity.serverId,
-            libraryId: libraryId
-        )
     }
 
     private func clearInMemoryLibrary() {
