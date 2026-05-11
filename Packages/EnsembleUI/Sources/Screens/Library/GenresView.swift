@@ -54,7 +54,7 @@ public struct GenresView: View {
         .refreshable {
             await libraryVM.refreshFromServer()
         }
-        .refreshCommand("Refresh Genres") {
+        .refreshCommand {
             await libraryVM.refreshFromServer()
         }
         .profileToolbar()
@@ -119,7 +119,7 @@ public struct GenresView: View {
             iconSystemName: EnsembleDesign.Icon.genreEmpty,
             recovery: libraryEmptyRecovery(emptyMessage: "No genres found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openSettings() }
+            manageSources: { navigationCoordinator.openProfile() }
         )
     }
 
@@ -203,7 +203,7 @@ struct GenreDetailContentView: View {
     var body: some View {
         let tracks = tracks(for: genre)
         #if os(macOS)
-        NativeTrackListHost(
+        SongsTrackListHost(
             tracks: tracks,
             configuration: .songs(
                 currentTrackId: nowPlayingVM.currentTrack?.id,

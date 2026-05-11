@@ -17,7 +17,6 @@ public struct LogDetailView: View {
     @State private var visibleLineCount: Int = 0
     @State private var isLoading = true
     @State private var loadError: String?
-    @State private var scrollTarget: String?
 
     private let logService = DependencyContainer.shared.persistentLogService
 
@@ -40,6 +39,11 @@ public struct LogDetailView: View {
 
     private var hiddenLineCount: Int {
         max(allLines.count - visibleLineCount, 0)
+    }
+
+    private var bottomLineID: String? {
+        guard !allLines.isEmpty else { return nil }
+        return "line-\(allLines.count - 1)"
     }
 
     public var body: some View {
@@ -114,13 +118,19 @@ public struct LogDetailView: View {
                     }
                 }
             }
-            .onChange(of: scrollTarget) { target in
-                guard let target = target else { return }
-                withAnimation(.none) {
-                    proxy.scrollTo(target, anchor: .bottom)
-                }
-                scrollTarget = nil
+            .onAppear {
+                scrollToBottom(with: proxy)
             }
+            .onChange(of: allLines.count) { _ in
+                scrollToBottom(with: proxy)
+            }
+        }
+    }
+
+    private func scrollToBottom(with proxy: ScrollViewProxy) {
+        guard let bottomLineID else { return }
+        withAnimation(.none) {
+            proxy.scrollTo(bottomLineID, anchor: .bottom)
         }
     }
 
@@ -187,10 +197,6 @@ public struct LogDetailView: View {
             // Show the tail initially — most recent entries are most relevant
             visibleLineCount = min(lines.count, Self.chunkSize)
             isLoading = false
-            // Scroll to the very bottom after a brief layout pass
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                scrollTarget = "line-\(allLines.count - 1)"
-            }
         case .failure(let error):
             loadError = "Failed to load log file: \(error.localizedDescription)"
             isLoading = false
@@ -200,8 +206,6 @@ public struct LogDetailView: View {
     /// Flush buffered writes then reload the file.
     private func refreshLogContent() async {
         logService.flushSession()
-        // Brief pause lets the async flush hit disk before the read
-        try? await Task.sleep(nanoseconds: 50_000_000)
         await loadLogContent()
     }
 

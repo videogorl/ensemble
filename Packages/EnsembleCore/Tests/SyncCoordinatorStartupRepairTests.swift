@@ -45,8 +45,6 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
     }
 
     private final class MockArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
-        func predownloadArtwork(for albums: [CDAlbum], size: Int) async throws -> Int { 0 }
-        func predownloadArtwork(for artists: [CDArtist], size: Int) async throws -> Int { 0 }
         func getLocalArtworkPath(for album: CDAlbum) async throws -> String? { nil }
         func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { nil }
         func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { nil }

@@ -6,7 +6,7 @@ enum AuroraMetalSurfaceTier: Int {
     case immersive = 2
 }
 
-#if canImport(MetalKit) && !os(watchOS)
+#if canImport(MetalKit)
 import Metal
 import MetalKit
 

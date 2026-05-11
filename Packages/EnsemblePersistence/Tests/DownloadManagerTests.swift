@@ -146,6 +146,60 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(completed.track?.localFilePath, newFilename)
     }
 
+    func testDeleteAllDownloadsRemovesRecordsFilesAndTrackLocalPaths() async throws {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let downloadManager = DownloadManager(coreDataStack: stack)
+        let filename = "delete-all-\(UUID().uuidString).mp3"
+        let orphanFilename = "delete-all-orphan-\(UUID().uuidString).mp3"
+        let fileURL = DownloadManager.downloadsDirectory.appendingPathComponent(filename)
+        let orphanURL = DownloadManager.downloadsDirectory.appendingPathComponent(orphanFilename)
+        defer {
+            try? FileManager.default.removeItem(at: fileURL)
+            try? FileManager.default.removeItem(atPath: fileURL.path + ".freq")
+            try? FileManager.default.removeItem(at: orphanURL)
+        }
+
+        try Data([0x01]).write(to: fileURL)
+        try Data([0x02]).write(to: URL(fileURLWithPath: fileURL.path + ".freq"))
+        try Data([0x03]).write(to: orphanURL)
+        try await seedTrack(ratingKey: "300", sourceCompositeKey: sourceA, repository: libraryRepository)
+        try await seedTrack(ratingKey: "301", sourceCompositeKey: sourceA, repository: libraryRepository)
+        let completed = try await downloadManager.createDownload(
+            forTrackRatingKey: "300",
+            sourceCompositeKey: sourceA,
+            quality: "high"
+        )
+        _ = try await downloadManager.createDownload(
+            forTrackRatingKey: "301",
+            sourceCompositeKey: sourceA,
+            quality: "high"
+        )
+        try await downloadManager.completeDownload(
+            completed.objectID,
+            filePath: filename,
+            fileSize: 1,
+            quality: "high"
+        )
+
+        let downloadsBeforeDelete = try await downloadManager.fetchDownloads()
+        XCTAssertEqual(downloadsBeforeDelete.count, 2)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path + ".freq"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: orphanURL.path))
+
+        try await downloadManager.deleteAllDownloads()
+
+        let downloadsAfterDelete = try await downloadManager.fetchDownloads()
+        XCTAssertTrue(downloadsAfterDelete.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path + ".freq"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphanURL.path))
+        let fetchedTrack = try await libraryRepository.fetchTrack(ratingKey: "300")
+        let track = try XCTUnwrap(fetchedTrack)
+        XCTAssertNil(track.localFilePath)
+    }
+
     private func seedTrack(
         ratingKey: String,
         sourceCompositeKey: String,

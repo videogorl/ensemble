@@ -8,10 +8,12 @@ public struct MergedPlaylistDetailView: View {
     let nowPlayingVM: NowPlayingViewModel
 
     @State private var showRenamePrompt = false
+    @State private var renamePromptText = ""
     @State private var showDeleteConfirmation = false
     @State private var showEditPicker = false
     @State private var isDeletingPlaylist = false
     @State private var editTarget: Playlist?
+    @State private var pendingEditTarget: Playlist?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
 
@@ -49,6 +51,7 @@ public struct MergedPlaylistDetailView: View {
                 canEdit: !viewModel.displayPlaylist.isSmart && !viewModel.tracks.isEmpty,
                 canDelete: !viewModel.displayPlaylist.isSmart,
                 onRename: {
+                    renamePromptText = viewModel.displayPlaylist.title
                     showRenamePrompt = true
                 },
                 onEdit: {
@@ -75,35 +78,21 @@ public struct MergedPlaylistDetailView: View {
                     })
                 }
             },
-            customIsPinned: {
+            customIsPinned: { pinnedIDs in
                 let ids = Set(viewModel.displayPlaylist.playlists.map(\.id))
-                return deps.pinMutationWorkflow.areAllPinned(ids: ids)
+                return ids.allSatisfy { pinnedIDs.contains($0) }
             }
         )
-        // Rename all constituent playlists
-        .sheet(isPresented: $showRenamePrompt) {
-            TextInputView(
-                title: "Rename Playlist",
-                message: "This will rename the playlist on \(viewModel.displayPlaylist.playlists.count) server\(viewModel.displayPlaylist.playlists.count == 1 ? "" : "s").",
-                placeholder: "Playlist name",
-                initialText: viewModel.displayPlaylist.title,
-                actionTitle: "Save"
-            ) { name in
-                guard let start = deps.playlistMutationWorkflow.beginRenameAll(
-                    displayPlaylist: viewModel.displayPlaylist,
-                    to: name
-                ) else { return }
-                let renamingToast = start.pendingToast
-                deps.toastCenter.show(renamingToast)
-                Task {
-                    let result = await deps.playlistMutationWorkflow.finishRenameAll(
-                        displayPlaylist: viewModel.displayPlaylist,
-                        trimmedTitle: start.trimmedTitle
-                    )
-                    deps.toastCenter.dismiss(id: renamingToast.id)
-                    deps.toastCenter.show(result.resultToast)
-                }
+        .alert("Rename Playlist", isPresented: $showRenamePrompt) {
+            TextField("Playlist name", text: $renamePromptText)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                renameMergedPlaylistFromPrompt()
             }
+            .disabled(renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            let count = viewModel.displayPlaylist.playlists.count
+            Text("This will rename the playlist on \(count) server\(count == 1 ? "" : "s").")
         }
         // Delete all constituent playlists
         .alert("Delete Playlist?", isPresented: $showDeleteConfirmation) {
@@ -131,18 +120,17 @@ public struct MergedPlaylistDetailView: View {
             Text("This will permanently delete \"\(viewModel.displayPlaylist.title)\" from \(count) server\(count == 1 ? "" : "s").")
         }
         // Edit picker — choose which constituent playlist to edit
-        .sheet(isPresented: $showEditPicker) {
+        .sheet(isPresented: $showEditPicker, onDismiss: presentPendingEditTarget) {
             editPickerSheet
         }
         // Individual playlist edit sheet (opened after picking a constituent)
         .sheet(item: $editTarget) { playlist in
-            NavigationView {
-                PlaylistDetailView(
-                    playlist: playlist,
-                    nowPlayingVM: nowPlayingVM,
-                    startInEditMode: true
-                )
-            }
+            PlaylistDetailView(
+                playlist: playlist,
+                nowPlayingVM: nowPlayingVM,
+                startInEditMode: true
+            )
+            .nativeSheetNavigationContainer()
         }
         .refreshable {
             await viewModel.refreshFromServer()
@@ -150,6 +138,26 @@ public struct MergedPlaylistDetailView: View {
     }
 
     // MARK: - Header
+
+    private func renameMergedPlaylistFromPrompt() {
+        let newTitle = renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newTitle.isEmpty else { return }
+        guard let start = deps.playlistMutationWorkflow.beginRenameAll(
+            displayPlaylist: viewModel.displayPlaylist,
+            to: newTitle
+        ) else { return }
+
+        let renamingToast = start.pendingToast
+        deps.toastCenter.show(renamingToast)
+        Task {
+            let result = await deps.playlistMutationWorkflow.finishRenameAll(
+                displayPlaylist: viewModel.displayPlaylist,
+                trimmedTitle: start.trimmedTitle
+            )
+            deps.toastCenter.dismiss(id: renamingToast.id)
+            deps.toastCenter.show(result.resultToast)
+        }
+    }
 
     private var headerData: MediaHeaderData {
         var metadataParts: [String] = []
@@ -203,55 +211,57 @@ public struct MergedPlaylistDetailView: View {
 
     /// Sheet listing each constituent playlist with server name — tap to edit individually
     private var editPickerSheet: some View {
-        NavigationView {
-            List {
-                ForEach(viewModel.displayPlaylist.playlists, id: \.id) { playlist in
-                    Button {
-                        showEditPicker = false
-                        // Delay so the edit picker dismisses before the edit sheet presents
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            editTarget = playlist
-                        }
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                                Text(serverName(for: playlist))
-                                    .font(EnsembleDesign.Typography.rowPrimary)
-                                Text("\(playlist.trackCount) songs")
-                                    .font(EnsembleDesign.Typography.rowSecondary)
-                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            }
-                            Spacer()
-                            Image(systemName: EnsembleDesign.Icon.chevronRight)
+        List {
+            ForEach(viewModel.displayPlaylist.playlists, id: \.id) { playlist in
+                Button {
+                    pendingEditTarget = playlist
+                    showEditPicker = false
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
+                            Text(serverName(for: playlist))
+                                .font(EnsembleDesign.Typography.rowPrimary)
+                            Text("\(playlist.trackCount) songs")
                                 .font(EnsembleDesign.Typography.rowSecondary)
                                 .foregroundColor(EnsembleDesign.Color.secondaryText)
                         }
+                        Spacer()
+                        Image(systemName: EnsembleDesign.Icon.chevronRight)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
-                    .foregroundColor(EnsembleDesign.Color.primaryText)
                 }
-            }
-            .listStyle(.plain)
-            .navigationTitle("Choose Playlist to Edit")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Cancel") { showEditPicker = false }
-                }
-                #else
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showEditPicker = false }
-                }
-                #endif
+                .foregroundColor(EnsembleDesign.Color.primaryText)
             }
         }
+        .listStyle(.plain)
+        .navigationTitle("Choose Playlist to Edit")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Cancel") { showEditPicker = false }
+            }
+            #else
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { showEditPicker = false }
+            }
+            #endif
+        }
+        .nativeSheetNavigationContainer()
     }
 
     private func serverName(for playlist: Playlist) -> String {
         guard let sourceKey = playlist.sourceCompositeKey else { return "Unknown Server" }
         return DependencyContainer.shared.accountManager.serverName(for: sourceKey) ?? "Unknown Server"
+    }
+
+    private func presentPendingEditTarget() {
+        guard let playlist = pendingEditTarget else { return }
+        pendingEditTarget = nil
+        editTarget = playlist
     }
 }
 

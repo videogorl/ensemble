@@ -75,27 +75,25 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// When nil, the default single-item pin behavior is used.
     let customPinAction: ((Bool) -> Void)?
     /// Custom pin state check for merged playlists.
-    /// When nil, uses pinManager.isPinned(id:) with the header's ratingKey.
-    let customIsPinned: (() -> Bool)?
+    /// When nil, checks the header's ratingKey in the current pinned ID snapshot.
+    let customIsPinned: ((Set<String>) -> Bool)?
 
-    @State private var artworkImage: UIImage?
+    @State private var artworkImage: PlatformImage?
     @State private var currentLoadPath: String?
     @State private var showFilterSheet = false
     @State private var showToolbarTitle = false
-    @State private var showToolbarActions = false
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
     @State private var trackPendingDeletion: Track?
     @State private var isConfirmingTrackDelete = false
+    @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
     // Targeted NVM observation: only re-evaluate on track/playlist target changes
     @State private var currentTrackId: String?
     @State private var nvmLastPlaylistTargetId: String?
     @State private var isPinnedForHeader: Bool
     @Environment(\.dependencies) private var deps
-    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
     private let pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
@@ -116,7 +114,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         albumMenuActions: AlbumDetailMenuActions? = nil,
         additionalFooterContent: AnyView? = nil,
         customPinAction: ((Bool) -> Void)? = nil,
-        customIsPinned: (() -> Bool)? = nil
+        customIsPinned: ((Set<String>) -> Bool)? = nil
     ) {
         self.viewModel = viewModel
         self.nowPlayingVM = nowPlayingVM
@@ -135,10 +133,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.customIsPinned = customIsPinned
 
         let initialPinState: Bool
+        let initialPinnedIDs = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.id))
         if let customIsPinned {
-            initialPinState = customIsPinned()
+            initialPinState = customIsPinned(initialPinnedIDs)
         } else if let ratingKey = headerData.ratingKey {
-            initialPinState = DependencyContainer.shared.pinManager.isPinned(id: ratingKey)
+            initialPinState = initialPinnedIDs.contains(ratingKey)
         } else {
             initialPinState = false
         }
@@ -146,10 +145,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     public var body: some View {
-        contentWithOptionalFilter
+        baseContent
         .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
+            EnsembleDetailToolbarActions {
                 if shouldShowStandaloneFilterButton {
                     EnsembleBrowseFilterButton(
                         title: "Filter Tracks",
@@ -158,86 +156,42 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         showFilterSheet = true
                     }
                 }
-            }
-            #else
-            EnsembleDetailToolbarLeadingSpacer()
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                if shouldShowStandaloneFilterButton {
-                    EnsembleBrowseFilterButton(
-                        title: "Filter Tracks",
-                        hasActiveFilters: viewModel.filterOptions.hasActiveFilters
-                    ) {
-                        showFilterSheet = true
-                    }
-                }
-            }
-            #endif
-            // Compact play/shuffle/radio icons appear when action buttons scroll out of view
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if showToolbarActions {
-                    HStack(spacing: EnsembleScaffold.DetailSurface.collapsedToolbarActionSpacing) {
-                        Button {
-                            nowPlayingVM.play(tracks: viewModel.filteredTracks)
-                        } label: {
-                            Image(systemName: EnsembleDesign.Icon.play)
-                        }
-                        .disabled(viewModel.filteredTracks.isEmpty)
 
-                        Button {
-                            nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
-                        } label: {
-                            Image(systemName: EnsembleDesign.Icon.shuffle)
-                        }
-                        .disabled(viewModel.filteredTracks.isEmpty)
-
-                        if hasRadioButton {
-                            Button {
-                                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
-                            } label: {
-                                Image(systemName: EnsembleDesign.Icon.radio)
-                            }
-                            .disabled(viewModel.filteredTracks.isEmpty)
-                        }
-                    }
-                    .transition(.opacity)
-                }
-            }
-            #endif
-            // "More" menu button — always rightmost in trailing toolbar
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
                 if let mediaType = mediaType,
                    let ratingKey = headerData.ratingKey {
                     pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
                 }
             }
-            #else
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                if let mediaType = mediaType,
-                   let ratingKey = headerData.ratingKey {
-                    pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
-                }
-            }
-            #endif
         }
         .collapsingToolbarTitle(
             navigationTitle,
             threshold: 0,
             showToolbarTitle: $showToolbarTitle
         )
+        .artworkBackedToolbarBleed()
         // Native track lists manage their own bottom inset so rows can scroll
         // behind the floating mini player without shrinking the table host.
         .trackListRuntimeObservation(
             activeDownloadRatingKeys: $activeDownloadRatingKeys,
             availabilityGeneration: $availabilityGeneration
         )
-        .onReceive(pinManager.objectWillChange) { _ in
-            DispatchQueue.main.async {
-                updatePinStateForHeader()
-            }
+        .onReceive(pinManager.$pinnedItems) { pinnedItems in
+            updatePinStateForHeader(pinnedItems: pinnedItems)
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .sheet(isPresented: $showFilterSheet) {
+            FilterSheet(filterOptions: $viewModel.filterOptions)
+        }
+        .sheet(item: $metadataEditorRequest) { request in
+            TextInputView(
+                title: request.kind.title,
+                message: "Changes are sent directly to Plex and then refreshed locally.",
+                placeholder: request.kind.fieldLabel,
+                initialText: request.currentTitle,
+                actionTitle: "Save",
+                onSubmit: request.onSave
+            )
+        }
         .confirmationDialog(
             "Delete Track?",
             isPresented: $isConfirmingTrackDelete,
@@ -274,21 +228,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         )
     }
 
-    @ViewBuilder
-    private var contentWithOptionalFilter: some View {
-        if showFilter {
-            baseContent
-                .ensembleFilterPresentation(isPresented: $showFilterSheet) {
-                    FilterSheet(filterOptions: $viewModel.filterOptions)
-                }
-        } else {
-            baseContent
-        }
-    }
-
-    /// Whether the radio button should be shown (artist or album detail views)
+    /// Whether the radio button should be shown.
     private var hasRadioButton: Bool {
-        viewModel is ArtistDetailViewModel || viewModel is AlbumDetailViewModel
+        viewModel is AlbumDetailViewModel
     }
 
     private var shouldShowStandaloneFilterButton: Bool {
@@ -301,15 +243,15 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         return "\(firstTrackID):\(viewModel.filteredTracks.count):\(playlistTargetID)"
     }
 
-    private func updatePinStateForHeader() {
+    private func updatePinStateForHeader(pinnedItems: [PinnedItem]) {
+        let pinnedIDs = Set(pinnedItems.map(\.id))
         guard let ratingKey = headerData.ratingKey else {
-            if isPinnedForHeader {
-                isPinnedForHeader = false
-            }
+            let latest = customIsPinned?(pinnedIDs) ?? false
+            if latest != isPinnedForHeader { isPinnedForHeader = latest }
             return
         }
 
-        let latest = customIsPinned?() ?? pinManager.isPinned(id: ratingKey)
+        let latest = customIsPinned?(pinnedIDs) ?? pinnedIDs.contains(ratingKey)
         if latest != isPinnedForHeader {
             isPinnedForHeader = latest
         }
@@ -572,32 +514,30 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func presentTrackMetadataEditor(_ track: Track) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            contextMenuMetadataEditorCoordinator.present(
-                kind: .track,
-                currentTitle: track.title
-            ) { newTitle in
-                do {
-                    let result = try await deps.metadataMutationWorkflow.editTrack(
-                        track,
-                        title: newTitle
-                    )
-                    await MainActor.run {
-                        deps.toastCenter.show(result.successToast)
-                    }
-                } catch {
-                    await MainActor.run {
-                        deps.toastCenter.show(
-                            deps.metadataMutationWorkflow.editFailureToast(
-                                noun: "Track",
-                                itemID: track.id,
-                                error: error,
-                                scope: .track
-                            )
-                        )
-                    }
-                    throw error
+        metadataEditorRequest = ContextMenuMetadataEditorRequest(
+            kind: .track,
+            currentTitle: track.title
+        ) { newTitle in
+            do {
+                let result = try await deps.metadataMutationWorkflow.editTrack(
+                    track,
+                    title: newTitle
+                )
+                await MainActor.run {
+                    deps.toastCenter.show(result.successToast)
                 }
+            } catch {
+                await MainActor.run {
+                    deps.toastCenter.show(
+                        deps.metadataMutationWorkflow.editFailureToast(
+                            noun: "Track",
+                            itemID: track.id,
+                            error: error,
+                            scope: .track
+                        )
+                    )
+                }
+                throw error
             }
         }
     }
@@ -711,18 +651,23 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     /// Base content without filter UI — shared between filtered and unfiltered modes.
-    /// On iOS, uses a single self-scrolling MediaTrackList (UITableView) with the header
-    /// embedded as the table's `tableHeaderView`. This lets the album art and action buttons
-    /// scroll naturally with the track list while preserving UIKit cell recycling.
+    /// iOS embeds the header in `MediaTrackList`; macOS embeds the same header in
+    /// `SongsTrackListHost`. The only safe-area override left here is the top
+    /// toolbar bleed for artwork-backed detail chrome; bottom spacing stays owned
+    /// by the native table/list inset and the root mini-player container.
     private var baseContent: some View {
-        MediaDetailSurface(artworkImage: artworkImage) {
+        MediaDetailSurface(
+            artworkImage: artworkImage,
+            contentBleedsUnderTopChrome: true
+        ) {
             #if os(iOS)
             // Always use MediaTrackList (UITableView), even with 0 tracks.
             // Loading/empty indicators are shown via tableFooterContent.
             // This keeps the header (genre chips + artwork + buttons) in a single
-            // code path with consistent safe area handling.
+            // code path with consistent safe area handling. The table uses UIKit's
+            // automatic top content inset so rows can pass under transparent toolbar
+            // chrome without a SwiftUI spacer or titlebar compensation shim.
             tracksSection
-                .ignoresSafeArea(.container, edges: [.top, .bottom])
             #else
             VStack(spacing: EnsembleDesign.Spacing.none) {
                 tracksSection
@@ -879,19 +824,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     @ViewBuilder
     private var radioButton: some View {
-        // Radio button for Artist or Album views - queues all tracks, shuffles, enables radio
-        if let _ = viewModel as? ArtistDetailViewModel {
-            Button {
-                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
-            } label: {
-                radioButtonLabel
-            }
-            #if os(macOS)
-            .help("Artist Radio - Queue all shuffled, enable sonically similar")
-            #endif
-        }
-        // Check if this is an Album detail view
-        else if let _ = viewModel as? AlbumDetailViewModel {
+        if let _ = viewModel as? AlbumDetailViewModel {
             Button {
                 nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
             } label: {
@@ -1018,7 +951,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
         #else
-        NativeTrackListHost(
+        SongsTrackListHost(
             sections: macNativeTrackSections,
             configuration: NativeTrackListConfiguration(
                 showArtwork: showArtwork,
@@ -1069,18 +1002,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         genreChipContent == nil ? 0 : EnsembleScaffold.Chip.barHeight + (EnsembleDesign.Spacing.sm * 2)
     }
 
-    private var macTableHeaderTopPadding: CGFloat {
-        EnsembleScaffold.DetailSurface.macWideHeaderTopPadding
-    }
-
-    private var macTableHeaderBottomPadding: CGFloat {
-        EnsembleScaffold.DetailSurface.macWideHeaderBottomPadding
-    }
-
-    private var macTableHeaderTopContentVerticalPadding: CGFloat {
-        genreChipContent == nil ? 0 : EnsembleDesign.Spacing.sm
-    }
-
     private var macDiscTrackGroups: [(disc: Int?, tracks: [(offset: Int, element: Track)])] {
         let indexedTracks = Array(viewModel.filteredTracks.enumerated())
         guard groupByDisc else {
@@ -1101,6 +1022,26 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     #endif
 
+    private var tableHeaderTopPadding: CGFloat {
+        #if os(iOS)
+        return EnsembleScaffold.DetailSurface.headerPadding
+        #else
+        return EnsembleScaffold.DetailSurface.macWideHeaderTopPadding
+        #endif
+    }
+
+    private var tableHeaderBottomPadding: CGFloat {
+        #if os(iOS)
+        return EnsembleScaffold.DetailSurface.headerPadding
+        #else
+        return EnsembleScaffold.DetailSurface.macWideHeaderBottomPadding
+        #endif
+    }
+
+    private var tableHeaderTopContentVerticalPadding: CGFloat {
+        genreChipContent == nil ? 0 : EnsembleDesign.Spacing.sm
+    }
+
     /// SwiftUI header content embedded as the UITableView's native tableHeaderView.
     /// Scrolls with the track list while preserving cell recycling.
     /// The header is structurally identical across all states (loading, empty, populated)
@@ -1108,9 +1049,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var tableHeaderForTrackList: some View {
         MediaDetailSurface<EmptyView>.Header(
             artworkWidth: ArtworkSize.medium.cgSize.width,
-            topPadding: macTableHeaderTopPadding,
-            bottomPadding: macTableHeaderBottomPadding,
-            topContentVerticalPadding: macTableHeaderTopContentVerticalPadding,
+            topPadding: tableHeaderTopPadding,
+            bottomPadding: tableHeaderBottomPadding,
+            topContentVerticalPadding: tableHeaderTopContentVerticalPadding,
             topContent: {
                 if let genreChipContent {
                     genreChipContent

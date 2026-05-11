@@ -61,15 +61,25 @@ For browse roots that need a regular-width selection/detail layout:
 
 Do not route iPhone through the large-screen browse host, and do not remove existing compact navigation links.
 
+## Modifying StageFlow Browse Surfaces
+
+`MainTabView` owns iPhone StageFlow activation, chrome suppression, and the single rotation-support registration. Browse screens should only read `@Environment(\.isStageFlowActive)` and swap their local content when the root says StageFlow is active.
+
+When adding or changing a StageFlow-capable browse screen:
+1. Add the tab to `MainTabView.selectedTabSupportsStageFlow` if it should unlock landscape.
+2. Keep playback resolution and `StageFlowTrackPanel` ownership in the browse screen.
+3. Do not add screen-local `GeometryReader` landscape detection, rotation delay timers, or `stageFlowRotationSupport(...)`; those recreate the presenter during sheet/keyboard flows.
+4. Do not delay root orientation unregister when the selected tab stops supporting StageFlow; unsupported tabs should return to portrait immediately so custom root chrome is not laid out in transient landscape.
+
 ## Adding a New Now Playing Panel/Card
 
-When adding a new card/panel to the Now Playing view, it must be added in **three** places:
+When adding a new card/panel to the Now Playing view, it must be added in the shared page surfaces:
 
 1. `NowPlayingCarousel.swift` — iPhone swipe carousel (TabView pages)
-2. `NowPlayingViewportRoot.swift` — iPad/macOS two-column detail panel
-3. `ExternalDisplayNowPlayingView.swift` — AirPlay external display detail panel
+2. `NowPlayingDetailPanel.swift` — shared Queue/Lyrics/Info renderer used by iPad, AirPlay, and macOS detail panels
+3. `NowPlayingViewportRoot.swift` — macOS single-panel Controls branch only if the new panel changes compact viewport behavior
 
-All three switch on `viewModel.currentPage`. Assign your new card a page index and add a case in each file's `detailPanel` / carousel body.
+Assign your new card a page index and add a case in the carousel body plus `NowPlayingDetailPanel`. `NowPlayingWidePanelLayout` should keep using the shared detail renderer, and `ExternalDisplayNowPlayingView` should stay a TV/dark/background shell around `NowPlayingWidePanelLayout`, not grow its own panel switch.
 
 ## Adding a New CoreData Entity
 
@@ -157,7 +167,7 @@ When adding support for new music sources (Apple Music, Spotify, etc.):
 ## Updating Plex Source Selection (Account-Centric Flow)
 
 When modifying Plex library enablement/sync behavior:
-1. Keep source entry points in `SettingsView` and `MusicSourceAccountDetailView` (do not reintroduce standalone sync-panel routes).
+1. Keep source entry points in `ProfileView` and `MusicSourceAccountDetailView` (do not reintroduce standalone sync-panel routes).
 2. Use `MusicSourceAccountDetailViewModel.refreshInventory()` reconciliation semantics:
    - Newly discovered libraries default to unchecked.
    - Removed libraries are auto-disabled and purged.
@@ -268,7 +278,7 @@ try await syncCoordinator.renamePlaylist(playlistKey: "12345", newTitle: "New Na
 - Use `PlaylistActionSheets.swift` for standard add-to-playlist / create-playlist UI — it wires up these calls consistently across the app.
 - Use `PlaylistActionPresentationHost` plus `.playlistActionPresentation(request:nowPlayingVM:)` for view-owned "Add to Playlist…" sheets and recent-playlist quick actions. Do not add local `PlaylistPickerPayload` structs, duplicate `PlaylistPickerSheet` modifiers, or direct recent-playlist add logic in root/detail views.
 - Use `PlaylistMutationWorkflow` for playlist rename/delete UI, including merged playlist Rename All/Delete All. It returns pending/result toast payloads and mutation outcomes; views should only handle confirmations, local optimistic state, navigation dismissal, and pin/sidebar updates. Treat merged "all" operations strictly: partial rename is a warning and partial delete is an error.
-- Use `MetadataMutationWorkflow` for track, album, and artist metadata edit/delete UI. It builds `MetadataEditRequest`, calls the mutation service, and returns standardized toast payloads; views should only own editor presentation, confirmation dialogs, and post-delete navigation.
+- Use `MetadataMutationWorkflow` for track, album, and artist metadata edit/delete UI. It builds mutation requests, calls the mutation service, and returns standardized toast payloads; views should only own local `ContextMenuMetadataEditorRequest` sheet state, confirmation dialogs, and post-delete navigation. Do not route context-menu metadata editors through root presenters or hide local navigation/search chrome around them.
 - Use `PlaylistActionService` or the `NowPlayingViewModel` compatibility wrappers before add-to-playlist mutations. They normalize library-scoped keys to server keys, reject known cross-server tracks, dedupe repeated tracks, and stamp unknown-source tracks with the selected server key for the mutation path.
 - Use `PlaylistDropResolver` for drag/drop playlist copy-add flows. It returns the resolved target playlist and compatible tracks; the view should only call `addTracksOptimistically(_:to:)` and map resolver errors to user feedback.
 
@@ -301,8 +311,8 @@ Background/recovery rules:
 - Stale `.downloading` records from a previous process/session must be normalized to `.pending` or `.paused`; never leave them stuck in `.downloading`.
 
 UI integration rules:
-- Settings manager entry point remains `SettingsView` -> `DownloadManagerSettingsView` (do not repurpose `DownloadsView`).
-- Use `OfflineServersView` for library-wide toggles; only include sync-enabled libraries.
+- Settings manager entry point remains `ProfileView` -> `DownloadManagerSettingsView` (do not repurpose `DownloadsView`).
+- Keep library-wide offline toggles inside `DownloadManagerSettingsView`; only include sync-enabled libraries.
 - Album/artist/playlist download toggles are context/detail menu actions (`Download` / `Remove Download`), not inline buttons.
 - Track rows should dim and block taps offline when `!track.isDownloaded`, with toast feedback.
 
@@ -312,8 +322,8 @@ Use these patterns when extending gesture actions:
 
 1. Add/adjust action definitions in `SettingsManager.TrackSwipeAction` and keep `TrackSwipeLayout.default` sane (2 leading + 2 trailing).
 2. Ensure layout sanitization prevents duplicate assignments and malformed persisted payloads.
-3. For SwiftUI track rows, wrap row content in `TrackSwipeContainer` and pass closures for play next/last, add-to-playlist, and favorite toggle.
-4. For detail track tables, map the same actions in `MediaTrackList` via `leadingSwipeActionsConfigurationForRowAt` / `trailingSwipeActionsConfigurationForRowAt`.
+3. For track lists, prefer `MediaTrackList` or `SongsTrackListHost` so row actions stay native and shared across iOS/iPadOS/macOS.
+4. For detail track tables, map actions in `MediaTrackList` via `leadingSwipeActionsConfigurationForRowAt` / `trailingSwipeActionsConfigurationForRowAt`.
 5. For high-volume track rows/cards/tables, accept `TrackActionDispatching` for playback/queue/favorite/playlist commands and observe `NowPlayingRatingProjection` or row-local state instead of the full `NowPlayingViewModel`.
 6. For favorite mutations, call `NowPlayingViewModel.toggleTrackFavorite(_:)`, `setTrackFavorite(_:for:)`, or the matching `TrackActionDispatching` method so server rating + local cache stay consistent.
 7. For context menus, define the allowed action set in `MediaMenuCatalog` and render it through `SwiftUIMediaMenuRenderer`, `UIKitMediaMenuRenderer`, or `AppKitMediaMenuRenderer`. For standalone SwiftUI track cards/menus, use `TrackActionsContextMenu`. Parent views should add only scoped actions such as queue removal, pin/unpin, edit/delete, shuffle/repeat, playlist-picker presentation, or playlist management.

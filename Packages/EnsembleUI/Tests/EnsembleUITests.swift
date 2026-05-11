@@ -194,26 +194,6 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(jsonDecoded, expected)
     }
 
-    func testMacNativeTrackScrollViewKeepsShortTableDocumentAtStableTopOrigin() {
-        let scrollView = MacNativeTrackScrollView(
-            frame: NSRect(x: 0, y: 0, width: 400, height: 800)
-        )
-        scrollView.bottomContentInset = 140
-        let tableView = NSTableView(frame: .zero)
-        tableView.headerView = nil
-        tableView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("track")))
-
-        scrollView.documentView = tableView
-        scrollView.layoutSubtreeIfNeeded()
-
-        XCTAssertEqual(scrollView.contentInsets.top, 0, accuracy: 0.5)
-        XCTAssertEqual(scrollView.contentInsets.bottom, 140, accuracy: 0.5)
-
-        let constrainedBounds = scrollView.contentView.constrainBoundsRect(
-            NSRect(x: 0, y: 0, width: 400, height: 800)
-        )
-        XCTAssertEqual(constrainedBounds.origin.y, 0, accuracy: 0.5)
-    }
     #endif
 
     func testArtworkSizeValues() {
@@ -242,6 +222,8 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertGreaterThan(TrackListLayoutMetrics.durationColumnWidth, TrackListLayoutMetrics.durationMinimumWidth)
         XCTAssertEqual(TrackListLayoutMetrics.miniPlayerBottomSpacing, 140)
         XCTAssertEqual(TrackListLayoutMetrics.compactMiniPlayerBottomSpacing, 110)
+        XCTAssertEqual(TrackListLayoutMetrics.detailMiniPlayerBottomLift(safeAreaBottom: 0), 20)
+        XCTAssertEqual(TrackListLayoutMetrics.detailMiniPlayerBottomLift(safeAreaBottom: 20), 32)
     }
 
     func testTrackListLayoutMetricsRowInsets() {
@@ -253,42 +235,12 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(insets.trailing, TrackListLayoutMetrics.rowHorizontalPadding)
     }
 
-    func testTrackListLayoutMetricsUtilityListRowInsets() {
-        let insets = TrackListLayoutMetrics.utilityListRowInsets(verticalPadding: 4)
-
-        XCTAssertEqual(insets.top, 4)
-        XCTAssertEqual(insets.leading, TrackListLayoutMetrics.detailHorizontalPadding)
-        XCTAssertEqual(insets.bottom, 4)
-        XCTAssertEqual(insets.trailing, TrackListLayoutMetrics.detailHorizontalPadding)
-    }
-
     func testTrackListLayoutMetricsDividerTokens() {
         XCTAssertEqual(TrackListLayoutMetrics.nativeDividerAlpha, 0.18)
         _ = TrackListLayoutMetrics.dividerColor
         #if os(iOS) || os(macOS)
         _ = TrackListLayoutMetrics.nativeSeparatorColor
         #endif
-    }
-
-    func testNativeTrackListAlbumDetailConfigurationPreservesDisplayFlags() {
-        let configuration = NativeTrackListConfiguration.albumDetail(
-            currentTrackId: "track-1",
-            availabilityGeneration: 42,
-            activeDownloadRatingKeys: ["track-2"],
-            bottomContentInset: 24,
-            tableHeaderExtraHeight: 36,
-            interactionModel: TrackRowInteractionModel()
-        )
-
-        XCTAssertFalse(configuration.showArtwork)
-        XCTAssertTrue(configuration.showTrackNumbers)
-        XCTAssertFalse(configuration.showAlbumName)
-        XCTAssertTrue(configuration.groupByDisc)
-        XCTAssertEqual(configuration.currentTrackId, "track-1")
-        XCTAssertEqual(configuration.availabilityGeneration, 42)
-        XCTAssertEqual(configuration.activeDownloadRatingKeys, ["track-2"])
-        XCTAssertEqual(configuration.bottomContentInset, 24)
-        XCTAssertEqual(configuration.tableHeaderExtraHeight, 36)
     }
 
     func testNativeTrackListFlatteningPreservesTrackIndexesAcrossSupplementaryRows() {

@@ -7,11 +7,10 @@ public struct HomeView: View {
     @StateObject private var viewModel: HomeViewModel
     let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
-    @State private var profileBackgroundImage: UIImage?
+    @State private var profileBackgroundImage: PlatformImage?
     // Targeted singleton observation: only fires when sync state changes (for empty state)
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
-    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     
     public init(nowPlayingVM: NowPlayingViewModel) {
@@ -21,17 +20,21 @@ public struct HomeView: View {
     
     public var body: some View {
         ZStack(alignment: .top) {
-            if profileBackgroundImage != nil {
-                ArtworkDetailBackground(image: profileBackgroundImage, height: profileBackgroundHeight)
-                    .allowsHitTesting(false)
-                    .ignoresSafeArea()
-            }
+            // Mount the extension-backed background before profile artwork loads
+            // so macOS Liquid Glass keeps the same scroll-edge sampling path.
+            ArtworkDetailBackground(image: profileBackgroundImage, height: profileBackgroundHeight)
+                .allowsHitTesting(false)
+                .ignoresSafeArea()
 
             Group {
                 if viewModel.isLoading && viewModel.hubs.isEmpty {
-                    loadingView
+                    refreshableStateScrollView {
+                        loadingView
+                    }
                 } else if viewModel.hubs.isEmpty {
-                    emptyView
+                    refreshableStateScrollView {
+                        emptyView
+                    }
                 } else {
                     hubsScrollView
                 }
@@ -56,11 +59,12 @@ public struct HomeView: View {
             HubOrderingSheet(viewModel: viewModel)
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .artworkBackedToolbarBleed()
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }
         .task {
-            await viewModel.loadHubs()
+            await viewModel.loadHubsIfNeeded()
         }
         .task(id: profileBackgroundReloadKey) {
             loadProfileBackgroundImage()
@@ -70,9 +74,6 @@ public struct HomeView: View {
         }
         .onDisappear {
             viewModel.handleViewVisibilityChange(isVisible: false)
-        }
-        .refreshable {
-            await viewModel.refresh()
         }
         .refreshCommand {
             await viewModel.refresh()
@@ -130,7 +131,7 @@ public struct HomeView: View {
                 iconSystemName: EnsembleDesign.Icon.library,
                 recovery: .restoringCloudSources,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else if !viewModel.hasConfiguredAccounts {
             EnsembleLibraryEmptyStateScaffold(
@@ -138,7 +139,7 @@ public struct HomeView: View {
                 iconSystemName: EnsembleDesign.Icon.library,
                 recovery: .noSources,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else if isSyncing {
             EnsembleLibraryEmptyStateScaffold(
@@ -146,7 +147,7 @@ public struct HomeView: View {
                 iconSystemName: EnsembleDesign.Icon.library,
                 recovery: .syncing,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else if !viewModel.hasEnabledLibraries {
             EnsembleLibraryEmptyStateScaffold(
@@ -154,7 +155,7 @@ public struct HomeView: View {
                 iconSystemName: EnsembleDesign.Icon.library,
                 recovery: .noEnabledLibraries,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else {
             EnsembleStateScaffold(
@@ -184,16 +185,26 @@ public struct HomeView: View {
             }
             .padding(.vertical)
         }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 1)
-                .onChanged { _ in
-                    viewModel.handleScrollInteraction(isInteracting: true)
-                }
-                .onEnded { _ in
-                    viewModel.handleScrollInteraction(isInteracting: false)
-                }
-        )
+        .refreshable {
+            await viewModel.refresh()
+        }
         .miniPlayerBottomSpacing()
+    }
+
+    private func refreshableStateScrollView<Content: View>(
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        GeometryReader { geometry in
+            ScrollView {
+                content()
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: geometry.size.height)
+            }
+            .refreshable {
+                await viewModel.refresh()
+            }
+            .miniPlayerBottomSpacing()
+        }
     }
 
     private func loadProfileBackgroundImage() {

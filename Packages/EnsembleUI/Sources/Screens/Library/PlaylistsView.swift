@@ -94,33 +94,24 @@ public struct PlaylistsView: View {
     @State private var displayPlaylistPendingDelete: DisplayPlaylist?
     @State private var showCreatePlaylistPush = false
     @State private var renamePushPlaylist: Playlist?
+    @State private var renamePushPlaylistTitle = ""
     @State private var renamePushDP: DisplayPlaylist?
+    @State private var renamePushDPTitle = ""
     // Cached merge-aware playlist list — avoids recomputing grouping on every body evaluation
     @State private var cachedDisplayedPlaylists: [DisplayPlaylist] = []
-    // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
-    @State private var isStageFlowActive = false
-    @State private var latestContainerSize: CGSize = .zero
     @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
-    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @Environment(\.isStageFlowActive) private var rootStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
-    private var supportsStageFlow: Bool {
-        #if os(iOS)
-        UIDevice.current.userInterfaceIdiom == .phone
-        #else
-        false
-        #endif
-    }
-
-    private var isPresenterChromeHidden: Bool {
-        isStageFlowActive
+    private var isStageFlowActive: Bool {
+        presentationMode == .compactRoot && rootStageFlowActive
     }
 
     private var shouldShowPlaylistSearch: Bool {
-        guard !isPresenterChromeHidden else { return false }
+        guard !isStageFlowActive else { return false }
         #if os(macOS)
         return selectedPlaylist == nil
         #else
@@ -244,42 +235,6 @@ public struct PlaylistsView: View {
                 rootContent
             }
         }
-        // Lightweight GeometryReader overlay — only updates @State isStageFlowActive
-        // instead of re-evaluating the entire body on every geometry change
-        .background(
-            GeometryReader { geometry in
-                Color.clear
-                    .onAppear {
-                        latestContainerSize = geometry.size
-                        let active = supportsStageFlow && geometry.size.width > geometry.size.height
-                        if active != isStageFlowActive { isStageFlowActive = active }
-                    }
-                    .onChange(of: geometry.size) { newSize in
-                        latestContainerSize = newSize
-                        let shouldBeActive = supportsStageFlow && newSize.width > newSize.height
-                        if shouldBeActive && !isStageFlowActive {
-                            isStageFlowActive = true
-                        } else if !shouldBeActive && isStageFlowActive {
-                            #if os(iOS)
-                            if #available(iOS 16.0, *) {
-                                isStageFlowActive = false
-                            } else {
-                                // iOS 15: delay exit to let rotation animation complete
-                                // before switching the view tree, preventing NavigationView
-                                // layout hangs from simultaneous nav bar + content changes.
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    if latestContainerSize.width < latestContainerSize.height {
-                                        isStageFlowActive = false
-                                    }
-                                }
-                            }
-                            #else
-                            isStageFlowActive = false
-                            #endif
-                        }
-                    }
-            }
-        )
             .alert("Delete Playlist?", isPresented: Binding(
                 get: { playlistPendingSwipeDelete != nil },
                 set: { isPresented in
@@ -321,21 +276,16 @@ public struct PlaylistsView: View {
                 Text("This will permanently delete \"\(displayPlaylistPendingDelete?.title ?? "")\" from \(count) server\(count == 1 ? "" : "s").")
             }
             .sheet(item: $playlistForEditSheet) { playlist in
-                NavigationView {
-                    PlaylistDetailView(
-                        playlist: playlist,
-                        nowPlayingVM: nowPlayingVM,
-                        startInEditMode: true
-                    )
-                }
+                PlaylistDetailView(
+                    playlist: playlist,
+                    nowPlayingVM: nowPlayingVM,
+                    startInEditMode: true
+                )
+                .nativeSheetNavigationContainer()
             }
-            .hideTabBarIfAvailable(isHidden: isPresenterChromeHidden)
-            .stageFlowRotationSupport(isEnabled: supportsStageFlow)
-            .stageFlowImmersiveMode(isActive: isPresenterChromeHidden)
             #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isPresenterChromeHidden)
-            .navigationBarHidden(isPresenterChromeHidden)
-            .if(isPresenterChromeHidden) { view in
+            .navigationBarHidden(isStageFlowActive)
+            .if(isStageFlowActive) { view in
                 if #available(iOS 16.0, *) {
                     view.toolbar(.hidden, for: .navigationBar)
                 } else {
@@ -344,49 +294,7 @@ public struct PlaylistsView: View {
             }
             .statusBar(hidden: isStageFlowActive)
             #endif
-            .navigationTitle(isPresenterChromeHidden ? "" : "Playlists")
-            #if os(iOS)
-            .ignoresSafeArea(.keyboard)
-            #endif
-            // Text input editors
-            .sheet(isPresented: $showCreatePlaylistPush) {
-                CreatePlaylistView(
-                    serverOptions: nowPlayingVM.playlistServerOptions(),
-                    isMergeEnabled: viewModel.isMergeEnabled
-                ) { name, serverKeys in
-                    createPlaylistOnServers(named: name, serverSourceKeys: serverKeys)
-                }
-            }
-            .sheet(item: Binding(
-                get: { renamePushPlaylist },
-                set: { if $0 == nil { renamePushPlaylist = nil } }
-            )) { playlist in
-                TextInputView(
-                    title: "Rename Playlist",
-                    placeholder: "Playlist name",
-                    initialText: playlist.title,
-                    actionTitle: "Save"
-                ) { name in
-                    renamePlaylist(playlist, to: name)
-                }
-            }
-            .sheet(item: Binding(
-                get: { renamePushDP },
-                set: { if $0 == nil { renamePushDP = nil } }
-            )) { dp in
-                TextInputView(
-                    title: "Rename Playlist",
-                    message: "This will rename on \(dp.playlists.count) server\(dp.playlists.count == 1 ? "" : "s").",
-                    placeholder: "Playlist name",
-                    initialText: dp.title,
-                    actionTitle: "Save"
-                ) { name in
-                    viewModel.applyOptimisticRenameForMerged(dp, newTitle: name)
-                    for playlist in dp.playlists {
-                        renamePlaylist(playlist, to: name)
-                    }
-                }
-            }
+            .navigationTitle(isStageFlowActive ? "" : "Playlists")
             .if(shouldShowPlaylistSearch) { view in
                 view.searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             }
@@ -415,24 +323,73 @@ public struct PlaylistsView: View {
             .refreshable {
                 await viewModel.refreshFromServer()
             }
-            .refreshCommand("Refresh Playlists") {
+            .refreshCommand {
                 await viewModel.refreshFromServer()
             }
             .profileToolbar()
-                        .toolbar {
-            EnsembleBrowseToolbar(isVisible: !isStageFlowActive) {
-                playlistMergeButton
-                PlaylistsNewButton {
-                    showCreatePlaylistPush = true
+            .toolbar {
+                EnsembleBrowseToolbar(isVisible: !isStageFlowActive) {
+                    playlistMergeButton
+                    PlaylistsNewButton {
+                        showCreatePlaylistPush = true
+                    }
+                    playlistSortMenu
                 }
-                playlistSortMenu
             }
+            // Keep modal presenters outside search/toolbar/chrome modifiers so
+            // field focus does not rebuild the sheet host.
+            .sheet(isPresented: $showCreatePlaylistPush) {
+                CreatePlaylistView(
+                    serverOptions: nowPlayingVM.playlistServerOptions(),
+                    isMergeEnabled: viewModel.isMergeEnabled
+                ) { name, serverKeys in
+                    createPlaylistOnServers(named: name, serverSourceKeys: serverKeys)
+                }
+            }
+            .alert("Rename Playlist", isPresented: Binding(
+                get: { renamePushPlaylist != nil },
+                set: { if !$0 { renamePushPlaylist = nil } }
+            )) {
+                TextField("Playlist name", text: $renamePushPlaylistTitle)
+                Button("Cancel", role: .cancel) {
+                    renamePushPlaylist = nil
+                }
+                Button("Save") {
+                    guard let playlist = renamePushPlaylist else { return }
+                    let title = renamePushPlaylistTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    renamePushPlaylist = nil
+                    renamePlaylist(playlist, to: title)
+                }
+                .disabled(renamePushPlaylistTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            } message: {
+                Text("Choose a new playlist name.")
+            }
+            .alert("Rename Playlist", isPresented: Binding(
+                get: { renamePushDP != nil },
+                set: { if !$0 { renamePushDP = nil } }
+            )) {
+                TextField("Playlist name", text: $renamePushDPTitle)
+                Button("Cancel", role: .cancel) {
+                    renamePushDP = nil
+                }
+                Button("Save") {
+                    guard let dp = renamePushDP else { return }
+                    let title = renamePushDPTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    renamePushDP = nil
+                    viewModel.applyOptimisticRenameForMerged(dp, newTitle: title)
+                    for playlist in dp.playlists {
+                        renamePlaylist(playlist, to: title)
+                    }
+                }
+                .disabled(renamePushDPTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            } message: {
+                let count = renamePushDP?.playlists.count ?? 0
+                Text("This will rename on \(count) server\(count == 1 ? "" : "s").")
             }
     }
 
-    /// StageFlow carousel for landscape mode.
-    /// Nav bar and status bar hiding are applied at the outer Group level
-    /// so SwiftUI diffs a parameter change rather than a view tree swap.
+    /// StageFlow carousel for landscape mode. MainTabView owns rotation and
+    /// root chrome; this screen only swaps its compact root content.
     private var landscapeStageFlowView: some View {
         stageFlowView
     }
@@ -456,7 +413,7 @@ public struct PlaylistsView: View {
             iconSystemName: EnsembleDesign.Icon.playlist,
             recovery: playlistEmptyRecovery(emptyMessage: "Create playlists in Plex to see them here"),
             addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openSettings() }
+            manageSources: { navigationCoordinator.openProfile() }
         )
     }
 
@@ -580,9 +537,7 @@ public struct PlaylistsView: View {
                                     displayPlaylist: dp,
                                     nowPlayingVM: nowPlayingVM,
                                     onRename: {
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                                            renamePushDP = dp
-                                        }
+                                        presentRenameAlert(for: dp)
                                     },
                                     onDelete: { displayPlaylistPendingDelete = dp }
                                 )
@@ -591,9 +546,7 @@ public struct PlaylistsView: View {
                                     playlist: dp.primaryPlaylist,
                                     nowPlayingVM: nowPlayingVM,
                                     onRename: {
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                                            renamePushPlaylist = dp.primaryPlaylist
-                                        }
+                                        presentRenameAlert(for: dp.primaryPlaylist)
                                     },
                                     onEdit: { playlistForEditSheet = dp.primaryPlaylist },
                                     onDelete: { playlistPendingSwipeDelete = dp.primaryPlaylist }
@@ -843,6 +796,16 @@ public struct PlaylistsView: View {
         }
     }
 
+    private func presentRenameAlert(for playlist: Playlist) {
+        renamePushPlaylistTitle = playlist.title
+        renamePushPlaylist = playlist
+    }
+
+    private func presentRenameAlert(for displayPlaylist: DisplayPlaylist) {
+        renamePushDPTitle = displayPlaylist.title
+        renamePushDP = displayPlaylist
+    }
+
 }
 
 // MARK: - "New Playlist" Toolbar Button
@@ -901,6 +864,7 @@ public struct PlaylistDetailView: View {
     let nowPlayingVM: NowPlayingViewModel
 
     @State private var showRenamePrompt = false
+    @State private var renamePromptText = ""
     @State private var showDeleteConfirmation = false
     @State private var isEditingPlaylist: Bool
     @State private var editedTracks: [Track] = []
@@ -966,6 +930,7 @@ public struct PlaylistDetailView: View {
                         canEdit: !viewModel.playlist.isSmart && !viewModel.tracks.isEmpty,
                         canDelete: !viewModel.playlist.isSmart,
                         onRename: {
+                            renamePromptText = viewModel.playlist.title
                             showRenamePrompt = true
                         },
                         onEdit: {
@@ -1043,61 +1008,15 @@ public struct PlaylistDetailView: View {
             }
             #endif
         }
-        .sheet(isPresented: $showRenamePrompt) {
-            TextInputView(
-                title: "Rename Playlist",
-                message: "Choose a new playlist name.",
-                placeholder: "Playlist name",
-                initialText: viewModel.playlist.title,
-                actionTitle: "Save"
-            ) { name in
-                let playlistID = viewModel.playlist.id
-                guard let start = deps.playlistMutationWorkflow.beginRename(
-                    playlist: viewModel.playlist,
-                    to: name
-                ) else { return }
-                let renamingToast = start.pendingToast
-                deps.toastCenter.show(renamingToast)
-                NotificationCenter.default.post(
-                    name: .playlistRenameStarted,
-                    object: nil,
-                    userInfo: [
-                        "playlistID": playlistID,
-                        "newTitle": start.trimmedTitle
-                    ]
-                )
-                Task {
-                    do {
-                        let renameResult = try await viewModel.renamePlaylist(
-                            toTrimmedTitle: start.trimmedTitle,
-                            using: deps.playlistMutationWorkflow
-                        )
-                        deps.toastCenter.dismiss(id: renamingToast.id)
-                        NotificationCenter.default.post(
-                            name: .playlistRenameSucceeded,
-                            object: nil,
-                            userInfo: [
-                                "playlistID": playlistID,
-                                "newTitle": start.trimmedTitle
-                            ]
-                        )
-                        deps.toastCenter.show(renameResult.successToast)
-                    } catch {
-                        deps.toastCenter.dismiss(id: renamingToast.id)
-                        NotificationCenter.default.post(
-                            name: .playlistRenameFailed,
-                            object: nil,
-                            userInfo: ["playlistID": playlistID]
-                        )
-                        deps.toastCenter.show(
-                            deps.playlistMutationWorkflow.renameFailureToast(
-                                playlist: viewModel.playlist,
-                                error: error
-                            )
-                        )
-                    }
-                }
+        .alert("Rename Playlist", isPresented: $showRenamePrompt) {
+            TextField("Playlist name", text: $renamePromptText)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                renamePlaylistFromPrompt()
             }
+            .disabled(renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("Choose a new playlist name.")
         }
         .alert("Delete Playlist?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -1183,6 +1102,60 @@ public struct PlaylistDetailView: View {
         #endif
     }
     
+    private func renamePlaylistFromPrompt() {
+        let newTitle = renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newTitle.isEmpty else { return }
+
+        let playlistID = viewModel.playlist.id
+        guard let start = deps.playlistMutationWorkflow.beginRename(
+            playlist: viewModel.playlist,
+            to: newTitle
+        ) else { return }
+
+        let renamingToast = start.pendingToast
+        deps.toastCenter.show(renamingToast)
+        NotificationCenter.default.post(
+            name: .playlistRenameStarted,
+            object: nil,
+            userInfo: [
+                "playlistID": playlistID,
+                "newTitle": start.trimmedTitle
+            ]
+        )
+
+        Task {
+            do {
+                let renameResult = try await viewModel.renamePlaylist(
+                    toTrimmedTitle: start.trimmedTitle,
+                    using: deps.playlistMutationWorkflow
+                )
+                deps.toastCenter.dismiss(id: renamingToast.id)
+                NotificationCenter.default.post(
+                    name: .playlistRenameSucceeded,
+                    object: nil,
+                    userInfo: [
+                        "playlistID": playlistID,
+                        "newTitle": start.trimmedTitle
+                    ]
+                )
+                deps.toastCenter.show(renameResult.successToast)
+            } catch {
+                deps.toastCenter.dismiss(id: renamingToast.id)
+                NotificationCenter.default.post(
+                    name: .playlistRenameFailed,
+                    object: nil,
+                    userInfo: ["playlistID": playlistID]
+                )
+                deps.toastCenter.show(
+                    deps.playlistMutationWorkflow.renameFailureToast(
+                        playlist: viewModel.playlist,
+                        error: error
+                    )
+                )
+            }
+        }
+    }
+
     private var headerData: MediaHeaderData {
         var metadataParts: [String] = []
         let playlist = viewModel.playlist
@@ -1324,39 +1297,11 @@ private struct CreatePlaylistView: View {
     }
 
     var body: some View {
-        navigationContainer
-        #if os(iOS)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
-        #endif
-        .onAppear {
-            // Default: select all servers when merge is enabled, first server otherwise
-            if serverOptions.count > 1 {
-                if isMergeEnabled {
-                    selectedServerIDs = Set(serverOptions.map(\.id))
-                } else if let first = serverOptions.first {
-                    selectedServerIDs = [first.id]
-                }
+        formContent
+            .nativeSheetNavigationContainer()
+            .onAppear {
+                initializeSelection()
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                isFocused = true
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var navigationContainer: some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationStack {
-                formContent
-            }
-        } else {
-            NavigationView {
-                formContent
-            }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
-        }
     }
 
     private var formContent: some View {
@@ -1369,7 +1314,7 @@ private struct CreatePlaylistView: View {
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismissAfterKeyboard() }
+                Button("Cancel") { dismiss() }
             }
 
             ToolbarItem(placement: .confirmationAction) {
@@ -1380,6 +1325,16 @@ private struct CreatePlaylistView: View {
         #if os(iOS)
         .navigationBarBackButtonHidden(true)
         #endif
+    }
+
+    private func initializeSelection() {
+        guard selectedServerIDs.isEmpty, serverOptions.count > 1 else { return }
+
+        if isMergeEnabled {
+            selectedServerIDs = Set(serverOptions.map(\.id))
+        } else if let first = serverOptions.first {
+            selectedServerIDs = [first.id]
+        }
     }
 
     @ViewBuilder
@@ -1469,13 +1424,6 @@ private struct CreatePlaylistView: View {
         }
     }
 
-    private func dismissAfterKeyboard() {
-        isFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            dismiss()
-        }
-    }
-
     private func submit() {
         let trimmed = playlistName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -1484,10 +1432,7 @@ private struct CreatePlaylistView: View {
             ? [serverOptions[0].id]
             : Array(selectedServerIDs)
         guard !keys.isEmpty else { return }
-        isFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            dismiss()
-            onCreate(trimmed, keys)
-        }
+        dismiss()
+        onCreate(trimmed, keys)
     }
 }

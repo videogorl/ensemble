@@ -29,6 +29,7 @@ public final class KVSSyncService: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var lastDeliveredStringValues: [String: String] = [:]
     private var lastDeliveredDataValues: [String: Data] = [:]
+    private var suppressionClearTasks: [String: Task<Void, Never>] = [:]
 
     /// Callbacks for when remote changes arrive for each key
     public var onRemoteAccentColorChanged: ((String) -> Void)?
@@ -62,6 +63,10 @@ public final class KVSSyncService: ObservableObject {
         }
     }
 
+    deinit {
+        suppressionClearTasks.values.forEach { $0.cancel() }
+    }
+
     // MARK: - Push (Local → iCloud)
 
     /// Push a string value to KVS
@@ -73,11 +78,7 @@ public final class KVSSyncService: ObservableObject {
         suppressedKeys.insert(key)
         store.set(value, forKey: key)
         store.synchronize()
-
-        // Remove suppression after a brief delay to allow the echo to pass
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.suppressedKeys.remove(key)
-        }
+        scheduleSuppressionClear(forKey: key)
     }
 
     /// Push raw Data to KVS
@@ -89,10 +90,7 @@ public final class KVSSyncService: ObservableObject {
         suppressedKeys.insert(key)
         store.set(data, forKey: key)
         store.synchronize()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.suppressedKeys.remove(key)
-        }
+        scheduleSuppressionClear(forKey: key)
     }
 
     // MARK: - Pull (iCloud → Local)
@@ -249,5 +247,15 @@ public final class KVSSyncService: ObservableObject {
         waiters.values.forEach { $0.resume(returning: true) }
 
         onInitialSyncCompleted?()
+    }
+
+    private func scheduleSuppressionClear(forKey key: String) {
+        suppressionClearTasks[key]?.cancel()
+        suppressionClearTasks[key] = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.suppressedKeys.remove(key)
+            self?.suppressionClearTasks[key] = nil
+        }
     }
 }

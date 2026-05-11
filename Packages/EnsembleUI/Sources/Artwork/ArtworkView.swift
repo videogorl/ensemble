@@ -4,10 +4,8 @@ import Nuke
 
 #if canImport(UIKit)
 import UIKit
-private typealias PlatformImage = UIImage
 #elseif canImport(AppKit)
 import AppKit
-private typealias PlatformImage = NSImage
 #endif
 
 public struct ArtworkView: View {

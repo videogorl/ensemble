@@ -54,7 +54,7 @@ public struct DownloadsView: View {
         .refreshable {
             await viewModel.refresh()
         }
-        .refreshCommand("Refresh Downloads") {
+        .refreshCommand {
             await viewModel.refresh()
         }
     }
@@ -556,8 +556,6 @@ private struct DownloadedItemRow: View {
     }
 
 }
-
-// PendingChangesRow is now a shared component in Components/PendingChangesRow.swift
 
 /// Shows a spinner + progress bar while a target is being removed
 private struct RemovalProgressRow: View {

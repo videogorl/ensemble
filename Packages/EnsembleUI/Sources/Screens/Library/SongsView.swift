@@ -10,37 +10,19 @@ import AppKit
 
 public struct SongsView: View {
     @Environment(\.dependencies) private var deps
-    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @Environment(\.isStageFlowActive) private var isStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var selectedAlbum: SongsStageFlowAlbum?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
-    @State private var isStageFlowActive = false
-    @State private var latestContainerSize: CGSize = .zero
     @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
     // Targeted observation: only re-evaluate when these specific values change,
     // not when any of offlineDownloadService's 5+ @Published props update
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
 
-    private var supportsStageFlow: Bool {
-        #if os(iOS)
-        UIDevice.current.userInterfaceIdiom == .phone
-        #else
-        false
-        #endif
-    }
-
-    private var isKeyboardEditorActive: Bool {
-        navigationCoordinator.isKeyboardEditorPresented
-    }
-
-    private var isPresenterChromeHidden: Bool {
-        isStageFlowActive || isKeyboardEditorActive
-    }
-    
     private var backgroundColor: Color {
         #if os(macOS)
         return EnsembleDesign.Color.windowSurface
@@ -128,65 +110,23 @@ public struct SongsView: View {
                 trackListView
             }
         }
-        // Detect landscape for StageFlow via background GeometryReader.
-        // Placed in .background so it doesn't block the navigation controller
-        // from finding the ScrollView for large title collapse tracking.
-        .background(
-            GeometryReader { geometry in
-                Color.clear
-                    .onAppear {
-                        latestContainerSize = geometry.size
-                        let active = supportsStageFlow && geometry.size.width > geometry.size.height
-                        if active != isStageFlowActive { isStageFlowActive = active }
-                    }
-                    .onChange(of: geometry.size) { newSize in
-                        latestContainerSize = newSize
-                        let shouldBeActive = supportsStageFlow && newSize.width > newSize.height
-                        if shouldBeActive && !isStageFlowActive {
-                            isStageFlowActive = true
-                        } else if !shouldBeActive && isStageFlowActive {
-                            #if os(iOS)
-                            if #available(iOS 16.0, *) {
-                                isStageFlowActive = false
-                            } else {
-                                // iOS 15: delay exit to let rotation animation complete
-                                // before switching the view tree. Changing nav bar, status bar,
-                                // title display mode, and content simultaneously mid-rotation
-                                // causes NavigationView layout hangs on iOS 15.
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    if latestContainerSize.width < latestContainerSize.height {
-                                        isStageFlowActive = false
-                                    }
-                                }
-                            }
-                            #else
-                            isStageFlowActive = false
-                            #endif
-                        }
-                    }
-            }
-        )
-        .hideTabBarIfAvailable(isHidden: isPresenterChromeHidden)
-        .stageFlowRotationSupport(isEnabled: supportsStageFlow)
-        .stageFlowImmersiveMode(isActive: isPresenterChromeHidden)
         #if os(iOS)
-        .preference(key: ChromeVisibilityPreferenceKey.self, value: isPresenterChromeHidden)
-        .navigationBarHidden(isPresenterChromeHidden)
+        .navigationBarHidden(isStageFlowActive)
         .statusBar(hidden: isStageFlowActive)
         #endif
-        .navigationTitle(isPresenterChromeHidden ? "" : "Songs")
-        .if(!isPresenterChromeHidden) { view in
+        .navigationTitle(isStageFlowActive ? "" : "Songs")
+        .if(!isStageFlowActive) { view in
             view.searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
         }
         .refreshable {
             await libraryVM.refreshFromServer()
         }
-        .refreshCommand("Refresh Songs") {
+        .refreshCommand {
             await libraryVM.refreshFromServer()
         }
         .profileToolbar()
-                .toolbar {
-            EnsembleBrowseToolbar(isVisible: !libraryVM.tracks.isEmpty && !isPresenterChromeHidden) {
+        .toolbar {
+            EnsembleBrowseToolbar(isVisible: !libraryVM.tracks.isEmpty && !isStageFlowActive) {
                 songsFilterButton
                 songsMoreMenu
             }
@@ -209,7 +149,7 @@ public struct SongsView: View {
                 cachedStageFlowAlbums = rebuiltAlbums
             }
         }
-        .ensembleFilterPresentation(isPresented: $showFilterSheet) {
+        .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.tracksFilterOptions,
                 availableGenres: libraryVM.availableTrackGenres,
@@ -218,10 +158,8 @@ public struct SongsView: View {
         }
     }
 
-    /// StageFlow carousel for landscape mode.
-    /// Nav bar and status bar hiding are applied at the outer Group level
-    /// so SwiftUI diffs a parameter change rather than a view tree swap,
-    /// which prevents NavigationView layout hangs on iOS 15 during rotation.
+    /// StageFlow carousel for landscape mode. MainTabView owns rotation and
+    /// root chrome; this screen only swaps its content for the active scene.
     private var landscapeAlbumStageFlowView: some View {
         albumStageFlowView
     }
@@ -236,7 +174,7 @@ public struct SongsView: View {
             iconSystemName: EnsembleDesign.Icon.musicNote,
             recovery: libraryEmptyRecovery(emptyMessage: "No songs found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openSettings() }
+            manageSources: { navigationCoordinator.openProfile() }
         )
     }
 
@@ -395,9 +333,9 @@ public struct SongsView: View {
         #endif
     }
 
-    private var largeScreenTrackSections: [SongsTrackListSection] {
+    private var largeScreenTrackSections: [NativeTrackListSection] {
         libraryVM.trackSections.map { section in
-            SongsTrackListSection(
+            NativeTrackListSection(
                 id: section.letter,
                 title: section.letter,
                 tracks: section.tracks

@@ -28,7 +28,6 @@ public struct FavoritesView: View {
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
     @State private var hasCompletedInitialLoad = false
     @Environment(\.dependencies) private var deps
-    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     private var backgroundColor: Color {
@@ -93,7 +92,7 @@ public struct FavoritesView: View {
                 hasCompletedInitialLoad = true
             }
         }
-        .ensembleFilterPresentation(isPresented: $showFilterSheet) {
+        .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $viewModel.filterOptions
             )
@@ -165,7 +164,7 @@ public struct FavoritesView: View {
                 iconSystemName: EnsembleDesign.Icon.favorite,
                 recovery: favoritesEmptyRecovery,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else {
             EnsembleStateScaffold(
@@ -281,7 +280,7 @@ public struct FavoritesView: View {
         #else
         // macOS: AppKit-backed table owns the header and scroll range.
         VStack(spacing: EnsembleDesign.Spacing.none) {
-            NativeTrackListHost(
+            SongsTrackListHost(
                 tracks: viewModel.filteredTracks,
                 configuration: .songs(
                     currentTrackId: currentTrackId,

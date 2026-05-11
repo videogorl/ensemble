@@ -12,7 +12,6 @@ public struct NativeTrackListConfiguration {
     public var showAlbumName: Bool
     public var groupByDisc: Bool
     public var showsSectionIndex: Bool
-    public var managesOwnScrolling: Bool
     public var rowHeight: CGFloat
     public var bottomContentInset: CGFloat
     public var tableHeaderExtraHeight: CGFloat
@@ -28,7 +27,6 @@ public struct NativeTrackListConfiguration {
         showAlbumName: Bool = true,
         groupByDisc: Bool = false,
         showsSectionIndex: Bool = false,
-        managesOwnScrolling: Bool = true,
         rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
         bottomContentInset: CGFloat = 0,
         tableHeaderExtraHeight: CGFloat = 0,
@@ -43,7 +41,6 @@ public struct NativeTrackListConfiguration {
         self.showAlbumName = showAlbumName
         self.groupByDisc = groupByDisc
         self.showsSectionIndex = showsSectionIndex
-        self.managesOwnScrolling = managesOwnScrolling
         self.rowHeight = rowHeight
         self.bottomContentInset = bottomContentInset
         self.tableHeaderExtraHeight = tableHeaderExtraHeight
@@ -73,28 +70,6 @@ public struct NativeTrackListConfiguration {
             bottomContentInset: bottomContentInset,
             tableHeaderExtraHeight: tableHeaderExtraHeight,
             supplementalMetadataWidth: supplementalMetadataWidth,
-            currentTrackId: currentTrackId,
-            availabilityGeneration: availabilityGeneration,
-            activeDownloadRatingKeys: activeDownloadRatingKeys,
-            interactionModel: interactionModel
-        )
-    }
-
-    public static func albumDetail(
-        currentTrackId: String? = nil,
-        availabilityGeneration: UInt64 = 0,
-        activeDownloadRatingKeys: Set<String> = [],
-        bottomContentInset: CGFloat = 0,
-        tableHeaderExtraHeight: CGFloat = 0,
-        interactionModel: TrackRowInteractionModel
-    ) -> NativeTrackListConfiguration {
-        NativeTrackListConfiguration(
-            showArtwork: false,
-            showTrackNumbers: true,
-            showAlbumName: false,
-            groupByDisc: true,
-            bottomContentInset: bottomContentInset,
-            tableHeaderExtraHeight: tableHeaderExtraHeight,
             currentTrackId: currentTrackId,
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,

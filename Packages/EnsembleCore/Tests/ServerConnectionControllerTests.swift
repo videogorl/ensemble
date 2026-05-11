@@ -254,18 +254,13 @@ final class ServerConnectionControllerTests: XCTestCase {
             connectionRegistry: nil
         )
 
-        var didResetFallbacks = false
         do {
-            try await controller.refreshConnections {
-                didResetFallbacks = true
-            }
+            try await controller.refreshConnections()
             XCTFail("Expected refresh without configured clients to throw")
         } catch PlexAPIError.noServerSelected {
         } catch {
             XCTFail("Expected noServerSelected, got \(error)")
         }
-
-        XCTAssertFalse(didResetFallbacks)
     }
 
     func testConnectionStateAfterSuccessfulSyncUsesAPIClientURLAndPreservesDegradedState() async throws {

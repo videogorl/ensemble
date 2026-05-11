@@ -18,18 +18,4 @@ extension View {
         tabViewStyle(.automatic)
         #endif
     }
-
-    /// Remove the sidebar toggle button on macOS where the root shell owns sidebar policy.
-    @ViewBuilder
-    func if_available_removeSidebarToggle() -> some View {
-        #if os(macOS)
-        if #available(iOS 17.0, macOS 14.0, *) {
-            toolbar(removing: .sidebarToggle)
-        } else {
-            self
-        }
-        #else
-        self
-        #endif
-    }
 }

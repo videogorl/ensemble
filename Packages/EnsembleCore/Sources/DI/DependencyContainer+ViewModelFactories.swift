@@ -22,6 +22,7 @@ public extension DependencyContainer {
         LibraryViewModel(
             libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
+            sourceCacheCleanupService: sourceCacheCleanupService,
             accountManager: accountManager,
             visibilityStore: libraryVisibilityStore,
             toastCenter: toastCenter
@@ -71,7 +72,8 @@ public extension DependencyContainer {
             playlistRepository: playlistRepository,
             syncCoordinator: syncCoordinator,
             mutationCoordinator: mutationCoordinator,
-            toastCenter: toastCenter
+            toastCenter: toastCenter,
+            accountManager: accountManager
         )
     }
 
@@ -156,15 +158,6 @@ public extension DependencyContainer {
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             offlineDownloadService: offlineDownloadService
-        )
-    }
-
-    @MainActor
-    func makeOfflineServersViewModel() -> OfflineServersViewModel {
-        OfflineServersViewModel(
-            accountManager: accountManager,
-            offlineDownloadService: offlineDownloadService,
-            downloadMutationWorkflow: downloadMutationWorkflow
         )
     }
 

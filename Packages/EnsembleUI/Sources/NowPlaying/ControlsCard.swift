@@ -30,7 +30,6 @@ public struct ControlsCard: View {
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var showLoadingIndicator = false
-    @State private var loadingDelayTask: Task<Void, Never>?
     // Hold the last settled play/pause icon during skip transitions
     @State private var wasPlayingBeforeTransition = false
     // Decoupled from @Published via CurrentValueSubject — avoids firing
@@ -465,43 +464,8 @@ public struct ControlsCard: View {
             }
             .disabled(!playbackProjection.isPlaying && !playbackProjection.isCurrentTrackPlayable)
             .opacity(!playbackProjection.isPlaying && !playbackProjection.isCurrentTrackPlayable ? 0.4 : 1.0)
-            .onAppear {
-                // Sync loading indicator with current state when the view mounts.
-                // onChange only fires on *subsequent* changes — if the NPV opens
-                // while state is already .loading, onChange never fires and the
-                // spinner never shows. The mini player doesn't have this problem
-                // because it checks playbackState directly in its body.
-                let state = playbackProjection.playbackState
-                let isLoading = state == .loading || state == .buffering
-                if isLoading {
-                    loadingDelayTask?.cancel()
-                    loadingDelayTask = Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: EnsembleScaffold.NowPlaying.loadingIndicatorDelayNanoseconds)
-                        guard !Task.isCancelled else { return }
-                        showLoadingIndicator = true
-                    }
-                }
-                if state == .playing {
-                    wasPlayingBeforeTransition = true
-                }
-            }
-            .onChange(of: playbackProjection.playbackState) { newState in
-                let isLoading = newState == .loading || newState == .buffering
-                if isLoading {
-                    // Debounce the loading indicator to avoid flicker during fast track skips
-                    loadingDelayTask?.cancel()
-                    loadingDelayTask = Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: EnsembleScaffold.NowPlaying.loadingIndicatorDelayNanoseconds)
-                        guard !Task.isCancelled else { return }
-                        showLoadingIndicator = true
-                    }
-                } else {
-                    loadingDelayTask?.cancel()
-                    loadingDelayTask = nil
-                    showLoadingIndicator = false
-                    // Track the settled play/pause state for next transition
-                    wasPlayingBeforeTransition = (newState == .playing)
-                }
+            .task(id: playbackProjection.playbackState) {
+                await updateLoadingIndicator(for: playbackProjection.playbackState)
             }
             
             // Next
@@ -619,7 +583,7 @@ public struct ControlsCard: View {
     // MARK: - Helper Methods
     
     /// Navigate to artist detail — store intent, then dismiss.
-    /// MainTabView/SidebarView executes the push after sheet fully dismisses.
+    /// RootView executes the push from the Now Playing presenter dismissal.
     private func handleArtistTap(track: Track) {
         if let artistId = track.artistRatingKey {
             navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
@@ -627,7 +591,7 @@ public struct ControlsCard: View {
         }
     }
 
-    /// Navigate to album detail — store intent, then dismiss
+    /// Navigate to album detail — store intent, then dismiss.
     private func handleAlbumTap(track: Track) {
         if let albumId = track.albumRatingKey {
             navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
@@ -662,6 +626,19 @@ public struct ControlsCard: View {
             for: [currentTrack],
             nowPlayingVM: viewModel
         )
+    }
+
+    @MainActor
+    private func updateLoadingIndicator(for state: PlaybackState) async {
+        let isLoading = state == .loading || state == .buffering
+        if isLoading {
+            try? await Task.sleep(nanoseconds: EnsembleScaffold.NowPlaying.loadingIndicatorDelayNanoseconds)
+            guard !Task.isCancelled else { return }
+            showLoadingIndicator = true
+        } else {
+            showLoadingIndicator = false
+            wasPlayingBeforeTransition = (state == .playing)
+        }
     }
     
     private func presentPlaylistPicker(with tracks: [Track], title: String) {

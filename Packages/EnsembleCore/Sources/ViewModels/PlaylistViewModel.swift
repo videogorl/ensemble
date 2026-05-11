@@ -45,6 +45,7 @@ public final class PlaylistViewModel: ObservableObject {
     private let syncCoordinator: SyncCoordinator
     private let mutationCoordinator: MutationCoordinator
     private let toastCenter: ToastCenter
+    private let accountManager: AccountManager?
     private var cancellables = Set<AnyCancellable>()
     private var optimisticCreatingPlaylists: [Playlist] = []
     private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
@@ -57,12 +58,14 @@ public final class PlaylistViewModel: ObservableObject {
         playlistRepository: PlaylistRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
         mutationCoordinator: MutationCoordinator,
-        toastCenter: ToastCenter
+        toastCenter: ToastCenter,
+        accountManager: AccountManager? = nil
     ) {
         self.playlistRepository = playlistRepository
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
         self.toastCenter = toastCenter
+        self.accountManager = accountManager
         self.isMergeEnabled = UserDefaults.standard.bool(forKey: "playlistMergeEnabled")
         let savedFilters = FilterPersistence.load(for: "Playlists")
         self.filterOptions = savedFilters
@@ -384,10 +387,8 @@ public final class PlaylistViewModel: ObservableObject {
             // CoreData can return empty mid-sync while records are being rebuilt,
             // or return partial records with empty titles before the full sync commits.
             let hasDegradedData = merged.contains { $0.title.isEmpty }
-            if merged.isEmpty && isShowingStaleSnapshot {
-                publishPlaylistsIfChanged([])
-                nameCollisionTitles = []
-                isShowingStaleSnapshot = false
+            if merged.isEmpty && shouldTreatEmptyPlaylistCacheAsAuthoritative {
+                clearLocalPlaylistCache(resetLastGoodSnapshot: true)
             } else if (merged.isEmpty || hasDegradedData) && !playlists.isEmpty {
                 EnsembleLogger.debug("📋 PlaylistViewModel: skipping degraded reload (\(merged.count) playlists, \(merged.filter { $0.title.isEmpty }.count) empty titles, preserving \(self.playlists.count) existing)")
             } else {
@@ -432,6 +433,29 @@ public final class PlaylistViewModel: ObservableObject {
         if Self.lastGoodPlaylistsSnapshot != playlists {
             Self.lastGoodPlaylistsSnapshot = playlists
         }
+        isShowingStaleSnapshot = false
+    }
+
+    private var shouldTreatEmptyPlaylistCacheAsAuthoritative: Bool {
+        guard let accountManager else {
+            return isShowingStaleSnapshot
+        }
+
+        return !accountManager.isAwaitingCloudSources && accountManager.enabledSources().isEmpty
+    }
+
+    private func clearLocalPlaylistCache(resetLastGoodSnapshot: Bool) {
+        if resetLastGoodSnapshot {
+            Self.lastGoodPlaylistsSnapshot = []
+        }
+        optimisticCreatingPlaylists = []
+        optimisticRenamedPlaylistTitlesByID = [:]
+        publishPlaylistsIfChanged([])
+        filteredPlaylists = []
+        sortedPlaylists = []
+        displayPlaylists = []
+        sortedDisplayPlaylists = []
+        nameCollisionTitles = []
         isShowingStaleSnapshot = false
     }
 
@@ -564,7 +588,36 @@ public final class PlaylistViewModel: ObservableObject {
 
     private func fetchCachedPlaylists() async throws -> [Playlist] {
         let cached = try await playlistRepository.fetchPlaylists()
-        return cached.map { Playlist(from: $0) }
+        let playlists = cached.map { Playlist(from: $0) }
+        guard let accountManager else {
+            return playlists
+        }
+
+        let enabledSources = accountManager.enabledSources()
+        guard !enabledSources.isEmpty else {
+            return []
+        }
+
+        let enabledLibraryKeys = Set(enabledSources.map(\.compositeKey))
+        let enabledServerKeys = Set(enabledSources.map { MediaSourceIdentity.serverSourceKey(for: $0) })
+        return playlists.filter {
+            Self.isPlaylistSourceEnabled(
+                $0.sourceCompositeKey,
+                enabledLibraryKeys: enabledLibraryKeys,
+                enabledServerKeys: enabledServerKeys
+            )
+        }
+    }
+
+    private static func isPlaylistSourceEnabled(
+        _ sourceCompositeKey: String?,
+        enabledLibraryKeys: Set<String>,
+        enabledServerKeys: Set<String>
+    ) -> Bool {
+        guard let sourceCompositeKey else { return false }
+        if enabledLibraryKeys.contains(sourceCompositeKey) { return true }
+        guard let serverKey = MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey) else { return false }
+        return enabledServerKeys.contains(serverKey)
     }
 }
 

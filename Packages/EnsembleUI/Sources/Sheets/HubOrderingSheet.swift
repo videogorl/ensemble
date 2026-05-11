@@ -51,19 +51,18 @@ public struct HubOrderingSheet: View {
     #endif
 
     private var iOSBody: some View {
-        NavigationView {
-            VStack(spacing: EnsembleDesign.Spacing.none) {
-                headerBanner
-                hubList
-            }
-            .navigationTitle("Home Screen")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                toolbarContent
-            }
+        VStack(spacing: EnsembleDesign.Spacing.none) {
+            headerBanner
+            hubList
         }
+        .navigationTitle("Home Screen")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            toolbarContent
+        }
+        .nativeSheetNavigationContainer()
         .onAppear {
             reorderedHubs = viewModel.editableHubs
         }

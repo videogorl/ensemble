@@ -8,13 +8,18 @@ import UIKit
 import AppKit
 #endif
 
+struct TrackSectionScrollRequest: Equatable {
+    let id: Int
+    let sectionID: String
+}
+
 /// Platform host for dense Songs track lists.
 ///
 /// iOS/iPadOS uses `MediaTrackList` (`UITableView`) and macOS uses an AppKit
 /// `NSTableView`. The calling view owns filtering/sorting; this host owns the
 /// native row backend and section index wiring.
 public struct SongsTrackListHost: View {
-    private let sections: [SongsTrackListSection]
+    private let sections: [NativeTrackListSection]
     private let configuration: NativeTrackListConfiguration
     private let tableHeaderContent: AnyView?
     private let tableFooterContent: AnyView?
@@ -22,7 +27,8 @@ public struct SongsTrackListHost: View {
     private let onRemoveFromPlaylist: ((Track, Int) -> Void)?
     private let onTrackTap: (Track, Int) -> Void
 
-    @State private var requestedSectionID: String?
+    @State private var sectionScrollRequestID = 0
+    @State private var sectionScrollRequest: TrackSectionScrollRequest?
 
     private var allTracks: [Track] {
         sections.flatMap(\.tracks)
@@ -38,7 +44,7 @@ public struct SongsTrackListHost: View {
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
         self.sections = [
-            SongsTrackListSection(id: "all", title: "", tracks: tracks)
+            NativeTrackListSection(id: "all", title: "", tracks: tracks)
         ]
         self.configuration = configuration
         self.tableHeaderContent = tableHeaderContent
@@ -49,7 +55,7 @@ public struct SongsTrackListHost: View {
     }
 
     public init(
-        sections: [SongsTrackListSection],
+        sections: [NativeTrackListSection],
         configuration: NativeTrackListConfiguration,
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
@@ -99,7 +105,7 @@ public struct SongsTrackListHost: View {
     }
 
     public init(
-        sections: [SongsTrackListSection],
+        sections: [NativeTrackListSection],
         currentTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadRatingKeys: Set<String> = [],
@@ -189,7 +195,7 @@ public struct SongsTrackListHost: View {
     }
 
     private func iOSSection(
-        _ section: SongsTrackListSection,
+        _ section: NativeTrackListSection,
         allTracks: [Track]
     ) -> some View {
         let height = CGFloat(section.tracks.count) * configuration.rowHeight
@@ -240,12 +246,16 @@ public struct SongsTrackListHost: View {
                 rowHeight: configuration.rowHeight,
                 interactionModel: configuration.interactionModel,
                 onRemoveFromPlaylist: onRemoveFromPlaylist,
-                requestedSectionID: $requestedSectionID,
+                sectionScrollRequest: sectionScrollRequest,
                 onTrackTap: onTrackTap
             )
 
             sectionIndex { sectionID in
-                requestedSectionID = sectionID
+                sectionScrollRequestID += 1
+                sectionScrollRequest = TrackSectionScrollRequest(
+                    id: sectionScrollRequestID,
+                    sectionID: sectionID
+                )
             }
             }
         )
@@ -287,5 +297,3 @@ public struct SongsTrackListHost: View {
         #endif
     }
 }
-
-public typealias NativeTrackListHost = SongsTrackListHost

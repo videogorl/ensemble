@@ -87,7 +87,7 @@ extension LibraryRepository {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in
                 do {
-                    for entityName in ["CDTrack", "CDAlbum", "CDArtist", "CDGenre", "CDPlaylist"] {
+                    for entityName in ["CDTrack", "CDAlbum", "CDArtist", "CDGenre", "CDMood", "CDPlaylist"] {
                         let request = NSFetchRequest<NSManagedObject>(entityName: entityName)
                         request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
                         let objects = try context.fetch(request)
@@ -111,12 +111,101 @@ extension LibraryRepository {
         }
     }
 
+    public func fetchArtworkRatingKeys(forSourceCompositeKey sourceKey: String) async throws -> Set<String> {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Set<String>, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    var ratingKeys = Set<String>()
+                    for entityName in ["CDAlbum", "CDArtist"] {
+                        let request = NSFetchRequest<NSDictionary>(entityName: entityName)
+                        request.resultType = .dictionaryResultType
+                        request.propertiesToFetch = ["ratingKey"]
+                        request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+
+                        let rows = try context.fetch(request)
+                        for row in rows {
+                            if let ratingKey = row["ratingKey"] as? String, !ratingKey.isEmpty {
+                                ratingKeys.insert(ratingKey)
+                            }
+                        }
+                    }
+                    continuation.resume(returning: ratingKeys)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func countLibraryItems(forSourceCompositeKey sourceKey: String) async throws -> Int {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    var total = 0
+                    for entityName in ["CDTrack", "CDAlbum", "CDArtist", "CDGenre", "CDMood", "CDPlaylist"] {
+                        let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
+                        request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+                        total += try context.count(for: request)
+                    }
+                    continuation.resume(returning: total)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func countAllLibraryItems() async throws -> Int {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    var total = 0
+                    for entityName in [
+                        "CDOfflineDownloadMembership",
+                        "CDOfflineDownloadTarget",
+                        "CDTrack",
+                        "CDAlbum",
+                        "CDArtist",
+                        "CDGenre",
+                        "CDMood",
+                        "CDPlaylist",
+                        "CDHubItem",
+                        "CDHub",
+                        "CDHomeFeedSnapshot",
+                        "CDMusicSource",
+                        "CDServer"
+                    ] {
+                        let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
+                        total += try context.count(for: request)
+                    }
+                    continuation.resume(returning: total)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func deleteAllLibraryData() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in
                 do {
-                    // Delete all library entities regardless of source
-                    for entityName in ["CDTrack", "CDAlbum", "CDArtist", "CDGenre", "CDPlaylist", "CDMusicSource", "CDServer"] {
+                    // Delete all library/cache entities regardless of source.
+                    for entityName in [
+                        "CDOfflineDownloadMembership",
+                        "CDOfflineDownloadTarget",
+                        "CDTrack",
+                        "CDAlbum",
+                        "CDArtist",
+                        "CDGenre",
+                        "CDMood",
+                        "CDPlaylist",
+                        "CDHubItem",
+                        "CDHub",
+                        "CDHomeFeedSnapshot",
+                        "CDMusicSource",
+                        "CDServer"
+                    ] {
                         let request = NSFetchRequest<NSManagedObject>(entityName: entityName)
                         let objects = try context.fetch(request)
                         for object in objects {

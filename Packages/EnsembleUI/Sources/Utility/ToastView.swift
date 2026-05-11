@@ -71,8 +71,10 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
 
     public func makeUIViewController(context: Context) -> UIViewController {
         let controller = UIViewController()
-        controller.view.isHidden = true
-        controller.view.isUserInteractionEnabled = false
+        let view = SceneProbeView()
+        view.isHidden = true
+        view.isUserInteractionEnabled = false
+        controller.view = view
         return controller
     }
 
@@ -80,13 +82,26 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
         context.coordinator.toastCenter = toastCenter
         context.coordinator.refreshRootView()
 
-        DispatchQueue.main.async {
-            context.coordinator.attach(to: uiViewController.view.window?.windowScene)
+        if let probeView = uiViewController.view as? SceneProbeView {
+            let coordinator = context.coordinator
+            probeView.onSceneChange = { [weak coordinator] scene in
+                coordinator?.attach(to: scene)
+            }
         }
+        context.coordinator.attach(to: uiViewController.view.window?.windowScene)
     }
 
     public static func dismantleUIViewController(_ uiViewController: UIViewController, coordinator: Coordinator) {
         coordinator.detach()
+    }
+
+    final class SceneProbeView: UIView {
+        var onSceneChange: ((UIWindowScene?) -> Void)?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            onSceneChange?(window?.windowScene)
+        }
     }
 
     public final class Coordinator {

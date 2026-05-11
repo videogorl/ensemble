@@ -119,11 +119,9 @@ public struct AlbumCard: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        #if !os(watchOS)
         .onDrag {
             MediaDragExportPolicy.itemProvider(for: MediaDragPayload.album(album))
         }
-        #endif
     }
 }
 
@@ -136,8 +134,8 @@ public struct AlbumGrid: View {
     let layout: AlbumCardLayoutMetrics
 
     @Environment(\.dependencies) private var deps
-    @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
     @State private var pendingAlbumDeletion: Album?
 
     public init(
@@ -202,6 +200,16 @@ public struct AlbumGrid: View {
             }
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .sheet(item: $metadataEditorRequest) { request in
+            TextInputView(
+                title: request.kind.title,
+                message: "Changes are sent directly to Plex and then refreshed locally.",
+                placeholder: request.kind.fieldLabel,
+                initialText: request.currentTitle,
+                actionTitle: "Save",
+                onSubmit: request.onSave
+            )
+        }
         .confirmationDialog(
             "Delete Album?",
             isPresented: Binding(
@@ -228,31 +236,27 @@ public struct AlbumGrid: View {
     }
 
     private func presentAlbumMetadataEditor(_ album: Album) {
-        // Context-menu initiated editors can be dropped when toggled in the same
-        // transaction as menu dismissal, so hand them off after the menu unwinds.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            contextMenuMetadataEditorCoordinator.present(
-                kind: .album,
-                currentTitle: album.title
-            ) { newTitle in
-                do {
-                    let result = try await deps.metadataMutationWorkflow.editAlbum(album, title: newTitle)
-                    await MainActor.run {
-                        deps.toastCenter.show(result.successToast)
-                    }
-                } catch {
-                    await MainActor.run {
-                        deps.toastCenter.show(
-                            deps.metadataMutationWorkflow.editFailureToast(
-                                noun: "Album",
-                                itemID: album.id,
-                                error: error,
-                                scope: .album
-                            )
-                        )
-                    }
-                    throw error
+        metadataEditorRequest = ContextMenuMetadataEditorRequest(
+            kind: .album,
+            currentTitle: album.title
+        ) { newTitle in
+            do {
+                let result = try await deps.metadataMutationWorkflow.editAlbum(album, title: newTitle)
+                await MainActor.run {
+                    deps.toastCenter.show(result.successToast)
                 }
+            } catch {
+                await MainActor.run {
+                    deps.toastCenter.show(
+                        deps.metadataMutationWorkflow.editFailureToast(
+                            noun: "Album",
+                            itemID: album.id,
+                            error: error,
+                            scope: .album
+                        )
+                    )
+                }
+                throw error
             }
         }
     }

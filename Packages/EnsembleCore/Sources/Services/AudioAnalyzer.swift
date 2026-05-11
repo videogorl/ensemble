@@ -206,8 +206,6 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     private let bandCount = 24
     private let fftSize = 1024
-    private let minFrequency: Double = 60.0
-    private let maxFrequency: Double = 16000.0
     private let highTargetFPS: Double = 30.0
 
     // MARK: - Display State

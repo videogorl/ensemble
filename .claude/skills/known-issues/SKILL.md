@@ -11,6 +11,13 @@ No unresolved critical issues currently documented.
 
 ## Known Limitations
 
+### macOS 26 Feed Toolbar Liquid Glass Sampling (May 10, 2026)
+- **Location:** `HomeView.swift`, `CollapsingToolbar.swift`, `ArtworkDetailBackground.swift`
+- **Issue:** Feed's macOS 26 toolbar no longer shows an opaque custom background, but native Liquid Glass scroll-edge color bleed is still not fully equivalent to the post-navigation state. The toolbar starts closer to the desired translucent state after the background host is mounted immediately, yet the OS-provided bleed can still be less vivid until navigation invalidates the detail hierarchy.
+- **Root cause hypothesis:** The Feed artwork wash is loaded asynchronously and the root `NavigationSplitView`/toolbar scroll-edge relationship appears to cache its sampling source before the final artwork-backed surface is in place. Pushing into an item and returning forces SwiftUI/AppKit to rebuild enough of the detail column for native sampling to behave as expected.
+- **Rejected workaround:** Forcing the Feed `ScrollView` under the toolbar with `.ignoresSafeArea(.container, edges: .top)` and a hardcoded top safe-area padding clipped the first row. A window-level `containerBackground(for: .window)` made the whole Feed look washed instead of letting the toolbar sample real content.
+- **Current status:** Keep the extension-backed `ArtworkDetailBackground` mounted from first render, keep macOS 26 toolbar background hidden, and avoid custom scroll padding/window-wide backgrounds. Future work should look for a root `NavigationSplitView`/detail-column ownership fix rather than adding leaf-view toolbar shims.
+
 ### watchOS Companion Shell Only (May 6, 2026)
 - **Location:** `EnsembleWatch/Views/WatchRootView.swift`
 - **Issue:** The watch target currently ships as a standalone shell and does not provide Plex auth, library browsing, or playback control.
@@ -21,9 +28,9 @@ No unresolved critical issues currently documented.
 ### iOS 26 Keyboard Presenter Guardrails (Apr 13, 2026)
 - **Location:** `View+Extensions.swift`, `MainTabView.swift`, `PlaylistsView.swift`, `ProfileView.swift`, filter screens
 - **Issue:** A broad iPhone workaround pushed ordinary text-input flows into `keyboardSafeEditorPresentation(...)` and pre-hidden chrome. That masked the real root-layout issue, swallowed valid presentations, and forced unnecessary full-screen editors.
-- **Current rule:** Ordinary short rename/create/filter flows should use plain `.sheet` presentation again. The specialized keyboard helper is reserved for the small set of remaining root-owned presenters that still require isolation and have been explicitly validated as such.
-- **Remaining guarded surfaces:** Treat `MainTabView`'s pinned/sidebar playlist rename presenters as intentionally isolated. `MediaDetailView`'s shared filter presenter is still on the helper until it is revalidated with a normal sheet.
-- **Practical impact:** If a future change reaches for `keyboardSafeEditorPresentation(...)` by default, treat that as a likely regression unless the root presenter is demonstrably unstable with a normal sheet.
+- **Root cause found:** Playlists create/rename sheets triggered an iOS 26 `NavigationBarContentView` observation feedback loop because the underlying Playlists searchable/navigation chrome stayed live behind the focused modal. Album-library metadata editing then showed the opposite failure: observing the root metadata editor request from the grid screen caused the underlying Albums navigation/search chrome to hide on open and restore during interactive dismissal, racing the keyboard teardown and re-entering the same UIKit loop. Wrapping `TextInputView` itself in a sheet-local `NavigationStack` reproduced the loop on text-field focus even after the album grid owned presentation locally. A final Album repro showed `AlbumsView` repeatedly registering/unregistering StageFlow rotation tokens while the metadata sheet was visible, freezing the app even before the keyboard appeared.
+- **Current rule:** Ordinary short rename/create/filter flows should use native presentation again: playlist rename is a `TextField` alert, while playlist creation, profile-name editing, filters, and metadata editors use normal sheets. Parent screens may suppress only their own active navigation/search chrome while presenting a local modal if logs prove that parent chrome is the loop source. Album card/grid context menus own their metadata sheet locally, while remaining root-owned context-menu metadata editors use normal sheets backed by the shared `TextInputView`; library/grid screens should not observe the root metadata request just to mutate their own chrome. Keep short iPhone text editors out of sheet-local navigation stacks unless they genuinely need navigation. StageFlow rotation is root-owned in `MainTabView`; library screens may swap content from `EnvironmentValues.isStageFlowActive` but must not register/unregister their own rotation tokens.
+- **Practical impact:** If a future change reaches for a full-screen keyboard-safe presenter by default, treat that as a likely regression unless the root presenter is demonstrably unstable with a normal sheet.
 
 ### iOS 26 Simulator Keyboard Haptics Log Noise (Apr 7, 2026)
 - **Location:** Simulator runtime only, triggered while opening text-input flows such as the Profile name editor
@@ -32,17 +39,6 @@ No unresolved critical issues currently documented.
 - **Impact:** Console noise only in the simulator. No known app behavior regression, and this should not affect physical devices with normal system haptics assets
 - **Verification:** Code search showed no direct `CHHapticPattern`/`CoreHaptics` usage in the Profile editor path; the only app-owned feedback calls are standard `UISelectionFeedbackGenerator`/`UIImpactFeedbackGenerator` usages outside startup text-input presentation
 - **Workarounds:** Ignore in simulator logs, use a connected hardware keyboard, or disable keyboard haptics in the simulator's Settings app if available
-
-### External Display (AirPlay) Pixelation (Mar 30, 2026)
-- **Location:** `ExternalDisplayNowPlayingView.swift`, `ExternalDisplaySceneDelegate.swift`
-- **Issue:** Some UI elements on the AirPlay external display appear slightly soft/pixelated — particularly MarqueeText labels, play/pause button, and panel header actions. UIKit-rendered elements (QueueTableView rows) and images render at full resolution.
-- **Root cause:** SwiftUI renders Metal drawables at `UIScreen.scale` (1x for AirPlay virtual screens). The `scaleEffect` transform used to scale the 1024×768 reference layout to TV resolution operates on the already-rasterized 1x texture. Elements with compositing boundaries (masks, conditional ZStacks) lose sharpness in the transform.
-- **Approaches tried and reverted:**
-  1. `contentScaleFactor` override — SwiftUI resets it on internal `_UIGraphicsView` instances during each render pass
-  2. `UITraitCollection(displayScale:)` via `setOverrideTraitCollection` — partial improvement but still pixelated for composited elements
-  3. Full TV-resolution rendering with `DynamicTypeSize(.accessibility4)` — broke card layouts completely (text scaled but padding/spacing didn't)
-- **Status:** Accepted as SwiftUI platform limitation for v1. The overall layout and functionality work well; only some text elements are slightly soft.
-- **Impact:** Cosmetic only — all features (lyrics sync, queue, info) work correctly on TV
 
 ### macOS Instrumental Mode — Complement-Based Vocal Removal (Mar 31, 2026)
 - **Location:** `AudioPlaybackEngine.swift` (`applyIsolationParameters`, `loadHighQualityVoiceModel`, `createIsolationEffect`)
@@ -247,7 +243,7 @@ No unresolved critical issues currently documented.
 - **Root cause:** `URLSession.bytes` async sequence exits normally when server closes the connection mid-stream. `ProgressiveStreamLoader` only rejects files <256 bytes. `DownloadManager.isClearlyInvalidDownloadedPayload` only detects HTML error pages and empty files.
 - **Fix:** Three-layer defense:
   1. `OfflineDownloadService.validateDownloadDuration()` — rejects truncated files at download completion before marking as "completed" (checks file audio duration via AVAudioFile against track metadata duration)
-  2. `OfflineDownloadService.scanForTruncatedDownloads()` — runs at startup and on pull-to-refresh to catch existing truncated files, marks them as failed for re-download
+  2. `OfflineDownloadService.scanForTruncatedDownloads()` — runs during deferred launch healing and pull-to-refresh to catch existing truncated files, marks them as failed for re-download. It must not run in the immediate launch recovery path because whole-library offline targets can require opening many audio files.
   3. `PlaybackService.evictTruncatedFile()` — catches truncated files at play/prefetch time, handles both stream cache and offline downloads (deletes file, marks CDDownload as failed, falls through to streaming)
 - **Detection threshold:** file duration < 50% of expected AND < expected - 10s (avoids false positives on short tracks or minor encoding differences)
 - **Transport-level validation:** `downloadWithProgress()` now validates `bytesReceived` against `Content-Length` after the byte loop completes. Incomplete transfers throw `DownloadTransferError` which auto-retries (up to 3 attempts) instead of permanently failing. In beta testing, 21/113 downloads (19%) were truncated — likely from app backgrounding with foreground URLSession.
@@ -317,8 +313,8 @@ No unresolved critical issues currently documented.
   - `resolvePlayableQueue` only checked device-level offline, not per-server health
   - `next()`/`handleQueueExhausted` blindly advanced to next queue index
   - `@Environment` (EnvironmentKey) doesn't create SwiftUI observation bindings for nested ObservableObjects
-- **Fix:** Startup health checks populate `serverStates` before sync. AVPlayer KVO error path classifies server-unreachable errors and triggers targeted health checks. `resolvePlayableQueue`, `next()`, `handleQueueExhausted`, and `playQueueIndex` all filter by per-server availability. `ArtworkLoader` falls back to local cache when server is offline. Track row views use `@ObservedObject` on `DependencyContainer.shared.trackAvailabilityResolver` for reactive dimming.
-- **Key files:** `SyncCoordinator.swift`, `PlaybackService.swift`, `ArtworkLoader.swift`, `TrackRow.swift`, `CompactSearchRows.swift`, `MediaTrackList.swift`
+- **Fix:** Startup health checks populate `serverStates` before sync. AVPlayer KVO error path classifies server-unreachable errors and triggers targeted health checks. `resolvePlayableQueue`, `next()`, `handleQueueExhausted`, and `playQueueIndex` all filter by per-server availability. `ArtworkLoader` falls back to local cache when server is offline. Track row views use focused availability observation for reactive dimming.
+- **Key files:** `SyncCoordinator.swift`, `PlaybackService.swift`, `ArtworkLoader.swift`, `CompactSearchRows.swift`, `MediaTrackList.swift`
 
 ### HomePod Siri Media Intents handle() Never Called
 - **Resolved (February 26, 2026)**
@@ -357,7 +353,7 @@ No unresolved critical issues currently documented.
 - `PlaybackService` now heals upcoming queue items on reconnect/interface-switch transitions.
 - `NetworkMonitor` lifecycle is restart-safe across background/foreground transitions.
 - `SyncCoordinator` coalesces network-health refreshes and applies cooldown/staleness guards.
-- `HomeViewModel` defers hub refresh/apply while users are scrolling to prevent feed jumps.
+- Feed now lets native `ScrollView` gesture ownership stand alone; hidden-feed auto-refreshes are deferred until the view is visible, but visible hub snapshots apply directly instead of using a scroll-drag idle workaround.
 
 ### Plex Endpoint Policy + Auth Lifecycle Parity
 - **Resolved (February 22, 2026)**
@@ -447,11 +443,11 @@ No unresolved critical issues currently documented.
 - **Fix:** Replaced with `CurrentValueSubject<[Double], Never>`. `objectWillChange` no longer fires for band updates. `NowPlayingViewModel.applyLyricsPosition()` also guards against no-change assignments.
 - **Key files:** `PlaybackService.swift`, `NowPlayingViewModel.swift`
 
-### TrackRow Mass Re-Render on Availability Change
+### Legacy SwiftUI Track Row Mass Re-Render on Availability Change
 - **Resolved (March 11, 2026)**
-- **Previous:** `@ObservedObject availabilityResolver` (singleton) caused ALL visible TrackRows to re-render when generation counter bumped.
-- **Fix:** Replaced with `@State private var cachedAvailability` + `.onReceive` that only updates `@State` when THIS track's availability actually changed. Applied to both `TrackRow` and `CompactTrackRow`.
-- **Key files:** `TrackRow.swift`, `CompactSearchRows.swift`
+- **Previous:** `@ObservedObject availabilityResolver` (singleton) caused all visible SwiftUI track rows to re-render when the generation counter bumped. The old `TrackRow` type was removed in the May 2026 native-behavior cleanup.
+- **Fix:** Replaced large track-row surfaces with native track-list hosts and focused runtime observation modifiers. The unused `CompactTrackRow` fallback was removed in the May 2026 dead-code cleanup.
+- **Key files:** `MediaTrackList.swift`, `SongsTrackListHost.swift`, `TrackListRuntimeObservation.swift`
 
 ### Songs View 1500+ Track Choppiness
 - **Resolved (March 11, 2026)**

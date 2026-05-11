@@ -54,9 +54,6 @@ public final class SearchViewModel: ObservableObject {
     @Published public private(set) var isLoadingExplore = false
     @Published public private(set) var exploreError: String?
     
-    // Legacy support
-    public var results: [Track] { trackResults }
-    
     public let focusRequested = PassthroughSubject<Void, Never>()
 
     private let libraryRepository: LibraryRepositoryProtocol
@@ -71,7 +68,6 @@ public final class SearchViewModel: ObservableObject {
     private var lastExploreLoadTime: Date?
     private let exploreDebounceInterval: TimeInterval = 2.0
     private let recentSearchesKey = "ensemble_recent_searches"
-    private var commitSearchTask: Task<Void, Never>?
     private var hasLoadedExploreContent = false
     private var unfilteredTrackResults: [Track] = []
     private var unfilteredArtistResults: [Artist] = []

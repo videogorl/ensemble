@@ -17,8 +17,6 @@ public struct NativeTrackListSection: Identifiable, Equatable {
     }
 }
 
-public typealias SongsTrackListSection = NativeTrackListSection
-
 /// Flattened row description shared by native track-list renderers and tests.
 ///
 /// Header, footer, section, and spacer rows are visual rows only. Track rows

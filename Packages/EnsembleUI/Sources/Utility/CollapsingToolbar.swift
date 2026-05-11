@@ -14,30 +14,6 @@ struct TitleOffsetPreferenceKey: PreferenceKey {
     }
 }
 
-/// PreferenceKey that tracks the maxY position of action buttons in scroll coordinates.
-/// When the buttons scroll above the threshold, toolbar action icons appear.
-struct ActionButtonsOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = .infinity
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = min(value, nextValue())
-    }
-}
-
-/// Attaches a GeometryReader background to track action buttons' position in scroll coordinates.
-struct ActionButtonsOffsetTracker: View {
-    let coordinateSpace: String
-
-    var body: some View {
-        GeometryReader { geometry in
-            Color.clear
-                .preference(
-                    key: ActionButtonsOffsetPreferenceKey.self,
-                    value: geometry.frame(in: .named(coordinateSpace)).maxY
-                )
-        }
-    }
-}
-
 // MARK: - Collapsing Toolbar Title Modifier
 
 /// Modifier that shows a toolbar title when the inline title scrolls out of view.
@@ -46,7 +22,6 @@ struct CollapsingToolbarTitleModifier: ViewModifier {
     let title: String
     let threshold: CGFloat  // maxY value below which toolbar title appears
     @Binding var showToolbarTitle: Bool
-    let showToolbarBackground: Binding<Bool>?
 
     private var shouldEnableCollapsingToolbarTitle: Bool {
         #if os(macOS)
@@ -80,11 +55,9 @@ struct CollapsingToolbarTitleModifier: ViewModifier {
                     }
                     #if os(iOS)
                     // iOS 16+: use SwiftUI toolbarBackground (respects iOS 26 Liquid Glass)
-                    .modifier(ToolbarBackgroundModifier(isTransparent: !toolbarBackgroundIsVisible))
-                    // iOS 15 fallback: UIKit appearance configurator
-                    .background(
-                        NavigationBarAppearanceConfigurator(isTransparent: !toolbarBackgroundIsVisible)
-                    )
+                    .modifier(ToolbarBackgroundModifier(isTransparent: !showToolbarTitle))
+                    // iOS 15 fallback only; newer OS releases own navigation chrome natively.
+                    .modifier(IOS15NavigationBarAppearanceModifier(isTransparent: !showToolbarTitle))
                     #endif
             } else {
                 content
@@ -93,10 +66,6 @@ struct CollapsingToolbarTitleModifier: ViewModifier {
                     }
             }
         }
-    }
-
-    private var toolbarBackgroundIsVisible: Bool {
-        showToolbarBackground?.wrappedValue ?? showToolbarTitle
     }
 }
 
@@ -135,13 +104,31 @@ private struct ToolbarBackgroundModifier: ViewModifier {
         }
     }
 }
+
+/// Applies the UIKit navigation-bar fallback only on iOS 15.
+private struct IOS15NavigationBarAppearanceModifier: ViewModifier {
+    let isTransparent: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content
+        } else {
+            content
+                .background(
+                    NavigationBarAppearanceConfigurator(isTransparent: isTransparent)
+                )
+        }
+    }
+}
 #endif
 
 // MARK: - Navigation Bar Appearance Configurator (iOS)
 
 #if os(iOS)
-/// UIViewRepresentable that toggles the parent navigation bar between transparent
-/// and default appearance. Compatible with iOS 15+.
+/// UIKit fallback that toggles the parent navigation bar between transparent
+/// and default appearance on iOS 15 only. Modern iOS uses SwiftUI's
+/// `.toolbarBackground(...)` so UIKit appearance proxies do not fight native
+/// navigation chrome.
 struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
     let isTransparent: Bool
 
@@ -153,11 +140,11 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: NavigationBarProbeView, context: Context) {
-        uiView.isTransparent = isTransparent
-        // Defer to next runloop to ensure the nav controller hierarchy is available
-        DispatchQueue.main.async {
-            uiView.updateAppearance()
+        if #available(iOS 16.0, *) {
+            return
         }
+        uiView.isTransparent = isTransparent
+        uiView.updateAppearance()
     }
 
     /// Probe view that walks up the responder chain to find the parent UINavigationController
@@ -167,19 +154,22 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            if #available(iOS 16.0, *) {
+                return
+            }
             if window != nil {
-                // Force transparent on first appearance
-                DispatchQueue.main.async { [weak self] in
-                    self?.updateAppearance()
-                }
+                updateAppearance()
             }
         }
 
         func updateAppearance() {
+            if #available(iOS 16.0, *) {
+                return
+            }
             guard lastAppliedState != isTransparent else { return }
-            lastAppliedState = isTransparent
 
             guard let navBar = findNavigationBar() else { return }
+            lastAppliedState = isTransparent
 
             if isTransparent {
                 let appearance = UINavigationBarAppearance()
@@ -210,6 +200,9 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
 
         override func willMove(toWindow newWindow: UIWindow?) {
             super.willMove(toWindow: newWindow)
+            if #available(iOS 16.0, *) {
+                return
+            }
             if newWindow == nil {
                 // Restore default appearance when leaving
                 restoreDefaultAppearance()
@@ -217,6 +210,9 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
         }
 
         private func restoreDefaultAppearance() {
+            if #available(iOS 16.0, *) {
+                return
+            }
             guard let navBar = findNavigationBar() else { return }
             let appearance = UINavigationBarAppearance()
             appearance.configureWithDefaultBackground()
@@ -236,14 +232,59 @@ extension View {
     func collapsingToolbarTitle(
         _ title: String,
         threshold: CGFloat = 0,
-        showToolbarTitle: Binding<Bool>,
-        showToolbarBackground: Binding<Bool>? = nil
+        showToolbarTitle: Binding<Bool>
     ) -> some View {
         self.modifier(CollapsingToolbarTitleModifier(
             title: title,
             threshold: threshold,
-            showToolbarTitle: showToolbarTitle,
-            showToolbarBackground: showToolbarBackground
+            showToolbarTitle: showToolbarTitle
         ))
     }
+
+    /// Keeps artwork-backed surfaces visible behind platform toolbar chrome.
+    func artworkBackedToolbarBleed(hidesTopScrollEdgeEffect: Bool = false) -> some View {
+        modifier(ArtworkBackedToolbarBleedModifier(hidesTopScrollEdgeEffect: hidesTopScrollEdgeEffect))
+    }
+}
+
+private struct ArtworkBackedToolbarBleedModifier: ViewModifier {
+    let hidesTopScrollEdgeEffect: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            if #available(iOS 16.0, *) {
+                content
+                    .toolbarBackground(.hidden, for: .navigationBar)
+            } else {
+                content
+                    .background(NavigationBarAppearanceConfigurator(isTransparent: true))
+            }
+        } else {
+            phoneContent(content)
+        }
+        #elseif os(macOS)
+        if #available(macOS 26.0, *) {
+            content
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+                .scrollEdgeEffectStyle(.automatic, for: .top)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+
+    #if os(iOS)
+    @ViewBuilder
+    private func phoneContent(_ content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.scrollEdgeEffectHidden(hidesTopScrollEdgeEffect, for: .top)
+        } else {
+            content
+        }
+    }
+    #endif
 }

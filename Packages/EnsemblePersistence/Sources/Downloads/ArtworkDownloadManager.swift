@@ -1,4 +1,3 @@
-import CoreData
 import Foundation
 
 public enum ArtworkDownloadError: Error, LocalizedError {
@@ -26,8 +25,6 @@ public enum ArtworkType {
 }
 
 public protocol ArtworkDownloadManagerProtocol: Sendable {
-    func predownloadArtwork(for albums: [CDAlbum], size: Int) async throws -> Int
-    func predownloadArtwork(for artists: [CDArtist], size: Int) async throws -> Int
     func getLocalArtworkPath(for album: CDAlbum) async throws -> String?
     func getLocalArtworkPath(for artist: CDArtist) async throws -> String?
     func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String?
@@ -39,12 +36,9 @@ public protocol ArtworkDownloadManagerProtocol: Sendable {
 }
 
 public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
-    private let coreDataStack: CoreDataStack
     private let session: URLSession
     
-    public init(coreDataStack: CoreDataStack = .shared) {
-        self.coreDataStack = coreDataStack
-        
+    public init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: config)
@@ -64,14 +58,6 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
     
     // MARK: - Album Artwork
     
-    /// Pre-download artwork for albums
-    /// Note: This is a placeholder - actual downloading should be done via downloadAndCacheArtwork(from:ratingKey:type:)
-    /// which requires resolved URLs from the sync coordinator
-    public func predownloadArtwork(for albums: [CDAlbum], size: Int = 500) async throws -> Int {
-        // Deprecated - use downloadAndCacheArtwork(from:ratingKey:type:) directly from SyncCoordinator
-        return 0
-    }
-    
     public func getLocalArtworkPath(for album: CDAlbum) async throws -> String? {
         let ratingKey = album.ratingKey
         let filename = "\(ratingKey)_album.jpg"
@@ -81,14 +67,6 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
     }
     
     // MARK: - Artist Artwork
-    
-    /// Pre-download artwork for artists
-    /// Note: This is a placeholder - actual downloading should be done via downloadAndCacheArtwork(from:ratingKey:type:)
-    /// which requires resolved URLs from the sync coordinator
-    public func predownloadArtwork(for artists: [CDArtist], size: Int = 500) async throws -> Int {
-        // Deprecated - use downloadAndCacheArtwork(from:ratingKey:type:) directly from SyncCoordinator
-        return 0
-    }
     
     public func getLocalArtworkPath(for artist: CDArtist) async throws -> String? {
         let ratingKey = artist.ratingKey
@@ -235,6 +213,35 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
                 continuation.resume(returning: totalSize)
             } catch {
                 continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    public func getArtworkCacheFileCount() async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            do {
+                let artworkDir = Self.artworkDirectory
+                guard FileManager.default.fileExists(atPath: artworkDir.path) else {
+                    continuation.resume(returning: 0)
+                    return
+                }
+
+                let contents = try FileManager.default.contentsOfDirectory(
+                    at: artworkDir,
+                    includingPropertiesForKeys: [.isRegularFileKey],
+                    options: [.skipsHiddenFiles]
+                )
+
+                var count = 0
+                for url in contents {
+                    let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+                    if values.isRegularFile == true {
+                        count += 1
+                    }
+                }
+                continuation.resume(returning: count)
+            } catch {
+                continuation.resume(throwing: ArtworkDownloadError.fileSystemError(error))
             }
         }
     }

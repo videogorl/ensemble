@@ -8,10 +8,6 @@ private struct ViewportNowPlayingPresentedKey: EnvironmentKey {
     static let defaultValue = false
 }
 
-private struct PresentViewportNowPlayingKey: EnvironmentKey {
-    static let defaultValue: (NowPlayingViewModel) -> Void = { _ in }
-}
-
 private struct DismissViewportNowPlayingKey: EnvironmentKey {
     static let defaultValue: (() -> Void)? = nil
 }
@@ -20,58 +16,14 @@ private struct LargeScreenBrowseDetailPaneKey: EnvironmentKey {
     static let defaultValue = false
 }
 
-/// Tracks keyboard-heavy editor presentation from the presenting view so root
-/// chrome can settle before the editor enters the hierarchy, regardless of
-/// whether the editor is shown in a sheet or another presentation shell.
-private struct KeyboardEditorPresentationTracker: ViewModifier {
-    let isActive: Bool
-
-    @State private var isRegistered = false
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-
-    func body(content: Content) -> some View {
-        content
-            .onAppear {
-                syncRegistration(with: isActive)
-            }
-            .onChange(of: isActive) { newValue in
-                syncRegistration(with: newValue)
-            }
-            .onDisappear {
-                unregisterIfNeeded()
-            }
-    }
-
-    private func syncRegistration(with isActive: Bool) {
-        if isActive {
-            registerIfNeeded()
-        } else {
-            unregisterIfNeeded()
-        }
-    }
-
-    private func registerIfNeeded() {
-        guard !isRegistered else { return }
-        isRegistered = true
-        navigationCoordinator.beginKeyboardEditorPresentation()
-    }
-
-    private func unregisterIfNeeded() {
-        guard isRegistered else { return }
-        isRegistered = false
-        navigationCoordinator.endKeyboardEditorPresentation()
-    }
+private struct StageFlowActiveKey: EnvironmentKey {
+    static let defaultValue = false
 }
 
 public extension EnvironmentValues {
     var isViewportNowPlayingPresented: Bool {
         get { self[ViewportNowPlayingPresentedKey.self] }
         set { self[ViewportNowPlayingPresentedKey.self] = newValue }
-    }
-
-    var presentViewportNowPlaying: (NowPlayingViewModel) -> Void {
-        get { self[PresentViewportNowPlayingKey.self] }
-        set { self[PresentViewportNowPlayingKey.self] = newValue }
     }
 
     var dismissViewportNowPlaying: (() -> Void)? {
@@ -82,6 +34,11 @@ public extension EnvironmentValues {
     var isInLargeScreenBrowseDetailPane: Bool {
         get { self[LargeScreenBrowseDetailPaneKey.self] }
         set { self[LargeScreenBrowseDetailPaneKey.self] = newValue }
+    }
+
+    var isStageFlowActive: Bool {
+        get { self[StageFlowActiveKey.self] }
+        set { self[StageFlowActiveKey.self] = newValue }
     }
 }
 
@@ -129,62 +86,14 @@ public extension View {
         }
     }
     
+    /// Enables/disables StageFlow landscape rotation support from the root shell.
     @ViewBuilder
-    func hideTabBarIfAvailable(isHidden: Bool) -> some View {
+    func stageFlowRotationSupport(isEnabled: Bool) -> some View {
         #if os(iOS)
-        if #available(iOS 16.0, *) {
-            self.toolbar(isHidden ? .hidden : .visible, for: .tabBar)
-        } else {
-            self
-        }
+        self.modifier(StageFlowRotationSupportModifier(isEnabled: isEnabled))
         #else
         self
         #endif
-    }
-
-    /// Enables/disables landscape rotation support while this view is active.
-    @ViewBuilder
-    func stageFlowRotationSupport(isEnabled: Bool, source: String = #fileID) -> some View {
-        #if os(iOS)
-        self.modifier(StageFlowRotationSupportModifier(isEnabled: isEnabled, source: source))
-        #else
-        self
-        #endif
-    }
-
-    /// Notifies MainTabView of immersive mode state on iOS 15 via notification.
-    /// iOS 16+ uses ChromeVisibilityPreferenceKey instead (observed via onPreferenceChange).
-    @ViewBuilder
-    func stageFlowImmersiveMode(isActive: Bool) -> some View {
-        #if os(iOS)
-        if #available(iOS 16.0, *) {
-            self // iOS 16+ uses preference key — no notification needed
-        } else {
-            self.modifier(StageFlowImmersiveModeNotifier(isActive: isActive))
-        }
-        #else
-        self
-        #endif
-    }
-
-    /// Hides the list row separator, with a macOS 13+ availability guard.
-    @ViewBuilder
-    func hideListRowSeparator() -> some View {
-        #if os(macOS)
-        if #available(macOS 13.0, *) {
-            self.listRowSeparator(.hidden)
-        } else {
-            self
-        }
-        #else
-        self.listRowSeparator(.hidden)
-        #endif
-    }
-
-    /// Applies the shared wider inset used by utility/detail list rows so
-    /// grouped settings/download screens align with the app's detail panels.
-    func utilityListRowInsets(_ verticalPadding: CGFloat = TrackListLayoutMetrics.rowVerticalPadding) -> some View {
-        self.listRowInsets(TrackListLayoutMetrics.utilityListRowInsets(verticalPadding: verticalPadding))
     }
 
     /// Adds bottom spacing for the mini player/tab bar area so content can
@@ -233,69 +142,6 @@ public extension View {
         #endif
     }
 
-    /// Presents the remaining keyboard-sensitive root-owned editors in a
-    /// full-screen cover on iPhone. Most short rename/create/filter flows should
-    /// use a normal `.sheet` unless they are a known unstable root presenter.
-    @ViewBuilder
-    func keyboardSafeEditorPresentation<Content: View>(
-        isPresented: Binding<Bool>,
-        @ViewBuilder content: @escaping () -> Content
-    ) -> some View {
-        let presentingView = self.modifier(
-            KeyboardEditorPresentationTracker(isActive: isPresented.wrappedValue)
-        )
-
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            presentingView.fullScreenCover(isPresented: isPresented, content: content)
-        } else {
-            presentingView.sheet(isPresented: isPresented, content: content)
-        }
-        #else
-        presentingView.sheet(isPresented: isPresented, content: content)
-        #endif
-    }
-
-    /// Item-based variant of keyboardSafeEditorPresentation.
-    @ViewBuilder
-    func keyboardSafeEditorPresentation<Item: Identifiable, Content: View>(
-        item: Binding<Item?>,
-        @ViewBuilder content: @escaping (Item) -> Content
-    ) -> some View {
-        let presentingView = self.modifier(
-            KeyboardEditorPresentationTracker(isActive: item.wrappedValue != nil)
-        )
-
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            presentingView.fullScreenCover(item: item, content: content)
-        } else {
-            presentingView.sheet(item: item, content: content)
-        }
-        #else
-        presentingView.sheet(item: item, content: content)
-        #endif
-    }
-
-    /// Presents root auxiliary flows full-screen on iPhone when they still need
-    /// isolation from the underlying tab/navigation/search chrome.
-    @ViewBuilder
-    func phoneSafeAuxiliaryPresentation<Item: Identifiable, Content: View>(
-        item: Binding<Item?>,
-        onDismiss: (() -> Void)? = nil,
-        @ViewBuilder content: @escaping (Item) -> Content
-    ) -> some View {
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            self.fullScreenCover(item: item, onDismiss: onDismiss, content: content)
-        } else {
-            self.sheet(item: item, onDismiss: onDismiss, content: content)
-        }
-        #else
-        self.sheet(item: item, onDismiss: onDismiss, content: content)
-        #endif
-    }
-
     /// Apply a wiggle animation to the view, useful for edit modes
     func wiggle(isWiggling: Bool) -> some View {
         self.modifier(WiggleModifier(isWiggling: isWiggling))
@@ -334,7 +180,6 @@ public extension View {
 #if os(iOS)
 private struct StageFlowRotationSupportModifier: ViewModifier {
     let isEnabled: Bool
-    let source: String
     @State private var token = UUID()
     @State private var isRegistered = false
 
@@ -355,43 +200,12 @@ private struct StageFlowRotationSupportModifier: ViewModifier {
         guard isRegistered != isEnabled else { return }
 
         isRegistered = isEnabled
-        EnsembleLogger.debug(
-            "📐 StageFlow rotation \(isEnabled ? "register" : "unregister") source=\(source) token=\(token.uuidString)"
-        )
         NotificationCenter.default.post(
             name: AppOrientationNotifications.stageFlowRotationSupportChanged,
             object: AppOrientationNotifications.StageFlowRotationSupportChange(
                 token: token,
-                isEnabled: isEnabled,
-                source: source
+                isEnabled: isEnabled
             )
-        )
-    }
-}
-
-/// Notifies the app of immersive mode changes via NotificationCenter.
-/// iOS 15 fallback for ChromeVisibilityPreferenceKey, which causes recursive
-/// HostPreferences crashes during modal presentation on iOS 15.
-private struct StageFlowImmersiveModeNotifier: ViewModifier {
-    let isActive: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .onAppear {
-                postImmersiveMode(isActive)
-            }
-            .onChange(of: isActive) { active in
-                postImmersiveMode(active)
-            }
-            .onDisappear {
-                postImmersiveMode(false)
-            }
-    }
-
-    private func postImmersiveMode(_ isActive: Bool) {
-        NotificationCenter.default.post(
-            name: AppOrientationNotifications.stageFlowImmersiveModeChanged,
-            object: isActive
         )
     }
 }
@@ -432,10 +246,7 @@ private struct MiniPlayerContainerInsetter: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            // Defer to next runloop to ensure the VC hierarchy is fully set up
-            DispatchQueue.main.async { [weak self] in
-                self?.applyInsets()
-            }
+            applyInsets()
         }
 
         func applyInsets() {
@@ -530,6 +341,23 @@ public extension ToolbarItemPlacement {
 }
 
 extension View {
+    /// Hosts short sheet content in the platform's native navigation container.
+    @ViewBuilder
+    func nativeSheetNavigationContainer() -> some View {
+        if #available(iOS 16.0, macOS 13.0, *) {
+            NavigationStack {
+                self
+            }
+        } else {
+            NavigationView {
+                self
+            }
+            #if os(iOS)
+            .navigationViewStyle(.stack)
+            #endif
+        }
+    }
+
     /// Applies the editor toolbar role on macOS 13+ so primary actions land on
     /// the trailing edge instead of clustering beside the sidebar/title area.
     @ViewBuilder

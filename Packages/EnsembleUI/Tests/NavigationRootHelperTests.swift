@@ -47,6 +47,87 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertNil(SidebarSelection.pin(id: "artist", type: .artist).correspondingTab)
     }
 
+    func testStageFlowPolicyResolvesVisibleStageFlowTabs() {
+        XCTAssertEqual(
+            MainTabStageFlowPolicy.activeRootTab(
+                selectedRootTab: .albums,
+                morePath: [],
+                isPhone: true
+            ),
+            .albums
+        )
+        XCTAssertEqual(
+            MainTabStageFlowPolicy.activeRootTab(
+                selectedRootTab: .playlists,
+                morePath: [],
+                isPhone: true
+            ),
+            .playlists
+        )
+    }
+
+    func testStageFlowPolicyResolvesHiddenAlbumsFromMorePath() {
+        XCTAssertEqual(
+            MainTabStageFlowPolicy.activeRootTab(
+                selectedRootTab: .settings,
+                morePath: [.view(.albums)],
+                isPhone: true
+            ),
+            .albums
+        )
+        XCTAssertEqual(
+            MainTabStageFlowPolicy.activeRootTab(
+                selectedRootTab: .settings,
+                morePath: [.view(.albums), .album(id: "album", sourceKey: nil)],
+                isPhone: true
+            ),
+            .albums
+        )
+    }
+
+    func testStageFlowPolicyResolvesHiddenPlaylistsFromMorePath() {
+        XCTAssertEqual(
+            MainTabStageFlowPolicy.activeRootTab(
+                selectedRootTab: .settings,
+                morePath: [.view(.playlists)],
+                isPhone: true
+            ),
+            .playlists
+        )
+        XCTAssertEqual(
+            MainTabStageFlowPolicy.activeRootTab(
+                selectedRootTab: .settings,
+                morePath: [.view(.playlists), .playlist(id: "playlist", sourceKey: nil)],
+                isPhone: true
+            ),
+            .playlists
+        )
+    }
+
+    func testStageFlowPolicyRejectsUnsupportedAndNonPhoneRoutes() {
+        XCTAssertNil(
+            MainTabStageFlowPolicy.activeRootTab(
+                selectedRootTab: .artists,
+                morePath: [],
+                isPhone: true
+            )
+        )
+        XCTAssertNil(
+            MainTabStageFlowPolicy.activeRootTab(
+                selectedRootTab: .settings,
+                morePath: [.view(.artists)],
+                isPhone: true
+            )
+        )
+        XCTAssertNil(
+            MainTabStageFlowPolicy.activeRootTab(
+                selectedRootTab: .albums,
+                morePath: [],
+                isPhone: false
+            )
+        )
+    }
+
     @MainActor
     func testNavigationCoordinatorPathBindingWritesThroughToCoordinator() {
         let coordinator = NavigationCoordinator()

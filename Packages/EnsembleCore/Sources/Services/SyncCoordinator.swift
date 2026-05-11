@@ -3,16 +3,6 @@ import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
-/// Strategy for performing a sync operation
-public enum SyncStrategy {
-    /// Sync only items added/updated since last sync (fast)
-    case incremental
-    /// Sync all items from server (slow, comprehensive)
-    case full
-    /// Sync only hub data (Recently Added, etc.) - very fast
-    case hubsOnly
-}
-
 public struct PlaylistMutationResult: Sendable {
     public let addedCount: Int
     public let skippedCount: Int
@@ -152,9 +142,8 @@ public final class SyncCoordinator: ObservableObject {
     /// Used by ArtworkLoader to invalidate stale artwork for affected albums.
     public var onTrackAlbumChanged: (([TrackReparentInfo]) async -> Void)?
 
-    /// Called when a source is being removed, allowing dependents to clean up
-    /// source-specific caches (e.g. lyrics persistent cache, download stubs).
-    public var onSourceCleanup: ((String) async -> Void)?
+    /// Worker that owns source-specific cache and file cleanup outside the coordinator's UI-facing actor.
+    public var sourceCacheCleanupService: SourceCacheCleaning?
     internal var healthCheckRunnerForTesting: ((Bool, Set<String>) async -> ServerHealthChecker.CheckSummary)?
     internal var refreshAPIClientConnectionsRunnerForTesting: (() async -> Void)?
 
@@ -766,20 +755,7 @@ public final class SyncCoordinator: ObservableObject {
     /// Proactively refreshes Plex server connections across configured accounts.
     /// Playback retry paths use this to recover from transient connection failures.
     public func refreshConnection() async throws {
-        try await serverConnectionController.refreshConnections {
-            for provider in syncProviders.values {
-                provider.resetStreamFallbackState()
-            }
-        }
-    }
-    
-    /// Disable the universal transcode endpoint for the provider matching the given source key.
-    /// Called when AVPlayer reports a resource-unavailable error so subsequent stream URL
-    /// requests immediately fall back to direct file URLs without retrying the transcoder.
-    public func disableUniversalEndpoint(for sourceKey: String) {
-        if let provider = providerResolver.provider(sourceKey: sourceKey) {
-            provider.disableUniversalEndpoint()
-        }
+        try await serverConnectionController.refreshConnections()
     }
 
     /// Get the stream URL for a track, routing to the correct provider
@@ -1035,29 +1011,11 @@ public final class SyncCoordinator: ObservableObject {
         do {
             EnsembleLogger.debug("🗑️ Cleaning up data for removed source: \(sourceId.compositeKey)")
 
-            // Collect artwork ratingKeys BEFORE deleting CoreData records
-            var artworkKeysToDelete = Set<String>()
-            if let albums = try? await libraryRepository.fetchAlbums() {
-                for album in albums where album.sourceCompositeKey == sourceId.compositeKey {
-                    artworkKeysToDelete.insert(album.ratingKey)
-                }
+            if let sourceCacheCleanupService {
+                _ = try await sourceCacheCleanupService.cleanupSource(sourceId.compositeKey)
+            } else {
+                try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceId.compositeKey)
             }
-            if let artists = try? await libraryRepository.fetchArtists() {
-                for artist in artists where artist.sourceCompositeKey == sourceId.compositeKey {
-                    artworkKeysToDelete.insert(artist.ratingKey)
-                }
-            }
-
-            try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceId.compositeKey)
-
-            // Delete cached artwork files for the removed source
-            if !artworkKeysToDelete.isEmpty {
-                artworkDownloadManager.deleteArtwork(forRatingKeys: artworkKeysToDelete)
-                EnsembleLogger.debug("🗑️ Deleted \(artworkKeysToDelete.count) artwork files for source: \(sourceId.compositeKey)")
-            }
-
-            // Clean up source-specific caches (lyrics, downloads, etc.)
-            await onSourceCleanup?(sourceId.compositeKey)
 
             // Remove from status tracking
             sourceStatuses.removeValue(forKey: sourceId)

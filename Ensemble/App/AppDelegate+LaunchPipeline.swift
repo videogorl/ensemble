@@ -22,9 +22,6 @@ extension AppDelegate {
         // to avoid Code=-50 failures at launch before the audio system is ready.
         configureSiriAuthorization()
 
-        // Install space-bar → play/pause hardware keyboard shortcut
-        SpaceBarPlaybackShortcut.install()
-
         // Register for Darwin notifications from Siri extension
         registerForSiriPendingPlaybackNotification()
         registerForSiriAffinityNotification()

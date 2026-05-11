@@ -1,7 +1,7 @@
 import Combine
 import EnsembleCore
 import SwiftUI
-#if canImport(UIKit) && !os(watchOS)
+#if canImport(UIKit)
 import UIKit
 #endif
 
@@ -129,48 +129,8 @@ private struct RootMiniPlayerOverlay: View {
     }
 }
 
-private struct RootMiniPlayerOverlayHost: View {
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    let currentLayout: RootChromeLayout
-    let accentColor: Color
-    let namespace: Namespace.ID
-    let animationID: String
-    let presentNowPlaying: () -> Void
-
-    @State private var retainedLayout: RootChromeLayout = .hidden
-
-    private var effectiveLayout: RootChromeLayout {
-        currentLayout.hasRenderableFrame ? currentLayout : retainedLayout
-    }
-
-    var body: some View {
-        RootMiniPlayerOverlay(
-            nowPlayingVM: nowPlayingVM,
-            layout: effectiveLayout,
-            accentColor: accentColor,
-            namespace: namespace,
-            animationID: animationID,
-            presentNowPlaying: presentNowPlaying
-        )
-        .onAppear {
-            captureLayoutIfNeeded(currentLayout)
-        }
-        .onChange(of: currentLayout) { newLayout in
-            captureLayoutIfNeeded(newLayout)
-        }
-    }
-
-    private func captureLayoutIfNeeded(_ layout: RootChromeLayout) {
-        guard layout.hasRenderableFrame else {
-            return
-        }
-
-        retainedLayout = layout
-    }
-}
-
 /// Root view that renders the main content directly (no auth gate)
-@available(iOS 15.0, macOS 12.0, watchOS 8.0, *)
+@available(iOS 15.0, macOS 12.0, *)
 public struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
@@ -178,7 +138,7 @@ public struct RootView: View {
     @StateObject private var navigationCoordinator: NavigationCoordinator
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @State private var isNowPlayingPresented = false
-    @State private var activeNowPlayingPresentationViewModel: NowPlayingViewModel?
+    @State private var sidebarSelection: SidebarSelection? = .library(.home)
     @State private var isLowPowerMode = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
@@ -244,11 +204,10 @@ public struct RootView: View {
 
                 if supportsViewportNowPlayingPresentation && isNowPlayingPresented {
                     NowPlayingViewportRoot(
-                        viewModel: presentedNowPlayingViewModel,
+                        viewModel: nowPlayingVM,
                         dismissAction: dismissNowPlaying
                     )
                     .accentColor(settingsManager.accentColor.color)
-                    .ignoresSafeArea()
                     .transition(.opacity)
                     .zIndex(10)
                 }
@@ -256,9 +215,9 @@ public struct RootView: View {
             .coordinateSpace(name: RootChromeCoordinateSpace.name)
             .overlayPreferenceValue(RootChromeRegistrationPreferenceKey.self) { registration in
                 if !isNowPlayingPresented {
-                    RootMiniPlayerOverlayHost(
+                    RootMiniPlayerOverlay(
                         nowPlayingVM: nowPlayingVM,
-                        currentLayout: resolvedRootChromeLayout(from: registration, in: proxy),
+                        layout: resolvedRootChromeLayout(from: registration, in: proxy),
                         accentColor: settingsManager.accentColor.color,
                         namespace: playerNamespace,
                         animationID: artworkAnimationID,
@@ -268,7 +227,6 @@ public struct RootView: View {
                 }
             }
             .environment(\.isViewportNowPlayingPresented, isNowPlayingPresented)
-            .environment(\.presentViewportNowPlaying, presentNowPlaying(with:))
             .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
             .environmentObject(navigationCoordinator)
             .accentColor(settingsManager.accentColor.color)
@@ -284,9 +242,6 @@ public struct RootView: View {
                 if phase == .active {
                     NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
                 }
-            }
-            .onChange(of: settingsManager.accentColor) { _ in
-                updateAppearance()
             }
             .onChange(of: settingsManager.auroraVisualizationEnabled) { _ in
                 updateAppearance()
@@ -308,52 +263,50 @@ public struct RootView: View {
     }
 
     private func updateAppearance() {
-        #if canImport(UIKit) && !os(watchOS)
-        let navAppearance = UINavigationBarAppearance()
+        #if canImport(UIKit)
+        if #available(iOS 16.0, *) {
+            return
+        }
+
         let tabBarAppearance = UITabBarAppearance()
 
         if settingsManager.auroraVisualizationEnabled {
-            // Transparent backgrounds for aurora visibility
-            navAppearance.configureWithTransparentBackground()
             tabBarAppearance.configureWithTransparentBackground()
         } else {
-            // Default opaque backgrounds
-            navAppearance.configureWithDefaultBackground()
             tabBarAppearance.configureWithDefaultBackground()
+        }
+
+        let navAppearance = UINavigationBarAppearance()
+        if settingsManager.auroraVisualizationEnabled {
+            navAppearance.configureWithTransparentBackground()
+        } else {
+            navAppearance.configureWithDefaultBackground()
         }
 
         // iOS 15 fix: scrollEdgeAppearance via appearance proxy doesn't reliably
         // apply, leaving tab bar/toolbar with no background. Explicitly set a blur
         // effect so content doesn't scroll behind chrome.
-        if #available(iOS 16.0, *) {
-            // iOS 16+ handles this correctly — no extra work needed
-        } else {
-            let chromeRole = EnsembleDesign.Material.Role.sidebar
-            let bgAlpha = chromeRole.chromeBackgroundAlpha(
-                auroraEnabled: settingsManager.auroraVisualizationEnabled
-            )
-            let blurStyle = chromeRole.chromeBlurStyle
+        let chromeRole = EnsembleDesign.Material.Role.sidebar
+        let bgAlpha = chromeRole.chromeBackgroundAlpha(
+            auroraEnabled: settingsManager.auroraVisualizationEnabled
+        )
+        let blurStyle = chromeRole.chromeBlurStyle
 
-            // Nav bar
-            navAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
-            navAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
+        navAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
+        navAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
 
-            // Tab bar
-            tabBarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
-            tabBarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
+        tabBarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
+        tabBarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
 
-            // Toolbar
-            let toolbarAppearance = UIToolbarAppearance()
-            toolbarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
-            toolbarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
-            UIToolbar.appearance().standardAppearance = toolbarAppearance
-            UIToolbar.appearance().scrollEdgeAppearance = toolbarAppearance
-        }
+        let toolbarAppearance = UIToolbarAppearance()
+        toolbarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
+        toolbarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
+        UIToolbar.appearance().standardAppearance = toolbarAppearance
+        UIToolbar.appearance().scrollEdgeAppearance = toolbarAppearance
 
         UINavigationBar.appearance().standardAppearance = navAppearance
         UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
         UINavigationBar.appearance().compactAppearance = navAppearance
-
         UITabBar.appearance().standardAppearance = tabBarAppearance
         UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
         #endif
@@ -365,13 +318,13 @@ public struct RootView: View {
         case .sidebar:
             #if os(iOS)
             if #available(iOS 16.0, *) {
-                SidebarView(nowPlayingVM: nowPlayingVM)
+                SidebarView(nowPlayingVM: nowPlayingVM, selection: $sidebarSelection)
             } else {
                 MainTabView(nowPlayingVM: nowPlayingVM)
             }
             #elseif os(macOS)
             if #available(macOS 13.0, *) {
-                SidebarView(nowPlayingVM: nowPlayingVM)
+                SidebarView(nowPlayingVM: nowPlayingVM, selection: $sidebarSelection)
             } else {
                 MainTabView(nowPlayingVM: nowPlayingVM)
             }
@@ -381,10 +334,6 @@ public struct RootView: View {
         case .tabs:
             MainTabView(nowPlayingVM: nowPlayingVM)
         }
-    }
-
-    private var presentedNowPlayingViewModel: NowPlayingViewModel {
-        activeNowPlayingPresentationViewModel ?? nowPlayingVM
     }
 
     private func resolvedRootChromeLayout(
@@ -431,9 +380,30 @@ public struct RootView: View {
         #endif
     }
 
+    private var usesSidebarRootNavigationShell: Bool {
+        switch EnsemblePlatformFeaturePolicy.currentRootNavigationShell {
+        case .sidebar:
+            #if os(iOS)
+            if #available(iOS 16.0, *) {
+                return true
+            }
+            return false
+            #elseif os(macOS)
+            if #available(macOS 13.0, *) {
+                return true
+            }
+            return false
+            #else
+            return false
+            #endif
+        case .tabs:
+            return false
+        }
+    }
+
     fileprivate var nowPlayingPresentationContent: some View {
         NowPlayingSheetView(
-            viewModel: presentedNowPlayingViewModel,
+            viewModel: nowPlayingVM,
             namespace: playerNamespace,
             animationID: artworkAnimationID,
             dismissAction: dismissNowPlaying
@@ -447,25 +417,38 @@ public struct RootView: View {
         $isNowPlayingPresented
     }
 
-    private func presentNowPlaying(with viewModel: NowPlayingViewModel) {
-        activeNowPlayingPresentationViewModel = viewModel
+    private func presentNowPlayingFromMiniPlayer() {
         withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
             isNowPlayingPresented = true
         }
-    }
-
-    private func presentNowPlayingFromMiniPlayer() {
-        presentNowPlaying(with: nowPlayingVM)
     }
 
     private func dismissNowPlaying() {
         withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
             isNowPlayingPresented = false
         }
+        if supportsViewportNowPlayingPresentation {
+            completeNowPlayingDismissal()
+        }
     }
 
-    fileprivate func clearPresentedNowPlayingViewModel() {
-        activeNowPlayingPresentationViewModel = nil
+    fileprivate func completeNowPlayingDismissal() {
+        guard let pending = navigationCoordinator.pendingNavigation else { return }
+        navigationCoordinator.pendingNavigation = nil
+
+        let targetTab: TabItem
+        if usesSidebarRootNavigationShell {
+            sidebarSelection = SidebarSelection.selection(
+                for: pending.destination,
+                fallback: sidebarSelection
+            )
+            targetTab = NavigationCoordinator.targetTab(for: pending.destination)
+        } else {
+            targetTab = pending.tab
+        }
+
+        navigationCoordinator.selectedTab = targetTab
+        navigationCoordinator.push(pending.destination, in: targetTab)
     }
 }
 
@@ -477,31 +460,20 @@ private struct NowPlayingPresentationModifier: ViewModifier {
         if rootView.usesFullScreenNowPlayingPresentation {
             content.fullScreenCover(
                 isPresented: rootView.nowPlayingPresentationBinding,
-                onDismiss: rootView.clearPresentedNowPlayingViewModel
-            ) {
-                rootView.nowPlayingPresentationContent
-            }
-        } else if !rootView.supportsViewportNowPlayingPresentation {
-            content.sheet(
-                isPresented: rootView.nowPlayingPresentationBinding,
-                onDismiss: rootView.clearPresentedNowPlayingViewModel
+                onDismiss: rootView.completeNowPlayingDismissal
             ) {
                 rootView.nowPlayingPresentationContent
             }
         } else {
-            content
+            content.sheet(
+                isPresented: rootView.nowPlayingPresentationBinding,
+                onDismiss: rootView.completeNowPlayingDismissal
+            ) {
+                rootView.nowPlayingPresentationContent
+            }
         }
         #else
-        if !rootView.supportsViewportNowPlayingPresentation {
-            content.sheet(
-                isPresented: rootView.nowPlayingPresentationBinding,
-                onDismiss: rootView.clearPresentedNowPlayingViewModel
-            ) {
-                rootView.nowPlayingPresentationContent
-            }
-        } else {
-            content
-        }
+        content
         #endif
     }
 }

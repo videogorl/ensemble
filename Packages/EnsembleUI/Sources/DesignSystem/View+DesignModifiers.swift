@@ -30,28 +30,4 @@ public extension View {
         )
     }
 
-    func ensembleCardChrome(
-        radius: CGFloat = EnsembleDesign.Radius.card,
-        fill: Color = EnsembleDesign.Color.groupedSurface
-    ) -> some View {
-        background(fill)
-            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .ensembleCardShadow()
-    }
-
-    func ensembleListChrome(
-        radius: CGFloat = EnsembleScaffold.DetailSurface.listCardCornerRadius,
-        fill: Color = EnsembleScaffold.DetailSurface.listCardBackground
-    ) -> some View {
-        background(fill)
-            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-    }
-
-    func ensembleFloatingMaterialChrome(
-        _ role: EnsembleDesign.Material.Role,
-        cornerRadius: CGFloat,
-        strokeColor: Color = .primary
-    ) -> some View {
-        ensembleMaterial(role, cornerRadius: cornerRadius, strokeColor: strokeColor)
-    }
 }

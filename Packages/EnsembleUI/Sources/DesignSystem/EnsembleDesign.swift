@@ -290,7 +290,7 @@ public enum EnsembleDesign {
             public static let shadowY = EnsembleDesign.Effect.shadowY
             public static let shadowColor = EnsembleDesign.Effect.shadowColor
 
-            #if canImport(UIKit) && !os(watchOS)
+            #if canImport(UIKit)
             public static let chromeBlurStyle = UIBlurEffect.Style.systemUltraThinMaterial
             public static let chromeBackgroundAlpha: CGFloat = 0.85
             #endif
@@ -376,7 +376,7 @@ public enum EnsembleDesign {
                 }
             }
 
-            #if canImport(UIKit) && !os(watchOS)
+            #if canImport(UIKit)
             var chromeBlurStyle: UIBlurEffect.Style {
                 switch self {
                 case .miniPlayer, .toolbarPill, .floatingControl, .popover:

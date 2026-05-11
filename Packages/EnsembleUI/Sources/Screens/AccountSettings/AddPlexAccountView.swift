@@ -65,63 +65,42 @@ public struct AddPlexAccountView: View {
             if isEmbedded {
                 // Pushed inside an existing NavigationStack (e.g. profile sheet).
                 // Skip wrapping in NavigationView; use Cancel as a simple dismiss button.
-                ScrollView {
-                    contentStack
-                }
-                #if os(iOS)
-                .navigationBarTitleDisplayMode(.inline)
-                .navigationBarBackButtonHidden(true)
-                #endif
-                .toolbar {
+                accountSetupContent
                     #if os(iOS)
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button("Cancel") {
-                            dismiss()
-                        }
-                    }
-                    #else
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") {
-                            dismiss()
-                        }
-                    }
+                    .navigationBarBackButtonHidden(true)
                     #endif
-                }
-                .onChange(of: viewModel.state) { newState in
-                    if newState == .complete {
-                        dismiss()
-                    }
-                }
             } else {
-                // Presented as a standalone sheet — wrap in its own NavigationView.
-                NavigationView {
-                    ScrollView {
-                        contentStack
-                    }
-                    #if os(iOS)
-                    .navigationBarTitleDisplayMode(.inline)
-                    #endif
-                    .toolbar {
-                        #if os(iOS)
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            Button("Cancel") {
-                                dismiss()
-                            }
-                        }
-                        #else
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") {
-                                dismiss()
-                            }
-                        }
-                        #endif
-                    }
-                    .onChange(of: viewModel.state) { newState in
-                        if newState == .complete {
-                            dismiss()
-                        }
-                    }
+                accountSetupContent
+                    .nativeSheetNavigationContainer()
+            }
+        }
+    }
+
+    private var accountSetupContent: some View {
+        ScrollView {
+            contentStack
+        }
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button("Cancel") {
+                    dismiss()
                 }
+            }
+            #else
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    dismiss()
+                }
+            }
+            #endif
+        }
+        .onChange(of: viewModel.state) { newState in
+            if newState == .complete {
+                dismiss()
             }
         }
     }
@@ -377,44 +356,6 @@ struct LibrarySelectionRow: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(EnsembleScaffold.AccountSetup.cardPadding)
-            .background(EnsembleScaffold.AccountSetup.cardBackground)
-            .cornerRadius(EnsembleScaffold.AccountSetup.cardCornerRadius)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Server Row
-
-struct ServerRow: View {
-    let server: Server
-    let onTap: () -> Void
-    
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: EnsembleScaffold.AccountSetup.rowSpacing) {
-                Image(systemName: EnsembleDesign.Icon.server)
-                    .font(EnsembleDesign.Typography.utilityIcon)
-                    .foregroundColor(EnsembleDesign.Color.accent)
-                    .frame(width: EnsembleScaffold.AccountSetup.rowIconWidth)
-                
-                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                    Text(server.name)
-                        .font(EnsembleDesign.Typography.actionLabel)
-
-                    if let platform = server.platform {
-                        Text(platform)
-                            .font(EnsembleDesign.Typography.rowSecondary)
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    }
-                }
-                
-                Spacer()
-                
-                Image(systemName: EnsembleDesign.Icon.chevronRight)
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-            }
             .padding(EnsembleScaffold.AccountSetup.cardPadding)
             .background(EnsembleScaffold.AccountSetup.cardBackground)
             .cornerRadius(EnsembleScaffold.AccountSetup.cardCornerRadius)

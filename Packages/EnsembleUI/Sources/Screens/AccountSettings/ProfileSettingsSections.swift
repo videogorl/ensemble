@@ -1,17 +1,6 @@
 import EnsembleCore
 import SwiftUI
 
-/// Legacy settings view — redirects to ProfileView.
-/// Kept for backward compatibility and for sub-views defined in this file
-/// (AudioQualitySettingsView, ConnectionPolicySettingsView, etc.)
-public struct SettingsView: View {
-    public init() {}
-
-    public var body: some View {
-        ProfileView()
-    }
-}
-
 // MARK: - Music Source Account Row
 
 struct MusicSourceAccountRow: View {
@@ -145,80 +134,6 @@ struct ConnectionPolicySettingsView: View {
                 syncCoordinator.refreshProviders()
             }
         )
-    }
-}
-
-// MARK: - Storage Settings
-
-struct StorageSettingsView: View {
-    @State private var totalSize: String = "Calculating..."
-    @State private var showingClearAlert = false
-
-    var body: some View {
-        EnsembleAdaptiveUtilityScaffold(title: "Storage") {
-            List {
-                Section {
-                    downloadedMusicRow
-                }
-
-                Section {
-                    clearDownloadsButton
-                } footer: {
-                    Text("This will remove all downloaded music from your device. You can re-download music anytime.")
-                }
-            }
-        } regularContent: {
-            EnsembleUtilityCardSection {
-                EnsembleUtilityCardRow {
-                    downloadedMusicRow
-                }
-            }
-
-            EnsembleUtilityCardSection(
-                nil,
-                footer: "This will remove all downloaded music from your device. You can re-download music anytime."
-            ) {
-                EnsembleUtilityCardRow {
-                    clearDownloadsButton
-                }
-            }
-        }
-        .alert("Clear Downloads", isPresented: $showingClearAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Clear All", role: .destructive) {
-                // Clear downloads
-            }
-        } message: {
-            Text("This will remove all downloaded music. This action cannot be undone.")
-        }
-        .onAppear {
-            calculateStorage()
-        }
-    }
-
-    private var downloadedMusicRow: some View {
-        HStack {
-            Text("Downloaded Music")
-            Spacer()
-            Text(totalSize)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-        }
-    }
-
-    private var clearDownloadsButton: some View {
-        Button(role: .destructive) {
-            showingClearAlert = true
-        } label: {
-            Text("Clear All Downloads")
-        }
-    }
-
-    private func calculateStorage() {
-        Task {
-            let manager = DependencyContainer.shared.downloadManager
-            let size = try? await manager.getTotalDownloadSize()
-            totalSize = MediaFormatters.bytes(size ?? 0)
-        }
     }
 }
 

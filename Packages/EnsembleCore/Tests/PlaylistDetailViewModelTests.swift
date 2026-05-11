@@ -105,8 +105,6 @@ final class PlaylistDetailViewModelTests: XCTestCase {
     }
 
     private final class MockArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
-        func predownloadArtwork(for albums: [CDAlbum], size: Int) async throws -> Int { 0 }
-        func predownloadArtwork(for artists: [CDArtist], size: Int) async throws -> Int { 0 }
         func getLocalArtworkPath(for album: CDAlbum) async throws -> String? { nil }
         func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { nil }
         func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { nil }
@@ -212,6 +210,36 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             dateModified: nil,
             lastPlayed: nil,
             sourceCompositeKey: sourceCompositeKey
+        )
+    }
+
+    private func makePlaylistAccount(libraryEnabled: Bool) -> PlexAccountConfig {
+        PlexAccountConfig(
+            id: "account-1",
+            email: "user@example.com",
+            plexUsername: "felicity",
+            displayTitle: "Felicity",
+            authToken: "token",
+            servers: [
+                PlexServerConfig(
+                    id: "server-1",
+                    name: "Server One",
+                    url: "https://server.example.com",
+                    connections: [
+                        PlexConnectionConfig(uri: "https://server.example.com", local: false, relay: false, protocol: "https")
+                    ],
+                    token: "server-token",
+                    platform: "Linux",
+                    libraries: [
+                        PlexLibraryConfig(
+                            id: "lib-1",
+                            key: "lib-1",
+                            title: "Music",
+                            isEnabled: libraryEnabled
+                        )
+                    ]
+                )
+            ]
         )
     }
 
@@ -335,6 +363,38 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
         XCTAssertNil(viewModel.error)
+    }
+
+    func testPlaylistViewModelClearsVisiblePlaylistsWhenAllLibrariesAreDisabled() async {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let accountManager = AccountManager(keychain: TestKeychain())
+        accountManager.addPlexAccount(makePlaylistAccount(libraryEnabled: true))
+        let context = CoreDataStack.inMemory().viewContext
+        let playlist = makePlaylist(id: "playlist-a", title: "Road", sourceCompositeKey: "plex:account-1:server-1")
+        playlistRepository.playlists[playlistRepository.playlistKey(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )] = makeCachedPlaylist(playlist, tracks: [], context: context)
+
+        let viewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            accountManager: accountManager
+        )
+
+        await viewModel.loadPlaylists()
+        XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
+
+        accountManager.updatePlexAccount(makePlaylistAccount(libraryEnabled: false))
+        await viewModel.loadPlaylists()
+
+        XCTAssertTrue(viewModel.playlists.isEmpty)
+        XCTAssertTrue(viewModel.displayPlaylists.isEmpty)
+        XCTAssertFalse(viewModel.isShowingStaleSnapshot)
     }
 
     func testPlaylistViewModelSeedsNewInstanceFromLastGoodSnapshot() async {

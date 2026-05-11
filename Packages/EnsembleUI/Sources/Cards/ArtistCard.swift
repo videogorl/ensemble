@@ -76,7 +76,7 @@ public struct ArtistGrid: View {
     let nowPlayingVM: NowPlayingViewModel
     let onArtistTap: ((Artist) -> Void)?
     @Environment(\.dependencies) private var deps
-    @EnvironmentObject private var contextMenuMetadataEditorCoordinator: ContextMenuMetadataEditorCoordinator
+    @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 
     private let columns = EnsembleScaffold.MediaCard.personGridColumns
 
@@ -128,6 +128,16 @@ public struct ArtistGrid: View {
             }
         }
         .padding(.horizontal)
+        .sheet(item: $metadataEditorRequest) { request in
+            TextInputView(
+                title: request.kind.title,
+                message: "Changes are sent directly to Plex and then refreshed locally.",
+                placeholder: request.kind.fieldLabel,
+                initialText: request.currentTitle,
+                actionTitle: "Save",
+                onSubmit: request.onSave
+            )
+        }
     }
 
     private func artistCardContent(_ artist: Artist) -> some View {
@@ -148,31 +158,27 @@ public struct ArtistGrid: View {
     }
 
     private func presentArtistMetadataEditor(_ artist: Artist) {
-        // Delay presentation so context-menu dismissal completes before the root
-        // editor presenter begins.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            contextMenuMetadataEditorCoordinator.present(
-                kind: .artist,
-                currentTitle: artist.name
-            ) { newTitle in
-                do {
-                    let result = try await deps.metadataMutationWorkflow.editArtist(artist, title: newTitle)
-                    await MainActor.run {
-                        deps.toastCenter.show(result.successToast)
-                    }
-                } catch {
-                    await MainActor.run {
-                        deps.toastCenter.show(
-                            deps.metadataMutationWorkflow.editFailureToast(
-                                noun: "Artist",
-                                itemID: artist.id,
-                                error: error,
-                                scope: .artist
-                            )
-                        )
-                    }
-                    throw error
+        metadataEditorRequest = ContextMenuMetadataEditorRequest(
+            kind: .artist,
+            currentTitle: artist.name
+        ) { newTitle in
+            do {
+                let result = try await deps.metadataMutationWorkflow.editArtist(artist, title: newTitle)
+                await MainActor.run {
+                    deps.toastCenter.show(result.successToast)
                 }
+            } catch {
+                await MainActor.run {
+                    deps.toastCenter.show(
+                        deps.metadataMutationWorkflow.editFailureToast(
+                            noun: "Artist",
+                            itemID: artist.id,
+                            error: error,
+                            scope: .artist
+                        )
+                    )
+                }
+                throw error
             }
         }
     }

@@ -26,9 +26,6 @@ public struct NowPlayingCarousel: View {
     @ObservedObject private var lyricsProjection: NowPlayingLyricsProjection
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
 
-    // Track previous page for haptic feedback
-    @State private var previousPage: Int = 1
-
     public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
         self.viewModel = viewModel
         self._currentPage = currentPage
@@ -57,9 +54,8 @@ public struct NowPlayingCarousel: View {
             #if os(iOS)
             .tabViewStyle(.page(indexDisplayMode: .never)) // Hide native page dots
             #endif
-            .onChange(of: currentPage) { newPage in
-                handlePageChange(from: previousPage, to: newPage)
-                previousPage = newPage
+            .onChange(of: currentPage) { _ in
+                handlePageChange()
             }
 
             // Fixed page indicator overlay — lyrics icon reflects availability
@@ -73,7 +69,7 @@ public struct NowPlayingCarousel: View {
 
     // MARK: - Helpers
 
-    private func handlePageChange(from oldPage: Int, to newPage: Int) {
+    private func handlePageChange() {
         // Fire haptic feedback on page change
         #if os(iOS)
         let generator = UIImpactFeedbackGenerator(style: .light)

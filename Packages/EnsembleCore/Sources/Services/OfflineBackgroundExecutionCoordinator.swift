@@ -20,8 +20,6 @@ public protocol OfflineDownloadBackgroundCoordinating: AnyObject {
     func handleSystemDidWake()
 }
 
-public typealias OfflineBackgroundExecutionCoordinating = OfflineDownloadBackgroundCoordinating
-
 @MainActor
 private final class OfflineDownloadBackgroundEventStore {
     var onExecutionRequested: (() -> Void)?

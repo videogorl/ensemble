@@ -1,3 +1,4 @@
+import EnsembleCore
 import SwiftUI
 
 private struct NativeTrackListHeaderWidthKey: EnvironmentKey {
@@ -21,24 +22,46 @@ extension View {
 /// The root owns the blurred artwork backdrop, while nested helpers keep the
 /// header layout and list-card styling aligned across detail variants.
 struct MediaDetailSurface<Content: View>: View {
-    let artworkImage: UIImage?
+    let artworkImage: PlatformImage?
+    let backgroundHeight: CGFloat
+    let darkLegibilityOpacity: Double
+    let lightLegibilityOpacity: Double
+    let contentBleedsUnderTopChrome: Bool
     @ViewBuilder private let content: () -> Content
 
     init(
-        artworkImage: UIImage?,
+        artworkImage: PlatformImage?,
+        backgroundHeight: CGFloat = 500,
+        darkLegibilityOpacity: Double = EnsembleScaffold.DetailSurface.darkLegibilityOverlayOpacity,
+        lightLegibilityOpacity: Double = EnsembleScaffold.DetailSurface.lightLegibilityOverlayOpacity,
+        contentBleedsUnderTopChrome: Bool = false,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.artworkImage = artworkImage
+        self.backgroundHeight = backgroundHeight
+        self.darkLegibilityOpacity = darkLegibilityOpacity
+        self.lightLegibilityOpacity = lightLegibilityOpacity
+        self.contentBleedsUnderTopChrome = contentBleedsUnderTopChrome
         self.content = content
     }
 
     var body: some View {
         ZStack(alignment: .top) {
-            ArtworkDetailBackground(image: artworkImage)
+            ArtworkDetailBackground(
+                image: artworkImage,
+                height: backgroundHeight,
+                darkLegibilityOpacity: darkLegibilityOpacity,
+                lightLegibilityOpacity: lightLegibilityOpacity
+            )
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
 
-            content()
+            if contentBleedsUnderTopChrome {
+                content()
+                    .ignoresSafeArea(.container, edges: .top)
+            } else {
+                content()
+            }
         }
     }
 }

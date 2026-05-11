@@ -10,7 +10,6 @@ public struct MainTabView: View {
     @StateObject private var libraryVM: LibraryViewModel
     private let nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
-    @StateObject private var contextMenuMetadataEditorCoordinator = ContextMenuMetadataEditorCoordinator()
     private let settingsManager = DependencyContainer.shared.settingsManager
     // Observation-extracted: networkMonitor publishes on every network state change,
     // which would invalidate the entire root view. We only need networkState, so we
@@ -21,21 +20,27 @@ public struct MainTabView: View {
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @State private var didSetInitialTab = false
-    @State private var isImmersiveMode = false
-    @State private var immersiveModeClearWorkItem: DispatchWorkItem?
     // Extracted observation state — avoids full root invalidation from singleton publishers
     @State private var networkState: NetworkState = DependencyContainer.shared.networkMonitor.networkState
     @State private var isLowPowerMode: Bool = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     @State private var enabledTabs: [TabItem] = DependencyContainer.shared.settingsManager.enabledTabs
     @State private var accentColor: AppAccentColor = DependencyContainer.shared.settingsManager.accentColor
     @State private var auroraVisualizationEnabled: Bool = DependencyContainer.shared.settingsManager.auroraVisualizationEnabled
-    #if os(iOS)
-    @State private var keyboardVisible = false
-    #endif
-
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
         Array(enabledTabs.prefix(4))
+    }
+
+    private var selectedRootTab: TabItem {
+        if !didSetInitialTab {
+            return barTabs.first ?? .home
+        }
+
+        let selectedTab = navigationCoordinator.selectedTab
+        if barTabs.contains(selectedTab) || selectedTab == .settings {
+            return selectedTab
+        }
+        return barTabs.first ?? .home
     }
 
     @MainActor
@@ -43,14 +48,6 @@ public struct MainTabView: View {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self.nowPlayingVM = nowPlayingVM
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
-    }
-
-    private var isKeyboardVisible: Bool {
-        #if os(iOS)
-        return keyboardVisible
-        #else
-        return false
-        #endif
     }
 
     private var showsPhoneAuroraOverlay: Bool {
@@ -65,48 +62,25 @@ public struct MainTabView: View {
         isViewportNowPlayingPresented
     }
 
-    private var profileSheetBinding: Binding<Bool> {
-        Binding(
-            get: { navigationCoordinator.activeAuxiliaryPresentation == .profile },
-            set: { isPresented in
-                guard !isPresented,
-                      navigationCoordinator.activeAuxiliaryPresentation == .profile else { return }
-                navigationCoordinator.dismissAuxiliaryPresentation()
-            }
-        )
-    }
-
-    private var downloadsAuxiliaryBinding: Binding<NavigationCoordinator.AuxiliaryPresentation?> {
-        Binding(
-            get: {
-                navigationCoordinator.activeAuxiliaryPresentation == .downloads ? .downloads : nil
-            },
-            set: { destination in
-                guard destination == nil,
-                      navigationCoordinator.activeAuxiliaryPresentation == .downloads else { return }
-                navigationCoordinator.dismissAuxiliaryPresentation()
-            }
-        )
-    }
-
-    private var isRootChromeSuppressed: Bool {
-        isImmersiveMode || navigationCoordinator.isKeyboardEditorPresented
-    }
-
-    private func shouldForceStageFlowImmersive(for size: CGSize) -> Bool {
+    private var activeStageFlowRootTab: TabItem? {
         #if os(iOS)
-        guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
-        if #available(iOS 16.0, *) {
-            return false
-        }
-        guard size.width > size.height else { return false }
+        return MainTabStageFlowPolicy.activeRootTab(
+            selectedRootTab: selectedRootTab,
+            morePath: navigationCoordinator.pathSnapshot(for: .settings),
+            isPhone: UIDevice.current.userInterfaceIdiom == .phone
+        )
+        #else
+        return nil
+        #endif
+    }
 
-        switch navigationCoordinator.selectedTab {
-        case .albums, .songs, .playlists:
-            return true
-        default:
-            return false
-        }
+    private var selectedTabSupportsStageFlow: Bool {
+        activeStageFlowRootTab != nil
+    }
+
+    private func isStageFlowActive(for size: CGSize, activeTab: TabItem?) -> Bool {
+        #if os(iOS)
+        return activeTab != nil && size.width > size.height
         #else
         return false
         #endif
@@ -114,29 +88,34 @@ public struct MainTabView: View {
 
     public var body: some View {
         GeometryReader { geometry in
-            // Keep mini-player spacing aligned with the active tab bar style.
-            let miniPlayerBottomLift: CGFloat = {
-                if #available(iOS 18.0, *) {
-                    return TrackListLayoutMetrics.miniPlayerBottomLiftBase
-                } else {
-                    return TrackListLayoutMetrics.miniPlayerBottomLiftBase + geometry.safeAreaInsets.bottom
-                }
-            }()
-            let stageFlowFallbackImmersive = shouldForceStageFlowImmersive(for: geometry.size)
-            let rootChromeSuppressed = isRootChromeSuppressed || stageFlowFallbackImmersive
+            let miniPlayerBottomLift = TrackListLayoutMetrics.rootMiniPlayerBottomLift(
+                safeAreaBottom: geometry.safeAreaInsets.bottom
+            )
+            let activeStageFlowRootTab = activeStageFlowRootTab
+            let rootStageFlowActive = isStageFlowActive(for: geometry.size, activeTab: activeStageFlowRootTab)
+            let rootChromeSuppressed = rootStageFlowActive
 
             let rootView = VStack(spacing: EnsembleDesign.Spacing.none) {
                 tabBarVisibility(
                     TabView(selection: tabBinding) {
                         ForEach(barTabs) { tab in
-                            tabRootView(for: tab)
+                            tabRootView(
+                                for: tab,
+                                rootChromeSuppressed: rootChromeSuppressed,
+                                isStageFlowActive: rootStageFlowActive && activeStageFlowRootTab == tab
+                            )
                                 .tag(tab)
                                 .tabItem {
                                     Label(tab.displayTitle, systemImage: tab.designSystemImage)
                                 }
                         }
 
-                        tabRootView(for: .settings, isMoreRoot: true)
+                        tabRootView(
+                            for: .settings,
+                            isMoreRoot: true,
+                            rootChromeSuppressed: rootChromeSuppressed,
+                            isStageFlowActive: rootStageFlowActive && selectedRootTab == .settings
+                        )
                             .tag(TabItem.settings)
                             .tabItem {
                                 Label("More", systemImage: EnsembleDesign.Icon.more)
@@ -151,7 +130,7 @@ public struct MainTabView: View {
                 // The 70pt covers the mini player height + spacing above the tab bar.
                 .miniPlayerContainerInset(
                     TrackListLayoutMetrics.miniPlayerContainerInset,
-                    isVisible: !isShowingNowPlaying && !isKeyboardVisible && !rootChromeSuppressed && !navigationCoordinator.isKeyboardEditorPresented
+                    isVisible: !isShowingNowPlaying && !rootChromeSuppressed
                 )
                 .zIndex(0)
             .task {
@@ -177,94 +156,27 @@ public struct MainTabView: View {
                 isLowPowerMode = newValue
             }
             .onReceive(settingsManager.objectWillChange) { _ in
-                DispatchQueue.main.async {
-                    updateSettingsSnapshot()
-                }
+                updateSettingsSnapshot()
             }
-            #if os(iOS)
-            .onReceive(Publishers.keyboardHeight.map { $0 > 0 }.removeDuplicates()) { newValue in
-                // Keep the presenting shell stable while an auxiliary sheet or
-                // keyboard-heavy editor owns the keyboard-driven layout changes.
-                if navigationCoordinator.activeAuxiliaryPresentation == nil &&
-                    !navigationCoordinator.isKeyboardEditorPresented {
-                    keyboardVisible = newValue
-                } else if !newValue {
-                    keyboardVisible = false
-                }
-            }
-            .onChange(of: navigationCoordinator.activeAuxiliaryPresentation != nil || navigationCoordinator.isKeyboardEditorPresented) { isPresented in
-                if isPresented {
-                    keyboardVisible = false
-                }
-            }
-            #endif
-            .onChange(of: isShowingNowPlaying) { isShowing in
-                // Execute pending navigation after the sheet fully dismisses.
-                // The 0.35s delay lets the NavigationStack settle after the
-                // sheet animation completes so path mutations are not dropped.
-                if !isShowing, let pending = navigationCoordinator.pendingNavigation {
-                    navigationCoordinator.pendingNavigation = nil
-                    navigationCoordinator.selectedTab = pending.tab
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        navigationCoordinator.push(pending.destination, in: pending.tab)
-                    }
-                }
-            }
-            #if os(iOS)
-            .sheet(isPresented: profileSheetBinding, onDismiss: {
-                navigationCoordinator.dismissAuxiliaryPresentation()
-            }) {
-                ProfilePresentationContainer()
-                    .accentColor(accentColor.color)
-            }
-            .phoneSafeAuxiliaryPresentation(item: downloadsAuxiliaryBinding, onDismiss: {
-                navigationCoordinator.dismissAuxiliaryPresentation()
-            }) { destination in
-                AuxiliaryPresentationView(destination: destination)
-                    .accentColor(accentColor.color)
-            }
-            #endif
-            // Add account sheet presented at root level so it survives
-            // TabView content recreation on iOS 15 foreground transitions
-            .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
-                AddPlexAccountView()
-                #if os(macOS)
-                    .frame(
-                        width: EnsembleScaffold.AccountSetup.macMinimumWidth,
-                        height: EnsembleScaffold.AccountSetup.macMinimumHeight
+            .auxiliaryPresentationSheets(accentColor: accentColor)
+            .addAccountPresentationSheet()
+            rootView
+                .stageFlowRotationSupport(isEnabled: selectedTabSupportsStageFlow)
+                .background(
+                    RootChromeFrameRegistrationView(
+                        bottomPadding: miniPlayerBottomLift,
+                        showsMiniPlayer: !isShowingNowPlaying && !rootChromeSuppressed,
+                        priority: 0
                     )
-                #endif
-            }
-            .keyboardSafeEditorPresentation(item: $contextMenuMetadataEditorCoordinator.request) { request in
-                MetadataEditSheet(
-                    kind: request.kind,
-                    currentTitle: request.currentTitle,
-                    onSave: request.onSave
                 )
-            }
-
-            applyChromeVisibilityObservation(
-                to: rootView
-                    .environmentObject(contextMenuMetadataEditorCoordinator)
-                    .background(
-                        RootChromeFrameRegistrationView(
-                            bottomPadding: miniPlayerBottomLift,
-                            showsMiniPlayer: !isShowingNowPlaying &&
-                                !isKeyboardVisible &&
-                                !rootChromeSuppressed &&
-                                !navigationCoordinator.isKeyboardEditorPresented,
-                            priority: 0
+                .overlay(alignment: .top) {
+                    if !rootChromeSuppressed {
+                        OfflineIndicatorOverlay(
+                            networkState: networkState,
+                            topInset: geometry.safeAreaInsets.top
                         )
-                    )
-                    .overlay(alignment: .top) {
-                        if !rootChromeSuppressed {
-                            OfflineIndicatorOverlay(
-                                networkState: networkState,
-                                topInset: geometry.safeAreaInsets.top
-                            )
-                        }
                     }
-            )
+                }
         }
     }
 
@@ -284,56 +196,6 @@ public struct MainTabView: View {
         #endif
     }
 
-    @ViewBuilder
-    private func applyChromeVisibilityObservation<Content: View>(to content: Content) -> some View {
-        #if os(iOS)
-        if #available(iOS 16.0, *) {
-            content.onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
-                // Avoid iOS 15/16 transition re-entrancy while Now Playing is presenting.
-                guard !isShowingNowPlaying else { return }
-
-                if isImmersiveMode != isHidden {
-                    isImmersiveMode = isHidden
-                }
-            }
-        } else {
-            // iOS 15: preference observation causes recursive HostPreferences crashes
-            // during modal presentation. Use notification-based approach instead.
-            content
-                .onReceive(
-                    NotificationCenter.default.publisher(
-                        for: AppOrientationNotifications.stageFlowImmersiveModeChanged
-                    )
-                ) { notification in
-                    guard let isHidden = notification.object as? Bool else { return }
-                    guard !isShowingNowPlaying else { return }
-                    immersiveModeClearWorkItem?.cancel()
-                    if isHidden {
-                        if isImmersiveMode != true {
-                            isImmersiveMode = true
-                        }
-                    } else {
-                        let clearWorkItem = DispatchWorkItem {
-                            if isImmersiveMode != false {
-                                isImmersiveMode = false
-                            }
-                        }
-                        immersiveModeClearWorkItem = clearWorkItem
-                        // iOS 15 posts transient "false" signals during landscape
-                        // geometry churn; delay clearing so root chrome doesn't flash.
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: clearWorkItem)
-                    }
-                }
-        }
-        #else
-        content.onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
-            if isImmersiveMode != isHidden {
-                isImmersiveMode = isHidden
-            }
-        }
-        #endif
-    }
-
     /// Whether to use .sidebarAdaptable TabView style (iPad only on iOS 18+).
     /// On iPhone, .sidebarAdaptable has a known bug (FB11710323) where
     /// NavigationStack doesn't observe programmatic state changes until
@@ -350,7 +212,7 @@ public struct MainTabView: View {
     
     private var tabBinding: Binding<TabItem> {
         Binding(
-            get: { navigationCoordinator.selectedTab },
+            get: { selectedRootTab },
             set: { handleTabTap($0) }
         )
     }
@@ -394,7 +256,12 @@ public struct MainTabView: View {
     }
     
     @ViewBuilder
-    private func tabRootView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
+    private func tabRootView(
+        for tab: TabItem,
+        isMoreRoot: Bool = false,
+        rootChromeSuppressed: Bool,
+        isStageFlowActive: Bool
+    ) -> some View {
         Group {
             if #available(iOS 16.0, macOS 13.0, *) {
                 NavigationStack(path: navigationCoordinator.pathBinding(for: tab)) {
@@ -426,13 +293,13 @@ public struct MainTabView: View {
                 #endif
             }
         }
+        .environment(\.isStageFlowActive, isStageFlowActive)
         .overlay(alignment: .bottom) {
             if showsPhoneAuroraOverlay &&
-                navigationCoordinator.selectedTab == tab &&
+                selectedRootTab == tab &&
                 auroraVisualizationEnabled &&
                 !isShowingNowPlaying &&
-                !isRootChromeSuppressed &&
-                !navigationCoordinator.isKeyboardEditorPresented &&
+                !rootChromeSuppressed &&
                 navigationCoordinator.activeAuxiliaryPresentation == nil {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
@@ -488,6 +355,45 @@ public struct MainTabView: View {
     }
 }
 
+enum MainTabStageFlowPolicy {
+    static func activeRootTab(
+        selectedRootTab: TabItem,
+        morePath: [NavigationCoordinator.Destination],
+        isPhone: Bool
+    ) -> TabItem? {
+        guard isPhone else {
+            return nil
+        }
+
+        if supportsStageFlow(selectedRootTab) {
+            return selectedRootTab
+        }
+
+        guard selectedRootTab == .settings else {
+            return nil
+        }
+
+        return morePath
+            .compactMap { destination -> TabItem? in
+                guard case .view(let tab) = destination,
+                      supportsStageFlow(tab) else {
+                    return nil
+                }
+                return tab
+            }
+            .last
+    }
+
+    private static func supportsStageFlow(_ tab: TabItem) -> Bool {
+        switch tab {
+        case .albums, .songs, .playlists:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 // MARK: - iPad Sidebar View
 
 @available(iOS 16.0, macOS 13.0, *)
@@ -509,7 +415,6 @@ public struct SidebarView: View {
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var pinnedVM: PinnedViewModel
     @StateObject private var playlistsVM: PlaylistViewModel
-    @StateObject private var contextMenuMetadataEditorCoordinator = ContextMenuMetadataEditorCoordinator()
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let settingsManager = DependencyContainer.shared.settingsManager
     private let pinManager = DependencyContainer.shared.pinManager
@@ -524,14 +429,16 @@ public struct SidebarView: View {
         case detail
     }
 
-    @State private var selection: SidebarSelection? = .library(.home)
+    @Binding private var selection: SidebarSelection?
     @State private var pinnedDetailPath: [NavigationCoordinator.Destination] = []
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var compactColumnPreference: CompactColumnPreference = .sidebar
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var playlistForEditSheet: Playlist?
     @State private var playlistPendingRename: Playlist?
+    @State private var playlistPendingRenameTitle = ""
     @State private var mergedPlaylistPendingRename: DisplayPlaylist?
+    @State private var mergedPlaylistPendingRenameTitle = ""
     @State private var playlistPendingDelete: Playlist?
     @State private var mergedPlaylistPendingDelete: DisplayPlaylist?
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
@@ -539,42 +446,19 @@ public struct SidebarView: View {
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
     @State private var accentColor: AppAccentColor = DependencyContainer.shared.settingsManager.accentColor
 
-    private var profileSheetBinding: Binding<Bool> {
-        Binding(
-            get: { navigationCoordinator.activeAuxiliaryPresentation == .profile },
-            set: { isPresented in
-                guard !isPresented,
-                      navigationCoordinator.activeAuxiliaryPresentation == .profile else { return }
-                navigationCoordinator.dismissAuxiliaryPresentation()
-            }
-        )
-    }
-
-    private var downloadsAuxiliaryBinding: Binding<NavigationCoordinator.AuxiliaryPresentation?> {
-        Binding(
-            get: {
-                navigationCoordinator.activeAuxiliaryPresentation == .downloads ? .downloads : nil
-            },
-            set: { destination in
-                guard destination == nil,
-                      navigationCoordinator.activeAuxiliaryPresentation == .downloads else { return }
-                navigationCoordinator.dismissAuxiliaryPresentation()
-            }
-        )
-    }
-
     // Cached sidebar playlist items driven by .onReceive — avoids computed property
     // re-evaluation issues on macOS where NavigationSplitView can swallow updates.
     @State private var cachedSmartPlaylists: [SidebarPlaylistItem] = []
     @State private var cachedRegularPlaylists: [SidebarPlaylistItem] = []
 
     @MainActor
-    public init(nowPlayingVM: NowPlayingViewModel) {
+    public init(nowPlayingVM: NowPlayingViewModel, selection: Binding<SidebarSelection?>) {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self.nowPlayingVM = nowPlayingVM
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
         self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
         self._playlistsVM = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
+        self._selection = selection
     }
 
     private var isShowingNowPlaying: Bool {
@@ -582,13 +466,15 @@ public struct SidebarView: View {
     }
 
     private var sidebarPlaylistCacheInvalidations: AnyPublisher<Void, Never> {
-        Publishers.Merge5(
-            playlistsVM.$playlists.map { _ in () },
-            playlistsVM.$sortedDisplayPlaylists.map { _ in () },
-            playlistsVM.$playlistSortOption.map { _ in () },
-            playlistsVM.$filterOptions.map { _ in () },
-            playlistsVM.$isMergeEnabled.map { _ in () }
-        )
+        Publishers.MergeMany([
+            playlistsVM.$playlists.map { _ in () }.eraseToAnyPublisher(),
+            playlistsVM.$sortedDisplayPlaylists.map { _ in () }.eraseToAnyPublisher(),
+            playlistsVM.$playlistSortOption.map { _ in () }.eraseToAnyPublisher(),
+            playlistsVM.$filterOptions.map { _ in () }.eraseToAnyPublisher(),
+            playlistsVM.$isMergeEnabled.map { _ in () }.eraseToAnyPublisher(),
+            libraryVM.$hasEnabledLibraries.map { _ in () }.eraseToAnyPublisher(),
+            libraryVM.$isRestoringCloudSources.map { _ in () }.eraseToAnyPublisher()
+        ])
         .eraseToAnyPublisher()
     }
 
@@ -620,6 +506,12 @@ public struct SidebarView: View {
     /// Uses @State instead of computed properties to survive NavigationSplitView
     /// re-layouts on macOS that can drop computed property changes.
     private func rebuildCachedSidebarPlaylists() {
+        guard libraryVM.hasEnabledLibraries || libraryVM.isRestoringCloudSources else {
+            cachedSmartPlaylists = []
+            cachedRegularPlaylists = []
+            return
+        }
+
         let items = buildSidebarPlaylistItems()
         let newSmart = items.filter(\.isSmart)
         let newRegular = items.filter { !$0.isSmart }
@@ -794,9 +686,7 @@ public struct SidebarView: View {
 
     private func navigateFromPinnedMenu(to destination: NavigationCoordinator.Destination) {
         selection = SidebarSelection.selection(for: destination, fallback: selection)
-        DispatchQueue.main.async {
-            navigationCoordinator.push(destination, in: NavigationCoordinator.targetTab(for: destination))
-        }
+        navigationCoordinator.push(destination, in: NavigationCoordinator.targetTab(for: destination))
     }
 
     private func startPinnedPlaylistDelete(for playlist: Playlist) {
@@ -880,36 +770,9 @@ public struct SidebarView: View {
 
     public var body: some View {
         splitNavigationView
-        #if os(iOS)
-        .sheet(isPresented: profileSheetBinding, onDismiss: {
-            navigationCoordinator.dismissAuxiliaryPresentation()
-        }) {
-            ProfilePresentationContainer()
-                .accentColor(accentColor.color)
-        }
-        .phoneSafeAuxiliaryPresentation(item: downloadsAuxiliaryBinding, onDismiss: {
-            navigationCoordinator.dismissAuxiliaryPresentation()
-        }) { destination in
-            AuxiliaryPresentationView(destination: destination)
-                .accentColor(accentColor.color)
-        }
-        #endif
-        .onChange(of: isShowingNowPlaying) { isShowing in
-            // Execute pending navigation after sheet fully dismisses.
-            if !isShowing, let pending = navigationCoordinator.pendingNavigation {
-                navigationCoordinator.pendingNavigation = nil
-                // Switch sidebar to the matching section
-                let targetTab = NavigationCoordinator.targetTab(for: pending.destination)
-                self.selection = SidebarSelection.selection(for: pending.destination, fallback: self.selection)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    navigationCoordinator.push(pending.destination, in: targetTab)
-                }
-            }
-        }
+        .auxiliaryPresentationSheets(accentColor: accentColor)
         .onReceive(settingsManager.objectWillChange) { _ in
-            DispatchQueue.main.async {
-                updateSettingsSnapshot()
-            }
+            updateSettingsSnapshot()
         }
         #if os(macOS)
         .onChange(of: navigationCoordinator.auxiliaryWindowRequest?.id) { _ in
@@ -919,57 +782,55 @@ public struct SidebarView: View {
             navigationCoordinator.dismissAuxiliaryPresentation()
         }
         #endif
-        // Add account sheet presented at root level so it survives
-        // view content recreation on foreground transitions
-        .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
-            AddPlexAccountView()
-            #if os(macOS)
-                .frame(
-                    width: EnsembleScaffold.AccountSetup.macMinimumWidth,
-                    height: EnsembleScaffold.AccountSetup.macMinimumHeight
-                )
-            #endif
-        }
-        .keyboardSafeEditorPresentation(item: $contextMenuMetadataEditorCoordinator.request) { request in
-            MetadataEditSheet(
-                kind: request.kind,
-                currentTitle: request.currentTitle,
-                onSave: request.onSave
-            )
-        }
+        .addAccountPresentationSheet()
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .sheet(item: $playlistForEditSheet) { playlist in
-            NavigationView {
-                PlaylistDetailView(
-                    playlist: playlist,
-                    nowPlayingVM: nowPlayingVM,
-                    startInEditMode: true
-                )
-            }
+            PlaylistDetailView(
+                playlist: playlist,
+                nowPlayingVM: nowPlayingVM,
+                startInEditMode: true
+            )
+            .nativeSheetNavigationContainer()
         }
-        .keyboardSafeEditorPresentation(item: $playlistPendingRename) { playlist in
-            TextInputView(
-                title: "Rename Playlist",
-                placeholder: "Playlist name",
-                initialText: playlist.title,
-                actionTitle: "Save"
-            ) { name in
-                renamePinnedPlaylist(playlist, to: name)
+        .alert("Rename Playlist", isPresented: Binding(
+            get: { playlistPendingRename != nil },
+            set: { if !$0 { playlistPendingRename = nil } }
+        )) {
+            TextField("Playlist name", text: $playlistPendingRenameTitle)
+            Button("Cancel", role: .cancel) {
+                playlistPendingRename = nil
             }
+            Button("Save") {
+                guard let playlist = playlistPendingRename else { return }
+                let title = playlistPendingRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                playlistPendingRename = nil
+                renamePinnedPlaylist(playlist, to: title)
+            }
+            .disabled(playlistPendingRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("Choose a new playlist name.")
         }
-        .keyboardSafeEditorPresentation(item: $mergedPlaylistPendingRename) { displayPlaylist in
-            TextInputView(
-                title: "Rename Playlist",
-                message: "This will rename on \(displayPlaylist.playlists.count) server\(displayPlaylist.playlists.count == 1 ? "" : "s").",
-                placeholder: "Playlist name",
-                initialText: displayPlaylist.title,
-                actionTitle: "Save"
-            ) { name in
-                playlistsVM.applyOptimisticRenameForMerged(displayPlaylist, newTitle: name)
+        .alert("Rename Playlist", isPresented: Binding(
+            get: { mergedPlaylistPendingRename != nil },
+            set: { if !$0 { mergedPlaylistPendingRename = nil } }
+        )) {
+            TextField("Playlist name", text: $mergedPlaylistPendingRenameTitle)
+            Button("Cancel", role: .cancel) {
+                mergedPlaylistPendingRename = nil
+            }
+            Button("Save") {
+                guard let displayPlaylist = mergedPlaylistPendingRename else { return }
+                let title = mergedPlaylistPendingRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                mergedPlaylistPendingRename = nil
+                playlistsVM.applyOptimisticRenameForMerged(displayPlaylist, newTitle: title)
                 for playlist in displayPlaylist.playlists {
-                    renamePinnedPlaylist(playlist, to: name)
+                    renamePinnedPlaylist(playlist, to: title)
                 }
             }
+            .disabled(mergedPlaylistPendingRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            let count = mergedPlaylistPendingRename?.playlists.count ?? 0
+            Text("This will rename on \(count) server\(count == 1 ? "" : "s").")
         }
         .alert("Delete Playlist?", isPresented: Binding(
             get: { playlistPendingDelete != nil },
@@ -1031,7 +892,6 @@ public struct SidebarView: View {
             #endif
             pinnedDetailPath.removeAll()
         }
-        .environmentObject(contextMenuMetadataEditorCoordinator)
     }
 
     private var sidebarColumn: some View {
@@ -1110,7 +970,6 @@ public struct SidebarView: View {
                 ProfileToolbarButton()
             }
         }
-        .if_available_removeSidebarToggle()
         // Sync cached sidebar playlists from VM publisher. Using @State + .onReceive
         // instead of computed properties ensures updates survive NavigationSplitView
         // re-layouts on macOS that can swallow computed property changes.
@@ -1145,15 +1004,6 @@ public struct SidebarView: View {
                     Text(title)
                 }
             }
-        }
-    }
-
-    /// SF Symbol for each pinned item type
-    private func iconForPinType(_ type: PinnedItemType) -> String {
-        switch type {
-        case .album: return EnsembleDesign.Icon.album
-        case .artist: return EnsembleDesign.Icon.artist
-        case .playlist: return EnsembleDesign.Icon.playlist
         }
     }
 
@@ -1306,7 +1156,9 @@ public struct SidebarView: View {
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .background(
                 RootChromeFrameRegistrationView(
-                    bottomPadding: min(max(proxy.safeAreaInsets.bottom + 12, 20), 32),
+                    bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
+                        safeAreaBottom: proxy.safeAreaInsets.bottom
+                    ),
                     showsMiniPlayer: !isShowingNowPlaying,
                     priority: priority
                 )
@@ -1480,6 +1332,7 @@ public struct SidebarView: View {
                     nowPlayingVM: nowPlayingVM,
                     toastNamespace: "sidebar-playlist-menu",
                     onRename: {
+                        playlistPendingRenameTitle = playlist.title
                         playlistPendingRename = playlist
                     },
                     onEdit: {
@@ -1527,6 +1380,7 @@ public struct SidebarView: View {
                     toastNamespace: "sidebar-merged-playlist-menu",
                     context: .sidebar,
                     onRename: {
+                        mergedPlaylistPendingRenameTitle = displayPlaylist.title
                         mergedPlaylistPendingRename = displayPlaylist
                     },
                     onDelete: {
@@ -1573,7 +1427,6 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private func sidebarPlaylistDropDestination<Content: View>(_ content: Content, playlist: SidebarPlaylistItem) -> some View {
-        #if !os(watchOS)
         SidebarPlaylistDragDropHost(
             content: content,
             playlist: playlist,
@@ -1581,12 +1434,8 @@ public struct SidebarView: View {
             playlistsVM: playlistsVM,
             nowPlayingVM: nowPlayingVM
         )
-        #else
-        content
-        #endif
     }
 
-    #if !os(watchOS)
     private struct SidebarPlaylistDragDropHost<Content: View>: View {
         @Environment(\.dependencies) private var deps
 
@@ -1798,8 +1647,6 @@ public struct SidebarView: View {
             )
         }
     }
-
-    #endif
 
     @ViewBuilder
     private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {

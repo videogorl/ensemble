@@ -4,7 +4,6 @@ import Foundation
 import Nuke
 
 public protocol ArtworkLoaderProtocol {
-    func artworkURL(for path: String?, sourceKey: String?, size: Int) -> URL?
     func artworkURLAsync(for path: String?, sourceKey: String?, ratingKey: String?, fallbackPath: String?, fallbackRatingKey: String?, size: Int) async -> URL?
     func predownloadArtwork(for albums: [CDAlbum], sourceKey: String, size: Int) async throws -> Int
     func predownloadArtwork(for artists: [CDArtist], sourceKey: String, size: Int) async throws -> Int
@@ -22,7 +21,6 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     private let syncCoordinator: SyncCoordinator
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private static let asyncArtworkURLCacheTTL: TimeInterval = 60
-    private static let legacyArtworkURLCacheTTL: TimeInterval = 60
     
     /// Tracks artwork URLs keyed by ratingKey so we can do targeted Nuke cache eviction
     /// instead of wiping the entire pipeline cache when a single artwork changes.
@@ -202,37 +200,6 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         )
 
         EnsembleLogger.debug("🎨 ArtworkLoader: Invalidated artwork for ratingKey=\(ratingKey)")
-    }
-
-    public func artworkURL(for path: String?, sourceKey: String? = nil, size: Int = 300) -> URL? {
-        guard let path = path else { return nil }
-
-        // Cap size at 1000px to avoid excessive memory usage
-        let cappedSize = min(size, 1000)
-        let cacheKey = "\(sourceKey ?? ""):\(path):\(cappedSize)"
-        
-        // Note: This method returns nil immediately on first call and triggers background fetch
-        // This is a legacy pattern for UI components that can't wait for async.
-        // The View will re-render once the cache is populated.
-        
-        // Fetch asynchronously and cache
-        Task {
-            // Check cache first via actor
-            if await urlCache.get(cacheKey) != nil {
-                return
-            }
-            
-            if let url = try? await self.syncCoordinator.getArtworkURL(path: path, sourceKey: sourceKey, size: cappedSize) {
-                // Track the URL for targeted cache eviction on invalidation
-                if let ratingKey = Self.extractRatingKey(from: path) {
-                    await self.artworkURLTracker.record(url: url, forRatingKey: ratingKey)
-                }
-                await urlCache.set(cacheKey, url: url, ttl: Self.legacyArtworkURLCacheTTL)
-            }
-        }
-
-        // Return nil for first render, will update once loaded
-        return nil
     }
 
     /// Async version for modern Swift concurrency

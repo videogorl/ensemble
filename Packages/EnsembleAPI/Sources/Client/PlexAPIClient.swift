@@ -53,17 +53,6 @@ public enum StreamResolution: Sendable {
     case directStream(URL)                          // AVPlayer streams progressively from remote URL
     case downloadedFile(URL)                        // Full file downloaded locally (transcode was needed)
     case progressiveTranscode(ProgressiveStreamConfig)  // Chunked transcode via resource loader
-
-    /// Convenience accessor for cases that carry a URL directly.
-    /// Crashes on `.progressiveTranscode` — callers must switch explicitly.
-    public var url: URL {
-        switch self {
-        case .directStream(let url), .downloadedFile(let url):
-            return url
-        case .progressiveTranscode:
-            fatalError("progressiveTranscode does not have a direct URL — use switch to handle all cases")
-        }
-    }
 }
 
 /// Parsed result from PMS's transcode decision endpoint.

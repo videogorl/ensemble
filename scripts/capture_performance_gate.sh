@@ -401,7 +401,9 @@ symbol_patterns = [
     "DownloadTransferExecutor",
     "PlaylistDropResolver",
     "NativeTrackTable",
-    "TrackRow",
+    "MediaTrackList",
+    "CompactTrackRow",
+    "TrackRowInteractionModel",
 ]
 
 for xml_path in sorted(export_path.glob("*.xml")):

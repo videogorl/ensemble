@@ -40,6 +40,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let artworkLoader: ArtworkLoaderProtocol
     public let settingsManager: SettingsManager
     public let cacheManager: CacheManager
+    public let sourceCacheCleanupService: SourceCacheCleaning
     public let homeHubLoader: HomeHubLoaderProtocol
     public let backgroundRefreshCoordinator: BackgroundRefreshCoordinating
     public let navigationCoordinator: NavigationCoordinator
@@ -236,6 +237,50 @@ public final class DependencyContainer: @unchecked Sendable {
         cacheManager = playback.cacheManager
         songLinkService = playback.songLinkService
         shareService = playback.shareService
+        let builtSourceCacheCleanupService = SourceCacheCleanupService(
+            libraryRepository: libraryRepository,
+            downloadManager: downloadManager,
+            targetRepository: offlineDownloadTargetRepository,
+            artworkDownloadManager: artworkDownloadManager,
+            fetchArtworkRatingKeys: { [libraryRepository = core.libraryRepository] sourceKey in
+                guard let repository = libraryRepository as? LibraryRepository else { return [] }
+                return try await repository.fetchArtworkRatingKeys(forSourceCompositeKey: sourceKey)
+            },
+            countLibraryItemsForSource: { [libraryRepository = core.libraryRepository] sourceKey in
+                guard let repository = libraryRepository as? LibraryRepository else { return 0 }
+                return try await repository.countLibraryItems(forSourceCompositeKey: sourceKey)
+            },
+            countAllLibraryItems: { [libraryRepository = core.libraryRepository] in
+                guard let repository = libraryRepository as? LibraryRepository else { return 0 }
+                return try await repository.countAllLibraryItems()
+            },
+            countTargetsForSource: { [targetRepository = core.offlineDownloadTargetRepository] sourceKey in
+                guard let repository = targetRepository as? OfflineDownloadTargetRepository else { return 0 }
+                return try await repository.countTargets(forSourceCompositeKey: sourceKey)
+            },
+            countAllTargets: { [targetRepository = core.offlineDownloadTargetRepository] in
+                guard let repository = targetRepository as? OfflineDownloadTargetRepository else { return 0 }
+                return try await repository.countAllTargets()
+            },
+            countArtworkItems: { [artworkDownloadManager = core.artworkDownloadManager] in
+                guard let manager = artworkDownloadManager as? ArtworkDownloadManager else { return 0 }
+                return try await manager.getArtworkCacheFileCount()
+            },
+            clearLyricsCache: { [lyricsService = playback.lyricsService] sourceKey in
+                await MainActor.run {
+                    lyricsService.clearCache(forSourceCompositeKey: sourceKey)
+                }
+            },
+            clearAllLyricsCaches: { [lyricsService = playback.lyricsService] in
+                await MainActor.run {
+                    lyricsService.clearAllCaches()
+                }
+            }
+        )
+        sourceCacheCleanupService = builtSourceCacheCleanupService
+        MainActor.assumeIsolated {
+            playback.cacheManager.sourceCacheCleanupService = builtSourceCacheCleanupService
+        }
         let builtHomeHubLoader = HomeHubLoader(
             accountManager: accountManager,
             hubRepository: hubRepository,
@@ -301,7 +346,7 @@ public final class DependencyContainer: @unchecked Sendable {
             moodRepository: MoodRepository(coreDataStack: coreDataStack),
             downloadManager: DownloadManager(coreDataStack: coreDataStack),
             offlineDownloadTargetRepository: OfflineDownloadTargetRepository(coreDataStack: coreDataStack),
-            artworkDownloadManager: ArtworkDownloadManager(coreDataStack: coreDataStack),
+            artworkDownloadManager: ArtworkDownloadManager(),
             pendingMutationRepository: PendingMutationRepository(coreDataStack: coreDataStack),
             settingsManager: MainActor.assumeIsolated { SettingsManager() },
             navigationCoordinator: MainActor.assumeIsolated { NavigationCoordinator() },
@@ -770,12 +815,7 @@ public final class DependencyContainer: @unchecked Sendable {
                 await artworkLoader.invalidateArtwork(ratingKey: info.trackRatingKey, type: .album)
             }
         }
-        syncCoordinator.onSourceCleanup = { [weak self] sourceKey in
-            guard let self else { return }
-            self.lyricsService.clearCache(forSourceCompositeKey: sourceKey)
-            try? await self.offlineDownloadTargetRepository.deleteTargets(forSourceCompositeKey: sourceKey)
-            try? await self.downloadManager.deleteDownloads(forSourceCompositeKey: sourceKey)
-        }
+        syncCoordinator.sourceCacheCleanupService = sourceCacheCleanupService
     }
 
     @MainActor

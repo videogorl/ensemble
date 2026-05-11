@@ -31,21 +31,16 @@ public struct ProfilePresentationContainer: View {
         MacAuxiliaryWindowScaffold(
             configuration: .profile
         ) {
-            navigationContainer {
-                ProfileView()
-            }
+            ProfileView()
+                .nativeSheetNavigationContainer()
         }
         #else
-        navigationContainer {
-            ProfileView()
-                .modifier(AuxiliaryDismissToolbarModifier())
-        }
+        ProfileView()
+            .modifier(AuxiliaryDismissToolbarModifier())
+            .nativeSheetNavigationContainer()
         #endif
     }
 }
-
-/// Legacy alias for backwards compatibility
-public typealias SettingsPresentationContainer = ProfilePresentationContainer
 
 public struct DownloadsPresentationContainer: View {
     @StateObject private var nowPlayingVM: NowPlayingViewModel
@@ -59,48 +54,87 @@ public struct DownloadsPresentationContainer: View {
         MacAuxiliaryWindowScaffold(
             configuration: .downloads
         ) {
-            navigationContainer {
-                DownloadsView(nowPlayingVM: nowPlayingVM)
-            }
+            DownloadsView(nowPlayingVM: nowPlayingVM)
+                .nativeSheetNavigationContainer()
         }
         #else
-        navigationContainer {
-            DownloadsView(nowPlayingVM: nowPlayingVM)
-                .modifier(AuxiliaryDismissToolbarModifier())
-        }
+        DownloadsView(nowPlayingVM: nowPlayingVM)
+            .modifier(AuxiliaryDismissToolbarModifier())
+            .nativeSheetNavigationContainer()
         #endif
     }
 }
 
-public struct AuxiliaryPresentationView: View {
-    let destination: NavigationCoordinator.AuxiliaryPresentation
+private struct AuxiliaryPresentationSheetsModifier: ViewModifier {
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    let accentColor: AppAccentColor
 
-    public init(destination: NavigationCoordinator.AuxiliaryPresentation) {
-        self.destination = destination
+    private var profileSheetBinding: Binding<Bool> {
+        Binding(
+            get: { navigationCoordinator.activeAuxiliaryPresentation == .profile },
+            set: { isPresented in
+                guard !isPresented,
+                      navigationCoordinator.activeAuxiliaryPresentation == .profile else { return }
+                navigationCoordinator.dismissAuxiliaryPresentation()
+            }
+        )
     }
 
-    public var body: some View {
-        switch destination {
-        case .profile:
-            ProfilePresentationContainer()
-        case .downloads:
-            DownloadsPresentationContainer()
-        }
+    private var downloadsSheetBinding: Binding<Bool> {
+        Binding(
+            get: { navigationCoordinator.activeAuxiliaryPresentation == .downloads },
+            set: { isPresented in
+                guard !isPresented,
+                      navigationCoordinator.activeAuxiliaryPresentation == .downloads else { return }
+                navigationCoordinator.dismissAuxiliaryPresentation()
+            }
+        )
     }
-}
 
-@ViewBuilder
-private func navigationContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-    if #available(iOS 16.0, macOS 13.0, *) {
-        NavigationStack {
-            content()
-        }
-    } else {
-        NavigationView {
-            content()
-        }
+    func body(content: Content) -> some View {
         #if os(iOS)
-        .navigationViewStyle(.stack)
+        content
+            .sheet(isPresented: profileSheetBinding) {
+                ProfilePresentationContainer()
+                    .accentColor(accentColor.color)
+            }
+            .sheet(isPresented: downloadsSheetBinding) {
+                DownloadsPresentationContainer()
+                    .accentColor(accentColor.color)
+            }
+        #else
+        content
         #endif
+    }
+}
+
+public extension View {
+    /// Presents root auxiliary profile/download sheets from the active root shell.
+    func auxiliaryPresentationSheets(accentColor: AppAccentColor) -> some View {
+        modifier(AuxiliaryPresentationSheetsModifier(accentColor: accentColor))
+    }
+}
+
+private struct AddAccountPresentationSheetModifier: ViewModifier {
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
+                AddPlexAccountView()
+                #if os(macOS)
+                    .frame(
+                        width: EnsembleScaffold.AccountSetup.macMinimumWidth,
+                        height: EnsembleScaffold.AccountSetup.macMinimumHeight
+                    )
+                #endif
+            }
+    }
+}
+
+public extension View {
+    /// Presents the root add-account sheet from the active navigation shell.
+    func addAccountPresentationSheet() -> some View {
+        modifier(AddAccountPresentationSheetModifier())
     }
 }

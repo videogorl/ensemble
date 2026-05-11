@@ -10,7 +10,7 @@ public struct DownloadTargetDetailView: View {
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
     @Environment(\.dismiss) private var dismiss
-    @State private var artworkImage: UIImage?
+    @State private var artworkImage: PlatformImage?
     @State private var currentArtworkPath: String?
     @State private var isRedownloading = false
     @State private var isRemovingDownload = false

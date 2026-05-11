@@ -1,10 +1,11 @@
+import EnsembleCore
 import SwiftUI
 
 /// Shared blurred-artwork header treatment used by media-style detail screens.
 /// Keeping this in one place prevents dark/light mode overlay drift between
 /// `MediaDetailView` and download detail surfaces.
 struct ArtworkDetailBackground: View {
-    let image: UIImage?
+    let image: PlatformImage?
     let height: CGFloat
     let darkLegibilityOpacity: Double
     let lightLegibilityOpacity: Double
@@ -12,7 +13,7 @@ struct ArtworkDetailBackground: View {
     @Environment(\.colorScheme) private var colorScheme
 
     init(
-        image: UIImage?,
+        image: PlatformImage?,
         height: CGFloat = 500,
         darkLegibilityOpacity: Double = EnsembleScaffold.DetailSurface.darkLegibilityOverlayOpacity,
         lightLegibilityOpacity: Double = EnsembleScaffold.DetailSurface.lightLegibilityOverlayOpacity
@@ -52,6 +53,7 @@ struct ArtworkDetailBackground: View {
             )
         )
         .frame(height: height)
+        .artworkBackgroundExtensionEffect()
         .animation(
             .easeInOut(duration: EnsembleScaffold.DetailSurface.backgroundFadeDuration),
             value: backgroundImageIdentity
@@ -64,5 +66,20 @@ struct ArtworkDetailBackground: View {
 
     private var backgroundImageIdentity: ObjectIdentifier? {
         image.map(ObjectIdentifier.init)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func artworkBackgroundExtensionEffect() -> some View {
+        #if os(macOS)
+        if #available(macOS 26.0, *) {
+            self.backgroundExtensionEffect()
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
     }
 }

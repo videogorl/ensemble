@@ -5,7 +5,6 @@ import UniformTypeIdentifiers
 import AppKit
 #endif
 
-#if !os(watchOS)
 /// App-internal drag payload for media references. The payload carries stable
 /// identifiers only; drop targets resolve those identifiers against current cache.
 struct MediaDragPayload: Codable, Equatable {
@@ -474,5 +473,4 @@ private final class MediaDragFilePromiseDelegate: NSObject, NSFilePromiseProvide
         }
     }
 }
-#endif
 #endif

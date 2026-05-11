@@ -1,12 +1,6 @@
 import EnsembleCore
 import SwiftUI
 
-#if canImport(UIKit)
-import UIKit
-#elseif canImport(AppKit)
-import AppKit
-#endif
-
 /// Left card displaying lyrics with time-synced highlighting (karaoke style)
 /// Supports timed LRC lyrics with auto-scroll, plain text lyrics, and empty/loading states
 public struct LyricsCard: View {
@@ -25,6 +19,9 @@ public struct LyricsCard: View {
     @State private var currentLyricsLineIndex: Int?
     @State private var lyricsScrollTargetIndex: Int?
     @State private var instrumentalProgress: Double?
+    @State private var isUserDrivenLyricsScrollActive = false
+    @State private var lyricsScrollPhaseResetToken = 0
+    @State private var lyricsRecenterRequestToken = 0
 
     public init(
         viewModel: NowPlayingViewModel,
@@ -64,8 +61,18 @@ public struct LyricsCard: View {
             syncLyricsSnapshot()
         }
         .onChange(of: currentPage) { newPage in
-            guard NowPlayingPanelPage.lyrics.shouldRenderContent(currentPage: newPage) else { return }
+            guard NowPlayingPanelPage.lyrics.shouldRenderContent(currentPage: newPage) else {
+                isUserDrivenLyricsScrollActive = false
+                return
+            }
             syncLyricsSnapshot()
+        }
+        .task(id: lyricsScrollPhaseResetToken) {
+            guard isUserDrivenLyricsScrollActive else { return }
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            isUserDrivenLyricsScrollActive = false
+            lyricsRecenterRequestToken &+= 1
         }
         .onReceive(viewModel.currentLyricsLineIndexPublisher) { index in
             guard NowPlayingPanelPage.lyrics.isActive(currentPage: currentPage) else { return }
@@ -178,7 +185,7 @@ public struct LyricsCard: View {
 
     private func lyricsScrollView(lyrics: ParsedLyrics) -> some View {
         ScrollViewReader { proxy in
-            ScrollView(showsIndicators: false) {
+            observedLyricsScrollView {
                 LazyVStack(spacing: lyrics.isTimed
                     ? EnsembleScaffold.NowPlaying.lyricTimedLineSpacing
                     : EnsembleScaffold.NowPlaying.lyricPlainLineSpacing
@@ -268,22 +275,6 @@ public struct LyricsCard: View {
                 }
                 .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
             }
-            // Detect vertical scrolls to suppress auto-scroll temporarily.
-            // Uses a UIKit gesture recognizer that only activates for vertical pans,
-            // allowing horizontal swipes to pass through to the parent TabView.
-            #if canImport(UIKit)
-            .background(
-                VerticalDragDetector {
-                    viewModel.userDidScrollLyrics()
-                }
-            )
-            #elseif canImport(AppKit)
-            .background(
-                MacScrollWheelDetector {
-                    viewModel.userDidScrollLyrics()
-                }
-            )
-            #endif
             // Restore scroll position when the scroll view is recreated after
             // moving more than one page away from Lyrics.
             .onAppear {
@@ -295,10 +286,7 @@ public struct LyricsCard: View {
                     scrollTarget = "intro-instrumental"
                 }
                 lastScrollIndex = lyricsScrollTargetIndex
-                // Defer to next frame so the LazyVStack has laid out its content
-                DispatchQueue.main.async {
-                    proxy.scrollTo(scrollTarget, anchor: .center)
-                }
+                proxy.scrollTo(scrollTarget, anchor: .center)
             }
             // Scroll to active lyric — animate for natural progression, snap for seeks.
             // nil target means "before first lyric" — scroll to top (index 0 or intro).
@@ -330,17 +318,17 @@ public struct LyricsCard: View {
                     }
                 }
             }
-            // Re-center on active lyric when user scroll pause ends
-            .onChange(of: viewModel.isUserScrollingLyrics) { isScrolling in
-                guard !isScrolling, lyrics.isTimed else { return }
+            .onChange(of: lyricsRecenterRequestToken) { _ in
+                guard lyrics.isTimed else { return }
                 let scrollTarget: AnyHashable
                 if let index = lyricsScrollTargetIndex {
                     scrollTarget = index
                 } else {
                     scrollTarget = "intro-instrumental"
                 }
-                // Snap back without animation (same as large jump behavior)
-                proxy.scrollTo(scrollTarget, anchor: .center)
+                withAnimation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration)) {
+                    proxy.scrollTo(scrollTarget, anchor: .center)
+                }
             }
         }
     }
@@ -354,6 +342,41 @@ public struct LyricsCard: View {
         }
         if viewModel.instrumentalProgress != instrumentalProgress {
             instrumentalProgress = viewModel.instrumentalProgress
+        }
+    }
+
+    @ViewBuilder
+    private func observedLyricsScrollView<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let scrollView = ScrollView(showsIndicators: false) {
+            content()
+        }
+
+        if #available(iOS 18.0, macOS 15.0, *) {
+            scrollView
+                .onScrollPhaseChange { _, newPhase in
+                    handleLyricsScrollPhaseChange(newPhase)
+                }
+        } else {
+            scrollView
+        }
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    private func handleLyricsScrollPhaseChange(_ phase: ScrollPhase) {
+        let isUserDrivenScroll = phase == .tracking
+            || phase == .interacting
+            || phase == .decelerating
+        handleLyricsScrollPhaseChange(isUserDrivenScroll: isUserDrivenScroll)
+    }
+
+    private func handleLyricsScrollPhaseChange(isUserDrivenScroll: Bool) {
+        guard NowPlayingPanelPage.lyrics.isActive(currentPage: currentPage) else { return }
+
+        if isUserDrivenScroll {
+            isUserDrivenLyricsScrollActive = true
+            lyricsScrollPhaseResetToken &+= 1
         }
     }
 
@@ -477,10 +500,9 @@ public struct LyricsCard: View {
 
     /// Progressive blur based on distance from the active line (which is centered in viewport).
     /// Lines close to the active line are sharp; distant lines blur progressively.
-    /// Disabled for plain text lyrics and in Low Power Mode.
+    /// Disabled when native scroll-phase observation is unavailable so user scrolling stays readable.
     private func lineBlurRadius(index: Int, isTimed: Bool) -> CGFloat {
-        // No blur for plain text, Low Power Mode, or when user is manually scrolling
-        guard isTimed, !isLowPowerMode, !viewModel.isUserScrollingLyrics else { return 0 }
+        guard isTimed, supportsProgressiveLyricsBlur, !isLowPowerMode, !isUserDrivenLyricsScrollActive else { return 0 }
 
         // Use active line index, fall back to scroll target during instrumental gaps
         let center = currentLyricsLineIndex
@@ -493,6 +515,13 @@ public struct LyricsCard: View {
             CGFloat(distance - EnsembleScaffold.NowPlaying.lyricBlurStartDistance) * EnsembleScaffold.NowPlaying.lyricBlurStep,
             EnsembleScaffold.NowPlaying.lyricMaxBlur
         )
+    }
+
+    private var supportsProgressiveLyricsBlur: Bool {
+        if #available(iOS 18.0, macOS 15.0, *) {
+            return true
+        }
+        return false
     }
 
     /// Whether a line is in the past (before the current active line)
@@ -544,226 +573,6 @@ public struct LyricsCard: View {
         }
     }
 }
-
-#if canImport(UIKit)
-// MARK: - Vertical Drag Detector
-
-/// Detects vertical scroll gestures by attaching a UIPanGestureRecognizer directly to the
-/// ancestor UIScrollView. Uses a hidden probe view in `.background` — when it appears in
-/// the window, it walks up the view hierarchy to find the ScrollView's underlying
-/// UIScrollView and adds a vertical-only pan gesture. This approach lets horizontal swipes
-/// pass through to the parent TabView for card navigation, while still detecting vertical
-/// scrolling for auto-scroll suppression.
-private struct VerticalDragDetector: UIViewRepresentable {
-    let onVerticalDrag: () -> Void
-
-    func makeUIView(context: Context) -> DragDetectorProbeView {
-        let view = DragDetectorProbeView()
-        view.backgroundColor = .clear
-        view.isUserInteractionEnabled = false
-        view.isHidden = true
-        view.coordinator = context.coordinator
-        return view
-    }
-
-    func updateUIView(_ uiView: DragDetectorProbeView, context: Context) {}
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onVerticalDrag: onVerticalDrag)
-    }
-
-    // Hidden probe view that finds the ancestor UIScrollView on window attachment
-    class DragDetectorProbeView: UIView {
-        weak var coordinator: Coordinator?
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            guard window != nil else { return }
-            // Defer to let the view hierarchy settle
-            DispatchQueue.main.async { [weak self] in
-                self?.coordinator?.attachIfNeeded(from: self)
-            }
-        }
-    }
-
-    class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        let onVerticalDrag: () -> Void
-        private var verticalDetector: UIPanGestureRecognizer?
-
-        init(onVerticalDrag: @escaping () -> Void) {
-            self.onVerticalDrag = onVerticalDrag
-        }
-
-        func attachIfNeeded(from view: UIView?) {
-            guard verticalDetector == nil, let view else { return }
-
-            // Walk up to find the lyrics UIScrollView, then continue to find
-            // the TabView's paging UIScrollView above it.
-            var lyricsScrollView: UIScrollView?
-            var pagingScrollView: UIScrollView?
-            var current: UIView? = view
-            while let v = current {
-                if let sv = v as? UIScrollView {
-                    if lyricsScrollView == nil {
-                        // First UIScrollView found = lyrics vertical scroll
-                        lyricsScrollView = sv
-                    } else if sv.isPagingEnabled {
-                        // Paging UIScrollView = TabView's horizontal page container
-                        pagingScrollView = sv
-                        break
-                    }
-                }
-                current = v.superview
-            }
-
-            guard let lyricsScrollView else { return }
-
-            // Vertical drag detector — fires callback for auto-scroll suppression.
-            // Only recognizes vertical pans so it doesn't interfere with page swiping.
-            let vertical = UIPanGestureRecognizer(
-                target: self,
-                action: #selector(handleVerticalPan(_:))
-            )
-            vertical.delegate = self
-            vertical.name = "lyrics-vertical-detector"
-            lyricsScrollView.addGestureRecognizer(vertical)
-            verticalDetector = vertical
-
-            // Make the TabView's paging pan wait for our vertical detector to fail.
-            // Vertical swipe → detector recognizes → TabView pan blocked → lyrics scroll works.
-            // Horizontal swipe → detector fails → TabView pan starts → page swipe works.
-            if let pagingScrollView {
-                pagingScrollView.panGestureRecognizer.require(toFail: vertical)
-            }
-        }
-
-        @objc func handleVerticalPan(_ gesture: UIPanGestureRecognizer) {
-            if gesture.state == .began {
-                onVerticalDrag()
-            }
-        }
-
-        // Only begin for predominantly vertical pans — lets horizontal swipes
-        // fall through to the TabView page gesture.
-        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
-            let velocity = pan.velocity(in: pan.view)
-            return abs(velocity.y) > abs(velocity.x)
-        }
-
-        // Allow simultaneous recognition with the ScrollView's built-in pan
-        func gestureRecognizer(
-            _ gestureRecognizer: UIGestureRecognizer,
-            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-        ) -> Bool {
-            return true
-        }
-    }
-}
-#endif
-
-#if canImport(AppKit)
-// MARK: - macOS Scroll Wheel Detector
-
-/// Detects user scroll-wheel and trackpad scrolling over the lyrics scroll view
-/// without intercepting the native NSScrollView event handling.
-private struct MacScrollWheelDetector: NSViewRepresentable {
-    let onUserScroll: () -> Void
-
-    func makeNSView(context: Context) -> ScrollDetectorProbeView {
-        let view = ScrollDetectorProbeView()
-        view.coordinator = context.coordinator
-        return view
-    }
-
-    func updateNSView(_ nsView: ScrollDetectorProbeView, context: Context) {
-        nsView.coordinator = context.coordinator
-        context.coordinator.scheduleAttach(from: nsView)
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onUserScroll: onUserScroll)
-    }
-
-    final class ScrollDetectorProbeView: NSView {
-        weak var coordinator: Coordinator?
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            guard window != nil else {
-                coordinator?.detach()
-                return
-            }
-
-            coordinator?.scheduleAttach(from: self)
-        }
-
-        override func viewDidMoveToSuperview() {
-            super.viewDidMoveToSuperview()
-            coordinator?.scheduleAttach(from: self)
-        }
-    }
-
-    final class Coordinator {
-        private let onUserScroll: () -> Void
-        private weak var scrollView: NSScrollView?
-        private var monitor: Any?
-
-        init(onUserScroll: @escaping () -> Void) {
-            self.onUserScroll = onUserScroll
-        }
-
-        deinit {
-            detach()
-        }
-
-        func scheduleAttach(from view: NSView?) {
-            attachIfNeeded(from: view)
-            DispatchQueue.main.async { [weak self, weak view] in
-                self?.attachIfNeeded(from: view)
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak view] in
-                self?.attachIfNeeded(from: view)
-            }
-        }
-
-        private func attachIfNeeded(from view: NSView?) {
-            guard monitor == nil, let view else { return }
-
-            var current: NSView? = view
-            while let candidate = current {
-                if let scrollView = candidate as? NSScrollView {
-                    self.scrollView = scrollView
-                    break
-                }
-                current = candidate.superview
-            }
-
-            guard let scrollView else { return }
-
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self, weak scrollView] event in
-                guard let self, let scrollView else { return event }
-                guard event.window === scrollView.window else { return event }
-
-                let location = scrollView.convert(event.locationInWindow, from: nil)
-                if scrollView.bounds.contains(location) {
-                    self.onUserScroll()
-                }
-
-                return event
-            }
-        }
-
-        func detach() {
-            if let monitor {
-                NSEvent.removeMonitor(monitor)
-                self.monitor = nil
-            }
-            scrollView = nil
-        }
-    }
-}
-#endif
 
 // MARK: - Equatable Lyrics Line
 

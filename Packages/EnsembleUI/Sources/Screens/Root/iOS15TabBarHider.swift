@@ -25,9 +25,7 @@ struct iOS15TabBarHider: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            DispatchQueue.main.async { [weak self] in
-                self?.applyTabBarVisibility()
-            }
+            applyTabBarVisibility()
         }
 
         func applyTabBarVisibility() {

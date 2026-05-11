@@ -14,6 +14,7 @@ ensemble/
 +-- CLAUDE.md                      # Agent instructions
 +-- README.md                      # User-facing documentation
 +-- .claude/skills/                # Project-specific agent skills and bundled helper scripts
+|   +-- native-behavior-cleanup/    # Automated UI workaround audit, classification, agent split, and verification workflow
 |   +-- trace-analysis/            # Instruments .trace export + correlation workflow
 +-- scripts/
 |   +-- compile_coredata_model.sh # Compiles SwiftPM CoreData model bundle for package tests
@@ -32,8 +33,7 @@ ensemble/
 |       +-- 2026-05-04-function-ownership-context-menu-audit.md # Shared function/menu ownership audit and migration order
 |       +-- 2026-05-04-platform-mutation-drag-performance-scaffold-audit.md # Cross-platform policy, mutation, drag/export, performance, and utility scaffold audit
 |       +-- 2026-05-06-codebase-audit.md # Full Swift target/package audit with cleanup and migration backlog
-|       +-- 2026-05-06-swift-file-index.json # Generated exhaustive one-row-per-Swift-file audit index
-|       +-- 2026-05-06-swift-file-index.csv # CSV export of the exhaustive Swift file audit index
+|       +-- 2026-05-11-native-behavior-cleanup-closeout.md # Final native-behavior workaround classification and closeout rule
 |
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/
@@ -47,7 +47,6 @@ ensemble/
 |   |   +-- AppDelegate+BackgroundURLSession.swift # Background URLSession wakeup handoff for offline downloads
 |   |   +-- AppDelegate+Siri.swift # Siri intent/user-activity bridge and in-app playback execution
 |   |   +-- AppDelegate+SceneOrientation.swift # Background URLSession handoff, scene routing, StageFlow orientation policy
-|   |   +-- SpaceBarPlaybackShortcut.swift # iOS hardware keyboard space-bar playback shortcut
 |   |   +-- ExternalDisplaySceneDelegate.swift # UIWindowSceneDelegate for AirPlay screen mirroring external display
 |   |   +-- EnsembleAppShortcuts.swift # App Intents fallback entities/phrases for Siri album/playlist playback
 |   +-- Resources/
@@ -233,6 +232,7 @@ Sources/
 |   +-- ProgressiveStreamLoader.swift  # AVAssetResourceLoaderDelegate bridge for chunked transcode streams
 |   +-- ArtworkLoader.swift            # Persistent artwork caching & loading
 |   +-- CacheManager.swift             # Cache size tracking & management (MainActor)
+|   +-- SourceCacheCleanupService.swift # Utility-priority source/all-library cache eviction with removed-count/duration diagnostics
 |   +-- NetworkMonitor.swift           # Network connectivity monitoring (NWPathMonitor)
 |   +-- ServerHealthChecker.swift      # Concurrent server health checks
 |   +-- ServerConnectionController.swift # Registry subscription, playback readiness checks, source-key API-client lookup, endpoint refresh/fan-out, and post-sync URL resolution extracted from SyncCoordinator
@@ -297,7 +297,6 @@ Sources/
 |   +-- DownloadManagerSettingsViewModel.swift # Settings manager list for offline targets
 |   +-- DownloadTargetDetailViewModel.swift # Per-track detail for a single download target
 |   +-- LibraryDownloadDetailViewModel.swift # All downloads for a library (by sourceCompositeKey)
-|   +-- OfflineServersViewModel.swift  # Server-grouped sync-enabled library toggles for offline targets
 |   +-- PendingMutationsViewModel.swift # Offline-queued mutations (pending/failed playlist & track changes)
 |   +-- PinnedViewModel.swift          # Resolves PinnedItem references into domain objects
 |   +-- PlaylistViewModel.swift
@@ -378,10 +377,10 @@ Sources/
 |   +-- TrackListLayoutMetrics.swift
 |   +-- ArtworkCornerRadius.swift
 |   +-- View+DesignModifiers.swift
-+-- Artwork/                         # Artwork loading, backgrounds, composites, and color extraction
++-- Artwork/                         # Artwork loading, backgrounds, and composites
 +-- Browse/                          # Browse split, filter sheet, GenreFilterHeader/GenreChipBar, scroll index, refresh command bridge
 +-- Cards/                           # Album, artist, playlist, and genre cards
-+-- TrackLists/                      # SwiftUI/UIKit/AppKit track row and table backends
++-- TrackLists/                      # Native UIKit/AppKit track-list backends and SwiftUI hosts
 |   +-- AppKit/
 |   |   +-- MacNativeTrackTableView.swift # NSTableView backend used by SongsTrackListHost on macOS
 |   +-- MediaTrackList.swift
@@ -392,21 +391,20 @@ Sources/
 |   +-- SongsTrackListHost.swift
 |   +-- StandardSwipeActions.swift
 |   +-- TrackListRuntimeObservation.swift # Shared download/availability and Now Playing projection observation modifiers for native track-list callers
-|   +-- TrackRow.swift
 |   +-- TrackRowInteractionModel.swift
-|   +-- TrackSwipeContainer.swift
 +-- DetailSurfaces/                  # Shared media-detail shell/header/action/list-card primitives
 +-- PlaybackChrome/                  # Mini player, AirPlay button, waveform
 |   +-- MiniPlayer.swift             # Core mini-player pill content, track info, waveform, and transport controls
 |   +-- MiniPlayerActionsMenu.swift  # Mini-player media action menu and platform menu renderers
 |   +-- MiniPlayerBackground.swift   # Artwork/material mini-player background projection host
-|   +-- MiniPlayerContainer.swift    # Root mini-player overlay container
 |   +-- MiniPlayerGestures.swift     # Phone mini-player vertical/open and horizontal prev/next swipe modifiers
-+-- NowPlaying/                      # Now Playing cards, carousel, queue, lyrics, page indicator
-+-- StageFlow/                       # iPhone landscape StageFlow experience
++-- NowPlaying/                      # Now Playing cards, carousel, shared detail-panel renderer, queue, lyrics, page indicator
++-- StageFlow/                       # iPhone landscape StageFlow experience for Songs, Albums, and Playlists roots
 +-- Aurora/                          # Aurora background and Metal/Canvas renderers
 +-- Sheets/                          # Shared sheets and macOS auxiliary sheet/window scaffolds
-+-- Utility/                         # Shared rows, menus, toolbar/profile helpers, keyboard/chrome utilities
+|   +-- TextInputView.swift          # Shared short text-entry sheet for rename/edit-name flows, including async metadata saves
+|   +-- MetadataEditRequest.swift # Context-menu metadata edit request value used by local sheet presenters
++-- Utility/                         # Shared rows, menus, toolbar/profile helpers, chrome utilities
 |   +-- MediaDragPayload.swift        # Internal drag/drop payload for tracks, albums, playlists, and merged display playlists
 |   +-- MediaDragExportPolicy.swift   # Drag/drop copy-vs-move and external file-promise policy matrix plus provider/writer helpers
 |   +-- MediaMenuCatalog.swift        # Shared context-menu action catalog, section policy, roles, and context gating
@@ -427,8 +425,8 @@ Sources/
 |   +-- Details/                      # Media detail, merged playlist detail, async detail loaders
 |   +-- Discovery/                    # Home/Feed and Search
 |   +-- AccountSettings/              # Profile, settings, account setup, source detail, sync/swipe settings
-|   +-- Downloads/                    # Downloads, download details/settings, offline servers, pending mutations
-|   +-- NowPlaying/                   # Now Playing sheet, viewport root, external display
+|   +-- Downloads/                    # Downloads, download details/settings, pending mutations
+|   +-- NowPlaying/                   # Now Playing sheet, shared wide panel layout, macOS viewport root, external display shell
 |   +-- Diagnostics/                  # Logs list/detail
 +-- EnsembleLogger.swift              # Package logger categories
 +-- EnsembleUI.swift                  # Public exports

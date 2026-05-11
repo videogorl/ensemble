@@ -22,10 +22,6 @@ public struct FilterSheet: View {
     @State private var minYear: String = ""
     @State private var maxYear: String = ""
     @FocusState private var focusedYearField: YearField?
-    #if os(macOS)
-    @State private var showingArtistSelection = false
-    @State private var showingGenreSelection = false
-    #endif
 
     public init(
         filterOptions: Binding<FilterOptions>,
@@ -46,155 +42,22 @@ public struct FilterSheet: View {
     }
     
     public var body: some View {
-        #if os(macOS)
-        macOSBody
-        #else
-        iOSBody
-        #endif
-    }
-
-    #if os(macOS)
-    private var macOSBody: some View {
-        VStack(spacing: EnsembleDesign.Spacing.none) {
-            EnsembleUtilityScreenScaffold(title: "Filters") {
-                macOSFilterSections
-            }
-
-            Divider()
-
-            HStack {
-                Spacer()
-                Button("Done") {
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-            .padding(.horizontal, EnsembleDesign.Spacing.sheetFooterHorizontal)
-            .padding(.vertical, EnsembleDesign.Spacing.sheetFooterVertical)
-        }
-        .frame(
-            minWidth: EnsembleScaffold.FilterSheet.macMinimumWidth,
-            minHeight: EnsembleScaffold.FilterSheet.macMinimumHeight
-        )
-        .onAppear(perform: initializeYearRange)
-        .sheet(isPresented: $showingArtistSelection) {
-            macOSSelectionSheet(title: "Artists") {
-                ArtistSelectionView(
-                    selectedArtists: $filterOptions.selectedArtists,
-                    availableArtists: availableArtists
-                )
-            }
-        }
-        .sheet(isPresented: $showingGenreSelection) {
-            macOSSelectionSheet(title: "Genres") {
-                GenreSelectionView(
-                    selectedGenres: $filterOptions.selectedGenres,
-                    availableGenres: availableGenres
-                )
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var macOSFilterSections: some View {
-        macOSToggleSection(
-            title: "Availability",
-            footer: nil
-        ) {
-            Toggle("Downloaded Only", isOn: $filterOptions.showDownloadedOnly)
-        }
-
-        if showHideSingles {
-            macOSToggleSection(
-                title: "Albums",
-                footer: "Hide albums with only one track"
-            ) {
-                Toggle("Hide Singles", isOn: $filterOptions.hideSingles)
-            }
-        }
-
-        if showYearFilter {
-            macOSToggleSection(
-                title: "Year",
-                footer: nil
-            ) {
-                yearFilterMacContent
-            }
-        }
-
-        if showArtistFilter && !availableArtists.isEmpty {
-            macOSToggleSection(
-                title: "Artists",
-                footer: nil
-            ) {
-                selectionSummaryContent(
-                    emptyTitle: "No artist filters applied",
-                    selectedCount: filterOptions.selectedArtists.count,
-                    selectTitle: filterOptions.selectedArtists.isEmpty ? "Select Artists…" : "Edit Selection…",
-                    clearTitle: "Clear",
-                    onSelect: { showingArtistSelection = true },
-                    onClear: { filterOptions.selectedArtists.removeAll() }
-                )
-            }
-        }
-
-        if showGenreFilter && !availableGenres.isEmpty {
-            macOSToggleSection(
-                title: "Genres",
-                footer: nil
-            ) {
-                selectionSummaryContent(
-                    emptyTitle: "No genre filters applied",
-                    selectedCount: filterOptions.selectedGenres.count,
-                    selectTitle: filterOptions.selectedGenres.isEmpty ? "Select Genres…" : "Edit Selection…",
-                    clearTitle: "Clear",
-                    onSelect: { showingGenreSelection = true },
-                    onClear: { filterOptions.selectedGenres.removeAll() }
-                )
-            }
-        }
-
-        if filterOptions.hasActiveFilters {
-            EnsembleUtilityCardSection {
-                EnsembleUtilityCardRow {
-                    Button("Clear All Filters") {
-                        filterOptions.clearFilters()
-                        minYear = ""
-                        maxYear = ""
-                    }
-                    .foregroundColor(EnsembleDesign.Color.destructive)
-                }
-            }
-        }
-    }
-    #endif
-
-    private var iOSBody: some View {
-        navigationContainer
-        .onAppear(perform: initializeYearRange)
-        #if os(iOS)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
-        #endif
-    }
-
-    @ViewBuilder
-    private var navigationContainer: some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationStack {
-                filterContent
-            }
-        } else {
-            NavigationView {
-                filterContent
-            }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
+        filterContent
+            .nativeSheetNavigationContainer()
+            #if os(macOS)
+            .frame(
+                minWidth: EnsembleScaffold.FilterSheet.macMinimumWidth,
+                minHeight: EnsembleScaffold.FilterSheet.macMinimumHeight
+            )
             #endif
-        }
+            .onAppear(perform: initializeYearRange)
     }
 
     private var filterContent: some View {
         filterForm
+            #if os(macOS)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            #endif
             .navigationTitle("Filters")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -203,7 +66,7 @@ public struct FilterSheet: View {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
-                        dismissAfterKeyboard()
+                        dismiss()
                     }
                 }
                 #else
@@ -217,7 +80,22 @@ public struct FilterSheet: View {
     }
 
     private var filterForm: some View {
-        Form {
+        Group {
+            #if os(macOS)
+            List {
+                filterRows
+            }
+            .listStyle(.inset)
+            #else
+            Form {
+                filterRows
+            }
+            #endif
+        }
+    }
+
+    @ViewBuilder
+    private var filterRows: some View {
             // Downloaded Only Section
             Section {
                 Toggle("Downloaded Only", isOn: $filterOptions.showDownloadedOnly)
@@ -372,7 +250,6 @@ public struct FilterSheet: View {
                     .foregroundColor(EnsembleDesign.Color.destructive)
                 }
             }
-        }
     }
 
     private func initializeYearRange() {
@@ -392,148 +269,6 @@ public struct FilterSheet: View {
         filterOptions.yearRange = min...max
     }
 
-    private func dismissAfterKeyboard() {
-        #if os(iOS)
-        focusedYearField = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + EnsembleScaffold.FilterSheet.keyboardDismissDelay) {
-            dismiss()
-        }
-        #else
-        dismiss()
-        #endif
-    }
-
-    #if os(macOS)
-    @ViewBuilder
-    private func macOSToggleSection<Content: View>(
-        title: String,
-        footer: String?,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        EnsembleUtilityCardSection(title, footer: footer) {
-            EnsembleUtilityCardRow {
-                VStack(alignment: .leading, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                    content()
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var yearFilterMacContent: some View {
-        if let yearRange = filterOptions.yearRange {
-            HStack {
-                Text("Current Range")
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-                Spacer()
-                Text("\(yearRange.lowerBound) - \(yearRange.upperBound)")
-            }
-
-            Button("Clear Year Range") {
-                filterOptions.yearRange = nil
-                minYear = ""
-                maxYear = ""
-            }
-            .foregroundColor(EnsembleDesign.Color.destructive)
-        } else {
-            HStack(alignment: .top, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                VStack(alignment: .leading, spacing: EnsembleScaffold.FilterSheet.macFieldLabelSpacing) {
-                    Text("Min Year")
-                        .font(EnsembleDesign.Typography.cardSubtitle)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    TextField("Min Year", text: $minYear)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                VStack(alignment: .leading, spacing: EnsembleScaffold.FilterSheet.macFieldLabelSpacing) {
-                    Text("Max Year")
-                        .font(EnsembleDesign.Typography.cardSubtitle)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    TextField("Max Year", text: $maxYear)
-                        .textFieldStyle(.roundedBorder)
-                }
-            }
-
-            Button("Apply Year Range") {
-                applyYearRange()
-            }
-            .disabled(minYear.isEmpty || maxYear.isEmpty)
-        }
-    }
-
-    private func selectionSummaryContent(
-        emptyTitle: String,
-        selectedCount: Int,
-        selectTitle: String,
-        clearTitle: String,
-        onSelect: @escaping () -> Void,
-        onClear: @escaping () -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-            if selectedCount == 0 {
-                Text(emptyTitle)
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-            } else {
-                HStack {
-                    Text("Selected")
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    Spacer()
-                    Text("\(selectedCount)")
-                }
-            }
-
-            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                Button(selectTitle, action: onSelect)
-
-                if selectedCount > 0 {
-                    Button(clearTitle, action: onClear)
-                        .foregroundColor(EnsembleDesign.Color.destructive)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func macOSSelectionSheet<Content: View>(
-        title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(spacing: EnsembleDesign.Spacing.none) {
-            HStack {
-                Text(title)
-                    .font(EnsembleDesign.Typography.detailSubtitle.weight(.semibold))
-                Spacer()
-            }
-            .padding(.horizontal, EnsembleDesign.Spacing.sheetFooterHorizontal)
-            .padding(.vertical, EnsembleDesign.Spacing.lg)
-
-            Divider()
-
-            content()
-
-            Divider()
-
-            HStack {
-                Spacer()
-                Button("Done") {
-                    if title == "Artists" {
-                        showingArtistSelection = false
-                    } else {
-                        showingGenreSelection = false
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-            .padding(.horizontal, EnsembleDesign.Spacing.sheetFooterHorizontal)
-            .padding(.vertical, EnsembleDesign.Spacing.sheetFooterVertical)
-        }
-        .frame(
-            minWidth: EnsembleScaffold.FilterSheet.selectionSheetMinimumWidth,
-            minHeight: EnsembleScaffold.FilterSheet.selectionSheetMinimumHeight
-        )
-    }
-    #endif
 }
 
 // MARK: - Artist Selection View

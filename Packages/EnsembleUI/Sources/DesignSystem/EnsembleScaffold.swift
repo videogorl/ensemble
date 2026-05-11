@@ -172,7 +172,6 @@ public enum EnsembleScaffold {
         public static let wideArtworkDimension: CGFloat = 240
         public static let wideActionMaxWidth: CGFloat = 520
         public static let wideHeaderTopPadding: CGFloat = 72
-        public static let toolbarChromeRevealHeight: CGFloat = 44
         public static let sectionTopPadding: CGFloat = 32
         public static let loadingTopPadding = TrackListLayoutMetrics.detailHorizontalPadding
         public static let compactActionTopPadding = EnsembleDesign.Spacing.xxl
@@ -277,21 +276,8 @@ public enum EnsembleScaffold {
 
     public enum TabEditor {
         public static let maximumTabBarItems = 4
-        public static let instructionHorizontalPadding = EnsembleDesign.Spacing.xl
-        public static let instructionTopPadding = EnsembleDesign.Spacing.lg
-        public static let instructionBottomPadding = EnsembleDesign.Spacing.md
-        public static let dividerLeadingPadding: CGFloat = 52
         public static let rowIconWidth = EnsembleScaffold.UtilityRow.statusIconWidth
-        public static let rowVerticalPadding = TrackListLayoutMetrics.rowVerticalPadding + EnsembleDesign.Spacing.xs
-        public static let sectionHeaderTopPadding = EnsembleDesign.Spacing.xxl
-        public static let sectionHeaderBottomPadding = EnsembleDesign.Spacing.sm
-        public static let emptyVerticalPadding = EnsembleDesign.Spacing.xxl
-        public static let sectionCornerRadius = EnsembleDesign.Radius.control
-        public static let insertionDotSize = EnsembleDesign.Spacing.chipVertical
-        public static let insertionLineHeight = EnsembleDesign.Spacing.xxs
         public static let addRemoveAnimationDuration = EnsembleDesign.Animation.quickDuration
-        public static let reorderAnimationDuration = EnsembleDesign.Animation.standardDuration - 0.05
-        public static let dropExitAnimationDuration = 0.15
     }
 
     public enum SyncSettings {
@@ -303,39 +289,10 @@ public enum EnsembleScaffold {
         public static let successTint = EnsembleDesign.Color.success
     }
 
-    public enum FilterPresentation {
-        public enum Style: Equatable {
-            case toolbarPopover
-            case sheet
-            case inline
-        }
-
-        #if os(iOS)
-        /// Default filter presentation policy for iOS and iPadOS library browse screens.
-        public static func preferredStyle(horizontalSizeClass: UserInterfaceSizeClass?) -> Style {
-            if #available(iOS 26.0, *), horizontalSizeClass == .regular {
-                return .toolbarPopover
-            }
-            return .sheet
-        }
-        #else
-        /// Default filter presentation policy for macOS library browse screens.
-        public static func preferredStyle() -> Style {
-            .toolbarPopover
-        }
-        #endif
-    }
-
     public enum FilterSheet {
-        public static let macContentMaxWidth: CGFloat = 640
         public static let macMinimumWidth: CGFloat = EnsembleScaffold.AccountSetup.macMinimumWidth
         public static let macMinimumHeight: CGFloat = EnsembleScaffold.AccountSetup.macMinimumHeight
-        public static let macFieldLabelSpacing = EnsembleDesign.Spacing.chipVertical
-        public static let sectionBackgroundOpacity = 0.04
         public static let subtleSectionBackgroundOpacity = 0.1
-        public static let keyboardDismissDelay: TimeInterval = 0.35
-        public static let selectionSheetMinimumWidth = EnsembleDesign.Breakpoint.auxiliaryWindowMaxWidth
-        public static let selectionSheetMinimumHeight: CGFloat = 520
     }
 
     public enum BrowseSplit {
@@ -398,7 +355,6 @@ public enum EnsembleScaffold {
         public static let listCardCornerRadius = EnsembleDesign.Radius.card
         public static let listCardHorizontalPadding = EnsembleDesign.Spacing.lg
         public static let loadingTopPadding = TrackListLayoutMetrics.detailHorizontalPadding
-        public static let collapsedToolbarActionSpacing = EnsembleDesign.Spacing.lg
         public static let compactWideActionThreshold: CGFloat = 300
         public static let stackedWideActionThreshold: CGFloat = 420
         public static let compactWideActionHorizontalPadding: CGFloat = 18
@@ -494,27 +450,14 @@ public enum EnsembleScaffold {
         public static let viewportSinglePanelMaxWidth: CGFloat = 560
         public static let viewportDualPanelMinimumWidth: CGFloat = 920
         public static let viewportDualPanelMinimumHeight: CGFloat = 620
-        public static let viewportMacMinimumWindowWidth: CGFloat = 760
-        public static let viewportMacMinimumWindowHeight: CGFloat = 560
         public static let viewportSinglePickerWidth: CGFloat = 390
         public static let viewportPickerWidth: CGFloat = 300
         public static let viewportMinimumPanelWidth: CGFloat = 320
         public static let viewportWideAspectMultiplier: CGFloat = 0.82
-        public static let viewportMacTopSafeAreaPadding = EnsembleDesign.Spacing.lg
-        public static let viewportMacMinimumTopInset: CGFloat = 60
-        public static let viewportModernTopSafeAreaPadding: CGFloat = 18
-        public static let viewportModernMinimumTopInset: CGFloat = 30
-        public static let viewportLegacyTopSafeAreaPadding = EnsembleDesign.Spacing.md
-        public static let viewportLegacyMinimumTopInset = EnsembleDesign.Spacing.xl
-        public static let viewportMacTrafficLightClearance: CGFloat = 88
-        public static let viewportModernTrafficLightClearance: CGFloat = 92
-        public static let viewportLegacyChromeInset = EnsembleDesign.Spacing.sm
         public static let dismissPillTopPadding: CGFloat = 28
         public static let dismissPillWidth: CGFloat = 36
         public static let dismissPillHeight: CGFloat = 5
         public static let dismissPillOpacity = 0.3
-        public static let dismissDragThreshold: CGFloat = 120
-        public static let externalDisplayAspectRatio: CGFloat = 4.0 / 3.0
         public static let lyricTimedLineSpacing: CGFloat = 24
         public static let lyricPlainLineSpacing = EnsembleDesign.Spacing.md
         public static let lyricTopSpacerHeight: CGFloat = 120
@@ -560,10 +503,6 @@ public enum EnsembleScaffold {
             public static let inactiveOpacity = 0.4
             public static let verticalPadding = EnsembleDesign.Spacing.sm
         }
-
-        public enum ToolbarSuppression {
-            public static let hostDimension = EnsembleDesign.Spacing.none
-        }
     }
 
     public enum ScrollIndex {
@@ -596,7 +535,6 @@ public enum EnsembleScaffold {
         public static let inlineHorizontalPadding = EnsembleDesign.Spacing.md
         public static let floatingBottomPadding = EnsembleDesign.Spacing.chipVertical
         public static let inlineBottomPadding = EnsembleDesign.Spacing.xs
-        public static let containerBottomPadding: CGFloat = 70
         public static let verticalSwipeRubberBandFactor: CGFloat = 0.5
         public static let verticalOpenThreshold: CGFloat = 50
         public static let artworkDimension: CGFloat = 32
@@ -612,8 +550,6 @@ public enum EnsembleScaffold {
         public static let horizontalSwipeFadeDistance: CGFloat = 200
         public static let horizontalSwipeMaximumFade = 0.5
         public static let horizontalSwipeThreshold: CGFloat = 80
-        public static let horizontalSwipeDismissOffset: CGFloat = 200
-        public static let horizontalSwipeResetDelay: TimeInterval = 0.1
         public static let controlSpacing: CGFloat = 18
         public static let controlLoadingScale: CGFloat = 0.8
         public static let unavailableControlOpacity = EnsembleScaffold.NowPlaying.unavailableControlOpacity
@@ -704,6 +640,32 @@ public struct EnsembleBrowseToolbar<Content: View>: ToolbarContent {
                 HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
                     content()
                 }
+            }
+        }
+        #endif
+    }
+}
+
+/// Platform-aligned detail toolbar host for media detail action groups.
+public struct EnsembleDetailToolbarActions<Content: View>: ToolbarContent {
+    @ViewBuilder let content: () -> Content
+
+    public init(@ViewBuilder content: @escaping () -> Content) {
+        self.content = content
+    }
+
+    public var body: some ToolbarContent {
+        #if os(iOS)
+        ToolbarItem(placement: .navigationBarTrailing) {
+            HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
+                content()
+            }
+        }
+        #else
+        EnsembleDetailToolbarLeadingSpacer()
+        ToolbarItem(placement: .primaryActionIfAvailable) {
+            HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
+                content()
             }
         }
         #endif
@@ -987,65 +949,6 @@ public extension View {
                 style: .continuous
             )
             .fill(isSelected ? EnsembleScaffold.BrowseSelection.fillColor : Color.clear)
-        )
-    }
-}
-
-/// Presents filter UI using the shared platform policy: compact screens keep sheets, while
-/// regular-width modern iPadOS and macOS use toolbar popovers.
-public struct EnsembleFilterPresentationModifier<PresentedContent: View>: ViewModifier {
-    @Binding var isPresented: Bool
-    @ViewBuilder let presentedContent: () -> PresentedContent
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    #endif
-
-    public init(
-        isPresented: Binding<Bool>,
-        @ViewBuilder presentedContent: @escaping () -> PresentedContent
-    ) {
-        self._isPresented = isPresented
-        self.presentedContent = presentedContent
-    }
-
-    @ViewBuilder
-    public func body(content: Content) -> some View {
-        #if os(iOS)
-        switch EnsembleScaffold.FilterPresentation.preferredStyle(horizontalSizeClass: horizontalSizeClass) {
-        case .toolbarPopover:
-            content.popover(isPresented: $isPresented, arrowEdge: .top) {
-                presentedContent()
-            }
-        case .sheet, .inline:
-            content.sheet(isPresented: $isPresented) {
-                presentedContent()
-            }
-        }
-        #else
-        switch EnsembleScaffold.FilterPresentation.preferredStyle() {
-        case .toolbarPopover:
-            content.popover(isPresented: $isPresented, arrowEdge: .top) {
-                presentedContent()
-            }
-        case .sheet, .inline:
-            content.sheet(isPresented: $isPresented) {
-                presentedContent()
-            }
-        }
-        #endif
-    }
-}
-
-public extension View {
-    func ensembleFilterPresentation<PresentedContent: View>(
-        isPresented: Binding<Bool>,
-        @ViewBuilder content: @escaping () -> PresentedContent
-    ) -> some View {
-        modifier(
-            EnsembleFilterPresentationModifier(
-                isPresented: isPresented,
-                presentedContent: content
-            )
         )
     }
 }

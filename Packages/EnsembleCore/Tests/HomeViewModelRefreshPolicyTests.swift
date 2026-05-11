@@ -85,8 +85,6 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     }
 
     private final class MockArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
-        func predownloadArtwork(for albums: [CDAlbum], size: Int) async throws -> Int { 0 }
-        func predownloadArtwork(for artists: [CDArtist], size: Int) async throws -> Int { 0 }
         func getLocalArtworkPath(for album: CDAlbum) async throws -> String? { nil }
         func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { nil }
         func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { nil }
@@ -105,7 +103,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         func saveHubs(_ hubs: [Hub]) async throws {}
         func deleteAllHubs() async throws {}
         func fetchLatestHomeFeedSnapshot(sourceScopeKey: String?) async throws -> HomeFeedCachedSnapshot? {
-            cachedSnapshot
+            return cachedSnapshot
         }
         func saveHomeFeedSnapshot(_ snapshot: HomeFeedCachedSnapshot) async throws {
             cachedSnapshot = snapshot
@@ -133,23 +131,45 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     private final class MockHomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         var cachedSnapshot: HomeHubSnapshot
         var networkSnapshot: HomeHubSnapshot?
+        var loadSnapshotHandler: ((Bool, String) async -> HomeHubSnapshot?)?
 
-        init(cachedHubs: [Hub] = [], networkHubs: [Hub]? = nil) {
-            self.cachedSnapshot = Self.snapshot(hubs: cachedHubs)
-            self.networkSnapshot = networkHubs.map(Self.snapshot(hubs:))
+        init(
+            cachedHubs: [Hub] = [],
+            networkHubs: [Hub]? = nil,
+            cachedFetchedAt: Date? = nil,
+            cachedFreshnessState: HomeFeedSnapshotFreshnessState? = nil
+        ) {
+            self.cachedSnapshot = Self.snapshot(
+                hubs: cachedHubs,
+                networkFetchCompletedAt: nil,
+                cacheFetchedAt: cachedFetchedAt,
+                freshnessState: cachedFreshnessState
+            )
+            self.networkSnapshot = networkHubs.map {
+                Self.snapshot(hubs: $0, networkFetchCompletedAt: Date())
+            }
         }
 
         func loadCachedSnapshot() async throws -> HomeHubSnapshot {
-            cachedSnapshot
+            return cachedSnapshot
         }
 
         func loadSnapshot(applySavedOrder: Bool, hubCount: String) async -> HomeHubSnapshot? {
-            networkSnapshot
+            if let loadSnapshotHandler {
+                return await loadSnapshotHandler(applySavedOrder, hubCount)
+            }
+
+            return networkSnapshot
         }
 
         func clearFailedHubKeys() {}
 
-        private static func snapshot(hubs: [Hub]) -> HomeHubSnapshot {
+        private static func snapshot(
+            hubs: [Hub],
+            networkFetchCompletedAt: Date?,
+            cacheFetchedAt: Date? = nil,
+            freshnessState: HomeFeedSnapshotFreshnessState? = nil
+        ) -> HomeHubSnapshot {
             HomeHubSnapshot(
                 orderedHubs: hubs,
                 failedHubKeys: [],
@@ -158,7 +178,9 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
                     currentSourceName: "Editing Music",
                     fetchTaskCount: 1,
                     usedGlobalFallback: false,
-                    networkFetchCompletedAt: Date()
+                    networkFetchCompletedAt: networkFetchCompletedAt,
+                    cacheFetchedAt: cacheFetchedAt,
+                    freshnessState: freshnessState
                 )
             )
         }
@@ -166,6 +188,62 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
 
     private enum MockError: Error {
         case unimplemented
+    }
+
+    private struct MockSyncProvider: MusicSourceSyncProvider, @unchecked Sendable {
+        let sourceIdentifier: MusicSourceIdentifier
+        var libraryResult: Result<LibrarySyncResult, Error> = .success(LibrarySyncResult())
+        var playlistResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
+
+        func syncLibrary(
+            to repository: LibraryRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> LibrarySyncResult {
+            progressHandler(1.0)
+            return try libraryResult.get()
+        }
+
+        func syncLibraryIncremental(
+            since timestamp: TimeInterval,
+            to repository: LibraryRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> LibrarySyncResult {
+            progressHandler(1.0)
+            return try libraryResult.get()
+        }
+
+        func syncPlaylists(
+            to repository: PlaylistRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> PlaylistSyncResult {
+            progressHandler(1.0)
+            return try playlistResult.get()
+        }
+
+        func syncPlaylistsIncremental(
+            to repository: PlaylistRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> PlaylistSyncResult {
+            progressHandler(1.0)
+            return try playlistResult.get()
+        }
+
+        func getStreamURL(
+            for trackRatingKey: String,
+            trackStreamKey: String?,
+            quality: StreamingQuality,
+            metadataDurationSeconds: Double?
+        ) async throws -> StreamResolution {
+            throw MockError.unimplemented
+        }
+
+        func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
+        func rateTrack(ratingKey: String, rating: Int?) async throws {}
+        func reportTimeline(ratingKey: String, key: String, state: String, time: Int, duration: Int) async throws {}
+        func scrobble(ratingKey: String) async throws {}
+        func getAlbumTracks(albumKey: String) async throws -> [Track] { [] }
+        func getArtistAlbums(artistKey: String) async throws -> [Album] { [] }
+        func getArtistTracks(artistKey: String) async throws -> [Track] { [] }
     }
 
     private struct Harness {
@@ -312,7 +390,16 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         )
     }
 
-    func testSyncCompleteTriggerDefersWhileInteracting() async {
+    private func makeSourceIdentifier() -> MusicSourceIdentifier {
+        MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account-enabled",
+            serverId: "server-enabled",
+            libraryId: "lib-enabled"
+        )
+    }
+
+    func testHiddenFeedDefersAutoRefreshUntilVisible() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
@@ -320,9 +407,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         var refreshCount = 0
         sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
 
-        sut.handleScrollInteraction(isInteracting: true)
-        sut.handleViewVisibilityChange(isVisible: true)
-        sut.requestAutoRefreshForTesting(reason: .syncCompleted)
+        sut.requestAutoRefreshForTesting(reason: .contentChange)
 
         try? await Task.sleep(nanoseconds: 60_000_000)
 
@@ -330,7 +415,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertTrue(sut.hasPendingAutoRefreshForTesting)
     }
 
-    func testMultipleDeferredTriggersCoalesceToSingleRefresh() async {
+    func testDeferredRefreshRunsWhenFeedBecomesVisible() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
@@ -338,55 +423,132 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         var refreshCount = 0
         sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
 
-        sut.handleScrollInteraction(isInteracting: true)
+        sut.requestAutoRefreshForTesting(reason: .contentChange)
+
         sut.handleViewVisibilityChange(isVisible: true)
-        sut.requestAutoRefreshForTesting(reason: .syncCompleted)
-        sut.requestAutoRefreshForTesting(reason: .accountChange)
-
-        sut.handleScrollInteraction(isInteracting: false)
-        try? await Task.sleep(nanoseconds: 420_000_000)
-
-        XCTAssertEqual(refreshCount, 1)
-    }
-
-    func testDeferredRefreshRunsAfterIdleTransition() async {
-        let sut = makeViewModel()
-        try? await Task.sleep(nanoseconds: 30_000_000)
-        sut.markInitialLoadCompletedForTesting()
-        sut.clearPendingAutoRefreshForTesting()
-        var refreshCount = 0
-        sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
-
-        sut.handleScrollInteraction(isInteracting: true)
-        sut.handleViewVisibilityChange(isVisible: true)
-        sut.requestAutoRefreshForTesting(reason: .syncCompleted)
-
-        sut.handleScrollInteraction(isInteracting: false)
-        try? await Task.sleep(nanoseconds: 420_000_000)
+        try? await Task.sleep(nanoseconds: 60_000_000)
 
         XCTAssertEqual(refreshCount, 1)
         XCTAssertFalse(sut.hasPendingAutoRefreshForTesting)
     }
 
-    func testManualRefreshBypassesInteractionDeferral() async {
+    func testManualRefreshRunsImmediately() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
         sut.clearPendingAutoRefreshForTesting()
         var loadCount = 0
-        var deferFlags: [Bool] = []
-        sut.loadHubsRunnerForTesting = { _, deferUI in
+        var applySavedOrderFlags: [Bool] = []
+        sut.loadHubsRunnerForTesting = { applySavedOrder in
             loadCount += 1
-            deferFlags.append(deferUI)
+            applySavedOrderFlags.append(applySavedOrder)
         }
 
         sut.handleViewVisibilityChange(isVisible: true)
-        sut.handleScrollInteraction(isInteracting: true)
 
         await sut.refresh()
 
         XCTAssertEqual(loadCount, 1)
-        XCTAssertEqual(deferFlags, [false])
+        XCTAssertEqual(applySavedOrderFlags, [true])
+    }
+
+    func testAutomaticFeedLoadSkipsRecentNetworkSnapshot() async {
+        let sut = makeViewModel()
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.seedHubsForTesting([makeHub()])
+        sut.seedLastNetworkHubFetchTimeForTesting(Date())
+        var loadCount = 0
+        sut.loadHubsRunnerForTesting = { _ in
+            loadCount += 1
+        }
+
+        await sut.loadHubsIfNeeded()
+
+        XCTAssertEqual(loadCount, 0)
+    }
+
+    func testFeedEntrySkipsExistingCachedContentEvenWhenNetworkSnapshotIsStale() async {
+        let sut = makeViewModel()
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.seedHubsForTesting([makeHub()])
+        sut.seedLastNetworkHubFetchTimeForTesting(Date(timeIntervalSinceNow: -(10 * 60 + 1)))
+        var loadCount = 0
+        sut.loadHubsRunnerForTesting = { _ in
+            loadCount += 1
+        }
+
+        await sut.loadHubsIfNeeded()
+
+        XCTAssertEqual(loadCount, 0)
+    }
+
+    func testAutomaticFeedLoadSkipsFreshCachedSnapshotAfterViewModelRecreation() async {
+        let cachedHub = makeHub()
+        let loader = MockHomeHubLoader(
+            cachedHubs: [cachedHub],
+            cachedFetchedAt: Date(),
+            cachedFreshnessState: .fresh
+        )
+        let (sut, _) = makeViewModel(hubLoader: loader)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.seedHubsForTesting([cachedHub])
+        var loadCount = 0
+        sut.loadHubsRunnerForTesting = { _ in
+            loadCount += 1
+        }
+
+        await sut.loadHubsIfNeeded()
+
+        XCTAssertEqual(loadCount, 0)
+    }
+
+    func testFeedEntrySkipsExistingCachedContentWithoutNetworkTimestamp() async {
+        let sut = makeViewModel()
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.seedHubsForTesting([makeHub()])
+        var loadCount = 0
+        sut.loadHubsRunnerForTesting = { _ in
+            loadCount += 1
+        }
+
+        await sut.loadHubsIfNeeded()
+        await sut.loadHubsIfNeeded()
+
+        XCTAssertEqual(loadCount, 0)
+    }
+
+    func testHiddenNetworkRefreshDoesNotReplaceVisibleFeedContent() async {
+        let cachedHub = makeHub(id: "cached-hub")
+        let networkHub = makeHub(id: "network-hub")
+        let loader = MockHomeHubLoader(cachedHubs: [cachedHub], networkHubs: [networkHub])
+        let (sut, _) = makeViewModel(hubLoader: loader)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.seedHubsForTesting([cachedHub])
+        sut.handleViewVisibilityChange(isVisible: true)
+
+        let loadStarted = expectation(description: "network load started")
+        let allowCompletion = expectation(description: "allow network load completion")
+        loader.loadSnapshotHandler = { [self] _, _ in
+            loadStarted.fulfill()
+            await self.fulfillment(of: [allowCompletion], timeout: 1.0)
+            return loader.networkSnapshot
+        }
+
+        let loadTask = Task {
+            await sut.loadHubs()
+        }
+
+        await fulfillment(of: [loadStarted], timeout: 1.0)
+        sut.handleViewVisibilityChange(isVisible: false)
+        allowCompletion.fulfill()
+        await loadTask.value
+
+        XCTAssertEqual(sut.hubs.map(\.id), [cachedHub.id])
     }
 
     func testPeriodicRefreshDoesNotRunWhenViewHidden() async {
@@ -404,20 +566,22 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(refreshCount, 0)
     }
 
-    func testHiddenViewClearsDeferredAutoRefresh() async {
+    func testMultipleHiddenRefreshTriggersRunOnceWhenFeedBecomesVisible() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
         sut.clearPendingAutoRefreshForTesting()
+        var refreshCount = 0
+        sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
 
-        sut.handleViewVisibilityChange(isVisible: true)
-        sut.handleScrollInteraction(isInteracting: true)
-        sut.requestAutoRefreshForTesting(reason: .syncCompleted)
+        sut.requestAutoRefreshForTesting(reason: .contentChange)
+        sut.requestAutoRefreshForTesting(reason: .accountChange)
         XCTAssertTrue(sut.hasPendingAutoRefreshForTesting)
 
-        sut.handleViewVisibilityChange(isVisible: false)
+        sut.handleViewVisibilityChange(isVisible: true)
         try? await Task.sleep(nanoseconds: 60_000_000)
 
+        XCTAssertEqual(refreshCount, 1)
         XCTAssertFalse(sut.hasPendingAutoRefreshForTesting)
     }
 
@@ -671,7 +835,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             waitStarted.fulfill()
             await self.fulfillment(of: [releaseWait], timeout: 1.0)
         }
-        sut.loadHubsRunnerForTesting = { _, _ in
+        sut.loadHubsRunnerForTesting = { _ in
             loadCount += 1
         }
 
@@ -698,7 +862,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         sut.waitForStartupHealthChecksRunnerForTesting = {
             waitCallCount += 1
         }
-        sut.loadHubsRunnerForTesting = { _, _ in
+        sut.loadHubsRunnerForTesting = { _ in
             loadCount += 1
         }
 
@@ -706,5 +870,59 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
 
         XCTAssertEqual(waitCallCount, 0)
         XCTAssertEqual(loadCount, 1)
+    }
+
+    func testSourceStatusOnlyUpdateDoesNotTriggerFeedAutoRefresh() async {
+        let loader = MockHomeHubLoader()
+        let (sut, coordinator) = makeViewModel(hubLoader: loader)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.clearPendingAutoRefreshForTesting()
+        var refreshCount = 0
+        sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
+        sut.handleViewVisibilityChange(isVisible: true)
+
+        let source = makeSourceIdentifier()
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(sourceIdentifier: source),
+            status: MusicSourceStatus(syncStatus: .idle, connectionState: .connecting)
+        )
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(sourceIdentifier: source),
+            status: MusicSourceStatus(syncStatus: .idle, connectionState: .connected(url: "https://enabled.example.com"))
+        )
+
+        try? await Task.sleep(nanoseconds: 2_300_000_000)
+
+        XCTAssertEqual(refreshCount, 0)
+        XCTAssertFalse(sut.hasPendingAutoRefreshForTesting)
+    }
+
+    func testMaterialContentChangeTriggersVisibleFeedAutoRefresh() async {
+        let loader = MockHomeHubLoader()
+        let (sut, coordinator) = makeViewModel(hubLoader: loader)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.clearPendingAutoRefreshForTesting()
+        var refreshReasons: [HomeViewModel.AutoRefreshReason] = []
+        sut.autoRefreshRunnerForTesting = { reason in refreshReasons.append(reason) }
+        sut.handleViewVisibilityChange(isVisible: true)
+
+        let source = makeSourceIdentifier()
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(
+                sourceIdentifier: source,
+                libraryResult: .success(LibrarySyncResult(changedTracks: 1))
+            ),
+            status: MusicSourceStatus(
+                syncStatus: .lastSynced(Date(timeIntervalSince1970: 1_000)),
+                connectionState: .connected(url: "https://enabled.example.com")
+            )
+        )
+
+        await coordinator.sync(source: source)
+        try? await Task.sleep(nanoseconds: 1_300_000_000)
+
+        XCTAssertEqual(refreshReasons, [.contentChange])
     }
 }

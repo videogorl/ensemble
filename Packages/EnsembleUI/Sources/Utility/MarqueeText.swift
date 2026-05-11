@@ -5,12 +5,16 @@ public struct MarqueeText: View {
     let font: Font
     let color: Color
     let fontWeight: Font.Weight
-    
+
     @State private var offset: CGFloat = 0
     @State private var textWidth: CGFloat = 0
     @State private var containerWidth: CGFloat = 0
     @State private var showLeftFade = false
-    
+
+    private var animationKey: AnimationKey {
+        AnimationKey(text: text, textWidth: textWidth, containerWidth: containerWidth)
+    }
+
     public init(
         text: String,
         font: Font = .body,
@@ -22,7 +26,7 @@ public struct MarqueeText: View {
         self.color = color
         self.fontWeight = fontWeight
     }
-    
+
     public var body: some View {
         // This base Text sets the height and fills the available width
         Text(text)
@@ -65,7 +69,7 @@ public struct MarqueeText: View {
                                 .foregroundColor(color)
                                 .lineLimit(1)
                                 .fixedSize(horizontal: true, vertical: false)
-                            
+
                             Text(text)
                                 .font(font)
                                 .fontWeight(fontWeight)
@@ -74,8 +78,11 @@ public struct MarqueeText: View {
                                 .fixedSize(horizontal: true, vertical: false)
                         }
                         .offset(x: offset)
-                        .onAppear {
-                            startAnimation()
+                        .task(id: animationKey) {
+                            await runAnimation(
+                                textWidth: textWidth,
+                                containerWidth: containerWidth
+                            )
                         }
                     } else {
                         // Static text
@@ -120,55 +127,60 @@ public struct MarqueeText: View {
             .clipped()
             .id(text)
     }
-    
-    private var fontHeight: CGFloat {
-        // Approximate height based on font
-        #if os(iOS)
-        return UIFont.preferredFont(forTextStyle: .body).lineHeight * EnsembleScaffold.Marquee.preferredLineHeightMultiplier
-        #else
-        return EnsembleScaffold.Marquee.fallbackLineHeight
-        #endif
-    }
-    
-    private func startAnimation() {
+
+    @MainActor
+    private func runAnimation(textWidth: CGFloat, containerWidth: CGFloat) async {
         guard textWidth > containerWidth else { return }
-        
-        // Reset state
-        offset = 0
-        showLeftFade = false
-        
+
         let duration = Double(textWidth) / 30.0
         let delay = 3.0 // Wait at start
         let waitAtEnd = 2.0 // Wait after finishing scroll before resetting
-        
-        // Start the sequence after an initial delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            // Trigger fade in quickly (0.3s) just as we start scrolling
+
+        while !Task.isCancelled {
+            offset = 0
+            showLeftFade = false
+
+            guard await sleep(seconds: delay) else { return }
+
             withAnimation(.easeIn(duration: 0.3)) {
                 showLeftFade = true
             }
-            
+
             withAnimation(.linear(duration: duration)) {
                 offset = -(textWidth + 50)
             }
-            
-            // Fade out the mask slightly BEFORE the animation finishes
-            DispatchQueue.main.asyncAfter(deadline: .now() + max(0, duration - 0.3)) {
-                withAnimation(.easeOut(duration: 0.3)) {
-                    showLeftFade = false
-                }
+
+            // Fade out the mask slightly before the scroll animation finishes.
+            let fadeOutDelay = max(0, duration - 0.3)
+            guard await sleep(seconds: fadeOutDelay) else { return }
+            withAnimation(.easeOut(duration: 0.3)) {
+                showLeftFade = false
             }
-            
-            // Wait for the animation to finish, then handle the pause and reset
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                // Wait for the end-of-cycle pause, then reset and loop
-                DispatchQueue.main.asyncAfter(deadline: .now() + waitAtEnd) {
-                    // Snap back to start without animation
-                    offset = 0
-                    // Recursively start again
-                    startAnimation()
-                }
+
+            let remainingScroll = max(0, duration - fadeOutDelay)
+            guard await sleep(seconds: remainingScroll) else { return }
+            guard await sleep(seconds: waitAtEnd) else { return }
+
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                offset = 0
             }
         }
+    }
+
+    private func sleep(seconds: Double) async -> Bool {
+        do {
+            try await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
+            return !Task.isCancelled
+        } catch {
+            return false
+        }
+    }
+
+    private struct AnimationKey: Equatable {
+        let text: String
+        let textWidth: CGFloat
+        let containerWidth: CGFloat
     }
 }

@@ -50,15 +50,6 @@ public struct PlexPIN: Codable, Sendable {
 
 // MARK: - Resources (Servers)
 
-public struct PlexResourcesResponse: Codable, Sendable {
-    public let devices: [PlexDevice]
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        devices = try container.decode([PlexDevice].self)
-    }
-}
-
 public struct PlexDevice: Codable, Sendable, Identifiable {
     public let name: String
     public let product: String

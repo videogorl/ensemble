@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 import AppKit
 #endif
 
-#if !os(watchOS)
 enum MediaDragDestination: Equatable {
     case inAppPlaylist
     case queueReorder
@@ -77,4 +76,3 @@ struct MediaDragExportPolicy {
     }
     #endif
 }
-#endif

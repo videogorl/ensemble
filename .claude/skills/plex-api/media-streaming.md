@@ -14,7 +14,7 @@ Direct file stream (`/library/parts/...`) returns proper HTTP headers (`Accept-R
 
 Progressive transcode uses `AVAssetResourceLoaderDelegate` with custom `ensemble-transcode://` URL scheme to bridge PMS's chunked `Transfer-Encoding` response to AVPlayer. Data is written to a growing temp file and served to AVPlayer as it arrives. Post-download: XING header injection + frequency analysis via `onDownloadComplete` callback.
 
-Tracks that fail with direct stream are tracked in `PlexMusicSourceSyncProvider.directStreamFailedKeys` and automatically skip to the download path on retry. Cleared on connection refresh.
+The previous direct-stream-failure set and universal-endpoint-disable switch were removed in May 2026 because they were not connected to any live failure signal. Keep playback recovery scoped to the concrete failing load path instead of adding provider-wide cooldown switches.
 
 **DO NOT "disable universal endpoint" as a fix for playback failures.** Curl testing has confirmed the universal endpoint returns valid audio data. The "resource unavailable" error is an AVPlayer-specific issue, not a server problem.
 

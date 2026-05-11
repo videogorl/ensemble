@@ -1,7 +1,7 @@
 import EnsembleCore
 import SwiftUI
 
-/// Main profile view that replaces SettingsView.
+/// Main profile view that owns profile and settings content.
 /// Shows profile header (image + name) followed by all settings sections.
 /// Modeled after Apple's iCloud Settings panel aesthetic.
 public struct ProfileView: View {
@@ -30,7 +30,6 @@ public struct ProfileView: View {
         profileContent
             .miniPlayerBottomSpacing()
             #if os(iOS)
-            .ignoresSafeArea(.keyboard)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .sheet(isPresented: $showingNameEditor) {
@@ -50,7 +49,7 @@ public struct ProfileView: View {
                 }
                 Button("Remove", role: .destructive) {
                     if let account = accountToDelete {
-                        let sourceIds = enabledSources(for: account)
+                        let sourceIds = allSources(for: account)
                         let serverIds = account.servers.map(\.id)
                         accountManager.removePlexAccount(id: account.id)
 
@@ -76,7 +75,11 @@ public struct ProfileView: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Clear All Data", role: .destructive) {
                     Task {
-                        try? await cacheManager.clearAllCaches()
+                        do {
+                            try await cacheManager.clearAllCaches()
+                        } catch {
+                            EnsembleLogger.debug("ProfileView: failed to clear all library data: \(error.localizedDescription)")
+                        }
                     }
                 }
             } message: {
@@ -309,9 +312,7 @@ public struct ProfileView: View {
     private var resetSection: some View {
         Section(header: EnsembleUtilitySectionHeader("Reset")) {
             Button(role: .destructive) {
-                for account in accountManager.plexAccounts {
-                    accountManager.removePlexAccount(id: account.id)
-                }
+                removeAllAccountsAndCachedData()
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.removeAccounts,
@@ -616,9 +617,7 @@ public struct ProfileView: View {
     private var macOSResetSection: some View {
         EnsembleUtilityCardSection("Reset") {
             macDestructiveButtonRow {
-                for account in accountManager.plexAccounts {
-                    accountManager.removePlexAccount(id: account.id)
-                }
+                removeAllAccountsAndCachedData()
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.removeAccounts,
@@ -769,16 +768,45 @@ public struct ProfileView: View {
 
     // MARK: - Helpers
 
-    private func enabledSources(for account: PlexAccountConfig) -> [MusicSourceIdentifier] {
+    private func allSources(for account: PlexAccountConfig) -> [MusicSourceIdentifier] {
         account.servers.flatMap { server in
-            server.libraries.compactMap { library in
-                guard library.isEnabled else { return nil }
+            server.libraries.map { library in
                 return MusicSourceIdentifier(
                     type: .plex,
                     accountId: account.id,
                     serverId: server.id,
                     libraryId: library.key
                 )
+            }
+        }
+    }
+
+    private func removeAllAccountsAndCachedData() {
+        let accountCount = accountManager.plexAccounts.count
+        guard accountCount > 0 else {
+            Task {
+                do {
+                    try await cacheManager.clearAllCaches()
+                } catch {
+                    EnsembleLogger.debug("ProfileView: failed to clear caches with no accounts present: \(error.localizedDescription)")
+                }
+            }
+            return
+        }
+
+        EnsembleLogger.debug("ProfileView: removing all accounts and clearing cached library data (accounts=\(accountCount))")
+        let accounts = accountManager.plexAccounts
+        for account in accounts {
+            accountManager.removePlexAccount(id: account.id)
+        }
+
+        Task {
+            do {
+                try await cacheManager.clearAllCaches()
+                syncCoordinator.refreshProviders()
+                EnsembleLogger.debug("ProfileView: removed all accounts and cleared cached library data")
+            } catch {
+                EnsembleLogger.debug("ProfileView: failed to clear cached data after removing all accounts: \(error.localizedDescription)")
             }
         }
     }

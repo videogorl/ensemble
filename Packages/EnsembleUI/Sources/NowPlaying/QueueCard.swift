@@ -47,9 +47,7 @@ public struct QueueCard: View {
                 .padding(.bottom, EnsembleScaffold.NowPlaying.headerBottomPadding)
 
             if shouldRenderContent {
-                // Queue list — QueueTableView manages its own scrolling now.
-                // No SwiftUI ScrollView wrapper — that was defeating cell recycling
-                // by forcing IntrinsicTableView to report full contentSize.
+                // QueueTableView manages its own scrolling so cell recycling remains native.
                 queueListView
                     .mask(
                         VStack(spacing: EnsembleDesign.Spacing.none) {
@@ -289,10 +287,12 @@ public struct QueueCard: View {
                         .contextMenu { queueContextMenu(for: item, at: capturedCurrentIndex + 1 + index) }
                 }
                 .onMove { source, destination in
-                    guard let fromOffset = source.first else { return }
+                    guard let fromOffset = source.first,
+                          queueItemsToShow.indices.contains(fromOffset) else { return }
+                    let item = queueItemsToShow[fromOffset]
                     let absoluteFrom = capturedCurrentIndex + 1 + fromOffset
                     let absoluteTo = capturedCurrentIndex + 1 + destination
-                    viewModel.moveQueueItem(from: absoluteFrom, to: absoluteTo)
+                    viewModel.moveQueueItem(byId: item.id, from: absoluteFrom, to: absoluteTo)
                 }
             }
             .listStyle(.plain)

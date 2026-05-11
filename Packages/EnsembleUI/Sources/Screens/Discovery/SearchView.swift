@@ -1,8 +1,5 @@
 import EnsembleCore
 import SwiftUI
-#if os(iOS)
-import UIKit
-#endif
 
 public struct SearchView: View {
     @StateObject private var viewModel: SearchViewModel
@@ -30,6 +27,7 @@ public struct SearchView: View {
     @State private var isSearchTabActive = false
     @State private var isSearchPathEmpty = true
     @State private var isMoreSearchRootActive = false
+    @Environment(\.dismissSearch) private var dismissSearch
     @Environment(\.dependencies) private var deps
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
@@ -181,12 +179,10 @@ public struct SearchView: View {
     }
 
     private func collapseSearchPresentation() {
+        dismissSearch()
         if #available(iOS 18.0, macOS 15.0, *) {
             isSearchFieldFocused = false
         }
-        #if os(iOS)
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        #endif
     }
 
     // MARK: - Explore View (Empty State)
@@ -199,7 +195,7 @@ public struct SearchView: View {
                 iconSystemName: EnsembleDesign.Icon.playlist,
                 recovery: .restoringCloudSources,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else if !hasAnySources {
             EnsembleLibraryEmptyStateScaffold(
@@ -207,7 +203,7 @@ public struct SearchView: View {
                 iconSystemName: EnsembleDesign.Icon.playlist,
                 recovery: .noSources,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else {
             ScrollView {
@@ -390,25 +386,6 @@ public struct SearchView: View {
         }
     }
 
-    private func exploreListSection<T: Identifiable, Content: View>(
-        title: String,
-        items: [T],
-        @ViewBuilder content: @escaping (T) -> Content
-    ) -> some View {
-        Section {
-            LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
-                ForEach(items) { item in
-                    content(item)
-                }
-            }
-        } header: {
-            Text(title)
-                .font(EnsembleDesign.Typography.actionLabel)
-                .foregroundColor(EnsembleDesign.Color.primaryText)
-                .textCase(nil)
-        }
-    }
-    
     private func exploreSection<T: Identifiable, Content: View>(
         title: String,
         items: [T],
@@ -773,7 +750,7 @@ public struct SearchView: View {
             iconSystemName: EnsembleDesign.Icon.playlist,
             recovery: exploreEmptyRecovery,
             addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openSettings() }
+            manageSources: { navigationCoordinator.openProfile() }
         )
     }
 
@@ -1085,7 +1062,7 @@ public struct SearchView: View {
                 iconSystemName: EnsembleDesign.Icon.musicNote,
                 recovery: noResultsRecovery,
                 addSource: { navigationCoordinator.showingAddAccount = true },
-                manageSources: { navigationCoordinator.openSettings() }
+                manageSources: { navigationCoordinator.openProfile() }
             )
         } else {
             EnsembleStateScaffold(

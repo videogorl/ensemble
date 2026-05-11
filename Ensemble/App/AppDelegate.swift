@@ -9,8 +9,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     static let launchTime = Date()
 
     var stageFlowRotationSupportTokens: Set<UUID> = []
-    var pendingStageFlowRotationDisable: (token: UUID, source: String, workItem: DispatchWorkItem)?
-    let stageFlowRotationDisableDelay: TimeInterval = 0.35
 
     /// Stored early health check task so Siri playback can await launch work instead of duplicating checks.
     var earlyHealthCheckTask: Task<Void, Never>?

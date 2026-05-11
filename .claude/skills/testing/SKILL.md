@@ -176,6 +176,7 @@ The same pattern applies to any protocol in the codebase:
 - `PlaylistRepositoryProtocol` → mock for playlist mutation tests
 - `HubRepositoryProtocol` → mock for HomeViewModel / hub tests; cover `HomeFeedCachedSnapshot` source cleanup, last-good preservation, and stale metadata in `HubRepositorySnapshotTests`
 - `PlaylistRepositoryProtocol` → mock for playlist browse/detail stability; cover last-good PlaylistViewModel seeding, transient empty reload preservation, stale seed clearing when cache is truly empty, and playlist-detail track preservation during intermediate empty relationship reloads
+- `SourceCacheCleanupService` / `CacheManager` → use in-memory CoreData plus real temporary download records to prove destructive cleanup removes library rows, offline targets, download records, downloaded files, and sidecar files without blocking the UI actor
 - `BackgroundRefreshCoordinating` / `BackgroundRefreshCoordinator` → use closure seams to test app refresh, iOS 15 foreground fallback, cooldown, cancellation/error collection, and Feed/Siri sequencing without constructing the app container
 - `OfflineDownloadBackgroundCoordinating` / `OfflineBackgroundExecutionCoordinator` → test background URLSession completion-handler lifecycle, iOS 26 continued-processing request/progress seams where injectable, macOS sleep/wake hooks, and service recovery sweeps that prevent stale `.downloading` records
 
@@ -275,7 +276,7 @@ func testFilterOptionsMatchesByGenre() {
 | `ServerHealthCheckerClassificationTests.swift` | failure taxonomy classification (`localOnlyReachable`, `tlsPolicyBlocked`, etc.) |
 | `SettingsManagerConnectionPolicyTests.swift` | persisted insecure-policy default + round-trip persistence |
 | `AccountManagerAuthPolicyTests.swift` | auth migration cutover and expired-account pruning |
-| `HomeViewModelRefreshPolicyTests.swift` | scroll-time refresh deferral, coalescing, idle flush, manual-refresh bypass |
+| `HomeViewModelRefreshPolicyTests.swift` | Feed visibility/cadence refresh policy, coalescing, 10-minute automatic refresh gating, manual-refresh bypass |
 | `LibraryVisibilityProfileTests.swift` | visibility profile persistence + source-level filtering seams (without changing sync enablement) |
 | `LibraryRepositoryTests.swift` | `CoreDataStack` initialization (minimal — expand as needed) |
 

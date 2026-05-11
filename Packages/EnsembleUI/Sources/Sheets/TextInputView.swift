@@ -1,48 +1,63 @@
 import SwiftUI
 
-/// A focused text-input editor used for short rename flows.
-/// Presenters decide whether this lives in a normal sheet or a specialized
-/// root-owned presenter based on the surrounding container.
+/// A focused text-input editor used for short sheet-based text flows.
+/// Use native alerts for playlist rename; keep this for form-style editors.
 struct TextInputView: View {
     let title: String
     var message: String = ""
     let placeholder: String
     var initialText: String = ""
     let actionTitle: String
-    let onSubmit: (String) -> Void
+    let onSubmit: (String) async throws -> Void
 
     @State private var text = ""
+    @State private var isSubmitting = false
     @FocusState private var isFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
-    var body: some View {
-        navigationContainer
-        #if os(iOS)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
-        #endif
-        .onAppear {
-            text = initialText
-            // Delay focus so the modal presentation settles before the keyboard animates.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                isFocused = true
-            }
-        }
+    init(
+        title: String,
+        message: String = "",
+        placeholder: String,
+        initialText: String = "",
+        actionTitle: String,
+        onSubmit: @escaping (String) -> Void
+    ) {
+        self.title = title
+        self.message = message
+        self.placeholder = placeholder
+        self.initialText = initialText
+        self.actionTitle = actionTitle
+        self.onSubmit = { text in onSubmit(text) }
     }
 
-    @ViewBuilder
-    private var navigationContainer: some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationStack {
-                formContent
-            }
-        } else {
-            NavigationView {
-                formContent
+    init(
+        title: String,
+        message: String = "",
+        placeholder: String,
+        initialText: String = "",
+        actionTitle: String,
+        onSubmit: @escaping (String) async throws -> Void
+    ) {
+        self.title = title
+        self.message = message
+        self.placeholder = placeholder
+        self.initialText = initialText
+        self.actionTitle = actionTitle
+        self.onSubmit = onSubmit
+    }
+
+    var body: some View {
+        formContent
+            .nativeSheetNavigationContainer()
+            .onAppear {
+                text = initialText
             }
             #if os(iOS)
-            .navigationViewStyle(.stack)
+            .onDisappear {
+                isFocused = false
+            }
             #endif
-        }
     }
 
     private var formContent: some View {
@@ -68,12 +83,20 @@ struct TextInputView: View {
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismissAfterKeyboard() }
+                Button("Cancel") {
+                    isFocused = false
+                    dismiss()
+                }
+                    .disabled(isSubmitting)
             }
 
             ToolbarItem(placement: .confirmationAction) {
-                Button(actionTitle) { submit() }
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if isSubmitting {
+                    ProgressView()
+                } else {
+                    Button(actionTitle) { submit() }
+                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
             }
         }
         #if os(iOS)
@@ -105,22 +128,24 @@ struct TextInputView: View {
             #endif
     }
 
-    /// Dismiss keyboard first, then dismiss the modal so the keyboard animation
-    /// doesn't overlap with the presentation teardown.
-    private func dismissAfterKeyboard() {
-        isFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            dismiss()
-        }
-    }
-
     private func submit() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        isFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            dismiss()
-            onSubmit(trimmed)
+        guard !trimmed.isEmpty, !isSubmitting else { return }
+        isSubmitting = true
+
+        Task {
+            do {
+                try await onSubmit(trimmed)
+                await MainActor.run {
+                    isFocused = false
+                    dismiss()
+                    isSubmitting = false
+                }
+            } catch {
+                await MainActor.run {
+                    isSubmitting = false
+                }
+            }
         }
     }
 }

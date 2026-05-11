@@ -1,9 +1,6 @@
 import EnsembleCore
 import SwiftUI
 import Nuke
-#if os(iOS)
-import UIKit
-#endif
 
 public struct ArtistsView: View {
     public enum PresentationMode {
@@ -17,11 +14,8 @@ public struct ArtistsView: View {
     private let externalSelectedArtist: Binding<Artist?>?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
-    @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedArtistSections: [ArtistSection] = []
-    // Monotonic token to drop stale async section computations.
-    @State private var artistSectionComputationToken: Int = 0
     @State private var localSelectedArtist: Artist?
 
     public init(
@@ -37,6 +31,8 @@ public struct ArtistsView: View {
     }
 
     public var body: some View {
+        let sectionInput = ArtistSectionComputationInput(artists: libraryVM.filteredArtists)
+
         Group {
             if libraryVM.isLoading && libraryVM.artists.isEmpty {
                 loadingView
@@ -51,7 +47,7 @@ public struct ArtistsView: View {
         .refreshable {
             await libraryVM.refreshFromServer()
         }
-        .refreshCommand("Refresh Artists") {
+        .refreshCommand {
             await libraryVM.refreshFromServer()
         }
         .profileToolbar()
@@ -61,21 +57,10 @@ public struct ArtistsView: View {
                 artistSortMenu
             }
         }
-        .onReceive(libraryVM.$filteredArtists) { artists in
-            // Compute sections off main thread to avoid blocking UI during search
-            let oldSections = cachedArtistSections
-            artistSectionComputationToken += 1
-            let token = artistSectionComputationToken
-            DispatchQueue.global(qos: .userInitiated).async {
-                let newSections = Self.computeArtistSections(artists: artists)
-                guard !Self.sectionsEqual(oldSections, newSections) else { return }
-                DispatchQueue.main.async {
-                    guard token == artistSectionComputationToken else { return }
-                    cachedArtistSections = newSections
-                }
-            }
+        .task(id: sectionInput) {
+            await updateArtistSections(for: sectionInput)
         }
-        .ensembleFilterPresentation(isPresented: $showFilterSheet) {
+        .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.artistsFilterOptions,
                 availableGenres: libraryVM.availableArtistGenres,
@@ -237,7 +222,7 @@ public struct ArtistsView: View {
             iconSystemName: EnsembleDesign.Icon.artists,
             recovery: libraryEmptyRecovery(emptyMessage: "No artists found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openSettings() }
+            manageSources: { navigationCoordinator.openProfile() }
         )
     }
 
@@ -255,20 +240,34 @@ public struct ArtistsView: View {
         }
     }
 
-    private struct ArtistSection: Identifiable {
+    private struct ArtistSection: Identifiable, Sendable {
         let letter: String
         let artists: [Artist]
         var id: String { letter }
     }
 
-    private static func computeArtistSections(artists: [Artist]) -> [ArtistSection] {
+    private struct ArtistSectionComputationInput: Equatable, Sendable {
+        let artists: [Artist]
+    }
+
+    private func updateArtistSections(for input: ArtistSectionComputationInput) async {
+        let newSections = await Task.detached(priority: .userInitiated) {
+            Self.computeArtistSections(artists: input.artists)
+        }.value
+
+        guard !Task.isCancelled else { return }
+        guard !Self.sectionsEqual(cachedArtistSections, newSections) else { return }
+        cachedArtistSections = newSections
+    }
+
+    nonisolated private static func computeArtistSections(artists: [Artist]) -> [ArtistSection] {
         let grouped = Dictionary(grouping: artists) { $0.name.indexingLetter }
         return grouped.map { ArtistSection(letter: $0.key, artists: $0.value) }
             .sorted { $0.letter < $1.letter }
     }
 
     /// Fast equality check by letter + artist IDs (avoids full Artist equality)
-    private static func sectionsEqual(_ a: [ArtistSection], _ b: [ArtistSection]) -> Bool {
+    nonisolated private static func sectionsEqual(_ a: [ArtistSection], _ b: [ArtistSection]) -> Bool {
         guard a.count == b.count else { return false }
         for (sa, sb) in zip(a, b) {
             guard sa.letter == sb.letter, sa.artists.count == sb.artists.count else { return false }
@@ -349,31 +348,6 @@ public struct ArtistsView: View {
 
 // MARK: - Artist Detail View
 
-private struct ArtistHeroToolbarBackgroundPreferenceKey: PreferenceKey {
-    static var defaultValue = false
-
-    static func reduce(value: inout Bool, nextValue: () -> Bool) {
-        value = value || nextValue()
-    }
-}
-
-private struct ArtistDetailScrollEdgeEffectModifier: ViewModifier {
-    let isHidden: Bool
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        #if os(iOS)
-        if #available(iOS 26.0, *) {
-            content.scrollEdgeEffectHidden(isHidden, for: .top)
-        } else {
-            content
-        }
-        #else
-        content
-        #endif
-    }
-}
-
 public struct ArtistDetailView: View {
     @StateObject private var viewModel: ArtistDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
@@ -389,10 +363,9 @@ public struct ArtistDetailView: View {
     @State private var nvmRecentPlaylistTitle: String?
     @State private var isArtistPinned: Bool
     @State private var isBioExpanded = false
-    @State private var artworkImage: UIImage?
+    @State private var artworkImage: PlatformImage?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var showToolbarTitle = false
-    @State private var showToolbarBackground = false
     @State private var artistHeaderWidth: CGFloat = 0
     @State private var favoritedTrackListWidth: CGFloat = 0
     @Environment(\.openURL) private var openURL
@@ -403,10 +376,59 @@ public struct ArtistDetailView: View {
     ) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeArtistDetailViewModel(artist: artist))
         self.nowPlayingVM = nowPlayingVM
-        self._isArtistPinned = State(initialValue: DependencyContainer.shared.pinManager.isPinned(id: artist.id))
+        let pinnedIDs = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.id))
+        self._isArtistPinned = State(initialValue: pinnedIDs.contains(artist.id))
     }
 
     public var body: some View {
+        MediaDetailSurface(
+            artworkImage: artworkImage,
+            backgroundHeight: EnsembleScaffold.ArtistDetail.backgroundHeight,
+            darkLegibilityOpacity: EnsembleScaffold.ArtistDetail.darkLegibilityOverlayOpacity,
+            lightLegibilityOpacity: EnsembleScaffold.ArtistDetail.lightLegibilityOverlayOpacity,
+            contentBleedsUnderTopChrome: true
+        ) {
+            artistDetailScrollContent
+        }
+        .coordinateSpace(name: "artistDetailScroll")
+        .collapsingToolbarTitle(
+            viewModel.artist.name,
+            threshold: 0,
+            showToolbarTitle: $showToolbarTitle
+        )
+        .navigationTitle("")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            EnsembleDetailToolbarActions {
+                artistPinMenuButton
+            }
+        }
+        .artworkBackedToolbarBleed()
+        .miniPlayerBottomSpacing()
+        .trackListRuntimeObservation(
+            activeDownloadRatingKeys: $activeDownloadRatingKeys,
+            availabilityGeneration: $availabilityGeneration
+        )
+        .nowPlayingTrackListObservation(
+            nowPlayingVM: nowPlayingVM,
+            currentTrackId: $currentTrackId,
+            recentPlaylistTitle: $nvmRecentPlaylistTitle
+        )
+        .onReceive(pinManager.$pinnedItems) { pinnedItems in
+            updateArtistPinState(pinnedItems: pinnedItems)
+        }
+        .task {
+            await viewModel.loadAlbums()
+            await viewModel.loadTracks()
+            await viewModel.loadArtistDetail()
+            await loadArtworkImage()
+        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+    }
+
+    private var artistDetailScrollContent: some View {
         ScrollView {
             VStack(spacing: EnsembleDesign.Spacing.none) {
                 artistHeader
@@ -440,78 +462,10 @@ public struct ArtistDetailView: View {
                 }
             }
         }
-        .modifier(ArtistDetailScrollEdgeEffectModifier(isHidden: !showToolbarBackground))
-        .coordinateSpace(name: "artistDetailScroll")
-        .ignoresSafeArea(edges: .top)
-        // Background gradient as background modifier so it extends behind safe areas
-        // without affecting the ScrollView's safe area layout (ZStack + ignoresSafeArea
-        // on a sibling was causing the ScrollView to ignore bottom safe area on iOS 15)
-        .background(
-            // VStack + Spacer pins the gradient to the top of the viewport
-            // so it doesn't drift down when the ScrollView frame is taller
-            // than the gradient's 600pt height.
-            VStack(spacing: EnsembleDesign.Spacing.none) {
-                backgroundGradient
-                Spacer(minLength: 0)
-            }
-            .ignoresSafeArea()
-        )
-        .collapsingToolbarTitle(
-            viewModel.artist.name,
-            threshold: 0,
-            showToolbarTitle: $showToolbarTitle,
-            showToolbarBackground: $showToolbarBackground
-        )
-        .navigationTitle("")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                artistPinMenuButton
-            }
-            #else
-            EnsembleDetailToolbarLeadingSpacer()
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                artistPinMenuButton
-            }
-            #endif
-        }
-        .modifier(ArtistDetailToolbarBleedModifier())
-        .miniPlayerBottomSpacing()
-        .onPreferenceChange(ArtistHeroToolbarBackgroundPreferenceKey.self) { shouldShowBackground in
-            if shouldShowBackground != showToolbarBackground {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showToolbarBackground = shouldShowBackground
-                }
-            }
-        }
-        .trackListRuntimeObservation(
-            activeDownloadRatingKeys: $activeDownloadRatingKeys,
-            availabilityGeneration: $availabilityGeneration
-        )
-        .nowPlayingTrackListObservation(
-            nowPlayingVM: nowPlayingVM,
-            currentTrackId: $currentTrackId,
-            recentPlaylistTitle: $nvmRecentPlaylistTitle
-        )
-        .onReceive(pinManager.objectWillChange) { _ in
-            DispatchQueue.main.async {
-                updateArtistPinState()
-            }
-        }
-        .task {
-            await viewModel.loadAlbums()
-            await viewModel.loadTracks()
-            await viewModel.loadArtistDetail()
-            await loadArtworkImage()
-        }
-        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
     }
 
-    private func updateArtistPinState() {
-        let latest = pinManager.isPinned(id: viewModel.artist.id)
+    private func updateArtistPinState(pinnedItems: [PinnedItem]) {
+        let latest = pinnedItems.contains { $0.id == viewModel.artist.id }
         if latest != isArtistPinned {
             isArtistPinned = latest
         }
@@ -531,11 +485,7 @@ public struct ArtistDetailView: View {
                     isPinned: isPinned
                 )
             } label: {
-                if isPinned {
-                    Label("Unpin", systemImage: EnsembleDesign.Icon.unpin)
-                } else {
-                    Label("Pin to Pins", systemImage: EnsembleDesign.Icon.pin)
-                }
+                MediaActionLabel(kind: .pin(isPinned: isPinned))
             }
 
             Button {
@@ -546,23 +496,11 @@ public struct ArtistDetailView: View {
                     )
                 }
             } label: {
-                Label(
-                    isDownloaded ? "Remove Download" : "Download",
-                    systemImage: isDownloaded ? EnsembleDesign.Icon.removeDownload : EnsembleDesign.Icon.download
-                )
+                MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
             }
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
         }
-    }
-    
-    private var backgroundGradient: some View {
-        ArtworkDetailBackground(
-            image: artworkImage,
-            height: EnsembleScaffold.ArtistDetail.backgroundHeight,
-            darkLegibilityOpacity: EnsembleScaffold.ArtistDetail.darkLegibilityOverlayOpacity,
-            lightLegibilityOpacity: EnsembleScaffold.ArtistDetail.lightLegibilityOverlayOpacity
-        )
     }
     
     private func loadArtworkImage() async {
@@ -695,7 +633,6 @@ public struct ArtistDetailView: View {
             let globalMinY = geometry.frame(in: .global).minY
             let overscroll = max(globalMinY, 0)
             let artworkHeight = bannerHeight + geometry.safeAreaInsets.top + overscroll
-            let isHeroPastToolbar = Self.isHeroPastToolbar(geometry)
 
             ZStack(alignment: .bottom) {
                 // Artist artwork — uses artworkImage directly instead of ArtworkView
@@ -759,21 +696,8 @@ public struct ArtistDetailView: View {
                 .padding()
                 .offset(y: -overscroll)
             }
-            .preference(
-                key: ArtistHeroToolbarBackgroundPreferenceKey.self,
-                value: isHeroPastToolbar
-            )
         }
         .aspectRatio(1, contentMode: .fit)
-    }
-
-    private static func isHeroPastToolbar(_ geometry: GeometryProxy) -> Bool {
-        #if os(iOS)
-        let revealY = geometry.safeAreaInsets.top + EnsembleScaffold.ArtistDetail.toolbarChromeRevealHeight
-        return geometry.frame(in: .global).maxY <= revealY
-        #else
-        return false
-        #endif
     }
 
     // MARK: - Action Buttons
@@ -1083,7 +1007,7 @@ public struct ArtistDetailView: View {
             }
             .frame(height: height)
             #else
-            NativeTrackListHost(
+            SongsTrackListHost(
                 tracks: viewModel.favoritedTracks,
                 configuration: .songs(
                     currentTrackId: currentTrackId,
@@ -1117,34 +1041,5 @@ public struct ArtistDetailView: View {
 
     private func recentPlaylistTitle(for track: Track) -> String? {
         PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
-    }
-}
-
-/// Keeps the large-screen artist wash visible behind platform toolbar chrome.
-private struct ArtistDetailToolbarBleedModifier: ViewModifier {
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            if #available(iOS 16.0, *) {
-                content
-                    .toolbarBackground(.hidden, for: .navigationBar)
-            } else {
-                content
-                    .background(NavigationBarAppearanceConfigurator(isTransparent: true))
-            }
-        } else {
-            content
-        }
-        #elseif os(macOS)
-        if #available(macOS 13.0, *) {
-            content
-                .toolbarBackground(.hidden, for: .windowToolbar)
-        } else {
-            content
-        }
-        #else
-        content
-        #endif
     }
 }

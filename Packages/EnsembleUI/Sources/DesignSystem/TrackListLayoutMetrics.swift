@@ -61,6 +61,25 @@ public enum TrackListLayoutMetrics {
     public static let miniPlayerContainerInset: CGFloat = 70
     public static let miniPlayerBottomLiftBase: CGFloat = 52
 
+    public static func detailMiniPlayerBottomLift(safeAreaBottom: CGFloat) -> CGFloat {
+        min(max(safeAreaBottom + 12, 20), 32)
+    }
+
+    public static func rootMiniPlayerBottomLift(safeAreaBottom: CGFloat) -> CGFloat {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            return miniPlayerBottomLiftBase
+        }
+
+        // iOS 15 gets bottom clearance from the tab controller's native safe
+        // area plus the mini-player inset bridge. Anchor the overlay from the
+        // live safe edge so it does not float above the older tab bar shell.
+        return min(max(safeAreaBottom + 8, 24), miniPlayerBottomLiftBase)
+        #else
+        return miniPlayerBottomLiftBase
+        #endif
+    }
+
     public static func contentLeadingInset(showArtwork: Bool, showTrackNumbers: Bool) -> CGFloat {
         if showArtwork {
             return artworkLeadingInset
@@ -79,15 +98,6 @@ public enum TrackListLayoutMetrics {
             leading: rowHorizontalPadding,
             bottom: rowVerticalPadding,
             trailing: rowHorizontalPadding
-        )
-    }
-
-    public static func utilityListRowInsets(verticalPadding: CGFloat = rowVerticalPadding) -> EdgeInsets {
-        EdgeInsets(
-            top: verticalPadding,
-            leading: detailHorizontalPadding,
-            bottom: verticalPadding,
-            trailing: detailHorizontalPadding
         )
     }
 

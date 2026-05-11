@@ -49,24 +49,29 @@ public final class LibraryViewModel: ObservableObject {
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
+    private let sourceCacheCleanupService: SourceCacheCleaning
     private let toastCenter: ToastCenter
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
     private var cancellables = Set<AnyCancellable>()
+    private var cachedSourceCleanupTask: Task<Void, Never>?
     private var allArtists: [Artist] = []
     private var allAlbums: [Album] = []
     private var allTracks: [Track] = []
     private var allGenres: [Genre] = []
+    private static let cachedSourceCleanupDelayNs: UInt64 = 1_000_000_000
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
+        sourceCacheCleanupService: SourceCacheCleaning,
         accountManager: AccountManager,
         visibilityStore: LibraryVisibilityStore? = nil,
         toastCenter: ToastCenter
     ) {
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
+        self.sourceCacheCleanupService = sourceCacheCleanupService
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore ?? .shared
         self.toastCenter = toastCenter
@@ -358,26 +363,111 @@ public final class LibraryViewModel: ObservableObject {
     public func loadLibrary() async {
         isLoading = true
         error = nil
+        defer { isLoading = false }
 
         do {
             // Refresh view context to ensure merge state is current
             await libraryRepository.refreshContext()
+
+            let enabledSourceKeys = Set(accountManager.enabledSources().map(\.compositeKey))
+            guard try await reconcileCachedSourcesBeforeLoad(enabledSourceKeys: enabledSourceKeys) else {
+                return
+            }
 
             // Fetch and map on a background context to keep the main thread free.
             // Domain model structs (Artist, Album, Track, Genre) are value types
             // and safe to pass across threads.
             let result = try await Self.fetchAndMapInBackground()
 
-            allArtists = result.artists
-            allAlbums = result.albums
-            allTracks = result.tracks
-            allGenres = result.genres
+            allArtists = result.artists.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: enabledSourceKeys) }
+            allAlbums = result.albums.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: enabledSourceKeys) }
+            allTracks = result.tracks.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: enabledSourceKeys) }
+            allGenres = result.genres.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: enabledSourceKeys) }
             applyVisibilityToPublishedCollections()
         } catch {
             self.error = error.localizedDescription
         }
+    }
 
-        isLoading = false
+    /// Keeps local library storage aligned with the account/library selection before publishing browse rows.
+    private func reconcileCachedSourcesBeforeLoad(enabledSourceKeys: Set<String>) async throws -> Bool {
+        guard !accountManager.isAwaitingCloudSources else {
+            clearInMemoryLibrary()
+            return false
+        }
+
+        let cachedSourceKeys = Set(try await libraryRepository.fetchMusicSources().map(\.compositeKey))
+        guard !enabledSourceKeys.isEmpty else {
+            if !cachedSourceKeys.isEmpty {
+                EnsembleLogger.info("LibraryViewModel: purging cached library data because no libraries are enabled")
+            }
+            clearInMemoryLibrary()
+            scheduleCachedSourceCleanup(sourceKeys: cachedSourceKeys, deleteAllLibraryData: true)
+            return false
+        }
+
+        let staleSourceKeys = cachedSourceKeys.subtracting(enabledSourceKeys)
+        if !staleSourceKeys.isEmpty {
+            EnsembleLogger.info("LibraryViewModel: purging cached data for \(staleSourceKeys.count) disabled library source(s)")
+            scheduleCachedSourceCleanup(sourceKeys: staleSourceKeys, deleteAllLibraryData: false)
+        }
+        return true
+    }
+
+    /// Schedules destructive stale-source cleanup outside the browse load path.
+    /// Published collections are filtered by enabled source, so cleanup can run
+    /// after first interaction without showing stale rows.
+    private func scheduleCachedSourceCleanup(sourceKeys: Set<String>, deleteAllLibraryData: Bool) {
+        guard !sourceKeys.isEmpty || deleteAllLibraryData else { return }
+
+        cachedSourceCleanupTask?.cancel()
+        let cleanupService = sourceCacheCleanupService
+        cachedSourceCleanupTask = Task(priority: .utility) { [cleanupService] in
+            try? await Task.sleep(nanoseconds: Self.cachedSourceCleanupDelayNs)
+            guard !Task.isCancelled else { return }
+            do {
+                if deleteAllLibraryData {
+                    _ = try await cleanupService.cleanupAllLibraryData(cachedSourceKeys: sourceKeys)
+                } else {
+                    for sourceKey in sourceKeys {
+                        guard !Task.isCancelled else { return }
+                        _ = try await cleanupService.cleanupSource(sourceKey)
+                        await Task.yield()
+                    }
+                }
+                guard !Task.isCancelled else { return }
+                EnsembleLogger.info(
+                    "LibraryViewModel: completed deferred cached-source cleanup (sources=\(sourceKeys.count), deleteAll=\(deleteAllLibraryData))"
+                )
+            } catch {
+                EnsembleLogger.debug("LibraryViewModel: deferred cached-source cleanup failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func clearInMemoryLibrary() {
+        allArtists = []
+        allAlbums = []
+        allTracks = []
+        allGenres = []
+
+        if !artists.isEmpty { artists = [] }
+        if !albums.isEmpty { albums = [] }
+        if !tracks.isEmpty { tracks = [] }
+        if !genres.isEmpty { genres = [] }
+        if !filteredArtists.isEmpty { filteredArtists = [] }
+        if !filteredAlbums.isEmpty { filteredAlbums = [] }
+        if !filteredTracks.isEmpty { filteredTracks = [] }
+        if !filteredGenres.isEmpty { filteredGenres = [] }
+        if !trackSections.isEmpty { trackSections = [] }
+        if !availableAlbumGenres.isEmpty { availableAlbumGenres = [] }
+        if !availableTrackGenres.isEmpty { availableTrackGenres = [] }
+        if !availableArtistGenres.isEmpty { availableArtistGenres = [] }
+    }
+
+    private static func isEnabledSource(_ sourceCompositeKey: String?, enabledSourceKeys: Set<String>) -> Bool {
+        guard let sourceCompositeKey else { return false }
+        return enabledSourceKeys.contains(sourceCompositeKey)
     }
 
     /// Fetches all library entities on a background CoreData context and maps
