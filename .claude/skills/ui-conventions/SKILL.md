@@ -186,6 +186,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Leverage native SwiftUI components and iOS system features (e.g., `AVRoutePickerView` for AirPlay, `MPRemoteCommandCenter` for lock screen)
 - Views and commands should adapt to platform idioms (tab bar on iPhone, sidebar on iPad/macOS, native command menus/shortcuts) through shared policy helpers such as `EnsemblePlatformFeaturePolicy` when the same feature can render natively in multiple ways.
 - Respect safe areas unless deliberately edge-to-edge (like CoverFlow)
+- The watchOS target is a lightweight companion remote, not a full EnsembleCore client. Watch UI should stay compact, text-first, and use `WatchConnectivity` payload models instead of importing app UI components or the iOS playback dependency graph.
 
 ### Toast Presentation
 - iOS/iPadOS toasts are mounted once at app root via `installGlobalToastWindow(toastCenter:)` in `EnsembleApp`

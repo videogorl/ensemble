@@ -33,6 +33,23 @@ On iPad and AirPlay external display, the layout switches to a shared **side-by-
 | Wide panel layout | region | Shared iPad/AirPlay two-column layout with Controls on the left and selected detail panel on the right | `NowPlayingWidePanelLayout` |
 | Page indicator | indicator | Three-dot indicator showing current page (left/center/right icons) | `PageIndicator` |
 
+## Apple Watch Remote
+
+- **View name:** `WatchRootView`
+- **Canonical name:** Apple Watch Remote
+- **Area:** Playback
+- **Platform:** watchOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Watch session header | region | Compact current-track title, artist, album, and connection status | `WatchRootView.header`, `WatchSessionModel.snapshot` |
+| Watch playback progress | indicator | Linear progress bar with elapsed and remaining time labels | `WatchRootView.progress` |
+| Watch transport controls | controls | Previous, play/pause, and next buttons sent to the iPhone through WatchConnectivity | `WatchCompanionCommandKind.previous`, `.togglePlayPause`, `.next` |
+| Watch playback options | controls | Shuffle and repeat buttons sent to the iPhone through WatchConnectivity | `WatchCompanionCommandKind.toggleShuffle`, `.cycleRepeatMode` |
+
 #### Lyrics Card (Left)
 
 | Element name | Type | Description | Synonyms / code refs |

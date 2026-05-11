@@ -43,6 +43,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **AirPlay Support** — Stream to AirPlay devices with native picker
 - **Background Audio** — Continues playing when app is backgrounded
 - **Lock Screen Controls** — Play/pause/skip from iOS Control Center and lock screen
+- **Apple Watch Remote** — Companion watch app shows iPhone Now Playing state and supports play/pause, previous/next, shuffle, and repeat through WatchConnectivity
 
 **Management:**
 - **Account-Centric Music Sources** — Manage Plex accounts as sources, with account identifier subtitles, server-grouped library checklists, per-library sync/connection status, and “Sync Enabled Libraries” in one detail screen
@@ -184,7 +185,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 
 ## Known Issues
 
-- **watchOS (deferred):** The watch target is currently a standalone companion shell. Authentication and playback controls are not shipped yet.
+- **watchOS:** The watch target ships as a lightweight iPhone remote for Now Playing. Standalone watch authentication, library browsing, and independent watch playback remain deferred.
 - **Background continued processing limits (iOS 26+):** `BGContinuedProcessingTask` is best-effort; queued requests can be rejected or canceled by the system, and the app falls back to the persistent in-app queue.
 - **Artwork Pre-Caching:** Methods exist but not automatically called during sync
 - **Visibility Profile UI:** `LibraryVisibilityProfile` groundwork is implemented, but profile selector/editor UI is not shipped yet
@@ -214,7 +215,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - Optional iOS 26 `BGContinuedProcessingTask` acceleration path for user-initiated bulk offline downloads
 
 **Next Steps:**
-- Design and implement watchOS companion authentication and playback
+- Design and implement standalone watchOS authentication, library browsing, and independent playback
 - Add automatic artwork pre-caching during sync
 - Implement queue reordering and waveform seeking
 
@@ -237,7 +238,8 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [x] Search functionality
 - [x] iPad sidebar navigation
 - [x] Account-centric Music Sources settings and detail flow
-- [ ] watchOS companion authentication and playback controls (deferred)
+- [x] watchOS iPhone Now Playing remote controls
+- [ ] watchOS standalone authentication, browsing, and independent playback
 - [x] **Hub-Based Home Screen** — Personalized content discovery (Recently Added, Recently Played, etc.)
 - [x] **Customizable Hub Order** — Drag-to-reorder hub sections per music source with reset-to—default
 - [x] **StageFlow** — Immersive landscape browsing with centered snapping, inward-facing side cards, and a slide-out track panel

@@ -49,6 +49,15 @@ struct MyNewView: View {
 }
 ```
 
+## Adding Watch Companion Behavior
+
+The watch target is intentionally lightweight and does not link full `EnsembleCore`.
+
+1. Put shared app/watch payload contracts in `EnsembleWatch/Shared/` and compile them into both the iOS app and watch targets.
+2. Put iPhone-side `WatchConnectivity` integration in `Ensemble/App/`, where it can observe `DependencyContainer.shared` services.
+3. Put watch-side session state in `EnsembleWatch/App/` and watch SwiftUI in `EnsembleWatch/Views/`.
+4. Keep payloads compact and Codable. Do not pass full domain models or import `EnsembleUI`/`EnsembleCore` into the watch target unless a dedicated watch-portable shared package is introduced.
+
 ## Adding Large-Screen Browse Polish
 
 For browse roots that need a regular-width selection/detail layout:

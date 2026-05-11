@@ -18,12 +18,12 @@ No unresolved critical issues currently documented.
 - **Rejected workaround:** Forcing the Feed `ScrollView` under the toolbar with `.ignoresSafeArea(.container, edges: .top)` and a hardcoded top safe-area padding clipped the first row. A window-level `containerBackground(for: .window)` made the whole Feed look washed instead of letting the toolbar sample real content.
 - **Current status:** Keep the extension-backed `ArtworkDetailBackground` mounted from first render, keep macOS 26 toolbar background hidden, and avoid custom scroll padding/window-wide backgrounds. Future work should look for a root `NavigationSplitView`/detail-column ownership fix rather than adding leaf-view toolbar shims.
 
-### watchOS Companion Shell Only (May 6, 2026)
-- **Location:** `EnsembleWatch/Views/WatchRootView.swift`
-- **Issue:** The watch target currently ships as a standalone shell and does not provide Plex auth, library browsing, or playback control.
-- **Root cause:** The previous watch view referenced a missing `AuthViewModel` and linked full `EnsembleCore`; that forced watchOS to compile iOS-only playback/background services such as `AudioPlaybackEngine` and `BackgroundSyncScheduler`.
-- **Current status:** The non-compiling placeholder flow was removed, the watch target no longer links full `EnsembleCore`, and `EnsembleCore`/`EnsembleUI` no longer advertise watchOS package support.
-- **Future fix:** Build a watch-specific companion bridge/product that shares only portable domain/auth state and communicates with the iPhone app, rather than importing the full iOS Core dependency graph.
+### watchOS Companion Scope (May 11, 2026)
+- **Location:** `EnsembleWatch/Views/WatchRootView.swift`, `EnsembleWatch/App/WatchSessionModel.swift`, `Ensemble/App/WatchCompanionBridge.swift`
+- **Issue:** The watch target now provides iPhone Now Playing remote controls through `WatchConnectivity`, but it still does not provide standalone Plex authentication, library browsing, or independent watch playback.
+- **Root cause:** Full `EnsembleCore` remains intentionally iOS/macOS-only because it contains iOS-specific playback, CoreData, background-task, and image-loading services that are not watch-portable as a package.
+- **Current status:** The watch target stays lightweight and does not link full `EnsembleCore`. It shares only a compact Codable watch payload contract with the iOS app bridge, which observes `PlaybackService` and handles transport commands.
+- **Future fix:** If standalone watch playback is still desired, build a watch-specific shared package/bridge with only portable auth, domain, and sync state rather than importing the iOS playback/dependency graph.
 
 ### iOS 26 Keyboard Presenter Guardrails (Apr 13, 2026)
 - **Location:** `View+Extensions.swift`, `MainTabView.swift`, `PlaylistsView.swift`, `ProfileView.swift`, filter screens
