@@ -67,6 +67,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         let cleanupRecorder = CleanupRecorder()
         let harness = makeHarness { sourceKey in
             await cleanupRecorder.record(sourceKey)
+            return 1
         }
         harness.accountManager.addPlexAccount(
             makeAccount(
@@ -93,6 +94,45 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertEqual(cleanedSourceKeys, ["plex:account-1:server-1:lib-2"])
     }
 
+    func testSourceCleanupResultReportsRemovedCounts() async throws {
+        let harness = makeHarness(
+            clearLyricsCache: { _ in 2 },
+            clearAllLyricsCaches: { 4 }
+        )
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: "plex:account-1:server-1:lib-1")
+        try await seedOfflineDownload(harness: harness, sourceKey: "plex:account-1:server-1:lib-1", trackRatingKey: "track-lib-1")
+
+        let result = try await harness.sourceCacheCleanupService.cleanupSource("plex:account-1:server-1:lib-1")
+
+        XCTAssertEqual(result.sourceKeys, ["plex:account-1:server-1:lib-1"])
+        XCTAssertFalse(result.deletedAllLibraryData)
+        XCTAssertGreaterThanOrEqual(result.libraryItemCount, 1)
+        XCTAssertEqual(result.downloadRecordCount, 1)
+        XCTAssertEqual(result.targetCount, 1)
+        XCTAssertEqual(result.lyricsItemCount, 2)
+        XCTAssertTrue(result.duration >= 0)
+        try await waitForDeferredCleanup(repository: harness.libraryRepository)
+        try await waitForDeferredOfflineCleanup(harness: harness)
+    }
+
+    func testCacheManagerClearAllCachesUsesSourceCleanupWorker() async throws {
+        let harness = makeHarness(clearAllLyricsCaches: { 3 })
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: "plex:account-1:server-1:lib-1")
+        try await seedOfflineDownload(harness: harness, sourceKey: "plex:account-1:server-1:lib-1", trackRatingKey: "track-lib-1")
+        let cacheManager = CacheManager(
+            libraryRepository: harness.libraryRepository,
+            artworkDownloadManager: ArtworkDownloadManager(),
+            downloadManager: harness.downloadManager,
+            lyricsService: LyricsService(syncCoordinator: harness.syncCoordinator)
+        )
+        cacheManager.sourceCacheCleanupService = harness.sourceCacheCleanupService
+
+        try await cacheManager.clearAllCaches()
+
+        try await waitForDeferredCleanup(repository: harness.libraryRepository)
+        try await waitForDeferredOfflineCleanup(harness: harness)
+    }
+
     private struct Harness {
         let accountManager: AccountManager
         let syncCoordinator: SyncCoordinator
@@ -103,8 +143,8 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
     }
 
     private func makeHarness(
-        clearLyricsCache: @escaping SourceCacheCleanupService.LyricsCacheCleanup = { _ in },
-        clearAllLyricsCaches: @escaping SourceCacheCleanupService.AllLyricsCacheCleanup = {}
+        clearLyricsCache: @escaping SourceCacheCleanupService.LyricsCacheCleanup = { _ in 0 },
+        clearAllLyricsCaches: @escaping SourceCacheCleanupService.AllLyricsCacheCleanup = { 0 }
     ) -> Harness {
         let accountManager = AccountManager(keychain: TestKeychain())
         let stack = CoreDataStack.inMemory()
@@ -133,6 +173,21 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             artworkDownloadManager: artworkDownloadManager,
             fetchArtworkRatingKeys: { sourceKey in
                 try await libraryRepository.fetchArtworkRatingKeys(forSourceCompositeKey: sourceKey)
+            },
+            countLibraryItemsForSource: { sourceKey in
+                try await libraryRepository.countLibraryItems(forSourceCompositeKey: sourceKey)
+            },
+            countAllLibraryItems: {
+                try await libraryRepository.countAllLibraryItems()
+            },
+            countTargetsForSource: { sourceKey in
+                try await targetRepository.countTargets(forSourceCompositeKey: sourceKey)
+            },
+            countAllTargets: {
+                try await targetRepository.countAllTargets()
+            },
+            countArtworkItems: {
+                try await artworkDownloadManager.getArtworkCacheFileCount()
             },
             clearLyricsCache: clearLyricsCache,
             clearAllLyricsCaches: clearAllLyricsCaches

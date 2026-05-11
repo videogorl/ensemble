@@ -137,6 +137,55 @@ extension LibraryRepository {
         }
     }
 
+    public func countLibraryItems(forSourceCompositeKey sourceKey: String) async throws -> Int {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    var total = 0
+                    for entityName in ["CDTrack", "CDAlbum", "CDArtist", "CDGenre", "CDMood", "CDPlaylist"] {
+                        let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
+                        request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+                        total += try context.count(for: request)
+                    }
+                    continuation.resume(returning: total)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func countAllLibraryItems() async throws -> Int {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    var total = 0
+                    for entityName in [
+                        "CDOfflineDownloadMembership",
+                        "CDOfflineDownloadTarget",
+                        "CDTrack",
+                        "CDAlbum",
+                        "CDArtist",
+                        "CDGenre",
+                        "CDMood",
+                        "CDPlaylist",
+                        "CDHubItem",
+                        "CDHub",
+                        "CDHomeFeedSnapshot",
+                        "CDMusicSource",
+                        "CDServer"
+                    ] {
+                        let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
+                        total += try context.count(for: request)
+                    }
+                    continuation.resume(returning: total)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func deleteAllLibraryData() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in

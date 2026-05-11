@@ -216,4 +216,33 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
             }
         }
     }
+
+    public func getArtworkCacheFileCount() async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            do {
+                let artworkDir = Self.artworkDirectory
+                guard FileManager.default.fileExists(atPath: artworkDir.path) else {
+                    continuation.resume(returning: 0)
+                    return
+                }
+
+                let contents = try FileManager.default.contentsOfDirectory(
+                    at: artworkDir,
+                    includingPropertiesForKeys: [.isRegularFileKey],
+                    options: [.skipsHiddenFiles]
+                )
+
+                var count = 0
+                for url in contents {
+                    let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+                    if values.isRegularFile == true {
+                        count += 1
+                    }
+                }
+                continuation.resume(returning: count)
+            } catch {
+                continuation.resume(throwing: ArtworkDownloadError.fileSystemError(error))
+            }
+        }
+    }
 }

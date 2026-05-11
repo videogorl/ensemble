@@ -61,6 +61,7 @@ public final class CacheManager: ObservableObject {
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let downloadManager: DownloadManagerProtocol
     private let lyricsService: LyricsService
+    public var sourceCacheCleanupService: SourceCacheCleaning?
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
@@ -159,9 +160,15 @@ public final class CacheManager: ObservableObject {
         let before = try await cleanupSnapshot()
         EnsembleLogger.info("CacheManager: clearAllCaches starting (before: \(before.logDescription))")
 
-        try await clearAllDownloads()
-        try await clearLibraryMetadata()
-        try await artworkDownloadManager.clearArtworkCache()
+        if let sourceCacheCleanupService {
+            let sourceKeys = Set(try await libraryRepository.fetchMusicSources().compactMap(\.compositeKey))
+            let result = try await sourceCacheCleanupService.cleanupAllLibraryData(cachedSourceKeys: sourceKeys)
+            EnsembleLogger.info("CacheManager: source cleanup worker finished (\(result.logDescription))")
+        } else {
+            try await clearAllDownloads()
+            try await clearLibraryMetadata()
+            try await artworkDownloadManager.clearArtworkCache()
+        }
         try await clearNukeImageCache()
         await refreshCacheInfo()
 

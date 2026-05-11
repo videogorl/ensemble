@@ -237,7 +237,7 @@ public final class DependencyContainer: @unchecked Sendable {
         cacheManager = playback.cacheManager
         songLinkService = playback.songLinkService
         shareService = playback.shareService
-        sourceCacheCleanupService = SourceCacheCleanupService(
+        let builtSourceCacheCleanupService = SourceCacheCleanupService(
             libraryRepository: libraryRepository,
             downloadManager: downloadManager,
             targetRepository: offlineDownloadTargetRepository,
@@ -245,6 +245,26 @@ public final class DependencyContainer: @unchecked Sendable {
             fetchArtworkRatingKeys: { [libraryRepository = core.libraryRepository] sourceKey in
                 guard let repository = libraryRepository as? LibraryRepository else { return [] }
                 return try await repository.fetchArtworkRatingKeys(forSourceCompositeKey: sourceKey)
+            },
+            countLibraryItemsForSource: { [libraryRepository = core.libraryRepository] sourceKey in
+                guard let repository = libraryRepository as? LibraryRepository else { return 0 }
+                return try await repository.countLibraryItems(forSourceCompositeKey: sourceKey)
+            },
+            countAllLibraryItems: { [libraryRepository = core.libraryRepository] in
+                guard let repository = libraryRepository as? LibraryRepository else { return 0 }
+                return try await repository.countAllLibraryItems()
+            },
+            countTargetsForSource: { [targetRepository = core.offlineDownloadTargetRepository] sourceKey in
+                guard let repository = targetRepository as? OfflineDownloadTargetRepository else { return 0 }
+                return try await repository.countTargets(forSourceCompositeKey: sourceKey)
+            },
+            countAllTargets: { [targetRepository = core.offlineDownloadTargetRepository] in
+                guard let repository = targetRepository as? OfflineDownloadTargetRepository else { return 0 }
+                return try await repository.countAllTargets()
+            },
+            countArtworkItems: { [artworkDownloadManager = core.artworkDownloadManager] in
+                guard let manager = artworkDownloadManager as? ArtworkDownloadManager else { return 0 }
+                return try await manager.getArtworkCacheFileCount()
             },
             clearLyricsCache: { [lyricsService = playback.lyricsService] sourceKey in
                 await MainActor.run {
@@ -257,6 +277,10 @@ public final class DependencyContainer: @unchecked Sendable {
                 }
             }
         )
+        sourceCacheCleanupService = builtSourceCacheCleanupService
+        MainActor.assumeIsolated {
+            playback.cacheManager.sourceCacheCleanupService = builtSourceCacheCleanupService
+        }
         let builtHomeHubLoader = HomeHubLoader(
             accountManager: accountManager,
             hubRepository: hubRepository,

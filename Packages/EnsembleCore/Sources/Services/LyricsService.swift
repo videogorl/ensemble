@@ -506,24 +506,37 @@ public final class LyricsService: ObservableObject {
 
     /// Clear all persistent lyrics caches and in-memory cache.
     /// Called by CacheManager when user clears all library data.
-    public func clearAllCaches() {
+    @discardableResult
+    public func clearAllCaches() -> Int {
+        let removedInMemoryCount = cache.count + negativeCacheTimestamps.count
         cache.removeAll()
+        negativeCacheTimestamps.removeAll()
+        let removedFileCount = (try? FileManager.default.contentsOfDirectory(atPath: Self.lyricsCacheDir.path).count) ?? 0
         try? FileManager.default.removeItem(at: Self.lyricsCacheDir)
         try? FileManager.default.createDirectory(at: Self.lyricsCacheDir, withIntermediateDirectories: true)
+        return removedInMemoryCount + removedFileCount
     }
 
     /// Clear persistent lyrics cache files for a specific source.
     /// Called when an account or library is removed.
-    public func clearCache(forSourceCompositeKey sourceKey: String) {
+    @discardableResult
+    public func clearCache(forSourceCompositeKey sourceKey: String) -> Int {
         // Remove matching in-memory cache entries
+        let oldCacheCount = cache.count
+        let oldNegativeCount = negativeCacheTimestamps.count
         cache = cache.filter { !$0.key.hasSuffix(":\(sourceKey)") }
+        negativeCacheTimestamps = negativeCacheTimestamps.filter { !$0.key.hasSuffix(":\(sourceKey)") }
+        var removedCount = (oldCacheCount - cache.count) + (oldNegativeCount - negativeCacheTimestamps.count)
 
         // Remove matching persistent cache files (filename contains the source key)
         let safeSourceKey = sourceKey.replacingOccurrences(of: "[^a-zA-Z0-9_-]", with: "_", options: .regularExpression)
-        guard let files = try? FileManager.default.contentsOfDirectory(atPath: Self.lyricsCacheDir.path) else { return }
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: Self.lyricsCacheDir.path) else { return removedCount }
         for file in files where file.contains(safeSourceKey) {
-            try? FileManager.default.removeItem(at: Self.lyricsCacheDir.appendingPathComponent(file))
+            if (try? FileManager.default.removeItem(at: Self.lyricsCacheDir.appendingPathComponent(file))) != nil {
+                removedCount += 1
+            }
         }
+        return removedCount
     }
 
     /// Remove cached lyrics for a single track/source pair.

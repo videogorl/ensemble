@@ -4,14 +4,37 @@ import Foundation
 /// Summary of a destructive source cache cleanup pass.
 public struct SourceCacheCleanupResult: Sendable, Equatable {
     public let sourceKeys: Set<String>
-    public let artworkKeyCount: Int
     public let deletedAllLibraryData: Bool
+    public let libraryItemCount: Int
+    public let downloadRecordCount: Int
+    public let targetCount: Int
+    public let artworkItemCount: Int
+    public let lyricsItemCount: Int
+    public let duration: TimeInterval
 
     /// Creates a cleanup result for logging and tests.
-    public init(sourceKeys: Set<String>, artworkKeyCount: Int, deletedAllLibraryData: Bool) {
+    public init(
+        sourceKeys: Set<String>,
+        deletedAllLibraryData: Bool,
+        libraryItemCount: Int,
+        downloadRecordCount: Int,
+        targetCount: Int,
+        artworkItemCount: Int,
+        lyricsItemCount: Int,
+        duration: TimeInterval
+    ) {
         self.sourceKeys = sourceKeys
-        self.artworkKeyCount = artworkKeyCount
         self.deletedAllLibraryData = deletedAllLibraryData
+        self.libraryItemCount = libraryItemCount
+        self.downloadRecordCount = downloadRecordCount
+        self.targetCount = targetCount
+        self.artworkItemCount = artworkItemCount
+        self.lyricsItemCount = lyricsItemCount
+        self.duration = duration
+    }
+
+    public var logDescription: String {
+        "sources=\(sourceKeys.count), libraryItems=\(libraryItemCount), downloads=\(downloadRecordCount), targets=\(targetCount), artworkItems=\(artworkItemCount), lyricsItems=\(lyricsItemCount), deleteAll=\(deletedAllLibraryData), duration=\(String(format: "%.3f", duration))s"
     }
 }
 
@@ -26,15 +49,25 @@ public protocol SourceCacheCleaning: Sendable {
 
 /// Removes source-owned cached data without routing heavy work through UI view models.
 public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Sendable {
-    public typealias LyricsCacheCleanup = @Sendable (String) async -> Void
-    public typealias AllLyricsCacheCleanup = @Sendable () async -> Void
+    public typealias LyricsCacheCleanup = @Sendable (String) async -> Int
+    public typealias AllLyricsCacheCleanup = @Sendable () async -> Int
     public typealias ArtworkKeyLookup = @Sendable (String) async throws -> Set<String>
+    public typealias SourceLibraryItemCounter = @Sendable (String) async throws -> Int
+    public typealias AllLibraryItemCounter = @Sendable () async throws -> Int
+    public typealias SourceTargetCounter = @Sendable (String) async throws -> Int
+    public typealias AllTargetCounter = @Sendable () async throws -> Int
+    public typealias ArtworkItemCounter = @Sendable () async throws -> Int
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let downloadManager: DownloadManagerProtocol
     private let targetRepository: OfflineDownloadTargetRepositoryProtocol
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let fetchArtworkRatingKeys: ArtworkKeyLookup
+    private let countLibraryItemsForSource: SourceLibraryItemCounter
+    private let countAllLibraryItems: AllLibraryItemCounter
+    private let countTargetsForSource: SourceTargetCounter
+    private let countAllTargets: AllTargetCounter
+    private let countArtworkItems: ArtworkItemCounter
     private let clearLyricsCache: LyricsCacheCleanup
     private let clearAllLyricsCaches: AllLyricsCacheCleanup
 
@@ -45,6 +78,11 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         targetRepository: OfflineDownloadTargetRepositoryProtocol,
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
         fetchArtworkRatingKeys: @escaping ArtworkKeyLookup,
+        countLibraryItemsForSource: @escaping SourceLibraryItemCounter,
+        countAllLibraryItems: @escaping AllLibraryItemCounter,
+        countTargetsForSource: @escaping SourceTargetCounter,
+        countAllTargets: @escaping AllTargetCounter,
+        countArtworkItems: @escaping ArtworkItemCounter,
         clearLyricsCache: @escaping LyricsCacheCleanup,
         clearAllLyricsCaches: @escaping AllLyricsCacheCleanup
     ) {
@@ -53,6 +91,11 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         self.targetRepository = targetRepository
         self.artworkDownloadManager = artworkDownloadManager
         self.fetchArtworkRatingKeys = fetchArtworkRatingKeys
+        self.countLibraryItemsForSource = countLibraryItemsForSource
+        self.countAllLibraryItems = countAllLibraryItems
+        self.countTargetsForSource = countTargetsForSource
+        self.countAllTargets = countAllTargets
+        self.countArtworkItems = countArtworkItems
         self.clearLyricsCache = clearLyricsCache
         self.clearAllLyricsCaches = clearAllLyricsCaches
     }
@@ -72,36 +115,72 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
     }
 
     private func cleanupAll(cachedSourceKeys: Set<String>) async throws -> SourceCacheCleanupResult {
-        async let lyricsCleanup: Void = clearAllLyricsCaches()
+        let startedAt = Date()
+        async let libraryItemCount = countAllLibraryItems()
+        async let downloadRecordCount = downloadManager.fetchDownloads().count
+        async let targetCount = countAllTargets()
+        async let artworkItemCount = countArtworkItems()
+        let counts = try await (
+            libraryItems: libraryItemCount,
+            downloads: downloadRecordCount,
+            targets: targetCount,
+            artworkItems: artworkItemCount
+        )
+
+        async let lyricsCleanup: Int = clearAllLyricsCaches()
         async let targetCleanup: Void = targetRepository.deleteAllTargets()
         async let downloadCleanup: Void = downloadManager.deleteAllDownloads()
 
-        _ = await lyricsCleanup
+        let lyricsItemCount = await lyricsCleanup
         try await targetCleanup
         try await downloadCleanup
         try await libraryRepository.deleteAllLibraryData()
         try await artworkDownloadManager.clearArtworkCache()
 
-        EnsembleLogger.info("Source cache cleanup finished sources=\(cachedSourceKeys.count) artworkKeys=all deleteAll=true")
-        return SourceCacheCleanupResult(
+        let result = SourceCacheCleanupResult(
             sourceKeys: cachedSourceKeys,
-            artworkKeyCount: 0,
-            deletedAllLibraryData: true
+            deletedAllLibraryData: true,
+            libraryItemCount: counts.libraryItems,
+            downloadRecordCount: counts.downloads,
+            targetCount: counts.targets,
+            artworkItemCount: counts.artworkItems,
+            lyricsItemCount: lyricsItemCount,
+            duration: Date().timeIntervalSince(startedAt)
         )
+        EnsembleLogger.info("Source cache cleanup finished \(result.logDescription)")
+        return result
     }
 
     private func cleanupSources(_ sourceKeys: Set<String>) async throws -> SourceCacheCleanupResult {
+        let startedAt = Date()
         var artworkKeysToDelete = Set<String>()
+        var libraryItemCount = 0
+        var downloadRecordCount = 0
+        var targetCount = 0
+        var lyricsItemCount = 0
 
         for sourceKey in sourceKeys {
-            let sourceArtworkKeys = try await fetchArtworkRatingKeys(sourceKey)
-            artworkKeysToDelete.formUnion(sourceArtworkKeys)
+            async let sourceArtworkKeys = fetchArtworkRatingKeys(sourceKey)
+            async let sourceLibraryItems = countLibraryItemsForSource(sourceKey)
+            async let sourceDownloads = downloadManager.fetchDownloads(forSourceCompositeKey: sourceKey).count
+            async let sourceTargets = countTargetsForSource(sourceKey)
 
-            async let lyricsCleanup: Void = clearLyricsCache(sourceKey)
+            let sourceCounts = try await (
+                artworkKeys: sourceArtworkKeys,
+                libraryItems: sourceLibraryItems,
+                downloads: sourceDownloads,
+                targets: sourceTargets
+            )
+            artworkKeysToDelete.formUnion(sourceCounts.artworkKeys)
+            libraryItemCount += sourceCounts.libraryItems
+            downloadRecordCount += sourceCounts.downloads
+            targetCount += sourceCounts.targets
+
+            async let lyricsCleanup: Int = clearLyricsCache(sourceKey)
             async let targetCleanup: Void = targetRepository.deleteTargets(forSourceCompositeKey: sourceKey)
             async let downloadCleanup: Void = downloadManager.deleteDownloads(forSourceCompositeKey: sourceKey)
 
-            _ = await lyricsCleanup
+            lyricsItemCount += await lyricsCleanup
             try await targetCleanup
             try await downloadCleanup
 
@@ -112,13 +191,17 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
             artworkDownloadManager.deleteArtwork(forRatingKeys: artworkKeysToDelete)
         }
 
-        EnsembleLogger.info(
-            "Source cache cleanup finished sources=\(sourceKeys.count) artworkKeys=\(artworkKeysToDelete.count) deleteAll=false"
-        )
-        return SourceCacheCleanupResult(
+        let result = SourceCacheCleanupResult(
             sourceKeys: sourceKeys,
-            artworkKeyCount: artworkKeysToDelete.count,
-            deletedAllLibraryData: false
+            deletedAllLibraryData: false,
+            libraryItemCount: libraryItemCount,
+            downloadRecordCount: downloadRecordCount,
+            targetCount: targetCount,
+            artworkItemCount: artworkKeysToDelete.count,
+            lyricsItemCount: lyricsItemCount,
+            duration: Date().timeIntervalSince(startedAt)
         )
+        EnsembleLogger.info("Source cache cleanup finished \(result.logDescription)")
+        return result
     }
 }
