@@ -390,7 +390,8 @@ public final class WatchExperienceModel: ObservableObject {
         discoveredServers = applyLibraryFlags(flags, to: discoveredServers)
         sourceAccounts = Self.buildSourceAccounts(from: discoveredServers)
         libraries = (try? catalog.selectedLibraries(from: discoveredServers, fallbackToAllDiscovered: false)) ?? []
-        statusMessage = libraries.isEmpty ? "Enable at least one library." : "Selection saved."
+        pruneMediaToSelectedLibraries()
+        statusMessage = libraries.isEmpty ? "Enable at least one library." : "Selection saved. Sync selected libraries to refresh."
     }
 
     public func syncSelectedLibraries() {
@@ -441,7 +442,9 @@ public final class WatchExperienceModel: ObservableObject {
 
         let cachedSnapshot = forceRefresh ? nil : catalogStore.loadSnapshot()
         if let snapshot = cachedSnapshot {
-            catalogSnapshot = snapshot
+            let selectedSnapshot = Self.filteredSnapshot(snapshot, for: libraries)
+            catalogSnapshot = selectedSnapshot
+            catalogStore.saveSnapshot(selectedSnapshot)
             bootstrapState = .ready
             statusMessage = "Refreshing"
         }
@@ -506,6 +509,21 @@ public final class WatchExperienceModel: ObservableObject {
         catalogStore.saveSnapshot(snapshot)
         catalogSnapshot = snapshot
         statusMessage = "Ready"
+    }
+
+    private func pruneMediaToSelectedLibraries() {
+        let selectedSourceKeys = Set(libraries.map(\.sourceKey))
+        let selectedTracks = detailTracks.filter { selectedSourceKeys.contains($0.sourceKey) }
+        if selectedTracks != detailTracks {
+            detailTracks = selectedTracks
+        }
+
+        guard let snapshot = catalogSnapshot else { return }
+        let selectedSnapshot = Self.filteredSnapshot(snapshot, for: libraries)
+        if selectedSnapshot != snapshot {
+            catalogSnapshot = selectedSnapshot
+            catalogStore.saveSnapshot(selectedSnapshot)
+        }
     }
 
     private func applyStoredLibraryFlags(to servers: [EnsemblePlexServer]) async -> [EnsemblePlexServer] {
@@ -593,6 +611,38 @@ public final class WatchExperienceModel: ObservableObject {
                 servers: serverSections
             )
         }
+    }
+
+    nonisolated static func filteredSnapshot(
+        _ snapshot: EnsemblePlexCatalogSnapshot,
+        for libraries: [EnsemblePlexLibrary]
+    ) -> EnsemblePlexCatalogSnapshot {
+        let selectedSourceKeys = Set(libraries.map(\.sourceKey))
+        let libraryRefs = libraries.map {
+            EnsembleLibraryReference(id: $0.id, key: $0.key, title: $0.title, isEnabled: true)
+        }
+
+        guard !selectedSourceKeys.isEmpty else {
+            return EnsemblePlexCatalogSnapshot(
+                fetchedAt: snapshot.fetchedAt,
+                libraries: [],
+                pins: [],
+                albums: [],
+                artists: [],
+                playlists: [],
+                recentlyAdded: []
+            )
+        }
+
+        return EnsemblePlexCatalogSnapshot(
+            fetchedAt: snapshot.fetchedAt,
+            libraries: libraryRefs,
+            pins: snapshot.pins.filter { selectedSourceKeys.contains($0.sourceKey) },
+            albums: snapshot.albums.filter { selectedSourceKeys.contains($0.sourceKey) },
+            artists: snapshot.artists.filter { selectedSourceKeys.contains($0.sourceKey) },
+            playlists: snapshot.playlists.filter { selectedSourceKeys.contains($0.sourceKey) },
+            recentlyAdded: snapshot.recentlyAdded.filter { selectedSourceKeys.contains($0.sourceKey) }
+        )
     }
 }
 

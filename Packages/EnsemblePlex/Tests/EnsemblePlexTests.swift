@@ -51,4 +51,60 @@ final class EnsemblePlexTests: XCTestCase {
 
         XCTAssertTrue(libraries.isEmpty)
     }
+
+    func testSourceBoundHelpersDoNotFallbackToDifferentSelectedLibrary() async throws {
+        let selectedLibrary = makeLibrary(accountId: "account", serverId: "server", libraryKey: "3")
+        let disabledSourceKey = "plex:account:server:5"
+        let service = EnsemblePlexCatalogService()
+        let item = EnsembleMediaSummary(
+            id: "album-1",
+            kind: .album,
+            title: "Disabled Album",
+            artworkPath: "/library/metadata/1/thumb",
+            sourceKey: disabledSourceKey
+        )
+        let track = EnsembleTrack(
+            id: "track-1",
+            title: "Disabled Track",
+            artworkPath: "/library/metadata/2/thumb",
+            sourceKey: disabledSourceKey
+        )
+
+        let tracks = try await service.tracks(for: item, in: [selectedLibrary])
+        let itemArtwork = await service.artworkURL(for: item, in: [selectedLibrary])
+        let trackArtwork = await service.artworkURL(for: track, in: [selectedLibrary])
+
+        XCTAssertTrue(tracks.isEmpty)
+        XCTAssertNil(itemArtwork)
+        XCTAssertNil(trackArtwork)
+
+        do {
+            _ = try await service.streamURL(for: track, in: [selectedLibrary])
+            XCTFail("Expected disabled-source stream resolution to fail before falling back")
+        } catch EnsemblePlexError.noSelectedLibraries {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    private func makeLibrary(
+        accountId: String,
+        serverId: String,
+        libraryKey: String
+    ) -> EnsemblePlexLibrary {
+        let account = EnsembleAccountCredential(accountId: accountId, authToken: "token")
+        let server = EnsemblePlexServer(
+            account: account,
+            id: serverId,
+            name: "Server",
+            token: "server-token",
+            url: "https://example.com",
+            connections: [],
+            libraries: [
+                EnsembleLibraryReference(id: libraryKey, key: libraryKey, title: "Music", isEnabled: true)
+            ]
+        )
+        return EnsemblePlexLibrary(server: server, id: libraryKey, key: libraryKey, title: "Music")
+    }
 }

@@ -513,7 +513,7 @@ public actor EnsemblePlexCatalogService {
     }
 
     public func tracks(for item: EnsembleMediaSummary, in libraries: [EnsemblePlexLibrary]) async throws -> [EnsembleTrack] {
-        guard let library = libraries.first(where: { $0.sourceKey == item.sourceKey }) ?? libraries.first else {
+        guard let library = libraries.first(where: { $0.sourceKey == item.sourceKey }) else {
             return []
         }
 
@@ -538,7 +538,7 @@ public actor EnsemblePlexCatalogService {
 
     public func artworkURL(for item: EnsembleMediaSummary, in libraries: [EnsemblePlexLibrary], size: Int = 96) async -> URL? {
         guard let artworkPath = item.artworkPath,
-              let library = libraries.first(where: { $0.sourceKey == item.sourceKey }) ?? libraries.first else {
+              let library = libraries.first(where: { $0.sourceKey == item.sourceKey }) else {
             return nil
         }
 
@@ -548,7 +548,7 @@ public actor EnsemblePlexCatalogService {
 
     public func artworkURL(for track: EnsembleTrack, in libraries: [EnsemblePlexLibrary], size: Int = 96) async -> URL? {
         guard let artworkPath = track.artworkPath,
-              let library = libraries.first(where: { $0.sourceKey == track.sourceKey }) ?? libraries.first else {
+              let library = libraries.first(where: { $0.sourceKey == track.sourceKey }) else {
             return nil
         }
 
@@ -557,7 +557,7 @@ public actor EnsemblePlexCatalogService {
     }
 
     public func streamURL(for track: EnsembleTrack, in libraries: [EnsemblePlexLibrary]) async throws -> URL {
-        guard let library = libraries.first(where: { $0.sourceKey == track.sourceKey }) ?? libraries.first else {
+        guard let library = libraries.first(where: { $0.sourceKey == track.sourceKey }) else {
             throw EnsemblePlexError.noSelectedLibraries
         }
 
