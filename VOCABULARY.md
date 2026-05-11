@@ -394,7 +394,7 @@ Generic detail view used by Album, Playlist, merged playlist, and similar media-
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Background gradient | region | Blurred artwork background fading to content | `backgroundGradient`, `BlurredArtworkBackground` |
+| Background wash | region | Blurred artist artwork background fading to content through the shared detail surface | `ArtworkDetailBackground`, `MediaDetailSurface` |
 | Adaptive artist header | region | Header that uses compact hero layout on narrow screens and a wide two-column layout when space allows | `artistHeader`, `wideArtistHeader`, `compactArtistHeader` |
 | Hero banner | region | Full-width artist photo with overlay info | `heroBanner` |
 | Wide artist artwork | image | Circular artist artwork in the wide two-column header | `ArtworkView(artist:)`, `Circle` |
@@ -403,7 +403,7 @@ Generic detail view used by Album, Playlist, merged playlist, and similar media-
 | Play button | action | Play all artist tracks in order | `Play`, `play.fill` |
 | Shuffle button | action | Shuffle play all artist tracks | `Shuffle`, `shuffle` |
 | Radio button | action | Start artist radio with autoplay | `dot.radiowaves.left.and.right` |
-| Primary actions region | region | Row containing play, shuffle, radio buttons | `actionButtons` |
+| Primary actions region | region | Row containing play, shuffle, radio buttons | `compactActionButtons`, `wideActionButtons` |
 | Albums section | region | Grid of artist's albums | `albumsSection`, `AlbumGrid` |
 | Favorited tracks section | region | List of 4+ star rated tracks by this artist | `favoritedTracksSection` |
 | Bio section | region | Expandable artist biography text | `bioSection` |

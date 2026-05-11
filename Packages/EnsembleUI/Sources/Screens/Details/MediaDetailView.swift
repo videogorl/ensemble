@@ -254,9 +254,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         )
     }
 
-    /// Whether the radio button should be shown (artist or album detail views)
+    /// Whether the radio button should be shown.
     private var hasRadioButton: Bool {
-        viewModel is ArtistDetailViewModel || viewModel is AlbumDetailViewModel
+        viewModel is AlbumDetailViewModel
     }
 
     private var shouldShowStandaloneFilterButton: Bool {
@@ -850,19 +850,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     @ViewBuilder
     private var radioButton: some View {
-        // Radio button for Artist or Album views - queues all tracks, shuffles, enables radio
-        if let _ = viewModel as? ArtistDetailViewModel {
-            Button {
-                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
-            } label: {
-                radioButtonLabel
-            }
-            #if os(macOS)
-            .help("Artist Radio - Queue all shuffled, enable sonically similar")
-            #endif
-        }
-        // Check if this is an Album detail view
-        else if let _ = viewModel as? AlbumDetailViewModel {
+        if let _ = viewModel as? AlbumDetailViewModel {
             Button {
                 nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
             } label: {

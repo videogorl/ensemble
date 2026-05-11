@@ -172,7 +172,6 @@ public enum EnsembleScaffold {
         public static let wideArtworkDimension: CGFloat = 240
         public static let wideActionMaxWidth: CGFloat = 520
         public static let wideHeaderTopPadding: CGFloat = 72
-        public static let toolbarChromeRevealHeight: CGFloat = 44
         public static let sectionTopPadding: CGFloat = 32
         public static let loadingTopPadding = TrackListLayoutMetrics.detailHorizontalPadding
         public static let compactActionTopPadding = EnsembleDesign.Spacing.xxl
