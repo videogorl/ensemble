@@ -274,7 +274,8 @@ Persistent artwork caching that survives app restarts:
    - Listens for `artworkDidInvalidate` notification and re-triggers load when matching ratingKey is invalidated
 
 4. **CacheManager** (`EnsembleCore`) -- Cache visibility and management
-   - Methods: `refreshCacheInfo()`, `clearCache(type:)`, `clearAllCaches()`
+   - Methods: `refreshCacheInfo()`, `clearCache(type:)`, `clearAllCaches()`, `cleanupSnapshot()`
+   - Destructive cleanup logs before/after `CacheCleanupSnapshot` counts and downloads-directory file/byte totals, and clears downloads before metadata so track-local paths are still available; `DownloadManager.deleteAllDownloads()` also purges orphaned files from the downloads directory
    - Artwork cleanup on de-sync: `SyncCoordinator.cleanupRemovedSource()` and `cleanupServerPlaylists()` collect ratingKeys before CoreData deletion, then call `ArtworkDownloadManager.deleteArtwork(forRatingKeys:)` to remove cached files
 
 5. **WebSocket-Driven Invalidation** -- Server artwork changes trigger cache eviction

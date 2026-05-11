@@ -1025,6 +1025,10 @@ public final class SyncCoordinator: ObservableObject {
                 }
             }
 
+            // Clean up source-specific caches before deleting CoreData tracks so
+            // download cleanup can still resolve track.sourceCompositeKey.
+            await onSourceCleanup?(sourceId.compositeKey)
+
             try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceId.compositeKey)
 
             // Delete cached artwork files for the removed source
@@ -1032,9 +1036,6 @@ public final class SyncCoordinator: ObservableObject {
                 artworkDownloadManager.deleteArtwork(forRatingKeys: artworkKeysToDelete)
                 EnsembleLogger.debug("🗑️ Deleted \(artworkKeysToDelete.count) artwork files for source: \(sourceId.compositeKey)")
             }
-
-            // Clean up source-specific caches (lyrics, downloads, etc.)
-            await onSourceCleanup?(sourceId.compositeKey)
 
             // Remove from status tracking
             sourceStatuses.removeValue(forKey: sourceId)

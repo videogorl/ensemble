@@ -827,14 +827,34 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         context.delete(download)
                     }
 
+                    let trackRequest = CDTrack.fetchRequest()
+                    trackRequest.predicate = NSPredicate(format: "localFilePath != nil AND localFilePath != ''")
+                    for track in try context.fetch(trackRequest) {
+                        track.localFilePath = nil
+                    }
+
                     if context.hasChanges {
                         try context.save()
                     }
+
+                    try Self.removeAllDownloadDirectoryFiles()
                     continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }
+        }
+    }
+
+    private static func removeAllDownloadDirectoryFiles() throws {
+        guard FileManager.default.fileExists(atPath: downloadsDirectory.path) else { return }
+        let contents = try FileManager.default.contentsOfDirectory(
+            at: downloadsDirectory,
+            includingPropertiesForKeys: nil,
+            options: []
+        )
+        for url in contents {
+            try? FileManager.default.removeItem(at: url)
         }
     }
 

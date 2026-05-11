@@ -117,6 +117,8 @@ extension LibraryRepository {
                 do {
                     // Delete all library/cache entities regardless of source.
                     for entityName in [
+                        "CDOfflineDownloadMembership",
+                        "CDOfflineDownloadTarget",
                         "CDTrack",
                         "CDAlbum",
                         "CDArtist",

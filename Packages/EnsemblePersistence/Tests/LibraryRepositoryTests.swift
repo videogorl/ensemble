@@ -88,6 +88,13 @@ final class LibraryRepositoryTests: XCTestCase {
             hub.items = NSOrderedSet(object: item)
             snapshot.hubs = NSOrderedSet(object: hub)
 
+            let offlineTarget = CDOfflineDownloadTarget(context: stack.viewContext)
+            offlineTarget.key = "library:plex:account-1:server-1:lib-1"
+            offlineTarget.kind = CDOfflineDownloadTarget.Kind.library.rawValue
+            offlineTarget.sourceCompositeKey = "plex:account-1:server-1:lib-1"
+            offlineTarget.displayName = "Library One"
+            offlineTarget.targetStatus = .completed
+
             try stack.viewContext.save()
         }
 
@@ -105,10 +112,14 @@ final class LibraryRepositoryTests: XCTestCase {
         let remainingHubItems = try await stack.viewContext.perform {
             try stack.viewContext.fetch(CDHubItem.fetchRequest()).count
         }
+        let remainingOfflineTargets = try await stack.viewContext.perform {
+            try stack.viewContext.fetch(CDOfflineDownloadTarget.fetchRequest()).count
+        }
 
         XCTAssertEqual(remainingMoods, 0)
         XCTAssertEqual(remainingSnapshots, 0)
         XCTAssertEqual(remainingHubs, 0)
         XCTAssertEqual(remainingHubItems, 0)
+        XCTAssertEqual(remainingOfflineTargets, 0)
     }
 }
