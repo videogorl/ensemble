@@ -18,12 +18,12 @@ No unresolved critical issues currently documented.
 - **Rejected workaround:** Forcing the Feed `ScrollView` under the toolbar with `.ignoresSafeArea(.container, edges: .top)` and a hardcoded top safe-area padding clipped the first row. A window-level `containerBackground(for: .window)` made the whole Feed look washed instead of letting the toolbar sample real content.
 - **Current status:** Keep the extension-backed `ArtworkDetailBackground` mounted from first render, keep macOS 26 toolbar background hidden, and avoid custom scroll padding/window-wide backgrounds. Future work should look for a root `NavigationSplitView`/detail-column ownership fix rather than adding leaf-view toolbar shims.
 
-### watchOS Companion Scope (May 11, 2026)
-- **Location:** `EnsembleWatch/Views/WatchRootView.swift`, `EnsembleWatch/App/WatchSessionModel.swift`, `Ensemble/App/WatchCompanionBridge.swift`
-- **Issue:** The watch target now provides iPhone Now Playing remote controls through `WatchConnectivity`, but it still does not provide standalone Plex authentication, library browsing, or independent watch playback.
-- **Root cause:** Full `EnsembleCore` remains intentionally iOS/macOS-only because it contains iOS-specific playback, CoreData, background-task, and image-loading services that are not watch-portable as a package.
-- **Current status:** The watch target stays lightweight and does not link full `EnsembleCore`. It shares only a compact Codable watch payload contract with the iOS app bridge, which observes `PlaybackService` and handles transport commands.
-- **Future fix:** If standalone watch playback is still desired, build a watch-specific shared package/bridge with only portable auth, domain, and sync state rather than importing the iOS playback/dependency graph.
+### watchOS Standalone V1 Limitations (May 11, 2026)
+- **Location:** `Packages/EnsembleDomain`, `Packages/EnsemblePlex`, `Packages/EnsembleWatchCore`, `EnsembleWatch/Views/WatchRootView.swift`
+- **Issue:** The watch target now has standalone Plex Link/iCloud credential bootstrap, selected-library browsing, watch-local playback, and phone remote Now Playing, but it is still a compact V1 implementation.
+- **Current status:** Watch code intentionally avoids `EnsembleCore` and `EnsembleUI`. It uses watch-specific packages, capped metadata snapshots, lazy detail loading, and low-bitrate stream resolution. KVS pins/library flags are only available on watchOS 9+; watchOS 8 degrades to local cached/default selection behavior.
+- **Known limitation:** Downloads are not included in V1. The iOS app target no longer embeds the watch app during simulator builds because SwiftPM watch-only package linking resolves incorrectly under the iPhone simulator configuration; build and run the independent watch app with the `EnsembleWatch` scheme.
+- **Future fix:** Add watch-specific manual downloads later with independent storage/execution and revisit App Store packaging once the independent watch distribution path is finalized.
 
 ### iOS 26 Keyboard Presenter Guardrails (Apr 13, 2026)
 - **Location:** `View+Extensions.swift`, `MainTabView.swift`, `PlaylistsView.swift`, `ProfileView.swift`, filter screens

@@ -33,10 +33,10 @@ On iPad and AirPlay external display, the layout switches to a shared **side-by-
 | Wide panel layout | region | Shared iPad/AirPlay two-column layout with Controls on the left and selected detail panel on the right | `NowPlayingWidePanelLayout` |
 | Page indicator | indicator | Three-dot indicator showing current page (left/center/right icons) | `PageIndicator` |
 
-## Apple Watch Remote
+## Apple Watch App
 
 - **View name:** `WatchRootView`
-- **Canonical name:** Apple Watch Remote
+- **Canonical name:** Apple Watch App
 - **Area:** Playback
 - **Platform:** watchOS
 - **Definition status:** Draft
@@ -45,10 +45,15 @@ On iPad and AirPlay external display, the layout switches to a shared **side-by-
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Watch session header | region | Compact current-track title, artist, album, and connection status | `WatchRootView.header`, `WatchSessionModel.snapshot` |
-| Watch playback progress | indicator | Linear progress bar with elapsed and remaining time labels | `WatchRootView.progress` |
-| Watch transport controls | controls | Previous, play/pause, and next buttons sent to the iPhone through WatchConnectivity | `WatchCompanionCommandKind.previous`, `.togglePlayPause`, `.next` |
-| Watch playback options | controls | Shuffle and repeat buttons sent to the iPhone through WatchConnectivity | `WatchCompanionCommandKind.toggleShuffle`, `.cycleRepeatMode` |
+| Watch Home | screen | Pins-first home screen followed by library category rows | `WatchRootView.homeView`, `EnsembleLibraryCategory` |
+| Watch pins section | region | Top home section for pinned or recently added fallback items | `EnsemblePlexCatalogSnapshot.pins` |
+| Watch library categories | navigation | Albums, Artists, Playlists, and Recently Added rows that navigate to lists | `WatchCategoryView` |
+| Watch media detail | screen | Selected album/artist/playlist/track detail with playable track rows | `WatchMediaDetailView` |
+| Watch Now Playing button | toolbar control | Persistent top-right toolbar entry to open watch Now Playing | `WatchNowPlayingView` |
+| Watch Now Playing target toggle | control | Switches Now Playing between watch-local playback and phone remote control | `EnsemblePlaybackTarget.local`, `.remote` |
+| Watch local playback controls | controls | Watch-local play/pause and progress for independently streamed tracks | `WatchPlaybackController` |
+| Watch remote playback controls | controls | Previous, play/pause, next, shuffle, and repeat sent to iPhone through WatchConnectivity | `WatchSessionModel`, `WatchCompanionCommandKind` |
+| Watch Plex Link setup | setup screen | Plex Link code entry flow shown when synced credentials are unavailable | `WatchExperienceModel.startLinkFlow`, `PlexAuthService` |
 
 #### Lyrics Card (Left)
 

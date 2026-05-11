@@ -72,7 +72,7 @@ ensemble/
 |   |   +-- EnsembleWatchApp.swift
 |   |   +-- WatchSessionModel.swift # WatchConnectivity session and remote command model for the watch app
 |   +-- Views/
-|   |   +-- WatchRootView.swift   # Lightweight watch Now Playing remote; does not link full EnsembleCore
+|   |   +-- WatchRootView.swift   # Standalone watch home, library browsing, Plex Link setup, and local/remote Now Playing
 |   +-- Shared/
 |   |   +-- WatchCompanionModels.swift # Codable app/watch payload contract compiled into both targets
 |   +-- Resources/
@@ -81,10 +81,43 @@ ensemble/
 |
 +-- Packages/                      # Swift Package modules
     +-- EnsembleAPI/              # Layer 1: Networking
+    +-- EnsembleDomain/           # Portable account/media models shared by watch packages
+    +-- EnsemblePlex/             # Watch-portable Plex discovery, catalog, and stream facade
+    +-- EnsembleWatchCore/        # watchOS bootstrap, catalog cache, playback, and battery-aware runtime
     +-- EnsemblePersistence/      # Layer 1: Data persistence
     +-- EnsembleSiriShared/       # Shared Siri normalization/scoring rules
     +-- EnsembleCore/             # Layer 2: Business logic
     +-- EnsembleUI/               # Layer 3: User interface
+```
+
+## EnsembleDomain (Portable Domain Layer)
+
+```
+Sources/
++-- EnsembleDomain.swift          # Watch-portable credentials, media summaries, tracks, categories, playback enums
+
+Tests/
++-- EnsembleDomainTests.swift
+```
+
+## EnsemblePlex (Portable Plex Facade)
+
+```
+Sources/
++-- EnsemblePlex.swift            # Plex credential discovery, selected-library catalog snapshots, detail tracks, stream URL resolution
+
+Tests/
++-- EnsemblePlexTests.swift
+```
+
+## EnsembleWatchCore (watchOS Runtime)
+
+```
+Sources/
++-- EnsembleWatchCore.swift       # Watch bootstrap, Plex Link fallback, iCloud/KVS hints, local catalog cache, local playback
+
+Tests/
++-- EnsembleWatchCoreTests.swift
 ```
 
 ## EnsembleAPI (Networking Layer)

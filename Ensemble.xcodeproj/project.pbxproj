@@ -41,6 +41,7 @@
 		E0003001 /* EnsembleUI in Frameworks */ = {isa = PBXBuildFile; productRef = E0003000 /* EnsembleUI */; };
 		E0003005 /* EnsembleSiriShared in Frameworks */ = {isa = PBXBuildFile; productRef = E0003004 /* EnsembleSiriShared */; };
 		E0003006 /* EnsembleSiriShared in Frameworks */ = {isa = PBXBuildFile; productRef = E0003004 /* EnsembleSiriShared */; };
+		E0003007 /* EnsembleWatchCore in Frameworks */ = {isa = PBXBuildFile; platformFilter = watchos; productRef = E0003008 /* EnsembleWatchCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -129,6 +130,9 @@
 		E0004002 /* EnsembleUI */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleUI; path = Packages/EnsembleUI; sourceTree = "<group>"; };
 		E0004003 /* EnsemblePersistence */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsemblePersistence; path = Packages/EnsemblePersistence; sourceTree = "<group>"; };
 		E0004004 /* EnsembleSiriShared */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleSiriShared; path = Packages/EnsembleSiriShared; sourceTree = "<group>"; };
+		E0004005 /* EnsembleDomain */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleDomain; path = Packages/EnsembleDomain; sourceTree = "<group>"; };
+		E0004006 /* EnsemblePlex */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsemblePlex; path = Packages/EnsemblePlex; sourceTree = "<group>"; };
+		E0004007 /* EnsembleWatchCore */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleWatchCore; path = Packages/EnsembleWatchCore; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -145,6 +149,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E0003007 /* EnsembleWatchCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -204,6 +209,9 @@
 				E0004002 /* EnsembleUI */,
 				E0004003 /* EnsemblePersistence */,
 				E0004004 /* EnsembleSiriShared */,
+				E0004005 /* EnsembleDomain */,
+				E0004006 /* EnsemblePlex */,
+				E0004007 /* EnsembleWatchCore */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -306,14 +314,12 @@
 				E0010001 /* Frameworks */,
 				E0210001 /* Sources */,
 				E0220001 /* Resources */,
-				E0240002 /* Embed Watch Content */,
 				E0240001 /* Embed App Extensions */,
 				E0230001 /* ShellScript */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				E0710002 /* PBXTargetDependency */,
 				E0710001 /* PBXTargetDependency */,
 			);
 			name = Ensemble;
@@ -340,6 +346,7 @@
 			);
 			name = EnsembleWatch;
 			packageProductDependencies = (
+				E0003008 /* EnsembleWatchCore */,
 			);
 			productName = EnsembleWatch;
 			productReference = E0000002 /* Ensemble Watch.app */;
@@ -400,6 +407,7 @@
 				E0500000 /* XCLocalSwiftPackageReference "Packages/EnsembleUI" */,
 				E0500001 /* XCLocalSwiftPackageReference "Packages/EnsembleCore" */,
 				E0500002 /* XCLocalSwiftPackageReference "Packages/EnsembleSiriShared" */,
+				E0500003 /* XCLocalSwiftPackageReference "Packages/EnsembleWatchCore" */,
 			);
 			productRefGroup = E0100004 /* Products */;
 			projectDirPath = "";
@@ -933,6 +941,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/EnsembleSiriShared;
 		};
+		E0500003 /* XCLocalSwiftPackageReference "Packages/EnsembleWatchCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/EnsembleWatchCore;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -945,6 +957,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = E0500002 /* XCLocalSwiftPackageReference "Packages/EnsembleSiriShared" */;
 			productName = EnsembleSiriShared;
+		};
+		E0003008 /* EnsembleWatchCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E0500003 /* XCLocalSwiftPackageReference "Packages/EnsembleWatchCore" */;
+			productName = EnsembleWatchCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

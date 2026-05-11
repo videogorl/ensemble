@@ -43,7 +43,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **AirPlay Support** — Stream to AirPlay devices with native picker
 - **Background Audio** — Continues playing when app is backgrounded
 - **Lock Screen Controls** — Play/pause/skip from iOS Control Center and lock screen
-- **Apple Watch Remote** — Companion watch app shows iPhone Now Playing state and supports play/pause, previous/next, shuffle, and repeat through WatchConnectivity
+- **Apple Watch App** — Standalone watchOS experience with iCloud Keychain/Plex Link setup, pins-first library browsing, watch-local streaming playback, and phone remote control through WatchConnectivity
 
 **Management:**
 - **Account-Centric Music Sources** — Manage Plex accounts as sources, with account identifier subtitles, server-grouped library checklists, per-library sync/connection status, and “Sync Enabled Libraries” in one detail screen
@@ -115,6 +115,9 @@ Ensemble uses a **layered modular architecture** with Swift Package Manager:
 | Package | Purpose | Key Components |
 |---------|---------|----------------|
 | **EnsembleAPI** | Plex networking & auth | `PlexAPIClient` (with timeline/scrobble support), `PlexAuthService`, `KeychainService`, `ConnectionFailoverManager` |
+| **EnsembleDomain** | Portable domain models | Watch-safe account credentials, media summaries, tracks, library categories, playback target/status |
+| **EnsemblePlex** | Portable Plex facade | Watch account discovery, selected-library catalog snapshots, detail track loading, low-bitrate stream URL resolution |
+| **EnsembleWatchCore** | watchOS runtime | Plex Link fallback, iCloud credential restore, local catalog cache, watch-local playback, local/remote Now Playing target |
 | **EnsemblePersistence** | CoreData & downloads | `CoreDataStack`, `LibraryRepository`, `HubRepository`, `DownloadManager`, `ArtworkDownloadManager` |
 | **EnsembleCore** | Business logic | `DependencyContainer`, `SyncCoordinator`, `PlaybackService` (with playback tracking), `PlexAccountDiscoveryService`, `LibraryVisibilityStore`, `ArtworkLoader`, `NetworkMonitor`, `ServerHealthChecker`, `SettingsManager`, `NavigationCoordinator`, `HubOrderManager`, ViewModels |
 | **EnsembleUI** | User interface | `RootView`, `HomeView` (with `HubSection`/`HubItemCard`), `MediaDetailView`, `MiniPlayer`, `FilterSheet`, `ArtworkView`, `DetailLoaders`, `StageFlowView`, `HubOrderingSheet`, `WaveformView`, `MarqueeText` |
@@ -141,6 +144,9 @@ ensemble/
 ├── EnsembleWatch/                # watchOS app
 └── Packages/                     # Swift Package modules
     ├── EnsembleAPI/
+    ├── EnsembleDomain/
+    ├── EnsemblePlex/
+    ├── EnsembleWatchCore/
     ├── EnsemblePersistence/
     ├── EnsembleCore/
     └── EnsembleUI/
@@ -185,7 +191,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 
 ## Known Issues
 
-- **watchOS:** The watch target ships as a lightweight iPhone remote for Now Playing. Standalone watch authentication, library browsing, and independent watch playback remain deferred.
+- **watchOS:** Downloads are intentionally deferred from standalone watch V1. The watch app builds through the `EnsembleWatch` scheme as an independent target; phone remote control still works when the iPhone app is also installed.
 - **Background continued processing limits (iOS 26+):** `BGContinuedProcessingTask` is best-effort; queued requests can be rejected or canceled by the system, and the app falls back to the persistent in-app queue.
 - **Artwork Pre-Caching:** Methods exist but not automatically called during sync
 - **Visibility Profile UI:** `LibraryVisibilityProfile` groundwork is implemented, but profile selector/editor UI is not shipped yet
@@ -215,7 +221,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - Optional iOS 26 `BGContinuedProcessingTask` acceleration path for user-initiated bulk offline downloads
 
 **Next Steps:**
-- Design and implement standalone watchOS authentication, library browsing, and independent playback
+- Add manual watchOS downloads with watch-specific storage and background-transfer policy
 - Add automatic artwork pre-caching during sync
 - Implement queue reordering and waveform seeking
 
@@ -239,7 +245,8 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [x] iPad sidebar navigation
 - [x] Account-centric Music Sources settings and detail flow
 - [x] watchOS iPhone Now Playing remote controls
-- [ ] watchOS standalone authentication, browsing, and independent playback
+- [x] watchOS standalone authentication, browsing, and independent playback
+- [ ] watchOS manual downloads
 - [x] **Hub-Based Home Screen** — Personalized content discovery (Recently Added, Recently Played, etc.)
 - [x] **Customizable Hub Order** — Drag-to-reorder hub sections per music source with reset-to—default
 - [x] **StageFlow** — Immersive landscape browsing with centered snapping, inward-facing side cards, and a slide-out track panel
