@@ -98,6 +98,7 @@ public enum EnsembleScaffold {
 
     public enum ProfileToolbar {
         public static let imageDimension: CGFloat = 28
+        public static let hitTargetDimension: CGFloat = 44
     }
 
     public enum Sidebar {

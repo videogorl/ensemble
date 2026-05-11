@@ -1,4 +1,5 @@
 import EnsembleCore
+import Combine
 import SwiftUI
 #if os(iOS)
 import UIKit
@@ -104,10 +105,12 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
         }
     }
 
+    @MainActor
     public final class Coordinator {
         fileprivate var toastCenter: ToastCenter
         private var overlayWindow: PassthroughWindow?
         private weak var attachedScene: UIWindowScene?
+        private var toastCancellable: AnyCancellable?
 
         fileprivate init(toastCenter: ToastCenter) {
             self.toastCenter = toastCenter
@@ -130,6 +133,7 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
             let window = PassthroughWindow(windowScene: scene)
             window.backgroundColor = .clear
             window.windowLevel = .alert + 1
+            window.isUserInteractionEnabled = toastCenter.currentToast != nil
 
             let host = UIHostingController(rootView: GlobalToastOverlayRootView(toastCenter: toastCenter))
             host.view.backgroundColor = .clear
@@ -137,24 +141,41 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
             window.isHidden = false
 
             overlayWindow = window
+            observeToastVisibility()
         }
 
         fileprivate func refreshRootView() {
             guard let host = overlayWindow?.rootViewController as? UIHostingController<GlobalToastOverlayRootView> else { return }
             host.rootView = GlobalToastOverlayRootView(toastCenter: toastCenter)
+            overlayWindow?.isUserInteractionEnabled = toastCenter.currentToast != nil
         }
 
         fileprivate func detach() {
+            toastCancellable = nil
             overlayWindow?.isHidden = true
             overlayWindow?.rootViewController = nil
             overlayWindow = nil
             attachedScene = nil
         }
+
+        private func observeToastVisibility() {
+            toastCancellable = toastCenter.$currentToast
+                .receive(on: RunLoop.main)
+                .sink { [weak self] toast in
+                    self?.overlayWindow?.isUserInteractionEnabled = toast != nil
+                }
+        }
     }
 }
 
 private final class PassthroughWindow: UIWindow {
+    private let interactiveToastBandHeight: CGFloat = 260
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard point.y >= bounds.maxY - interactiveToastBandHeight else {
+            return nil
+        }
+
         let hitView = super.hitTest(point, with: event)
         if hitView === rootViewController?.view {
             return nil

@@ -19,8 +19,13 @@ public struct ProfileToolbarButton: View {
             navigationCoordinator.openProfile()
         } label: {
             profileImage
+                .frame(
+                    width: EnsembleScaffold.ProfileToolbar.hitTargetDimension,
+                    height: EnsembleScaffold.ProfileToolbar.hitTargetDimension
+                )
+                .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .accessibilityLabel("Profile")
         .help("Profile")
     }
 

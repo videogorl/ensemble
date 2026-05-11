@@ -67,7 +67,6 @@ public struct DownloadsPresentationContainer: View {
 
 private struct AuxiliaryPresentationSheetsModifier: ViewModifier {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    let accentColor: AppAccentColor
 
     private var profileSheetBinding: Binding<Bool> {
         Binding(
@@ -96,11 +95,9 @@ private struct AuxiliaryPresentationSheetsModifier: ViewModifier {
         content
             .sheet(isPresented: profileSheetBinding) {
                 ProfilePresentationContainer()
-                    .accentColor(accentColor.color)
             }
             .sheet(isPresented: downloadsSheetBinding) {
                 DownloadsPresentationContainer()
-                    .accentColor(accentColor.color)
             }
         #else
         content
@@ -110,8 +107,8 @@ private struct AuxiliaryPresentationSheetsModifier: ViewModifier {
 
 public extension View {
     /// Presents root auxiliary profile/download sheets from the active root shell.
-    func auxiliaryPresentationSheets(accentColor: AppAccentColor) -> some View {
-        modifier(AuxiliaryPresentationSheetsModifier(accentColor: accentColor))
+    func auxiliaryPresentationSheets() -> some View {
+        modifier(AuxiliaryPresentationSheetsModifier())
     }
 }
 
