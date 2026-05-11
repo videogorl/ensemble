@@ -14,6 +14,7 @@ struct NowPlayingWidePanelLayout: View {
     private let showsTrackHeader: Bool
     private let keepsQueueAlwaysVisible: Bool
     private let showsLyricsTransportControls: Bool
+    private let centersContentInAvailableSpace: Bool
     @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
 
@@ -28,7 +29,8 @@ struct NowPlayingWidePanelLayout: View {
         headerTrailingPadding: CGFloat = 0,
         showsTrackHeader: Bool = true,
         keepsQueueAlwaysVisible: Bool = false,
-        showsLyricsTransportControls: Bool = true
+        showsLyricsTransportControls: Bool = true,
+        centersContentInAvailableSpace: Bool = false
     ) {
         self.viewModel = viewModel
         self._currentPage = currentPage
@@ -41,29 +43,39 @@ struct NowPlayingWidePanelLayout: View {
         self.showsTrackHeader = showsTrackHeader
         self.keepsQueueAlwaysVisible = keepsQueueAlwaysVisible
         self.showsLyricsTransportControls = showsLyricsTransportControls
+        self.centersContentInAvailableSpace = centersContentInAvailableSpace
         self._playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
     }
 
     var body: some View {
         GeometryReader { geometry in
-            VStack(spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
-                header
-
-                HStack(alignment: .top, spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
-                    ControlsCard(viewModel: viewModel, currentPage: $currentPage, isAlwaysVisible: true)
-                        .frame(width: panelWidth(for: geometry))
-                        .frame(maxHeight: .infinity, alignment: .topLeading)
-
-                    detailPanel
-                        .frame(width: panelWidth(for: geometry))
-                        .frame(maxHeight: .infinity, alignment: .topLeading)
-                }
+            if centersContentInAvailableSpace {
+                content(for: geometry)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            } else {
+                content(for: geometry)
             }
-            .frame(maxWidth: maxContentWidth, maxHeight: maxContentHeight)
-            .padding(.horizontal, EnsembleScaffold.NowPlaying.viewportContentPadding)
-            .padding(.top, topPadding ?? max(geometry.safeAreaInsets.top, EnsembleDesign.Spacing.sm))
-            .padding(.bottom, EnsembleScaffold.NowPlaying.viewportContentPadding)
         }
+    }
+
+    private func content(for geometry: GeometryProxy) -> some View {
+        VStack(spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
+            header
+
+            HStack(alignment: .top, spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
+                ControlsCard(viewModel: viewModel, currentPage: $currentPage, isAlwaysVisible: true)
+                    .frame(width: panelWidth(for: geometry))
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
+
+                detailPanel
+                    .frame(width: panelWidth(for: geometry))
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+        .frame(maxWidth: maxContentWidth, maxHeight: maxContentHeight)
+        .padding(.horizontal, EnsembleScaffold.NowPlaying.viewportContentPadding)
+        .padding(.top, topPadding ?? max(geometry.safeAreaInsets.top, EnsembleDesign.Spacing.sm))
+        .padding(.bottom, EnsembleScaffold.NowPlaying.viewportContentPadding)
     }
 
     private var header: some View {

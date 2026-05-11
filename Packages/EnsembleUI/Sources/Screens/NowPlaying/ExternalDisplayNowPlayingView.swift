@@ -29,7 +29,8 @@ public struct ExternalDisplayNowPlayingView: View {
 
             NowPlayingWidePanelLayout(
                 viewModel: viewModel,
-                currentPage: $viewModel.currentPage
+                currentPage: $viewModel.currentPage,
+                centersContentInAvailableSpace: true
             )
         }
         .accentColor(settingsManager.accentColor.color)

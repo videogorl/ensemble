@@ -119,7 +119,8 @@ struct NowPlayingViewportRoot: View {
                         headerTrailingPadding: EnsembleScaffold.NowPlaying.viewportNarrowTrailingPadding,
                         showsTrackHeader: false,
                         keepsQueueAlwaysVisible: true,
-                        showsLyricsTransportControls: false
+                        showsLyricsTransportControls: false,
+                        centersContentInAvailableSpace: true
                     )
                 } else {
                     VStack(spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
@@ -132,6 +133,7 @@ struct NowPlayingViewportRoot: View {
                     .padding(.horizontal, EnsembleScaffold.NowPlaying.viewportContentPadding)
                     .padding(.top, max(geometry.safeAreaInsets.top, EnsembleDesign.Spacing.sm))
                     .padding(.bottom, EnsembleScaffold.NowPlaying.viewportContentPadding)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 }
             }
         }
