@@ -294,6 +294,14 @@ public final class WatchExperienceModel: ObservableObject {
         }
     }
 
+    public func artworkURL(for item: EnsembleMediaSummary, size: Int = 96) async -> URL? {
+        await catalog.artworkURL(for: item, in: libraries, size: size)
+    }
+
+    public func artworkURL(for track: EnsembleTrack, size: Int = 96) async -> URL? {
+        await catalog.artworkURL(for: track, in: libraries, size: size)
+    }
+
     private func bootstrap(forceRefresh: Bool = false) async {
         if !forceRefresh, catalogSnapshot != nil {
             bootstrapState = .ready
@@ -305,6 +313,12 @@ public final class WatchExperienceModel: ObservableObject {
 
         do {
             let credentials = try await discovery.loadSyncedCredentials()
+            if !forceRefresh, let snapshot = catalogSnapshot {
+                let cachedLibraries = await discovery.cachedLibraries(from: credentials, snapshot: snapshot)
+                if !cachedLibraries.isEmpty {
+                    libraries = cachedLibraries
+                }
+            }
             try await finishBootstrap(credentials: credentials, forceRefresh: forceRefresh)
         } catch EnsemblePlexError.noSyncedCredentials {
             bootstrapState = .needsLink

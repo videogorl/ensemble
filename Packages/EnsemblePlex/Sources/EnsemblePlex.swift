@@ -167,7 +167,7 @@ public actor EnsemblePlexDiscoveryService {
             let devices = try await api.getResources(token: account.authToken)
             for device in devices {
                 guard let token = device.accessToken ?? account.servers.first(where: { $0.serverId == device.clientIdentifier })?.serverToken,
-                      let connection = device.bestConnection else {
+                      let connection = Self.preferredWatchConnection(for: device) else {
                     continue
                 }
 
@@ -203,6 +203,53 @@ public actor EnsemblePlexDiscoveryService {
 
         guard !discovered.isEmpty else { throw EnsemblePlexError.noReachableServer }
         return discovered
+    }
+
+    public func cachedLibraries(
+        from credentials: [EnsembleAccountCredential],
+        snapshot: EnsemblePlexCatalogSnapshot
+    ) async -> [EnsemblePlexLibrary] {
+        let sourceKeys = Set(snapshot.watchSourceKeys.compactMap(Self.parseSourceKey))
+        guard !sourceKeys.isEmpty else { return [] }
+
+        var libraries: [EnsemblePlexLibrary] = []
+        for account in credentials {
+            let api = Self.bootstrapClient(token: account.authToken)
+            guard let devices = try? await api.getResources(token: account.authToken) else { continue }
+
+            for device in devices {
+                let matchedKeys = sourceKeys
+                    .filter { $0.accountId == account.accountId && $0.serverId == device.clientIdentifier }
+                    .map { $0.libraryKey }
+                guard !matchedKeys.isEmpty,
+                      let token = device.accessToken ?? account.servers.first(where: { $0.serverId == device.clientIdentifier })?.serverToken,
+                      let connection = Self.preferredWatchConnection(for: device) else {
+                    continue
+                }
+
+                let references = matchedKeys.sorted().map { key in
+                    EnsembleLibraryReference(
+                        id: key,
+                        key: key,
+                        title: snapshot.libraries.first(where: { $0.key == key })?.title ?? "Music",
+                        isEnabled: true
+                    )
+                }
+                let server = EnsemblePlexServer(
+                    account: account,
+                    id: device.clientIdentifier,
+                    name: device.name,
+                    token: token,
+                    url: connection.uri,
+                    connections: device.connections,
+                    libraries: references
+                )
+                libraries.append(contentsOf: references.map {
+                    EnsemblePlexLibrary(server: server, id: $0.id, key: $0.key, title: $0.title)
+                })
+            }
+        }
+        return libraries
     }
 
     public func credential(from token: String) async throws -> EnsembleAccountCredential {
@@ -321,6 +368,65 @@ public actor EnsemblePlexDiscoveryService {
             )
         }
     }
+
+    private static func preferredWatchConnection(for device: PlexDevice) -> PlexConnection? {
+        device.connections.first {
+            $0.local == false && ($0.relay ?? false) == false && $0.isSecure && !$0.looksLikePrivatePlexDirectHost
+        } ?? device.connections.first {
+            ($0.relay ?? false) == true && $0.isSecure
+        } ?? device.connections.first {
+            $0.local == false && $0.isSecure
+        } ?? device.bestConnection
+    }
+
+    private struct SourceComponents: Hashable {
+        let accountId: String
+        let serverId: String
+        let libraryKey: String
+    }
+
+    private static func parseSourceKey(_ sourceKey: String) -> SourceComponents? {
+        let components = sourceKey.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard components.count == 4, components[0] == "plex" else { return nil }
+        return SourceComponents(accountId: components[1], serverId: components[2], libraryKey: components[3])
+    }
+}
+
+private extension EnsemblePlexCatalogSnapshot {
+    var watchSourceKeys: [String] {
+        (pins + albums + artists + playlists + recentlyAdded).map(\.sourceKey)
+    }
+}
+
+private extension PlexConnection {
+    var isSecure: Bool {
+        self.protocol == "https" || uri.lowercased().hasPrefix("https://")
+    }
+
+    var looksLikePrivatePlexDirectHost: Bool {
+        guard let host = URLComponents(string: uri)?.host?.lowercased() else { return false }
+        return host.hasPrefix("192-168-")
+            || host.hasPrefix("10-")
+            || host.hasPrefix("172-16-")
+            || host.hasPrefix("172-17-")
+            || host.hasPrefix("172-18-")
+            || host.hasPrefix("172-19-")
+            || host.hasPrefix("172-20-")
+            || host.hasPrefix("172-21-")
+            || host.hasPrefix("172-22-")
+            || host.hasPrefix("172-23-")
+            || host.hasPrefix("172-24-")
+            || host.hasPrefix("172-25-")
+            || host.hasPrefix("172-26-")
+            || host.hasPrefix("172-27-")
+            || host.hasPrefix("172-28-")
+            || host.hasPrefix("172-29-")
+            || host.hasPrefix("172-30-")
+            || host.hasPrefix("172-31-")
+            || host.hasPrefix("fd")
+            || host.hasPrefix("fe80-")
+            || host.hasPrefix("2601-")
+    }
 }
 
 /// Loads compact, capped Plex catalog data for watch browse surfaces.
@@ -423,6 +529,26 @@ public actor EnsemblePlexCatalogService {
             }
         }
         return tracks.map { $0.watchTrack(sourceKey: library.sourceKey) }
+    }
+
+    public func artworkURL(for item: EnsembleMediaSummary, in libraries: [EnsemblePlexLibrary], size: Int = 96) async -> URL? {
+        guard let artworkPath = item.artworkPath,
+              let library = libraries.first(where: { $0.sourceKey == item.sourceKey }) ?? libraries.first else {
+            return nil
+        }
+
+        let client = EnsemblePlexDiscoveryService.client(for: library)
+        return try? await client.getArtworkURL(path: artworkPath, size: size)
+    }
+
+    public func artworkURL(for track: EnsembleTrack, in libraries: [EnsemblePlexLibrary], size: Int = 96) async -> URL? {
+        guard let artworkPath = track.artworkPath,
+              let library = libraries.first(where: { $0.sourceKey == track.sourceKey }) ?? libraries.first else {
+            return nil
+        }
+
+        let client = EnsemblePlexDiscoveryService.client(for: library)
+        return try? await client.getArtworkURL(path: artworkPath, size: size)
     }
 
     public func streamURL(for track: EnsembleTrack, in libraries: [EnsemblePlexLibrary]) async throws -> URL {

@@ -1,6 +1,9 @@
 import EnsembleDomain
 import EnsembleWatchCore
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct WatchRootView: View {
     @StateObject private var experience = WatchExperienceModel()
@@ -118,11 +121,13 @@ struct WatchRootView: View {
             VStack(alignment: .leading, spacing: 12) {
                 if let snapshot = experience.catalogSnapshot, !snapshot.pins.isEmpty {
                     WatchSectionHeader(title: "Pins")
-                    VStack(spacing: 6) {
+                    LazyVGrid(columns: WatchPinsGrid.columns, spacing: WatchPinsGrid.spacing) {
                         ForEach(snapshot.pins) { item in
                             NavigationLink(destination: WatchMediaDetailView(item: item)) {
-                                WatchMediaRow(item: item)
+                                WatchPinArtworkTile(item: item)
                             }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(item.title)
                         }
                     }
                 }
@@ -429,15 +434,70 @@ private struct WatchSectionHeader: View {
     }
 }
 
-private struct WatchMediaRow: View {
+private enum WatchPinsGrid {
+    static let spacing: CGFloat = 8
+    static let cornerRadius: CGFloat = 8
+    static let columns = Array(repeating: GridItem(.flexible(), spacing: spacing), count: 3)
+}
+
+private struct WatchPinArtworkTile: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
     let item: EnsembleMediaSummary
+
+    @State private var artworkURL: URL?
+
+    var body: some View {
+        WatchPinArtworkFrame(item: item, artworkURL: artworkURL)
+            .aspectRatio(1, contentMode: .fit)
+            .task(id: "\(item.id)-\(experience.artworkContextID)") {
+                artworkURL = await experience.artworkURL(for: item, size: 112)
+            }
+    }
+}
+
+private struct WatchPinArtworkFrame: View {
+    let item: EnsembleMediaSummary
+    let artworkURL: URL?
+
+    var body: some View {
+        GeometryReader { proxy in
+            let side = min(proxy.size.width, proxy.size.height)
+
+            if item.kind == .artist {
+                artworkContent
+                    .frame(width: side, height: side)
+                    .clipShape(Circle())
+                    .background(Circle().fill(Color.secondary.opacity(0.18)))
+            } else {
+                artworkContent
+                    .frame(width: side, height: side)
+                    .clipShape(RoundedRectangle(cornerRadius: WatchPinsGrid.cornerRadius, style: .continuous))
+                    .background(
+                        RoundedRectangle(cornerRadius: WatchPinsGrid.cornerRadius, style: .continuous)
+                            .fill(Color.secondary.opacity(0.18))
+                    )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var artworkContent: some View {
+        WatchArtworkImage(url: artworkURL)
+    }
+}
+
+private struct WatchMediaRow: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
+    let item: EnsembleMediaSummary
+
+    @State private var artworkURL: URL?
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: item.kind.systemImage)
-                .font(.body)
-                .foregroundColor(.accentColor)
-                .frame(width: 20)
+            WatchMediaArtworkThumbnail(
+                artworkURL: artworkURL,
+                isArtist: item.kind == .artist
+            )
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
@@ -451,21 +511,101 @@ private struct WatchMediaRow: View {
                 }
             }
         }
+        .task(id: "\(item.id)-\(experience.artworkContextID)") {
+            artworkURL = await experience.artworkURL(for: item, size: 80)
+        }
     }
 }
 
 private struct WatchTrackRow: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
     let track: EnsembleTrack
 
+    @State private var artworkURL: URL?
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(track.title)
-                .font(.headline)
-                .lineLimit(2)
-            Text(track.artistName ?? track.albumTitle ?? "Track")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
+        HStack(spacing: 8) {
+            WatchMediaArtworkThumbnail(artworkURL: artworkURL, isArtist: false)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.title)
+                    .font(.headline)
+                    .lineLimit(2)
+                Text(track.artistName ?? track.albumTitle ?? "Track")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .task(id: "\(track.id)-\(experience.artworkContextID)") {
+            artworkURL = await experience.artworkURL(for: track, size: 80)
+        }
+    }
+}
+
+private extension WatchExperienceModel {
+    var artworkContextID: String {
+        libraries.map(\.sourceKey).sorted().joined(separator: "|")
+    }
+}
+
+private struct WatchMediaArtworkThumbnail: View {
+    let artworkURL: URL?
+    let isArtist: Bool
+
+    var body: some View {
+        if isArtist {
+            thumbnail
+                .clipShape(Circle())
+        } else {
+            thumbnail
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+    }
+
+    private var thumbnail: some View {
+        WatchArtworkImage(url: artworkURL)
+        .frame(width: 34, height: 34)
+    }
+}
+
+private struct WatchArtworkImage: View {
+    let url: URL?
+
+    @State private var image: Image?
+
+    var body: some View {
+        Group {
+            if let image {
+                image
+                    .resizable()
+                    .scaledToFill()
+            } else if url != nil {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.secondary.opacity(0.18))
+            } else {
+                Color.secondary.opacity(0.18)
+            }
+        }
+        .task(id: url) {
+            await loadImage()
+        }
+    }
+
+    private func loadImage() async {
+        image = nil
+        guard let url else { return }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            #if canImport(UIKit)
+            if let uiImage = UIImage(data: data) {
+                image = Image(uiImage: uiImage)
+            }
+            #endif
+        } catch {
+            image = nil
         }
     }
 }

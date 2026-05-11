@@ -46,7 +46,8 @@ On iPad and AirPlay external display, the layout switches to a shared **side-by-
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
 | Watch Home | screen | Pins-first home screen followed by library category rows | `WatchRootView.homeView`, `EnsembleLibraryCategory` |
-| Watch pins section | region | Top home section for pinned or recently added fallback items | `EnsemblePlexCatalogSnapshot.pins` |
+| Watch pins section | region | Top home section for pinned or recently added fallback items, displayed as a three-column artwork grid with circular artist artwork and rounded square non-artist artwork | `EnsemblePlexCatalogSnapshot.pins`, `WatchPinArtworkTile` |
+| Watch media artwork thumbnail | artwork | Small artwork shown beside watch media and track rows; artist thumbnails are circular and non-artist thumbnails are rounded square | `WatchMediaArtworkThumbnail`, `WatchMediaRow`, `WatchTrackRow` |
 | Watch library categories | navigation | Albums, Artists, Playlists, and Recently Added rows that navigate to lists | `WatchCategoryView` |
 | Watch media detail | screen | Selected album/artist/playlist/track detail with playable track rows | `WatchMediaDetailView` |
 | Watch Now Playing button | toolbar control | Persistent top-right toolbar entry to open watch Now Playing | `WatchNowPlayingView` |
