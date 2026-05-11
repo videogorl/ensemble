@@ -44,14 +44,11 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         let viewModel = makeViewModel(harness: harness)
         await viewModel.loadLibrary()
 
-        let sources = try await harness.libraryRepository.fetchMusicSources()
-        let tracks = try await harness.libraryRepository.fetchTracks()
-        XCTAssertTrue(sources.isEmpty)
-        XCTAssertTrue(tracks.isEmpty)
         XCTAssertTrue(viewModel.tracks.isEmpty)
         XCTAssertTrue(viewModel.albums.isEmpty)
         XCTAssertTrue(viewModel.artists.isEmpty)
         XCTAssertTrue(viewModel.genres.isEmpty)
+        try await waitForDeferredCleanup(repository: harness.libraryRepository)
         let cleanedSourceKeys = await cleanupRecorder.recordedSourceKeys()
         XCTAssertEqual(cleanedSourceKeys, ["plex:account-1:server-1:lib-1"])
     }
@@ -70,11 +67,8 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         let viewModel = makeViewModel(harness: harness)
         await viewModel.loadLibrary()
 
-        let sources = try await harness.libraryRepository.fetchMusicSources()
-        let tracks = try await harness.libraryRepository.fetchTracks()
-        XCTAssertTrue(sources.isEmpty)
-        XCTAssertTrue(tracks.isEmpty)
         XCTAssertTrue(viewModel.tracks.isEmpty)
+        try await waitForDeferredCleanup(repository: harness.libraryRepository)
         let cleanedSourceKeys = await cleanupRecorder.recordedSourceKeys()
         XCTAssertEqual(cleanedSourceKeys, ["plex:account-1:server-1:lib-1"])
     }
@@ -98,6 +92,8 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
 
         let viewModel = makeViewModel(harness: harness)
         await viewModel.loadLibrary()
+
+        try await waitForDeferredCleanup(repository: harness.libraryRepository, expectedSourceKeys: ["plex:account-1:server-1:lib-1"])
 
         let sourceKeys = Set(try await harness.libraryRepository.fetchMusicSources().map(\.compositeKey))
         XCTAssertEqual(sourceKeys, ["plex:account-1:server-1:lib-1"])
@@ -138,6 +134,26 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             syncCoordinator: syncCoordinator,
             libraryRepository: libraryRepository
         )
+    }
+
+    private func waitForDeferredCleanup(
+        repository: LibraryRepository,
+        expectedSourceKeys: Set<String> = []
+    ) async throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            let sourceKeys = Set(try await repository.fetchMusicSources().map(\.compositeKey))
+            let trackSourceKeys = Set(try await repository.fetchTracks().compactMap(\.sourceCompositeKey))
+            if sourceKeys == expectedSourceKeys && trackSourceKeys == expectedSourceKeys {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+
+        let sourceKeys = Set(try await repository.fetchMusicSources().map(\.compositeKey))
+        let trackSourceKeys = Set(try await repository.fetchTracks().compactMap(\.sourceCompositeKey))
+        XCTAssertEqual(sourceKeys, expectedSourceKeys)
+        XCTAssertEqual(trackSourceKeys, expectedSourceKeys)
     }
 
     private func makeViewModel(harness: Harness) -> LibraryViewModel {

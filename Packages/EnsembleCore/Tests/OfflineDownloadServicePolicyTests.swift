@@ -80,12 +80,39 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
     }
 
     private final class MockDownloadManager: DownloadManagerProtocol, @unchecked Sendable {
-        var statusUpdates: [([CDDownload.Status], CDDownload.Status)] = []
+        private let lock = NSLock()
+        private var _statusUpdates: [([CDDownload.Status], CDDownload.Status)] = []
+        private var _fetchDownloadsCount = 0
+        private var _fetchCompletedDownloadsCount = 0
 
-        func fetchDownloads() async throws -> [CDDownload] { [] }
+        var statusUpdates: [([CDDownload.Status], CDDownload.Status)] {
+            lock.withLock { _statusUpdates }
+        }
+
+        var fetchDownloadsCount: Int {
+            lock.withLock { _fetchDownloadsCount }
+        }
+
+        var fetchCompletedDownloadsCount: Int {
+            lock.withLock { _fetchCompletedDownloadsCount }
+        }
+
+        func resetStatusUpdates() {
+            lock.withLock {
+                _statusUpdates.removeAll()
+            }
+        }
+
+        func fetchDownloads() async throws -> [CDDownload] {
+            lock.withLock { _fetchDownloadsCount += 1 }
+            return []
+        }
         func fetchPendingDownloads() async throws -> [CDDownload] { [] }
         func fetchNextPendingDownload() async throws -> CDDownload? { nil }
-        func fetchCompletedDownloads() async throws -> [CDDownload] { [] }
+        func fetchCompletedDownloads() async throws -> [CDDownload] {
+            lock.withLock { _fetchCompletedDownloadsCount += 1 }
+            return []
+        }
         func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload? { nil }
         func fetchDownloadsBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDDownload] { [:] }
         func fetchDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> [CDDownload] { [] }
@@ -95,7 +122,9 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         func updateDownloadProgress(_ downloadId: NSManagedObjectID, progress: Float) async throws {}
         func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status, quality: String?) async throws {}
         func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws {
-            statusUpdates.append((statuses, status))
+            lock.withLock {
+                _statusUpdates.append((statuses, status))
+            }
         }
         func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64, quality: String?) async throws {}
         func failDownload(_ downloadId: NSManagedObjectID, error: String) async throws {}
@@ -223,6 +252,22 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         XCTAssertEqual(service.currentDownloadWorkMode, .foregroundIdle)
     }
 
+    func testLaunchRecoveryDoesNotRunHeavyDownloadHealingBeforeFirstInteraction() async {
+        let downloadManager = MockDownloadManager()
+        let service = await makeService(downloadManager: downloadManager)
+
+        await Task.yield()
+        await service.handleAppWillEnterForeground()
+        await Task.yield()
+
+        XCTAssertEqual(downloadManager.fetchDownloadsCount, 0)
+        XCTAssertEqual(downloadManager.fetchCompletedDownloadsCount, 0)
+        XCTAssertTrue(
+            downloadManager.statusUpdates.contains { $0.0 == [.downloading] },
+            "Launch should still recover interrupted .downloading records without scanning every completed file."
+        )
+    }
+
     func testBackgroundLifecycleOverridesPlaybackWorkMode() async {
         let service = await makeService()
         let trackPublisher = CurrentValueSubject<Track?, Never>(nil)
@@ -250,15 +295,13 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
             backgroundCoordinator: backgroundCoordinator
         )
         try? await Task.sleep(nanoseconds: 30_000_000)
-        downloadManager.statusUpdates.removeAll()
+        downloadManager.resetStatusUpdates()
 
         await service.handleAppDidEnterBackground()
 
         XCTAssertEqual(service.currentDownloadWorkMode, .background)
         XCTAssertFalse(
-            downloadManager.statusUpdates.contains { statuses, status in
-                statuses == [.downloading] && status == .paused
-            },
+            downloadManager.statusUpdates.contains { $0.0 == [.downloading] && $0.1 == .paused },
             "Backgrounding should request an execution window and leave active downloads running until expiration."
         )
         XCTAssertEqual(backgroundCoordinator.continuedProcessingRequests.count, 1)
@@ -268,14 +311,12 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         let downloadManager = MockDownloadManager()
         let service = await makeService(downloadManager: downloadManager)
         try? await Task.sleep(nanoseconds: 30_000_000)
-        downloadManager.statusUpdates.removeAll()
+        downloadManager.resetStatusUpdates()
 
         await service.handleSystemWillSleep()
 
         XCTAssertTrue(
-            downloadManager.statusUpdates.contains { statuses, status in
-                statuses == [.downloading] && status == .paused
-            }
+            downloadManager.statusUpdates.contains { $0.0 == [.downloading] && $0.1 == .paused }
         )
     }
 
@@ -288,7 +329,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         )
         _ = service
         try? await Task.sleep(nanoseconds: 30_000_000)
-        downloadManager.statusUpdates.removeAll()
+        downloadManager.resetStatusUpdates()
         var didComplete = false
 
         backgroundCoordinator.handleBackgroundURLSessionEvents(identifier: "com.test.downloads") {
@@ -299,9 +340,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         XCTAssertTrue(didComplete)
         XCTAssertTrue(
-            downloadManager.statusUpdates.contains { statuses, _ in
-                statuses == [.downloading]
-            }
+            downloadManager.statusUpdates.contains { $0.0 == [.downloading] }
         )
     }
 }

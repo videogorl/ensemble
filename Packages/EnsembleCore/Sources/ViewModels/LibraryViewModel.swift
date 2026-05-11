@@ -53,10 +53,12 @@ public final class LibraryViewModel: ObservableObject {
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
     private var cancellables = Set<AnyCancellable>()
+    private var cachedSourceCleanupTask: Task<Void, Never>?
     private var allArtists: [Artist] = []
     private var allAlbums: [Album] = []
     private var allTracks: [Track] = []
     private var allGenres: [Genre] = []
+    private static let cachedSourceCleanupDelayNs: UInt64 = 1_000_000_000
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
@@ -396,22 +398,48 @@ public final class LibraryViewModel: ObservableObject {
             if !cachedSourceKeys.isEmpty {
                 EnsembleLogger.info("LibraryViewModel: purging cached library data because no libraries are enabled")
             }
-            for sourceKey in cachedSourceKeys {
-                try await cleanupCachedSource(sourceKey)
-            }
-            try await libraryRepository.deleteAllLibraryData()
             clearInMemoryLibrary()
+            scheduleCachedSourceCleanup(sourceKeys: cachedSourceKeys, deleteAllLibraryData: true)
             return false
         }
 
         let staleSourceKeys = cachedSourceKeys.subtracting(enabledSourceKeys)
         if !staleSourceKeys.isEmpty {
             EnsembleLogger.info("LibraryViewModel: purging cached data for \(staleSourceKeys.count) disabled library source(s)")
-        }
-        for sourceKey in staleSourceKeys {
-            try await cleanupCachedSource(sourceKey)
+            scheduleCachedSourceCleanup(sourceKeys: staleSourceKeys, deleteAllLibraryData: false)
         }
         return true
+    }
+
+    /// Schedules destructive stale-source cleanup outside the browse load path.
+    /// Published collections are filtered by enabled source, so cleanup can run
+    /// after first interaction without showing stale rows.
+    private func scheduleCachedSourceCleanup(sourceKeys: Set<String>, deleteAllLibraryData: Bool) {
+        guard !sourceKeys.isEmpty || deleteAllLibraryData else { return }
+
+        cachedSourceCleanupTask?.cancel()
+        cachedSourceCleanupTask = Task(priority: .utility) { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.cachedSourceCleanupDelayNs)
+            guard !Task.isCancelled else { return }
+            guard let self else { return }
+            do {
+                for sourceKey in sourceKeys {
+                    guard !Task.isCancelled else { return }
+                    try await self.cleanupCachedSource(sourceKey)
+                    await Task.yield()
+                }
+
+                guard !Task.isCancelled else { return }
+                if deleteAllLibraryData {
+                    try await self.libraryRepository.deleteAllLibraryData()
+                }
+                EnsembleLogger.info(
+                    "LibraryViewModel: completed deferred cached-source cleanup (sources=\(sourceKeys.count), deleteAll=\(deleteAllLibraryData))"
+                )
+            } catch {
+                EnsembleLogger.debug("LibraryViewModel: deferred cached-source cleanup failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func cleanupCachedSource(_ sourceKey: String) async throws {

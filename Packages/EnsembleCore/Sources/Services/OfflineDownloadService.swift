@@ -127,6 +127,7 @@ public final class OfflineDownloadService: ObservableObject {
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let toastCenter: ToastCenter
     private let lyricsService: LyricsService
+    private let launchRecoveryStartedAt = Date()
 
     private var cancellables = Set<AnyCancellable>()
     private var lastObservedSyncBySource: [String: Date] = [:]
@@ -135,6 +136,7 @@ public final class OfflineDownloadService: ObservableObject {
     /// doesn't rebuild every target on each state transition.
     private var fullProgressRefreshTask: Task<Void, Never>?
     private var hasQueuedFullProgressRefresh = false
+    private var deferredLaunchHealingTask: Task<Void, Never>?
 
     /// Serializes post-download frequency analysis so only one FFT runs at a time.
     /// Supports suspend/resume for app lifecycle and priority bumping for the playing track.
@@ -272,6 +274,8 @@ public final class OfflineDownloadService: ObservableObject {
     private static let foregroundIdleRefreshDelayNs: UInt64 = 250_000_000
     private static let backgroundRefreshDelayNs: UInt64 = 2_500_000_000
     private static let interactivePlaybackWorkerCooldownNs: UInt64 = 750_000_000
+    private static let deferredLaunchHealingDelayNs: UInt64 = 8_000_000_000
+    private static let launchForegroundRecoveryGrace: TimeInterval = 8
 
     public init(
         downloadManager: DownloadManagerProtocol,
@@ -1367,8 +1371,6 @@ public final class OfflineDownloadService: ObservableObject {
     ) async {
         EnsembleLogger.debug("📦 Offline download recovery sweep started reason=\(reason.logDescription)")
 
-        await runDownloadHealing()
-
         let recoveredStatus: CDDownload.Status = resumeEligibleWork && canRunQueueAutomatically ? .pending : .paused
         try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: recoveredStatus)
 
@@ -1378,6 +1380,19 @@ public final class OfflineDownloadService: ObservableObject {
             refreshQueueStatusReason()
         }
 
+        if shouldUseLightweightStartupRecovery(for: reason) {
+            await refreshTargetSnapshots()
+            scheduleDeferredLaunchHealing()
+            if resumeEligibleWork {
+                startQueueIfNeeded()
+            }
+            EnsembleLogger.debug(
+                "📦 Offline download recovery sweep finished reason=\(reason.logDescription) resume=\(resumeEligibleWork) recoveredStatus=\(recoveredStatus.rawValue) deferredHealing=true"
+            )
+            return
+        }
+
+        await runDownloadHealing()
         await refreshAllTargetProgresses()
         scheduleFullProgressRefresh(forceImmediate: true)
 
@@ -1388,6 +1403,35 @@ public final class OfflineDownloadService: ObservableObject {
         EnsembleLogger.debug(
             "📦 Offline download recovery sweep finished reason=\(reason.logDescription) resume=\(resumeEligibleWork) recoveredStatus=\(recoveredStatus.rawValue)"
         )
+    }
+
+    private func shouldUseLightweightStartupRecovery(for reason: OfflineDownloadRecoveryReason) -> Bool {
+        switch reason {
+        case .launch:
+            return true
+        case .foreground:
+            return Date().timeIntervalSince(launchRecoveryStartedAt) < Self.launchForegroundRecoveryGrace
+        case .backgroundURLSession, .systemWillSleep, .systemDidWake, .backgroundExpiration:
+            return false
+        }
+    }
+
+    /// Defers disk and progress integrity sweeps until after launch has had time
+    /// to render and accept interaction. Whole-library offline targets can own
+    /// thousands of files, so startup must not synchronously parse them.
+    private func scheduleDeferredLaunchHealing() {
+        guard deferredLaunchHealingTask == nil else { return }
+
+        deferredLaunchHealingTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.deferredLaunchHealingDelayNs)
+            guard let self, !Task.isCancelled else { return }
+
+            EnsembleLogger.info("📦 Offline download deferred launch healing started")
+            await self.runDownloadHealing()
+            await self.refreshAllTargetProgresses()
+            self.deferredLaunchHealingTask = nil
+            EnsembleLogger.info("📦 Offline download deferred launch healing finished")
+        }
     }
 
     private func observeNetworkState() {
