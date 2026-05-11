@@ -8,10 +8,6 @@ private struct ViewportNowPlayingPresentedKey: EnvironmentKey {
     static let defaultValue = false
 }
 
-private struct PresentViewportNowPlayingKey: EnvironmentKey {
-    static let defaultValue: (NowPlayingViewModel) -> Void = { _ in }
-}
-
 private struct DismissViewportNowPlayingKey: EnvironmentKey {
     static let defaultValue: (() -> Void)? = nil
 }
@@ -28,11 +24,6 @@ public extension EnvironmentValues {
     var isViewportNowPlayingPresented: Bool {
         get { self[ViewportNowPlayingPresentedKey.self] }
         set { self[ViewportNowPlayingPresentedKey.self] = newValue }
-    }
-
-    var presentViewportNowPlaying: (NowPlayingViewModel) -> Void {
-        get { self[PresentViewportNowPlayingKey.self] }
-        set { self[PresentViewportNowPlayingKey.self] = newValue }
     }
 
     var dismissViewportNowPlaying: (() -> Void)? {

@@ -138,7 +138,6 @@ public struct RootView: View {
     @StateObject private var navigationCoordinator: NavigationCoordinator
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @State private var isNowPlayingPresented = false
-    @State private var activeNowPlayingPresentationViewModel: NowPlayingViewModel?
     @State private var sidebarSelection: SidebarSelection? = .library(.home)
     @State private var isLowPowerMode = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     @Namespace private var playerNamespace
@@ -205,7 +204,7 @@ public struct RootView: View {
 
                 if supportsViewportNowPlayingPresentation && isNowPlayingPresented {
                     NowPlayingViewportRoot(
-                        viewModel: presentedNowPlayingViewModel,
+                        viewModel: nowPlayingVM,
                         dismissAction: dismissNowPlaying
                     )
                     .accentColor(settingsManager.accentColor.color)
@@ -228,7 +227,6 @@ public struct RootView: View {
                 }
             }
             .environment(\.isViewportNowPlayingPresented, isNowPlayingPresented)
-            .environment(\.presentViewportNowPlaying, presentNowPlaying(with:))
             .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
             .environmentObject(navigationCoordinator)
             .accentColor(settingsManager.accentColor.color)
@@ -338,10 +336,6 @@ public struct RootView: View {
         }
     }
 
-    private var presentedNowPlayingViewModel: NowPlayingViewModel {
-        activeNowPlayingPresentationViewModel ?? nowPlayingVM
-    }
-
     private func resolvedRootChromeLayout(
         from registration: RootChromeRegistration,
         in proxy: GeometryProxy
@@ -409,7 +403,7 @@ public struct RootView: View {
 
     fileprivate var nowPlayingPresentationContent: some View {
         NowPlayingSheetView(
-            viewModel: presentedNowPlayingViewModel,
+            viewModel: nowPlayingVM,
             namespace: playerNamespace,
             animationID: artworkAnimationID,
             dismissAction: dismissNowPlaying
@@ -423,15 +417,10 @@ public struct RootView: View {
         $isNowPlayingPresented
     }
 
-    private func presentNowPlaying(with viewModel: NowPlayingViewModel) {
-        activeNowPlayingPresentationViewModel = viewModel
+    private func presentNowPlayingFromMiniPlayer() {
         withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
             isNowPlayingPresented = true
         }
-    }
-
-    private func presentNowPlayingFromMiniPlayer() {
-        presentNowPlaying(with: nowPlayingVM)
     }
 
     private func dismissNowPlaying() {
@@ -444,8 +433,6 @@ public struct RootView: View {
     }
 
     fileprivate func completeNowPlayingDismissal() {
-        activeNowPlayingPresentationViewModel = nil
-
         guard let pending = navigationCoordinator.pendingNavigation else { return }
         navigationCoordinator.pendingNavigation = nil
 
