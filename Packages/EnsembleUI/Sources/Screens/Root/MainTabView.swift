@@ -158,7 +158,7 @@ public struct MainTabView: View {
             .onReceive(settingsManager.objectWillChange) { _ in
                 updateSettingsSnapshot()
             }
-            .auxiliaryPresentationSheets()
+            .auxiliaryPresentationSheets(accentColor: accentColor)
             .addAccountPresentationSheet()
             rootView
                 .stageFlowRotationSupport(isEnabled: selectedTabSupportsStageFlow)
@@ -486,21 +486,6 @@ public struct SidebarView: View {
         }
     }
 
-    private func loadSidebarData() async {
-        async let libRefresh: () = libraryVM.refresh()
-        async let pinsLoad: () = pinnedVM.loadPinnedItems()
-        _ = await (libRefresh, pinsLoad)
-
-        guard libraryVM.hasEnabledLibraries else {
-            clearCachedSidebarPlaylistsIfNeeded()
-            EnsembleLogger.debug("SidebarView: skipped playlist load because no enabled libraries are available")
-            return
-        }
-
-        await playlistsVM.loadPlaylists()
-        rebuildCachedSidebarPlaylists()
-    }
-
     private var isShowingCompactSidebarRoot: Bool {
         guard compactColumnPreference == .sidebar else {
             return false
@@ -522,8 +507,9 @@ public struct SidebarView: View {
     /// Uses @State instead of computed properties to survive NavigationSplitView
     /// re-layouts on macOS that can drop computed property changes.
     private func rebuildCachedSidebarPlaylists() {
-        guard libraryVM.hasEnabledLibraries else {
-            clearCachedSidebarPlaylistsIfNeeded()
+        guard libraryVM.hasEnabledLibraries || libraryVM.isRestoringCloudSources else {
+            cachedSmartPlaylists = []
+            cachedRegularPlaylists = []
             return
         }
 
@@ -544,15 +530,6 @@ public struct SidebarView: View {
             if newRegular.map(\.id) != cachedRegularPlaylists.map(\.id) {
                 cachedRegularPlaylists = newRegular
             }
-        }
-    }
-
-    private func clearCachedSidebarPlaylistsIfNeeded() {
-        if !cachedSmartPlaylists.isEmpty {
-            cachedSmartPlaylists = []
-        }
-        if !cachedRegularPlaylists.isEmpty {
-            cachedRegularPlaylists = []
         }
     }
 
@@ -794,7 +771,7 @@ public struct SidebarView: View {
 
     public var body: some View {
         splitNavigationView
-        .auxiliaryPresentationSheets()
+        .auxiliaryPresentationSheets(accentColor: accentColor)
         .onReceive(settingsManager.objectWillChange) { _ in
             updateSettingsSnapshot()
         }
@@ -894,7 +871,13 @@ public struct SidebarView: View {
             Text("This will permanently delete \"\(mergedPlaylistPendingDelete?.title ?? "")\" from \(count) server\(count == 1 ? "" : "s").")
         }
         .task {
-            await loadSidebarData()
+            // Load all sidebar data concurrently so playlists appear
+            // immediately rather than waiting for library refresh to finish.
+            async let libRefresh: () = libraryVM.refresh()
+            async let pinsLoad: () = pinnedVM.loadPinnedItems()
+            async let playlistsLoad: () = playlistsVM.loadPlaylists()
+            _ = await (libRefresh, pinsLoad, playlistsLoad)
+            rebuildCachedSidebarPlaylists()
         }
         // Keep NavigationCoordinator.selectedTab in sync with sidebar selection
         // so navigate(to:) pushes onto the correct section's NavigationStack
@@ -1177,7 +1160,6 @@ public struct SidebarView: View {
         GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
                 Color.clear
-                    .allowsHitTesting(false)
                 registeredContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }

@@ -566,7 +566,6 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertTrue(sut.hubs.isEmpty)
         XCTAssertTrue(sut.hasConfiguredAccounts)
         XCTAssertFalse(sut.hasEnabledLibraries)
-        XCTAssertTrue(sut.initialLoadCompletedForTesting)
     }
 
     func testUnavailableNetworkSnapshotPreservesExistingCachedFeedContent() async {

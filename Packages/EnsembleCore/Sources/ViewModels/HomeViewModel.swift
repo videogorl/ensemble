@@ -37,7 +37,6 @@ public final class HomeViewModel: ObservableObject {
     private var refreshTriggerCancellables = Set<AnyCancellable>()
     private var cachedSnapshotRestoreTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
-    private var initialLoadSafetyTask: Task<Void, Never>?
     private var lastLoadTime: Date?
     private var currentSourceKey: String?
     private var isViewVisible = false
@@ -119,9 +118,9 @@ public final class HomeViewModel: ObservableObject {
 
         // Safety timeout: if the initial .task load never completes (e.g. no
         // configured accounts), unblock auto-refresh after 15 seconds.
-        initialLoadSafetyTask = Task { @MainActor [weak self] in
+        Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 15_000_000_000)
-            guard !Task.isCancelled, let self, !self.initialLoadCompleted else { return }
+            guard let self, !self.initialLoadCompleted else { return }
             self.initialLoadCompleted = true
             EnsembleLogger.debug("🏠 Home initial load safety timeout — unblocking auto-refresh")
         }
@@ -130,7 +129,6 @@ public final class HomeViewModel: ObservableObject {
     deinit {
         // Invalidate timer directly without calling @MainActor method from nonisolated deinit
         hubRefreshTimer?.invalidate()
-        initialLoadSafetyTask?.cancel()
         refreshTriggerCancellables.removeAll()
     }
     
@@ -432,10 +430,6 @@ public final class HomeViewModel: ObservableObject {
 
     internal var hasPendingAutoRefreshForTesting: Bool {
         !pendingAutoRefreshReasons.isEmpty
-    }
-
-    internal var initialLoadCompletedForTesting: Bool {
-        initialLoadCompleted
     }
 
     internal func requestAutoRefreshForTesting(reason: AutoRefreshReason) {
@@ -747,9 +741,6 @@ public final class HomeViewModel: ObservableObject {
 
     private func clearHubContentForUnavailableSources() {
         loadTask?.cancel()
-        initialLoadCompleted = true
-        initialLoadSafetyTask?.cancel()
-        initialLoadSafetyTask = nil
         isLoading = false
         error = nil
         isFeedCacheStale = false
