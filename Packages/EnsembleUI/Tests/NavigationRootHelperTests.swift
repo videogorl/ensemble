@@ -85,6 +85,25 @@ final class NavigationRootHelperTests: XCTestCase {
         )
     }
 
+    func testStageFlowPolicyResolvesHiddenPlaylistsFromMorePath() {
+        XCTAssertEqual(
+            MainTabStageFlowPolicy.activeRootTab(
+                selectedRootTab: .settings,
+                morePath: [.view(.playlists)],
+                isPhone: true
+            ),
+            .playlists
+        )
+        XCTAssertEqual(
+            MainTabStageFlowPolicy.activeRootTab(
+                selectedRootTab: .settings,
+                morePath: [.view(.playlists), .playlist(id: "playlist", sourceKey: nil)],
+                isPhone: true
+            ),
+            .playlists
+        )
+    }
+
     func testStageFlowPolicyRejectsUnsupportedAndNonPhoneRoutes() {
         XCTAssertNil(
             MainTabStageFlowPolicy.activeRootTab(

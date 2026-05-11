@@ -32,6 +32,7 @@ ensemble/
 |       +-- 2026-05-04-function-ownership-context-menu-audit.md # Shared function/menu ownership audit and migration order
 |       +-- 2026-05-04-platform-mutation-drag-performance-scaffold-audit.md # Cross-platform policy, mutation, drag/export, performance, and utility scaffold audit
 |       +-- 2026-05-06-codebase-audit.md # Full Swift target/package audit with cleanup and migration backlog
+|       +-- 2026-05-11-native-behavior-cleanup-closeout.md # Final native-behavior workaround classification and closeout rule
 |
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/

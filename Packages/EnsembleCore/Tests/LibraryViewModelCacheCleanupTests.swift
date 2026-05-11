@@ -133,6 +133,40 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         try await waitForDeferredOfflineCleanup(harness: harness)
     }
 
+    func testCacheManagerClearAllCachesDeletesDownloadedFilesFromDisk() async throws {
+        let harness = makeHarness()
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        let trackRatingKey = "track-lib-1"
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
+        let fileURL = try await seedCompletedOfflineDownloadFile(
+            harness: harness,
+            sourceKey: sourceKey,
+            trackRatingKey: trackRatingKey
+        )
+        let sidecarURL = URL(fileURLWithPath: fileURL.path + ".freq")
+        defer {
+            try? FileManager.default.removeItem(at: fileURL)
+            try? FileManager.default.removeItem(at: sidecarURL)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sidecarURL.path))
+
+        let cacheManager = CacheManager(
+            libraryRepository: harness.libraryRepository,
+            artworkDownloadManager: ArtworkDownloadManager(),
+            downloadManager: harness.downloadManager,
+            lyricsService: LyricsService(syncCoordinator: harness.syncCoordinator)
+        )
+        cacheManager.sourceCacheCleanupService = harness.sourceCacheCleanupService
+
+        try await cacheManager.clearAllCaches()
+
+        try await waitForDeferredCleanup(repository: harness.libraryRepository)
+        try await waitForDeferredOfflineCleanup(harness: harness)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarURL.path))
+    }
+
     private struct Harness {
         let accountManager: AccountManager
         let syncCoordinator: SyncCoordinator
@@ -337,5 +371,42 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
                 OfflineTrackReference(trackRatingKey: trackRatingKey, trackSourceCompositeKey: sourceKey)
             ]
         )
+    }
+
+    private func seedCompletedOfflineDownloadFile(
+        harness: Harness,
+        sourceKey: String,
+        trackRatingKey: String
+    ) async throws -> URL {
+        let download = try await harness.downloadManager.createDownload(
+            forTrackRatingKey: trackRatingKey,
+            sourceCompositeKey: sourceKey,
+            quality: "high"
+        )
+        let filename = "cleanup-test-\(UUID().uuidString).mp3"
+        let fileURL = DownloadManager.downloadsDirectory.appendingPathComponent(filename)
+        let sidecarURL = URL(fileURLWithPath: fileURL.path + ".freq")
+        try Data("audio".utf8).write(to: fileURL)
+        try Data("sidecar".utf8).write(to: sidecarURL)
+        try await harness.downloadManager.completeDownload(
+            download.objectID,
+            filePath: fileURL.path,
+            fileSize: 5,
+            quality: "high"
+        )
+        _ = try await harness.targetRepository.upsertTarget(
+            key: "library:\(sourceKey)",
+            kind: .library,
+            ratingKey: nil,
+            sourceCompositeKey: sourceKey,
+            displayName: "Library"
+        )
+        try await harness.targetRepository.replaceMemberships(
+            targetKey: "library:\(sourceKey)",
+            trackReferences: [
+                OfflineTrackReference(trackRatingKey: trackRatingKey, trackSourceCompositeKey: sourceKey)
+            ]
+        )
+        return fileURL
     }
 }

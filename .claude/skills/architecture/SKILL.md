@@ -351,10 +351,10 @@ Dynamic home screen powered by Plex's hub system:
 
 - `Hub` domain model -- Sections like Recently Added, Recently Played
 - `HubItem` -- Items within a hub (tracks, albums, artists, playlists)
-- `HomeViewModel` -- Loads hub data with 2s debouncing and defers auto-refresh/snapshot application while users are actively scrolling
+- `HomeViewModel` -- Loads cached hub snapshots immediately, applies visible network snapshots directly, and defers automatic refresh only while Feed is off-screen
 - `HomeView` -- Horizontally-scrolling sections with navigation
   - `HubSection` / `HubItemCard` inline structs
-  - Reports view visibility + scroll interaction to `HomeViewModel` so deferred refreshes are applied when idle
+  - Reports view visibility to `HomeViewModel`; native SwiftUI scroll views own vertical/horizontal gesture arbitration
   - Artwork: 140x140pt, circular for artists (radius 70), rounded for albums (radius 8)
 
 **Hub Persistence:**
