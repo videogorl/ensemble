@@ -24,24 +24,13 @@ struct WatchRootView: View {
                 }
             }
             .navigationTitle("Ensemble")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    nowPlayingLink
-                }
-            }
+            .watchNowPlayingToolbar()
         }
         .environmentObject(experience)
         .environmentObject(remoteSession)
         .onAppear {
             experience.start()
         }
-    }
-
-    private var nowPlayingLink: some View {
-        NavigationLink(destination: WatchNowPlayingView()) {
-            Image(systemName: "music.note")
-        }
-        .accessibilityLabel("Now Playing")
     }
 
     private var loadingView: some View {
@@ -224,14 +213,7 @@ private struct WatchSourceSettingsView: View {
             }
         }
         .navigationTitle("Settings")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                NavigationLink(destination: WatchNowPlayingView()) {
-                    Image(systemName: "music.note")
-                }
-                .accessibilityLabel("Now Playing")
-            }
-        }
+        .watchNowPlayingToolbar()
     }
 }
 
@@ -246,14 +228,7 @@ private struct WatchCategoryView: View {
             }
         }
         .navigationTitle(category.title)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                NavigationLink(destination: WatchNowPlayingView()) {
-                    Image(systemName: "music.note")
-                }
-                .accessibilityLabel("Now Playing")
-            }
-        }
+        .watchNowPlayingToolbar()
     }
 
     private var items: [EnsembleMediaSummary] {
@@ -309,14 +284,7 @@ private struct WatchMediaDetailView: View {
             }
         }
         .navigationTitle(item.kind.title)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                NavigationLink(destination: WatchNowPlayingView()) {
-                    Image(systemName: "music.note")
-                }
-                .accessibilityLabel("Now Playing")
-            }
-        }
+        .watchNowPlayingToolbar()
         .onAppear {
             experience.tracks(for: item)
         }
@@ -494,6 +462,38 @@ private struct WatchNowPlayingView: View {
         case (nil, nil):
             return experience.statusMessage
         }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func watchNowPlayingToolbar() -> some View {
+        if #available(watchOS 10.0, *) {
+            toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    WatchNowPlayingToolbarLink()
+                }
+            }
+        } else {
+            overlay(alignment: .topTrailing) {
+                WatchNowPlayingToolbarLink()
+                    .padding(.top, 2)
+                    .padding(.trailing, 4)
+            }
+        }
+    }
+}
+
+private struct WatchNowPlayingToolbarLink: View {
+    var body: some View {
+        NavigationLink(destination: WatchNowPlayingView()) {
+            Image(systemName: "music.note")
+                .font(.headline)
+                .frame(width: 30, height: 30)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Now Playing")
     }
 }
 
