@@ -190,6 +190,62 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         case unimplemented
     }
 
+    private struct MockSyncProvider: MusicSourceSyncProvider, @unchecked Sendable {
+        let sourceIdentifier: MusicSourceIdentifier
+        var libraryResult: Result<LibrarySyncResult, Error> = .success(LibrarySyncResult())
+        var playlistResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
+
+        func syncLibrary(
+            to repository: LibraryRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> LibrarySyncResult {
+            progressHandler(1.0)
+            return try libraryResult.get()
+        }
+
+        func syncLibraryIncremental(
+            since timestamp: TimeInterval,
+            to repository: LibraryRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> LibrarySyncResult {
+            progressHandler(1.0)
+            return try libraryResult.get()
+        }
+
+        func syncPlaylists(
+            to repository: PlaylistRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> PlaylistSyncResult {
+            progressHandler(1.0)
+            return try playlistResult.get()
+        }
+
+        func syncPlaylistsIncremental(
+            to repository: PlaylistRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> PlaylistSyncResult {
+            progressHandler(1.0)
+            return try playlistResult.get()
+        }
+
+        func getStreamURL(
+            for trackRatingKey: String,
+            trackStreamKey: String?,
+            quality: StreamingQuality,
+            metadataDurationSeconds: Double?
+        ) async throws -> StreamResolution {
+            throw MockError.unimplemented
+        }
+
+        func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
+        func rateTrack(ratingKey: String, rating: Int?) async throws {}
+        func reportTimeline(ratingKey: String, key: String, state: String, time: Int, duration: Int) async throws {}
+        func scrobble(ratingKey: String) async throws {}
+        func getAlbumTracks(albumKey: String) async throws -> [Track] { [] }
+        func getArtistAlbums(artistKey: String) async throws -> [Album] { [] }
+        func getArtistTracks(artistKey: String) async throws -> [Track] { [] }
+    }
+
     private struct Harness {
         let viewModel: HomeViewModel
         let accountManager: AccountManager
@@ -334,6 +390,15 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         )
     }
 
+    private func makeSourceIdentifier() -> MusicSourceIdentifier {
+        MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account-enabled",
+            serverId: "server-enabled",
+            libraryId: "lib-enabled"
+        )
+    }
+
     func testHiddenFeedDefersAutoRefreshUntilVisible() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
@@ -342,7 +407,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         var refreshCount = 0
         sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
 
-        sut.requestAutoRefreshForTesting(reason: .syncCompleted)
+        sut.requestAutoRefreshForTesting(reason: .contentChange)
 
         try? await Task.sleep(nanoseconds: 60_000_000)
 
@@ -358,7 +423,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         var refreshCount = 0
         sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
 
-        sut.requestAutoRefreshForTesting(reason: .syncCompleted)
+        sut.requestAutoRefreshForTesting(reason: .contentChange)
 
         sut.handleViewVisibilityChange(isVisible: true)
         try? await Task.sleep(nanoseconds: 60_000_000)
@@ -509,7 +574,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         var refreshCount = 0
         sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
 
-        sut.requestAutoRefreshForTesting(reason: .syncCompleted)
+        sut.requestAutoRefreshForTesting(reason: .contentChange)
         sut.requestAutoRefreshForTesting(reason: .accountChange)
         XCTAssertTrue(sut.hasPendingAutoRefreshForTesting)
 
@@ -805,5 +870,59 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
 
         XCTAssertEqual(waitCallCount, 0)
         XCTAssertEqual(loadCount, 1)
+    }
+
+    func testSourceStatusOnlyUpdateDoesNotTriggerFeedAutoRefresh() async {
+        let loader = MockHomeHubLoader()
+        let (sut, coordinator) = makeViewModel(hubLoader: loader)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.clearPendingAutoRefreshForTesting()
+        var refreshCount = 0
+        sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
+        sut.handleViewVisibilityChange(isVisible: true)
+
+        let source = makeSourceIdentifier()
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(sourceIdentifier: source),
+            status: MusicSourceStatus(syncStatus: .idle, connectionState: .connecting)
+        )
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(sourceIdentifier: source),
+            status: MusicSourceStatus(syncStatus: .idle, connectionState: .connected(url: "https://enabled.example.com"))
+        )
+
+        try? await Task.sleep(nanoseconds: 2_300_000_000)
+
+        XCTAssertEqual(refreshCount, 0)
+        XCTAssertFalse(sut.hasPendingAutoRefreshForTesting)
+    }
+
+    func testMaterialContentChangeTriggersVisibleFeedAutoRefresh() async {
+        let loader = MockHomeHubLoader()
+        let (sut, coordinator) = makeViewModel(hubLoader: loader)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.clearPendingAutoRefreshForTesting()
+        var refreshReasons: [HomeViewModel.AutoRefreshReason] = []
+        sut.autoRefreshRunnerForTesting = { reason in refreshReasons.append(reason) }
+        sut.handleViewVisibilityChange(isVisible: true)
+
+        let source = makeSourceIdentifier()
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(
+                sourceIdentifier: source,
+                libraryResult: .success(LibrarySyncResult(changedTracks: 1))
+            ),
+            status: MusicSourceStatus(
+                syncStatus: .lastSynced(Date(timeIntervalSince1970: 1_000)),
+                connectionState: .connected(url: "https://enabled.example.com")
+            )
+        )
+
+        await coordinator.sync(source: source)
+        try? await Task.sleep(nanoseconds: 1_300_000_000)
+
+        XCTAssertEqual(refreshReasons, [.contentChange])
     }
 }

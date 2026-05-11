@@ -191,10 +191,14 @@ struct EnsembleApp: App {
                     DependencyContainer.shared.webSocketCoordinator.start()
                 }
 
-                // Route foreground freshness through one coordinator so iOS 15
-                // foreground refresh and iOS background refresh share the same work.
-                await DependencyContainer.shared.backgroundRefreshCoordinator.performForegroundFreshnessRefresh()
-                await DependencyContainer.shared.reconcileSyncOnForeground()
+                if isInitialActivation {
+                    AppLogger.debug("📱 EnsembleApp: Initial active phase — skipping foreground freshness after cold-launch pipeline")
+                } else {
+                    // Route foreground freshness through one coordinator so iOS 15
+                    // foreground refresh and iOS background refresh share the same work.
+                    await DependencyContainer.shared.backgroundRefreshCoordinator.performForegroundFreshnessRefresh()
+                    await DependencyContainer.shared.reconcileSyncOnForeground()
+                }
 
                 // Drain any pending offline mutations now that connectivity may have resumed.
                 await DependencyContainer.shared.mutationCoordinator.drainQueue()

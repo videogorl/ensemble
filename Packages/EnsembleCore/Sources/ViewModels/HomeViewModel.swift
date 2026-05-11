@@ -8,7 +8,7 @@ import Foundation
 public final class HomeViewModel: ObservableObject {
     enum AutoRefreshReason: String, Hashable {
         case accountChange
-        case syncCompleted
+        case contentChange
         case periodicTimer
     }
 
@@ -482,14 +482,16 @@ public final class HomeViewModel: ObservableObject {
             }
             .store(in: &refreshTriggerCancellables)
 
-        syncCoordinator.$isSyncing
-            .combineLatest(syncCoordinator.$sourceStatuses)
+        // Feed reloads only follow actual library/playlist mutations.
+        // Transport, health, and progress churn stays on sourceStatuses.
+        syncCoordinator.$lastContentChange
             .receive(on: DispatchQueue.main)
-            .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
-            .dropFirst()
-            .sink { [weak self] syncing, _ in
-                guard let self, !syncing else { return }
-                self.requestAutoRefresh(reason: .syncCompleted)
+            .compactMap { $0 }
+            .filter(\.hasMaterialChanges)
+            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
+            .sink { [weak self] change in
+                EnsembleLogger.debug("🏠 Home auto-refresh content change source=\(change.source.compositeKey)")
+                self?.requestAutoRefresh(reason: .contentChange)
             }
             .store(in: &refreshTriggerCancellables)
     }
