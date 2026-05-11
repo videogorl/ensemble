@@ -101,22 +101,27 @@ private struct RootMiniPlayerOverlay: View {
 
     var body: some View {
         if layout.showsMiniPlayer && layout.hasRenderableFrame && miniPlayerWidth > 0 {
-            MiniPlayer(
-                viewModel: nowPlayingVM,
-                isFloating: true,
-                showsWaveform: !isPhoneLayout && miniPlayerWidth >= 280,
-                waveformColor: accentColor,
-                horizontalPadding: miniPlayerHorizontalPadding,
-                namespace: namespace,
-                animationID: animationID
-            ) {
-                withAnimation(.interactiveSpring(response: 0.45, dampingFraction: 0.85)) {
-                    presentNowPlaying()
+            ZStack(alignment: .bottom) {
+                Color.clear
+                    .allowsHitTesting(false)
+
+                MiniPlayer(
+                    viewModel: nowPlayingVM,
+                    isFloating: true,
+                    showsWaveform: !isPhoneLayout && miniPlayerWidth >= 280,
+                    waveformColor: accentColor,
+                    horizontalPadding: miniPlayerHorizontalPadding,
+                    namespace: namespace,
+                    animationID: animationID
+                ) {
+                    withAnimation(.interactiveSpring(response: 0.45, dampingFraction: 0.85)) {
+                        presentNowPlaying()
+                    }
                 }
+                .accentColor(accentColor)
+                .frame(width: miniPlayerWidth)
+                .padding(.bottom, layout.bottomPadding)
             }
-            .accentColor(accentColor)
-            .frame(width: miniPlayerWidth)
-            .padding(.bottom, layout.bottomPadding)
             .frame(
                 width: layout.frame.width,
                 height: layout.frame.height,
@@ -225,6 +230,7 @@ public struct RootView: View {
                         presentNowPlaying: presentNowPlayingFromMiniPlayer
                     )
                     .zIndex(5)
+                    .allowsHitTesting(false)
                 }
             }
             .environment(\.isViewportNowPlayingPresented, isNowPlayingPresented)
