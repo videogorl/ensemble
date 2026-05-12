@@ -8,6 +8,7 @@ import UIKit
 struct WatchRootView: View {
     @StateObject private var experience = WatchExperienceModel()
     @StateObject private var remoteSession = WatchSessionModel()
+    @State private var selectedHomePinID: String?
 
     var body: some View {
         NavigationView {
@@ -111,11 +112,7 @@ struct WatchRootView: View {
                 Section("Pins") {
                     LazyVGrid(columns: WatchPinsGrid.columns, spacing: WatchPinsGrid.spacing) {
                         ForEach(snapshot.pins) { item in
-                            NavigationLink(destination: WatchMediaDetailView(item: item)) {
-                                WatchPinArtworkTile(item: item)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(item.title)
+                            WatchHomePinCell(item: item, selectedPinID: $selectedHomePinID)
                         }
                     }
                     .padding(.vertical, 4)
@@ -151,6 +148,43 @@ struct WatchRootView: View {
         .refreshable {
             experience.refresh()
         }
+    }
+}
+
+private struct WatchHomePinCell: View {
+    let item: EnsembleMediaSummary
+    @Binding var selectedPinID: String?
+
+    var body: some View {
+        Button {
+            selectedPinID = item.id
+        } label: {
+            WatchPinArtworkTile(item: item)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(item.title)
+        .background {
+            NavigationLink(isActive: isSelected) {
+                WatchMediaDetailView(item: item)
+            } label: {
+                EmptyView()
+            }
+            .hidden()
+        }
+    }
+
+    private var isSelected: Binding<Bool> {
+        Binding(
+            get: { selectedPinID == item.id },
+            set: { isActive in
+                if isActive {
+                    selectedPinID = item.id
+                } else if selectedPinID == item.id {
+                    selectedPinID = nil
+                }
+            }
+        )
     }
 }
 
