@@ -280,25 +280,30 @@ private struct WatchCategoryView: View {
 }
 
 private struct WatchMediaDetailView: View {
+    let item: EnsembleMediaSummary
+
+    @ViewBuilder
+    var body: some View {
+        if item.kind == .artist {
+            WatchArtistAlbumsView(item: item)
+        } else {
+            WatchTrackCollectionDetailView(
+                title: item.title,
+                subtitle: item.subtitle,
+                navigationTitle: item.kind.title,
+                source: .media(item)
+            )
+        }
+    }
+}
+
+private struct WatchArtistAlbumsView: View {
     @EnvironmentObject private var experience: WatchExperienceModel
     let item: EnsembleMediaSummary
 
     var body: some View {
         List {
-            Section {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(item.title)
-                        .font(.headline)
-                        .lineLimit(3)
-                    if let subtitle = item.subtitle, !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(2)
-                    }
-                }
-                .padding(.vertical, 2)
-            }
+            WatchCollectionHeaderSection(title: item.title, subtitle: item.subtitle)
 
             Section {
                 if experience.detailTracks.isEmpty {
@@ -306,7 +311,51 @@ private struct WatchMediaDetailView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {
-                    ForEach(experience.detailTracks) { track in
+                    ForEach(artistAlbums) { album in
+                        NavigationLink {
+                            WatchTrackCollectionDetailView(
+                                title: album.title,
+                                subtitle: album.artistName,
+                                navigationTitle: "Album",
+                                source: .tracks(album.tracks)
+                            )
+                        } label: {
+                            WatchArtistAlbumRow(album: album)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Artist")
+        .watchNowPlayingToolbar()
+        .onAppear {
+            experience.tracks(for: item)
+        }
+    }
+
+    private var artistAlbums: [WatchArtistAlbumSummary] {
+        WatchArtistAlbumSummary.albums(from: experience.detailTracks)
+    }
+}
+
+private struct WatchTrackCollectionDetailView: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
+    let title: String
+    let subtitle: String?
+    let navigationTitle: String
+    let source: WatchTrackCollectionSource
+
+    var body: some View {
+        List {
+            WatchCollectionHeaderSection(title: title, subtitle: subtitle)
+
+            Section {
+                if tracks.isEmpty {
+                    Text(emptyMessage)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(tracks) { track in
                         Button {
                             experience.play(track)
                         } label: {
@@ -316,11 +365,112 @@ private struct WatchMediaDetailView: View {
                 }
             }
         }
-        .navigationTitle(item.kind.title)
+        .navigationTitle(navigationTitle)
         .watchNowPlayingToolbar()
         .onAppear {
-            experience.tracks(for: item)
+            if case let .media(item) = source {
+                experience.tracks(for: item)
+            }
         }
+    }
+
+    private var tracks: [EnsembleTrack] {
+        switch source {
+        case .media:
+            return experience.detailTracks
+        case .tracks(let tracks):
+            return tracks
+        }
+    }
+
+    private var emptyMessage: String {
+        switch source {
+        case .media:
+            return experience.statusMessage
+        case .tracks:
+            return "No tracks found."
+        }
+    }
+}
+
+private enum WatchTrackCollectionSource {
+    case media(EnsembleMediaSummary)
+    case tracks([EnsembleTrack])
+}
+
+private struct WatchCollectionHeaderSection: View {
+    let title: String
+    let subtitle: String?
+
+    var body: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.headline)
+                    .lineLimit(3)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+}
+
+private struct WatchArtistAlbumSummary: Identifiable {
+    let id: String
+    let title: String
+    let artistName: String?
+    let tracks: [EnsembleTrack]
+
+    var representativeTrack: EnsembleTrack? {
+        tracks.first
+    }
+
+    var subtitle: String {
+        let count = tracks.count
+        return count == 1 ? "1 track" : "\(count) tracks"
+    }
+
+    static func albums(from tracks: [EnsembleTrack]) -> [WatchArtistAlbumSummary] {
+        var albums: [WatchArtistAlbumSummary] = []
+        var albumIndexesByKey: [String: Int] = [:]
+
+        for track in tracks {
+            let title = normalizedAlbumTitle(for: track)
+            let key = "\(track.sourceKey)|\(title.lowercased())"
+
+            if let index = albumIndexesByKey[key] {
+                let album = albums[index]
+                albums[index] = WatchArtistAlbumSummary(
+                    id: album.id,
+                    title: album.title,
+                    artistName: album.artistName,
+                    tracks: album.tracks + [track]
+                )
+            } else {
+                albumIndexesByKey[key] = albums.count
+                albums.append(WatchArtistAlbumSummary(
+                    id: key,
+                    title: title,
+                    artistName: track.artistName,
+                    tracks: [track]
+                ))
+            }
+        }
+
+        return albums
+    }
+
+    private static func normalizedAlbumTitle(for track: EnsembleTrack) -> String {
+        guard let albumTitle = track.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !albumTitle.isEmpty else {
+            return "Unknown Album"
+        }
+        return albumTitle
     }
 }
 
@@ -782,6 +932,36 @@ private struct WatchTrackRow: View {
             }
         }
         .task(id: "\(track.id)-\(experience.artworkContextID)") {
+            artworkURL = await experience.artworkURL(for: track, size: 80)
+        }
+    }
+}
+
+private struct WatchArtistAlbumRow: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
+    let album: WatchArtistAlbumSummary
+
+    @State private var artworkURL: URL?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            WatchMediaArtworkThumbnail(artworkURL: artworkURL, isArtist: false)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(album.title)
+                    .font(.headline)
+                    .lineLimit(2)
+                Text(album.subtitle)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .task(id: "\(album.id)-\(experience.artworkContextID)") {
+            guard let track = album.representativeTrack else {
+                artworkURL = nil
+                return
+            }
             artworkURL = await experience.artworkURL(for: track, size: 80)
         }
     }
