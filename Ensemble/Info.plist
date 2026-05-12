@@ -120,5 +120,29 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Ensemble Media Drag Payload</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.videogorl.ensemble.media-drag-payload</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>ensemblemediapayload</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/vnd.videogorl.ensemble.media-drag-payload+json</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>
