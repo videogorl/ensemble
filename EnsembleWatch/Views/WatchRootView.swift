@@ -8,30 +8,45 @@ import UIKit
 struct WatchRootView: View {
     @StateObject private var experience = WatchExperienceModel()
     @StateObject private var remoteSession = WatchSessionModel()
+    @StateObject private var navigation = WatchNavigationModel()
     @State private var selectedHomePinID: String?
 
     var body: some View {
-        NavigationView {
-            Group {
-                switch experience.bootstrapState {
-                case .idle, .loading:
-                    loadingView
-                case .needsLink:
-                    linkView
-                case .ready:
-                    homeView
-                case .failed:
-                    errorView
+        Group {
+            if #available(watchOS 9.0, *) {
+                NavigationStack(path: $navigation.path) {
+                    rootContent
+                        .watchRouteDestinations()
+                }
+            } else {
+                NavigationView {
+                    rootContent
                 }
             }
-            .navigationTitle("Ensemble")
-            .watchNowPlayingToolbar()
         }
         .environmentObject(experience)
         .environmentObject(remoteSession)
+        .environmentObject(navigation)
         .onAppear {
             experience.start()
         }
+    }
+
+    private var rootContent: some View {
+        Group {
+            switch experience.bootstrapState {
+            case .idle, .loading:
+                loadingView
+            case .needsLink:
+                linkView
+            case .ready:
+                homeView
+            case .failed:
+                errorView
+            }
+        }
+        .navigationTitle("Ensemble")
+        .watchNowPlayingToolbar()
     }
 
     private var loadingView: some View {
@@ -300,6 +315,7 @@ private struct WatchMediaDetailView: View {
 private struct WatchArtistAlbumsView: View {
     @EnvironmentObject private var experience: WatchExperienceModel
     let item: EnsembleMediaSummary
+    @State private var selectedAlbumID: String?
 
     var body: some View {
         List {
@@ -312,22 +328,14 @@ private struct WatchArtistAlbumsView: View {
                         .foregroundColor(.secondary)
                 } else {
                     ForEach(artistAlbums) { album in
-                        NavigationLink {
-                            WatchTrackCollectionDetailView(
-                                title: album.title,
-                                subtitle: album.artistName,
-                                navigationTitle: "Album",
-                                source: .tracks(album.tracks)
-                            )
-                        } label: {
-                            WatchArtistAlbumRow(album: album)
-                        }
+                        WatchArtistAlbumNavigationRow(album: album, selectedAlbumID: $selectedAlbumID)
                     }
                 }
             }
         }
         .navigationTitle("Artist")
         .watchNowPlayingToolbar()
+        .watchRouteDestinations()
         .onAppear {
             experience.tracks(for: item)
         }
@@ -335,6 +343,65 @@ private struct WatchArtistAlbumsView: View {
 
     private var artistAlbums: [WatchArtistAlbumSummary] {
         WatchArtistAlbumSummary.albums(from: experience.detailTracks)
+    }
+}
+
+private struct WatchArtistAlbumNavigationRow: View {
+    @EnvironmentObject private var navigation: WatchNavigationModel
+    let album: WatchArtistAlbumSummary
+    @Binding var selectedAlbumID: String?
+
+    @ViewBuilder
+    var body: some View {
+        if #available(watchOS 9.0, *) {
+            Button {
+                navigation.path.append(album.route)
+            } label: {
+                WatchArtistAlbumRow(album: album)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            legacyNavigationButton
+        }
+    }
+
+    private var legacyNavigationButton: some View {
+        Button {
+            selectedAlbumID = album.id
+        } label: {
+            WatchArtistAlbumRow(album: album)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background {
+            NavigationLink(isActive: isSelected) {
+                WatchTrackCollectionDetailView(
+                    title: album.title,
+                    subtitle: album.artistName,
+                    navigationTitle: "Album",
+                    source: .tracks(album.tracks)
+                )
+            } label: {
+                EmptyView()
+            }
+            .hidden()
+        }
+    }
+
+    private var isSelected: Binding<Bool> {
+        Binding(
+            get: { selectedAlbumID == album.id },
+            set: { isActive in
+                if isActive {
+                    selectedAlbumID = album.id
+                } else if selectedAlbumID == album.id {
+                    selectedAlbumID = nil
+                }
+            }
+        )
     }
 }
 
@@ -380,6 +447,8 @@ private struct WatchTrackCollectionDetailView: View {
             return experience.detailTracks
         case .tracks(let tracks):
             return tracks
+        case .artistAlbum(let id):
+            return WatchArtistAlbumSummary.album(withID: id, in: experience.detailTracks)?.tracks ?? []
         }
     }
 
@@ -387,7 +456,7 @@ private struct WatchTrackCollectionDetailView: View {
         switch source {
         case .media:
             return experience.statusMessage
-        case .tracks:
+        case .tracks, .artistAlbum:
             return "No tracks found."
         }
     }
@@ -396,6 +465,7 @@ private struct WatchTrackCollectionDetailView: View {
 private enum WatchTrackCollectionSource {
     case media(EnsembleMediaSummary)
     case tracks([EnsembleTrack])
+    case artistAlbum(String)
 }
 
 private struct WatchCollectionHeaderSection: View {
@@ -420,6 +490,36 @@ private struct WatchCollectionHeaderSection: View {
     }
 }
 
+private enum WatchRoute: Hashable {
+    case artistAlbum(id: String, title: String, artistName: String?)
+}
+
+@MainActor
+private final class WatchNavigationModel: ObservableObject {
+    @Published var path: [WatchRoute] = []
+}
+
+private extension View {
+    @ViewBuilder
+    func watchRouteDestinations() -> some View {
+        if #available(watchOS 9.0, *) {
+            navigationDestination(for: WatchRoute.self) { route in
+                switch route {
+                case .artistAlbum(let id, let title, let artistName):
+                    WatchTrackCollectionDetailView(
+                        title: title,
+                        subtitle: artistName,
+                        navigationTitle: "Album",
+                        source: .artistAlbum(id)
+                    )
+                }
+            }
+        } else {
+            self
+        }
+    }
+}
+
 private struct WatchArtistAlbumSummary: Identifiable {
     let id: String
     let title: String
@@ -433,6 +533,10 @@ private struct WatchArtistAlbumSummary: Identifiable {
     var subtitle: String {
         let count = tracks.count
         return count == 1 ? "1 track" : "\(count) tracks"
+    }
+
+    var route: WatchRoute {
+        .artistAlbum(id: id, title: title, artistName: artistName)
     }
 
     static func albums(from tracks: [EnsembleTrack]) -> [WatchArtistAlbumSummary] {
@@ -463,6 +567,10 @@ private struct WatchArtistAlbumSummary: Identifiable {
         }
 
         return albums
+    }
+
+    static func album(withID id: String, in tracks: [EnsembleTrack]) -> WatchArtistAlbumSummary? {
+        albums(from: tracks).first { $0.id == id }
     }
 
     private static func normalizedAlbumTitle(for track: EnsembleTrack) -> String {
