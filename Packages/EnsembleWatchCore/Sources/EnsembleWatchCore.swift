@@ -90,6 +90,20 @@ public struct WatchPinnedReference: Codable, Equatable, Sendable {
     public let type: String
     public let title: String
     public let pinnedDate: Date
+
+    public init(
+        id: String,
+        sourceCompositeKey: String,
+        type: String,
+        title: String,
+        pinnedDate: Date = Date()
+    ) {
+        self.id = id
+        self.sourceCompositeKey = sourceCompositeKey
+        self.type = type
+        self.title = title
+        self.pinnedDate = pinnedDate
+    }
 }
 
 public final class WatchCatalogStore {
@@ -167,6 +181,10 @@ public actor WatchCloudPreferenceStore {
     }
 
     public func pinnedIDs() -> [String] {
+        pinnedReferences().map(\.id)
+    }
+
+    public func pinnedReferences() -> [WatchPinnedReference] {
         guard #available(watchOS 9.0, *) else { return [] }
         synchronize()
         let store = NSUbiquitousKeyValueStore.default
@@ -174,7 +192,14 @@ public actor WatchCloudPreferenceStore {
               let pins = try? JSONDecoder().decode([WatchPinnedReference].self, from: data) else {
             return []
         }
-        return pins.sorted { $0.pinnedDate < $1.pinnedDate }.map(\.id)
+        return pins.sorted { $0.pinnedDate < $1.pinnedDate }
+    }
+
+    public func savePinnedReferences(_ pins: [WatchPinnedReference]) {
+        guard #available(watchOS 9.0, *) else { return }
+        guard let data = try? JSONEncoder().encode(pins) else { return }
+        NSUbiquitousKeyValueStore.default.set(data, forKey: WatchKVSKey.pins)
+        synchronize()
     }
 }
 
@@ -282,6 +307,7 @@ public final class WatchExperienceModel: ObservableObject {
     @Published public private(set) var libraries: [EnsemblePlexLibrary] = []
     @Published public private(set) var sourceAccounts: [WatchSourceAccountSection] = []
     @Published public private(set) var detailTracks: [EnsembleTrack] = []
+    @Published public private(set) var pinnedItemIDs: Set<String> = []
     @Published public private(set) var statusMessage = "Loading Ensemble"
     @Published public var playbackTarget: EnsemblePlaybackTarget = .local
 
@@ -366,6 +392,48 @@ public final class WatchExperienceModel: ObservableObject {
             } catch {
                 statusMessage = error.localizedDescription
             }
+        }
+    }
+
+    public func play(_ item: EnsembleMediaSummary, shuffled: Bool = false) {
+        statusMessage = "Preparing \(item.title)"
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let tracks = try await catalog.tracks(for: item, in: libraries)
+                guard let track = shuffled ? tracks.randomElement() : tracks.first else {
+                    statusMessage = "No tracks found."
+                    return
+                }
+                play(track)
+            } catch {
+                statusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    public func isPinned(_ item: EnsembleMediaSummary) -> Bool {
+        pinnedItemIDs.contains(item.id)
+    }
+
+    public func canPin(_ item: EnsembleMediaSummary) -> Bool {
+        WatchPinnedReference.pinType(for: item.kind) != nil
+    }
+
+    public func togglePin(_ item: EnsembleMediaSummary) {
+        guard canPin(item) else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            var pins = await cloudPreferences.pinnedReferences()
+            if pins.contains(where: { $0.id == item.id }) {
+                pins.removeAll { $0.id == item.id }
+            } else if let pin = WatchPinnedReference(item: item) {
+                pins.append(pin)
+            }
+
+            await cloudPreferences.savePinnedReferences(pins)
+            applyPinnedReferences(pins)
+            statusMessage = isPinned(item) ? "Pinned \(item.title)" : "Unpinned \(item.title)"
         }
     }
 
@@ -504,11 +572,35 @@ public final class WatchExperienceModel: ObservableObject {
         }
 
         statusMessage = "Syncing selected libraries"
-        let pinnedIDs = await cloudPreferences.pinnedIDs()
-        let snapshot = try await catalog.refreshSnapshot(libraries: libraries, pinnedIDs: pinnedIDs)
+        let pinnedReferences = await cloudPreferences.pinnedReferences()
+        pinnedItemIDs = Set(pinnedReferences.map(\.id))
+        let snapshot = try await catalog.refreshSnapshot(libraries: libraries, pinnedIDs: pinnedReferences.map(\.id))
         catalogStore.saveSnapshot(snapshot)
         catalogSnapshot = snapshot
         statusMessage = "Ready"
+    }
+
+    private func applyPinnedReferences(_ pins: [WatchPinnedReference]) {
+        pinnedItemIDs = Set(pins.map(\.id))
+
+        guard let snapshot = catalogSnapshot else { return }
+        let allItems = snapshot.albums + snapshot.artists + snapshot.playlists + snapshot.recentlyAdded
+        let pinnedItems = pins.compactMap { pin in
+            allItems.first { $0.id == pin.id && $0.sourceKey == pin.sourceCompositeKey }
+        }
+
+        let updatedSnapshot = EnsemblePlexCatalogSnapshot(
+            fetchedAt: snapshot.fetchedAt,
+            libraries: snapshot.libraries,
+            pins: Array(pinnedItems.prefix(12)),
+            albums: snapshot.albums,
+            artists: snapshot.artists,
+            playlists: snapshot.playlists,
+            recentlyAdded: snapshot.recentlyAdded
+        )
+
+        catalogSnapshot = updatedSnapshot
+        catalogStore.saveSnapshot(updatedSnapshot)
     }
 
     private func pruneMediaToSelectedLibraries() {
@@ -650,5 +742,30 @@ public extension TimeInterval {
     var ensembleWatchClockText: String {
         let totalSeconds = max(0, Int(self))
         return String(format: "%d:%02d", totalSeconds / 60, totalSeconds % 60)
+    }
+}
+
+private extension WatchPinnedReference {
+    init?(item: EnsembleMediaSummary) {
+        guard let type = Self.pinType(for: item.kind) else { return nil }
+        self.init(
+            id: item.id,
+            sourceCompositeKey: item.sourceKey,
+            type: type,
+            title: item.title
+        )
+    }
+
+    static func pinType(for kind: EnsembleMediaKind) -> String? {
+        switch kind {
+        case .album:
+            return "album"
+        case .artist:
+            return "artist"
+        case .playlist:
+            return "playlist"
+        case .track:
+            return nil
+        }
     }
 }

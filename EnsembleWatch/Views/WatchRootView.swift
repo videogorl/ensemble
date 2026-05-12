@@ -274,6 +274,7 @@ private struct WatchCategoryView: View {
             NavigationLink(destination: WatchMediaDetailView(item: item)) {
                 WatchMediaRow(item: item)
             }
+            .watchMediaSwipeActions(.media(item))
         }
         .navigationTitle(category.title)
         .watchNowPlayingToolbar()
@@ -319,7 +320,11 @@ private struct WatchArtistAlbumsView: View {
 
     var body: some View {
         List {
-            WatchCollectionHeaderSection(title: item.title, subtitle: item.subtitle)
+            WatchCollectionHeaderSection(
+                title: item.title,
+                subtitle: item.subtitle,
+                actionTarget: .media(item)
+            )
 
             Section {
                 if experience.detailTracks.isEmpty {
@@ -362,8 +367,10 @@ private struct WatchArtistAlbumNavigationRow: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .watchMediaSwipeActions(.artistAlbum(album))
         } else {
             legacyNavigationButton
+                .watchMediaSwipeActions(.artistAlbum(album))
         }
     }
 
@@ -414,7 +421,11 @@ private struct WatchTrackCollectionDetailView: View {
 
     var body: some View {
         List {
-            WatchCollectionHeaderSection(title: title, subtitle: subtitle)
+            WatchCollectionHeaderSection(
+                title: title,
+                subtitle: subtitle,
+                actionTarget: headerActionTarget
+            )
 
             Section {
                 if tracks.isEmpty {
@@ -428,6 +439,7 @@ private struct WatchTrackCollectionDetailView: View {
                         } label: {
                             WatchTrackRow(track: track)
                         }
+                        .watchMediaSwipeActions(.track(track))
                     }
                 }
             }
@@ -460,6 +472,11 @@ private struct WatchTrackCollectionDetailView: View {
             return "No tracks found."
         }
     }
+
+    private var headerActionTarget: WatchMediaActionTarget? {
+        guard case .media(let item) = source else { return nil }
+        return .media(item)
+    }
 }
 
 private enum WatchTrackCollectionSource {
@@ -468,24 +485,154 @@ private enum WatchTrackCollectionSource {
     case artistAlbum(String)
 }
 
+private enum WatchMediaActionTarget: Identifiable {
+    case media(EnsembleMediaSummary)
+    case artistAlbum(WatchArtistAlbumSummary)
+    case track(EnsembleTrack)
+
+    var id: String {
+        switch self {
+        case .media(let item):
+            return "media:\(item.id)"
+        case .artistAlbum(let album):
+            return "artistAlbum:\(album.id)"
+        case .track(let track):
+            return "track:\(track.id)"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .media(let item):
+            return item.title
+        case .artistAlbum(let album):
+            return album.title
+        case .track(let track):
+            return track.title
+        }
+    }
+
+    var pinnableItem: EnsembleMediaSummary? {
+        guard case .media(let item) = self else { return nil }
+        switch item.kind {
+        case .album, .artist, .playlist:
+            return item
+        case .track:
+            return nil
+        }
+    }
+
+    var supportsShuffle: Bool {
+        switch self {
+        case .media(let item):
+            return item.kind != .track
+        case .artistAlbum:
+            return true
+        case .track:
+            return false
+        }
+    }
+
+    @MainActor
+    func play(in experience: WatchExperienceModel, shuffled: Bool = false) {
+        switch self {
+        case .media(let item):
+            experience.play(item, shuffled: shuffled)
+        case .artistAlbum(let album):
+            guard let track = shuffled ? album.tracks.randomElement() : album.tracks.first else { return }
+            experience.play(track)
+        case .track(let track):
+            experience.play(track)
+        }
+    }
+}
+
+private struct WatchMediaSwipeActionsModifier: ViewModifier {
+    @EnvironmentObject private var experience: WatchExperienceModel
+    let target: WatchMediaActionTarget
+    @State private var showsActions = false
+
+    func body(content: Content) -> some View {
+        content
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button {
+                    showsActions = true
+                } label: {
+                    Label("More", systemImage: "ellipsis")
+                }
+                .tint(.gray)
+            }
+            .confirmationDialog(target.title, isPresented: $showsActions, titleVisibility: .visible) {
+                Button {
+                    target.play(in: experience)
+                } label: {
+                    Label("Play", systemImage: "play.fill")
+                }
+
+                if target.supportsShuffle {
+                    Button {
+                        target.play(in: experience, shuffled: true)
+                    } label: {
+                        Label("Shuffle", systemImage: "shuffle")
+                    }
+                }
+
+                if let item = target.pinnableItem, experience.canPin(item) {
+                    Button {
+                        experience.togglePin(item)
+                    } label: {
+                        Label(
+                            experience.isPinned(item) ? "Unpin" : "Pin",
+                            systemImage: experience.isPinned(item) ? "pin.slash" : "pin"
+                        )
+                    }
+                }
+            }
+    }
+}
+
+private extension View {
+    func watchMediaSwipeActions(_ target: WatchMediaActionTarget) -> some View {
+        modifier(WatchMediaSwipeActionsModifier(target: target))
+    }
+}
+
 private struct WatchCollectionHeaderSection: View {
     let title: String
     let subtitle: String?
+    let actionTarget: WatchMediaActionTarget?
+
+    init(title: String, subtitle: String?, actionTarget: WatchMediaActionTarget? = nil) {
+        self.title = title
+        self.subtitle = subtitle
+        self.actionTarget = actionTarget
+    }
 
     var body: some View {
         Section {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.headline)
-                    .lineLimit(3)
-                if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                }
+            headerRow
+        }
+    }
+
+    @ViewBuilder
+    private var headerRow: some View {
+        let row = VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.headline)
+                .lineLimit(3)
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
             }
-            .padding(.vertical, 2)
+        }
+        .padding(.vertical, 2)
+
+        if let actionTarget {
+            row.watchMediaSwipeActions(actionTarget)
+        } else {
+            row
         }
     }
 }
