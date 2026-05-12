@@ -513,10 +513,16 @@ private enum WatchMediaActionTarget: Identifiable {
     }
 
     var pinnableItem: EnsembleMediaSummary? {
-        guard case .media(let item) = self else { return nil }
-        switch item.kind {
-        case .album, .artist, .playlist:
-            return item
+        switch self {
+        case .media(let item):
+            switch item.kind {
+            case .album, .artist, .playlist:
+                return item
+            case .track:
+                return nil
+            }
+        case .artistAlbum(let album):
+            return album.mediaSummary
         case .track:
             return nil
         }
@@ -671,10 +677,23 @@ private struct WatchArtistAlbumSummary: Identifiable {
     let id: String
     let title: String
     let artistName: String?
+    let sourceKey: String
     let tracks: [EnsembleTrack]
 
     var representativeTrack: EnsembleTrack? {
         tracks.first
+    }
+
+    var mediaSummary: EnsembleMediaSummary? {
+        guard let albumID = representativeTrack?.albumID else { return nil }
+        return EnsembleMediaSummary(
+            id: albumID,
+            kind: .album,
+            title: title,
+            subtitle: artistName,
+            artworkPath: representativeTrack?.artworkPath,
+            sourceKey: sourceKey
+        )
     }
 
     var subtitle: String {
@@ -692,7 +711,12 @@ private struct WatchArtistAlbumSummary: Identifiable {
 
         for track in tracks {
             let title = normalizedAlbumTitle(for: track)
-            let key = "\(track.sourceKey)|\(title.lowercased())"
+            let albumID = track.albumID?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = if let albumID, !albumID.isEmpty {
+                "\(track.sourceKey)|\(albumID)"
+            } else {
+                "\(track.sourceKey)|\(title.lowercased())"
+            }
 
             if let index = albumIndexesByKey[key] {
                 let album = albums[index]
@@ -700,6 +724,7 @@ private struct WatchArtistAlbumSummary: Identifiable {
                     id: album.id,
                     title: album.title,
                     artistName: album.artistName,
+                    sourceKey: album.sourceKey,
                     tracks: album.tracks + [track]
                 )
             } else {
@@ -708,6 +733,7 @@ private struct WatchArtistAlbumSummary: Identifiable {
                     id: key,
                     title: title,
                     artistName: track.artistName,
+                    sourceKey: track.sourceKey,
                     tracks: [track]
                 ))
             }

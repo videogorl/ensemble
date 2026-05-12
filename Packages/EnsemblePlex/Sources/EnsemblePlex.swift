@@ -665,6 +665,7 @@ private extension PlexTrack {
             id: ratingKey,
             title: title,
             artistName: originalTitle ?? grandparentTitle,
+            albumID: parentRatingKey,
             albumTitle: parentTitle,
             duration: durationSeconds,
             artworkPath: thumb ?? parentThumb ?? grandparentThumb ?? art,

@@ -111,11 +111,34 @@ public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let title: String
     public let artistName: String?
+    public let albumID: String?
     public let albumTitle: String?
     public let duration: TimeInterval
     public let artworkPath: String?
     public let streamKey: String?
     public let sourceKey: String
+
+    public init(
+        id: String,
+        title: String,
+        artistName: String? = nil,
+        albumID: String? = nil,
+        albumTitle: String? = nil,
+        duration: TimeInterval = 0,
+        artworkPath: String? = nil,
+        streamKey: String? = nil,
+        sourceKey: String
+    ) {
+        self.id = id
+        self.title = title
+        self.artistName = artistName
+        self.albumID = albumID
+        self.albumTitle = albumTitle
+        self.duration = duration
+        self.artworkPath = artworkPath
+        self.streamKey = streamKey
+        self.sourceKey = sourceKey
+    }
 
     public init(
         id: String,
@@ -127,14 +150,17 @@ public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
         streamKey: String? = nil,
         sourceKey: String
     ) {
-        self.id = id
-        self.title = title
-        self.artistName = artistName
-        self.albumTitle = albumTitle
-        self.duration = duration
-        self.artworkPath = artworkPath
-        self.streamKey = streamKey
-        self.sourceKey = sourceKey
+        self.init(
+            id: id,
+            title: title,
+            artistName: artistName,
+            albumID: nil,
+            albumTitle: albumTitle,
+            duration: duration,
+            artworkPath: artworkPath,
+            streamKey: streamKey,
+            sourceKey: sourceKey
+        )
     }
 
     public var summary: EnsembleMediaSummary {
