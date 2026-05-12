@@ -598,12 +598,12 @@ private extension View {
         if #available(watchOS 10.0, *) {
             toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    WatchNowPlayingToolbarLink()
+                    WatchNowPlayingToolbarLink(usesNativeToolbarButton: true)
                 }
             }
         } else {
             overlay(alignment: .topTrailing) {
-                WatchNowPlayingToolbarLink()
+                WatchNowPlayingToolbarLink(usesNativeToolbarButton: false)
                     .padding(.top, 2)
                     .padding(.trailing, 4)
             }
@@ -612,21 +612,36 @@ private extension View {
 }
 
 private struct WatchNowPlayingToolbarLink: View {
+    let usesNativeToolbarButton: Bool
+
     var body: some View {
-        NavigationLink(destination: WatchNowPlayingView()) {
-            ZStack {
-                Circle()
-                    .fill(Color.secondary.opacity(0.24))
+        if usesNativeToolbarButton, #available(watchOS 10.0, *) {
+            NavigationLink(destination: WatchNowPlayingView()) {
                 Image(systemName: "play.fill")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.primary)
+                    .imageScale(.medium)
                     .offset(x: 1)
             }
-            .frame(width: 34, height: 34)
-            .contentShape(Circle())
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
+            .controlSize(.small)
+            .accessibilityLabel("Now Playing")
+        } else {
+            NavigationLink(destination: WatchNowPlayingView()) {
+                ZStack {
+                    Circle()
+                        .fill(Color.secondary.opacity(0.24))
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .offset(x: 1)
+                }
+                .frame(width: 34, height: 34)
+                .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Now Playing")
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Now Playing")
     }
 }
 
