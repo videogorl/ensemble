@@ -36,7 +36,9 @@ struct EnsembleApp: App {
                 .installGlobalToastWindow(toastCenter: DependencyContainer.shared.toastCenter)
                 .onAppear {
                     AppLogger.info("SIRI_APP: RootView.onAppear - app UI is visible")
+                    #if os(iOS)
                     WatchCompanionBridge.shared.configure(dependencies: DependencyContainer.shared)
+                    #endif
                 }
                 .onOpenURL { url in
                     AppLogger.info("SIRI_APP: onOpenURL called with: \(url.absoluteString)")
