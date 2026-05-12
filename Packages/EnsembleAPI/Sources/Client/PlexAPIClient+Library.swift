@@ -28,7 +28,17 @@ extension PlexAPIClient {
 
     /// Get all artists in a library section
     public func getArtists(sectionKey: String) async throws -> [PlexArtist] {
-        let data = try await serverRequest(path: "/library/sections/\(sectionKey)/all", query: ["type": "8"])
+        try await getArtists(sectionKey: sectionKey, limit: nil)
+    }
+
+    /// Get artists in a library section with an optional Plex container cap.
+    public func getArtists(sectionKey: String, limit: Int?) async throws -> [PlexArtist] {
+        var query = ["type": "8"]
+        if let limit {
+            query["X-Plex-Container-Start"] = "0"
+            query["X-Plex-Container-Size"] = String(limit)
+        }
+        let data = try await serverRequest(path: "/library/sections/\(sectionKey)/all", query: query)
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexArtist>.self,
             from: data
@@ -66,7 +76,17 @@ extension PlexAPIClient {
 
     /// Get all albums in a library section
     public func getAlbums(sectionKey: String) async throws -> [PlexAlbum] {
-        let data = try await serverRequest(path: "/library/sections/\(sectionKey)/all", query: ["type": "9"])
+        try await getAlbums(sectionKey: sectionKey, limit: nil)
+    }
+
+    /// Get albums in a library section with an optional Plex container cap.
+    public func getAlbums(sectionKey: String, limit: Int?) async throws -> [PlexAlbum] {
+        var query = ["type": "9"]
+        if let limit {
+            query["X-Plex-Container-Start"] = "0"
+            query["X-Plex-Container-Size"] = String(limit)
+        }
+        let data = try await serverRequest(path: "/library/sections/\(sectionKey)/all", query: query)
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexAlbum>.self,
             from: data

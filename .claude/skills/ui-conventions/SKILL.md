@@ -186,6 +186,8 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Leverage native SwiftUI components and iOS system features (e.g., `AVRoutePickerView` for AirPlay, `MPRemoteCommandCenter` for lock screen)
 - Views and commands should adapt to platform idioms (tab bar on iPhone, sidebar on iPad/macOS, native command menus/shortcuts) through shared policy helpers such as `EnsemblePlatformFeaturePolicy` when the same feature can render natively in multiple ways.
 - Respect safe areas unless deliberately edge-to-edge (like CoverFlow)
+- The watchOS target is a standalone lightweight Plex client plus optional phone remote, not a full `EnsembleCore` client. Watch UI should stay compact, text-first, and shallow: pins first on Home, then library category rows (Albums, Artists, Playlists, Recently Added), then detail track lists. Source settings should use a lightweight account → server → library toggle list plus an explicit selected-library sync action, not the full iOS/macOS profile UI. Keep Now Playing as a persistent top-right toolbar button and let it switch between watch-local playback and phone remote control. Do not import `EnsembleUI` or the iOS playback dependency graph.
+- Watch Now Playing toolbar access should use SwiftUI's explicit top-bar trailing placement on watchOS 10+ (`ToolbarItemPlacement.topBarTrailing`). Do not use `.primaryAction` for this, because Apple places watchOS primary actions beneath the navigation bar and reveals them by scrolling. For watchOS 8/9 compatibility, use the local `watchNowPlayingToolbar()` fallback overlay in `WatchRootView`.
 
 ### Toast Presentation
 - iOS/iPadOS toasts are mounted once at app root via `installGlobalToastWindow(toastCenter:)` in `EnsembleApp`

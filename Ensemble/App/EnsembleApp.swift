@@ -36,6 +36,9 @@ struct EnsembleApp: App {
                 .installGlobalToastWindow(toastCenter: DependencyContainer.shared.toastCenter)
                 .onAppear {
                     AppLogger.info("SIRI_APP: RootView.onAppear - app UI is visible")
+                    #if os(iOS)
+                    WatchCompanionBridge.shared.configure(dependencies: DependencyContainer.shared)
+                    #endif
                 }
                 .onOpenURL { url in
                     AppLogger.info("SIRI_APP: onOpenURL called with: \(url.absoluteString)")
@@ -208,6 +211,7 @@ struct EnsembleApp: App {
                 DependencyContainer.shared.audioAnalyzer.exitBackground()
                 await DependencyContainer.shared.offlineDownloadService.handleAppWillEnterForeground()
                 await DependencyContainer.shared.offlineDownloadService.resumeSidecarAnalysis()
+                WatchCompanionBridge.shared.refresh()
 
             case .background:
                 // Flush log session to disk but keep the file handle open so

@@ -49,6 +49,18 @@ struct MyNewView: View {
 }
 ```
 
+## Adding Watch Behavior
+
+The watch target is now its own lightweight Plex experience. It still must not link full `EnsembleCore`.
+
+1. Put watch-portable models in `Packages/EnsembleDomain`.
+2. Put Plex discovery/catalog/stream facade work in `Packages/EnsemblePlex`, reusing `EnsembleAPI` instead of duplicating HTTP logic.
+3. Put watch bootstrap, Plex Link fallback, KVS/iCloud hints, local catalog cache, and local playback in `Packages/EnsembleWatchCore`.
+4. Put watch SwiftUI in `EnsembleWatch/Views/`; keep the Apple Music-style hierarchy: pins at top, library categories below, detail lists after tap, and a persistent top-right Now Playing toolbar button.
+5. Keep iPhone remote control in `WatchSessionModel`/`WatchCompanionBridge`; Now Playing should be able to switch between watch-local and phone-remote control.
+6. Keep payloads compact and Codable. Do not import `EnsembleUI` or `EnsembleCore` into the watch target.
+7. Downloads are intentionally out of the first standalone watch pass; add them later with watch-specific execution/storage rather than the iOS offline download service.
+
 ## Adding Large-Screen Browse Polish
 
 For browse roots that need a regular-width selection/detail layout:

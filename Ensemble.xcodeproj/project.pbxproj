@@ -18,6 +18,7 @@
 		E0001059 /* AppDelegate+BackgroundURLSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001058 /* AppDelegate+BackgroundURLSession.swift */; };
 		E0001043 /* AppDelegate+Siri.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001042 /* AppDelegate+Siri.swift */; };
 		E0001045 /* AppDelegate+SceneOrientation.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001044 /* AppDelegate+SceneOrientation.swift */; };
+		E0001061 /* WatchCompanionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001060 /* WatchCompanionBridge.swift */; };
 		E0001030 /* ExternalDisplaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001031 /* ExternalDisplaySceneDelegate.swift */; };
 		E0001034 /* AppIntentVocabulary.plist in Resources */ = {isa = PBXBuildFile; fileRef = E0001032 /* AppIntentVocabulary.plist */; };
 		E0001035 /* AppIntentVocabulary.plist in Resources */ = {isa = PBXBuildFile; fileRef = E0001033 /* AppIntentVocabulary.plist */; };
@@ -30,12 +31,17 @@
 		E0001019 /* SiriMatchingHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001022 /* SiriMatchingHelpers.swift */; };
 		E0001009 /* EnsembleSiriIntentsExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = E0000003 /* EnsembleSiriIntentsExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E0001016 /* EnsembleAppShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001015 /* EnsembleAppShortcuts.swift */; };
+		E000101A /* Ensemble Watch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = E0000002 /* Ensemble Watch.app */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E0002001 /* EnsembleWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002000 /* EnsembleWatchApp.swift */; };
+		E0002009 /* WatchSessionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002008 /* WatchSessionModel.swift */; };
 		E0002003 /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002002 /* WatchRootView.swift */; };
 		E0002005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E0002004 /* Assets.xcassets */; };
+		E0002011 /* WatchCompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002010 /* WatchCompanionModels.swift */; };
+		E0002012 /* WatchCompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002010 /* WatchCompanionModels.swift */; };
 		E0003001 /* EnsembleUI in Frameworks */ = {isa = PBXBuildFile; productRef = E0003000 /* EnsembleUI */; };
 		E0003005 /* EnsembleSiriShared in Frameworks */ = {isa = PBXBuildFile; productRef = E0003004 /* EnsembleSiriShared */; };
 		E0003006 /* EnsembleSiriShared in Frameworks */ = {isa = PBXBuildFile; productRef = E0003004 /* EnsembleSiriShared */; };
+		E0003007 /* EnsembleWatchCore in Frameworks */ = {isa = PBXBuildFile; platformFilter = watchos; productRef = E0003008 /* EnsembleWatchCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,9 +52,27 @@
 			remoteGlobalIDString = E0200003;
 			remoteInfo = EnsembleSiriIntentsExtension;
 		};
+		E0700002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E0400000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E0200002;
+			remoteInfo = EnsembleWatch;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		E0240002 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				E000101A /* Ensemble Watch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E0240001 /* Embed App Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -79,6 +103,7 @@
 		E0001058 /* AppDelegate+BackgroundURLSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+BackgroundURLSession.swift"; sourceTree = "<group>"; };
 		E0001042 /* AppDelegate+Siri.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+Siri.swift"; sourceTree = "<group>"; };
 		E0001044 /* AppDelegate+SceneOrientation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+SceneOrientation.swift"; sourceTree = "<group>"; };
+		E0001060 /* WatchCompanionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchCompanionBridge.swift; sourceTree = "<group>"; };
 		E0001031 /* ExternalDisplaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalDisplaySceneDelegate.swift; sourceTree = "<group>"; };
 		E0001032 /* AppIntentVocabulary.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Base.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
 		E0001033 /* AppIntentVocabulary.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = en.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
@@ -95,14 +120,19 @@
 		E0001014 /* EnsembleSiriIntentsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = EnsembleSiriIntentsExtension.entitlements; sourceTree = "<group>"; };
 		E0001015 /* EnsembleAppShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleAppShortcuts.swift; sourceTree = "<group>"; };
 		E0002000 /* EnsembleWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleWatchApp.swift; sourceTree = "<group>"; };
+		E0002008 /* WatchSessionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionModel.swift; sourceTree = "<group>"; };
 		E0002002 /* WatchRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchRootView.swift; sourceTree = "<group>"; };
 		E0002004 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E0002006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		E0002010 /* WatchCompanionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchCompanionModels.swift; sourceTree = "<group>"; };
 		E0004000 /* EnsembleAPI */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleAPI; path = Packages/EnsembleAPI; sourceTree = "<group>"; };
 		E0004001 /* EnsembleCore */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleCore; path = Packages/EnsembleCore; sourceTree = "<group>"; };
 		E0004002 /* EnsembleUI */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleUI; path = Packages/EnsembleUI; sourceTree = "<group>"; };
 		E0004003 /* EnsemblePersistence */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsemblePersistence; path = Packages/EnsemblePersistence; sourceTree = "<group>"; };
 		E0004004 /* EnsembleSiriShared */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleSiriShared; path = Packages/EnsembleSiriShared; sourceTree = "<group>"; };
+		E0004005 /* EnsembleDomain */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleDomain; path = Packages/EnsembleDomain; sourceTree = "<group>"; };
+		E0004006 /* EnsemblePlex */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsemblePlex; path = Packages/EnsemblePlex; sourceTree = "<group>"; };
+		E0004007 /* EnsembleWatchCore */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleWatchCore; path = Packages/EnsembleWatchCore; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -119,6 +149,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E0003007 /* EnsembleWatchCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -163,6 +194,7 @@
 			children = (
 				E0100020 /* App */,
 				E0100021 /* Views */,
+				E0100023 /* Shared */,
 				E0100022 /* Resources */,
 				E0002006 /* Info.plist */,
 			);
@@ -177,6 +209,9 @@
 				E0004002 /* EnsembleUI */,
 				E0004003 /* EnsemblePersistence */,
 				E0004004 /* EnsembleSiriShared */,
+				E0004005 /* EnsembleDomain */,
+				E0004006 /* EnsemblePlex */,
+				E0004007 /* EnsembleWatchCore */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -219,6 +254,7 @@
 				E0001058 /* AppDelegate+BackgroundURLSession.swift */,
 				E0001042 /* AppDelegate+Siri.swift */,
 				E0001044 /* AppDelegate+SceneOrientation.swift */,
+				E0001060 /* WatchCompanionBridge.swift */,
 				E0001031 /* ExternalDisplaySceneDelegate.swift */,
 				E0001015 /* EnsembleAppShortcuts.swift */,
 			);
@@ -239,6 +275,7 @@
 			isa = PBXGroup;
 			children = (
 				E0002000 /* EnsembleWatchApp.swift */,
+				E0002008 /* WatchSessionModel.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -249,6 +286,14 @@
 				E0002002 /* WatchRootView.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		E0100023 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				E0002010 /* WatchCompanionModels.swift */,
+			);
+			path = Shared;
 			sourceTree = "<group>";
 		};
 		E0100022 /* Resources */ = {
@@ -301,6 +346,7 @@
 			);
 			name = EnsembleWatch;
 			packageProductDependencies = (
+				E0003008 /* EnsembleWatchCore */,
 			);
 			productName = EnsembleWatch;
 			productReference = E0000002 /* Ensemble Watch.app */;
@@ -361,6 +407,7 @@
 				E0500000 /* XCLocalSwiftPackageReference "Packages/EnsembleUI" */,
 				E0500001 /* XCLocalSwiftPackageReference "Packages/EnsembleCore" */,
 				E0500002 /* XCLocalSwiftPackageReference "Packages/EnsembleSiriShared" */,
+				E0500003 /* XCLocalSwiftPackageReference "Packages/EnsembleWatchCore" */,
 			);
 			productRefGroup = E0100004 /* Products */;
 			projectDirPath = "";
@@ -468,8 +515,10 @@
 				E0001059 /* AppDelegate+BackgroundURLSession.swift in Sources */,
 				E0001043 /* AppDelegate+Siri.swift in Sources */,
 				E0001045 /* AppDelegate+SceneOrientation.swift in Sources */,
+				E0001061 /* WatchCompanionBridge.swift in Sources */,
 				E0001030 /* ExternalDisplaySceneDelegate.swift in Sources */,
 				E0001016 /* EnsembleAppShortcuts.swift in Sources */,
+				E0002011 /* WatchCompanionModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -478,7 +527,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				E0002001 /* EnsembleWatchApp.swift in Sources */,
+				E0002009 /* WatchSessionModel.swift in Sources */,
 				E0002003 /* WatchRootView.swift in Sources */,
+				E0002012 /* WatchCompanionModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -503,6 +554,12 @@
 			platformFilter = ios;
 			target = E0200003 /* EnsembleSiriIntentsExtension */;
 			targetProxy = E0700001 /* PBXContainerItemProxy */;
+		};
+		E0710002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = E0200002 /* EnsembleWatch */;
+			targetProxy = E0700002 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -725,10 +782,11 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.ensemble.app.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.videogorl.ensemble.watchkitapp;
 				PRODUCT_NAME = "Ensemble Watch";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
@@ -754,10 +812,11 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.ensemble.app.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.videogorl.ensemble.watchkitapp;
 				PRODUCT_NAME = "Ensemble Watch";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
@@ -882,6 +941,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/EnsembleSiriShared;
 		};
+		E0500003 /* XCLocalSwiftPackageReference "Packages/EnsembleWatchCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/EnsembleWatchCore;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -894,6 +957,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = E0500002 /* XCLocalSwiftPackageReference "Packages/EnsembleSiriShared" */;
 			productName = EnsembleSiriShared;
+		};
+		E0003008 /* EnsembleWatchCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E0500003 /* XCLocalSwiftPackageReference "Packages/EnsembleWatchCore" */;
+			productName = EnsembleWatchCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

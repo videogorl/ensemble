@@ -47,6 +47,7 @@ ensemble/
 |   |   +-- AppDelegate+BackgroundURLSession.swift # Background URLSession wakeup handoff for offline downloads
 |   |   +-- AppDelegate+Siri.swift # Siri intent/user-activity bridge and in-app playback execution
 |   |   +-- AppDelegate+SceneOrientation.swift # Background URLSession handoff, scene routing, StageFlow orientation policy
+|   |   +-- WatchCompanionBridge.swift # iOS WatchConnectivity bridge for watch Now Playing remote control
 |   |   +-- ExternalDisplaySceneDelegate.swift # UIWindowSceneDelegate for AirPlay screen mirroring external display
 |   |   +-- EnsembleAppShortcuts.swift # App Intents fallback entities/phrases for Siri album/playlist playback
 |   +-- Resources/
@@ -69,18 +70,54 @@ ensemble/
 +-- EnsembleWatch/                 # watchOS app target
 |   +-- App/
 |   |   +-- EnsembleWatchApp.swift
+|   |   +-- WatchSessionModel.swift # WatchConnectivity session and remote command model for the watch app
 |   +-- Views/
-|   |   +-- WatchRootView.swift   # Standalone watch shell; does not link full EnsembleCore
+|   |   +-- WatchRootView.swift   # Standalone watch home, library browsing, Plex Link setup, and local/remote Now Playing
+|   +-- Shared/
+|   |   +-- WatchCompanionModels.swift # Codable app/watch payload contract compiled into both targets
 |   +-- Resources/
 |   |   +-- Assets.xcassets       # Watch accent color and 1024px AppIcon
 |   +-- Info.plist
 |
 +-- Packages/                      # Swift Package modules
     +-- EnsembleAPI/              # Layer 1: Networking
+    +-- EnsembleDomain/           # Portable account/media models shared by watch packages
+    +-- EnsemblePlex/             # Watch-portable Plex discovery, catalog, and stream facade
+    +-- EnsembleWatchCore/        # watchOS bootstrap, catalog cache, playback, and battery-aware runtime
     +-- EnsemblePersistence/      # Layer 1: Data persistence
     +-- EnsembleSiriShared/       # Shared Siri normalization/scoring rules
     +-- EnsembleCore/             # Layer 2: Business logic
     +-- EnsembleUI/               # Layer 3: User interface
+```
+
+## EnsembleDomain (Portable Domain Layer)
+
+```
+Sources/
++-- EnsembleDomain.swift          # Watch-portable credentials, media summaries, tracks, categories, playback enums
+
+Tests/
++-- EnsembleDomainTests.swift
+```
+
+## EnsemblePlex (Portable Plex Facade)
+
+```
+Sources/
++-- EnsemblePlex.swift            # Plex credential discovery, selected-library catalog snapshots, detail tracks, stream URL resolution
+
+Tests/
++-- EnsemblePlexTests.swift
+```
+
+## EnsembleWatchCore (watchOS Runtime)
+
+```
+Sources/
++-- EnsembleWatchCore.swift       # Watch bootstrap, Plex Link fallback, iCloud/KVS hints, local catalog cache, local playback
+
+Tests/
++-- EnsembleWatchCoreTests.swift
 ```
 
 ## EnsembleAPI (Networking Layer)

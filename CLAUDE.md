@@ -120,6 +120,9 @@ xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator
 **Build a single package:**
 ```bash
 swift build --package-path Packages/EnsembleAPI
+swift build --package-path Packages/EnsembleDomain
+swift build --package-path Packages/EnsemblePlex
+swift build --package-path Packages/EnsembleWatchCore
 swift build --package-path Packages/EnsembleCore
 swift build --package-path Packages/EnsemblePersistence
 swift build --package-path Packages/EnsembleUI
@@ -128,6 +131,9 @@ swift build --package-path Packages/EnsembleUI
 **Run tests for a single package:**
 ```bash
 swift test --package-path Packages/EnsembleAPI
+swift test --package-path Packages/EnsembleDomain
+swift test --package-path Packages/EnsemblePlex
+swift test --package-path Packages/EnsembleWatchCore
 swift test --package-path Packages/EnsembleCore
 swift test --package-path Packages/EnsemblePersistence
 swift test --package-path Packages/EnsembleUI
@@ -147,7 +153,7 @@ xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator
 
 ## Architecture (Brief)
 
-Layered modular architecture via four Swift Packages under `Packages/`:
+Layered modular architecture via Swift Packages under `Packages/`:
 
 ```
 Layer 3: EnsembleUI (SwiftUI views & components)
@@ -155,7 +161,10 @@ Layer 3: EnsembleUI (SwiftUI views & components)
 Layer 2: EnsembleCore (ViewModels, services, domain models)
               |
 Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
+Watch: EnsembleDomain + EnsemblePlex + EnsembleWatchCore
 ```
+
+The watch app is now an independent watchOS target. Build it with the `EnsembleWatch` scheme; the iOS `Ensemble` scheme no longer embeds the watch app during simulator builds.
 
 For detailed architecture, invoke the `architecture` skill.
 

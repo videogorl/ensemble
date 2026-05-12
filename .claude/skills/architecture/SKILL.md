@@ -7,7 +7,7 @@ description: "Load before designing features, adding services, or touching multi
 
 ## Layered Module Architecture
 
-Five Swift Packages under `Packages/`:
+Eight Swift Packages under `Packages/`:
 
 ```
 Layer 3: EnsembleUI (SwiftUI views & components)
@@ -16,6 +16,7 @@ Layer 2: EnsembleCore (ViewModels, services, domain models)
               |
 Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, extension, and Core)
+Watch: EnsembleDomain + EnsemblePlex + EnsembleWatchCore (watch-portable models, Plex browsing, and watch runtime)
 ```
 
 ## Package Details
@@ -67,6 +68,21 @@ Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, ext
 - `SiriSharedConstants` -- App Group identifier and Siri index filename shared by app, extension, and Core.
 - `SiriPhraseNormalizer` -- Basic normalization plus app-suffix, connector-word, and media-type prefix stripping for Siri requests.
 - `SiriMatchScorer` -- Deterministic exact/prefix/contains/token-overlap/edit-distance scoring used for Siri candidate ranking.
+
+### EnsembleDomain (Portable Domain Layer)
+- **Location:** `Packages/EnsembleDomain/`
+- **Dependencies:** None
+- **Purpose:** Watch-portable account credentials, media summaries, tracks, library categories, and playback target/status enums. This package intentionally avoids SwiftUI, CoreData, AVFoundation, and app-specific services so it can be shared by watch runtime packages without pulling in `EnsembleCore`.
+
+### EnsemblePlex (Portable Plex Facade)
+- **Location:** `Packages/EnsemblePlex/`
+- **Dependencies:** EnsembleAPI, EnsembleDomain
+- **Purpose:** Watch-oriented Plex account discovery, selected-library resolution, compact catalog snapshots, detail track loading, and low-bitrate stream URL resolution. It reuses `PlexAPIClient` instead of duplicating low-level Plex request logic.
+
+### EnsembleWatchCore (watchOS Runtime)
+- **Location:** `Packages/EnsembleWatchCore/`
+- **Dependencies:** EnsembleAPI, EnsembleDomain, EnsemblePlex
+- **Purpose:** Standalone watch bootstrap, Plex Link fallback, iCloud Keychain credential restore, KVS preference hints, local catalog cache, watch-local playback, and local/remote Now Playing target state. `EnsembleWatchCore` is watchOS-first; macOS support exists only for SwiftPM unit tests.
 
 ### EnsembleCore (Business Logic Layer)
 - **Location:** `Packages/EnsembleCore/`
@@ -573,7 +589,10 @@ PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (
   - `AppDelegate.swift` + `AppDelegate+*.swift` (iOS) -- Split UIApplicationDelegate ownership for launch setup, startup task sequencing, Siri bridge events, Siri authorization, remote notifications, scene/orientation policy, background URLSession handoff, and shared delegate state
 
 - **EnsembleWatch** (`Ensemble/EnsembleWatch/`) -- watchOS
-  - `WatchRootView.swift` -- Standalone watch shell. The target intentionally does not link full `EnsembleCore`; a real companion app should use a watch-specific bridge/product instead of importing the iOS playback/dependency graph.
+  - `WatchRootView.swift` -- Standalone watch experience with Plex Link setup, pins-first home, Apple Music-style library categories, media detail track lists, local playback, and a persistent Now Playing toolbar entry.
+  - `WatchSessionModel.swift` -- WatchConnectivity remote command/session model used when Now Playing is switched to phone control.
+  - `WatchCompanionBridge.swift` (iOS app target) -- Observes `PlaybackService`, publishes compact playback snapshots, and handles watch transport commands when both apps are installed.
+  - The iOS app target no longer embeds the watch app during simulator builds; use the `EnsembleWatch` scheme to build/run the standalone watch target.
 
 ## Subsystem: Playlist Mutations
 
