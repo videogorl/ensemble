@@ -294,158 +294,221 @@ private struct WatchMediaDetailView: View {
 private struct WatchNowPlayingView: View {
     @EnvironmentObject private var experience: WatchExperienceModel
     @EnvironmentObject private var remoteSession: WatchSessionModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var showsTargetPicker = false
+    @State private var showsQueueActions = false
 
     var body: some View {
-        ScrollView {
+        let baseView = ScrollView {
             VStack(spacing: 10) {
-                HStack(spacing: 6) {
-                    targetButton(title: "Watch", target: .local)
-                    targetButton(title: "Phone", target: .remote)
-                }
+                if let presentation = currentPresentation {
+                    WatchNowPlayingArtwork(presentation: presentation)
 
-                if experience.playbackTarget == .local {
-                    localNowPlaying
+                    VStack(spacing: 4) {
+                        Text(presentation.title)
+                            .font(.headline)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+
+                        Text(presentation.subtitle)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                    }
+
+                    ProgressView(value: presentation.progress)
+                        .progressViewStyle(.linear)
+
+                    HStack {
+                        Text(presentation.elapsedText)
+                        Spacer()
+                        Text(presentation.remainingText)
+                    }
+                    .font(.caption2.monospacedDigit())
+                    .foregroundColor(.secondary)
+
+                    transportControls
+
+                    HStack {
+                        Spacer()
+
+                        Button {
+                            showsTargetPicker = true
+                        } label: {
+                            Image(systemName: "airplayaudio")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Playback Target")
+                    }
                 } else {
-                    remoteNowPlaying
+                    VStack(spacing: 8) {
+                        Image(systemName: "music.note")
+                            .font(.title)
+                            .foregroundColor(.secondary)
+                        Text("Nothing Playing")
+                            .font(.headline)
+                        Text(experience.statusMessage)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 10)
+            .padding()
         }
         .navigationTitle("Now Playing")
-    }
-
-    private var localNowPlaying: some View {
-        VStack(spacing: 8) {
-            Image(systemName: experience.playback.isPlaying ? "music.note.house.fill" : "music.note.house")
-                .font(.title2)
-                .foregroundColor(.accentColor)
-
-            Text(experience.playback.currentTrack?.title ?? "Not Playing")
-                .font(.headline)
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
-
-            Text(localSubtitle)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-
-            ProgressView(value: experience.playback.progress)
-
-            HStack {
-                Text(experience.playback.currentTime.ensembleWatchClockText)
-                Spacer()
-                Text((experience.playback.currentTrack?.duration ?? 0).ensembleWatchClockText)
+        .confirmationDialog("Playback Target", isPresented: $showsTargetPicker) {
+            Button {
+                experience.playbackTarget = .local
+            } label: {
+                Label("This Watch", systemImage: experience.playbackTarget == .local ? "checkmark" : "applewatch")
             }
-            .font(.caption2.monospacedDigit())
-            .foregroundColor(.secondary)
 
             Button {
-                experience.playback.togglePlayPause()
+                experience.playbackTarget = .remote
             } label: {
-                Image(systemName: experience.playback.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title3)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(experience.playback.currentTrack == nil)
-
-            if let error = experience.playback.errorMessage {
-                Text(error)
-                    .font(.caption2)
-                    .foregroundColor(.orange)
-                    .multilineTextAlignment(.center)
+                Label("iPhone", systemImage: experience.playbackTarget == .remote ? "checkmark" : "iphone")
             }
         }
-    }
-
-    @ViewBuilder
-    private func targetButton(title: String, target: EnsemblePlaybackTarget) -> some View {
-        if experience.playbackTarget == target {
-            Button {
-                experience.playbackTarget = target
-            } label: {
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-        } else {
-            Button {
-                experience.playbackTarget = target
-            } label: {
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-        }
-    }
-
-    private var remoteNowPlaying: some View {
-        VStack(spacing: 8) {
-            Image(systemName: remoteSession.isPlaying ? "iphone.radiowaves.left.and.right" : "iphone")
-                .font(.title2)
-                .foregroundColor(.accentColor)
-
-            Text(remoteSession.currentTrackTitle)
-                .font(.headline)
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
-
-            Text(remoteSession.currentTrackSubtitle)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-
-            ProgressView(value: remoteSession.progress)
-
-            HStack {
-                Text(remoteSession.elapsedText)
-                Spacer()
-                Text(remoteSession.remainingText)
-            }
-            .font(.caption2.monospacedDigit())
-            .foregroundColor(.secondary)
-
-            HStack(spacing: 14) {
-                Button {
-                    remoteSession.send(.previous)
-                } label: {
-                    Image(systemName: "backward.fill")
-                }
-
-                Button {
-                    remoteSession.send(.togglePlayPause)
-                } label: {
-                    Image(systemName: remoteSession.isPlaying ? "pause.fill" : "play.fill")
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button {
-                    remoteSession.send(.next)
-                } label: {
-                    Image(systemName: "forward.fill")
-                }
-            }
-            .disabled(remoteSession.isSendingCommand)
-
-            HStack(spacing: 10) {
-                Button {
+        .confirmationDialog("Queue Controls", isPresented: $showsQueueActions) {
+            if experience.playbackTarget == .remote {
+                Button(remoteSession.snapshot?.isShuffleEnabled == true ? "Disable Shuffle" : "Enable Shuffle") {
                     remoteSession.send(.toggleShuffle)
-                } label: {
-                    Image(systemName: "shuffle")
                 }
 
-                Button {
+                Button(remoteRepeatTitle) {
                     remoteSession.send(.cycleRepeatMode)
-                } label: {
-                    Image(systemName: remoteSession.snapshot?.repeatMode.systemImage ?? "repeat")
                 }
             }
-            .disabled(remoteSession.isSendingCommand)
+        }
+
+        if #available(watchOS 10.0, *) {
+            baseView.toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Close Now Playing")
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showsQueueActions = true
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("More Actions")
+                    .disabled(experience.playbackTarget == .local)
+                }
+            }
+        } else {
+            baseView.toolbar {
+                ToolbarItem {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Close Now Playing")
+                }
+
+                ToolbarItem {
+                    Button {
+                        showsQueueActions = true
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("More Actions")
+                    .disabled(experience.playbackTarget == .local)
+                }
+            }
+        }
+    }
+
+    private var transportControls: some View {
+        HStack(spacing: 16) {
+            Button {
+                if experience.playbackTarget == .remote {
+                    remoteSession.send(.previous)
+                }
+            } label: {
+                Image(systemName: "backward.fill")
+            }
+            .disabled(experience.playbackTarget == .local || remoteSession.isSendingCommand)
+
+            Button {
+                if experience.playbackTarget == .local {
+                    experience.playback.togglePlayPause()
+                } else {
+                    remoteSession.send(.togglePlayPause)
+                }
+            } label: {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.title2)
+            }
+            .disabled(playPauseDisabled)
+
+            Button {
+                if experience.playbackTarget == .remote {
+                    remoteSession.send(.next)
+                }
+            } label: {
+                Image(systemName: "forward.fill")
+            }
+            .disabled(experience.playbackTarget == .local || remoteSession.isSendingCommand)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var currentPresentation: WatchNowPlayingPresentation? {
+        if experience.playbackTarget == .remote {
+            return WatchNowPlayingPresentation(
+                title: remoteSession.currentTrackTitle,
+                subtitle: remoteSession.currentTrackSubtitle,
+                artworkURL: nil,
+                progress: remoteSession.progress,
+                elapsedText: remoteSession.elapsedText,
+                remainingText: remoteSession.remainingText,
+                isRemote: true,
+                isPlaying: remoteSession.isPlaying
+            )
+        }
+
+        guard let track = experience.playback.currentTrack else { return nil }
+        return WatchNowPlayingPresentation(
+            title: track.title,
+            subtitle: localSubtitle,
+            artworkTrack: track,
+            progress: experience.playback.progress,
+            elapsedText: experience.playback.currentTime.ensembleWatchClockText,
+            remainingText: "-" + max(0, track.duration - experience.playback.currentTime).ensembleWatchClockText,
+            isRemote: false,
+            isPlaying: experience.playback.isPlaying
+        )
+    }
+
+    private var isPlaying: Bool {
+        experience.playbackTarget == .local ? experience.playback.isPlaying : remoteSession.isPlaying
+    }
+
+    private var playPauseDisabled: Bool {
+        if experience.playbackTarget == .local {
+            return experience.playback.currentTrack == nil
+        }
+        return remoteSession.isSendingCommand
+    }
+
+    private var remoteRepeatTitle: String {
+        switch remoteSession.snapshot?.repeatMode {
+        case .all:
+            return "Repeat All"
+        case .one:
+            return "Repeat One"
+        case .off, nil:
+            return "Repeat Off"
         }
     }
 
@@ -462,6 +525,70 @@ private struct WatchNowPlayingView: View {
         case (nil, nil):
             return experience.statusMessage
         }
+    }
+}
+
+private struct WatchNowPlayingPresentation {
+    let title: String
+    let subtitle: String
+    let artworkURL: URL?
+    let artworkTrack: EnsembleTrack?
+    let progress: Double
+    let elapsedText: String
+    let remainingText: String
+    let isRemote: Bool
+    let isPlaying: Bool
+
+    init(
+        title: String,
+        subtitle: String,
+        artworkURL: URL? = nil,
+        artworkTrack: EnsembleTrack? = nil,
+        progress: Double,
+        elapsedText: String,
+        remainingText: String,
+        isRemote: Bool,
+        isPlaying: Bool
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.artworkURL = artworkURL
+        self.artworkTrack = artworkTrack
+        self.progress = progress
+        self.elapsedText = elapsedText
+        self.remainingText = remainingText
+        self.isRemote = isRemote
+        self.isPlaying = isPlaying
+    }
+}
+
+private struct WatchNowPlayingArtwork: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
+    let presentation: WatchNowPlayingPresentation
+    @State private var artworkURL: URL?
+
+    var body: some View {
+        WatchArtworkImage(url: resolvedArtworkURL)
+            .frame(width: 120, height: 120)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: presentation.isRemote ? "iphone" : "applewatch")
+                    .font(.caption2)
+                    .padding(5)
+                    .background(Circle().fill(Color.black.opacity(0.62)))
+                    .padding(5)
+            }
+            .task(id: presentation.artworkTrack?.id) {
+                guard let track = presentation.artworkTrack else {
+                    artworkURL = presentation.artworkURL
+                    return
+                }
+                artworkURL = await experience.artworkURL(for: track, size: 240)
+            }
+    }
+
+    private var resolvedArtworkURL: URL? {
+        artworkURL ?? presentation.artworkURL
     }
 }
 
@@ -487,10 +614,16 @@ private extension View {
 private struct WatchNowPlayingToolbarLink: View {
     var body: some View {
         NavigationLink(destination: WatchNowPlayingView()) {
-            Image(systemName: "music.note")
-                .font(.headline)
-                .frame(width: 30, height: 30)
-                .contentShape(Circle())
+            ZStack {
+                Circle()
+                    .fill(Color.secondary.opacity(0.24))
+                Image(systemName: "play.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .offset(x: 1)
+            }
+            .frame(width: 34, height: 34)
+            .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Now Playing")
