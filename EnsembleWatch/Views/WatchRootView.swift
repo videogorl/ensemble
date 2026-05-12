@@ -106,10 +106,9 @@ struct WatchRootView: View {
     }
 
     private var homeView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                if let snapshot = experience.catalogSnapshot, !snapshot.pins.isEmpty {
-                    WatchSectionHeader(title: "Pins")
+        List {
+            if let snapshot = experience.catalogSnapshot, !snapshot.pins.isEmpty {
+                Section("Pins") {
                     LazyVGrid(columns: WatchPinsGrid.columns, spacing: WatchPinsGrid.spacing) {
                         ForEach(snapshot.pins) { item in
                             NavigationLink(destination: WatchMediaDetailView(item: item)) {
@@ -119,38 +118,38 @@ struct WatchRootView: View {
                             .accessibilityLabel(item.title)
                         }
                     }
+                    .padding(.vertical, 4)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                    .listRowBackground(Color.clear)
                 }
+            }
 
-                WatchSectionHeader(title: "Library")
-                VStack(spacing: 6) {
-                    ForEach(EnsembleLibraryCategory.allCases) { category in
-                        NavigationLink(destination: WatchCategoryView(category: category)) {
-                            Label(category.title, systemImage: category.systemImage)
-                                .font(.headline)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+            Section("Library") {
+                ForEach(EnsembleLibraryCategory.allCases) { category in
+                    NavigationLink(destination: WatchCategoryView(category: category)) {
+                        Label(category.title, systemImage: category.systemImage)
                     }
                 }
+            }
 
+            Section {
                 Button {
                     experience.refresh()
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
-                .buttonStyle(.bordered)
 
                 NavigationLink(destination: WatchSourceSettingsView()) {
                     Label("Settings", systemImage: "gearshape")
                 }
-                .buttonStyle(.bordered)
-
+            } footer: {
                 Text(experience.statusMessage)
                     .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    .multilineTextAlignment(.center)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 10)
+        }
+        .refreshable {
+            experience.refresh()
         }
     }
 }
@@ -642,17 +641,6 @@ private struct WatchNowPlayingToolbarLink: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Now Playing")
         }
-    }
-}
-
-private struct WatchSectionHeader: View {
-    let title: String
-
-    var body: some View {
-        Text(title)
-            .font(.caption.weight(.semibold))
-            .foregroundColor(.secondary)
-            .textCase(.uppercase)
     }
 }
 
