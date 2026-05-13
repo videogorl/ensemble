@@ -75,23 +75,23 @@ Hub IDs encode this as `plex:{accountId}:{serverId}:{libraryKey}:{hubIdentifier}
 
 **Before making ANY code changes to streaming or playback, test the Plex endpoints with curl.** This is non-negotiable. A `.env` file at the project root contains `PLEX_ACCESS_TOKEN` for testing.
 
-### Known Streaming Facts (curl-verified 2026-05-10)
+### Known Streaming Facts (curl-verified 2026-05-13)
 
 - **Universal transcode endpoint WORKS** — returns 200, valid audio/mpeg
-- **Direct file stream (`/library/parts/...`) can work for compatible originals** — current Minibar test returned 206 audio/flac for `Wedding Song` by Yeah Yeah Yeahs. Keep direct stream as a decision/fallback path; do not assume it is always unavailable.
+- **Direct file stream (`/library/parts/...`) can work for compatible originals** — current Minibar test returned 206 for a ranged `/library/parts/...` request. Keep direct stream as a decision/fallback path; do not assume it is always unavailable.
 - **DO NOT "disable universal endpoint" as a fix** — that cooldown/fallback switch was removed because the current playback path either uses decision-based direct/progressive routing or falls back to a concrete direct stream URL.
 - The "resource unavailable" AVPlayer error is an **AVPlayer-specific issue** with how it handles the response, not a server problem
 - Universal response headers: `Transfer-Encoding: chunked`, `Accept-Ranges: none`, `Connection: close`, no `Content-Length`
 - Decision endpoint MUST be called before `start.mp3` (returns 400 without it)
 - **Decision endpoint rejects `X-Plex-Platform=macOS`** — returns 400. PMS assumes macOS clients handle all codecs natively. Fix: all transcode endpoints override the platform header/query to `iOS` since AVAudioEngine has identical codec support on both platforms. General Plex headers still report the real platform.
 - Concurrent transcode sessions work fine; no cookies needed
+- If `PLEX_SERVER_URL` times out, discover reachable server connections through `https://plex.tv/api/v2/resources` with `PLEX_PASS_ACCESS_TOKEN`, then use the returned per-server `accessToken` for PMS calls.
 
 ### Getting Test Credentials
 
 ```bash
 # Token is in .env at project root
 source .env
-echo $PLEX_ACCESS_TOKEN
 
 # Or get from plex.tv (uses account token from browser console)
 ACCOUNT_TOKEN="<from localStorage.getItem('myPlexAccessToken') in plex.tv>"

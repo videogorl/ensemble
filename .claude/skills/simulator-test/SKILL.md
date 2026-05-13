@@ -5,14 +5,14 @@ description: "Build, launch, and capture debug logs from the iOS simulator. Use 
 
 # Simulator Test — Build, Launch & Log Capture
 
-Use this skill whenever a change must be validated in the running app. The default path is:
+Use this skill when the `testing` skill calls for runtime proof in the running app. The default path is:
 
 1. Build the app.
 2. Install and launch it in Simulator.
 3. Drive the relevant UI with the iOS Simulator MCP server.
 4. Capture screenshots, accessibility output, and logs as evidence.
 
-Do not treat simulator validation as optional for user-visible work. This skill exists so the agent can iterate without asking the user to manually operate the app.
+This skill exists so the agent can iterate without asking the user to manually operate the app.
 
 For repeatable cold-launch baselines, prefer `scripts/capture_runtime_baseline.sh --capture-startup` after the app is installed. It captures both the simulator OS log stream and the latest `PersistentLogService` session log, then prints a filtered summary.
 
@@ -246,9 +246,9 @@ echo "=== Captured $(wc -l < /tmp/ensemble-test-log.txt) lines ==="
 
 ---
 
-## Validation Expectations
+## Evidence To Capture
 
-Before calling a task complete, capture enough evidence to support the claim:
+Capture enough evidence to support the claim:
 
 - A passing package test run for the affected package, if the change is non-trivial.
 - Simulator confirmation of the relevant flow using MCP-driven interaction.

@@ -9,7 +9,7 @@ description: "Use when auditing, simplifying, or removing SwiftUI/UIKit/AppKit U
 
 Audit UI workaround code with a deletion-first bias: remove proven-dead or redundant code, let native SwiftUI/UIKit/AppKit behavior own the result, and defer high-risk adapters unless before/after runtime proof supports removal.
 
-Always load these project skills before changing code: `architecture`, `project-structure`, `known-issues`, `code-style`, `ui-conventions`, `testing`, and `simulator-test`. Load `plex-api` only when a flow needs live Plex endpoint checks.
+Load the relevant project skills before changing code. Broad cleanup usually needs `architecture`, `project-structure`, `known-issues`, `code-style`, `ui-conventions`, `testing`, and `simulator-test`. Load `plex-api` only when a flow needs live Plex endpoint checks.
 
 ## Workflow
 
@@ -101,5 +101,5 @@ Capture simulator screenshots or logs for visible/presentation/layout changes. I
 
 - Update `docs/investigations/` with removed code, kept adapters, deferred high-risk candidates, and verification.
 - Update project skills when future agents need to know a changed rule, file, or pattern.
-- Commit after each logical step and before handing work back for manual testing.
+- Follow the commit discipline in `CLAUDE.md`.
 - Final answer should name the commit, tests/builds run, simulator evidence, and anything deferred.

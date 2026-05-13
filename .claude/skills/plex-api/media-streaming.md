@@ -18,7 +18,7 @@ The previous direct-stream-failure set and universal-endpoint-disable switch wer
 
 **DO NOT "disable universal endpoint" as a fix for playback failures.** Curl testing has confirmed the universal endpoint returns valid audio data. The "resource unavailable" error is an AVPlayer-specific issue, not a server problem.
 
-**ALWAYS test with curl before making streaming code changes.** Token is in `.env` at project root.
+**ALWAYS test with curl before making streaming code changes.** Credentials are in `.env` at project root. If `PLEX_SERVER_URL` is unreachable, use Plex resource discovery with `PLEX_PASS_ACCESS_TOKEN` and the returned per-server token.
 
 
 ## Universal Transcode Endpoint (Primary — use this)
@@ -109,6 +109,8 @@ Connection: Keep-Alive
 ```
 
 Supports `206 Partial Content` for byte range requests (verified). AVPlayer can seek and report accurate progress.
+
+Latest live check (May 13, 2026): a ranged direct file request returned `206`, while universal decision and `start.mp3` both returned `200`. Keep both paths valid and route recovery to the concrete failing load path.
 
 **URL construction:**
 ```

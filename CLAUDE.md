@@ -1,135 +1,92 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Repository guidance for AI agents working on Ensemble.
 
-If I give you a Notion page to pull from, use the Notion MCP to access the page. If you don't have access, don't just assume, ask.
-When starting work from a Notion page, change the status of the page to "In Progress" (or something appropriate).
-Once done with the work, mark the Notion page status as "Done"
+## Product And Constraints
 
-## Skills (MUST load before starting work)
+Ensemble is a Plex music player for iOS 15+, iPadOS 15+, macOS 12+, and watchOS 8+. It should feel native, information-dense, customizable, and reliable on 2 GB RAM devices such as iPhone 6s and iPad Air 2.
 
-Detailed reference material lives in `.claude/skills/`. **Always load the relevant skill(s) before beginning any non-trivial task** — these files contain project-specific rules that override general Swift/SwiftUI defaults.
+The app is in beta. Handle data and migration edge cases defensively; asking testers to reset can be acceptable, but do not silently discard functionality or data.
 
-| Skill | Load when… |
-|-------|-----------|
-| `architecture` | Designing a feature, adding a service, understanding data flow, anything touching multiple packages |
-| `ui-conventions` | Building or modifying any SwiftUI view, navigation, loading states, iOS 15 compat |
-| `project-structure` | Locating a file, deciding where a new file belongs, understanding what exists |
-| `code-style` | Writing any Swift code — contains mandatory rules (e.g. `#if DEBUG` for all prints, edge case handling) |
-| `known-issues` | Investigating a bug, planning work, or before touching any area with known problems |
-| `common-tasks` | Adding a ViewModel, view, CoreData entity, hub, music source, playlist mutation, or sync trigger |
-| `testing` | Writing tests, implementing a major feature, or verifying nothing is broken after a refactor |
-| `plex-api` | Implementing or debugging Plex API calls — library sync, playback tracking, playlists, hubs, search, transcoding |
-| `simulator-test` | Verifying runtime behavior with the iOS Simulator MCP server, including launching the app, driving the UI, taking screenshots, and capturing logs |
+Always use `Ensemble.xcworkspace`, not `Ensemble.xcodeproj`.
 
-**When in doubt, load all of them.** They are small and the cost of reading them is far lower than making a wrong decision.
+## Skill Routing
 
+Load the smallest relevant set of skills before non-trivial work:
 
-## Workflow (MUST follow for every task)
-
-**Commit discipline:**
-- Git commit after each logical "step" when implementing a plan
-- Always commit before waiting for the user to test (so changes can be rolled back if context is lost or something breaks)
-
-**Testing discipline:**
-- After implementing a non-trivial feature or refactor, run `swift test --package-path Packages/<affected-package>` before committing
-- If tests fail, fix them before committing — never commit a broken test suite
-- For major architectural changes, write tests for new services/repositories first (see `testing` skill)
-- For any user-visible change, bug fix, or workflow change, verify the affected behavior in the iOS Simulator before calling the work done
-- Use the iOS Simulator MCP server for simulator interaction whenever UI input or visual confirmation is required; do not rely on the user to perform routine validation for you
-- If simulator verification is blocked by missing credentials, unsupported OS behavior, or an external dependency the agent cannot control, state that explicitly and do not mark the task as done
-
-
-## Troubleshooting
-
-When a problem is mentioned, **interview the user first** to help hone in on where the problem is originating from -- don't jump straight to code changes. Ask clarifying questions about when it happens, what they see, and what they expect.
-
-**Never assume something was already broken.** When the user reports a symptom, treat it as a real regression until proven otherwise. If you're unsure whether an issue is pre-existing or caused by your changes, **ask** — don't silently dismiss it or claim it was broken before. Similarly, when the user provides a log or screenshot, assume they're running the correct build unless they say otherwise.
-
-When investigating, add logs to the appropriate files so debugging can be more efficient. Remove or reduce log verbosity once the issue is resolved.
-
-### Plex Streaming Issues — MUST READ
-
-**ALWAYS test Plex endpoints with curl BEFORE making code changes.** A `.env` file at the project root contains `PLEX_ACCESS_TOKEN` for testing. Load the `plex-api` skill for endpoint details and testing patterns.
-
-**DO NOT "disable universal endpoint" as a fix for playback failures.** Curl testing has confirmed:
-- **Universal transcode endpoint WORKS** (200, valid audio/mpeg)
-- **Direct file stream returns 503** — falling back to direct stream makes things WORSE
-- The "resource unavailable" error is an **AVPlayer-specific issue**, not a server problem
-- See the `plex-api` skill for the full diagnosis and testing patterns
-
-
-## Using the Gemini CLI
-
-You have access to the Gemini CLI (`gemini -p`) which leverages Google Gemini's massive context window. Use it as a complementary tool in the following situations:
-
-**When to use Gemini:**
-- **Large codebase analysis:** When you need to analyze many files or large amounts of code that might strain your context limits, pipe content to `gemini -p` to take advantage of its large context capacity.
-- **UI implementation:** Gemini excels at identifying UI patterns and implementing SwiftUI views. When implementing UI changes, **plan the approach here in Claude first**, then delegate the implementation to Gemini. Review and integrate what it produces.
-
-**When NOT to use Gemini:**
-- **Architectural decisions:** Do not delegate architectural changes, structural refactors, or design decisions to Gemini. All architectural planning and decisions must stay in Claude.
-- **Planning:** Claude handles all planning. Gemini is an implementation tool, not a planning tool.
-
-**Typical workflow for UI changes:**
-1. **Claude:** Plan the UI change (what views to create/modify, what patterns to follow, what components to reuse)
-2. **Gemini:** Implement the planned UI code via `gemini -p` with the plan and relevant context
-3. **Claude:** Review the output, integrate it, and ensure it follows project conventions
-
-
-## Project Overview
-
-Ensemble is a universal Plex Music Player built with SwiftUI, targeting iOS 15+, iPadOS 15+, macOS 12+, and watchOS 8+. It streams music from Plex servers using PIN-based OAuth authentication. It is very important features work on iOS 15, and are memory and speed optimized for devices with 2GB or less of RAM.
-
-Right now, this app is in beta testing. We should account for edge cases as we're developing the CoreData model. We have a little bit of leeway with regards to asking our testers to reset their app if needed.
-
-The goal of this app is to provide a beautiful, information-dense, and customizable native experience for the Plex server.
-
-
-This project is connected to Xcode's MCP server: please use it to inform you of how best to operate.
-This project is also connected to the iOS Simulator MCP server: use it to boot the simulator, install and launch builds, inspect accessibility output, drive taps/typing/swipes, and capture screenshots during validation.
-
-Please comment code so that it's understandable. Don't over comment, just comment on what each "piece" does. Do not use emojis (except in debugging).
-
-As you make changes, keep the following documents in sync:
-
-| What changed | What to update |
+| Skill | Load when... |
 |---|---|
-| New service, subsystem, or major pattern | `architecture` skill || New file added anywhere | `project-structure` skill |
-| New recipe, pattern, or call convention | `common-tasks` skill |
-| New UI component, navigation pattern, or visual rule | `ui-conventions` skill |
-| New coding rule, naming convention, or mandatory practice | `code-style` skill |
-| New known bug, limitation, or tech debt | `known-issues` skill |
-| New Now Playing card/panel | `ExternalDisplayNowPlayingView.swift` (add to `detailPanel`) + `common-tasks` skill |
-| Feature shipped or roadmap item completed | `README.md` |
-| Anything that changes how agents should work in this repo | `CLAUDE.md` |
-| New View or UI element added/renamed/removed | `VOCABULARY.md` |
+| `project-structure` | Locating files, adding files, or checking package ownership |
+| `architecture` | Designing features, adding services, or touching multiple packages |
+| `code-style` | Writing Swift or changing coding conventions |
+| `ui-conventions` | Building or modifying SwiftUI, navigation, loading, or error UI |
+| `common-tasks` | Adding ViewModels, views, CoreData entities, hubs, music sources, playlist mutations, sync triggers, downloads, or Siri flows |
+| `testing` | Writing tests, making non-trivial code changes, or deciding verification scope |
+| `simulator-test` | Validating user-visible behavior in the running app |
+| `known-issues` | Investigating bugs, planning around active limitations, or touching fragile areas |
+| `plex-api` | Implementing or debugging Plex API, streaming, playback tracking, playlists, hubs, search, or sync endpoints |
 
-When in doubt: if a future agent session wouldn't know about it by reading the skills, document it.
+Add another skill when the task crosses that boundary. Do not load every skill by default; long skills and references should stay out of context unless they are relevant.
 
-Please don't remove existing functionality (unless directed) when re-architecting parts of the code. I've had to re-implement multiple things that I had asked for and that were removed.
+## Workflow
 
+Start with `git status --short` and preserve unrelated user changes.
 
-## Build & Test Commands
+For implementation work:
+- Make the smallest coherent change that satisfies the request.
+- Commit after each logical step when implementing a plan, and always commit before handing work back for manual testing.
+- Follow the canonical verification policy in `testing`. In short: run affected package tests after non-trivial code changes, and use simulator validation for user-visible behavior unless a blocker is documented.
 
-**Build the full app (iOS simulator):**
+For bug reports:
+- Ask clarifying questions first when the symptom, trigger, or expected behavior is unclear.
+- Treat reported symptoms as real regressions until proven otherwise.
+- Add focused logs when they materially improve diagnosis; remove or reduce noisy logs after fixing.
+
+## Plex Streaming Guardrail
+
+Before changing streaming or playback transport code, load `plex-api` and test the relevant PMS endpoint with `curl` using `.env` credentials. Do not rely on stale documentation.
+
+Current live check on May 13, 2026:
+- Direct file stream can work: tested `206` with a ranged `/library/parts/...` request.
+- Universal transcode can work: tested `200` for decision and `200 audio/mpeg` for `start.mp3`.
+- Therefore, do not disable universal transcode as a broad fix, and do not assume direct stream is always broken. Keep recovery scoped to the concrete failing path.
+
+## Documentation Sync
+
+Update docs only when the change creates information future agents or users need:
+
+| Change | Update |
+|---|---|
+| New service, subsystem, package boundary, or major ownership rule | `architecture` skill |
+| New file or moved ownership boundary | `project-structure` skill |
+| New recipe, call convention, or implementation pattern | `common-tasks` skill |
+| New UI component, navigation rule, or shared visual rule | `ui-conventions` skill |
+| New coding rule or mandatory practice | `code-style` skill |
+| New active bug, limitation, or watchlist item | `known-issues` skill |
+| User-visible feature/status change | `README.md` |
+| Canonical UI name, renamed shared UI element, or accessibility terminology | `VOCABULARY.md` |
+| Agent workflow change | `CLAUDE.md` |
+
+Do not update README or VOCABULARY for every internal refactor.
+
+## Notion
+
+If the task starts from a Notion page, use the Notion MCP. If access is unavailable, ask instead of guessing. Move the page to an in-progress status before implementation and to done when the work is complete.
+
+## Gemini CLI
+
+Use `gemini -p` as an optional implementation aid for very large context reads or bounded UI implementation after planning locally. Do not delegate architecture, structural refactors, or planning decisions to Gemini.
+
+## Commands
+
 ```bash
+# Full app build
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
-```
 
-**Build a single package:**
-```bash
-swift build --package-path Packages/EnsembleAPI
-swift build --package-path Packages/EnsembleDomain
-swift build --package-path Packages/EnsemblePlex
-swift build --package-path Packages/EnsembleWatchCore
-swift build --package-path Packages/EnsembleCore
-swift build --package-path Packages/EnsemblePersistence
-swift build --package-path Packages/EnsembleUI
-```
+# All app tests
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 
-**Run tests for a single package:**
-```bash
+# Package tests
 swift test --package-path Packages/EnsembleAPI
 swift test --package-path Packages/EnsembleDomain
 swift test --package-path Packages/EnsemblePlex
@@ -137,44 +94,24 @@ swift test --package-path Packages/EnsembleWatchCore
 swift test --package-path Packages/EnsembleCore
 swift test --package-path Packages/EnsemblePersistence
 swift test --package-path Packages/EnsembleUI
+swift test --package-path Packages/EnsembleSiriShared
 ```
 
-**Run all tests via Xcode:**
-```bash
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
-```
+The independent watch app builds with the `EnsembleWatch` scheme. The iOS `Ensemble` scheme does not embed the watch app during simulator builds.
 
-**Interactive simulator verification:**
-- Load the `simulator-test` skill and use the iOS Simulator MCP server to validate the affected flow end-to-end after the build/tests pass
-- Do not mark work as complete until the agent has confirmed the relevant behavior in the simulator, unless a specific blocker is documented
+## Architecture Summary
 
-**IMPORTANT:** Always open `Ensemble.xcworkspace` (not `.xcodeproj`) when working in Xcode.
-
-
-## Architecture (Brief)
-
-Layered modular architecture via Swift Packages under `Packages/`:
-
-```
-Layer 3: EnsembleUI (SwiftUI views & components)
-              |
-Layer 2: EnsembleCore (ViewModels, services, domain models)
-              |
-Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
+```text
+Layer 3: EnsembleUI
+Layer 2: EnsembleCore
+Layer 1: EnsembleAPI + EnsemblePersistence
+Shared: EnsembleSiriShared
 Watch: EnsembleDomain + EnsemblePlex + EnsembleWatchCore
 ```
 
-The watch app is now an independent watchOS target. Build it with the `EnsembleWatch` scheme; the iOS `Ensemble` scheme no longer embeds the watch app during simulator builds.
-
-For detailed architecture, invoke the `architecture` skill.
-
-
-## Performance
-
-This app targets iOS 15 on A9 devices (2GB RAM). SwiftUI observation cascades are the primary performance risk. Load `code-style` and `ui-conventions` skills before writing any view code — they contain mandatory iOS 15 performance patterns (observation extraction, Combine caching, GeometryReader rules, etc.). Do not apply observation extraction to short-lived modals (see the PlaylistPickerSheet revert lesson in memory).
-
+Use `architecture` for current ownership rules and `docs/reference/architecture-inventory.md` only when a detailed historical inventory is useful.
 
 ## External Dependencies
 
-- **KeychainAccess** (4.2.0+) -- Secure token storage (EnsembleAPI). SPM: `https://github.com/kishikawakatsumi/KeychainAccess.git`
-- **Nuke** (12.0.0+) -- Image loading and caching (EnsembleCore + EnsembleUI via NukeUI). SPM: `https://github.com/kean/Nuke.git`
+- KeychainAccess 4.2.0+ for token storage.
+- Nuke 12.0.0+ for image loading and caching.

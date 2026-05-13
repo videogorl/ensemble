@@ -15,20 +15,20 @@ description: "Load before writing any Swift code. Contains mandatory rules that 
 
 ## Change Documentation
 
-- **Git commits:** Commit after each logical step with descriptive messages; always commit before waiting for testing
-- **Code comments:** Leave comments in code so future developers (including AI assistants) understand the design
+- **Git commits:** Follow the commit discipline in `CLAUDE.md`.
+- **Code comments:** Explain non-obvious design decisions and complex logic. Do not narrate obvious Swift syntax.
 
 Keep the following documents in sync when making changes:
 
 | What changed | What to update |
 |---|---|
-| New service, subsystem, or major pattern | `architecture` skill + CLAUDE.md Recent Major Changes |
+| New service, subsystem, or major pattern | `architecture` skill |
 | New file added anywhere | `project-structure` skill |
 | New recipe, pattern, or call convention | `common-tasks` skill |
 | New UI component, navigation pattern, or visual rule | `ui-conventions` skill |
 | New coding rule, naming convention, or mandatory practice | `code-style` skill (this file) |
-| New known bug, limitation, or tech debt | `known-issues` skill |
-| Feature shipped or roadmap item completed | `README.md` |
+| New active bug, limitation, or tech debt | `known-issues` skill |
+| User-visible feature or status change | `README.md` |
 | New test patterns or changes to what needs testing | `testing` skill |
 | Anything that changes how agents should work in this repo | `CLAUDE.md` |
 
@@ -77,12 +77,9 @@ Rules:
 
 ## Testing Policy
 
-- Unit tests for business logic (services, repositories)
-- Integration tests for sync flows
-- Not required for simple ViewModels or UI-only code
-- App is in active beta testing — account for edge cases in CoreData model
-- Validate inputs before saving to CoreData; handle nil/missing fields defensively
-- For `EnsembleCore` refactors, keep compiler warnings at the current floor by running `scripts/check_core_warning_budget.sh` before committing
+Use the `testing` skill as the canonical verification policy. For Swift code, the default expectation is affected package tests after non-trivial logic changes, simulator validation for user-visible changes, and `scripts/check_core_warning_budget.sh` for `EnsembleCore` refactors.
+
+The app is in active beta testing. Account for edge cases in CoreData models, validate inputs before saving, and handle nil/missing Plex fields defensively.
 
 ## MVVM Pattern
 
@@ -222,17 +219,6 @@ Never use `@Published` for properties updated at >2Hz in ViewModels with many su
 private let _highFreqValue = CurrentValueSubject<[Double], Never>([])
 public var highFreqValue: [Double] {
     get { _highFreqValue.value }
-
-### Keep Per-Frame Visualizer State Out Of SwiftUI Observation
-
-For `Canvas`, `TimelineView`, waveform, FFT, or other render surfaces updated every frame, do not store live render buffers in SwiftUI `@State`, `@Published`, or other observed properties. Even if the view is visually isolated, those writes can invalidate large root view trees 15-30 times per second and tank shell responsiveness.
-
-Instead:
-- Keep per-frame render state in a stable, non-publishing render model (`@StateObject` with no `@Published`, plain reference storage, or another non-observed cache).
-- Feed analyzer/timer samples into that render model.
-- Let `TimelineView` redraw on its own cadence and read the latest snapshot during rendering.
-
-Use SwiftUI-observed state only for low-frequency lifecycle changes such as visibility, playback mode, or presentation state.
     set { _highFreqValue.send(newValue) }
 }
 public var highFreqValuePublisher: AnyPublisher<[Double], Never> {
@@ -247,6 +233,17 @@ public var highFreqValuePublisher: AnyPublisher<[Double], Never> {
 ```
 
 Proven pattern from `PlaybackService.frequencyBands` and `NowPlayingViewModel.waveformHeights`/lyrics properties.
+
+### Keep Per-Frame Visualizer State Out Of SwiftUI Observation
+
+For `Canvas`, `TimelineView`, waveform, FFT, or other render surfaces updated every frame, do not store live render buffers in SwiftUI `@State`, `@Published`, or other observed properties. Even if the view is visually isolated, those writes can invalidate large root view trees 15-30 times per second and tank shell responsiveness.
+
+Instead:
+- Keep per-frame render state in a stable, non-publishing render model (`@StateObject` with no `@Published`, plain reference storage, or another non-observed cache).
+- Feed analyzer/timer samples into that render model.
+- Let `TimelineView` redraw on its own cadence and read the latest snapshot during rendering.
+
+Use SwiftUI-observed state only for low-frequency lifecycle changes such as visibility, playback mode, or presentation state.
 
 ### Throttle Background CPU Work on ≤2-Core Devices
 
