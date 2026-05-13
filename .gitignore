@@ -11,6 +11,8 @@ buildServer.json
 
 ## User settings
 xcuserdata/
+.vscode/settings.json
+.vscode/tasks.json
 
 ## Obj-C/Swift specific
 *.hmap
@@ -37,6 +39,7 @@ playground.xcworkspace
 # .swiftpm
 
 .build/
+.SourcePackages/
 
 # CocoaPods
 #
@@ -86,3 +89,4 @@ DerivedData/
 *.perspectivev3
 !default.perspectivev3
 .claude/worktrees/
+.codex/environments/
