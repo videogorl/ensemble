@@ -473,15 +473,17 @@ private extension View {
     @ViewBuilder
     func macViewportNowPlayingWindowChromeHidden(_ isHidden: Bool) -> some View {
         #if os(macOS)
-        self.background(
-            MacWindowToolbarVisibilityBridge(
-                isHidden: isHidden,
-                minimumContentSize: NSSize(
-                    width: EnsembleScaffold.RootWindow.macMinimumWidth,
-                    height: EnsembleScaffold.RootWindow.macMinimumHeight
+        if #available(macOS 15.0, *) {
+            self.toolbarVisibility(isHidden ? .hidden : .visible, for: .windowToolbar)
+        } else if #available(macOS 13.0, *) {
+            self.toolbar(isHidden ? .hidden : .visible, for: .windowToolbar)
+        } else {
+            self.background(
+                MacWindowToolbarVisibilityBridge(
+                    isHidden: isHidden
                 )
             )
-        )
+        }
         #else
         self
         #endif
@@ -491,7 +493,6 @@ private extension View {
 #if os(macOS)
 private struct MacWindowToolbarVisibilityBridge: NSViewRepresentable {
     let isHidden: Bool
-    let minimumContentSize: NSSize
 
     func makeNSView(context: Context) -> ToolbarVisibilityProbeView {
         let view = ToolbarVisibilityProbeView()
@@ -501,23 +502,23 @@ private struct MacWindowToolbarVisibilityBridge: NSViewRepresentable {
 
     func updateNSView(_ nsView: ToolbarVisibilityProbeView, context: Context) {
         nsView.isToolbarHidden = isHidden
-        nsView.minimumContentSize = minimumContentSize
         nsView.applyToolbarVisibility()
     }
 
     final class ToolbarVisibilityProbeView: NSView {
         var isToolbarHidden = false
-        var minimumContentSize: NSSize = .zero
         private weak var appliedWindow: NSWindow?
-        private var originalToolbarVisibility: Bool?
-        private var lastInactiveToolbarVisibility: Bool?
-        private var originalContentMinSize: NSSize?
+        private var originalTitleVisibility: NSWindow.TitleVisibility?
+        private var originalTitlebarAppearsTransparent: Bool?
+        private var originalToolbarBaselineSeparatorVisibility: Bool?
+        private var originalStandardButtonVisibility: [NSWindow.ButtonType: Bool] = [:]
+        private var originalToolbarItemViewVisibility: [ObjectIdentifier: (view: NSView, isHidden: Bool)] = [:]
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
 
             if let appliedWindow, appliedWindow !== window {
-                restoreToolbarVisibility(on: appliedWindow)
+                restoreAppliedWindowIfNeeded()
                 self.appliedWindow = nil
             }
 
@@ -525,30 +526,20 @@ private struct MacWindowToolbarVisibilityBridge: NSViewRepresentable {
         }
 
         func applyToolbarVisibility() {
-            guard let window else { return }
+            guard let window else {
+                restoreAppliedWindowIfNeeded()
+                return
+            }
 
             if appliedWindow !== window {
                 restoreAppliedWindowIfNeeded()
                 appliedWindow = window
-                originalToolbarVisibility = window.toolbar?.isVisible
-                originalContentMinSize = window.contentMinSize
             }
 
-            applyMinimumContentSize(on: window)
-
-            guard let toolbar = window.toolbar else { return }
-
             if isToolbarHidden {
-                if originalToolbarVisibility == nil {
-                    originalToolbarVisibility = lastInactiveToolbarVisibility ?? toolbar.isVisible
-                }
-                setToolbar(toolbar, isVisible: false, on: window)
+                hideWindowChrome(on: window)
             } else {
-                if originalToolbarVisibility != nil {
-                    restoreToolbarVisibility(on: window)
-                } else {
-                    lastInactiveToolbarVisibility = toolbar.isVisible
-                }
+                restoreWindowChrome(on: window)
             }
         }
 
@@ -563,84 +554,85 @@ private struct MacWindowToolbarVisibilityBridge: NSViewRepresentable {
 
         private func restoreAppliedWindowIfNeeded() {
             guard let appliedWindow else { return }
-            restoreToolbarVisibility(on: appliedWindow)
-            restoreContentMinSize(on: appliedWindow)
+            restoreWindowChrome(on: appliedWindow)
             self.appliedWindow = nil
         }
 
-        private func restoreToolbarVisibility(on window: NSWindow) {
-            guard let originalToolbarVisibility,
-                  let toolbar = window.toolbar else {
-                self.originalToolbarVisibility = nil
-                return
+        private func hideWindowChrome(on window: NSWindow) {
+            if originalTitleVisibility == nil {
+                originalTitleVisibility = window.titleVisibility
+                originalTitlebarAppearsTransparent = window.titlebarAppearsTransparent
             }
 
-            setToolbar(toolbar, isVisible: originalToolbarVisibility, on: window)
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
 
-            lastInactiveToolbarVisibility = originalToolbarVisibility
-            self.originalToolbarVisibility = nil
+            setStandardWindowButtonsHidden(true, on: window)
+            setToolbarItemsHidden(true, on: window.toolbar)
         }
 
-        private func applyMinimumContentSize(on window: NSWindow) {
-            guard minimumContentSize.width > 0,
-                  minimumContentSize.height > 0 else {
-                return
+        private func restoreWindowChrome(on window: NSWindow) {
+            if let originalTitleVisibility {
+                window.titleVisibility = originalTitleVisibility
+                self.originalTitleVisibility = nil
             }
 
-            let constrainedMinimumSize = NSSize(
-                width: max(window.contentMinSize.width, minimumContentSize.width),
-                height: max(window.contentMinSize.height, minimumContentSize.height)
-            )
-            if window.contentMinSize != constrainedMinimumSize {
-                window.contentMinSize = constrainedMinimumSize
+            if let originalTitlebarAppearsTransparent {
+                window.titlebarAppearsTransparent = originalTitlebarAppearsTransparent
+                self.originalTitlebarAppearsTransparent = nil
             }
 
-            expandWindowIfNeeded(on: window)
+            restoreStandardWindowButtons(on: window)
+            restoreToolbarItems(on: window.toolbar)
         }
 
-        private func restoreContentMinSize(on window: NSWindow) {
-            guard let originalContentMinSize else { return }
-            window.contentMinSize = originalContentMinSize
-            self.originalContentMinSize = nil
+        private func setStandardWindowButtonsHidden(_ isHidden: Bool, on window: NSWindow) {
+            let buttonTypes: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+
+            for buttonType in buttonTypes {
+                guard let button = window.standardWindowButton(buttonType) else { continue }
+                if originalStandardButtonVisibility[buttonType] == nil {
+                    originalStandardButtonVisibility[buttonType] = button.isHidden
+                }
+                button.isHidden = isHidden
+            }
         }
 
-        private func setToolbar(_ toolbar: NSToolbar, isVisible: Bool, on window: NSWindow) {
-            guard toolbar.isVisible != isVisible else { return }
-
-            let frameBeforeChange = window.styleMask.contains(.fullScreen) ? nil : window.frame
-            toolbar.isVisible = isVisible
-
-            guard let frameBeforeChange,
-                  window.frame.size != frameBeforeChange.size else {
-                return
+        private func restoreStandardWindowButtons(on window: NSWindow) {
+            for (buttonType, isHidden) in originalStandardButtonVisibility {
+                window.standardWindowButton(buttonType)?.isHidden = isHidden
             }
-
-            window.setFrame(frameBeforeChange, display: true)
+            originalStandardButtonVisibility.removeAll()
         }
 
-        private func expandWindowIfNeeded(on window: NSWindow) {
-            guard !window.styleMask.contains(.fullScreen) else { return }
+        private func setToolbarItemsHidden(_ isHidden: Bool, on toolbar: NSToolbar?) {
+            guard let toolbar else { return }
 
-            let contentRect = window.contentRect(forFrameRect: window.frame)
-            let targetContentSize = NSSize(
-                width: max(contentRect.width, minimumContentSize.width),
-                height: max(contentRect.height, minimumContentSize.height)
-            )
+            if originalToolbarBaselineSeparatorVisibility == nil {
+                originalToolbarBaselineSeparatorVisibility = toolbar.showsBaselineSeparator
+            }
+            toolbar.showsBaselineSeparator = !isHidden
 
-            guard targetContentSize.width > contentRect.width ||
-                  targetContentSize.height > contentRect.height else {
-                return
+            toolbar.visibleItems?.forEach { item in
+                guard let itemView = item.view else { return }
+                let identifier = ObjectIdentifier(itemView)
+                if originalToolbarItemViewVisibility[identifier] == nil {
+                    originalToolbarItemViewVisibility[identifier] = (itemView, itemView.isHidden)
+                }
+                itemView.isHidden = isHidden
+            }
+        }
+
+        private func restoreToolbarItems(on toolbar: NSToolbar?) {
+            if let originalToolbarBaselineSeparatorVisibility {
+                toolbar?.showsBaselineSeparator = originalToolbarBaselineSeparatorVisibility
+                self.originalToolbarBaselineSeparatorVisibility = nil
             }
 
-            let targetFrameSize = window.frameRect(
-                forContentRect: NSRect(origin: .zero, size: targetContentSize)
-            ).size
-            var targetFrame = window.frame
-            let currentMaxY = targetFrame.maxY
-            targetFrame.size.width = max(targetFrame.width, targetFrameSize.width)
-            targetFrame.size.height = max(targetFrame.height, targetFrameSize.height)
-            targetFrame.origin.y = currentMaxY - targetFrame.height
-            window.setFrame(targetFrame, display: true)
+            for (_, visibility) in originalToolbarItemViewVisibility {
+                visibility.view.isHidden = visibility.isHidden
+            }
+            originalToolbarItemViewVisibility.removeAll()
         }
     }
 }

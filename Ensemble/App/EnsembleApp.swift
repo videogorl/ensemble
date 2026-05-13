@@ -69,7 +69,6 @@ struct EnsembleApp: App {
                     activity.title = "Ensemble Active"
                 }
         }
-        .applyRootWindowSizing()
         .applyBackgroundRefresh()
         .onChange(of: scenePhase) { newPhase in
             handleScenePhaseChange(newPhase)
@@ -519,19 +518,6 @@ private enum MacPlaybackShortcut {
 // MARK: - Background Refresh Extension
 
 extension Scene {
-    /// Keeps the main macOS window from resizing to transient overlay content.
-    func applyRootWindowSizing() -> some Scene {
-        #if os(macOS)
-        if #available(macOS 13.0, *) {
-            return self.windowResizability(.contentMinSize)
-        } else {
-            return self
-        }
-        #else
-        return self
-        #endif
-    }
-
     /// Adds background refresh capability on iOS 16+, no-op on iOS 15 and other platforms
     func applyBackgroundRefresh() -> some Scene {
         #if os(iOS)
