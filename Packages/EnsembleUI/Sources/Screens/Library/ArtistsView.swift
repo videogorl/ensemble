@@ -57,6 +57,9 @@ public struct ArtistsView: View {
                 artistSortMenu
             }
         }
+        .if(selectedArtist == nil) { view in
+            view.toolbarMaterialBackground()
+        }
         .task(id: sectionInput) {
             await updateArtistSections(for: sectionInput)
         }

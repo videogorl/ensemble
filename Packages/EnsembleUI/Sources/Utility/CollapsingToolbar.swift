@@ -241,13 +241,42 @@ extension View {
         ))
     }
 
+    /// Keeps top-edge content visible behind platform toolbar chrome.
+    func toolbarMaterialBleed(hidesTopScrollEdgeEffect: Bool = false) -> some View {
+        modifier(ToolbarMaterialBleedModifier(hidesTopScrollEdgeEffect: hidesTopScrollEdgeEffect))
+    }
+
+    /// Requests the native toolbar material without making the toolbar fully transparent.
+    func toolbarMaterialBackground() -> some View {
+        modifier(ToolbarMaterialBackgroundModifier())
+    }
+
     /// Keeps artwork-backed surfaces visible behind platform toolbar chrome.
     func artworkBackedToolbarBleed(hidesTopScrollEdgeEffect: Bool = false) -> some View {
-        modifier(ArtworkBackedToolbarBleedModifier(hidesTopScrollEdgeEffect: hidesTopScrollEdgeEffect))
+        toolbarMaterialBleed(hidesTopScrollEdgeEffect: hidesTopScrollEdgeEffect)
     }
 }
 
-private struct ArtworkBackedToolbarBleedModifier: ViewModifier {
+private struct ToolbarMaterialBackgroundModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        if #available(macOS 15.0, *) {
+            content
+                .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
+        } else if #available(macOS 13.0, *) {
+            content
+                .toolbarBackground(.visible, for: .windowToolbar)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+private struct ToolbarMaterialBleedModifier: ViewModifier {
     let hidesTopScrollEdgeEffect: Bool
 
     @ViewBuilder
@@ -269,6 +298,12 @@ private struct ArtworkBackedToolbarBleedModifier: ViewModifier {
             content
                 .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
                 .scrollEdgeEffectStyle(.automatic, for: .top)
+        } else if #available(macOS 15.0, *) {
+            content
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        } else if #available(macOS 13.0, *) {
+            content
+                .toolbarBackground(.hidden, for: .windowToolbar)
         } else {
             content
         }
