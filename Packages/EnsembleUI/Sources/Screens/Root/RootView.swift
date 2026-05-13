@@ -4,6 +4,9 @@ import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
+#if os(macOS)
+import AppKit
+#endif
 
 enum RootChromeCoordinateSpace {
     static let name = "RootChromeCoordinateSpace"
@@ -260,6 +263,8 @@ public struct RootView: View {
                 _ = await deps.siriMediaIndexStore.rebuildIndex()
             }
         }
+        .macRootWindowMinimumFrame()
+        .macViewportNowPlayingWindowChromeHidden(isNowPlayingPresented)
     }
 
     private func updateAppearance() {
@@ -451,6 +456,195 @@ public struct RootView: View {
         navigationCoordinator.push(pending.destination, in: targetTab)
     }
 }
+
+private extension View {
+    @ViewBuilder
+    func macRootWindowMinimumFrame() -> some View {
+        #if os(macOS)
+        self.frame(
+            minWidth: EnsembleScaffold.RootWindow.macMinimumWidth,
+            minHeight: EnsembleScaffold.RootWindow.macMinimumHeight
+        )
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
+    func macViewportNowPlayingWindowChromeHidden(_ isHidden: Bool) -> some View {
+        #if os(macOS)
+        self.background(
+            MacWindowToolbarVisibilityBridge(
+                isHidden: isHidden,
+                minimumContentSize: NSSize(
+                    width: EnsembleScaffold.RootWindow.macMinimumWidth,
+                    height: EnsembleScaffold.RootWindow.macMinimumHeight
+                )
+            )
+        )
+        #else
+        self
+        #endif
+    }
+}
+
+#if os(macOS)
+private struct MacWindowToolbarVisibilityBridge: NSViewRepresentable {
+    let isHidden: Bool
+    let minimumContentSize: NSSize
+
+    func makeNSView(context: Context) -> ToolbarVisibilityProbeView {
+        let view = ToolbarVisibilityProbeView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }
+
+    func updateNSView(_ nsView: ToolbarVisibilityProbeView, context: Context) {
+        nsView.isToolbarHidden = isHidden
+        nsView.minimumContentSize = minimumContentSize
+        nsView.applyToolbarVisibility()
+    }
+
+    final class ToolbarVisibilityProbeView: NSView {
+        var isToolbarHidden = false
+        var minimumContentSize: NSSize = .zero
+        private weak var appliedWindow: NSWindow?
+        private var originalToolbarVisibility: Bool?
+        private var lastInactiveToolbarVisibility: Bool?
+        private var originalContentMinSize: NSSize?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+
+            if let appliedWindow, appliedWindow !== window {
+                restoreToolbarVisibility(on: appliedWindow)
+                self.appliedWindow = nil
+            }
+
+            applyToolbarVisibility()
+        }
+
+        func applyToolbarVisibility() {
+            guard let window else { return }
+
+            if appliedWindow !== window {
+                restoreAppliedWindowIfNeeded()
+                appliedWindow = window
+                originalToolbarVisibility = window.toolbar?.isVisible
+                originalContentMinSize = window.contentMinSize
+            }
+
+            applyMinimumContentSize(on: window)
+
+            guard let toolbar = window.toolbar else { return }
+
+            if isToolbarHidden {
+                if originalToolbarVisibility == nil {
+                    originalToolbarVisibility = lastInactiveToolbarVisibility ?? toolbar.isVisible
+                }
+                setToolbar(toolbar, isVisible: false, on: window)
+            } else {
+                if originalToolbarVisibility != nil {
+                    restoreToolbarVisibility(on: window)
+                } else {
+                    lastInactiveToolbarVisibility = toolbar.isVisible
+                }
+            }
+        }
+
+        override func removeFromSuperview() {
+            restoreAppliedWindowIfNeeded()
+            super.removeFromSuperview()
+        }
+
+        deinit {
+            restoreAppliedWindowIfNeeded()
+        }
+
+        private func restoreAppliedWindowIfNeeded() {
+            guard let appliedWindow else { return }
+            restoreToolbarVisibility(on: appliedWindow)
+            restoreContentMinSize(on: appliedWindow)
+            self.appliedWindow = nil
+        }
+
+        private func restoreToolbarVisibility(on window: NSWindow) {
+            guard let originalToolbarVisibility,
+                  let toolbar = window.toolbar else {
+                self.originalToolbarVisibility = nil
+                return
+            }
+
+            setToolbar(toolbar, isVisible: originalToolbarVisibility, on: window)
+
+            lastInactiveToolbarVisibility = originalToolbarVisibility
+            self.originalToolbarVisibility = nil
+        }
+
+        private func applyMinimumContentSize(on window: NSWindow) {
+            guard minimumContentSize.width > 0,
+                  minimumContentSize.height > 0 else {
+                return
+            }
+
+            let constrainedMinimumSize = NSSize(
+                width: max(window.contentMinSize.width, minimumContentSize.width),
+                height: max(window.contentMinSize.height, minimumContentSize.height)
+            )
+            if window.contentMinSize != constrainedMinimumSize {
+                window.contentMinSize = constrainedMinimumSize
+            }
+
+            expandWindowIfNeeded(on: window)
+        }
+
+        private func restoreContentMinSize(on window: NSWindow) {
+            guard let originalContentMinSize else { return }
+            window.contentMinSize = originalContentMinSize
+            self.originalContentMinSize = nil
+        }
+
+        private func setToolbar(_ toolbar: NSToolbar, isVisible: Bool, on window: NSWindow) {
+            guard toolbar.isVisible != isVisible else { return }
+
+            let frameBeforeChange = window.styleMask.contains(.fullScreen) ? nil : window.frame
+            toolbar.isVisible = isVisible
+
+            guard let frameBeforeChange,
+                  window.frame.size != frameBeforeChange.size else {
+                return
+            }
+
+            window.setFrame(frameBeforeChange, display: true)
+        }
+
+        private func expandWindowIfNeeded(on window: NSWindow) {
+            guard !window.styleMask.contains(.fullScreen) else { return }
+
+            let contentRect = window.contentRect(forFrameRect: window.frame)
+            let targetContentSize = NSSize(
+                width: max(contentRect.width, minimumContentSize.width),
+                height: max(contentRect.height, minimumContentSize.height)
+            )
+
+            guard targetContentSize.width > contentRect.width ||
+                  targetContentSize.height > contentRect.height else {
+                return
+            }
+
+            let targetFrameSize = window.frameRect(
+                forContentRect: NSRect(origin: .zero, size: targetContentSize)
+            ).size
+            var targetFrame = window.frame
+            let currentMaxY = targetFrame.maxY
+            targetFrame.size.width = max(targetFrame.width, targetFrameSize.width)
+            targetFrame.size.height = max(targetFrame.height, targetFrameSize.height)
+            targetFrame.origin.y = currentMaxY - targetFrame.height
+            window.setFrame(targetFrame, display: true)
+        }
+    }
+}
+#endif
 
 private struct NowPlayingPresentationModifier: ViewModifier {
     let rootView: RootView
