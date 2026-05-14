@@ -254,10 +254,7 @@ extension AppDelegate {
 
         if SystemMediaSpotlightRouter.isSpotlightActivity(userActivity) {
             Task { @MainActor in
-                _ = SystemMediaSpotlightRouter.route(
-                    userActivity,
-                    coordinator: DependencyContainer.shared.navigationCoordinator
-                )
+                _ = SystemMediaSpotlightRouter.route(userActivity)
             }
             return true
         }

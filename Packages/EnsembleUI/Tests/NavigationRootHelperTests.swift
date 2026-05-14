@@ -128,6 +128,53 @@ final class NavigationRootHelperTests: XCTestCase {
         )
     }
 
+    func testInitialSelectionPolicyPreservesVisibleExternalRoute() {
+        let barTabs: [TabItem] = [.home, .artists, .playlists, .search]
+
+        XCTAssertEqual(
+            MainTabInitialSelectionPolicy.rootTab(selectedTab: .playlists, barTabs: barTabs),
+            .playlists
+        )
+        XCTAssertEqual(
+            MainTabInitialSelectionPolicy.initialResolution(
+                selectedTab: .playlists,
+                selectedPath: [.playlist(id: "playlist", sourceKey: "server")],
+                barTabs: barTabs
+            ),
+            .preserve
+        )
+    }
+
+    func testInitialSelectionPolicyFallsBackWhenDefaultTabIsHidden() {
+        let barTabs: [TabItem] = [.artists, .playlists, .search, .favorites]
+
+        XCTAssertEqual(
+            MainTabInitialSelectionPolicy.rootTab(selectedTab: .home, barTabs: barTabs),
+            .artists
+        )
+        XCTAssertEqual(
+            MainTabInitialSelectionPolicy.initialResolution(
+                selectedTab: .home,
+                selectedPath: [],
+                barTabs: barTabs
+            ),
+            .select(.artists)
+        )
+    }
+
+    func testInitialSelectionPolicyRoutesHiddenExternalPathThroughMore() {
+        let barTabs: [TabItem] = [.home, .artists, .playlists, .search]
+
+        XCTAssertEqual(
+            MainTabInitialSelectionPolicy.initialResolution(
+                selectedTab: .albums,
+                selectedPath: [.album(id: "album", sourceKey: "server/library")],
+                barTabs: barTabs
+            ),
+            .routeThroughMore(.albums)
+        )
+    }
+
     @MainActor
     func testNavigationCoordinatorPathBindingWritesThroughToCoordinator() {
         let coordinator = NavigationCoordinator()

@@ -99,4 +99,35 @@ final class NavigationCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.pathSnapshot(for: .albums), [destination])
         XCTAssertTrue(coordinator.pathSnapshot(for: .home).isEmpty)
     }
+
+    @MainActor
+    func testExternalSearchRouteQueuesUntilSceneCoordinatorIsActive() {
+        let destination = NavigationCoordinator.Destination.playlist(id: "playlist", sourceKey: "server")
+
+        XCTAssertFalse(NavigationCoordinator.routeExternalSearchInActiveScene(to: destination))
+
+        let coordinator = NavigationCoordinator()
+        NavigationCoordinator.setActiveSceneCoordinator(coordinator)
+        defer {
+            NavigationCoordinator.clearActiveSceneCoordinator(coordinator)
+        }
+
+        XCTAssertEqual(coordinator.selectedTab, .playlists)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .playlists), [destination])
+    }
+
+    @MainActor
+    func testExternalSearchRouteUsesActiveSceneCoordinator() {
+        let coordinator = NavigationCoordinator()
+        NavigationCoordinator.setActiveSceneCoordinator(coordinator)
+        defer {
+            NavigationCoordinator.clearActiveSceneCoordinator(coordinator)
+        }
+
+        let destination = NavigationCoordinator.Destination.album(id: "album", sourceKey: "server/library")
+
+        XCTAssertTrue(NavigationCoordinator.routeExternalSearchInActiveScene(to: destination))
+        XCTAssertEqual(coordinator.selectedTab, .albums)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .albums), [destination])
+    }
 }

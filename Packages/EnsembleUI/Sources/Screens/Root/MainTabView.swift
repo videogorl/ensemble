@@ -32,15 +32,10 @@ public struct MainTabView: View {
     }
 
     private var selectedRootTab: TabItem {
-        if !didSetInitialTab {
-            return barTabs.first ?? .home
-        }
-
-        let selectedTab = navigationCoordinator.selectedTab
-        if barTabs.contains(selectedTab) || selectedTab == .settings {
-            return selectedTab
-        }
-        return barTabs.first ?? .home
+        MainTabInitialSelectionPolicy.rootTab(
+            selectedTab: navigationCoordinator.selectedTab,
+            barTabs: barTabs
+        )
     }
 
     @MainActor
@@ -140,10 +135,8 @@ public struct MainTabView: View {
                 // to target the wrong tab until a manual tab switch.
                 if !didSetInitialTab {
                     didSetInitialTab = true
-                    let firstTab = barTabs.first ?? .home
-                    if navigationCoordinator.selectedTab != firstTab {
-                        navigationCoordinator.selectedTab = firstTab
-                    }
+                    syncVisibleTabs()
+                    reconcileInitialTabSelection()
                 }
                 await libraryVM.refresh()
             }
@@ -242,6 +235,7 @@ public struct MainTabView: View {
         let latestTabs = settingsManager.enabledTabs
         if latestTabs != enabledTabs {
             enabledTabs = latestTabs
+            syncVisibleTabs(for: latestTabs)
         }
 
         let latestAccentColor = settingsManager.accentColor
@@ -252,6 +246,32 @@ public struct MainTabView: View {
         let latestAuroraEnabled = settingsManager.auroraVisualizationEnabled
         if latestAuroraEnabled != auroraVisualizationEnabled {
             auroraVisualizationEnabled = latestAuroraEnabled
+        }
+    }
+
+    private func syncVisibleTabs(for tabs: [TabItem]? = nil) {
+        navigationCoordinator.visibleTabs = Array(
+            (tabs ?? enabledTabs).prefix(EnsembleScaffold.TabEditor.maximumTabBarItems)
+        )
+    }
+
+    private func reconcileInitialTabSelection() {
+        let selectedTab = navigationCoordinator.selectedTab
+        let selectedPath = navigationCoordinator.pathSnapshot(for: selectedTab)
+
+        switch MainTabInitialSelectionPolicy.initialResolution(
+            selectedTab: selectedTab,
+            selectedPath: selectedPath,
+            barTabs: barTabs
+        ) {
+        case .preserve:
+            return
+        case .select(let tab):
+            navigationCoordinator.selectedTab = tab
+        case .routeThroughMore(let hiddenTab):
+            navigationCoordinator.setPath([.view(hiddenTab)] + selectedPath, for: .settings)
+            navigationCoordinator.setPath([], for: hiddenTab)
+            navigationCoordinator.selectedTab = .settings
         }
     }
     
@@ -391,6 +411,37 @@ enum MainTabStageFlowPolicy {
         default:
             return false
         }
+    }
+}
+
+enum MainTabInitialSelectionPolicy {
+    enum Resolution: Equatable {
+        case preserve
+        case select(TabItem)
+        case routeThroughMore(TabItem)
+    }
+
+    static func rootTab(selectedTab: TabItem, barTabs: [TabItem]) -> TabItem {
+        if barTabs.contains(selectedTab) || selectedTab == .settings {
+            return selectedTab
+        }
+        return barTabs.first ?? .home
+    }
+
+    static func initialResolution(
+        selectedTab: TabItem,
+        selectedPath: [NavigationCoordinator.Destination],
+        barTabs: [TabItem]
+    ) -> Resolution {
+        if barTabs.contains(selectedTab) || selectedTab == .settings {
+            return .preserve
+        }
+
+        guard !selectedPath.isEmpty else {
+            return .select(barTabs.first ?? .home)
+        }
+
+        return .routeThroughMore(selectedTab)
     }
 }
 

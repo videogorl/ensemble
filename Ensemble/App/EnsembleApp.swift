@@ -384,10 +384,7 @@ struct EnsembleApp: App {
 
     private func handleSpotlightActivity(_ userActivity: NSUserActivity) {
         Task { @MainActor in
-            _ = SystemMediaSpotlightRouter.route(
-                userActivity,
-                coordinator: DependencyContainer.shared.navigationCoordinator
-            )
+            _ = SystemMediaSpotlightRouter.route(userActivity)
         }
     }
 
@@ -489,17 +486,16 @@ enum SystemMediaSpotlightRouter {
 
     @MainActor
     @discardableResult
-    static func route(
-        _ userActivity: NSUserActivity,
-        coordinator: NavigationCoordinator
-    ) -> Bool {
+    static func route(_ userActivity: NSUserActivity) -> Bool {
         guard let destination = destination(from: userActivity) else {
             AppLogger.debug("SPOTLIGHT_APP: Could not route Spotlight activity")
             return false
         }
 
-        coordinator.navigateFromExternalSearch(to: destination)
-        AppLogger.info("SPOTLIGHT_APP: Routed Spotlight media result to \(String(describing: destination))")
+        let routedImmediately = NavigationCoordinator.routeExternalSearchInActiveScene(to: destination)
+        AppLogger.info(
+            "SPOTLIGHT_APP: \(routedImmediately ? "Routed" : "Queued") Spotlight media result to \(String(describing: destination))"
+        )
         return true
     }
 

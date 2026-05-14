@@ -6,6 +6,8 @@ import Combine
 @MainActor
 public final class NavigationCoordinator: ObservableObject {
     private static weak var activeAuxiliaryCommandCoordinator: NavigationCoordinator?
+    private static weak var activeSceneCoordinator: NavigationCoordinator?
+    private static var pendingExternalSearchDestination: Destination?
 
     public enum AuxiliaryPresentation: String, Identifiable {
         case profile
@@ -124,8 +126,33 @@ public final class NavigationCoordinator: ObservableObject {
         activeAuxiliaryCommandCoordinator = nil
     }
 
+    public static func setActiveSceneCoordinator(_ coordinator: NavigationCoordinator) {
+        activeSceneCoordinator = coordinator
+
+        guard let destination = pendingExternalSearchDestination else { return }
+        pendingExternalSearchDestination = nil
+        coordinator.navigateFromExternalSearch(to: destination)
+        EnsembleLogger.info("SPOTLIGHT_APP: Applied pending Spotlight route to active scene")
+    }
+
+    public static func clearActiveSceneCoordinator(_ coordinator: NavigationCoordinator) {
+        guard activeSceneCoordinator === coordinator else { return }
+        activeSceneCoordinator = nil
+    }
+
     public static func openProfileFromActiveScene(fallback: NavigationCoordinator) {
-        (activeAuxiliaryCommandCoordinator ?? fallback).openProfile()
+        (activeAuxiliaryCommandCoordinator ?? activeSceneCoordinator ?? fallback).openProfile()
+    }
+
+    @discardableResult
+    public static func routeExternalSearchInActiveScene(to destination: Destination) -> Bool {
+        guard let coordinator = activeSceneCoordinator ?? activeAuxiliaryCommandCoordinator else {
+            pendingExternalSearchDestination = destination
+            return false
+        }
+
+        coordinator.navigateFromExternalSearch(to: destination)
+        return true
     }
     
     // MARK: - Navigation Methods
