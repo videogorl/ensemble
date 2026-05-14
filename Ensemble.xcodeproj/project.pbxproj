@@ -22,6 +22,8 @@
 		E0001030 /* ExternalDisplaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001031 /* ExternalDisplaySceneDelegate.swift */; };
 		E0001034 /* AppIntentVocabulary.plist in Resources */ = {isa = PBXBuildFile; fileRef = E0001032 /* AppIntentVocabulary.plist */; };
 		E0001035 /* AppIntentVocabulary.plist in Resources */ = {isa = PBXBuildFile; fileRef = E0001033 /* AppIntentVocabulary.plist */; };
+		E0001071 /* SystemMedia.intentdefinition in Resources */ = {isa = PBXBuildFile; fileRef = E0001070 /* SystemMedia.intentdefinition */; };
+		E0001072 /* SystemMedia.intentdefinition in Resources */ = {isa = PBXBuildFile; fileRef = E0001070 /* SystemMedia.intentdefinition */; };
 		E0001005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E0001004 /* Assets.xcassets */; };
 		E0001007 /* IntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001010 /* IntentHandler.swift */; };
 		E0001024 /* SiriExtensionLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001023 /* SiriExtensionLogger.swift */; };
@@ -107,6 +109,7 @@
 		E0001031 /* ExternalDisplaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalDisplaySceneDelegate.swift; sourceTree = "<group>"; };
 		E0001032 /* AppIntentVocabulary.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Base.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
 		E0001033 /* AppIntentVocabulary.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = en.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		E0001070 /* SystemMedia.intentdefinition */ = {isa = PBXFileReference; lastKnownFileType = file.intentdefinition; path = SystemMedia.intentdefinition; sourceTree = "<group>"; };
 		E0001004 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E0001006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		E0001010 /* IntentHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntentHandler.swift; sourceTree = "<group>"; };
@@ -266,6 +269,7 @@
 			children = (
 				E0001032 /* AppIntentVocabulary.plist */,
 				E0001033 /* AppIntentVocabulary.plist */,
+				E0001070 /* SystemMedia.intentdefinition */,
 				E0001004 /* Assets.xcassets */,
 			);
 			path = Resources;
@@ -427,6 +431,7 @@
 			files = (
 				E0001034 /* AppIntentVocabulary.plist in Resources */,
 				E0001035 /* AppIntentVocabulary.plist in Resources */,
+				E0001071 /* SystemMedia.intentdefinition in Resources */,
 				E0001005 /* Assets.xcassets in Resources */,
 				9926CB082F43A106004A19A3 /* AppIcon.icon in Resources */,
 			);
@@ -444,6 +449,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E0001072 /* SystemMedia.intentdefinition in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -850,6 +856,7 @@
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
@@ -880,6 +887,7 @@
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
