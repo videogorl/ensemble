@@ -1,3 +1,4 @@
+import EnsembleSiriShared
 import Foundation
 
 /// Executes Siri affinity (love/dislike) requests inside the main app process.

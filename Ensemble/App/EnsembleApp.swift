@@ -1,4 +1,5 @@
 import EnsembleCore
+import EnsembleSiriShared
 import EnsembleUI
 import Foundation
 import Intents

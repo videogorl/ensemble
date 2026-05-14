@@ -94,7 +94,8 @@ public final class SiriMediaIndexStore {
                         secondaryText: nil,
                         lastPlayed: nil,
                         playCount: nil,
-                        trackCount: nil
+                        trackCount: nil,
+                        artistName: artist.name
                     )
                 )
             }
@@ -109,7 +110,10 @@ public final class SiriMediaIndexStore {
                         secondaryText: album.artistName,
                         lastPlayed: nil,
                         playCount: nil,
-                        trackCount: Int(album.trackCount)
+                        trackCount: Int(album.trackCount),
+                        albumTitle: album.title,
+                        artistName: album.artistName ?? album.albumArtist,
+                        genre: album.genreNames
                     )
                 )
             }
@@ -124,7 +128,13 @@ public final class SiriMediaIndexStore {
                         secondaryText: track.artistName ?? track.albumName,
                         lastPlayed: track.lastPlayed,
                         playCount: Int(track.playCount),
-                        trackCount: nil
+                        trackCount: nil,
+                        albumTitle: track.albumName,
+                        artistName: track.artistName,
+                        genre: track.genreNames,
+                        duration: track.durationSeconds,
+                        trackNumber: Int(track.trackNumber),
+                        discNumber: Int(track.discNumber)
                     )
                 )
             }
@@ -139,7 +149,8 @@ public final class SiriMediaIndexStore {
                         secondaryText: nil,
                         lastPlayed: playlist.lastPlayed,
                         playCount: nil,
-                        trackCount: Int(playlist.trackCount)
+                        trackCount: Int(playlist.trackCount),
+                        duration: TimeInterval(playlist.duration) / 1000.0
                     )
                 )
             }
