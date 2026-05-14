@@ -50,6 +50,9 @@ public final class NavigationCoordinator: ObservableObject {
     /// Visible tabs in the tab bar (synced from MainTabView to enable fallback logic)
     public var visibleTabs: [TabItem] = [.home, .artists, .playlists, .search]
 
+    /// Whether hidden tab destinations should route through the More tab path.
+    public var routesHiddenTabsThroughMore = false
+
     // Per-tab navigation paths (strictly typed as [Destination] for iOS 15+ compatibility)
     @Published public var homePath: [Destination] = []
     @Published public var songsPath: [Destination] = []
@@ -221,6 +224,11 @@ public final class NavigationCoordinator: ObservableObject {
     /// Route external content selections to the destination's owning tab.
     public func navigateFromExternalSearch(to destination: Destination) {
         let targetTab = Self.targetTab(for: destination)
+        if shouldRouteExternalSearchThroughMore(targetTab: targetTab) {
+            routeExternalSearchThroughMore(destination, targetTab: targetTab)
+            return
+        }
+
         popToRoot(tab: targetTab)
         selectedTab = targetTab
 
@@ -300,6 +308,25 @@ public final class NavigationCoordinator: ObservableObject {
             return visibleTabs.first ?? .home
         }
         return selectedTab
+    }
+
+    private func shouldRouteExternalSearchThroughMore(targetTab: TabItem) -> Bool {
+        routesHiddenTabsThroughMore &&
+            targetTab != .settings &&
+            !visibleTabs.contains(targetTab)
+    }
+
+    private func routeExternalSearchThroughMore(_ destination: Destination, targetTab: TabItem) {
+        let path: [Destination]
+        if case .view = destination {
+            path = [.view(targetTab)]
+        } else {
+            path = [.view(targetTab), destination]
+        }
+
+        setPath([], for: targetTab)
+        setPath(path, for: .settings)
+        selectedTab = .settings
     }
 
     private func path(for tab: TabItem) -> [Destination] {

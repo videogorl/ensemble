@@ -101,6 +101,37 @@ final class NavigationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testNavigateFromExternalSearchRoutesHiddenDetailThroughMore() {
+        let coordinator = NavigationCoordinator()
+        coordinator.selectedTab = .home
+        coordinator.visibleTabs = [.home, .artists, .playlists, .search]
+        coordinator.routesHiddenTabsThroughMore = true
+        coordinator.albumsPath = [.artist(id: "stale", sourceKey: nil)]
+        coordinator.settingsPath = [.view(.downloads)]
+
+        let destination = NavigationCoordinator.Destination.album(id: "album-1", sourceKey: "server/library")
+        coordinator.navigateFromExternalSearch(to: destination)
+
+        XCTAssertEqual(coordinator.selectedTab, .settings)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .settings), [.view(.albums), destination])
+        XCTAssertTrue(coordinator.pathSnapshot(for: .albums).isEmpty)
+    }
+
+    @MainActor
+    func testNavigateFromExternalSearchRoutesHiddenViewThroughMore() {
+        let coordinator = NavigationCoordinator()
+        coordinator.selectedTab = .home
+        coordinator.visibleTabs = [.home, .artists, .playlists, .search]
+        coordinator.routesHiddenTabsThroughMore = true
+
+        coordinator.navigateFromExternalSearch(to: .view(.songs))
+
+        XCTAssertEqual(coordinator.selectedTab, .settings)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .settings), [.view(.songs)])
+        XCTAssertTrue(coordinator.pathSnapshot(for: .songs).isEmpty)
+    }
+
+    @MainActor
     func testExternalSearchRouteQueuesUntilSceneCoordinatorIsActive() {
         let destination = NavigationCoordinator.Destination.playlist(id: "playlist", sourceKey: "server")
 

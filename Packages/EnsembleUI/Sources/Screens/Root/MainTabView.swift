@@ -250,6 +250,7 @@ public struct MainTabView: View {
     }
 
     private func syncVisibleTabs(for tabs: [TabItem]? = nil) {
+        navigationCoordinator.routesHiddenTabsThroughMore = true
         navigationCoordinator.visibleTabs = Array(
             (tabs ?? enabledTabs).prefix(EnsembleScaffold.TabEditor.maximumTabBarItems)
         )
