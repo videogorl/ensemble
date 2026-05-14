@@ -3,6 +3,14 @@ import Foundation
 import MediaPlayer
 import Nuke
 
+#if canImport(UIKit)
+import UIKit
+private typealias PlatformArtworkImage = UIImage
+#elseif canImport(AppKit)
+import AppKit
+private typealias PlatformArtworkImage = NSImage
+#endif
+
 protocol PlaybackNowPlayingInfoCenter: AnyObject {
     var nowPlayingInfo: [String: Any]? { get set }
     var playbackState: MPNowPlayingPlaybackState { get set }
@@ -223,7 +231,6 @@ final class PlaybackNowPlayingBridge {
     private var commandHandlerTokens: [RemoteCommandHandlerToken] = []
     private var artworkTask: Task<Void, Never>?
     private var artworkRequestKey: String?
-    private var artworkItemIdentifier: String?
     private var artwork: MPMediaItemArtwork?
 
     init(
@@ -332,11 +339,17 @@ final class PlaybackNowPlayingBridge {
             return
         }
 
-        let itemIdentifier = Self.sourceScopedTrackIdentifier(for: track)
-        let nextArtworkRequestKey = Self.artworkRequestKey(for: track, itemIdentifier: itemIdentifier)
-        let artwork = artworkItemIdentifier == itemIdentifier ? artwork : nil
+        let nextArtworkRequestKey = Self.artworkRequestKey(for: track)
+        let hasArtworkPath = Self.hasArtworkPath(for: track)
+        let artworkForMetadata: MPMediaItemArtwork
+        if hasArtworkPath, let artwork {
+            artworkForMetadata = artwork
+        } else {
+            artworkForMetadata = Self.fallbackArtwork(for: track)
+            artwork = artworkForMetadata
+        }
 
-        nowPlayingCenter.nowPlayingInfo = Self.makeNowPlayingInfo(state: state, artwork: artwork)
+        nowPlayingCenter.nowPlayingInfo = Self.makeNowPlayingInfo(state: state, artwork: artworkForMetadata)
         syncNowPlayingPlaybackState(state.playbackState)
         updateFeedbackCommandState(isLiked: state.isLiked, isDisliked: state.isDisliked)
         updateCommandAvailability(state)
@@ -349,6 +362,8 @@ final class PlaybackNowPlayingBridge {
         cancelArtworkLoad(clearArtwork: false)
         artworkRequestKey = nextArtworkRequestKey
 
+        guard hasArtworkPath else { return }
+
         artworkTask = Task { [weak self] in
             guard let self else { return }
 
@@ -360,6 +375,9 @@ final class PlaybackNowPlayingBridge {
                 fallbackRatingKey: track.fallbackRatingKey,
                 size: 600
             ) else {
+                await MainActor.run {
+                    self.applyFallbackArtwork(for: track, requestKey: nextArtworkRequestKey, playbackState: state.playbackState)
+                }
                 return
             }
 
@@ -367,6 +385,9 @@ final class PlaybackNowPlayingBridge {
 
             let request = ImageRequest(url: url)
             guard let image = try? await ImagePipeline.shared.image(for: request) else {
+                await MainActor.run {
+                    self.applyFallbackArtwork(for: track, requestKey: nextArtworkRequestKey, playbackState: state.playbackState)
+                }
                 return
             }
 
@@ -377,7 +398,7 @@ final class PlaybackNowPlayingBridge {
             }
 
             await MainActor.run {
-                self.applyArtwork(artwork, to: itemIdentifier, playbackState: state.playbackState)
+                self.applyArtwork(artwork, for: nextArtworkRequestKey, playbackState: state.playbackState)
             }
         }
     }
@@ -402,7 +423,6 @@ final class PlaybackNowPlayingBridge {
         artworkTask = nil
         artworkRequestKey = nil
         if clearArtwork {
-            artworkItemIdentifier = nil
             artwork = nil
         }
     }
@@ -558,25 +578,145 @@ final class PlaybackNowPlayingBridge {
         )
     }
 
-    private static func artworkRequestKey(for track: Track, itemIdentifier: String) -> String {
+    private static func artworkRequestKey(for track: Track) -> String {
         let artworkIdentity = track.thumbPath ?? track.fallbackThumbPath ?? ""
         let artworkRatingKey = track.thumbPath != nil ? track.id : (track.fallbackRatingKey ?? track.id)
-        return "\(itemIdentifier)|\(artworkRatingKey)|\(artworkIdentity)"
+        let source = track.sourceCompositeKey ?? ""
+        return "\(source)|\(artworkRatingKey)|\(artworkIdentity)"
+    }
+
+    private static func hasArtworkPath(for track: Track) -> Bool {
+        if let thumbPath = track.thumbPath, !thumbPath.isEmpty {
+            return true
+        }
+        if let fallbackThumbPath = track.fallbackThumbPath, !fallbackThumbPath.isEmpty {
+            return true
+        }
+        return false
+    }
+
+    private static func fallbackArtwork(for track: Track) -> MPMediaItemArtwork {
+        let image = fallbackArtworkImage(for: track)
+        return MPMediaItemArtwork(boundsSize: image.size) { _ in
+            image
+        }
+    }
+
+    private static func fallbackArtworkImage(for track: Track) -> PlatformArtworkImage {
+        let size = CGSize(width: 600, height: 600)
+        let initial = fallbackArtworkInitial(for: track)
+
+        #if canImport(UIKit)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { context in
+            drawFallbackArtworkBackground(in: context.cgContext, size: size)
+
+            let font = UIFont.systemFont(ofSize: 176, weight: .semibold)
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: UIColor.white.withAlphaComponent(0.94),
+                .paragraphStyle: paragraph
+            ]
+            let textSize = initial.size(withAttributes: attributes)
+            let rect = CGRect(
+                x: 0,
+                y: (size.height - textSize.height) / 2 - 12,
+                width: size.width,
+                height: textSize.height
+            )
+            initial.draw(in: rect, withAttributes: attributes)
+        }
+        #elseif canImport(AppKit)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        if let context = NSGraphicsContext.current?.cgContext {
+            drawFallbackArtworkBackground(in: context, size: size)
+        }
+
+        let font = NSFont.systemFont(ofSize: 176, weight: .semibold)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.white.withAlphaComponent(0.94),
+            .paragraphStyle: paragraph
+        ]
+        let textSize = initial.size(withAttributes: attributes)
+        let rect = CGRect(
+            x: 0,
+            y: (size.height - textSize.height) / 2,
+            width: size.width,
+            height: textSize.height
+        )
+        initial.draw(in: rect, withAttributes: attributes)
+        image.unlockFocus()
+        return image
+        #endif
+    }
+
+    private static func drawFallbackArtworkBackground(in context: CGContext, size: CGSize) {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let colors = [
+            CGColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 1.0),
+            CGColor(red: 0.23, green: 0.29, blue: 0.38, alpha: 1.0),
+            CGColor(red: 0.37, green: 0.20, blue: 0.30, alpha: 1.0)
+        ] as CFArray
+        let locations: [CGFloat] = [0.0, 0.58, 1.0]
+        guard let gradient = CGGradient(colorsSpace: colorSpace, colors: colors, locations: locations) else {
+            context.setFillColor(CGColor(red: 0.13, green: 0.15, blue: 0.20, alpha: 1.0))
+            context.fill(CGRect(origin: .zero, size: size))
+            return
+        }
+
+        context.drawLinearGradient(
+            gradient,
+            start: CGPoint(x: 0, y: 0),
+            end: CGPoint(x: size.width, y: size.height),
+            options: []
+        )
+    }
+
+    private static func fallbackArtworkInitial(for track: Track) -> String {
+        let candidates = [track.albumName, track.title]
+        for candidate in candidates.compactMap({ $0 }) {
+            if let scalar = candidate.unicodeScalars.first(where: { CharacterSet.alphanumerics.contains($0) }) {
+                return String(scalar).uppercased()
+            }
+        }
+        return "E"
     }
 
     private func applyArtwork(
         _ artwork: MPMediaItemArtwork,
-        to itemIdentifier: String,
+        for requestKey: String,
         playbackState: PlaybackState
     ) {
         guard var currentInfo = nowPlayingCenter.nowPlayingInfo,
-              currentInfo[MPNowPlayingInfoPropertyExternalContentIdentifier] as? String == itemIdentifier else {
+              artworkRequestKey == requestKey else {
             return
         }
 
         self.artwork = artwork
-        artworkItemIdentifier = itemIdentifier
         currentInfo[MPMediaItemPropertyArtwork] = artwork
+        nowPlayingCenter.nowPlayingInfo = currentInfo
+        syncNowPlayingPlaybackState(playbackState)
+    }
+
+    private func applyFallbackArtwork(
+        for track: Track,
+        requestKey: String,
+        playbackState: PlaybackState
+    ) {
+        guard var currentInfo = nowPlayingCenter.nowPlayingInfo,
+              artworkRequestKey == requestKey else {
+            return
+        }
+
+        let fallbackArtwork = Self.fallbackArtwork(for: track)
+        artwork = fallbackArtwork
+        currentInfo[MPMediaItemPropertyArtwork] = fallbackArtwork
         nowPlayingCenter.nowPlayingInfo = currentInfo
         syncNowPlayingPlaybackState(playbackState)
     }
