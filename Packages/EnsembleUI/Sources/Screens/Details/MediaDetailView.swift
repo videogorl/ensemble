@@ -794,10 +794,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             bottomPadding: EnsembleDesign.Spacing.lg,
             isDisabled: viewModel.filteredTracks.isEmpty,
             play: {
-                nowPlayingVM.play(tracks: viewModel.filteredTracks)
+                nowPlayingVM.play(tracks: viewModel.filteredTracks, context: playbackStartContext)
             },
             shuffle: {
-                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
+                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks, context: playbackStartContext)
             }
         ) {
             // Radio button (for Artist or Album views)
@@ -812,14 +812,38 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             isDisabled: viewModel.filteredTracks.isEmpty,
             includesExtraActions: hasRadioButton,
             play: {
-                nowPlayingVM.play(tracks: viewModel.filteredTracks)
+                nowPlayingVM.play(tracks: viewModel.filteredTracks, context: playbackStartContext)
             },
             shuffle: {
-                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
+                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks, context: playbackStartContext)
             }
         ) {
             radioButton
         }
+    }
+
+    private var playbackStartContext: PlaybackStartContext {
+        guard let mediaType, let ratingKey = headerData.ratingKey else {
+            return .userInitiated
+        }
+
+        let source: PlaybackStartSource
+        switch mediaType {
+        case .album:
+            source = .album
+        case .artist:
+            source = .artist
+        case .playlist:
+            source = .playlist
+        }
+
+        return .media(
+            source: source,
+            id: ratingKey,
+            sourceCompositeKey: headerData.sourceKey,
+            displayName: headerData.title,
+            secondaryText: headerData.subtitle
+        )
     }
 
     @ViewBuilder

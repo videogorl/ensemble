@@ -73,8 +73,9 @@ extension AppDelegate {
                 AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
             }
 
-            // Update Siri media user context with current library statistics.
-            await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
+            // Refresh system media context and Spotlight from the shared media index.
+            await DependencyContainer.shared.systemMediaIntegrationService.updateMediaUserContext()
+            await DependencyContainer.shared.systemMediaIntegrationService.refreshSpotlightIndex()
         }
     }
 

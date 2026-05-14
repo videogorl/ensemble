@@ -2,6 +2,7 @@ import AVFoundation
 import Combine
 import EnsembleAPI
 import EnsemblePersistence
+import EnsembleSiriShared
 import Foundation
 import MediaPlayer
 import Nuke
@@ -154,9 +155,9 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var recommendationsExhaustedPublisher: AnyPublisher<Bool, Never> { get }
     var historyPublisher: AnyPublisher<[QueueItem], Never> { get }
 
-    func play(track: Track) async
-    func play(tracks: [Track], startingAt index: Int) async
-    func shufflePlay(tracks: [Track]) async
+    func play(track: Track, context: PlaybackStartContext) async
+    func play(tracks: [Track], startingAt index: Int, context: PlaybackStartContext) async
+    func shufflePlay(tracks: [Track], context: PlaybackStartContext) async
     func playQueueIndex(_ index: Int) async
     func pause()
     func resume()
@@ -212,6 +213,20 @@ public protocol PlaybackServiceProtocol: AnyObject {
     /// syncs audio and video together — there's no separate audio pipeline delay.
     /// This flag tells route inference to suppress AirPlay latency compensation.
     var isScreenMirroringActive: Bool { get set }
+}
+
+public extension PlaybackServiceProtocol {
+    func play(track: Track) async {
+        await play(track: track, context: .userInitiated)
+    }
+
+    func play(tracks: [Track], startingAt index: Int) async {
+        await play(tracks: tracks, startingAt: index, context: .userInitiated)
+    }
+
+    func shufflePlay(tracks: [Track]) async {
+        await shufflePlay(tracks: tracks, context: .userInitiated)
+    }
 }
 
 // MARK: - Playback Service Implementation
@@ -945,6 +960,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let resolvedFileCache: PlaybackResolvedFileCache
     private let settingsObserver: PlaybackSettingsObserver
     private let reportingController: PlaybackReportingController
+    private var systemMediaIntegrationService: SystemMediaIntegrationServiceProtocol?
     internal private(set) var startupRestoreStatus: PlaybackStartupRestoreStatus = .notAttempted
 
     /// Thread-safe check for aurora visualizer setting (reads UserDefaults directly
@@ -1180,6 +1196,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func setMutationCoordinator(_ coordinator: MutationCoordinator) {
         self.mutationCoordinator = coordinator
         reportingController.setMutationCoordinator(coordinator)
+    }
+
+    public func setSystemMediaIntegrationService(_ service: SystemMediaIntegrationServiceProtocol) {
+        systemMediaIntegrationService = service
     }
 
     private func setupPlayer() {
@@ -1963,7 +1983,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         playbackState = .paused
         isInterrupted = reason == .interruption
         updateNowPlayingInfo()
-        MPNowPlayingInfoCenter.default().playbackState = .paused
 
         Task { @MainActor in
             audioAnalyzer.pauseUpdates()
@@ -2100,11 +2119,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 next: { [weak self] in self?.next() },
                 previous: { [weak self] in self?.previous() },
                 seek: { [weak self] position in self?.seek(to: position) },
-                cycleRepeatMode: { [weak self] in self?.cycleRepeatMode() },
-                toggleShuffle: { [weak self] in self?.toggleShuffle() },
+                setRepeatMode: { [weak self] mode in self?.setRepeatMode(mode) },
+                setShuffleEnabled: { [weak self] isEnabled in self?.setShuffleEnabled(isEnabled) },
                 rateLike: { [weak self] in self?.toggleLike(isLike: true) ?? .commandFailed },
                 rateDislike: { [weak self] in self?.toggleLike(isLike: false) ?? .commandFailed },
-                currentPlaybackState: { [weak self] in self?.playbackState ?? .stopped },
                 currentTime: { [weak self] in self?.currentTime ?? 0 },
                 trackAge: { [weak self] in
                     guard let self else { return 0 }
@@ -2234,10 +2252,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func play(track: Track) async {
-        await play(tracks: [track], startingAt: 0)
+        await play(track: track, context: .userInitiated)
+    }
+
+    public func play(track: Track, context: PlaybackStartContext) async {
+        let resolvedContext = context.reference == nil
+            ? PlaybackStartContext(origin: context.origin, source: .track, reference: Self.systemMediaReference(for: track, kind: .track))
+            : context
+        await play(tracks: [track], startingAt: 0, context: resolvedContext)
     }
 
     public func play(tracks: [Track], startingAt index: Int) async {
+        await play(tracks: tracks, startingAt: index, context: .userInitiated)
+    }
+
+    public func play(tracks: [Track], startingAt index: Int, context: PlaybackStartContext) async {
         guard !tracks.isEmpty, index >= 0, index < tracks.count else { return }
 
         resetHandoffForUserPlaybackIntent()
@@ -2284,12 +2313,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         await playCurrentQueueItem(caller: "play(tracks:)")
         savePlaybackState()
+        await donatePlaybackStartIfNeeded(
+            context: context,
+            fallbackTrack: queueTracks[playableQueue.startIndex],
+            shuffle: false
+        )
 
         // Check queue population after starting new playback
         await checkAndRefreshAutoplayQueue()
     }
 
     public func shufflePlay(tracks: [Track]) async {
+        await shufflePlay(tracks: tracks, context: .userInitiated)
+    }
+
+    public func shufflePlay(tracks: [Track], context: PlaybackStartContext) async {
         guard !tracks.isEmpty else { return }
 
         resetHandoffForUserPlaybackIntent()
@@ -2338,9 +2376,51 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         await playCurrentQueueItem(caller: "shufflePlay")
         savePlaybackState()
+        await donatePlaybackStartIfNeeded(
+            context: context,
+            fallbackTrack: queue.first?.track,
+            shuffle: true
+        )
 
         // Check queue population after starting new playback
         await checkAndRefreshAutoplayQueue()
+    }
+
+    private func donatePlaybackStartIfNeeded(
+        context: PlaybackStartContext,
+        fallbackTrack: Track?,
+        shuffle: Bool
+    ) async {
+        let reference = context.reference ?? fallbackTrack.map { Self.systemMediaReference(for: $0, kind: .track) }
+        guard let reference else { return }
+
+        guard let systemMediaIntegrationService else { return }
+        await systemMediaIntegrationService.donatePlaybackStart(
+            reference: reference,
+            shuffle: shuffle,
+            origin: context.origin
+        )
+    }
+
+    private static func systemMediaReference(for track: Track, kind: SiriMediaKind) -> SystemMediaReference {
+        SystemMediaReference(
+            kind: kind,
+            id: track.id,
+            sourceCompositeKey: track.sourceCompositeKey,
+            displayName: track.title,
+            secondaryText: track.artistName ?? track.albumName,
+            albumTitle: track.albumName,
+            artistName: track.artistName,
+            genre: track.genres.first,
+            duration: track.duration,
+            trackNumber: track.trackNumber,
+            discNumber: track.discNumber,
+            playCount: track.playCount,
+            lastPlayed: track.lastPlayed,
+            artworkPath: track.thumbPath ?? track.fallbackThumbPath,
+            artworkCacheKey: track.fallbackRatingKey ?? track.albumRatingKey,
+            artworkCacheType: (track.fallbackRatingKey ?? track.albumRatingKey) == nil ? nil : .album
+        )
     }
 
     private func resolvePlayableQueue(
@@ -2692,9 +2772,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         isSkipTransitionInProgress = false
         _ = resolvedFileCache.clear()
         disarmSkipTransitionSafety()
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-        MPNowPlayingInfoCenter.default().playbackState = .stopped
-        updateFeedbackCommandState(isLiked: false, isDisliked: false)
+        nowPlayingBridge.clearNowPlayingInfo()
     }
 
     /// Remove deleted tracks from the active queue, original queue, and history.
@@ -3205,12 +3283,27 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Clear gapless schedule — it's from the old order.
         // Re-prefetch based on the new queue order, and rebuild autoplay.
         invalidateGaplessSchedule(thenRefreshAutoplay: true)
+        updateNowPlayingInfo()
     }
 
     public func cycleRepeatMode() {
         let nextRawValue = (repeatMode.rawValue + 1) % RepeatMode.allCases.count
-        repeatMode = RepeatMode(rawValue: nextRawValue) ?? .off
+        setRepeatMode(RepeatMode(rawValue: nextRawValue) ?? .off)
+    }
+
+    private func setShuffleEnabled(_ enabled: Bool) {
+        guard isShuffleEnabled != enabled else {
+            updateNowPlayingInfo()
+            return
+        }
+
+        toggleShuffle()
+    }
+
+    private func setRepeatMode(_ mode: RepeatMode) {
+        repeatMode = mode
         UserDefaults.standard.set(repeatMode.rawValue, forKey: "repeatMode")
+        updateNowPlayingInfo()
     }
 
     // MARK: - Autoplay & Radio
@@ -4862,9 +4955,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         reportingController.resetForTrack()
         queueController.clearAutoGeneratedTrackIds()
 
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-        MPNowPlayingInfoCenter.default().playbackState = .stopped
-        updateFeedbackCommandState(isLiked: false, isDisliked: false)
+        nowPlayingBridge.clearNowPlayingInfo()
         savePlaybackState()
     }
 
@@ -4994,14 +5085,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         nowPlayingBridge.cancelArtworkLoad(clearArtwork: clearArtwork)
     }
 
-    private func updateNowPlayingProgress() {
-        nowPlayingBridge.updateNowPlayingProgress(
-            currentTime: currentTime,
-            duration: duration,
-            playbackState: playbackState
-        )
-    }
-
     /// Push Now Playing info with `playbackRate = 1.0` during skip transitions.
     /// This makes the lock screen transition directly from "old track playing" to
     /// "new track playing" with no visible "paused" flash during the buffering window.
@@ -5034,6 +5117,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             playbackState: playbackState,
             currentTime: currentTime,
             duration: duration,
+            queueIndex: currentQueueIndex,
+            queueCount: queue.count,
+            isShuffleEnabled: isShuffleEnabled,
+            repeatMode: repeatMode,
             isLiked: feedbackFlags.isLiked,
             isDisliked: feedbackFlags.isDisliked,
             canPlay: canPlay,

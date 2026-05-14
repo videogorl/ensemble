@@ -30,7 +30,7 @@ Dependency flow is one-way:
 |---|---|
 | `EnsembleAPI` | Plex auth, request building, API models, transport, connection policy, WebSocket transport, endpoint grouping. |
 | `EnsemblePersistence` | CoreData model/stack, repositories, download/artwork persistence, SwiftPM compiled model bundle. |
-| `EnsembleSiriShared` | Pure Siri phrase normalization/scoring, query variants, App Group constants. |
+| `EnsembleSiriShared` | Pure Siri/system-media identity, index models, payload codecs, phrase normalization/scoring, query variants, resolver logic, App Group constants. |
 | `EnsembleDomain` | Watch-portable account, media, category, and playback-status models. |
 | `EnsemblePlex` | Watch-portable Plex discovery/catalog/detail/stream facade using `EnsembleAPI`. |
 | `EnsembleWatchCore` | Watch bootstrap, Plex Link fallback, credential restore, KVS hints, catalog cache, local playback, local/remote Now Playing target state. |
@@ -41,10 +41,18 @@ Dependency flow is one-way:
 
 - `DependencyContainer` wires services and ViewModel factories. Keep construction grouped by subsystem bootstrap helpers and cross-subsystem callback wiring in explicit post-construction helpers.
 - `SyncCoordinator` is the sync facade. Keep provider lookup, refresh orchestration, playlist refresh, network lifecycle, and endpoint synchronization in focused collaborators instead of growing the facade.
-- `PlaybackService` is the playback facade. Queue mutation and transport side effects stay there; audio session, queue persistence, launch/recovery policy, file cache, prefetch, now-playing metadata, reporting, settings observation, and transport resolution belong in focused collaborators.
+- `PlaybackService` is the playback facade. Queue mutation and transport side effects stay there; audio session, queue persistence, launch/recovery policy, file cache, prefetch, now-playing metadata, reporting, settings observation, system-media donations, and transport resolution belong in focused collaborators.
 - `OfflineDownloadService` remains the target/queue source of truth. Platform events route through the offline background coordinator, not directly from app delegates into queue workers.
 - `NavigationCoordinator` is scene/window-scoped for user navigation. Do not route user-driven navigation through a shared singleton coordinator that would mirror iPad/macOS windows.
 - Shared workflows own cross-screen business rules: playlist mutation, metadata mutation, pin mutation, download mutation, drag/drop playlist resolution, track actions, media filtering, and Siri playback execution.
+
+## System Media Integration Rules
+
+- `PlaybackNowPlayingBridge` owns app writes to `MPNowPlayingInfoCenter` and `MPRemoteCommandCenter`. Keep MediaPlayer singleton mutation out of `PlaybackService`, engines, ViewModels, and UI.
+- `SystemMediaIntegrationService` owns user-initiated playback donations, Core Spotlight indexing/deletion, and media user context refresh. Playback callers pass `PlaybackStartContext`; Siri, App Shortcuts, remote commands, autoplay, restoration, and background recovery must not donate starts.
+- `EnsembleSiriShared.SiriMediaIndexResolver` is the shared resolver for SiriKit, App Shortcuts, and Spotlight-backed media identity. Do not duplicate query normalization, kind inference, source matching, ranking, or playlist lookup in the app target or Siri extension.
+- App Group Siri index schema must remain backward compatible. Add optional fields for new system surfaces, and allow old files to decode until the next rebuild overwrites them.
+- Core Spotlight deletion must stay source/domain scoped. Do not call global Spotlight delete APIs for Ensemble media.
 
 ## UI Ownership Rules
 

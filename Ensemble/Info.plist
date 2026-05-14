@@ -69,6 +69,7 @@
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>com.videogorl.ensemble.siri.playmedia</string>
+		<string>com.apple.corespotlightitem</string>
 	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>

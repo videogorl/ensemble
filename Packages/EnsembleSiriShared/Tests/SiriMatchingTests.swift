@@ -16,6 +16,10 @@ final class SiriMatchingTests: XCTestCase {
             SiriPhraseNormalizer.normalized("The Album Faedom using Ensemble Music"),
             "faedom"
         )
+        XCTAssertEqual(
+            SiriPhraseNormalizer.normalized("Shuffle the playlist Road Trip on Ensemble"),
+            "road trip"
+        )
     }
 
     func testQueryVariantsIncludeShortestMediaTitleFormFirst() {
@@ -24,6 +28,18 @@ final class SiriMatchingTests: XCTestCase {
         XCTAssertEqual(variants.first, "road trip")
         XCTAssertTrue(variants.contains("playlist road trip on ensemble"))
         XCTAssertTrue(variants.contains("playlist road trip"))
+    }
+
+    func testQueryVariantsStripShuffleOnlyWhenItIntroducesMediaType() {
+        let playlistVariants = SiriPhraseNormalizer.queryVariants(for: "Shuffle the playlist Road Trip on Ensemble")
+
+        XCTAssertEqual(playlistVariants.first, "road trip")
+        XCTAssertTrue(playlistVariants.contains("the playlist road trip"))
+        XCTAssertTrue(playlistVariants.contains("shuffle the playlist road trip"))
+
+        let titleVariants = SiriPhraseNormalizer.queryVariants(for: "Shuffle This")
+        XCTAssertEqual(titleVariants.first, "shuffle this")
+        XCTAssertFalse(titleVariants.contains("this"))
     }
 
     func testMatchScorerKeepsExpectedExactPrefixContainmentAndFuzzyScores() {

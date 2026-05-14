@@ -42,6 +42,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         private(set) var lastPlayedTrack: Track?
         private(set) var lastQueuedTracks: [Track] = []
         private(set) var lastQueuedStartIndex: Int?
+        private(set) var lastShufflePlayRequested = false
 
         var currentTrack: Track? { currentTrackSubject.value }
         var playbackState: PlaybackState { playbackStateSubject.value }
@@ -89,21 +90,27 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         var instrumentalModeActivePublisher: AnyPublisher<Bool, Never> { Just(false).eraseToAnyPublisher() }
         func setInstrumentalMode(_ enabled: Bool) {}
 
-        func play(track: Track) async {
+        func play(track: Track, context: PlaybackStartContext) async {
             lastPlayedTrack = track
             lastQueuedTracks = [track]
             lastQueuedStartIndex = 0
             currentTrackSubject.send(track)
         }
 
-        func play(tracks: [Track], startingAt index: Int) async {
+        func play(tracks: [Track], startingAt index: Int, context: PlaybackStartContext) async {
             lastPlayedTrack = tracks.indices.contains(index) ? tracks[index] : nil
             lastQueuedTracks = tracks
             lastQueuedStartIndex = index
             currentTrackSubject.send(lastPlayedTrack)
         }
 
-        func shufflePlay(tracks: [Track]) async {}
+        func shufflePlay(tracks: [Track], context: PlaybackStartContext) async {
+            lastShufflePlayRequested = true
+            lastQueuedTracks = tracks
+            lastQueuedStartIndex = 0
+            lastPlayedTrack = tracks.first
+            currentTrackSubject.send(lastPlayedTrack)
+        }
         func playQueueIndex(_ index: Int) async {}
         func pause() {}
         func resume() {}
@@ -229,6 +236,24 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             )
         )
 
+        XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id), ["track-2", "track-1"])
+        XCTAssertEqual(fixture.playbackService.lastQueuedStartIndex, 0)
+        XCTAssertFalse(fixture.playbackService.lastShufflePlayRequested)
+    }
+
+    func testExecutePlayPlaylistHonorsShuffleRequest() async throws {
+        let fixture = try await makeFixture()
+
+        try await fixture.coordinator.executePlayPlaylist(
+            request: SiriPlaybackRequest(
+                entityID: "playlist-1",
+                sourceCompositeKey: fixture.serverSourceKey,
+                displayName: "Playlist One",
+                shuffle: true
+            )
+        )
+
+        XCTAssertTrue(fixture.playbackService.lastShufflePlayRequested)
         XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id), ["track-2", "track-1"])
         XCTAssertEqual(fixture.playbackService.lastQueuedStartIndex, 0)
     }

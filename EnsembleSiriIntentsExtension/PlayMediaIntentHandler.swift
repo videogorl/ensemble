@@ -32,23 +32,37 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         // If we already have a valid payload identifier, keep it stable and avoid loops.
         if let selected = intent.mediaItems?.first,
            let identifier = selected.identifier,
-           let payload = decodePayloadIdentifier(identifier),
+           var payload = decodePayloadIdentifier(identifier),
            payload.schemaVersion == Self.currentPayloadSchemaVersion {
             logger.debug("resolveMediaItems: using preselected media item to avoid re-disambiguation")
-            completion([.success(with: selected)])
+            if let playShuffled = intent.playShuffled, payload.shuffle != playShuffled {
+                payload.shuffle = playShuffled
+                completion([.success(with: makeMediaItem(from: payload, fallback: selected))])
+            } else {
+                completion([.success(with: selected)])
+            }
             return
         }
 
         guard let query = queryText(from: intent), !query.isEmpty else {
-            logger.info("resolveMediaItems: missing query; requesting value from Siri")
+            logger.info(
+                "resolveMediaItems: missing query; requesting value from Siri mediaType=\((intent.mediaSearch?.mediaType ?? .unknown).rawValue, privacy: .public) shuffle=\((intent.playShuffled ?? false), privacy: .public)"
+            )
+            if intent.playShuffled == true {
+                SiriPendingPlayMediaContextStore.recordShuffleRequest(
+                    mediaType: mediaType(from: intent),
+                    logger: logger
+                )
+            }
             completion([.needsValue()])
             return
         }
         let normalizedQuery = bestQueryVariant(from: query) ?? query
 
         let requestedMediaType = resolvedMediaType(from: intent, query: query)
+        let requestedShuffle = effectivePlayShuffled(from: intent, mediaType: requestedMediaType)
         logger.info(
-            "resolveMediaItems: query=\(normalizedQuery, privacy: .public), mediaType=\(requestedMediaType.rawValue, privacy: .public)"
+            "resolveMediaItems: query=\(normalizedQuery, privacy: .public), mediaType=\(requestedMediaType.rawValue, privacy: .public) shuffle=\((requestedShuffle ?? false), privacy: .public)"
         )
 
         let artistHint = intent.mediaSearch?.artistName
@@ -58,7 +72,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             let fallback = makeFallbackMediaItem(
                 query: normalizedQuery,
                 mediaType: requestedMediaType,
-                artistHint: artistHint
+                artistHint: artistHint,
+                shuffle: requestedShuffle
             )
             completion([.success(with: fallback)])
             return
@@ -75,7 +90,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             let fallback = makeFallbackMediaItem(
                 query: normalizedQuery,
                 mediaType: requestedMediaType,
-                artistHint: artistHint
+                artistHint: artistHint,
+                shuffle: requestedShuffle
             )
             completion([.success(with: fallback)])
             return
@@ -86,14 +102,27 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             let second = ranked[1]
             if abs(top.score - second.score) <= Self.disambiguationThreshold {
                 logger.debug("resolveMediaItems: returning disambiguation with \(ranked.count, privacy: .public) options")
-                let options = Array(ranked.prefix(6)).map { makeMediaItem(from: $0, artistHint: artistHint) }
+                let options = Array(ranked.prefix(6)).map {
+                    makeMediaItem(from: $0, artistHint: artistHint, shuffle: requestedShuffle)
+                }
                 completion([.disambiguation(with: options)])
                 return
             }
         }
 
         logger.debug("resolveMediaItems: selected top candidate \(top.item.displayName, privacy: .public)")
-        completion([.success(with: makeMediaItem(from: top, artistHint: artistHint))])
+        completion([.success(with: makeMediaItem(from: top, artistHint: artistHint, shuffle: requestedShuffle))])
+    }
+
+    public func resolvePlayShuffled(
+        for intent: INPlayMediaIntent,
+        with completion: @escaping (INBooleanResolutionResult) -> Void
+    ) {
+        if let playShuffled = intent.playShuffled {
+            completion(.success(with: playShuffled))
+        } else {
+            completion(.notRequired())
+        }
     }
 
     // confirm is intentionally NOT implemented. Apple recommends skipping
@@ -105,11 +134,6 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
     public func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         let requestedMediaType = resolvedMediaType(from: intent, query: queryText(from: intent) ?? "")
-        let shuffleRequested = intent.playShuffled ?? false
-        SiriExtensionLogger.info(
-            "SIRI_EXT: handle ENTRY mediaType=\(requestedMediaType.rawValue) shuffle=\(shuffleRequested)"
-        )
-        logger.debug("handle: mediaType=\(requestedMediaType.rawValue, privacy: .public) shuffle=\(shuffleRequested, privacy: .public)")
 
         guard var payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) else {
             logger.error("handle: missing identifier and query; returning failureUnknownMediaType")
@@ -118,7 +142,14 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return
         }
 
-        // Attach shuffle flag from intent
+        let shuffleRequested = payload.shuffle
+            ?? effectivePlayShuffled(from: intent, mediaType: requestedMediaType)
+            ?? false
+        SiriExtensionLogger.info(
+            "SIRI_EXT: handle ENTRY mediaType=\(requestedMediaType.rawValue) shuffle=\(shuffleRequested)"
+        )
+        logger.debug("handle: mediaType=\(requestedMediaType.rawValue, privacy: .public) shuffle=\(shuffleRequested, privacy: .public)")
+
         if shuffleRequested {
             payload.shuffle = true
         }
@@ -151,8 +182,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
         // Return .handleInApp — this is the signal iOS needs to establish AirPlay
         // routing from the requesting HomePod before delivering the user activity.
-        logger.debug("handle: returning handleInApp for payload kind=\(payload.kind, privacy: .public)")
-        SiriExtensionLogger.info("SIRI_EXT: handle returning handleInApp kind=\(payload.kind)")
+        logger.debug("handle: returning handleInApp for payload kind=\(payload.kind.rawValue, privacy: .public)")
+        SiriExtensionLogger.info("SIRI_EXT: handle returning handleInApp kind=\(payload.kind.rawValue)")
         completion(INPlayMediaIntentResponse(code: .handleInApp, userActivity: activity))
     }
 
@@ -168,6 +199,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             logger.debug("payloadIdentifier: using decoded payload identifier")
             return decodedPayload
         }
+
+        let requestedShuffle = effectivePlayShuffled(from: intent, mediaType: mediaType)
 
         if let query = queryText(from: intent), !query.isEmpty {
             let fallbackQuery = bestQueryVariant(from: query) ?? query
@@ -188,7 +221,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                     entityID: top.item.id,
                     sourceCompositeKey: top.item.sourceCompositeKey,
                     displayName: top.item.displayName,
-                    artistHint: artistHintForPayload
+                    artistHint: artistHintForPayload,
+                    shuffle: requestedShuffle
                 )
             }
 
@@ -199,7 +233,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 entityID: fallbackQuery,
                 sourceCompositeKey: nil,
                 displayName: fallbackQuery,
-                artistHint: artistHintForPayload
+                artistHint: artistHintForPayload,
+                shuffle: requestedShuffle
             )
         }
 
@@ -215,7 +250,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 entityID: rawIdentifier,
                 sourceCompositeKey: nil,
                 displayName: fallbackDisplayName,
-                artistHint: intent.mediaSearch?.artistName
+                artistHint: intent.mediaSearch?.artistName,
+                shuffle: requestedShuffle
             )
         }
 
@@ -260,6 +296,9 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             if let moodName = mediaSearch.moodNames?.first, !moodName.isEmpty {
                 return moodName
             }
+            if let mediaIdentifier = mediaSearch.mediaIdentifier, !mediaIdentifier.isEmpty {
+                return mediaIdentifier
+            }
         }
         return nil
     }
@@ -267,101 +306,45 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     private func rankCandidates(
         for query: String,
         mediaType: INMediaItemType,
-        index: SiriMediaIndexSnapshot,
+        index: SiriMediaIndex,
         artistHint: String? = nil
     ) -> [RankedItem] {
-        let queryVariants = normalizedQueryVariants(for: query)
-        let kinds = kindsFor(mediaType: mediaType)
-        let normalizedArtistHint = artistHint.map { normalize($0) }
-
-        return index.items
-            .compactMap { item in
-                // If specific kind requested, filter for it.
-                // If unknown, allow searching across all kinds.
-                if mediaType != .unknown && !kinds.contains(item.kind) {
-                    return nil
-                }
-
-                let primaryScore = scoreMatch(queries: queryVariants, candidate: normalize(item.displayName))
-                let secondaryScore = scoreMatch(queries: queryVariants, candidate: normalize(item.secondaryText ?? "")) * 0.35
-                var score = max(primaryScore, secondaryScore)
-                guard score > 0 else { return nil }
-
-                // Boost score when the item's artist (secondaryText) matches the hint.
-                // This helps disambiguate "Orange County" by Gorillaz vs other artists.
-                if let hint = normalizedArtistHint,
-                   let secondary = item.secondaryText,
-                   !hint.isEmpty {
-                    let artistMatch = scoreMatch(query: hint, candidate: normalize(secondary))
-                    if artistMatch >= 0.7 {
-                        score = min(score + 0.15, 1.0)
-                    }
-                }
-
-                return RankedItem(item: item, score: score)
-            }
-            .sorted { lhs, rhs in
-                if lhs.score != rhs.score {
-                    return lhs.score > rhs.score
-                }
-                
-                // Tie-breaker: prefer the kind that matches the requested media type
-                if mediaType != .unknown {
-                    let lhsMatchesKind = kinds.contains(lhs.item.kind)
-                    let rhsMatchesKind = kinds.contains(rhs.item.kind)
-                    if lhsMatchesKind != rhsMatchesKind {
-                        return lhsMatchesKind
-                    }
-                }
-
-                if lhs.item.lastPlayed != rhs.item.lastPlayed {
-                    return (lhs.item.lastPlayed ?? .distantPast) > (rhs.item.lastPlayed ?? .distantPast)
-                }
-                if lhs.item.playCount != rhs.item.playCount {
-                    return (lhs.item.playCount ?? 0) > (rhs.item.playCount ?? 0)
-                }
-                if lhs.item.trackCount != rhs.item.trackCount {
-                    return (lhs.item.trackCount ?? 0) > (rhs.item.trackCount ?? 0)
-                }
-                let nameCompare = lhs.item.displayName.localizedCaseInsensitiveCompare(rhs.item.displayName)
-                if nameCompare != .orderedSame {
-                    return nameCompare == .orderedAscending
-                }
-                return lhs.item.id.localizedCaseInsensitiveCompare(rhs.item.id) == .orderedAscending
-            }
+        SiriMediaIndexResolver.rankCandidates(
+            for: query,
+            requestedKinds: mediaType == .unknown ? nil : kindsFor(mediaType: mediaType),
+            index: index,
+            artistHint: artistHint
+        )
     }
 
-    private func scoreMatch(queries: [String], candidate: String) -> Double {
-        SiriMatchScorer.scoreMatch(queries: queries, candidate: candidate)
-    }
-
-    private func scoreMatch(query: String, candidate: String) -> Double {
-        SiriMatchScorer.scoreMatch(query: query, candidate: candidate)
-    }
-
-    private func kindsFor(mediaType: INMediaItemType) -> Set<String> {
+    private func kindsFor(mediaType: INMediaItemType) -> Set<SiriMediaKind> {
         switch mediaType {
         case .song:
-            return ["track"]
+            return [.track]
         case .album:
-            return ["album"]
+            return [.album]
         case .artist:
-            return ["artist"]
+            return [.artist]
         case .playlist:
-            return ["playlist"]
+            return [.playlist]
         default:
-            return ["track", "album", "artist", "playlist"]
+            return [.track, .album, .artist, .playlist]
         }
     }
 
-    private func makeMediaItem(from ranked: RankedItem, artistHint: String? = nil) -> INMediaItem {
+    private func makeMediaItem(
+        from ranked: RankedItem,
+        artistHint: String? = nil,
+        shuffle: Bool? = nil
+    ) -> INMediaItem {
         let payload = SiriPayloadIdentifier(
             schemaVersion: Self.currentPayloadSchemaVersion,
             kind: ranked.item.kind,
             entityID: ranked.item.id,
             sourceCompositeKey: ranked.item.sourceCompositeKey,
             displayName: ranked.item.displayName,
-            artistHint: artistHint
+            artistHint: artistHint,
+            shuffle: shuffle
         )
 
         let identifier: String
@@ -379,7 +362,29 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         )
     }
 
-    private func makeFallbackMediaItem(query: String, mediaType: INMediaItemType, artistHint: String? = nil) -> INMediaItem {
+    private func makeMediaItem(from payload: SiriPayloadIdentifier, fallback: INMediaItem) -> INMediaItem {
+        let identifier: String
+        if let data = try? JSONEncoder().encode(payload) {
+            identifier = data.base64EncodedString()
+        } else {
+            identifier = fallback.identifier ?? ""
+        }
+
+        return INMediaItem(
+            identifier: identifier,
+            title: fallback.title,
+            type: fallback.type,
+            artwork: fallback.artwork,
+            artist: fallback.artist
+        )
+    }
+
+    private func makeFallbackMediaItem(
+        query: String,
+        mediaType: INMediaItemType,
+        artistHint: String? = nil,
+        shuffle: Bool? = nil
+    ) -> INMediaItem {
         let fallbackKind = primaryKindFor(mediaType: mediaType, query: query)
         let payload = SiriPayloadIdentifier(
             schemaVersion: Self.currentPayloadSchemaVersion,
@@ -387,7 +392,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             entityID: query,
             sourceCompositeKey: nil,
             displayName: query,
-            artistHint: artistHint
+            artistHint: artistHint,
+            shuffle: shuffle
         )
 
         let identifier: String
@@ -417,66 +423,53 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func matchingItem(for payload: SiriPayloadIdentifier, in index: SiriMediaIndexSnapshot) -> SiriMediaIndexItemSnapshot? {
-        index.items.first {
-            $0.kind == payload.kind &&
-            $0.id == payload.entityID &&
-            sourceMatches(requestSource: payload.sourceCompositeKey, candidateSource: $0.sourceCompositeKey)
-        }
-    }
-
-    private func sourceMatches(requestSource: String?, candidateSource: String?) -> Bool {
-        guard let requestSource else { return true }
-        guard let candidateSource else { return false }
-        if candidateSource == requestSource { return true }
-        if requestSource.split(separator: ":").count == 3 {
-            return candidateSource.hasPrefix("\(requestSource):")
-        }
-        return false
-    }
-
-    private func mediaTypeFor(kind: String) -> INMediaItemType {
+    private func mediaTypeFor(kind: SiriMediaKind) -> INMediaItemType {
         switch kind {
-        case "track":
+        case .track:
             return .song
-        case "album":
+        case .album:
             return .album
-        case "artist":
+        case .artist:
             return .artist
-        case "playlist":
+        case .playlist:
             return .playlist
-        default:
-            return .unknown
         }
     }
 
-    private func primaryKindFor(mediaType: INMediaItemType, query: String? = nil) -> String {
+    private func primaryKindFor(mediaType: INMediaItemType, query: String? = nil) -> SiriMediaKind {
         switch mediaType {
         case .song:
-            return "track"
+            return .track
         case .album:
-            return "album"
+            return .album
         case .artist:
-            return "artist"
+            return .artist
         case .playlist:
-            return "playlist"
+            return .playlist
         default:
-            if let query {
-                switch inferMediaType(from: query) {
-                case .album:
-                    return "album"
-                case .artist:
-                    return "artist"
-                case .playlist:
-                    return "playlist"
-                case .song:
-                    return "track"
-                default:
-                    break
-                }
+            if let query, let inferred = SiriMediaIndexResolver.kindInferred(from: query) {
+                return inferred
             }
-            return "track"
+            return .track
         }
+    }
+
+    private func effectivePlayShuffled(
+        from intent: INPlayMediaIntent,
+        mediaType: INMediaItemType
+    ) -> Bool? {
+        if intent.playShuffled == true {
+            return true
+        }
+
+        guard SiriPendingPlayMediaContextStore.consumeShuffleIfAvailable(
+            mediaType: mediaType,
+            logger: logger
+        ) else {
+            return intent.playShuffled
+        }
+
+        return true
     }
 
     private func mediaType(from intent: INPlayMediaIntent) -> INMediaItemType {
@@ -523,26 +516,21 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     private func inferMediaType(from query: String) -> INMediaItemType {
-        let normalized = normalize(query)
-        if normalized.hasPrefix("the playlist ") || normalized.hasPrefix("playlist ") {
+        switch SiriMediaIndexResolver.kindInferred(from: query) {
+        case .playlist:
             return .playlist
-        }
-        if normalized.hasPrefix("the album ") || normalized.hasPrefix("album ") {
+        case .album:
             return .album
-        }
-        if normalized.hasPrefix("the artist ") || normalized.hasPrefix("artist ") {
+        case .artist:
             return .artist
-        }
-        if normalized.hasPrefix("the song ")
-            || normalized.hasPrefix("song ")
-            || normalized.hasPrefix("the track ")
-            || normalized.hasPrefix("track ") {
+        case .track:
             return .song
+        case nil:
+            return .unknown
         }
-        return .unknown
     }
 
-    private func loadIndex() -> SiriMediaIndexSnapshot? {
+    private func loadIndex() -> SiriMediaIndex? {
         SiriMatchingHelpers.loadIndex()
     }
 
@@ -559,5 +547,4 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 }
 
-// Shared types: RankedItem, SiriPayloadIdentifier, SiriMediaIndexSnapshot,
-// SiriMediaIndexItemSnapshot are defined in SiriMatchingHelpers.swift
+// Shared helper types are defined in SiriMatchingHelpers.swift.

@@ -1,5 +1,7 @@
 import EnsembleCore
+import EnsembleSiriShared
 import EnsembleUI
+import CoreSpotlight
 import Foundation
 import Intents
 import SwiftUI
@@ -43,6 +45,9 @@ struct EnsembleApp: App {
                 .onOpenURL { url in
                     AppLogger.info("SIRI_APP: onOpenURL called with: \(url.absoluteString)")
                     _ = DependencyContainer.shared.navigationCoordinator.handleDeepLink(url)
+                }
+                .onContinueUserActivity(SystemMediaSpotlightRouter.activityType) { userActivity in
+                    handleSpotlightActivity(userActivity)
                 }
                 .onContinueUserActivity(SiriPlaybackActivityCodec.activityType) { userActivity in
                     handleSiriPlaybackActivity(userActivity)
@@ -377,6 +382,12 @@ struct EnsembleApp: App {
         AppLogger.error("SIRI_APP: Could not extract playable payload from generic activity")
     }
 
+    private func handleSpotlightActivity(_ userActivity: NSUserActivity) {
+        Task { @MainActor in
+            _ = SystemMediaSpotlightRouter.route(userActivity)
+        }
+    }
+
     #if os(iOS)
     private func extractPayload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
         let shuffle = intent.playShuffled
@@ -385,8 +396,8 @@ struct EnsembleApp: App {
         if let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
            let data = Data(base64Encoded: identifier),
            var payload = try? SiriPlaybackActivityCodec.decode(from: data) {
-            // Override shuffle from live intent if not already set in payload
-            if payload.shuffle == nil, let shuffle {
+            // Prefer the live forwarded intent when iOS preserves an explicit shuffle value.
+            if let shuffle, payload.shuffle != shuffle {
                 payload = SiriPlaybackRequestPayload(
                     kind: payload.kind,
                     entityID: payload.entityID,
@@ -402,7 +413,8 @@ struct EnsembleApp: App {
         // Fallback to query
         guard let query = intent.mediaItems?.first?.title
                 ?? intent.mediaContainer?.title
-                ?? intent.mediaSearch?.mediaName,
+                ?? intent.mediaSearch?.mediaName
+                ?? intent.mediaSearch?.mediaIdentifier,
               !query.isEmpty else {
             return nil
         }
@@ -418,7 +430,7 @@ struct EnsembleApp: App {
         case .album: kind = .album
         case .artist: kind = .artist
         case .playlist: kind = .playlist
-        default: kind = .track
+        default: kind = SiriMediaIndexResolver.kindInferred(from: query) ?? .track
         }
 
         return SiriPlaybackRequestPayload(kind: kind, entityID: query, displayName: query, shuffle: shuffle)
@@ -462,6 +474,43 @@ struct EnsembleApp: App {
         Task { @MainActor in
             await DependencyContainer.shared.siriAddToPlaylistCoordinator.handle(userActivity: userActivity)
         }
+    }
+}
+
+enum SystemMediaSpotlightRouter {
+    static let activityType = CSSearchableItemActionType
+
+    static func isSpotlightActivity(_ userActivity: NSUserActivity) -> Bool {
+        userActivity.activityType == activityType
+    }
+
+    @MainActor
+    @discardableResult
+    static func route(_ userActivity: NSUserActivity) -> Bool {
+        guard let destination = destination(from: userActivity) else {
+            AppLogger.debug("SPOTLIGHT_APP: Could not route Spotlight activity")
+            return false
+        }
+
+        let routedImmediately = NavigationCoordinator.routeExternalSearchInActiveScene(to: destination)
+        AppLogger.info(
+            "SPOTLIGHT_APP: \(routedImmediately ? "Routed" : "Queued") Spotlight media result to \(String(describing: destination))"
+        )
+        return true
+    }
+
+    static func destination(from userActivity: NSUserActivity) -> NavigationCoordinator.Destination? {
+        guard isSpotlightActivity(userActivity),
+              let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+              let sourceScopedIdentifier = SystemMediaSpotlightIdentity.sourceScopedIdentifier(
+                fromSpotlightIdentifier: identifier
+              ) else {
+            return nil
+        }
+
+        return NavigationCoordinator.systemMediaDestination(
+            fromSourceScopedIdentifier: sourceScopedIdentifier
+        )
     }
 }
 

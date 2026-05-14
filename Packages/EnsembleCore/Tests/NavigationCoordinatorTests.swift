@@ -14,6 +14,27 @@ final class NavigationCoordinatorTests: XCTestCase {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .view(.favorites)), .favorites)
     }
 
+    func testSystemMediaDestinationMapsSourceScopedIdentifiers() {
+        XCTAssertEqual(
+            NavigationCoordinator.systemMediaDestination(
+                fromSourceScopedIdentifier: "album||album-1||plex://server.one/library"
+            ),
+            .album(id: "album-1", sourceKey: "plex://server.one/library")
+        )
+        XCTAssertEqual(
+            NavigationCoordinator.systemMediaDestination(
+                fromSourceScopedIdentifier: "playlist||playlist-1||plex://server.one"
+            ),
+            .playlist(id: "playlist-1", sourceKey: "plex://server.one")
+        )
+        XCTAssertEqual(
+            NavigationCoordinator.systemMediaDestination(
+                fromSourceScopedIdentifier: "track||track-1||plex://server.one/library"
+            ),
+            .view(.songs)
+        )
+    }
+
     @MainActor
     func testNavigateFromSearchUsesFirstVisibleTab() {
         let coordinator = NavigationCoordinator()
@@ -63,5 +84,97 @@ final class NavigationCoordinatorTests: XCTestCase {
         coordinator.push(destination, in: .playlists)
 
         XCTAssertEqual(coordinator.pathSnapshot(for: .playlists), [destination])
+    }
+
+    @MainActor
+    func testNavigateFromExternalSearchUsesDestinationOwningTab() {
+        let coordinator = NavigationCoordinator()
+        coordinator.selectedTab = .home
+        coordinator.albumsPath = [.artist(id: "stale", sourceKey: nil)]
+
+        let destination = NavigationCoordinator.Destination.album(id: "album-1", sourceKey: "server/library")
+        coordinator.navigateFromExternalSearch(to: destination)
+
+        XCTAssertEqual(coordinator.selectedTab, .albums)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .albums), [destination])
+        XCTAssertTrue(coordinator.pathSnapshot(for: .home).isEmpty)
+    }
+
+    @MainActor
+    func testNavigateFromExternalSearchRoutesHiddenDetailThroughMore() {
+        let coordinator = NavigationCoordinator()
+        coordinator.selectedTab = .home
+        coordinator.visibleTabs = [.home, .artists, .playlists, .search]
+        coordinator.routesHiddenTabsThroughMore = true
+        coordinator.albumsPath = [.artist(id: "stale", sourceKey: nil)]
+        coordinator.settingsPath = [.view(.downloads)]
+
+        let destination = NavigationCoordinator.Destination.album(id: "album-1", sourceKey: "server/library")
+        coordinator.navigateFromExternalSearch(to: destination)
+
+        XCTAssertEqual(coordinator.selectedTab, .settings)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .settings), [.view(.albums), destination])
+        XCTAssertTrue(coordinator.pathSnapshot(for: .albums).isEmpty)
+    }
+
+    @MainActor
+    func testNavigateFromExternalSearchRoutesHiddenPlaylistThroughMore() {
+        let coordinator = NavigationCoordinator()
+        coordinator.selectedTab = .home
+        coordinator.visibleTabs = [.home, .artists, .search, .favorites]
+        coordinator.routesHiddenTabsThroughMore = true
+        coordinator.playlistsPath = [.album(id: "stale", sourceKey: nil)]
+
+        let destination = NavigationCoordinator.Destination.playlist(id: "playlist-1", sourceKey: "server")
+        coordinator.navigateFromExternalSearch(to: destination)
+
+        XCTAssertEqual(coordinator.selectedTab, .settings)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .settings), [.view(.playlists), destination])
+        XCTAssertTrue(coordinator.pathSnapshot(for: .playlists).isEmpty)
+    }
+
+    @MainActor
+    func testNavigateFromExternalSearchRoutesHiddenViewThroughMore() {
+        let coordinator = NavigationCoordinator()
+        coordinator.selectedTab = .home
+        coordinator.visibleTabs = [.home, .artists, .playlists, .search]
+        coordinator.routesHiddenTabsThroughMore = true
+
+        coordinator.navigateFromExternalSearch(to: .view(.songs))
+
+        XCTAssertEqual(coordinator.selectedTab, .settings)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .settings), [.view(.songs)])
+        XCTAssertTrue(coordinator.pathSnapshot(for: .songs).isEmpty)
+    }
+
+    @MainActor
+    func testExternalSearchRouteQueuesUntilSceneCoordinatorIsActive() {
+        let destination = NavigationCoordinator.Destination.playlist(id: "playlist", sourceKey: "server")
+
+        XCTAssertFalse(NavigationCoordinator.routeExternalSearchInActiveScene(to: destination))
+
+        let coordinator = NavigationCoordinator()
+        NavigationCoordinator.setActiveSceneCoordinator(coordinator)
+        defer {
+            NavigationCoordinator.clearActiveSceneCoordinator(coordinator)
+        }
+
+        XCTAssertEqual(coordinator.selectedTab, .playlists)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .playlists), [destination])
+    }
+
+    @MainActor
+    func testExternalSearchRouteUsesActiveSceneCoordinator() {
+        let coordinator = NavigationCoordinator()
+        NavigationCoordinator.setActiveSceneCoordinator(coordinator)
+        defer {
+            NavigationCoordinator.clearActiveSceneCoordinator(coordinator)
+        }
+
+        let destination = NavigationCoordinator.Destination.album(id: "album", sourceKey: "server/library")
+
+        XCTAssertTrue(NavigationCoordinator.routeExternalSearchInActiveScene(to: destination))
+        XCTAssertEqual(coordinator.selectedTab, .albums)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .albums), [destination])
     }
 }

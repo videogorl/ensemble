@@ -60,6 +60,7 @@ extension LibraryRepository {
                     NSSortDescriptor(key: "rating", ascending: false)
                 ]
                 request.fetchLimit = 2000
+                request.relationshipKeyPathsForPrefetching = ["album"]
                 do {
                     let tracks = try context.fetch(request)
                     continuation.resume(returning: tracks)

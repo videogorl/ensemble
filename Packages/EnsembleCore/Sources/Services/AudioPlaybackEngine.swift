@@ -291,10 +291,10 @@ public final class AudioPlaybackEngine {
                 startTimeUpdates(from: position)
             } else {
                 // Stop the engine when not actively playing. iOS detects a running
-                // engine's render cycle and overrides MPNowPlayingInfoCenter.playbackState
+                // engine's render cycle and overrides the system playback state
                 // to .playing, causing the lock screen / Dynamic Island to show "playing"
                 // even though audio is paused. Stopping here preserves the paused state
-                // that the route-change handler already pushed to NowPlayingInfoCenter.
+                // that the route-change handler already pushed to Now Playing.
                 engine.stop()
             }
 
@@ -955,7 +955,7 @@ public final class AudioPlaybackEngine {
     ///
     /// Stopping the engine is essential: while `playerNode.pause()` silences audio,
     /// the engine's render cycle continues pulling frames from CoreAudio. iOS detects
-    /// this active render cycle and overrides `MPNowPlayingInfoCenter.playbackState`,
+    /// this active render cycle and overrides the system playback state,
     /// causing the lock screen to show "playing" even though audio is paused.
     ///
     /// `engine.stop()` does NOT detach nodes or reset the player node's paused position.

@@ -234,15 +234,18 @@ public struct RootView: View {
             .environmentObject(navigationCoordinator)
             .accentColor(settingsManager.accentColor.color)
             .onAppear {
+                NavigationCoordinator.setActiveSceneCoordinator(navigationCoordinator)
                 NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
                 updateAppearance()
                 DependencyContainer.shared.activeNowPlayingViewModel = nowPlayingVM
             }
             .onDisappear {
+                NavigationCoordinator.clearActiveSceneCoordinator(navigationCoordinator)
                 NavigationCoordinator.clearActiveAuxiliaryCommandCoordinator(navigationCoordinator)
             }
             .onChange(of: scenePhase) { phase in
                 if phase == .active {
+                    NavigationCoordinator.setActiveSceneCoordinator(navigationCoordinator)
                     NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
                 }
             }

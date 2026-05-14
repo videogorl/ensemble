@@ -1,3 +1,4 @@
+import EnsembleSiriShared
 import SwiftUI
 import Combine
 
@@ -5,6 +6,8 @@ import Combine
 @MainActor
 public final class NavigationCoordinator: ObservableObject {
     private static weak var activeAuxiliaryCommandCoordinator: NavigationCoordinator?
+    private static weak var activeSceneCoordinator: NavigationCoordinator?
+    private static var pendingExternalSearchDestination: Destination?
 
     public enum AuxiliaryPresentation: String, Identifiable {
         case profile
@@ -46,6 +49,9 @@ public final class NavigationCoordinator: ObservableObject {
 
     /// Visible tabs in the tab bar (synced from MainTabView to enable fallback logic)
     public var visibleTabs: [TabItem] = [.home, .artists, .playlists, .search]
+
+    /// Whether hidden tab destinations should route through the More tab path.
+    public var routesHiddenTabsThroughMore = false
 
     // Per-tab navigation paths (strictly typed as [Destination] for iOS 15+ compatibility)
     @Published public var homePath: [Destination] = []
@@ -95,6 +101,25 @@ public final class NavigationCoordinator: ObservableObject {
         }
     }
 
+    public nonisolated static func systemMediaDestination(
+        fromSourceScopedIdentifier identifier: String
+    ) -> Destination? {
+        guard let components = SystemMediaReference.components(fromSourceScopedIdentifier: identifier) else {
+            return nil
+        }
+
+        switch components.kind {
+        case .artist:
+            return .artist(id: components.id, sourceKey: components.sourceCompositeKey)
+        case .album:
+            return .album(id: components.id, sourceKey: components.sourceCompositeKey)
+        case .playlist:
+            return .playlist(id: components.id, sourceKey: components.sourceCompositeKey)
+        case .track:
+            return .view(.songs)
+        }
+    }
+
     public static func setActiveAuxiliaryCommandCoordinator(_ coordinator: NavigationCoordinator) {
         activeAuxiliaryCommandCoordinator = coordinator
     }
@@ -104,8 +129,33 @@ public final class NavigationCoordinator: ObservableObject {
         activeAuxiliaryCommandCoordinator = nil
     }
 
+    public static func setActiveSceneCoordinator(_ coordinator: NavigationCoordinator) {
+        activeSceneCoordinator = coordinator
+
+        guard let destination = pendingExternalSearchDestination else { return }
+        pendingExternalSearchDestination = nil
+        coordinator.navigateFromExternalSearch(to: destination)
+        EnsembleLogger.info("SPOTLIGHT_APP: Applied pending Spotlight route to active scene")
+    }
+
+    public static func clearActiveSceneCoordinator(_ coordinator: NavigationCoordinator) {
+        guard activeSceneCoordinator === coordinator else { return }
+        activeSceneCoordinator = nil
+    }
+
     public static func openProfileFromActiveScene(fallback: NavigationCoordinator) {
-        (activeAuxiliaryCommandCoordinator ?? fallback).openProfile()
+        (activeAuxiliaryCommandCoordinator ?? activeSceneCoordinator ?? fallback).openProfile()
+    }
+
+    @discardableResult
+    public static func routeExternalSearchInActiveScene(to destination: Destination) -> Bool {
+        guard let coordinator = activeSceneCoordinator ?? activeAuxiliaryCommandCoordinator else {
+            pendingExternalSearchDestination = destination
+            return false
+        }
+
+        coordinator.navigateFromExternalSearch(to: destination)
+        return true
     }
     
     // MARK: - Navigation Methods
@@ -169,6 +219,23 @@ public final class NavigationCoordinator: ObservableObject {
         let targetTab = activeNavigationTab()
         selectedTab = targetTab
         push(destination, in: targetTab)
+    }
+
+    /// Route external content selections to the destination's owning tab.
+    public func navigateFromExternalSearch(to destination: Destination) {
+        let targetTab = Self.targetTab(for: destination)
+        if shouldRouteExternalSearchThroughMore(targetTab: targetTab) {
+            routeExternalSearchThroughMore(destination, targetTab: targetTab)
+            return
+        }
+
+        popToRoot(tab: targetTab)
+        selectedTab = targetTab
+
+        guard case .view = destination else {
+            push(destination, in: targetTab)
+            return
+        }
     }
     
     /// Request navigation from NowPlaying sheet (handles dismiss-then-navigate)
@@ -241,6 +308,25 @@ public final class NavigationCoordinator: ObservableObject {
             return visibleTabs.first ?? .home
         }
         return selectedTab
+    }
+
+    private func shouldRouteExternalSearchThroughMore(targetTab: TabItem) -> Bool {
+        routesHiddenTabsThroughMore &&
+            targetTab != .settings &&
+            !visibleTabs.contains(targetTab)
+    }
+
+    private func routeExternalSearchThroughMore(_ destination: Destination, targetTab: TabItem) {
+        let path: [Destination]
+        if case .view = destination {
+            path = [.view(targetTab)]
+        } else {
+            path = [.view(targetTab), destination]
+        }
+
+        setPath([], for: targetTab)
+        setPath(path, for: .settings)
+        selectedTab = .settings
     }
 
     private func path(for tab: TabItem) -> [Destination] {

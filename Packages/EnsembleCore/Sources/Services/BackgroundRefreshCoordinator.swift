@@ -47,6 +47,7 @@ public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
         homeHubLoader: HomeHubLoaderProtocol,
         siriMediaIndexStore: SiriMediaIndexStore,
         siriMediaUserContextManager: SiriMediaUserContextManager,
+        systemMediaIntegrationService: SystemMediaIntegrationServiceProtocol? = nil,
         scheduleNextAppRefresh: ScheduleStep? = nil
     ) {
         self.init(
@@ -66,7 +67,12 @@ public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
                 await siriMediaIndexStore.rebuildIndex() != nil
             },
             siriContextRefresh: {
-                await siriMediaUserContextManager.updateMediaUserContext()
+                if let systemMediaIntegrationService {
+                    await systemMediaIntegrationService.updateMediaUserContext()
+                    await systemMediaIntegrationService.refreshSpotlightIndex()
+                } else {
+                    await siriMediaUserContextManager.updateMediaUserContext()
+                }
             },
             scheduleNextAppRefresh: scheduleNextAppRefresh
         )
