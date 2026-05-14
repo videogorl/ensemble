@@ -118,6 +118,22 @@ final class NavigationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testNavigateFromExternalSearchRoutesHiddenPlaylistThroughMore() {
+        let coordinator = NavigationCoordinator()
+        coordinator.selectedTab = .home
+        coordinator.visibleTabs = [.home, .artists, .search, .favorites]
+        coordinator.routesHiddenTabsThroughMore = true
+        coordinator.playlistsPath = [.album(id: "stale", sourceKey: nil)]
+
+        let destination = NavigationCoordinator.Destination.playlist(id: "playlist-1", sourceKey: "server")
+        coordinator.navigateFromExternalSearch(to: destination)
+
+        XCTAssertEqual(coordinator.selectedTab, .settings)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .settings), [.view(.playlists), destination])
+        XCTAssertTrue(coordinator.pathSnapshot(for: .playlists).isEmpty)
+    }
+
+    @MainActor
     func testNavigateFromExternalSearchRoutesHiddenViewThroughMore() {
         let coordinator = NavigationCoordinator()
         coordinator.selectedTab = .home
