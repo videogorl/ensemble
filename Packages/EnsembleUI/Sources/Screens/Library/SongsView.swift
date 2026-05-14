@@ -131,6 +131,9 @@ public struct SongsView: View {
                 songsMoreMenu
             }
         }
+        .if(!isStageFlowActive) { view in
+            view.toolbarMaterialBackground()
+        }
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
         }

@@ -8,20 +8,14 @@ public struct NowPlayingSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var currentPage: Int
 
-    private let namespace: Namespace.ID?
-    private let animationID: String?
     private let dismissAction: (() -> Void)?
 
     public init(
         viewModel: NowPlayingViewModel,
-        namespace: Namespace.ID? = nil,
-        animationID: String? = nil,
         dismissAction: (() -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self._currentPage = State(initialValue: viewModel.currentPage)
-        self.namespace = namespace
-        self.animationID = animationID
         self.dismissAction = dismissAction
     }
 

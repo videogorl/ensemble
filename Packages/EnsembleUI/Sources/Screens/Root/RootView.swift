@@ -4,6 +4,9 @@ import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
+#if os(macOS)
+import AppKit
+#endif
 
 enum RootChromeCoordinateSpace {
     static let name = "RootChromeCoordinateSpace"
@@ -260,6 +263,8 @@ public struct RootView: View {
                 _ = await deps.siriMediaIndexStore.rebuildIndex()
             }
         }
+        .macRootWindowMinimumFrame()
+        .macViewportNowPlayingWindowChromeHidden(isNowPlayingPresented)
     }
 
     private func updateAppearance() {
@@ -404,8 +409,6 @@ public struct RootView: View {
     fileprivate var nowPlayingPresentationContent: some View {
         NowPlayingSheetView(
             viewModel: nowPlayingVM,
-            namespace: playerNamespace,
-            animationID: artworkAnimationID,
             dismissAction: dismissNowPlaying
         )
         .accentColor(settingsManager.accentColor.color)
@@ -451,6 +454,187 @@ public struct RootView: View {
         navigationCoordinator.push(pending.destination, in: targetTab)
     }
 }
+
+private extension View {
+    @ViewBuilder
+    func macRootWindowMinimumFrame() -> some View {
+        #if os(macOS)
+        self.frame(
+            minWidth: EnsembleScaffold.RootWindow.macMinimumWidth,
+            minHeight: EnsembleScaffold.RootWindow.macMinimumHeight
+        )
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
+    func macViewportNowPlayingWindowChromeHidden(_ isHidden: Bool) -> some View {
+        #if os(macOS)
+        if #available(macOS 15.0, *) {
+            self.toolbarVisibility(isHidden ? .hidden : .visible, for: .windowToolbar)
+        } else if #available(macOS 13.0, *) {
+            self.toolbar(isHidden ? .hidden : .visible, for: .windowToolbar)
+        } else {
+            self.background(
+                MacWindowToolbarVisibilityBridge(
+                    isHidden: isHidden
+                )
+            )
+        }
+        #else
+        self
+        #endif
+    }
+}
+
+#if os(macOS)
+private struct MacWindowToolbarVisibilityBridge: NSViewRepresentable {
+    let isHidden: Bool
+
+    func makeNSView(context: Context) -> ToolbarVisibilityProbeView {
+        let view = ToolbarVisibilityProbeView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }
+
+    func updateNSView(_ nsView: ToolbarVisibilityProbeView, context: Context) {
+        nsView.isToolbarHidden = isHidden
+        nsView.applyToolbarVisibility()
+    }
+
+    final class ToolbarVisibilityProbeView: NSView {
+        var isToolbarHidden = false
+        private weak var appliedWindow: NSWindow?
+        private var originalTitleVisibility: NSWindow.TitleVisibility?
+        private var originalTitlebarAppearsTransparent: Bool?
+        private var originalToolbarBaselineSeparatorVisibility: Bool?
+        private var originalStandardButtonVisibility: [NSWindow.ButtonType: Bool] = [:]
+        private var originalToolbarItemViewVisibility: [ObjectIdentifier: (view: NSView, isHidden: Bool)] = [:]
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+
+            if let appliedWindow, appliedWindow !== window {
+                restoreAppliedWindowIfNeeded()
+                self.appliedWindow = nil
+            }
+
+            applyToolbarVisibility()
+        }
+
+        func applyToolbarVisibility() {
+            guard let window else {
+                restoreAppliedWindowIfNeeded()
+                return
+            }
+
+            if appliedWindow !== window {
+                restoreAppliedWindowIfNeeded()
+                appliedWindow = window
+            }
+
+            if isToolbarHidden {
+                hideWindowChrome(on: window)
+            } else {
+                restoreWindowChrome(on: window)
+            }
+        }
+
+        override func removeFromSuperview() {
+            restoreAppliedWindowIfNeeded()
+            super.removeFromSuperview()
+        }
+
+        deinit {
+            restoreAppliedWindowIfNeeded()
+        }
+
+        private func restoreAppliedWindowIfNeeded() {
+            guard let appliedWindow else { return }
+            restoreWindowChrome(on: appliedWindow)
+            self.appliedWindow = nil
+        }
+
+        private func hideWindowChrome(on window: NSWindow) {
+            if originalTitleVisibility == nil {
+                originalTitleVisibility = window.titleVisibility
+                originalTitlebarAppearsTransparent = window.titlebarAppearsTransparent
+            }
+
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+
+            setStandardWindowButtonsHidden(true, on: window)
+            setToolbarItemsHidden(true, on: window.toolbar)
+        }
+
+        private func restoreWindowChrome(on window: NSWindow) {
+            if let originalTitleVisibility {
+                window.titleVisibility = originalTitleVisibility
+                self.originalTitleVisibility = nil
+            }
+
+            if let originalTitlebarAppearsTransparent {
+                window.titlebarAppearsTransparent = originalTitlebarAppearsTransparent
+                self.originalTitlebarAppearsTransparent = nil
+            }
+
+            restoreStandardWindowButtons(on: window)
+            restoreToolbarItems(on: window.toolbar)
+        }
+
+        private func setStandardWindowButtonsHidden(_ isHidden: Bool, on window: NSWindow) {
+            let buttonTypes: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+
+            for buttonType in buttonTypes {
+                guard let button = window.standardWindowButton(buttonType) else { continue }
+                if originalStandardButtonVisibility[buttonType] == nil {
+                    originalStandardButtonVisibility[buttonType] = button.isHidden
+                }
+                button.isHidden = isHidden
+            }
+        }
+
+        private func restoreStandardWindowButtons(on window: NSWindow) {
+            for (buttonType, isHidden) in originalStandardButtonVisibility {
+                window.standardWindowButton(buttonType)?.isHidden = isHidden
+            }
+            originalStandardButtonVisibility.removeAll()
+        }
+
+        private func setToolbarItemsHidden(_ isHidden: Bool, on toolbar: NSToolbar?) {
+            guard let toolbar else { return }
+
+            if originalToolbarBaselineSeparatorVisibility == nil {
+                originalToolbarBaselineSeparatorVisibility = toolbar.showsBaselineSeparator
+            }
+            toolbar.showsBaselineSeparator = !isHidden
+
+            toolbar.visibleItems?.forEach { item in
+                guard let itemView = item.view else { return }
+                let identifier = ObjectIdentifier(itemView)
+                if originalToolbarItemViewVisibility[identifier] == nil {
+                    originalToolbarItemViewVisibility[identifier] = (itemView, itemView.isHidden)
+                }
+                itemView.isHidden = isHidden
+            }
+        }
+
+        private func restoreToolbarItems(on toolbar: NSToolbar?) {
+            if let originalToolbarBaselineSeparatorVisibility {
+                toolbar?.showsBaselineSeparator = originalToolbarBaselineSeparatorVisibility
+                self.originalToolbarBaselineSeparatorVisibility = nil
+            }
+
+            for (_, visibility) in originalToolbarItemViewVisibility {
+                visibility.view.isHidden = visibility.isHidden
+            }
+            originalToolbarItemViewVisibility.removeAll()
+        }
+    }
+}
+#endif
 
 private struct NowPlayingPresentationModifier: ViewModifier {
     let rootView: RootView

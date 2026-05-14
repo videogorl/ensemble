@@ -57,6 +57,9 @@ public struct ArtistsView: View {
                 artistSortMenu
             }
         }
+        .if(selectedArtist == nil) { view in
+            view.toolbarMaterialBackground()
+        }
         .task(id: sectionInput) {
             await updateArtistSections(for: sectionInput)
         }
@@ -332,6 +335,7 @@ public struct ArtistsView: View {
             selectedGenres: $libraryVM.artistsFilterOptions.selectedGenres,
             excludedGenres: $libraryVM.artistsFilterOptions.excludedGenres
         )
+        .background(EnsembleDesign.Color.windowSurface)
     }
 
     private func shouldShowScrollIndex(width: CGFloat) -> Bool {

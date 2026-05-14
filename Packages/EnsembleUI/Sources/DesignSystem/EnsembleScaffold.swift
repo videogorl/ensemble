@@ -189,6 +189,11 @@ public enum EnsembleScaffold {
         public static let lightLegibilityOverlayOpacity = EnsembleScaffold.DetailSurface.lightLegibilityOverlayOpacity
     }
 
+    public enum RootWindow {
+        public static let macMinimumWidth: CGFloat = 720
+        public static let macMinimumHeight: CGFloat = 560
+    }
+
     public enum AccountSetup {
         public static let macMinimumWidth: CGFloat = 720
         public static let macMinimumHeight: CGFloat = 560
