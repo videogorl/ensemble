@@ -93,6 +93,18 @@ When adding a new card/panel to the Now Playing view, it must be added in the sh
 
 Assign your new card a page index and add a case in the carousel body plus `NowPlayingDetailPanel`. `NowPlayingWidePanelLayout` should keep using the shared detail renderer, and `ExternalDisplayNowPlayingView` should stay a TV/dark/background shell around `NowPlayingWidePanelLayout`, not grow its own panel switch.
 
+## Modifying System Media Integration
+
+Use this for SiriKit/App Shortcuts/Spotlight/Now Playing changes:
+
+1. Put pure media identity, index, payload, normalization, and resolver changes in `Packages/EnsembleSiriShared`.
+2. Keep playback execution and side effects in `EnsembleCore`; `SystemMediaIntegrationService` owns donations, Spotlight indexing/deletion, and media user context refresh.
+3. Keep all `MPNowPlayingInfoCenter` and `MPRemoteCommandCenter` writes inside `PlaybackNowPlayingBridge`.
+4. Pass `PlaybackStartContext` when a UI action semantically starts a track, album, artist, playlist, radio seed, or downloads collection.
+5. Donate only direct `.appUI` playback starts. Siri, App Shortcuts, remote commands, autoplay, queue restoration, and background recovery should pass a non-donating origin.
+6. Use source-scoped identifiers (`sourceCompositeKey` plus media id/kind) for Now Playing external IDs, donations, Spotlight identifiers, and artwork cache identity.
+7. For Spotlight cleanup, delete explicit identifiers or source/domain-scoped identifiers only. Do not use global delete-all APIs.
+
 ## Adding a New CoreData Entity
 
 1. Update `Ensemble.xcdatamodeld` in `Packages/EnsemblePersistence/Sources/CoreData/`

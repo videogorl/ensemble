@@ -34,7 +34,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 | Path | Purpose |
 |---|---|
 | `Ensemble/App/` | App entry point, app delegates, launch pipeline, scene and integration glue. |
-| `Ensemble/Resources/` | Assets, app intent vocabulary, and app resources. |
+| `Ensemble/Resources/` | Assets, app intent vocabulary, SiriKit intent definitions, and app resources. |
 | `EnsembleSiriIntentsExtension/` | SiriKit Media Intents extension. Keep extension logic thin. |
 | `EnsembleWatch/` | Independent watchOS app target and watch SwiftUI. |
 | `EnsembleWatch/Shared/` | Codable iOS/watch payload contracts compiled into both targets. |
@@ -45,7 +45,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 |---|---|---|
 | `Packages/EnsembleAPI` | Plex HTTP/auth clients, request builders, API models, connection policy, WebSocket transport. | Do not import UI, CoreData, or app target code. |
 | `Packages/EnsemblePersistence` | CoreData stack, managed objects, repositories, downloads/artwork persistence. | Do not put UI or network orchestration here. |
-| `Packages/EnsembleSiriShared` | Pure Siri phrase normalization/scoring and App Group constants. | Do not import CoreData, Intents UI, SwiftUI, or playback services. |
+| `Packages/EnsembleSiriShared` | Pure Siri/system-media identity, index models, payload codecs, resolver/ranking logic, phrase normalization/scoring, and App Group constants. | Do not import CoreData, Intents UI, SwiftUI, Spotlight, or playback services. |
 | `Packages/EnsembleDomain` | Watch-portable account/media/playback models. | Do not pull in full `EnsembleCore`. |
 | `Packages/EnsemblePlex` | Watch-portable Plex facade built on `EnsembleAPI` and `EnsembleDomain`. | Do not duplicate low-level Plex request logic. |
 | `Packages/EnsembleWatchCore` | Watch bootstrap, credentials, catalog cache, local playback, local/remote Now Playing state. | Do not link `EnsembleUI` or full iOS playback graph. |
@@ -56,6 +56,8 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 
 - New ViewModel: `Packages/EnsembleCore/Sources/ViewModels/`
 - New Core service: `Packages/EnsembleCore/Sources/Services/`
+- New shared Siri/system media identity or resolver logic: `Packages/EnsembleSiriShared/Sources/`
+- New SiriKit intent definition resource: `Ensemble/Resources/*.intentdefinition`, then add it to the app and relevant extension target resources in `Ensemble.xcodeproj`.
 - New UI screen/component: `Packages/EnsembleUI/Sources/Screens/`, `.../Components/`, `.../NowPlaying/`, or an existing feature folder.
 - New CoreData entity: `Packages/EnsemblePersistence/Sources/CoreData/`
 - New API endpoint logic: the matching `PlexAPIClient+*.swift` file in `Packages/EnsembleAPI/Sources/Client/`.
