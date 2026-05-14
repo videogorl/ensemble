@@ -409,8 +409,6 @@ public struct RootView: View {
     fileprivate var nowPlayingPresentationContent: some View {
         NowPlayingSheetView(
             viewModel: nowPlayingVM,
-            namespace: playerNamespace,
-            animationID: artworkAnimationID,
             dismissAction: dismissNowPlaying
         )
         .accentColor(settingsManager.accentColor.color)
