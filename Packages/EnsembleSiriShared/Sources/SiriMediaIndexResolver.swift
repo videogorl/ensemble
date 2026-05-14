@@ -141,7 +141,9 @@ public enum SiriMediaIndexResolver {
     }
 
     public static func kindInferred(from rawQuery: String) -> SiriMediaKind? {
-        let normalized = SiriPhraseNormalizer.basic(rawQuery)
+        let normalized = SiriPhraseNormalizer.strippingLeadingPlaybackCommandPrefix(
+            from: SiriPhraseNormalizer.basic(rawQuery)
+        )
         if normalized.hasPrefix("the playlist ") || normalized.hasPrefix("playlist ") {
             return .playlist
         }

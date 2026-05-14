@@ -22,6 +22,9 @@ public enum SiriPhraseNormalizer {
         "the track ",
         "track "
     ]
+    public static let leadingPlaybackCommandPrefixes = [
+        "shuffle "
+    ]
 
     /// Applies only case, diacritic, punctuation, and whitespace normalization.
     public static func basic(_ raw: String) -> String {
@@ -50,6 +53,7 @@ public enum SiriPhraseNormalizer {
         }
 
         candidate = trimTrailingConnectorWords(in: candidate)
+        candidate = strippingLeadingPlaybackCommandPrefix(from: candidate)
         candidate = strippingLeadingMediaTypePrefix(from: candidate)
         return candidate
     }
@@ -67,19 +71,26 @@ public enum SiriPhraseNormalizer {
         guard !base.isEmpty else { return [] }
 
         var variants = Set<String>()
-        variants.insert(base)
-        variants.insert(strippingLeadingMediaTypePrefix(from: base))
+
+        func insertVariants(for candidate: String) {
+            variants.insert(candidate)
+
+            let commandStripped = strippingLeadingPlaybackCommandPrefix(from: candidate)
+            variants.insert(commandStripped)
+            variants.insert(strippingLeadingMediaTypePrefix(from: candidate))
+            variants.insert(strippingLeadingMediaTypePrefix(from: commandStripped))
+        }
+
+        insertVariants(for: base)
 
         let trimmedBase = trimTrailingConnectorWords(in: base)
-        variants.insert(trimmedBase)
-        variants.insert(strippingLeadingMediaTypePrefix(from: trimmedBase))
+        insertVariants(for: trimmedBase)
 
         for suffix in appNameSuffixes where base.hasSuffix(suffix) {
             let trimmed = base.dropLast(suffix.count).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
             let phraseWithoutConnector = trimTrailingConnectorWords(in: trimmed)
-            variants.insert(phraseWithoutConnector)
-            variants.insert(strippingLeadingMediaTypePrefix(from: phraseWithoutConnector))
+            insertVariants(for: phraseWithoutConnector)
         }
 
         return variants
@@ -103,6 +114,16 @@ public enum SiriPhraseNormalizer {
             tokens.removeLast()
         }
         return tokens.joined(separator: " ")
+    }
+
+    public static func strippingLeadingPlaybackCommandPrefix(from value: String) -> String {
+        for prefix in leadingPlaybackCommandPrefixes where value.hasPrefix(prefix) {
+            let stripped = value.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+            if leadingMediaTypePrefixes.contains(where: { stripped.hasPrefix($0) }) {
+                return stripped
+            }
+        }
+        return value
     }
 
     public static func strippingLeadingMediaTypePrefix(from value: String) -> String {

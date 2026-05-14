@@ -300,8 +300,8 @@ extension AppDelegate {
         if let identifier = rawIdentifier,
            var decoded = decodePayloadIdentifier(identifier),
            decoded.schemaVersion == SiriPlaybackRequestPayload.currentSchemaVersion {
-            // Override shuffle from the live intent if it wasn't already set in the payload
-            if decoded.shuffle == nil, let shuffle {
+            // Prefer the live forwarded intent when iOS preserves an explicit shuffle value.
+            if let shuffle, decoded.shuffle != shuffle {
                 decoded = SiriPlaybackRequestPayload(
                     kind: decoded.kind,
                     entityID: decoded.entityID,
@@ -378,6 +378,9 @@ extension AppDelegate {
             if let albumName = mediaSearch.albumName, !albumName.isEmpty {
                 return albumName
             }
+            if let mediaIdentifier = mediaSearch.mediaIdentifier, !mediaIdentifier.isEmpty {
+                return mediaIdentifier
+            }
         }
         return nil
     }
@@ -423,30 +426,7 @@ extension AppDelegate {
 
     private func inferredSiriMediaKind(from query: String?) -> SiriMediaKind? {
         guard let query else { return nil }
-        let normalized = query
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        if normalized.hasPrefix("the playlist ") || normalized.hasPrefix("playlist ") {
-            return .playlist
-        }
-        if normalized.hasPrefix("the album ") || normalized.hasPrefix("album ") {
-            return .album
-        }
-        if normalized.hasPrefix("the artist ") || normalized.hasPrefix("artist ") {
-            return .artist
-        }
-        if normalized.hasPrefix("the song ")
-            || normalized.hasPrefix("song ")
-            || normalized.hasPrefix("the track ")
-            || normalized.hasPrefix("track ") {
-            return .track
-        }
-        return nil
+        return SiriMediaIndexResolver.kindInferred(from: query)
     }
 }
 
@@ -646,7 +626,8 @@ enum SiriPlaybackExecutionGate {
 
         let signature = [
             payload.kind.rawValue,
-            payload.entityID
+            payload.entityID,
+            payload.shuffle == true ? "shuffle" : "ordered"
         ].joined(separator: "|")
 
         let now = Date()
@@ -723,8 +704,8 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         if let identifier = rawIdentifier,
            let data = Data(base64Encoded: identifier),
            var payload = try? SiriPlaybackActivityCodec.decode(from: data) {
-            // Override shuffle from live intent if not already set in payload
-            if payload.shuffle == nil, let shuffle {
+            // Prefer the live forwarded intent when iOS preserves an explicit shuffle value.
+            if let shuffle, payload.shuffle != shuffle {
                 payload = SiriPlaybackRequestPayload(
                     kind: payload.kind,
                     entityID: payload.entityID,
@@ -801,6 +782,9 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             if let moodName = mediaSearch.moodNames?.first, !moodName.isEmpty {
                 return moodName
             }
+            if let mediaIdentifier = mediaSearch.mediaIdentifier, !mediaIdentifier.isEmpty {
+                return mediaIdentifier
+            }
         }
         return nil
     }
@@ -832,30 +816,7 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
     private func inferredSiriMediaKind(from query: String?) -> SiriMediaKind? {
         guard let query else { return nil }
-        let normalized = query
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        if normalized.hasPrefix("the playlist ") || normalized.hasPrefix("playlist ") {
-            return .playlist
-        }
-        if normalized.hasPrefix("the album ") || normalized.hasPrefix("album ") {
-            return .album
-        }
-        if normalized.hasPrefix("the artist ") || normalized.hasPrefix("artist ") {
-            return .artist
-        }
-        if normalized.hasPrefix("the song ")
-            || normalized.hasPrefix("song ")
-            || normalized.hasPrefix("the track ")
-            || normalized.hasPrefix("track ") {
-            return .track
-        }
-        return nil
+        return SiriMediaIndexResolver.kindInferred(from: query)
     }
 }
 #endif

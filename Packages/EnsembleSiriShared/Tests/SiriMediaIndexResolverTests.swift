@@ -42,6 +42,7 @@ final class SiriMediaIndexResolverTests: XCTestCase {
 
     func testResolverInfersMediaKindFromPhrasePrefix() {
         XCTAssertEqual(SiriMediaIndexResolver.kindInferred(from: "playlist Road Trip"), .playlist)
+        XCTAssertEqual(SiriMediaIndexResolver.kindInferred(from: "shuffle the playlist Road Trip"), .playlist)
         XCTAssertEqual(SiriMediaIndexResolver.kindInferred(from: "the album Faedom"), .album)
         XCTAssertEqual(SiriMediaIndexResolver.kindInferred(from: "artist Bjork"), .artist)
         XCTAssertEqual(SiriMediaIndexResolver.kindInferred(from: "track Hunter"), .track)

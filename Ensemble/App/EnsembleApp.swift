@@ -386,8 +386,8 @@ struct EnsembleApp: App {
         if let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
            let data = Data(base64Encoded: identifier),
            var payload = try? SiriPlaybackActivityCodec.decode(from: data) {
-            // Override shuffle from live intent if not already set in payload
-            if payload.shuffle == nil, let shuffle {
+            // Prefer the live forwarded intent when iOS preserves an explicit shuffle value.
+            if let shuffle, payload.shuffle != shuffle {
                 payload = SiriPlaybackRequestPayload(
                     kind: payload.kind,
                     entityID: payload.entityID,
@@ -403,7 +403,8 @@ struct EnsembleApp: App {
         // Fallback to query
         guard let query = intent.mediaItems?.first?.title
                 ?? intent.mediaContainer?.title
-                ?? intent.mediaSearch?.mediaName,
+                ?? intent.mediaSearch?.mediaName
+                ?? intent.mediaSearch?.mediaIdentifier,
               !query.isEmpty else {
             return nil
         }
@@ -419,7 +420,7 @@ struct EnsembleApp: App {
         case .album: kind = .album
         case .artist: kind = .artist
         case .playlist: kind = .playlist
-        default: kind = .track
+        default: kind = SiriMediaIndexResolver.kindInferred(from: query) ?? .track
         }
 
         return SiriPlaybackRequestPayload(kind: kind, entityID: query, displayName: query, shuffle: shuffle)

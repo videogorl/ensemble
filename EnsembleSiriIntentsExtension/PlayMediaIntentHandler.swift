@@ -32,19 +32,27 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         // If we already have a valid payload identifier, keep it stable and avoid loops.
         if let selected = intent.mediaItems?.first,
            let identifier = selected.identifier,
-           let payload = decodePayloadIdentifier(identifier),
+           var payload = decodePayloadIdentifier(identifier),
            payload.schemaVersion == Self.currentPayloadSchemaVersion {
             logger.debug("resolveMediaItems: using preselected media item to avoid re-disambiguation")
-            completion([.success(with: selected)])
+            if let playShuffled = intent.playShuffled, payload.shuffle != playShuffled {
+                payload.shuffle = playShuffled
+                completion([.success(with: makeMediaItem(from: payload, fallback: selected))])
+            } else {
+                completion([.success(with: selected)])
+            }
             return
         }
 
         guard let query = queryText(from: intent), !query.isEmpty else {
-            logger.info("resolveMediaItems: missing query; requesting value from Siri")
+            logger.info(
+                "resolveMediaItems: missing query; requesting value from Siri mediaType=\((intent.mediaSearch?.mediaType ?? .unknown).rawValue, privacy: .public) shuffle=\((intent.playShuffled ?? false), privacy: .public)"
+            )
             completion([.needsValue()])
             return
         }
         let normalizedQuery = bestQueryVariant(from: query) ?? query
+        let requestedShuffle = intent.playShuffled
 
         let requestedMediaType = resolvedMediaType(from: intent, query: query)
         logger.info(
@@ -58,7 +66,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             let fallback = makeFallbackMediaItem(
                 query: normalizedQuery,
                 mediaType: requestedMediaType,
-                artistHint: artistHint
+                artistHint: artistHint,
+                shuffle: requestedShuffle
             )
             completion([.success(with: fallback)])
             return
@@ -75,7 +84,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             let fallback = makeFallbackMediaItem(
                 query: normalizedQuery,
                 mediaType: requestedMediaType,
-                artistHint: artistHint
+                artistHint: artistHint,
+                shuffle: requestedShuffle
             )
             completion([.success(with: fallback)])
             return
@@ -86,14 +96,27 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             let second = ranked[1]
             if abs(top.score - second.score) <= Self.disambiguationThreshold {
                 logger.debug("resolveMediaItems: returning disambiguation with \(ranked.count, privacy: .public) options")
-                let options = Array(ranked.prefix(6)).map { makeMediaItem(from: $0, artistHint: artistHint) }
+                let options = Array(ranked.prefix(6)).map {
+                    makeMediaItem(from: $0, artistHint: artistHint, shuffle: requestedShuffle)
+                }
                 completion([.disambiguation(with: options)])
                 return
             }
         }
 
         logger.debug("resolveMediaItems: selected top candidate \(top.item.displayName, privacy: .public)")
-        completion([.success(with: makeMediaItem(from: top, artistHint: artistHint))])
+        completion([.success(with: makeMediaItem(from: top, artistHint: artistHint, shuffle: requestedShuffle))])
+    }
+
+    public func resolvePlayShuffled(
+        for intent: INPlayMediaIntent,
+        with completion: @escaping (INBooleanResolutionResult) -> Void
+    ) {
+        if let playShuffled = intent.playShuffled {
+            completion(.success(with: playShuffled))
+        } else {
+            completion(.notRequired())
+        }
     }
 
     // confirm is intentionally NOT implemented. Apple recommends skipping
@@ -260,6 +283,9 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             if let moodName = mediaSearch.moodNames?.first, !moodName.isEmpty {
                 return moodName
             }
+            if let mediaIdentifier = mediaSearch.mediaIdentifier, !mediaIdentifier.isEmpty {
+                return mediaIdentifier
+            }
         }
         return nil
     }
@@ -293,14 +319,19 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         }
     }
 
-    private func makeMediaItem(from ranked: RankedItem, artistHint: String? = nil) -> INMediaItem {
+    private func makeMediaItem(
+        from ranked: RankedItem,
+        artistHint: String? = nil,
+        shuffle: Bool? = nil
+    ) -> INMediaItem {
         let payload = SiriPayloadIdentifier(
             schemaVersion: Self.currentPayloadSchemaVersion,
             kind: ranked.item.kind,
             entityID: ranked.item.id,
             sourceCompositeKey: ranked.item.sourceCompositeKey,
             displayName: ranked.item.displayName,
-            artistHint: artistHint
+            artistHint: artistHint,
+            shuffle: shuffle
         )
 
         let identifier: String
@@ -318,7 +349,29 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         )
     }
 
-    private func makeFallbackMediaItem(query: String, mediaType: INMediaItemType, artistHint: String? = nil) -> INMediaItem {
+    private func makeMediaItem(from payload: SiriPayloadIdentifier, fallback: INMediaItem) -> INMediaItem {
+        let identifier: String
+        if let data = try? JSONEncoder().encode(payload) {
+            identifier = data.base64EncodedString()
+        } else {
+            identifier = fallback.identifier ?? ""
+        }
+
+        return INMediaItem(
+            identifier: identifier,
+            title: fallback.title,
+            type: fallback.type,
+            artwork: fallback.artwork,
+            artist: fallback.artist
+        )
+    }
+
+    private func makeFallbackMediaItem(
+        query: String,
+        mediaType: INMediaItemType,
+        artistHint: String? = nil,
+        shuffle: Bool? = nil
+    ) -> INMediaItem {
         let fallbackKind = primaryKindFor(mediaType: mediaType, query: query)
         let payload = SiriPayloadIdentifier(
             schemaVersion: Self.currentPayloadSchemaVersion,
@@ -326,7 +379,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             entityID: query,
             sourceCompositeKey: nil,
             displayName: query,
-            artistHint: artistHint
+            artistHint: artistHint,
+            shuffle: shuffle
         )
 
         let identifier: String
@@ -431,23 +485,18 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     private func inferMediaType(from query: String) -> INMediaItemType {
-        let normalized = normalize(query)
-        if normalized.hasPrefix("the playlist ") || normalized.hasPrefix("playlist ") {
+        switch SiriMediaIndexResolver.kindInferred(from: query) {
+        case .playlist:
             return .playlist
-        }
-        if normalized.hasPrefix("the album ") || normalized.hasPrefix("album ") {
+        case .album:
             return .album
-        }
-        if normalized.hasPrefix("the artist ") || normalized.hasPrefix("artist ") {
+        case .artist:
             return .artist
-        }
-        if normalized.hasPrefix("the song ")
-            || normalized.hasPrefix("song ")
-            || normalized.hasPrefix("the track ")
-            || normalized.hasPrefix("track ") {
+        case .track:
             return .song
+        case nil:
+            return .unknown
         }
-        return .unknown
     }
 
     private func loadIndex() -> SiriMediaIndex? {

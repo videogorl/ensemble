@@ -42,6 +42,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         private(set) var lastPlayedTrack: Track?
         private(set) var lastQueuedTracks: [Track] = []
         private(set) var lastQueuedStartIndex: Int?
+        private(set) var lastShufflePlayRequested = false
 
         var currentTrack: Track? { currentTrackSubject.value }
         var playbackState: PlaybackState { playbackStateSubject.value }
@@ -103,7 +104,13 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             currentTrackSubject.send(lastPlayedTrack)
         }
 
-        func shufflePlay(tracks: [Track], context: PlaybackStartContext) async {}
+        func shufflePlay(tracks: [Track], context: PlaybackStartContext) async {
+            lastShufflePlayRequested = true
+            lastQueuedTracks = tracks
+            lastQueuedStartIndex = 0
+            lastPlayedTrack = tracks.first
+            currentTrackSubject.send(lastPlayedTrack)
+        }
         func playQueueIndex(_ index: Int) async {}
         func pause() {}
         func resume() {}
@@ -229,6 +236,24 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             )
         )
 
+        XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id), ["track-2", "track-1"])
+        XCTAssertEqual(fixture.playbackService.lastQueuedStartIndex, 0)
+        XCTAssertFalse(fixture.playbackService.lastShufflePlayRequested)
+    }
+
+    func testExecutePlayPlaylistHonorsShuffleRequest() async throws {
+        let fixture = try await makeFixture()
+
+        try await fixture.coordinator.executePlayPlaylist(
+            request: SiriPlaybackRequest(
+                entityID: "playlist-1",
+                sourceCompositeKey: fixture.serverSourceKey,
+                displayName: "Playlist One",
+                shuffle: true
+            )
+        )
+
+        XCTAssertTrue(fixture.playbackService.lastShufflePlayRequested)
         XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id), ["track-2", "track-1"])
         XCTAssertEqual(fixture.playbackService.lastQueuedStartIndex, 0)
     }
