@@ -61,6 +61,55 @@ final class SystemMediaIntegrationServiceTests: XCTestCase {
         )
     }
 
+    func testSiriVocabularyStringsIncludeVideoPlaylistVariants() {
+        let items = [
+            SiriMediaIndexItem(
+                kind: .playlist,
+                id: "playlist-1",
+                displayName: "Music Video Ideas",
+                sourceCompositeKey: "plex://server.one/library",
+                trackCount: 5
+            ),
+            SiriMediaIndexItem(
+                kind: .album,
+                id: "album-1",
+                displayName: "Music Video Ideas",
+                sourceCompositeKey: "plex://server.one/library"
+            )
+        ]
+
+        let vocabulary = SystemMediaIntegrationService.siriVocabularyStrings(
+            from: items,
+            kind: .playlist,
+            limit: 10
+        )
+
+        XCTAssertTrue(vocabulary.contains("Music Video Ideas"))
+        XCTAssertTrue(vocabulary.contains("Music Videos Ideas"))
+        XCTAssertTrue(vocabulary.contains("Video Ideas"))
+        XCTAssertTrue(vocabulary.contains("Videos Ideas"))
+        XCTAssertTrue(vocabulary.contains("Music Video Ideas playlist"))
+        XCTAssertTrue(vocabulary.contains("playlist Music Video Ideas"))
+        XCTAssertTrue(vocabulary.contains("the playlist Music Video Ideas"))
+    }
+
+    func testSiriVocabularyStringsRespectKindDedupeAndLimit() {
+        let items = [
+            SiriMediaIndexItem(kind: .playlist, id: "playlist-1", displayName: "Road Trip"),
+            SiriMediaIndexItem(kind: .playlist, id: "playlist-2", displayName: "road trip"),
+            SiriMediaIndexItem(kind: .artist, id: "artist-1", displayName: "Road Trip"),
+            SiriMediaIndexItem(kind: .playlist, id: "playlist-3", displayName: "Workout")
+        ]
+
+        let vocabulary = SystemMediaIntegrationService.siriVocabularyStrings(
+            from: items,
+            kind: .playlist,
+            limit: 2
+        )
+
+        XCTAssertEqual(vocabulary, ["Road Trip", "Workout"])
+    }
+
     private func makeReference(kind: SiriMediaKind) -> SystemMediaReference {
         SystemMediaReference(
             kind: kind,

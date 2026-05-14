@@ -48,15 +48,21 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             logger.info(
                 "resolveMediaItems: missing query; requesting value from Siri mediaType=\((intent.mediaSearch?.mediaType ?? .unknown).rawValue, privacy: .public) shuffle=\((intent.playShuffled ?? false), privacy: .public)"
             )
+            if intent.playShuffled == true {
+                SiriPendingPlayMediaContextStore.recordShuffleRequest(
+                    mediaType: mediaType(from: intent),
+                    logger: logger
+                )
+            }
             completion([.needsValue()])
             return
         }
         let normalizedQuery = bestQueryVariant(from: query) ?? query
-        let requestedShuffle = intent.playShuffled
 
         let requestedMediaType = resolvedMediaType(from: intent, query: query)
+        let requestedShuffle = effectivePlayShuffled(from: intent, mediaType: requestedMediaType)
         logger.info(
-            "resolveMediaItems: query=\(normalizedQuery, privacy: .public), mediaType=\(requestedMediaType.rawValue, privacy: .public)"
+            "resolveMediaItems: query=\(normalizedQuery, privacy: .public), mediaType=\(requestedMediaType.rawValue, privacy: .public) shuffle=\((requestedShuffle ?? false), privacy: .public)"
         )
 
         let artistHint = intent.mediaSearch?.artistName
@@ -128,11 +134,6 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
     public func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         let requestedMediaType = resolvedMediaType(from: intent, query: queryText(from: intent) ?? "")
-        let shuffleRequested = intent.playShuffled ?? false
-        SiriExtensionLogger.info(
-            "SIRI_EXT: handle ENTRY mediaType=\(requestedMediaType.rawValue) shuffle=\(shuffleRequested)"
-        )
-        logger.debug("handle: mediaType=\(requestedMediaType.rawValue, privacy: .public) shuffle=\(shuffleRequested, privacy: .public)")
 
         guard var payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) else {
             logger.error("handle: missing identifier and query; returning failureUnknownMediaType")
@@ -141,7 +142,14 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return
         }
 
-        // Attach shuffle flag from intent
+        let shuffleRequested = payload.shuffle
+            ?? effectivePlayShuffled(from: intent, mediaType: requestedMediaType)
+            ?? false
+        SiriExtensionLogger.info(
+            "SIRI_EXT: handle ENTRY mediaType=\(requestedMediaType.rawValue) shuffle=\(shuffleRequested)"
+        )
+        logger.debug("handle: mediaType=\(requestedMediaType.rawValue, privacy: .public) shuffle=\(shuffleRequested, privacy: .public)")
+
         if shuffleRequested {
             payload.shuffle = true
         }
@@ -192,6 +200,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return decodedPayload
         }
 
+        let requestedShuffle = effectivePlayShuffled(from: intent, mediaType: mediaType)
+
         if let query = queryText(from: intent), !query.isEmpty {
             let fallbackQuery = bestQueryVariant(from: query) ?? query
 
@@ -211,7 +221,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                     entityID: top.item.id,
                     sourceCompositeKey: top.item.sourceCompositeKey,
                     displayName: top.item.displayName,
-                    artistHint: artistHintForPayload
+                    artistHint: artistHintForPayload,
+                    shuffle: requestedShuffle
                 )
             }
 
@@ -222,7 +233,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 entityID: fallbackQuery,
                 sourceCompositeKey: nil,
                 displayName: fallbackQuery,
-                artistHint: artistHintForPayload
+                artistHint: artistHintForPayload,
+                shuffle: requestedShuffle
             )
         }
 
@@ -238,7 +250,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 entityID: rawIdentifier,
                 sourceCompositeKey: nil,
                 displayName: fallbackDisplayName,
-                artistHint: intent.mediaSearch?.artistName
+                artistHint: intent.mediaSearch?.artistName,
+                shuffle: requestedShuffle
             )
         }
 
@@ -439,6 +452,24 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             }
             return .track
         }
+    }
+
+    private func effectivePlayShuffled(
+        from intent: INPlayMediaIntent,
+        mediaType: INMediaItemType
+    ) -> Bool? {
+        if intent.playShuffled == true {
+            return true
+        }
+
+        guard SiriPendingPlayMediaContextStore.consumeShuffleIfAvailable(
+            mediaType: mediaType,
+            logger: logger
+        ) else {
+            return intent.playShuffled
+        }
+
+        return true
     }
 
     private func mediaType(from intent: INPlayMediaIntent) -> INMediaItemType {

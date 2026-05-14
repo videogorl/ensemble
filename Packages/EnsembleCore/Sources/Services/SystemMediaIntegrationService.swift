@@ -192,6 +192,10 @@ protocol SystemMediaIntentDonating: AnyObject {
     func donate(_ interaction: INInteraction) async throws
 }
 
+protocol SystemMediaVocabularyRegistering: AnyObject {
+    func setVocabularyStrings(_ vocabulary: NSOrderedSet, of type: INVocabularyStringType)
+}
+
 final class LiveSystemMediaIntentDonor: SystemMediaIntentDonating {
     func donate(_ interaction: INInteraction) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -205,11 +209,18 @@ final class LiveSystemMediaIntentDonor: SystemMediaIntentDonating {
         }
     }
 }
+
+final class LiveSystemMediaVocabularyRegistrar: SystemMediaVocabularyRegistering {
+    func setVocabularyStrings(_ vocabulary: NSOrderedSet, of type: INVocabularyStringType) {
+        INVocabulary.shared().setVocabularyStrings(vocabulary, of: type)
+    }
+}
 #endif
 
 @MainActor
 public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceProtocol {
     private static let spotlightChunkSize = 200
+    private static let siriVocabularyLimit = 750
 
     private let siriMediaIndexStore: SiriMediaIndexStore
     private let mediaUserContextManager: SiriMediaUserContextManagerProtocol
@@ -217,6 +228,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
 
     #if !os(macOS)
     private let intentDonor: SystemMediaIntentDonating
+    private let vocabularyRegistrar: SystemMediaVocabularyRegistering
     #endif
 
     public convenience init(
@@ -234,7 +246,8 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
             siriMediaIndexStore: siriMediaIndexStore,
             mediaUserContextManager: mediaUserContextManager,
             spotlightIndex: CoreSpotlightSystemIndex(),
-            intentDonor: LiveSystemMediaIntentDonor()
+            intentDonor: LiveSystemMediaIntentDonor(),
+            vocabularyRegistrar: LiveSystemMediaVocabularyRegistrar()
         )
         #endif
     }
@@ -254,12 +267,14 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         siriMediaIndexStore: SiriMediaIndexStore,
         mediaUserContextManager: SiriMediaUserContextManagerProtocol,
         spotlightIndex: SystemSpotlightIndexing,
-        intentDonor: SystemMediaIntentDonating
+        intentDonor: SystemMediaIntentDonating,
+        vocabularyRegistrar: SystemMediaVocabularyRegistering
     ) {
         self.siriMediaIndexStore = siriMediaIndexStore
         self.mediaUserContextManager = mediaUserContextManager
         self.spotlightIndex = spotlightIndex
         self.intentDonor = intentDonor
+        self.vocabularyRegistrar = vocabularyRegistrar
     }
     #endif
 
@@ -292,11 +307,6 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     }
 
     public func refreshSpotlightIndex() async {
-        guard spotlightIndex.isIndexingAvailable else {
-            EnsembleLogger.debug("[SystemMedia] Spotlight indexing unavailable")
-            return
-        }
-
         let index: SiriMediaIndex?
         if let existingIndex = siriMediaIndexStore.loadIndexUnbounded() {
             index = existingIndex
@@ -305,6 +315,13 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         }
         guard let index else {
             EnsembleLogger.debug("[SystemMedia] Spotlight refresh skipped; no media index")
+            return
+        }
+
+        refreshSiriVocabulary(from: index)
+
+        guard spotlightIndex.isIndexingAvailable else {
+            EnsembleLogger.debug("[SystemMedia] Spotlight indexing unavailable")
             return
         }
 
@@ -332,6 +349,32 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
 
     public func updateMediaUserContext() async {
         await mediaUserContextManager.updateMediaUserContext()
+    }
+
+    private func refreshSiriVocabulary(from index: SiriMediaIndex) {
+        #if os(iOS)
+        let playlistTitles = Self.siriVocabularyStrings(
+            from: index.items,
+            kind: .playlist,
+            limit: Self.siriVocabularyLimit
+        )
+        vocabularyRegistrar.setVocabularyStrings(
+            NSOrderedSet(array: playlistTitles),
+            of: .mediaPlaylistTitle
+        )
+
+        let artistNames = Self.siriVocabularyStrings(
+            from: index.items,
+            kind: .artist,
+            limit: Self.siriVocabularyLimit
+        )
+        vocabularyRegistrar.setVocabularyStrings(
+            NSOrderedSet(array: artistNames),
+            of: .mediaMusicArtistName
+        )
+
+        EnsembleLogger.debug("[SystemMedia] Registered Siri vocabulary playlists=\(playlistTitles.count) artists=\(artistNames.count)")
+        #endif
     }
 
     static func makeSpotlightItems(from indexItems: [SiriMediaIndexItem]) -> [CSSearchableItem] {
@@ -420,6 +463,98 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     }
     #endif
 
+    static func siriVocabularyStrings(
+        from indexItems: [SiriMediaIndexItem],
+        kind: SiriMediaKind,
+        limit: Int
+    ) -> [String] {
+        guard limit > 0 else { return [] }
+
+        let rankedItems = indexItems
+            .filter { $0.kind == kind }
+            .sorted(by: vocabularyPrioritySort)
+
+        var seen = Set<String>()
+        var strings: [String] = []
+        strings.reserveCapacity(Swift.min(limit, rankedItems.count))
+
+        let variantGroups = rankedItems.map {
+            siriVocabularyVariants(for: $0.displayName, kind: kind)
+        }
+
+        for variants in variantGroups {
+            guard let primary = variants.first else { continue }
+            appendVocabularyString(primary, seen: &seen, strings: &strings)
+            if strings.count >= limit {
+                return strings
+            }
+        }
+
+        for variants in variantGroups {
+            for variant in variants.dropFirst() {
+                appendVocabularyString(variant, seen: &seen, strings: &strings)
+                if strings.count >= limit {
+                    return strings
+                }
+            }
+        }
+
+        return strings
+    }
+
+    private static func appendVocabularyString(
+        _ variant: String,
+        seen: inout Set<String>,
+        strings: inout [String]
+    ) {
+        let key = SiriPhraseNormalizer.basic(variant)
+        guard !key.isEmpty, seen.insert(key).inserted else { return }
+        strings.append(variant)
+    }
+
+    static func siriVocabularyVariants(
+        for displayName: String,
+        kind: SiriMediaKind? = nil
+    ) -> [String] {
+        let trimmed = displayName
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !trimmed.isEmpty else { return [] }
+
+        var variants = [trimmed]
+
+        if trimmed.range(of: "\\bvideo\\b", options: [.regularExpression, .caseInsensitive]) != nil {
+            variants.append(replacingWord("video", with: "videos", in: trimmed))
+        }
+
+        let words = trimmed.split(separator: " ").map(String.init)
+        if let first = words.first,
+           first.caseInsensitiveCompare("music") == .orderedSame,
+           words.count > 1 {
+            let withoutLeadingMusic = words.dropFirst().joined(separator: " ")
+            variants.append(withoutLeadingMusic)
+            if withoutLeadingMusic.range(of: "\\bvideo\\b", options: [.regularExpression, .caseInsensitive]) != nil {
+                variants.append(replacingWord("video", with: "videos", in: withoutLeadingMusic))
+            }
+        }
+
+        if kind == .playlist {
+            let baseVariants = variants
+            for variant in baseVariants {
+                variants.append("\(variant) playlist")
+                variants.append("playlist \(variant)")
+                variants.append("the playlist \(variant)")
+            }
+        }
+
+        var seen = Set<String>()
+        return variants.filter { variant in
+            let key = SiriPhraseNormalizer.basic(variant)
+            return !key.isEmpty && seen.insert(key).inserted
+        }
+    }
+
     private static func spotlightKeywords(for item: SiriMediaIndexItem) -> [String] {
         [
             item.kind.rawValue,
@@ -445,6 +580,43 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         }
         let sanitized = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "_"))
         return sanitized.isEmpty ? "local" : sanitized
+    }
+
+    private static func vocabularyPrioritySort(lhs: SiriMediaIndexItem, rhs: SiriMediaIndexItem) -> Bool {
+        switch (lhs.lastPlayed, rhs.lastPlayed) {
+        case let (lhsDate?, rhsDate?) where lhsDate != rhsDate:
+            return lhsDate > rhsDate
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        default:
+            break
+        }
+
+        let lhsPlayCount = lhs.playCount ?? 0
+        let rhsPlayCount = rhs.playCount ?? 0
+        if lhsPlayCount != rhsPlayCount {
+            return lhsPlayCount > rhsPlayCount
+        }
+
+        let lhsTrackCount = lhs.trackCount ?? 0
+        let rhsTrackCount = rhs.trackCount ?? 0
+        if lhsTrackCount != rhsTrackCount {
+            return lhsTrackCount > rhsTrackCount
+        }
+
+        return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+    }
+
+    private static func replacingWord(_ target: String, with replacement: String, in value: String) -> String {
+        value.split(separator: " ").map { word in
+            guard word.caseInsensitiveCompare(target) == .orderedSame else {
+                return String(word)
+            }
+            return word.first?.isUppercase == true ? replacement.capitalized : replacement
+        }
+        .joined(separator: " ")
     }
 }
 

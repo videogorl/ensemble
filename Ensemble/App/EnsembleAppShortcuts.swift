@@ -287,12 +287,19 @@ struct EnsemblePlaylistEntityQuery: EntityStringQuery {
 @available(iOS 16.0, *)
 private struct SiriShortcutPlaybackExecutor {
     @MainActor
-    static func play(kind: SiriMediaKind, ratingKey: String, sourceCompositeKey: String?, displayName: String) async throws {
+    static func play(
+        kind: SiriMediaKind,
+        ratingKey: String,
+        sourceCompositeKey: String?,
+        displayName: String,
+        shuffle: Bool = false
+    ) async throws {
         let payload = SiriPlaybackRequestPayload(
             kind: kind,
             entityID: ratingKey,
             sourceCompositeKey: sourceCompositeKey,
-            displayName: displayName
+            displayName: displayName,
+            shuffle: shuffle
         )
         try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
     }
@@ -402,6 +409,33 @@ struct PlayEnsemblePlaylistIntent: AppIntent {
     }
 }
 
+/// AppIntent fallback for shuffled playlist playback when SiriKit drops the media item slot.
+@available(iOS 16.0, *)
+struct ShuffleEnsemblePlaylistIntent: AppIntent {
+    static var title: LocalizedStringResource = "Shuffle Playlist in Ensemble"
+    static var description = IntentDescription("Shuffles a specific playlist from your Ensemble library.")
+    static var openAppWhenRun: Bool = true
+
+    @Parameter(title: "Playlist")
+    var playlist: EnsemblePlaylistEntity
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        SiriAppShortcutLogger.logger.info(
+            "SIRI_SHORTCUT: perform shuffle playlist title='\(playlist.title, privacy: .private)' id='\(playlist.id, privacy: .private)'"
+        )
+        let parsedID = parseCompositeEntityID(playlist.id)
+        try await SiriShortcutPlaybackExecutor.play(
+            kind: .playlist,
+            ratingKey: parsedID.ratingKey,
+            sourceCompositeKey: parsedID.sourceCompositeKey,
+            displayName: playlist.title,
+            shuffle: true
+        )
+        return .result(dialog: IntentDialog("Shuffling \(playlist.title) in Ensemble."))
+    }
+}
+
 /// Registers explicit Siri phrases so Ensemble can be invoked even when media-domain parsing fails.
 @available(iOS 16.0, *)
 struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
@@ -444,6 +478,20 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
             ],
             shortTitle: "Play Playlist",
             systemImageName: "music.note.list"
+        )
+
+        AppShortcut(
+            intent: ShuffleEnsemblePlaylistIntent(),
+            phrases: [
+                "Shuffle playlist \(\.$playlist) on \(.applicationName)",
+                "Shuffle the playlist \(\.$playlist) on \(.applicationName)",
+                "Shuffle \(\.$playlist) on \(.applicationName)",
+                "Shuffle \(\.$playlist) playlist on \(.applicationName)",
+                "In \(.applicationName), shuffle the playlist \(\.$playlist)",
+                "In \(.applicationName), shuffle playlist \(\.$playlist)"
+            ],
+            shortTitle: "Shuffle Playlist",
+            systemImageName: "shuffle"
         )
     }
 }
