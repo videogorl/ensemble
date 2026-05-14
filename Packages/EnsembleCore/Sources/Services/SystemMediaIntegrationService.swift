@@ -194,7 +194,7 @@ protocol SystemMediaIntentDonating: AnyObject {
 
 final class LiveSystemMediaIntentDonor: SystemMediaIntentDonating {
     func donate(_ interaction: INInteraction) async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             interaction.donate { error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -387,7 +387,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         return INPlayMediaIntent(
             mediaItems: mediaItems,
             mediaContainer: mediaContainer,
-            playShuffled: NSNumber(value: shuffle),
+            playShuffled: shuffle,
             playbackRepeatMode: .unknown,
             resumePlayback: nil,
             playbackQueueLocation: .unknown,
