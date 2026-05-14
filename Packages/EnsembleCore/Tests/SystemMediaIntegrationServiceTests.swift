@@ -73,6 +73,52 @@ final class SystemMediaIntegrationServiceTests: XCTestCase {
         )
     }
 
+    func testLocalArtworkURLFallsBackToArtworkPathRatingKey() throws {
+        let artworkDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: artworkDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: artworkDirectory) }
+
+        let expectedURL = artworkDirectory.appendingPathComponent("album-1_album.jpg")
+        try Data("art".utf8).write(to: expectedURL)
+
+        let item = SiriMediaIndexItem(
+            kind: .track,
+            id: "track-1",
+            displayName: "Track Name",
+            artworkPath: "/library/metadata/album-1/thumb/123"
+        )
+
+        XCTAssertEqual(
+            SystemMediaIntegrationService.localArtworkURL(for: item, artworkDirectory: artworkDirectory),
+            expectedURL
+        )
+    }
+
+    func testLocalArtworkDataReadsIndexedCacheIdentity() throws {
+        let artworkDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: artworkDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: artworkDirectory) }
+
+        let expectedData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+        let expectedURL = artworkDirectory.appendingPathComponent("album-1_album.jpg")
+        try expectedData.write(to: expectedURL)
+
+        let reference = SystemMediaReference(
+            kind: .album,
+            id: "album-1",
+            displayName: "Album Name",
+            artworkCacheKey: "album-1",
+            artworkCacheType: .album
+        )
+
+        XCTAssertEqual(
+            SystemMediaIntegrationService.localArtworkData(for: reference, artworkDirectory: artworkDirectory),
+            expectedData
+        )
+    }
+
     func testLocalArtworkURLUsesPlaylistCacheIdentity() throws {
         let artworkDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

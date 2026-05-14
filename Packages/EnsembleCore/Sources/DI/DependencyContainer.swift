@@ -613,7 +613,8 @@ public final class DependencyContainer: @unchecked Sendable {
         let systemMediaIntegrationService = MainActor.assumeIsolated {
             SystemMediaIntegrationService(
                 siriMediaIndexStore: siriMediaIndexStore,
-                mediaUserContextManager: siriMediaUserContextManager
+                mediaUserContextManager: siriMediaUserContextManager,
+                artworkLoader: playback.artworkLoader
             )
         }
 

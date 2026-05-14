@@ -193,6 +193,10 @@ protocol SystemMediaIntentDonating: AnyObject {
     func donate(_ interaction: INInteraction) async throws
 }
 
+protocol SystemMediaArtworkProviding: AnyObject {
+    func artworkData(for reference: SystemMediaReference) async -> Data?
+}
+
 protocol SystemMediaVocabularyRegistering: AnyObject {
     func setVocabularyStrings(_ vocabulary: NSOrderedSet, of type: INVocabularyStringType)
 }
@@ -211,6 +215,86 @@ final class LiveSystemMediaIntentDonor: SystemMediaIntentDonating {
     }
 }
 
+final class LocalSystemMediaArtworkProvider: SystemMediaArtworkProviding {
+    func artworkData(for reference: SystemMediaReference) async -> Data? {
+        await Task.detached(priority: .utility) {
+            SystemMediaIntegrationService.localArtworkData(for: reference)
+        }.value
+    }
+}
+
+final class LiveSystemMediaArtworkProvider: SystemMediaArtworkProviding {
+    private static let remoteArtworkTimeout: TimeInterval = 8
+
+    private let artworkLoader: ArtworkLoaderProtocol
+    private let session: URLSession
+
+    init(
+        artworkLoader: ArtworkLoaderProtocol,
+        session: URLSession = .shared
+    ) {
+        self.artworkLoader = artworkLoader
+        self.session = session
+    }
+
+    func artworkData(for reference: SystemMediaReference) async -> Data? {
+        if let localData = await localArtworkData(for: reference) {
+            return localData
+        }
+
+        guard let artworkPath = reference.artworkPath, !artworkPath.isEmpty else {
+            return nil
+        }
+
+        guard let artworkURL = await artworkLoader.artworkURLAsync(
+            for: artworkPath,
+            sourceKey: reference.sourceCompositeKey,
+            ratingKey: reference.artworkCacheKey ?? reference.id,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            size: SystemMediaIntegrationService.systemSuggestionArtworkSize
+        ) else {
+            return nil
+        }
+
+        if artworkURL.isFileURL {
+            return await Task.detached(priority: .utility) {
+                SystemMediaIntegrationService.artworkData(at: artworkURL)
+            }.value
+        }
+
+        do {
+            let request = URLRequest(
+                url: artworkURL,
+                cachePolicy: .returnCacheDataElseLoad,
+                timeoutInterval: Self.remoteArtworkTimeout
+            )
+            let (data, response) = try await session.data(for: request)
+            guard Self.isSuccessfulArtworkResponse(response),
+                  SystemMediaIntegrationService.isValidSystemArtworkData(data) else {
+                return nil
+            }
+            return data
+        } catch {
+            EnsembleLogger.debug("[SystemMedia] Failed to fetch suggestion artwork: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func localArtworkData(for reference: SystemMediaReference) async -> Data? {
+        await Task.detached(priority: .utility) {
+            SystemMediaIntegrationService.localArtworkData(for: reference)
+        }.value
+    }
+
+    private static func isSuccessfulArtworkResponse(_ response: URLResponse) -> Bool {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            return true
+        }
+        return (200...299).contains(httpResponse.statusCode)
+    }
+}
+
 final class LiveSystemMediaVocabularyRegistrar: SystemMediaVocabularyRegistering {
     func setVocabularyStrings(_ vocabulary: NSOrderedSet, of type: INVocabularyStringType) {
         INVocabulary.shared().setVocabularyStrings(vocabulary, of: type)
@@ -222,6 +306,8 @@ final class LiveSystemMediaVocabularyRegistrar: SystemMediaVocabularyRegistering
 public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceProtocol {
     private static let spotlightChunkSize = 200
     private static let siriVocabularyLimit = 750
+    nonisolated static let systemSuggestionArtworkSize = 500
+    nonisolated static let maximumSystemArtworkBytes = 5 * 1024 * 1024
 
     private let siriMediaIndexStore: SiriMediaIndexStore
     private let mediaUserContextManager: SiriMediaUserContextManagerProtocol
@@ -229,12 +315,14 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
 
     #if !os(macOS)
     private let intentDonor: SystemMediaIntentDonating
+    private let artworkProvider: SystemMediaArtworkProviding
     private let vocabularyRegistrar: SystemMediaVocabularyRegistering
     #endif
 
     public convenience init(
         siriMediaIndexStore: SiriMediaIndexStore,
-        mediaUserContextManager: SiriMediaUserContextManagerProtocol
+        mediaUserContextManager: SiriMediaUserContextManagerProtocol,
+        artworkLoader: ArtworkLoaderProtocol? = nil
     ) {
         #if os(macOS)
         self.init(
@@ -248,6 +336,8 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
             mediaUserContextManager: mediaUserContextManager,
             spotlightIndex: CoreSpotlightSystemIndex(),
             intentDonor: LiveSystemMediaIntentDonor(),
+            artworkProvider: artworkLoader.map { LiveSystemMediaArtworkProvider(artworkLoader: $0) }
+                ?? LocalSystemMediaArtworkProvider(),
             vocabularyRegistrar: LiveSystemMediaVocabularyRegistrar()
         )
         #endif
@@ -269,12 +359,14 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         mediaUserContextManager: SiriMediaUserContextManagerProtocol,
         spotlightIndex: SystemSpotlightIndexing,
         intentDonor: SystemMediaIntentDonating,
+        artworkProvider: SystemMediaArtworkProviding,
         vocabularyRegistrar: SystemMediaVocabularyRegistering
     ) {
         self.siriMediaIndexStore = siriMediaIndexStore
         self.mediaUserContextManager = mediaUserContextManager
         self.spotlightIndex = spotlightIndex
         self.intentDonor = intentDonor
+        self.artworkProvider = artworkProvider
         self.vocabularyRegistrar = vocabularyRegistrar
     }
     #endif
@@ -292,7 +384,12 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         #if os(macOS)
         EnsembleLogger.debug("[SystemMedia] Playback donation skipped on macOS")
         #else
-        let intent = Self.makePlayMediaIntent(reference: reference, shuffle: shuffle)
+        let artworkData = await artworkProvider.artworkData(for: reference)
+        let intent = Self.makePlayMediaIntent(
+            reference: reference,
+            shuffle: shuffle,
+            artworkData: artworkData
+        )
         let interaction = INInteraction(intent: intent, response: nil)
         interaction.identifier = Self.donationIdentifier(reference: reference, shuffle: shuffle)
         interaction.groupIdentifier = Self.donationGroupIdentifier(for: reference)
@@ -435,8 +532,12 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     }
 
     #if !os(macOS)
-    static func makePlayMediaIntent(reference: SystemMediaReference, shuffle: Bool) -> INPlayMediaIntent {
-        let item = makeMediaItem(reference: reference)
+    static func makePlayMediaIntent(
+        reference: SystemMediaReference,
+        shuffle: Bool,
+        artworkData: Data? = nil
+    ) -> INPlayMediaIntent {
+        let item = makeMediaItem(reference: reference, artworkData: artworkData)
         let mediaItems = reference.kind == .track ? [item] : nil
         let mediaContainer = reference.kind == .track ? nil : item
 
@@ -452,8 +553,18 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         )
     }
 
-    private static func makeMediaItem(reference: SystemMediaReference) -> INMediaItem {
-        let artwork = localArtworkURL(for: reference).flatMap { INImage(url: $0) }
+    private static func makeMediaItem(
+        reference: SystemMediaReference,
+        artworkData: Data?
+    ) -> INMediaItem {
+        let artwork: INImage?
+        if let artworkData {
+            artwork = INImage(imageData: artworkData)
+        } else if let artworkURL = localArtworkURL(for: reference) {
+            artwork = INImage(url: artworkURL)
+        } else {
+            artwork = nil
+        }
 
         return INMediaItem(
             identifier: reference.sourceScopedIdentifier,
@@ -588,7 +699,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         }
     }
 
-    static func localArtworkURL(
+    nonisolated static func localArtworkURL(
         for item: SiriMediaIndexItem,
         artworkDirectory: URL = ArtworkDownloadManager.artworkDirectory,
         fileManager: FileManager = .default,
@@ -606,7 +717,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         )
     }
 
-    static func localArtworkURL(
+    nonisolated static func localArtworkURL(
         for reference: SystemMediaReference,
         artworkDirectory: URL = ArtworkDownloadManager.artworkDirectory,
         fileManager: FileManager = .default,
@@ -624,7 +735,46 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         )
     }
 
-    private static func localArtworkURL(
+    nonisolated static func localArtworkData(
+        for reference: SystemMediaReference,
+        artworkDirectory: URL = ArtworkDownloadManager.artworkDirectory,
+        fileManager: FileManager = .default,
+        availableArtworkFilenames: Set<String>? = nil
+    ) -> Data? {
+        guard let url = localArtworkURL(
+            for: reference,
+            artworkDirectory: artworkDirectory,
+            fileManager: fileManager,
+            availableArtworkFilenames: availableArtworkFilenames
+        ) else {
+            return nil
+        }
+        return artworkData(at: url, fileManager: fileManager)
+    }
+
+    nonisolated static func artworkData(
+        at url: URL,
+        fileManager: FileManager = .default
+    ) -> Data? {
+        if url.isFileURL,
+           let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+           let fileSize = attributes[.size] as? NSNumber,
+           fileSize.intValue > maximumSystemArtworkBytes {
+            return nil
+        }
+
+        guard let data = try? Data(contentsOf: url),
+              isValidSystemArtworkData(data) else {
+            return nil
+        }
+        return data
+    }
+
+    nonisolated static func isValidSystemArtworkData(_ data: Data) -> Bool {
+        !data.isEmpty && data.count <= maximumSystemArtworkBytes
+    }
+
+    nonisolated private static func localArtworkURL(
         cacheKey: String?,
         cacheType: SiriMediaArtworkCacheType?,
         artworkPath: String?,
@@ -672,14 +822,14 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         return nil
     }
 
-    private static let artworkFallbackTypes: [SiriMediaArtworkCacheType] = [
+    nonisolated private static let artworkFallbackTypes: [SiriMediaArtworkCacheType] = [
         .album,
         .artist,
         .playlist,
         .track
     ]
 
-    private static func defaultArtworkCacheType(for kind: SiriMediaKind) -> SiriMediaArtworkCacheType? {
+    nonisolated private static func defaultArtworkCacheType(for kind: SiriMediaKind) -> SiriMediaArtworkCacheType? {
         switch kind {
         case .track:
             return .album
@@ -692,7 +842,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         }
     }
 
-    private static func ratingKey(fromArtworkPath path: String?) -> String? {
+    nonisolated private static func ratingKey(fromArtworkPath path: String?) -> String? {
         guard let path else { return nil }
         let components = path.split(separator: "/")
         guard components.count >= 3,
@@ -703,7 +853,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         return String(components[2])
     }
 
-    private static func cachedArtworkFilenames(
+    nonisolated private static func cachedArtworkFilenames(
         artworkDirectory: URL = ArtworkDownloadManager.artworkDirectory,
         fileManager: FileManager = .default
     ) -> Set<String> {
