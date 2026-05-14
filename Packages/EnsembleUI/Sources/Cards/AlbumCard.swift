@@ -20,7 +20,7 @@ public enum AlbumCardLayoutMetrics {
     }
 
     public var gridSpacing: CGFloat { EnsembleScaffold.MediaCard.gridSpacing }
-    public var rowSpacing: CGFloat { EnsembleScaffold.MediaCard.rowSpacing }
+    public var rowSpacing: CGFloat { EnsembleScaffold.MediaCard.albumGridRowSpacing }
 
     public var columnMinimum: CGFloat {
         switch self {
@@ -132,6 +132,7 @@ public struct AlbumGrid: View {
     let nowPlayingVM: NowPlayingViewModel
     let onAlbumTap: ((Album) -> Void)?
     let layout: AlbumCardLayoutMetrics
+    let horizontalPadding: CGFloat
 
     @Environment(\.dependencies) private var deps
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -142,11 +143,13 @@ public struct AlbumGrid: View {
         albums: [Album],
         nowPlayingVM: NowPlayingViewModel,
         layout: AlbumCardLayoutMetrics = .prominent,
+        horizontalPadding: CGFloat = TrackListLayoutMetrics.rowHorizontalPadding,
         onAlbumTap: ((Album) -> Void)? = nil
     ) {
         self.albums = albums
         self.nowPlayingVM = nowPlayingVM
         self.layout = layout
+        self.horizontalPadding = horizontalPadding
         self.onAlbumTap = onAlbumTap
     }
 
@@ -199,6 +202,7 @@ public struct AlbumGrid: View {
                 }
             }
         }
+        .padding(.horizontal, horizontalPadding)
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .sheet(item: $metadataEditorRequest) { request in
             TextInputView(

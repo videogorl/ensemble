@@ -217,7 +217,6 @@ public struct AlbumsView: View {
                                         ForEach(cachedAlbumSections) { section in
                                             Section(header: sectionHeader(section.letter)) {
                                                 AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
-                                                    .padding(.horizontal)
                                                     .id(section.letter)
                                             }
                                         }
@@ -225,7 +224,6 @@ public struct AlbumsView: View {
                                     .padding(.vertical)
                                 } else {
                                     AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
-                                        .padding(.horizontal)
                                         .padding(.vertical)
                                 }
                             }
