@@ -566,7 +566,10 @@ private final class MacNativeTrackSectionCell: NSTableCellView {
     private func setup() {
         wantsLayer = true
         layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.9).cgColor
-        titleField.font = .systemFont(ofSize: 15, weight: .semibold)
+        titleField.font = .systemFont(
+            ofSize: TrackListLayoutMetrics.nativeMacSectionHeaderFontSize,
+            weight: .semibold
+        )
         titleField.textColor = .secondaryLabelColor
         titleField.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleField)
@@ -700,13 +703,37 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         artworkImageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(artworkImageView)
 
-        configureTextField(trackNumberField, fontSize: 14, color: .secondaryLabelColor)
+        configureTextField(
+            trackNumberField,
+            fontSize: TrackListLayoutMetrics.nativeMacSecondaryFontSize,
+            color: .secondaryLabelColor
+        )
         trackNumberField.alignment = .center
-        configureTextField(titleField, fontSize: 15, color: .labelColor)
-        configureTextField(subtitleField, fontSize: 13, color: .secondaryLabelColor)
-        configureTextField(artistField, fontSize: 15, color: .secondaryLabelColor)
-        configureTextField(albumField, fontSize: 15, color: .secondaryLabelColor)
-        configureTextField(durationField, fontSize: 13, color: .secondaryLabelColor)
+        configureTextField(
+            titleField,
+            fontSize: TrackListLayoutMetrics.nativeMacPrimaryFontSize,
+            color: .labelColor
+        )
+        configureTextField(
+            subtitleField,
+            fontSize: TrackListLayoutMetrics.nativeMacSecondaryFontSize,
+            color: .secondaryLabelColor
+        )
+        configureTextField(
+            artistField,
+            fontSize: TrackListLayoutMetrics.nativeMacPrimaryFontSize,
+            color: .secondaryLabelColor
+        )
+        configureTextField(
+            albumField,
+            fontSize: TrackListLayoutMetrics.nativeMacPrimaryFontSize,
+            color: .secondaryLabelColor
+        )
+        configureTextField(
+            durationField,
+            fontSize: TrackListLayoutMetrics.nativeMacSecondaryFontSize,
+            color: .secondaryLabelColor
+        )
         durationField.alignment = .right
 
         downloadImageView.image = NSImage(systemSymbolName: EnsembleDesign.Icon.downloaded, accessibilityDescription: "Downloaded")
