@@ -49,6 +49,53 @@ final class SystemMediaIntegrationServiceTests: XCTestCase {
         XCTAssertTrue(searchableItem.attributeSet.keywords?.contains("Ambient") ?? false)
     }
 
+    func testLocalArtworkURLUsesIndexedCacheIdentity() throws {
+        let artworkDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: artworkDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: artworkDirectory) }
+
+        let expectedURL = artworkDirectory.appendingPathComponent("album-1_album.jpg")
+        try Data("art".utf8).write(to: expectedURL)
+
+        let item = SiriMediaIndexItem(
+            kind: .track,
+            id: "track-1",
+            displayName: "Track Name",
+            artworkPath: "/library/metadata/album-1/thumb/123",
+            artworkCacheKey: "album-1",
+            artworkCacheType: .album
+        )
+
+        XCTAssertEqual(
+            SystemMediaIntegrationService.localArtworkURL(for: item, artworkDirectory: artworkDirectory),
+            expectedURL
+        )
+    }
+
+    func testLocalArtworkURLUsesPlaylistCacheIdentity() throws {
+        let artworkDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: artworkDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: artworkDirectory) }
+
+        let expectedURL = artworkDirectory.appendingPathComponent("playlist-1_playlist.jpg")
+        try Data("art".utf8).write(to: expectedURL)
+
+        let item = SiriMediaIndexItem(
+            kind: .playlist,
+            id: "playlist-1",
+            displayName: "Road Trip",
+            artworkCacheKey: "playlist-1",
+            artworkCacheType: .playlist
+        )
+
+        XCTAssertEqual(
+            SystemMediaIntegrationService.localArtworkURL(for: item, artworkDirectory: artworkDirectory),
+            expectedURL
+        )
+    }
+
     func testSpotlightDomainIdentifiersAreSourceAndKindScoped() {
         let album = makeReference(kind: .album)
         let playlist = makeReference(kind: .playlist)

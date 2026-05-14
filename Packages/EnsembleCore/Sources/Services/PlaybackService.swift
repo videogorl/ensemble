@@ -2416,7 +2416,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             trackNumber: track.trackNumber,
             discNumber: track.discNumber,
             playCount: track.playCount,
-            lastPlayed: track.lastPlayed
+            lastPlayed: track.lastPlayed,
+            artworkPath: track.thumbPath ?? track.fallbackThumbPath,
+            artworkCacheKey: track.fallbackRatingKey ?? track.albumRatingKey,
+            artworkCacheType: (track.fallbackRatingKey ?? track.albumRatingKey) == nil ? nil : .album
         )
     }
 

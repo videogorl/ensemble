@@ -14,6 +14,27 @@ final class NavigationCoordinatorTests: XCTestCase {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .view(.favorites)), .favorites)
     }
 
+    func testSystemMediaDestinationMapsSourceScopedIdentifiers() {
+        XCTAssertEqual(
+            NavigationCoordinator.systemMediaDestination(
+                fromSourceScopedIdentifier: "album||album-1||plex://server.one/library"
+            ),
+            .album(id: "album-1", sourceKey: "plex://server.one/library")
+        )
+        XCTAssertEqual(
+            NavigationCoordinator.systemMediaDestination(
+                fromSourceScopedIdentifier: "playlist||playlist-1||plex://server.one"
+            ),
+            .playlist(id: "playlist-1", sourceKey: "plex://server.one")
+        )
+        XCTAssertEqual(
+            NavigationCoordinator.systemMediaDestination(
+                fromSourceScopedIdentifier: "track||track-1||plex://server.one/library"
+            ),
+            .view(.songs)
+        )
+    }
+
     @MainActor
     func testNavigateFromSearchUsesFirstVisibleTab() {
         let coordinator = NavigationCoordinator()
@@ -63,5 +84,19 @@ final class NavigationCoordinatorTests: XCTestCase {
         coordinator.push(destination, in: .playlists)
 
         XCTAssertEqual(coordinator.pathSnapshot(for: .playlists), [destination])
+    }
+
+    @MainActor
+    func testNavigateFromExternalSearchUsesDestinationOwningTab() {
+        let coordinator = NavigationCoordinator()
+        coordinator.selectedTab = .home
+        coordinator.albumsPath = [.artist(id: "stale", sourceKey: nil)]
+
+        let destination = NavigationCoordinator.Destination.album(id: "album-1", sourceKey: "server/library")
+        coordinator.navigateFromExternalSearch(to: destination)
+
+        XCTAssertEqual(coordinator.selectedTab, .albums)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .albums), [destination])
+        XCTAssertTrue(coordinator.pathSnapshot(for: .home).isEmpty)
     }
 }

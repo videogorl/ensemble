@@ -252,6 +252,16 @@ extension AppDelegate {
             "SIRI_APP: interaction=\(userActivity.interaction != nil ? "present" : "nil"), userInfo keys=\(String(describing: userActivity.userInfo?.keys.map { "\($0)" } ?? []))"
         )
 
+        if SystemMediaSpotlightRouter.isSpotlightActivity(userActivity) {
+            Task { @MainActor in
+                _ = SystemMediaSpotlightRouter.route(
+                    userActivity,
+                    coordinator: DependencyContainer.shared.navigationCoordinator
+                )
+            }
+            return true
+        }
+
         // Log if this is a Siri-initiated activity
         if let interaction = userActivity.interaction {
             AppLogger.info("SIRI_APP: interaction.intentHandlingStatus=\(interaction.intentHandlingStatus.rawValue)")

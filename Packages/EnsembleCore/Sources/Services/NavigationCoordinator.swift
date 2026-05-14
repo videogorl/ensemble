@@ -1,3 +1,4 @@
+import EnsembleSiriShared
 import SwiftUI
 import Combine
 
@@ -95,6 +96,25 @@ public final class NavigationCoordinator: ObservableObject {
         }
     }
 
+    public nonisolated static func systemMediaDestination(
+        fromSourceScopedIdentifier identifier: String
+    ) -> Destination? {
+        guard let components = SystemMediaReference.components(fromSourceScopedIdentifier: identifier) else {
+            return nil
+        }
+
+        switch components.kind {
+        case .artist:
+            return .artist(id: components.id, sourceKey: components.sourceCompositeKey)
+        case .album:
+            return .album(id: components.id, sourceKey: components.sourceCompositeKey)
+        case .playlist:
+            return .playlist(id: components.id, sourceKey: components.sourceCompositeKey)
+        case .track:
+            return .view(.songs)
+        }
+    }
+
     public static func setActiveAuxiliaryCommandCoordinator(_ coordinator: NavigationCoordinator) {
         activeAuxiliaryCommandCoordinator = coordinator
     }
@@ -169,6 +189,18 @@ public final class NavigationCoordinator: ObservableObject {
         let targetTab = activeNavigationTab()
         selectedTab = targetTab
         push(destination, in: targetTab)
+    }
+
+    /// Route external content selections to the destination's owning tab.
+    public func navigateFromExternalSearch(to destination: Destination) {
+        let targetTab = Self.targetTab(for: destination)
+        popToRoot(tab: targetTab)
+        selectedTab = targetTab
+
+        guard case .view = destination else {
+            push(destination, in: targetTab)
+            return
+        }
     }
     
     /// Request navigation from NowPlaying sheet (handles dismiss-then-navigate)

@@ -60,5 +60,66 @@ final class SiriMediaModelsTests: XCTestCase {
         XCTAssertEqual(index.items.first?.kind, .album)
         XCTAssertNil(index.items.first?.duration)
         XCTAssertNil(index.items.first?.genre)
+        XCTAssertNil(index.items.first?.artworkCacheKey)
+        XCTAssertNil(index.items.first?.artworkCacheType)
+    }
+
+    func testV2MediaIndexDecodesWithoutArtworkFields() throws {
+        let json = """
+        {
+          "schemaVersion": 2,
+          "generatedAt": 0,
+          "items": [
+            {
+              "kind": "playlist",
+              "id": "playlist-1",
+              "displayName": "Music Video Ideas",
+              "sourceCompositeKey": "plex:account:server",
+              "trackCount": 42
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let index = try JSONDecoder().decode(SiriMediaIndex.self, from: json)
+
+        XCTAssertEqual(index.schemaVersion, 2)
+        XCTAssertEqual(index.items.first?.kind, .playlist)
+        XCTAssertNil(index.items.first?.artworkPath)
+        XCTAssertNil(index.items.first?.artworkCacheKey)
+        XCTAssertNil(index.items.first?.artworkCacheType)
+    }
+
+    func testSourceScopedIdentifierComponentsRoundTrip() throws {
+        let identifier = SystemMediaReference.sourceScopedIdentifier(
+            kind: .album,
+            id: "album-1",
+            sourceCompositeKey: "plex://server.one/library"
+        )
+
+        let components = try XCTUnwrap(
+            SystemMediaReference.components(fromSourceScopedIdentifier: identifier)
+        )
+
+        XCTAssertEqual(components.kind, .album)
+        XCTAssertEqual(components.id, "album-1")
+        XCTAssertEqual(components.sourceCompositeKey, "plex://server.one/library")
+    }
+
+    func testSpotlightIdentityStripsSharedPrefix() throws {
+        let reference = SystemMediaReference(
+            kind: .artist,
+            id: "artist-1",
+            sourceCompositeKey: "plex://server.one/library",
+            displayName: "Artist"
+        )
+
+        let spotlightIdentifier = SystemMediaSpotlightIdentity.spotlightIdentifier(for: reference)
+
+        XCTAssertEqual(
+            SystemMediaSpotlightIdentity.sourceScopedIdentifier(fromSpotlightIdentifier: spotlightIdentifier),
+            reference.sourceScopedIdentifier
+        )
+        XCTAssertNil(SystemMediaSpotlightIdentity.sourceScopedIdentifier(fromSpotlightIdentifier: reference.sourceScopedIdentifier))
     }
 }

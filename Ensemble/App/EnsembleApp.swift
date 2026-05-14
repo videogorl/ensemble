@@ -1,6 +1,7 @@
 import EnsembleCore
 import EnsembleSiriShared
 import EnsembleUI
+import CoreSpotlight
 import Foundation
 import Intents
 import SwiftUI
@@ -44,6 +45,9 @@ struct EnsembleApp: App {
                 .onOpenURL { url in
                     AppLogger.info("SIRI_APP: onOpenURL called with: \(url.absoluteString)")
                     _ = DependencyContainer.shared.navigationCoordinator.handleDeepLink(url)
+                }
+                .onContinueUserActivity(SystemMediaSpotlightRouter.activityType) { userActivity in
+                    handleSpotlightActivity(userActivity)
                 }
                 .onContinueUserActivity(SiriPlaybackActivityCodec.activityType) { userActivity in
                     handleSiriPlaybackActivity(userActivity)
@@ -378,6 +382,15 @@ struct EnsembleApp: App {
         AppLogger.error("SIRI_APP: Could not extract playable payload from generic activity")
     }
 
+    private func handleSpotlightActivity(_ userActivity: NSUserActivity) {
+        Task { @MainActor in
+            _ = SystemMediaSpotlightRouter.route(
+                userActivity,
+                coordinator: DependencyContainer.shared.navigationCoordinator
+            )
+        }
+    }
+
     #if os(iOS)
     private func extractPayload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
         let shuffle = intent.playShuffled
@@ -464,6 +477,44 @@ struct EnsembleApp: App {
         Task { @MainActor in
             await DependencyContainer.shared.siriAddToPlaylistCoordinator.handle(userActivity: userActivity)
         }
+    }
+}
+
+enum SystemMediaSpotlightRouter {
+    static let activityType = CSSearchableItemActionType
+
+    static func isSpotlightActivity(_ userActivity: NSUserActivity) -> Bool {
+        userActivity.activityType == activityType
+    }
+
+    @MainActor
+    @discardableResult
+    static func route(
+        _ userActivity: NSUserActivity,
+        coordinator: NavigationCoordinator
+    ) -> Bool {
+        guard let destination = destination(from: userActivity) else {
+            AppLogger.debug("SPOTLIGHT_APP: Could not route Spotlight activity")
+            return false
+        }
+
+        coordinator.navigateFromExternalSearch(to: destination)
+        AppLogger.info("SPOTLIGHT_APP: Routed Spotlight media result to \(String(describing: destination))")
+        return true
+    }
+
+    static func destination(from userActivity: NSUserActivity) -> NavigationCoordinator.Destination? {
+        guard isSpotlightActivity(userActivity),
+              let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+              let sourceScopedIdentifier = SystemMediaSpotlightIdentity.sourceScopedIdentifier(
+                fromSpotlightIdentifier: identifier
+              ) else {
+            return nil
+        }
+
+        return NavigationCoordinator.systemMediaDestination(
+            fromSourceScopedIdentifier: sourceScopedIdentifier
+        )
     }
 }
 

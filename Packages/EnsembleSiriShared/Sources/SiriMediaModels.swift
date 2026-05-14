@@ -8,6 +8,14 @@ public enum SiriMediaKind: String, Codable, Sendable, CaseIterable, Hashable {
     case playlist
 }
 
+/// Local artwork cache family used by system surfaces that cannot resolve Plex image paths themselves.
+public enum SiriMediaArtworkCacheType: String, Codable, Sendable, Equatable, Hashable {
+    case album
+    case artist
+    case track
+    case playlist
+}
+
 /// Source-scoped reference to a playable media object.
 public struct SystemMediaReference: Codable, Sendable, Equatable, Hashable, Identifiable {
     public let kind: SiriMediaKind
@@ -24,6 +32,9 @@ public struct SystemMediaReference: Codable, Sendable, Equatable, Hashable, Iden
     public let playCount: Int?
     public let lastPlayed: Date?
     public let trackCount: Int?
+    public let artworkPath: String?
+    public let artworkCacheKey: String?
+    public let artworkCacheType: SiriMediaArtworkCacheType?
 
     public var sourceScopedIdentifier: String {
         Self.sourceScopedIdentifier(kind: kind, id: id, sourceCompositeKey: sourceCompositeKey)
@@ -43,7 +54,10 @@ public struct SystemMediaReference: Codable, Sendable, Equatable, Hashable, Iden
         discNumber: Int? = nil,
         playCount: Int? = nil,
         lastPlayed: Date? = nil,
-        trackCount: Int? = nil
+        trackCount: Int? = nil,
+        artworkPath: String? = nil,
+        artworkCacheKey: String? = nil,
+        artworkCacheType: SiriMediaArtworkCacheType? = nil
     ) {
         self.kind = kind
         self.id = id
@@ -59,6 +73,9 @@ public struct SystemMediaReference: Codable, Sendable, Equatable, Hashable, Iden
         self.playCount = playCount
         self.lastPlayed = lastPlayed
         self.trackCount = trackCount
+        self.artworkPath = artworkPath
+        self.artworkCacheKey = artworkCacheKey
+        self.artworkCacheType = artworkCacheType
     }
 
     public static func sourceScopedIdentifier(
@@ -69,11 +86,25 @@ public struct SystemMediaReference: Codable, Sendable, Equatable, Hashable, Iden
         let source = sourceCompositeKey ?? ""
         return "\(kind.rawValue)||\(id)||\(source)"
     }
+
+    public static func components(
+        fromSourceScopedIdentifier identifier: String
+    ) -> (kind: SiriMediaKind, id: String, sourceCompositeKey: String?)? {
+        let parts = identifier.components(separatedBy: "||")
+        guard parts.count >= 3,
+              let kind = SiriMediaKind(rawValue: parts[0]),
+              !parts[1].isEmpty else {
+            return nil
+        }
+
+        let source = parts.dropFirst(2).joined(separator: "||")
+        return (kind, parts[1], source.isEmpty ? nil : source)
+    }
 }
 
 /// Compact searchable index consumed by Siri, App Shortcuts, Spotlight, and media donations.
 public struct SiriMediaIndex: Codable, Sendable, Equatable {
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
 
     public let schemaVersion: Int
     public let generatedAt: Date
@@ -106,6 +137,9 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
     public let duration: TimeInterval?
     public let trackNumber: Int?
     public let discNumber: Int?
+    public let artworkPath: String?
+    public let artworkCacheKey: String?
+    public let artworkCacheType: SiriMediaArtworkCacheType?
 
     public var reference: SystemMediaReference {
         SystemMediaReference(
@@ -122,7 +156,10 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
             discNumber: discNumber,
             playCount: playCount,
             lastPlayed: lastPlayed,
-            trackCount: trackCount
+            trackCount: trackCount,
+            artworkPath: artworkPath,
+            artworkCacheKey: artworkCacheKey,
+            artworkCacheType: artworkCacheType
         )
     }
 
@@ -140,7 +177,10 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
         genre: String? = nil,
         duration: TimeInterval? = nil,
         trackNumber: Int? = nil,
-        discNumber: Int? = nil
+        discNumber: Int? = nil,
+        artworkPath: String? = nil,
+        artworkCacheKey: String? = nil,
+        artworkCacheType: SiriMediaArtworkCacheType? = nil
     ) {
         self.kind = kind
         self.id = id
@@ -156,6 +196,23 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
         self.duration = duration
         self.trackNumber = trackNumber
         self.discNumber = discNumber
+        self.artworkPath = artworkPath
+        self.artworkCacheKey = artworkCacheKey
+        self.artworkCacheType = artworkCacheType
+    }
+}
+
+/// Shared identifier contract for Core Spotlight media results.
+public enum SystemMediaSpotlightIdentity {
+    public static let identifierPrefix = "ensemble.systemMedia."
+
+    public static func spotlightIdentifier(for reference: SystemMediaReference) -> String {
+        identifierPrefix + reference.sourceScopedIdentifier
+    }
+
+    public static func sourceScopedIdentifier(fromSpotlightIdentifier identifier: String) -> String? {
+        guard identifier.hasPrefix(identifierPrefix) else { return nil }
+        return String(identifier.dropFirst(identifierPrefix.count))
     }
 }
 

@@ -1,4 +1,5 @@
 import CoreSpotlight
+import EnsemblePersistence
 import EnsembleSiriShared
 import Foundation
 import UniformTypeIdentifiers
@@ -308,7 +309,8 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
 
     public func refreshSpotlightIndex() async {
         let index: SiriMediaIndex?
-        if let existingIndex = siriMediaIndexStore.loadIndexUnbounded() {
+        if let existingIndex = siriMediaIndexStore.loadIndexUnbounded(),
+           existingIndex.schemaVersion >= SiriMediaIndex.currentSchemaVersion {
             index = existingIndex
         } else {
             index = await siriMediaIndexStore.rebuildIndex()
@@ -378,9 +380,13 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     }
 
     static func makeSpotlightItems(from indexItems: [SiriMediaIndexItem]) -> [CSSearchableItem] {
-        indexItems.map { item in
+        let artworkFilenames = cachedArtworkFilenames()
+        return indexItems.map { item in
             let reference = item.reference
-            let attributeSet = makeSpotlightAttributeSet(for: item)
+            let attributeSet = makeSpotlightAttributeSet(
+                for: item,
+                availableArtworkFilenames: artworkFilenames
+            )
             let searchableItem = CSSearchableItem(
                 uniqueIdentifier: spotlightIdentifier(for: reference),
                 domainIdentifier: spotlightDomainIdentifier(for: reference),
@@ -391,7 +397,10 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         }
     }
 
-    static func makeSpotlightAttributeSet(for item: SiriMediaIndexItem) -> CSSearchableItemAttributeSet {
+    static func makeSpotlightAttributeSet(
+        for item: SiriMediaIndexItem,
+        availableArtworkFilenames: Set<String>? = nil
+    ) -> CSSearchableItemAttributeSet {
         let attributeSet = CSSearchableItemAttributeSet(contentType: .audio)
         attributeSet.title = item.displayName
         attributeSet.displayName = item.displayName
@@ -401,11 +410,15 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         attributeSet.duration = item.duration.map(NSNumber.init(value:))
         attributeSet.keywords = spotlightKeywords(for: item)
         attributeSet.domainIdentifier = spotlightDomainIdentifier(for: item.reference)
+        attributeSet.thumbnailURL = localArtworkURL(
+            for: item,
+            availableArtworkFilenames: availableArtworkFilenames
+        )
         return attributeSet
     }
 
     static func spotlightIdentifier(for reference: SystemMediaReference) -> String {
-        "ensemble.systemMedia.\(reference.sourceScopedIdentifier)"
+        SystemMediaSpotlightIdentity.spotlightIdentifier(for: reference)
     }
 
     static func spotlightDomainIdentifier(for reference: SystemMediaReference) -> String {
@@ -440,11 +453,13 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     }
 
     private static func makeMediaItem(reference: SystemMediaReference) -> INMediaItem {
-        INMediaItem(
+        let artwork = localArtworkURL(for: reference).flatMap { INImage(url: $0) }
+
+        return INMediaItem(
             identifier: reference.sourceScopedIdentifier,
             title: reference.displayName,
             type: mediaItemType(for: reference.kind),
-            artwork: nil,
+            artwork: artwork,
             artist: reference.artistName ?? reference.secondaryText
         )
     }
@@ -571,6 +586,131 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
         }
+    }
+
+    static func localArtworkURL(
+        for item: SiriMediaIndexItem,
+        artworkDirectory: URL = ArtworkDownloadManager.artworkDirectory,
+        fileManager: FileManager = .default,
+        availableArtworkFilenames: Set<String>? = nil
+    ) -> URL? {
+        localArtworkURL(
+            cacheKey: item.artworkCacheKey,
+            cacheType: item.artworkCacheType,
+            artworkPath: item.artworkPath,
+            fallbackKey: item.id,
+            fallbackType: defaultArtworkCacheType(for: item.kind),
+            artworkDirectory: artworkDirectory,
+            fileManager: fileManager,
+            availableArtworkFilenames: availableArtworkFilenames
+        )
+    }
+
+    static func localArtworkURL(
+        for reference: SystemMediaReference,
+        artworkDirectory: URL = ArtworkDownloadManager.artworkDirectory,
+        fileManager: FileManager = .default,
+        availableArtworkFilenames: Set<String>? = nil
+    ) -> URL? {
+        localArtworkURL(
+            cacheKey: reference.artworkCacheKey,
+            cacheType: reference.artworkCacheType,
+            artworkPath: reference.artworkPath,
+            fallbackKey: reference.id,
+            fallbackType: defaultArtworkCacheType(for: reference.kind),
+            artworkDirectory: artworkDirectory,
+            fileManager: fileManager,
+            availableArtworkFilenames: availableArtworkFilenames
+        )
+    }
+
+    private static func localArtworkURL(
+        cacheKey: String?,
+        cacheType: SiriMediaArtworkCacheType?,
+        artworkPath: String?,
+        fallbackKey: String,
+        fallbackType: SiriMediaArtworkCacheType?,
+        artworkDirectory: URL,
+        fileManager: FileManager,
+        availableArtworkFilenames: Set<String>?
+    ) -> URL? {
+        var candidates: [(String, SiriMediaArtworkCacheType)] = []
+        if let cacheKey, let cacheType {
+            candidates.append((cacheKey, cacheType))
+        }
+
+        if let pathKey = ratingKey(fromArtworkPath: artworkPath) {
+            let pathType = cacheType ?? fallbackType ?? .album
+            candidates.append((pathKey, pathType))
+        }
+
+        if let fallbackType {
+            candidates.append((fallbackKey, fallbackType))
+        }
+
+        if let cacheKey {
+            candidates.append(contentsOf: artworkFallbackTypes.map { (cacheKey, $0) })
+        }
+
+        if let pathKey = ratingKey(fromArtworkPath: artworkPath) {
+            candidates.append(contentsOf: artworkFallbackTypes.map { (pathKey, $0) })
+        }
+
+        candidates.append(contentsOf: artworkFallbackTypes.map { (fallbackKey, $0) })
+
+        var seen = Set<String>()
+        for (key, type) in candidates {
+            let filename = "\(key)_\(type.rawValue).jpg"
+            guard seen.insert(filename).inserted else { continue }
+            let url = artworkDirectory.appendingPathComponent(filename)
+            if availableArtworkFilenames?.contains(filename) == true
+                || (availableArtworkFilenames == nil && fileManager.fileExists(atPath: url.path)) {
+                return url
+            }
+        }
+
+        return nil
+    }
+
+    private static let artworkFallbackTypes: [SiriMediaArtworkCacheType] = [
+        .album,
+        .artist,
+        .playlist,
+        .track
+    ]
+
+    private static func defaultArtworkCacheType(for kind: SiriMediaKind) -> SiriMediaArtworkCacheType? {
+        switch kind {
+        case .track:
+            return .album
+        case .album:
+            return .album
+        case .artist:
+            return .artist
+        case .playlist:
+            return .playlist
+        }
+    }
+
+    private static func ratingKey(fromArtworkPath path: String?) -> String? {
+        guard let path else { return nil }
+        let components = path.split(separator: "/")
+        guard components.count >= 3,
+              components[0] == "library",
+              components[1] == "metadata" else {
+            return nil
+        }
+        return String(components[2])
+    }
+
+    private static func cachedArtworkFilenames(
+        artworkDirectory: URL = ArtworkDownloadManager.artworkDirectory,
+        fileManager: FileManager = .default
+    ) -> Set<String> {
+        guard let filenames = try? fileManager.contentsOfDirectory(atPath: artworkDirectory.path) else {
+            return []
+        }
+        return Set(filenames)
     }
 
     private static func sanitizeDomainComponent(_ value: String) -> String {
