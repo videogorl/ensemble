@@ -51,8 +51,9 @@ public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProto
             // Gather library statistics
             let trackCount = try await libraryRepository.fetchTracks().count
             let albumCount = try await libraryRepository.fetchAlbums().count
+            let artistCount = try await libraryRepository.fetchArtists().count
             let playlistCount = try await playlistRepository.fetchPlaylists().count
-            let totalItems = trackCount + albumCount + playlistCount
+            let totalItems = trackCount + albumCount + artistCount + playlistCount
 
             // Skip if the count hasn't changed since last publish
             guard totalItems != lastPublishedItemCount else {
@@ -60,19 +61,16 @@ public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProto
                 return
             }
 
-            // Determine subscription status based on whether user has content
-            let subscriptionStatus: INMediaUserContext.SubscriptionStatus = totalItems > 0 ? .subscribed : .notSubscribed
-
             // Create and configure media user context
             let context = INMediaUserContext()
             context.numberOfLibraryItems = totalItems
-            context.subscriptionStatus = subscriptionStatus
+            context.subscriptionStatus = .unknown
 
             // Share context with Siri
             context.becomeCurrent()
             lastPublishedItemCount = totalItems
 
-            EnsembleLogger.debug("🎯 Updated INMediaUserContext: \(totalItems) items (\(trackCount) tracks, \(albumCount) albums, \(playlistCount) playlists), status=\(subscriptionStatus.rawValue)")
+            EnsembleLogger.debug("🎯 Updated INMediaUserContext: \(totalItems) items (\(trackCount) tracks, \(albumCount) albums, \(artistCount) artists, \(playlistCount) playlists), status=unknown")
         } catch {
             EnsembleLogger.debug("⚠️ Failed to update INMediaUserContext: \(error.localizedDescription)")
         }

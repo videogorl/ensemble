@@ -54,6 +54,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let siriAffinityCoordinator: SiriAffinityCoordinator
     public let siriAddToPlaylistCoordinator: SiriAddToPlaylistCoordinator
     public let siriMediaUserContextManager: SiriMediaUserContextManager
+    public let systemMediaIntegrationService: SystemMediaIntegrationService
     public let offlineBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating
     public let offlineDownloadService: OfflineDownloadService
     public let downloadMutationWorkflow: DownloadMutationWorkflow
@@ -175,6 +176,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let siriAffinityCoordinator: SiriAffinityCoordinator
         let siriAddToPlaylistCoordinator: SiriAddToPlaylistCoordinator
         let siriMediaUserContextManager: SiriMediaUserContextManager
+        let systemMediaIntegrationService: SystemMediaIntegrationService
     }
 
     private init() {
@@ -302,11 +304,14 @@ public final class DependencyContainer: @unchecked Sendable {
         siriAffinityCoordinator = siri.siriAffinityCoordinator
         siriAddToPlaylistCoordinator = siri.siriAddToPlaylistCoordinator
         siriMediaUserContextManager = siri.siriMediaUserContextManager
+        systemMediaIntegrationService = siri.systemMediaIntegrationService
+        playbackService.setSystemMediaIntegrationService(systemMediaIntegrationService)
         backgroundRefreshCoordinator = BackgroundRefreshCoordinator(
             syncCoordinator: sync.syncCoordinator,
             homeHubLoader: builtHomeHubLoader,
             siriMediaIndexStore: siri.siriMediaIndexStore,
-            siriMediaUserContextManager: siri.siriMediaUserContextManager
+            siriMediaUserContextManager: siri.siriMediaUserContextManager,
+            systemMediaIntegrationService: siri.systemMediaIntegrationService
         )
         appBootstrapDiagnostics = Self.buildAppBootstrapDiagnostics(
             network: network,
@@ -605,13 +610,20 @@ public final class DependencyContainer: @unchecked Sendable {
                 playlistRepository: core.playlistRepository
             )
         }
+        let systemMediaIntegrationService = MainActor.assumeIsolated {
+            SystemMediaIntegrationService(
+                siriMediaIndexStore: siriMediaIndexStore,
+                mediaUserContextManager: siriMediaUserContextManager
+            )
+        }
 
         return SiriBootstrap(
             siriMediaIndexStore: siriMediaIndexStore,
             siriPlaybackCoordinator: siriPlaybackCoordinator,
             siriAffinityCoordinator: siriAffinityCoordinator,
             siriAddToPlaylistCoordinator: siriAddToPlaylistCoordinator,
-            siriMediaUserContextManager: siriMediaUserContextManager
+            siriMediaUserContextManager: siriMediaUserContextManager,
+            systemMediaIntegrationService: systemMediaIntegrationService
         )
     }
 

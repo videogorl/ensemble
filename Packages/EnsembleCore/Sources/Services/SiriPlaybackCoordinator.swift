@@ -129,7 +129,16 @@ public final class SiriPlaybackCoordinator {
             throw SiriPlaybackCoordinatorError.noPlayableTracks(.track)
         }
 
-        await playbackService.play(track: track)
+        await playbackService.play(
+            track: track,
+            context: playbackContext(
+                kind: .track,
+                id: resolved.ratingKey,
+                sourceCompositeKey: resolved.sourceCompositeKey,
+                displayName: resolved.title,
+                secondaryText: resolved.artistName
+            )
+        )
     }
 
     /// Resolves an album and queues all playable tracks from track 1.
@@ -156,9 +165,28 @@ public final class SiriPlaybackCoordinator {
         }
 
         if request.shuffle {
-            await playbackService.shufflePlay(tracks: orderedArtistShuffleTracks(playableTracks))
+            await playbackService.shufflePlay(
+                tracks: orderedArtistShuffleTracks(playableTracks),
+                context: playbackContext(
+                    kind: .album,
+                    id: resolvedAlbum.ratingKey,
+                    sourceCompositeKey: resolvedAlbum.sourceCompositeKey,
+                    displayName: resolvedAlbum.title,
+                    secondaryText: resolvedAlbum.artistName
+                )
+            )
         } else {
-            await playbackService.play(tracks: playableTracks, startingAt: 0)
+            await playbackService.play(
+                tracks: playableTracks,
+                startingAt: 0,
+                context: playbackContext(
+                    kind: .album,
+                    id: resolvedAlbum.ratingKey,
+                    sourceCompositeKey: resolvedAlbum.sourceCompositeKey,
+                    displayName: resolvedAlbum.title,
+                    secondaryText: resolvedAlbum.artistName
+                )
+            )
         }
     }
 
@@ -186,9 +214,28 @@ public final class SiriPlaybackCoordinator {
         }
 
         if request.shuffle {
-            await playbackService.shufflePlay(tracks: orderedArtistShuffleTracks(playableTracks))
+            await playbackService.shufflePlay(
+                tracks: orderedArtistShuffleTracks(playableTracks),
+                context: playbackContext(
+                    kind: .artist,
+                    id: resolvedArtist.ratingKey,
+                    sourceCompositeKey: resolvedArtist.sourceCompositeKey,
+                    displayName: resolvedArtist.name,
+                    secondaryText: nil
+                )
+            )
         } else {
-            await playbackService.play(tracks: playableTracks, startingAt: 0)
+            await playbackService.play(
+                tracks: playableTracks,
+                startingAt: 0,
+                context: playbackContext(
+                    kind: .artist,
+                    id: resolvedArtist.ratingKey,
+                    sourceCompositeKey: resolvedArtist.sourceCompositeKey,
+                    displayName: resolvedArtist.name,
+                    secondaryText: nil
+                )
+            )
         }
     }
 
@@ -220,10 +267,49 @@ public final class SiriPlaybackCoordinator {
         }
 
         if request.shuffle {
-            await playbackService.shufflePlay(tracks: playableTracks)
+            await playbackService.shufflePlay(
+                tracks: playableTracks,
+                context: playbackContext(
+                    kind: .playlist,
+                    id: playlist.ratingKey,
+                    sourceCompositeKey: playlist.sourceCompositeKey,
+                    displayName: playlist.title,
+                    secondaryText: nil
+                )
+            )
         } else {
-            await playbackService.play(tracks: playableTracks, startingAt: 0)
+            await playbackService.play(
+                tracks: playableTracks,
+                startingAt: 0,
+                context: playbackContext(
+                    kind: .playlist,
+                    id: playlist.ratingKey,
+                    sourceCompositeKey: playlist.sourceCompositeKey,
+                    displayName: playlist.title,
+                    secondaryText: nil
+                )
+            )
         }
+    }
+
+    private func playbackContext(
+        kind: SiriMediaKind,
+        id: String,
+        sourceCompositeKey: String?,
+        displayName: String,
+        secondaryText: String?
+    ) -> PlaybackStartContext {
+        PlaybackStartContext(
+            origin: .siri,
+            source: PlaybackStartSource(kind: kind),
+            reference: SystemMediaReference(
+                kind: kind,
+                id: id,
+                sourceCompositeKey: sourceCompositeKey,
+                displayName: displayName,
+                secondaryText: secondaryText
+            )
+        )
     }
 
     private func resolveTrack(

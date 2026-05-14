@@ -117,9 +117,9 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             mockedDuration = duration
         }
 
-        func play(track: Track) async {}
-        func play(tracks: [Track], startingAt index: Int) async {}
-        func shufflePlay(tracks: [Track]) async {}
+        func play(track: Track, context: PlaybackStartContext) async {}
+        func play(tracks: [Track], startingAt index: Int, context: PlaybackStartContext) async {}
+        func shufflePlay(tracks: [Track], context: PlaybackStartContext) async {}
         func playQueueIndex(_ index: Int) async {}
         func pause() {}
         func resume() {}

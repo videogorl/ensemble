@@ -1068,20 +1068,32 @@ public final class NowPlayingViewModel: ObservableObject {
     // MARK: - Playback Controls
 
     public func play(track: Track) {
+        play(track: track, context: .userInitiated)
+    }
+
+    public func play(track: Track, context: PlaybackStartContext) {
         Task {
-            await playbackService.play(track: track)
+            await playbackService.play(track: track, context: context)
         }
     }
 
     public func play(tracks: [Track], startingAt index: Int = 0) {
+        play(tracks: tracks, startingAt: index, context: .userInitiated)
+    }
+
+    public func play(tracks: [Track], startingAt index: Int = 0, context: PlaybackStartContext) {
         Task {
-            await playbackService.play(tracks: tracks, startingAt: index)
+            await playbackService.play(tracks: tracks, startingAt: index, context: context)
         }
     }
     
     public func shufflePlay(tracks: [Track]) {
+        shufflePlay(tracks: tracks, context: .userInitiated)
+    }
+
+    public func shufflePlay(tracks: [Track], context: PlaybackStartContext) {
         Task {
-            await playbackService.shufflePlay(tracks: tracks)
+            await playbackService.shufflePlay(tracks: tracks, context: context)
         }
     }
 

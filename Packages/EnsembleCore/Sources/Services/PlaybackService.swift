@@ -2,6 +2,7 @@ import AVFoundation
 import Combine
 import EnsembleAPI
 import EnsemblePersistence
+import EnsembleSiriShared
 import Foundation
 import MediaPlayer
 import Nuke
@@ -154,9 +155,9 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var recommendationsExhaustedPublisher: AnyPublisher<Bool, Never> { get }
     var historyPublisher: AnyPublisher<[QueueItem], Never> { get }
 
-    func play(track: Track) async
-    func play(tracks: [Track], startingAt index: Int) async
-    func shufflePlay(tracks: [Track]) async
+    func play(track: Track, context: PlaybackStartContext) async
+    func play(tracks: [Track], startingAt index: Int, context: PlaybackStartContext) async
+    func shufflePlay(tracks: [Track], context: PlaybackStartContext) async
     func playQueueIndex(_ index: Int) async
     func pause()
     func resume()
@@ -212,6 +213,20 @@ public protocol PlaybackServiceProtocol: AnyObject {
     /// syncs audio and video together — there's no separate audio pipeline delay.
     /// This flag tells route inference to suppress AirPlay latency compensation.
     var isScreenMirroringActive: Bool { get set }
+}
+
+public extension PlaybackServiceProtocol {
+    func play(track: Track) async {
+        await play(track: track, context: .userInitiated)
+    }
+
+    func play(tracks: [Track], startingAt index: Int) async {
+        await play(tracks: tracks, startingAt: index, context: .userInitiated)
+    }
+
+    func shufflePlay(tracks: [Track]) async {
+        await shufflePlay(tracks: tracks, context: .userInitiated)
+    }
 }
 
 // MARK: - Playback Service Implementation
@@ -945,6 +960,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let resolvedFileCache: PlaybackResolvedFileCache
     private let settingsObserver: PlaybackSettingsObserver
     private let reportingController: PlaybackReportingController
+    private var systemMediaIntegrationService: SystemMediaIntegrationServiceProtocol?
     internal private(set) var startupRestoreStatus: PlaybackStartupRestoreStatus = .notAttempted
 
     /// Thread-safe check for aurora visualizer setting (reads UserDefaults directly
@@ -1180,6 +1196,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func setMutationCoordinator(_ coordinator: MutationCoordinator) {
         self.mutationCoordinator = coordinator
         reportingController.setMutationCoordinator(coordinator)
+    }
+
+    public func setSystemMediaIntegrationService(_ service: SystemMediaIntegrationServiceProtocol) {
+        systemMediaIntegrationService = service
     }
 
     private func setupPlayer() {
@@ -2232,10 +2252,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func play(track: Track) async {
-        await play(tracks: [track], startingAt: 0)
+        await play(track: track, context: .userInitiated)
+    }
+
+    public func play(track: Track, context: PlaybackStartContext) async {
+        let resolvedContext = context.reference == nil
+            ? PlaybackStartContext(origin: context.origin, source: .track, reference: Self.systemMediaReference(for: track, kind: .track))
+            : context
+        await play(tracks: [track], startingAt: 0, context: resolvedContext)
     }
 
     public func play(tracks: [Track], startingAt index: Int) async {
+        await play(tracks: tracks, startingAt: index, context: .userInitiated)
+    }
+
+    public func play(tracks: [Track], startingAt index: Int, context: PlaybackStartContext) async {
         guard !tracks.isEmpty, index >= 0, index < tracks.count else { return }
 
         resetHandoffForUserPlaybackIntent()
@@ -2282,12 +2313,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         await playCurrentQueueItem(caller: "play(tracks:)")
         savePlaybackState()
+        await donatePlaybackStartIfNeeded(
+            context: context,
+            fallbackTrack: queueTracks[playableQueue.startIndex],
+            shuffle: false
+        )
 
         // Check queue population after starting new playback
         await checkAndRefreshAutoplayQueue()
     }
 
     public func shufflePlay(tracks: [Track]) async {
+        await shufflePlay(tracks: tracks, context: .userInitiated)
+    }
+
+    public func shufflePlay(tracks: [Track], context: PlaybackStartContext) async {
         guard !tracks.isEmpty else { return }
 
         resetHandoffForUserPlaybackIntent()
@@ -2336,9 +2376,48 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         await playCurrentQueueItem(caller: "shufflePlay")
         savePlaybackState()
+        await donatePlaybackStartIfNeeded(
+            context: context,
+            fallbackTrack: queue.first?.track,
+            shuffle: true
+        )
 
         // Check queue population after starting new playback
         await checkAndRefreshAutoplayQueue()
+    }
+
+    private func donatePlaybackStartIfNeeded(
+        context: PlaybackStartContext,
+        fallbackTrack: Track?,
+        shuffle: Bool
+    ) async {
+        let reference = context.reference ?? fallbackTrack.map { Self.systemMediaReference(for: $0, kind: .track) }
+        guard let reference else { return }
+
+        guard let systemMediaIntegrationService else { return }
+        await systemMediaIntegrationService.donatePlaybackStart(
+            reference: reference,
+            shuffle: shuffle,
+            origin: context.origin
+        )
+    }
+
+    private static func systemMediaReference(for track: Track, kind: SiriMediaKind) -> SystemMediaReference {
+        SystemMediaReference(
+            kind: kind,
+            id: track.id,
+            sourceCompositeKey: track.sourceCompositeKey,
+            displayName: track.title,
+            secondaryText: track.artistName ?? track.albumName,
+            albumTitle: track.albumName,
+            artistName: track.artistName,
+            genre: track.genres.first,
+            duration: track.duration,
+            trackNumber: track.trackNumber,
+            discNumber: track.discNumber,
+            playCount: track.playCount,
+            lastPlayed: track.lastPlayed
+        )
     }
 
     private func resolvePlayableQueue(
