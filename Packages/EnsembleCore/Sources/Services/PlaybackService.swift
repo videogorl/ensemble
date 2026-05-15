@@ -903,6 +903,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// starting a redundant transcode download.
     private var preBufferTask: Task<Void, Never>?
     private var qualityDebounceTask: Task<Void, Never>?
+    private var gaplessScheduleRequestTask: Task<Void, Never>?
     private var downloadChangeObserver: AnyCancellable?
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?  // Kept for network stall detection during file resolution
@@ -1187,6 +1188,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         accountSourcesObservation = nil
         qualityDebounceTask?.cancel()
         qualityDebounceTask = nil
+        gaplessScheduleRequestTask?.cancel()
+        gaplessScheduleRequestTask = nil
         downloadChangeObserver?.cancel()
         downloadChangeObserver = nil
         settingsObserver.stop()
@@ -1254,6 +1257,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
                 self.updatePlaybackTimes(rawTime: time)
                 self.reconcileEngineTrackStateIfNeeded()
+                self.scheduleGaplessIfNeeded()
                 self.persistPlaybackSnapshotIfNeeded(forObservedTime: time)
                 MainActor.assumeIsolated {
                     self.audioAnalyzer.updatePlaybackPosition(self.presentationTime)
@@ -3217,8 +3221,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func invalidateGaplessSchedule(thenRefreshAutoplay: Bool = false) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            self.audioEngine?.clearScheduledFiles()
-            await self.prefetchNextItem()
+            let scheduledTrackIDs = self.audioEngine?.scheduledTrackIdsInOrder ?? []
+            let shouldInvalidate = self.prefetchController.shouldInvalidateScheduledTracks(
+                scheduledTrackIDs: scheduledTrackIDs,
+                queue: self.queue,
+                currentQueueIndex: self.currentQueueIndex,
+                repeatMode: self.repeatMode
+            )
+
+            if shouldInvalidate {
+                self.audioEngine?.clearScheduledFiles()
+                await self.prefetchNextItem()
+            } else if scheduledTrackIDs.isEmpty {
+                await self.prefetchNextItem()
+            } else {
+                EnsembleLogger.debug("[prefetch] Keeping gapless schedule; next track unchanged")
+            }
+
             if thenRefreshAutoplay {
                 await self.checkAndRefreshAutoplayQueue()
             }
@@ -4179,6 +4198,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         await prefetchUpcomingItems(depth: 2)
     }
 
+    private func scheduleGaplessIfNeeded() {
+        guard audioEngine?.scheduledTrackIds.isEmpty ?? true else { return }
+        guard gaplessScheduleRequestTask == nil else { return }
+        guard PlaybackPrefetchController.shouldScheduleGaplessNow(
+            currentTime: currentTime,
+            duration: duration,
+            playbackState: playbackState
+        ) else { return }
+
+        gaplessScheduleRequestTask = Task { @MainActor [weak self] in
+            await self?.prefetchNextItem()
+            self?.gaplessScheduleRequestTask = nil
+        }
+    }
+
     /// Remove all prefetched items from AVQueuePlayer's internal queue.
     /// Called when a player item fails to prevent AVQueuePlayer from automatically
     /// advancing to the next prefetched track.
@@ -4199,19 +4233,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Don't prefetch when playback has failed
         if case .failed = playbackState { return }
 
-        let prefetchSnapshot: (track: Track?, removedDuplicates: Bool) = await MainActor.run { [weak self] in
-            guard let self else { return (track: nil, removedDuplicates: false) }
+        let prefetchSnapshot: (track: Track?, shouldClearSchedule: Bool) = await MainActor.run { [weak self] in
+            guard let self else { return (track: nil, shouldClearSchedule: false) }
             let removedDuplicates = self.removeDuplicateFutureAutoplayItemsIfNeeded(
                 shouldInvalidateGaplessSchedule: false
             ) > 0
+            let shouldInvalidateScheduledTracks = removedDuplicates && self.prefetchController.shouldInvalidateScheduledTracks(
+                scheduledTrackIDs: engine.scheduledTrackIdsInOrder,
+                queue: self.queue,
+                currentQueueIndex: self.currentQueueIndex,
+                repeatMode: self.repeatMode
+            )
             let targetIndices = self.upcomingQueueIndices(depth: depth)
             guard let firstIndex = targetIndices.first else {
-                return (track: nil, removedDuplicates: removedDuplicates)
+                return (track: nil, shouldClearSchedule: shouldInvalidateScheduledTracks)
             }
-            return (track: Optional(self.queue[firstIndex].track), removedDuplicates: removedDuplicates)
+            return (track: Optional(self.queue[firstIndex].track), shouldClearSchedule: shouldInvalidateScheduledTracks)
         }
 
-        if prefetchSnapshot.removedDuplicates {
+        if prefetchSnapshot.shouldClearSchedule {
             engine.clearScheduledFiles()
         }
 
@@ -4285,6 +4325,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Final guard: another caller may have scheduled while we were resolving
             guard !engine.isTrackScheduled(track.id) else {
                 EnsembleLogger.debug("[prefetch] '\(track.title)' was scheduled by another path — skipping")
+                return
+            }
+
+            let shouldScheduleNow = await MainActor.run { [weak self] in
+                guard let self else { return false }
+                return PlaybackPrefetchController.shouldScheduleGaplessNow(
+                    currentTime: self.currentTime,
+                    duration: self.duration,
+                    playbackState: self.playbackState
+                )
+            }
+            guard shouldScheduleNow else {
+                EnsembleLogger.debug("[prefetch] Cached '\(track.title)' for later gapless scheduling")
                 return
             }
 
@@ -5069,6 +5122,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         loadingStateTask = nil
         fastSeekTask?.cancel()
         fastSeekTask = nil
+        gaplessScheduleRequestTask?.cancel()
+        gaplessScheduleRequestTask = nil
         isFastSeeking = false
         cancelNowPlayingArtworkLoad(clearArtwork: true)
 

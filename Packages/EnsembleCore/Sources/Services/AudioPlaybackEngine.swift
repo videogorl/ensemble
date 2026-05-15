@@ -768,6 +768,11 @@ public final class AudioPlaybackEngine {
         Set(scheduledFiles.map(\.trackId))
     }
 
+    /// IDs of tracks in the player node's gapless FIFO, preserving playback order.
+    var scheduledTrackIdsInOrder: [String] {
+        scheduledFiles.map(\.trackId)
+    }
+
     /// Schedule the next file for gapless playback. Uses AVAudioPlayerNode's FIFO queue --
     /// the segment plays immediately after the current segment finishes, with zero gap.
     /// Reads the file's packet table to trim encoder delay/padding for seamless transitions.

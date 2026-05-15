@@ -70,4 +70,102 @@ final class PlaybackPrefetchControllerTests: XCTestCase {
             )
         )
     }
+
+    func testGaplessSchedulingWaitsUntilLeadTime() {
+        XCTAssertFalse(
+            PlaybackPrefetchController.shouldScheduleGaplessNow(
+                currentTime: 30,
+                duration: 240,
+                playbackState: .playing
+            )
+        )
+    }
+
+    func testGaplessSchedulingStartsNearTrackEnd() {
+        XCTAssertTrue(
+            PlaybackPrefetchController.shouldScheduleGaplessNow(
+                currentTime: 225,
+                duration: 240,
+                playbackState: .playing
+            )
+        )
+    }
+
+    func testGaplessSchedulingDoesNotRunWhilePaused() {
+        XCTAssertFalse(
+            PlaybackPrefetchController.shouldScheduleGaplessNow(
+                currentTime: 225,
+                duration: 240,
+                playbackState: .paused
+            )
+        )
+    }
+
+    func testScheduledTracksStayValidWhenQueueAppendLeavesNextTrackUnchanged() {
+        let controller = PlaybackPrefetchController()
+        let queue = makeQueue(["current", "next", "later", "appended"])
+
+        XCTAssertFalse(
+            controller.shouldInvalidateScheduledTracks(
+                scheduledTrackIDs: ["next"],
+                queue: queue,
+                currentQueueIndex: 0,
+                repeatMode: .off
+            )
+        )
+    }
+
+    func testScheduledTracksInvalidateWhenPlayNextChangesImmediateUpcomingTrack() {
+        let controller = PlaybackPrefetchController()
+        let queue = makeQueue(["current", "new-next", "next", "later"])
+
+        XCTAssertTrue(
+            controller.shouldInvalidateScheduledTracks(
+                scheduledTrackIDs: ["next"],
+                queue: queue,
+                currentQueueIndex: 0,
+                repeatMode: .off
+            )
+        )
+    }
+
+    func testScheduledTracksInvalidateWhenQueueNoLongerHasUpcomingTrack() {
+        let controller = PlaybackPrefetchController()
+        let queue = makeQueue(["current"])
+
+        XCTAssertTrue(
+            controller.shouldInvalidateScheduledTracks(
+                scheduledTrackIDs: ["next"],
+                queue: queue,
+                currentQueueIndex: 0,
+                repeatMode: .off
+            )
+        )
+    }
+
+    func testEmptyScheduleDoesNotRequireInvalidation() {
+        let controller = PlaybackPrefetchController()
+
+        XCTAssertFalse(
+            controller.shouldInvalidateScheduledTracks(
+                scheduledTrackIDs: [],
+                queue: makeQueue(["current", "next"]),
+                currentQueueIndex: 0,
+                repeatMode: .off
+            )
+        )
+    }
+
+    private func makeQueue(_ ids: [String]) -> [QueueItem] {
+        ids.map { QueueItem(track: makeTrack(id: $0)) }
+    }
+
+    private func makeTrack(id: String) -> Track {
+        Track(
+            id: id,
+            key: "/library/metadata/\(id)",
+            title: "Track \(id)",
+            sourceCompositeKey: "plex:account:server:library"
+        )
+    }
 }

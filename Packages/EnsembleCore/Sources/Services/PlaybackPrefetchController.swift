@@ -48,6 +48,35 @@ final class PlaybackPrefetchController {
         return true
     }
 
+    static func shouldScheduleGaplessNow(
+        currentTime: TimeInterval,
+        duration: TimeInterval,
+        playbackState: PlaybackState,
+        leadTime: TimeInterval = 20
+    ) -> Bool {
+        guard playbackState == .playing else { return false }
+        guard duration.isFinite, duration > 0 else { return false }
+        return max(0, duration - currentTime) <= leadTime
+    }
+
+    func shouldInvalidateScheduledTracks(
+        scheduledTrackIDs: [String],
+        queue: [QueueItem],
+        currentQueueIndex: Int,
+        repeatMode: RepeatMode
+    ) -> Bool {
+        guard !scheduledTrackIDs.isEmpty else { return false }
+
+        let expectedTrackIDs = upcomingQueueIndices(
+            queueCount: queue.count,
+            currentQueueIndex: currentQueueIndex,
+            repeatMode: repeatMode,
+            depth: scheduledTrackIDs.count
+        ).map { queue[$0].track.id }
+
+        return scheduledTrackIDs != expectedTrackIDs
+    }
+
     func cacheFileURL(
         _ url: URL,
         for trackId: String,
