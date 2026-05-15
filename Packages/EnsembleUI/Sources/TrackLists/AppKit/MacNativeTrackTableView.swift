@@ -33,6 +33,21 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             + tableHeaderExtraHeight
     }
 
+    static func appKitRowActionSlots(
+        for configured: [TrackSwipeAction?],
+        edge: NSTableView.RowActionEdge
+    ) -> [TrackSwipeAction?] {
+        switch edge {
+        case .leading:
+            return configured
+        case .trailing:
+            // AppKit paints trailing row actions opposite UIKit's visual slot order.
+            return Array(configured.reversed())
+        @unknown default:
+            return configured
+        }
+    }
+
     func makeNSView(context: Context) -> NSScrollView {
         let tableView = MacNativeContextMenuTableView()
         tableView.headerView = nil
@@ -387,8 +402,9 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                   case let .track(track, _) = rows[row] else { return [] }
             let layout = DependencyContainer.shared.settingsManager.trackSwipeLayout
             let configured = edge == .leading ? layout.leading : layout.trailing
+            let slots = MacNativeTrackTableView.appKitRowActionSlots(for: configured, edge: edge)
 
-            return configured.compactMap { candidate in
+            return slots.compactMap { candidate in
                 guard let action = candidate else { return nil }
                 return rowAction(for: action, track: track)
             }

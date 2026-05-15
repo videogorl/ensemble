@@ -194,6 +194,19 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(jsonDecoded, expected)
     }
 
+    func testMacTrailingSwipeSlotsUseAppKitOrdering() {
+        let configured: [TrackSwipeAction?] = [.favoriteToggle, .addToPlaylist]
+
+        XCTAssertEqual(
+            MacNativeTrackTableView.appKitRowActionSlots(for: configured, edge: .leading),
+            [.favoriteToggle, .addToPlaylist]
+        )
+        XCTAssertEqual(
+            MacNativeTrackTableView.appKitRowActionSlots(for: configured, edge: .trailing),
+            [.addToPlaylist, .favoriteToggle]
+        )
+    }
+
     #endif
 
     func testArtworkSizeValues() {
