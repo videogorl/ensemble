@@ -9,6 +9,7 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
     private let defaultsKey = "allowInsecureConnectionsPolicy"
     private let enabledTabsKey = "enabledTabs"
     private let songsTableColumnsKey = "songsTableColumns"
+    private let trackSwipeLayoutKey = "trackSwipeLayout"
     private var cancellables: Set<AnyCancellable> = []
 
     override func setUp() {
@@ -18,6 +19,7 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: defaultsKey)
         UserDefaults.standard.removeObject(forKey: enabledTabsKey)
         UserDefaults.standard.removeObject(forKey: songsTableColumnsKey)
+        UserDefaults.standard.removeObject(forKey: trackSwipeLayoutKey)
         cancellables.removeAll()
     }
 
@@ -28,6 +30,7 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: defaultsKey)
         UserDefaults.standard.removeObject(forKey: enabledTabsKey)
         UserDefaults.standard.removeObject(forKey: songsTableColumnsKey)
+        UserDefaults.standard.removeObject(forKey: trackSwipeLayoutKey)
         super.tearDown()
     }
 
@@ -65,6 +68,32 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
         manager.setSongsTableColumn(.artist, isVisible: true)
 
         XCTAssertEqual(manager.songsTableColumns.prefix(4), [.title, .time, .artist, .album])
+    }
+
+    func testTrackSwipeActionsCanRepeatAcrossOppositeEdges() {
+        let manager = SettingsManager()
+        manager.trackSwipeLayout = TrackSwipeLayout(
+            leading: [.playNext, .playLast],
+            trailing: [.favoriteToggle, .addToPlaylist]
+        )
+
+        XCTAssertTrue(manager.setTrackSwipeAction(.playNext, edge: .trailing, index: 0))
+
+        XCTAssertEqual(manager.trackSwipeLayout.leading, [.playNext, .playLast])
+        XCTAssertEqual(manager.trackSwipeLayout.trailing, [.playNext, .addToPlaylist])
+    }
+
+    func testTrackSwipeActionsRejectDuplicateWithinSameEdge() {
+        let manager = SettingsManager()
+        manager.trackSwipeLayout = TrackSwipeLayout(
+            leading: [.playNext, .playLast],
+            trailing: [.favoriteToggle, .addToPlaylist]
+        )
+
+        XCTAssertFalse(manager.setTrackSwipeAction(.playNext, edge: .leading, index: 1))
+
+        XCTAssertEqual(manager.trackSwipeLayout.leading, [.playNext, .playLast])
+        XCTAssertEqual(manager.trackSwipeLayout.trailing, [.favoriteToggle, .addToPlaylist])
     }
 
     func testObjectWillChangeCanReadUpdatedSettingsSynchronously() {

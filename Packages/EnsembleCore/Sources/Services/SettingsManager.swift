@@ -115,27 +115,8 @@ public struct TrackSwipeLayout: Codable, Equatable, Sendable {
     }
 
     public mutating func sanitize() {
-        leading = Self.normalizedSlots(from: leading)
-        trailing = Self.normalizedSlots(from: trailing)
-
-        // Ensure each action appears at most once across all slots.
-        var seen = Set<TrackSwipeAction>()
-        for index in leading.indices {
-            guard let action = leading[index] else { continue }
-            if seen.contains(action) {
-                leading[index] = nil
-            } else {
-                seen.insert(action)
-            }
-        }
-        for index in trailing.indices {
-            guard let action = trailing[index] else { continue }
-            if seen.contains(action) {
-                trailing[index] = nil
-            } else {
-                seen.insert(action)
-            }
-        }
+        leading = Self.sanitizedSlots(from: leading)
+        trailing = Self.sanitizedSlots(from: trailing)
 
         // Recover from corrupted/empty payloads so swipe gestures always have actions.
         if leading.allSatisfy({ $0 == nil }) && trailing.allSatisfy({ $0 == nil }) {
@@ -148,6 +129,22 @@ public struct TrackSwipeLayout: Codable, Equatable, Sendable {
         if slots.count < slotCountPerEdge {
             slots.append(contentsOf: Array(repeating: nil, count: slotCountPerEdge - slots.count))
         }
+        return slots
+    }
+
+    private static func sanitizedSlots(from source: [TrackSwipeAction?]) -> [TrackSwipeAction?] {
+        var slots = normalizedSlots(from: source)
+        var seen = Set<TrackSwipeAction>()
+
+        for index in slots.indices {
+            guard let action = slots[index] else { continue }
+            if seen.contains(action) {
+                slots[index] = nil
+            } else {
+                seen.insert(action)
+            }
+        }
+
         return slots
     }
 }
@@ -366,7 +363,7 @@ public final class SettingsManager: ObservableObject {
         var layout = trackSwipeLayout
 
         if let action,
-           isTrackSwipeActionAssigned(action, excluding: (edge: edge, index: index), layout: layout) {
+           isTrackSwipeActionAssigned(action, edge: edge, excluding: index, layout: layout) {
             return false
         }
 
@@ -417,6 +414,31 @@ public final class SettingsManager: ObservableObject {
             if let location,
                location.edge == .trailing,
                location.index == index {
+                continue
+            }
+            if candidate == action {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func isTrackSwipeActionAssigned(
+        _ action: TrackSwipeAction,
+        edge: TrackSwipeEdge,
+        excluding excludedIndex: Int? = nil,
+        layout: TrackSwipeLayout
+    ) -> Bool {
+        let slots: [TrackSwipeAction?]
+        switch edge {
+        case .leading:
+            slots = layout.leading
+        case .trailing:
+            slots = layout.trailing
+        }
+
+        for (index, candidate) in slots.enumerated() {
+            if excludedIndex == index {
                 continue
             }
             if candidate == action {

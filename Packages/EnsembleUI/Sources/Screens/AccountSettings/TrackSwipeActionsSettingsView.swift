@@ -18,6 +18,7 @@ public struct TrackSwipeActionsSettingsView: View {
                             Text(action.title).tag(Optional(action))
                         }
                     }
+                    .id(slotID(edge: .leading, index: index))
                 }
                 .onMove { indices, newOffset in
                     leadingSlots.move(fromOffsets: indices, toOffset: newOffset)
@@ -37,6 +38,7 @@ public struct TrackSwipeActionsSettingsView: View {
                             Text(action.title).tag(Optional(action))
                         }
                     }
+                    .id(slotID(edge: .trailing, index: index))
                 }
                 .onMove { indices, newOffset in
                     trailingSlots.move(fromOffsets: indices, toOffset: newOffset)
@@ -91,33 +93,29 @@ public struct TrackSwipeActionsSettingsView: View {
 
     private func updateSlot(edge: TrackSwipeEdge, index: Int, value: TrackSwipeAction?) {
         let currentValue = slotValue(edge: edge, index: index)
-        if let value, let existingLocation = location(of: value, excluding: (edge: edge, index: index)) {
+        if let value, let existingIndex = indexOfAction(value, edge: edge, excluding: index) {
             setSlot(value, edge: edge, index: index)
-            setSlot(currentValue, edge: existingLocation.edge, index: existingLocation.index)
+            setSlot(currentValue, edge: edge, index: existingIndex)
         } else {
             setSlot(value, edge: edge, index: index)
         }
         persistLayout()
     }
 
-    private func location(of action: TrackSwipeAction, excluding location: (edge: TrackSwipeEdge, index: Int)) -> (edge: TrackSwipeEdge, index: Int)? {
-        for (index, candidate) in leadingSlots.enumerated() {
-            if location.edge == .leading && location.index == index {
+    private func indexOfAction(_ action: TrackSwipeAction, edge: TrackSwipeEdge, excluding excludedIndex: Int) -> Int? {
+        for (index, candidate) in slots(edge: edge).enumerated() {
+            if index == excludedIndex {
                 continue
             }
             if candidate == action {
-                return (.leading, index)
-            }
-        }
-        for (index, candidate) in trailingSlots.enumerated() {
-            if location.edge == .trailing && location.index == index {
-                continue
-            }
-            if candidate == action {
-                return (.trailing, index)
+                return index
             }
         }
         return nil
+    }
+
+    private func slotID(edge: TrackSwipeEdge, index: Int) -> String {
+        "\(edge.rawValue)-\(index)"
     }
 
     private func slotValue(edge: TrackSwipeEdge, index: Int) -> TrackSwipeAction? {
@@ -135,6 +133,15 @@ public struct TrackSwipeActionsSettingsView: View {
             leadingSlots[index] = value
         case .trailing:
             trailingSlots[index] = value
+        }
+    }
+
+    private func slots(edge: TrackSwipeEdge) -> [TrackSwipeAction?] {
+        switch edge {
+        case .leading:
+            return leadingSlots
+        case .trailing:
+            return trailingSlots
         }
     }
 
