@@ -88,7 +88,7 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
         func getArtistTracks(artistKey: String) async throws -> [Track] { [] }
     }
 
-    func testFullSyncProcessesArtworkInvalidationsBeforePlaylistPhase() async throws {
+    func testFullSyncProcessesArtworkInvalidationsAroundPlaylistPhase() async throws {
         let recorder = EventRecorder()
         let source = makeSourceIdentifier()
         let provider = RecordingProvider(sourceIdentifier: source, recorder: recorder)
@@ -97,10 +97,10 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
         await controller.sync(source: source, providers: [source.compositeKey: provider])
 
         let events = await recorder.snapshot()
-        XCTAssertEqual(events, ["library", "reparent", "artwork", "playlists"])
+        XCTAssertEqual(events, ["library", "reparent", "artwork", "playlists", "artwork"])
     }
 
-    func testIncrementalSyncProcessesArtworkInvalidationsBeforeArtworkCaching() async throws {
+    func testIncrementalSyncProcessesArtworkInvalidationsAfterPlaylistPhaseBeforeArtworkCaching() async throws {
         let recorder = EventRecorder()
         let source = makeSourceIdentifier()
         let provider = RecordingProvider(sourceIdentifier: source, recorder: recorder)
@@ -116,6 +116,7 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
                 "reparent",
                 "artwork",
                 "playlists-incremental",
+                "artwork",
                 "cache-albums",
                 "cache-artists",
                 "cache-playlists"

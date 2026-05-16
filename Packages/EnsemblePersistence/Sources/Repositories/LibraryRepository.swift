@@ -127,7 +127,7 @@ public enum ArtworkInvalidationReason: String, Sendable, Hashable {
     case metadataModified
 }
 
-/// Describes album or artist artwork that should be evicted after sync metadata changes.
+/// Describes artwork that should be evicted after sync metadata changes.
 public struct ArtworkInvalidationInfo: Sendable, Hashable {
     public let ratingKey: String
     public let type: ArtworkType

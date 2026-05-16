@@ -325,6 +325,11 @@ final class SyncExecutionController {
                 progressBase: playlistProgressBase,
                 progressWeight: playlistProgressWeight
             )
+            await dependencies.processArtworkInvalidations()
+
+            if cacheArtworkAfterLibrarySync, playlistResult != nil {
+                await dependencies.cachePlaylistArtwork(source, provider)
+            }
 
             let syncedAt = Date()
             let resolvedConnectionState = await dependencies.connectionStateAfterSuccessfulSync(
@@ -408,6 +413,8 @@ final class SyncExecutionController {
                     "⏱️ SyncCoordinator: playlist phase took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistPhaseStart))s"
                 )
             }
+
+            await dependencies.processArtworkInvalidations()
 
             if cacheArtworkAfterSync {
                 await dependencies.cacheAlbumArtwork(source, provider)

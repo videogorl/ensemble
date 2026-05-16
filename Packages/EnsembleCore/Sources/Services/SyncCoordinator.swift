@@ -702,6 +702,7 @@ public final class SyncCoordinator: ObservableObject {
 
     private func processArtworkInvalidations() async {
         let invalidations = libraryRepository.drainArtworkInvalidationInfo()
+            + playlistRepository.drainArtworkInvalidationInfo()
         guard !invalidations.isEmpty else { return }
 
         EnsembleLogger.debug("[Sync] \(invalidations.count) artwork item(s) changed — invalidating cache")
