@@ -430,6 +430,19 @@ extension LibraryRepository {
                         let existing = artistsByKey[input.ratingKey]
                         let artist = existing ?? CDArtist(context: context)
 
+                        if let existing {
+                            self.recordArtworkInvalidationIfNeeded(
+                                ratingKey: input.ratingKey,
+                                type: .artist,
+                                oldThumbPath: existing.thumbPath,
+                                oldArtPath: existing.artPath,
+                                oldDateModified: existing.dateModified,
+                                newThumbPath: input.thumbPath,
+                                newArtPath: input.artPath,
+                                newDateModified: input.dateModified
+                            )
+                        }
+
                         artist.ratingKey = input.ratingKey
                         artist.key = input.key
                         artist.name = input.name
@@ -489,6 +502,19 @@ extension LibraryRepository {
                     for input in inputs {
                         let existing = albumsByKey[input.ratingKey]
                         let album = existing ?? CDAlbum(context: context)
+
+                        if let existing {
+                            self.recordArtworkInvalidationIfNeeded(
+                                ratingKey: input.ratingKey,
+                                type: .album,
+                                oldThumbPath: existing.thumbPath,
+                                oldArtPath: existing.artPath,
+                                oldDateModified: existing.dateModified,
+                                newThumbPath: input.thumbPath,
+                                newArtPath: input.artPath,
+                                newDateModified: input.dateModified
+                            )
+                        }
 
                         album.ratingKey = input.ratingKey
                         album.key = input.key

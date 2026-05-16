@@ -141,6 +141,8 @@ public final class SyncCoordinator: ObservableObject {
     /// Called after sync when tracks have been reparented (album changed).
     /// Used by ArtworkLoader to invalidate stale artwork for affected albums.
     public var onTrackAlbumChanged: (([TrackReparentInfo]) async -> Void)?
+    /// Called after sync when album or artist artwork metadata changed.
+    public var onArtworkMetadataChanged: (([ArtworkInvalidationInfo]) async -> Void)?
 
     /// Worker that owns source-specific cache and file cleanup outside the coordinator's UI-facing actor.
     public var sourceCacheCleanupService: SourceCacheCleaning?
@@ -698,6 +700,14 @@ public final class SyncCoordinator: ObservableObject {
         }
     }
 
+    private func processArtworkInvalidations() async {
+        let invalidations = libraryRepository.drainArtworkInvalidationInfo()
+        guard !invalidations.isEmpty else { return }
+
+        EnsembleLogger.debug("[Sync] \(invalidations.count) artwork item(s) changed — invalidating cache")
+        await onArtworkMetadataChanged?(invalidations)
+    }
+
     private func syncExecutionController() -> SyncExecutionController {
         SyncExecutionController(
             dependencies: .init(
@@ -712,6 +722,7 @@ public final class SyncCoordinator: ObservableObject {
                 removeDuplicatePlaylists: { try? await self.playlistRepository.removeDuplicatePlaylists() },
                 publishProgress: { self.throttledProgressUpdate(for: $0, mappedProgress: $1) },
                 processReparentedTracks: { await self.processReparentedTracks() },
+                processArtworkInvalidations: { await self.processArtworkInvalidations() },
                 cacheArtworkForSource: { await self.cacheArtworkForSource(sourceId: $0, provider: $1) },
                 cacheAlbumArtwork: { await self.cacheAlbumArtwork(sourceId: $0, provider: $1) },
                 cacheArtistArtwork: { await self.cacheArtistArtwork(sourceId: $0, provider: $1) },
@@ -1106,7 +1117,13 @@ public final class SyncCoordinator: ObservableObject {
 
                 do {
                     try await artworkDownloadManager.downloadAndCacheArtwork(
-                        from: artworkURL, ratingKey: album.ratingKey, type: .album
+                        from: artworkURL,
+                        identity: ArtworkIdentity(
+                            ratingKey: album.ratingKey,
+                            type: .album,
+                            sourcePath: thumbPath,
+                            dateModified: album.dateModified
+                        )
                     )
                     cached += 1
                 } catch {
@@ -1143,7 +1160,13 @@ public final class SyncCoordinator: ObservableObject {
 
                 do {
                     try await artworkDownloadManager.downloadAndCacheArtwork(
-                        from: artworkURL, ratingKey: artist.ratingKey, type: .artist
+                        from: artworkURL,
+                        identity: ArtworkIdentity(
+                            ratingKey: artist.ratingKey,
+                            type: .artist,
+                            sourcePath: thumbPath,
+                            dateModified: artist.dateModified
+                        )
                     )
                     cached += 1
                 } catch {
@@ -1189,7 +1212,13 @@ public final class SyncCoordinator: ObservableObject {
 
                 do {
                     try await artworkDownloadManager.downloadAndCacheArtwork(
-                        from: artworkURL, ratingKey: playlist.ratingKey, type: .playlist
+                        from: artworkURL,
+                        identity: ArtworkIdentity(
+                            ratingKey: playlist.ratingKey,
+                            type: .playlist,
+                            sourcePath: thumbPath,
+                            dateModified: playlist.dateModified
+                        )
                     )
                     playlistArtworkRetryAfter.removeValue(forKey: playlist.ratingKey)
                     cached += 1

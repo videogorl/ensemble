@@ -828,6 +828,12 @@ public final class DependencyContainer: @unchecked Sendable {
                 await artworkLoader.invalidateArtwork(ratingKey: info.trackRatingKey, type: .album)
             }
         }
+        syncCoordinator.onArtworkMetadataChanged = { [weak self] invalidations in
+            guard let artworkLoader = self?.artworkLoader as? ArtworkLoader else { return }
+            for info in invalidations {
+                await artworkLoader.invalidateArtwork(ratingKey: info.ratingKey, type: info.type)
+            }
+        }
         syncCoordinator.sourceCacheCleanupService = sourceCacheCleanupService
     }
 

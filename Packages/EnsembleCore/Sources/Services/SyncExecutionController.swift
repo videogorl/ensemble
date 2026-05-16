@@ -17,6 +17,7 @@ final class SyncExecutionController {
         let removeDuplicatePlaylists: () async -> Void
         let publishProgress: (MusicSourceIdentifier, Double) -> Void
         let processReparentedTracks: () async -> Void
+        let processArtworkInvalidations: () async -> Void
         let cacheArtworkForSource: (MusicSourceIdentifier, MusicSourceSyncProvider) async -> Void
         let cacheAlbumArtwork: (MusicSourceIdentifier, MusicSourceSyncProvider) async -> Void
         let cacheArtistArtwork: (MusicSourceIdentifier, MusicSourceSyncProvider) async -> Void
@@ -310,6 +311,7 @@ final class SyncExecutionController {
             )
 
             await dependencies.processReparentedTracks()
+            await dependencies.processArtworkInvalidations()
 
             if cacheArtworkAfterLibrarySync {
                 await dependencies.cacheArtworkForSource(source, provider)
@@ -389,6 +391,7 @@ final class SyncExecutionController {
             )
 
             await dependencies.processReparentedTracks()
+            await dependencies.processArtworkInvalidations()
 
             let playlistPhaseStart = CFAbsoluteTimeGetCurrent()
             let playlistResult = try await syncPlaylistsIfNeeded(

@@ -48,6 +48,150 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(track.streamId, 456)
     }
 
+    func testBatchAlbumUpsertRecordsArtworkInvalidationWhenThumbChanges() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = LibraryRepository(coreDataStack: stack)
+        let sourceKey = "plex/account/server/library"
+        let initialDate = Date(timeIntervalSince1970: 1_000)
+
+        try await repository.batchUpsertAlbums(
+            [
+                makeAlbumInput(
+                    ratingKey: "album-1",
+                    thumbPath: "/library/metadata/album-1/thumb/old",
+                    dateModified: initialDate
+                )
+            ],
+            sourceCompositeKey: sourceKey
+        )
+        XCTAssertTrue(repository.drainArtworkInvalidationInfo().isEmpty)
+
+        try await repository.batchUpsertAlbums(
+            [
+                makeAlbumInput(
+                    ratingKey: "album-1",
+                    thumbPath: "/library/metadata/album-1/thumb/old",
+                    dateModified: initialDate
+                )
+            ],
+            sourceCompositeKey: sourceKey
+        )
+        XCTAssertTrue(repository.drainArtworkInvalidationInfo().isEmpty)
+
+        try await repository.batchUpsertAlbums(
+            [
+                makeAlbumInput(
+                    ratingKey: "album-1",
+                    thumbPath: "/library/metadata/album-1/thumb/new",
+                    dateModified: initialDate
+                )
+            ],
+            sourceCompositeKey: sourceKey
+        )
+
+        XCTAssertEqual(
+            repository.drainArtworkInvalidationInfo(),
+            [
+                ArtworkInvalidationInfo(
+                    ratingKey: "album-1",
+                    type: .album,
+                    reason: .pathChanged
+                )
+            ]
+        )
+        XCTAssertTrue(repository.drainArtworkInvalidationInfo().isEmpty)
+    }
+
+    func testArtistUpsertRecordsArtworkInvalidationWhenMetadataDateChanges() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = LibraryRepository(coreDataStack: stack)
+        let sourceKey = "plex/account/server/library"
+
+        _ = try await repository.upsertArtist(
+            ratingKey: "artist-1",
+            key: "/library/metadata/artist-1",
+            name: "Artist One",
+            summary: nil,
+            thumbPath: "/library/metadata/artist-1/thumb",
+            artPath: nil,
+            dateAdded: nil,
+            dateModified: Date(timeIntervalSince1970: 1_000),
+            sourceCompositeKey: sourceKey
+        )
+        XCTAssertTrue(repository.drainArtworkInvalidationInfo().isEmpty)
+
+        _ = try await repository.upsertArtist(
+            ratingKey: "artist-1",
+            key: "/library/metadata/artist-1",
+            name: "Artist One",
+            summary: nil,
+            thumbPath: "/library/metadata/artist-1/thumb",
+            artPath: nil,
+            dateAdded: nil,
+            dateModified: Date(timeIntervalSince1970: 1_001),
+            sourceCompositeKey: sourceKey
+        )
+
+        XCTAssertEqual(
+            repository.drainArtworkInvalidationInfo(),
+            [
+                ArtworkInvalidationInfo(
+                    ratingKey: "artist-1",
+                    type: .artist,
+                    reason: .metadataModified
+                )
+            ]
+        )
+    }
+
+    func testArtworkDownloadManagerRejectsStaleIdentitySidecar() async throws {
+        let manager = ArtworkDownloadManager()
+        let ratingKey = "identity-\(UUID().uuidString)"
+        let artworkURL = ArtworkDownloadManager.artworkDirectory
+            .appendingPathComponent("\(ratingKey)_album.jpg")
+        let identityURL = artworkURL
+            .deletingPathExtension()
+            .appendingPathExtension("identity.json")
+        defer {
+            try? FileManager.default.removeItem(at: artworkURL)
+            try? FileManager.default.removeItem(at: identityURL)
+        }
+
+        let sourcePath = "/library/metadata/album-1/thumb/1000"
+        try Data("image".utf8).write(to: artworkURL)
+        let identity = ArtworkIdentity(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: 1_000
+        )
+        try JSONEncoder().encode(identity).write(to: identityURL)
+
+        let matchingPath = try await manager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: 1_000
+        )
+        XCTAssertEqual(matchingPath, artworkURL.path)
+
+        let changedPath = try await manager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: "/library/metadata/album-1/thumb/1001",
+            dateModifiedSeconds: 1_000
+        )
+        XCTAssertNil(changedPath)
+
+        let changedDate = try await manager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: 1_001
+        )
+        XCTAssertNil(changedDate)
+    }
+
     func testDeleteAllLibraryDataPurgesFeedAndMoodCaches() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)
@@ -121,5 +265,28 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(remainingHubs, 0)
         XCTAssertEqual(remainingHubItems, 0)
         XCTAssertEqual(remainingOfflineTargets, 0)
+    }
+
+    private func makeAlbumInput(
+        ratingKey: String,
+        thumbPath: String?,
+        dateModified: Date?
+    ) -> AlbumUpsertInput {
+        AlbumUpsertInput(
+            ratingKey: ratingKey,
+            key: "/library/metadata/\(ratingKey)",
+            title: "Album \(ratingKey)",
+            artistName: "Artist",
+            albumArtist: "Artist",
+            artistRatingKey: nil,
+            summary: nil,
+            thumbPath: thumbPath,
+            artPath: nil,
+            year: 2024,
+            trackCount: 1,
+            dateAdded: nil,
+            dateModified: dateModified,
+            rating: nil
+        )
     }
 }

@@ -118,6 +118,19 @@ extension LibraryRepository {
                     let existing = try context.fetch(request).first
                     let artist = existing ?? CDArtist(context: context)
 
+                    if let existing {
+                        self.recordArtworkInvalidationIfNeeded(
+                            ratingKey: ratingKey,
+                            type: .artist,
+                            oldThumbPath: existing.thumbPath,
+                            oldArtPath: existing.artPath,
+                            oldDateModified: existing.dateModified,
+                            newThumbPath: thumbPath,
+                            newArtPath: artPath,
+                            newDateModified: dateModified
+                        )
+                    }
+
                     artist.ratingKey = ratingKey
                     artist.key = key
                     artist.name = name

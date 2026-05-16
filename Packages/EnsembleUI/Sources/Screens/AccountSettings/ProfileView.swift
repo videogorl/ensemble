@@ -13,6 +13,7 @@ public struct ProfileView: View {
     private let cacheManager = DependencyContainer.shared.cacheManager
 
     @State private var showingDeleteAlert = false
+    @State private var showingClearArtworkCacheAlert = false
     @State private var showingClearDataAlert = false
     @State private var showingNameEditor = false
     @State private var accountToDelete: PlexAccountConfig?
@@ -70,6 +71,14 @@ public struct ProfileView: View {
                 if let account = accountToDelete {
                     Text("Remove Plex account \(account.accountIdentifier)? Libraries from this account will be removed from local cache.")
                 }
+            }
+            .alert("Clear Artwork Cache", isPresented: $showingClearArtworkCacheAlert) {
+                Button("Cancel", role: .cancel) {}
+                Button("Clear Artwork Cache", role: .destructive) {
+                    clearArtworkCaches()
+                }
+            } message: {
+                Text("This deletes cached album, artist, and playlist images. Your library, downloads, accounts, and settings are preserved.")
             }
             .alert("Clear All Library Data", isPresented: $showingClearDataAlert) {
                 Button("Cancel", role: .cancel) {}
@@ -294,6 +303,16 @@ public struct ProfileView: View {
 
     private var storageSection: some View {
         Section(header: EnsembleUtilitySectionHeader("Storage")) {
+            Button {
+                showingClearArtworkCacheAlert = true
+            } label: {
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.paintPalette,
+                    title: "Clear Artwork Cache...",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
+            }
+
             Button(role: .destructive) {
                 showingClearDataAlert = true
             } label: {
@@ -602,6 +621,18 @@ public struct ProfileView: View {
 
     private var macOSStorageSection: some View {
         EnsembleUtilityCardSection("Storage") {
+            macButtonRow {
+                showingClearArtworkCacheAlert = true
+            } label: {
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.paintPalette,
+                    title: "Clear Artwork Cache...",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
+            }
+
+            EnsembleUtilityCardDivider()
+
             macDestructiveButtonRow {
                 showingClearDataAlert = true
             } label: {
@@ -807,6 +838,36 @@ public struct ProfileView: View {
                 EnsembleLogger.debug("ProfileView: removed all accounts and cleared cached library data")
             } catch {
                 EnsembleLogger.debug("ProfileView: failed to clear cached data after removing all accounts: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func clearArtworkCaches() {
+        Task {
+            do {
+                try await cacheManager.clearArtworkCaches()
+                await MainActor.run {
+                    DependencyContainer.shared.toastCenter.show(
+                        ToastPayload(
+                            style: .success,
+                            iconSystemName: EnsembleDesign.Icon.paintPalette,
+                            title: "Artwork Cache Cleared",
+                            message: "Artwork will reload as needed."
+                        )
+                    )
+                }
+            } catch {
+                EnsembleLogger.debug("ProfileView: failed to clear artwork cache: \(error.localizedDescription)")
+                await MainActor.run {
+                    DependencyContainer.shared.toastCenter.show(
+                        ToastPayload(
+                            style: .error,
+                            iconSystemName: EnsembleDesign.Icon.error,
+                            title: "Couldn't Clear Artwork Cache",
+                            message: error.localizedDescription
+                        )
+                    )
+                }
             }
         }
     }
