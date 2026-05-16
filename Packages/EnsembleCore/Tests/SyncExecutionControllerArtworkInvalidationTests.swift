@@ -24,10 +24,19 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
     private final class RecordingProvider: MusicSourceSyncProvider, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         private let recorder: EventRecorder
+        private let syncPlaylistsHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)?
+        private let syncPlaylistsIncrementalHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)?
 
-        init(sourceIdentifier: MusicSourceIdentifier, recorder: EventRecorder) {
+        init(
+            sourceIdentifier: MusicSourceIdentifier,
+            recorder: EventRecorder,
+            syncPlaylistsHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)? = nil,
+            syncPlaylistsIncrementalHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)? = nil
+        ) {
             self.sourceIdentifier = sourceIdentifier
             self.recorder = recorder
+            self.syncPlaylistsHandler = syncPlaylistsHandler
+            self.syncPlaylistsIncrementalHandler = syncPlaylistsIncrementalHandler
         }
 
         func syncLibrary(
@@ -55,6 +64,9 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
         ) async throws -> PlaylistSyncResult {
             progressHandler(1)
             await recorder.record("playlists")
+            if let syncPlaylistsHandler {
+                return try await syncPlaylistsHandler(repository)
+            }
             return PlaylistSyncResult()
         }
 
@@ -64,6 +76,9 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
         ) async throws -> PlaylistSyncResult {
             progressHandler(1)
             await recorder.record("playlists-incremental")
+            if let syncPlaylistsIncrementalHandler {
+                return try await syncPlaylistsIncrementalHandler(repository)
+            }
             return PlaylistSyncResult()
         }
 
@@ -124,6 +139,146 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
         )
     }
 
+    func testSyncAllDrainsPlaylistInvalidationAndRecachesPlaylistArtworkAfterPlaylistPhase() async throws {
+        let recorder = EventRecorder()
+        let source = makeSourceIdentifier()
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let playlistRepository = PlaylistRepository(coreDataStack: stack)
+
+        _ = try await upsertPlaylist(
+            in: playlistRepository,
+            compositePath: "/playlists/playlist-1/composite/old",
+            dateModified: Date(timeIntervalSince1970: 1_000)
+        )
+        XCTAssertTrue(playlistRepository.drainArtworkInvalidationInfo().isEmpty)
+
+        let provider = RecordingProvider(
+            sourceIdentifier: source,
+            recorder: recorder,
+            syncPlaylistsHandler: { repository in
+                _ = try await repository.upsertPlaylist(
+                    ratingKey: "playlist-1",
+                    key: "/playlists/playlist-1",
+                    title: "Playlist One",
+                    summary: nil,
+                    compositePath: "/playlists/playlist-1/composite/new",
+                    isSmart: false,
+                    duration: nil,
+                    trackCount: 0,
+                    dateAdded: nil,
+                    dateModified: Date(timeIntervalSince1970: 1_001),
+                    lastPlayed: nil,
+                    sourceCompositeKey: "plex/account/server"
+                )
+                return PlaylistSyncResult(changedPlaylists: 1)
+            }
+        )
+        let controller = makeController(
+            source: source,
+            recorder: recorder,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            processArtworkInvalidations: {
+                let invalidations = libraryRepository.drainArtworkInvalidationInfo()
+                    + playlistRepository.drainArtworkInvalidationInfo()
+                guard !invalidations.isEmpty else { return }
+
+                let typeSummary = invalidations
+                    .map { $0.type.rawValue }
+                    .sorted()
+                    .joined(separator: ",")
+                await recorder.record("artwork-\(typeSummary)")
+            },
+            recordWholeSourceArtworkCache: true
+        )
+
+        await controller.syncAll(providers: [source.compositeKey: provider])
+
+        let events = await recorder.snapshot()
+        XCTAssertEqual(
+            events,
+            [
+                "library",
+                "reparent",
+                "cache-source",
+                "playlists",
+                "artwork-playlist",
+                "cache-playlists"
+            ]
+        )
+    }
+
+    func testIncrementalSyncDrainsPlaylistInvalidationBeforePlaylistArtworkCaching() async throws {
+        let recorder = EventRecorder()
+        let source = makeSourceIdentifier()
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let playlistRepository = PlaylistRepository(coreDataStack: stack)
+
+        _ = try await upsertPlaylist(
+            in: playlistRepository,
+            compositePath: "/playlists/playlist-1/composite",
+            dateModified: Date(timeIntervalSince1970: 1_000)
+        )
+        XCTAssertTrue(playlistRepository.drainArtworkInvalidationInfo().isEmpty)
+
+        let provider = RecordingProvider(
+            sourceIdentifier: source,
+            recorder: recorder,
+            syncPlaylistsIncrementalHandler: { repository in
+                _ = try await repository.upsertPlaylist(
+                    ratingKey: "playlist-1",
+                    key: "/playlists/playlist-1",
+                    title: "Playlist One",
+                    summary: nil,
+                    compositePath: "/playlists/playlist-1/composite",
+                    isSmart: false,
+                    duration: nil,
+                    trackCount: 0,
+                    dateAdded: nil,
+                    dateModified: Date(timeIntervalSince1970: 1_001),
+                    lastPlayed: nil,
+                    sourceCompositeKey: "plex/account/server"
+                )
+                return PlaylistSyncResult(changedPlaylists: 1)
+            }
+        )
+        let controller = makeController(
+            source: source,
+            recorder: recorder,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            processArtworkInvalidations: {
+                let invalidations = libraryRepository.drainArtworkInvalidationInfo()
+                    + playlistRepository.drainArtworkInvalidationInfo()
+                guard !invalidations.isEmpty else { return }
+
+                let typeSummary = invalidations
+                    .map { $0.type.rawValue }
+                    .sorted()
+                    .joined(separator: ",")
+                await recorder.record("artwork-\(typeSummary)")
+            }
+        )
+
+        await controller.syncIncremental(source: source, providers: [source.compositeKey: provider])
+
+        let events = await recorder.snapshot()
+        XCTAssertEqual(
+            events,
+            [
+                "library-incremental",
+                "reparent",
+                "playlists-incremental",
+                "artwork-playlist",
+                "cache-albums",
+                "cache-artists",
+                "cache-playlists"
+            ]
+        )
+    }
+
     private func makeSourceIdentifier() -> MusicSourceIdentifier {
         MusicSourceIdentifier(
             type: .plex,
@@ -135,11 +290,15 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
 
     private func makeController(
         source: MusicSourceIdentifier,
-        recorder: EventRecorder
+        recorder: EventRecorder,
+        libraryRepository providedLibraryRepository: LibraryRepositoryProtocol? = nil,
+        playlistRepository providedPlaylistRepository: PlaylistRepositoryProtocol? = nil,
+        processArtworkInvalidations providedProcessArtworkInvalidations: (() async -> Void)? = nil,
+        recordWholeSourceArtworkCache: Bool = false
     ) -> SyncExecutionController {
         let stack = CoreDataStack.inMemory()
-        let libraryRepository = LibraryRepository(coreDataStack: stack)
-        let playlistRepository = PlaylistRepository(coreDataStack: stack)
+        let libraryRepository = providedLibraryRepository ?? LibraryRepository(coreDataStack: stack)
+        let playlistRepository = providedPlaylistRepository ?? PlaylistRepository(coreDataStack: stack)
         var isSyncing = false
         var statuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
 
@@ -158,10 +317,14 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
                 processReparentedTracks: {
                     await recorder.record("reparent")
                 },
-                processArtworkInvalidations: {
+                processArtworkInvalidations: providedProcessArtworkInvalidations ?? {
                     await recorder.record("artwork")
                 },
-                cacheArtworkForSource: { _, _ in },
+                cacheArtworkForSource: { _, _ in
+                    if recordWholeSourceArtworkCache {
+                        await recorder.record("cache-source")
+                    }
+                },
                 cacheAlbumArtwork: { _, _ in
                     await recorder.record("cache-albums")
                 },
@@ -190,4 +353,27 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
             )
         )
     }
+
+    @discardableResult
+    private func upsertPlaylist(
+        in repository: PlaylistRepositoryProtocol,
+        compositePath: String?,
+        dateModified: Date?
+    ) async throws -> CDPlaylist {
+        try await repository.upsertPlaylist(
+            ratingKey: "playlist-1",
+            key: "/playlists/playlist-1",
+            title: "Playlist One",
+            summary: nil,
+            compositePath: compositePath,
+            isSmart: false,
+            duration: nil,
+            trackCount: 0,
+            dateAdded: nil,
+            dateModified: dateModified,
+            lastPlayed: nil,
+            sourceCompositeKey: "plex/account/server"
+        )
+    }
+
 }
