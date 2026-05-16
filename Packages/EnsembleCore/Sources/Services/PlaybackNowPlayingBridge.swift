@@ -351,8 +351,8 @@ final class PlaybackNowPlayingBridge {
 
         nowPlayingCenter.nowPlayingInfo = Self.makeNowPlayingInfo(state: state, artwork: artworkForMetadata)
         syncNowPlayingPlaybackState(state.playbackState)
-        updateFeedbackCommandState(isLiked: state.isLiked, isDisliked: state.isDisliked)
         updateCommandAvailability(state)
+        updateFeedbackCommandState(isLiked: state.isLiked, isDisliked: state.isDisliked)
 
         let rate = state.playbackState == .playing ? 1.0 : 0.0
         let effectiveDuration = state.playbackState == .loading ? track.duration : state.duration

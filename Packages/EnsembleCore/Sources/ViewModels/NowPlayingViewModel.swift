@@ -1072,8 +1072,9 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func play(track: Track, context: PlaybackStartContext) {
+        let playableTrack = trackWithDisplayRating(track)
         Task {
-            await playbackService.play(track: track, context: context)
+            await playbackService.play(track: playableTrack, context: context)
         }
     }
 
@@ -1082,8 +1083,9 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func play(tracks: [Track], startingAt index: Int = 0, context: PlaybackStartContext) {
+        let playableTracks = tracksWithDisplayRatings(tracks)
         Task {
-            await playbackService.play(tracks: tracks, startingAt: index, context: context)
+            await playbackService.play(tracks: playableTracks, startingAt: index, context: context)
         }
     }
     
@@ -1092,8 +1094,9 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func shufflePlay(tracks: [Track], context: PlaybackStartContext) {
+        let playableTracks = tracksWithDisplayRatings(tracks)
         Task {
-            await playbackService.shufflePlay(tracks: tracks, context: context)
+            await playbackService.shufflePlay(tracks: playableTracks, context: context)
         }
     }
 
@@ -1440,8 +1443,9 @@ public final class NowPlayingViewModel: ObservableObject {
         do {
             // Optimistically update local state so UI reflects the change immediately.
             optimisticTrackRatings[track.id] = optimisticRating
-            try await storeTrackRating(trackId: track.id, rating: optimisticRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: optimisticRating)
+            await playbackService.applyRatingLocally(trackId: track.id, rating: optimisticRating)
+            try await storeTrackRating(trackId: track.id, rating: optimisticRating)
 
             let outcome = try await performTrackRatingMutation(track, rating: plexRating)
             let workflowResult = trackRatingMutationWorkflow.finishFavoriteUpdate(
@@ -1470,8 +1474,9 @@ public final class NowPlayingViewModel: ObservableObject {
         } catch {
             // Roll back optimistic state if server mutation fails.
             optimisticTrackRatings[track.id] = previousRating
-            try? await storeTrackRating(trackId: track.id, rating: previousRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: previousRating)
+            await playbackService.applyRatingLocally(trackId: track.id, rating: previousRating)
+            try? await storeTrackRating(trackId: track.id, rating: previousRating)
 
             toastCenter.show(trackRatingMutationWorkflow.favoriteFailureToast(track: track, error: error))
             EnsembleLogger.debug("Failed to set favorite state: \(error)")
@@ -1517,8 +1522,9 @@ public final class NowPlayingViewModel: ObservableObject {
         optimisticTrackRatings[track.id] = nextDisplayRating
 
         do {
-            try await storeTrackRating(trackId: track.id, rating: nextDisplayRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: nextDisplayRating)
+            await playbackService.applyRatingLocally(trackId: track.id, rating: nextDisplayRating)
+            try await storeTrackRating(trackId: track.id, rating: nextDisplayRating)
 
             let outcome = try await performTrackRatingMutation(track, rating: nextPlexRating)
             let workflowResult = trackRatingMutationWorkflow.finishRatingUpdate(
@@ -1550,8 +1556,9 @@ public final class NowPlayingViewModel: ObservableObject {
             optimisticTrackRatings[track.id] = previousRating
             isUpdatingRating = false
             currentRating = TrackRating.from(rating: previousRating)
-            try? await storeTrackRating(trackId: track.id, rating: previousRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: previousRating)
+            await playbackService.applyRatingLocally(trackId: track.id, rating: previousRating)
+            try? await storeTrackRating(trackId: track.id, rating: previousRating)
             toastCenter.show(trackRatingMutationWorkflow.ratingFailureToast(track: track, error: error))
         }
     }
@@ -1592,6 +1599,16 @@ public final class NowPlayingViewModel: ObservableObject {
 
     private func trackDisplayRating(for track: Track) -> Int {
         optimisticTrackRatings[track.id] ?? track.rating
+    }
+
+    private func trackWithDisplayRating(_ track: Track) -> Track {
+        let displayRating = trackDisplayRating(for: track)
+        guard displayRating != track.rating else { return track }
+        return trackWithRating(track, rating: displayRating)
+    }
+
+    private func tracksWithDisplayRatings(_ tracks: [Track]) -> [Track] {
+        tracks.map(trackWithDisplayRating)
     }
 
     // MARK: - Helpers
