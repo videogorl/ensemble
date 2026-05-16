@@ -342,7 +342,9 @@ final class PlaybackNowPlayingBridge {
         let nextArtworkRequestKey = Self.artworkRequestKey(for: track)
         let hasArtworkPath = Self.hasArtworkPath(for: track)
         let artworkForMetadata: MPMediaItemArtwork
-        if hasArtworkPath, let artwork {
+        if hasArtworkPath,
+           artworkRequestKey == nextArtworkRequestKey,
+           let artwork {
             artworkForMetadata = artwork
         } else {
             artworkForMetadata = Self.fallbackArtwork(for: track)
