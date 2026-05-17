@@ -1000,6 +1000,7 @@ public final class DependencyContainer: @unchecked Sendable {
                                 authToken: credential.authToken,
                                 servers: result.servers
                             )
+                            config = acctMgr.applyingCredentialLibrarySelection(to: config, credential: credential)
                             if syncToggles.isFeatureEnabled(.libraries) {
                                 config = acctMgr.applyingSyncedLibraryFlags(to: config)
                             }
