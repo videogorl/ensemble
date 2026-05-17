@@ -94,7 +94,7 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         XCTAssertTrue(result.serversNeedingPlaylistCleanup.isEmpty)
     }
 
-    func testApplyLibraryFlagsSchedulesServerCleanupWhenLastLibraryIsDisabled() throws {
+    func testApplyLibraryFlagsIgnoresAllFalsePayloadWhenLocalLibrariesAreEnabled() throws {
         let manager = AccountManager(keychain: TestKeychain())
         manager.addPlexAccount(
             makeAccount(
@@ -110,7 +110,24 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
             ])
         )
 
+        let libraries = try XCTUnwrap(manager.plexAccounts.first?.servers.first?.libraries)
+        XCTAssertFalse(result.hasChanges)
+        XCTAssertTrue(libraries[0].isEnabled)
+    }
+
+    func testApplyLibraryFlagsSchedulesServerCleanupWhenLastLibraryIsDisabledAndAnotherLibraryRemainsEnabled() throws {
+        let manager = AccountManager(keychain: TestKeychain())
+        manager.addPlexAccount(makeTwoServerAccount())
+
+        let result = manager.applyLibraryFlags(
+            try makeFlagsData([
+                "account-1:server-1:1": false,
+                "account-1:server-2:2": true
+            ])
+        )
+
         XCTAssertEqual(result.disabledSources.map(\.compositeKey), ["plex:account-1:server-1:1"])
+        XCTAssertEqual(result.enabledSources.map(\.compositeKey), ["plex:account-1:server-2:2"])
         XCTAssertEqual(
             Set(result.serversNeedingPlaylistCleanup.map { "\($0.accountId):\($0.serverId)" }),
             ["account-1:server-1"]
@@ -373,6 +390,34 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
                     url: "https://example.com",
                     token: "server-token",
                     libraries: libraries
+                )
+            ]
+        )
+    }
+
+    private func makeTwoServerAccount() -> PlexAccountConfig {
+        PlexAccountConfig(
+            id: "account-1",
+            displayTitle: "tester",
+            authToken: "token",
+            servers: [
+                PlexServerConfig(
+                    id: "server-1",
+                    name: "Server One",
+                    url: "https://server-1.example.com",
+                    token: "server-token-1",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: true)
+                    ]
+                ),
+                PlexServerConfig(
+                    id: "server-2",
+                    name: "Server Two",
+                    url: "https://server-2.example.com",
+                    token: "server-token-2",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-2", key: "2", title: "Alt", isEnabled: false)
+                    ]
                 )
             ]
         )

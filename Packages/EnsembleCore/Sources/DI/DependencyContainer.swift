@@ -1053,11 +1053,6 @@ public final class DependencyContainer: @unchecked Sendable {
                     detail: "Pulled library selection from iCloud."
                 )
 
-                let disabledSourcesToCleanup = Array(Set(result.disabledSources + acctMgr.disabledSources()))
-                if !disabledSourcesToCleanup.isEmpty {
-                    await self.syncCoordinator.cleanupRemovedSourcesIfPresent(disabledSourcesToCleanup)
-                }
-
                 if !acctMgr.hasAnySources && !syncToggles.hasCompletedFirstConnect {
                     self.scheduleSyncBootstrap(reason: "remote-library-flags", feature: .sources)
                 }
@@ -1065,6 +1060,11 @@ public final class DependencyContainer: @unchecked Sendable {
                 guard result.hasChanges else { return }
 
                 self.syncCoordinator.refreshProviders()
+
+                let disabledSourcesToCleanup = Array(Set(result.disabledSources))
+                if !disabledSourcesToCleanup.isEmpty {
+                    await self.syncCoordinator.cleanupRemovedSourcesIfPresent(disabledSourcesToCleanup)
+                }
 
                 for server in result.serversNeedingPlaylistCleanup {
                     await self.syncCoordinator.cleanupServerPlaylists(

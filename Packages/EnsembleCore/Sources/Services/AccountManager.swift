@@ -185,6 +185,13 @@ public final class AccountManager: ObservableObject {
             return LibraryFlagApplicationResult()
         }
 
+        guard !shouldSuppressAllDisabledRemoteLibraryFlags(flags) else {
+            EnsembleLogger.info(
+                "Sync library flags: ignored all-disabled remote payload while local libraries are enabled"
+            )
+            return LibraryFlagApplicationResult()
+        }
+
         syncedLibraryFlags = flags
 
         var didChange = false
@@ -457,6 +464,16 @@ public final class AccountManager: ObservableObject {
             servers: updatedServers
         )
 
+        let sourceId = MusicSourceIdentifier(
+            type: .plex,
+            accountId: accountId,
+            serverId: serverId,
+            libraryId: libraryKey
+        )
+        EnsembleLogger.info(
+            "AccountManager: library selection changed source=\(sourceId.compositeKey) enabled=\(isEnabled)"
+        )
+
         saveAccounts()
         return true
     }
@@ -699,6 +716,15 @@ public final class AccountManager: ObservableObject {
     private func shouldSuppressLibraryFlagsDuringFirstConnect(_ flags: [String: Bool]) -> Bool {
         guard isAwaitingCloudSources else { return false }
         return flags.isEmpty || flags.values.allSatisfy { !$0 }
+    }
+
+    private func shouldSuppressAllDisabledRemoteLibraryFlags(_ flags: [String: Bool]) -> Bool {
+        guard !flags.isEmpty, flags.values.allSatisfy({ !$0 }) else { return false }
+        return plexAccounts.contains { account in
+            account.servers.contains { server in
+                server.libraries.contains(where: \.isEnabled)
+            }
+        }
     }
 
     private func requiresSyncReconciliation(

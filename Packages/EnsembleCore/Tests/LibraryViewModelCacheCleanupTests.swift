@@ -68,18 +68,25 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         try await waitForDeferredOfflineCleanup(harness: harness)
     }
 
-    func testLoadLibraryPurgesAllCachedLibraryDataWhenNoLibrariesAreEnabled() async throws {
+    func testLoadLibraryPreservesCachedLibraryDataWhenConfiguredAccountHasNoEnabledLibraries() async throws {
         let harness = makeHarness()
+        let sourceKey = "plex:account-1:server-1:lib-1"
         harness.accountManager.addPlexAccount(
             makeAccount(libraries: [("lib-1", "Library One", false)])
         )
-        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: "plex:account-1:server-1:lib-1")
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
 
         let viewModel = makeViewModel(harness: harness)
         await viewModel.loadLibrary()
 
         XCTAssertTrue(viewModel.tracks.isEmpty)
-        try await waitForDeferredCleanup(repository: harness.libraryRepository)
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+
+        let sourceKeys = Set(try await harness.libraryRepository.fetchMusicSources().map(\.compositeKey))
+        XCTAssertEqual(sourceKeys, [sourceKey])
+
+        let trackSourceKeys = Set(try await harness.libraryRepository.fetchTracks().compactMap(\.sourceCompositeKey))
+        XCTAssertEqual(trackSourceKeys, [sourceKey])
     }
 
     func testLoadLibraryPurgesCachedSourcesThatAreNoLongerEnabled() async throws {

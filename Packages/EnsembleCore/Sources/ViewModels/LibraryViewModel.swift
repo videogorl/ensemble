@@ -398,10 +398,19 @@ public final class LibraryViewModel: ObservableObject {
 
         let cachedSourceKeys = Set(try await libraryRepository.fetchMusicSources().map(\.compositeKey))
         guard !enabledSourceKeys.isEmpty else {
-            if !cachedSourceKeys.isEmpty {
-                EnsembleLogger.info("LibraryViewModel: purging cached library data because no libraries are enabled")
-            }
             clearInMemoryLibrary()
+
+            guard !accountManager.hasAnySources else {
+                cancelCachedSourceCleanup()
+                if !cachedSourceKeys.isEmpty {
+                    EnsembleLogger.info("LibraryViewModel: preserving cached library data while no libraries are enabled")
+                }
+                return false
+            }
+
+            if !cachedSourceKeys.isEmpty {
+                EnsembleLogger.info("LibraryViewModel: purging cached library data because no source accounts are configured")
+            }
             scheduleCachedSourceCleanup(sourceKeys: cachedSourceKeys, deleteAllLibraryData: true)
             return false
         }
@@ -412,6 +421,11 @@ public final class LibraryViewModel: ObservableObject {
             scheduleCachedSourceCleanup(sourceKeys: staleSourceKeys, deleteAllLibraryData: false)
         }
         return true
+    }
+
+    private func cancelCachedSourceCleanup() {
+        cachedSourceCleanupTask?.cancel()
+        cachedSourceCleanupTask = nil
     }
 
     /// Schedules destructive stale-source cleanup outside the browse load path.
