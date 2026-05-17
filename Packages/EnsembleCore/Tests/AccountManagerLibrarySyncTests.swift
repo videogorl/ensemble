@@ -156,6 +156,77 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         XCTAssertTrue(libraries[0].isEnabled)
     }
 
+    func testUpdatePlexAccountPreservesLocalSelectionWhenCachedRemoteFlagIsStale() throws {
+        let manager = AccountManager(keychain: TestKeychain())
+        manager.addPlexAccount(
+            makeAccount(
+                libraries: [
+                    PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: false)
+                ]
+            )
+        )
+
+        _ = manager.applyLibraryFlags(
+            try makeVersionedFlagsData([
+                VersionedFlagPayload(
+                    key: "account-1:server-1:1",
+                    isEnabled: false,
+                    updatedAt: 1,
+                    originDeviceID: "other-device"
+                )
+            ])
+        )
+
+        XCTAssertTrue(
+            manager.setLibraryEnabled(
+                accountId: "account-1",
+                serverId: "server-1",
+                libraryKey: "1",
+                isEnabled: true
+            )
+        )
+
+        manager.updatePlexAccount(
+            makeAccount(
+                serverURL: "https://refreshed.example.com",
+                libraries: [
+                    PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: true)
+                ]
+            )
+        )
+
+        let account = try XCTUnwrap(manager.plexAccounts.first)
+        let server = try XCTUnwrap(account.servers.first)
+        let libraries = server.libraries
+        XCTAssertEqual(server.url, "https://refreshed.example.com")
+        XCTAssertTrue(libraries[0].isEnabled)
+    }
+
+    func testAddPlexAccountPreservesLocalSelectionWhenReplacingExistingAccount() throws {
+        let manager = AccountManager(keychain: TestKeychain())
+        manager.addPlexAccount(
+            makeAccount(
+                libraries: [
+                    PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: true)
+                ]
+            )
+        )
+
+        manager.addPlexAccount(
+            makeAccount(
+                serverName: "Renamed Server",
+                libraries: [
+                    PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: false)
+                ]
+            )
+        )
+
+        let server = try XCTUnwrap(manager.plexAccounts.first?.servers.first)
+        let libraries = server.libraries
+        XCTAssertEqual(server.name, "Renamed Server")
+        XCTAssertTrue(libraries[0].isEnabled)
+    }
+
     func testApplyLibraryFlagsAcceptsNewerAllDisabledPayload() throws {
         let manager = AccountManager(keychain: TestKeychain())
         manager.addPlexAccount(
@@ -479,7 +550,11 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         XCTAssertEqual(synced.map(\.accountId), ["account-1"])
     }
 
-    private func makeAccount(libraries: [PlexLibraryConfig]) -> PlexAccountConfig {
+    private func makeAccount(
+        serverName: String = "Server",
+        serverURL: String = "https://example.com",
+        libraries: [PlexLibraryConfig]
+    ) -> PlexAccountConfig {
         PlexAccountConfig(
             id: "account-1",
             displayTitle: "tester",
@@ -487,8 +562,8 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
             servers: [
                 PlexServerConfig(
                     id: "server-1",
-                    name: "Server",
-                    url: "https://example.com",
+                    name: serverName,
+                    url: serverURL,
                     token: "server-token",
                     libraries: libraries
                 )
