@@ -154,6 +154,71 @@ final class SystemMediaIntegrationServiceTests: XCTestCase {
         )
     }
 
+    func testSystemMediaSourceScopeAllowsOnlyEnabledLibraryKeys() {
+        let allowedSources: Set<String> = ["plex:account-one:server-one:music"]
+
+        XCTAssertTrue(SystemMediaSourceScope.allows(
+            "plex:account-one:server-one:music",
+            within: allowedSources
+        ))
+        XCTAssertFalse(SystemMediaSourceScope.allows(
+            "plex:account-one:server-one:audiobooks",
+            within: allowedSources
+        ))
+        XCTAssertFalse(SystemMediaSourceScope.allows(
+            "plex:account-one:server-one:music",
+            within: []
+        ))
+        XCTAssertFalse(SystemMediaSourceScope.allows(nil, within: allowedSources))
+        XCTAssertTrue(SystemMediaSourceScope.allows(nil, within: nil))
+    }
+
+    func testSystemMediaSourceScopeExpandsPlaylistKeysToEnabledServers() {
+        let playlistSources = SystemMediaSourceScope.playlistSourceKeys(
+            forEnabledLibraryKeys: ["plex:account-one:server-one:music"]
+        )
+
+        XCTAssertTrue(playlistSources.contains("plex:account-one:server-one:music"))
+        XCTAssertTrue(playlistSources.contains("plex:account-one:server-one"))
+        XCTAssertFalse(playlistSources.contains("plex:account-one:server-two"))
+    }
+
+    func testStaleSystemMediaReferencesFindsItemsRemovedFromCurrentIndex() {
+        let kept = SiriMediaIndexItem(
+            kind: .album,
+            id: "album-1",
+            displayName: "Kept",
+            sourceCompositeKey: "plex:account-one:server-one:music"
+        )
+        let removed = SiriMediaIndexItem(
+            kind: .playlist,
+            id: "playlist-1",
+            displayName: "Removed",
+            sourceCompositeKey: "plex:account-one:server-two"
+        )
+        let previous = SiriMediaIndex(items: [kept, removed])
+        let current = SiriMediaIndex(items: [kept])
+
+        let staleReferences = SystemMediaIntegrationService.staleSystemMediaReferences(
+            previous: previous,
+            current: current
+        )
+
+        XCTAssertEqual(staleReferences.map(\.sourceScopedIdentifier), [removed.reference.sourceScopedIdentifier])
+    }
+
+    func testDonationIdentifiersCoverShuffleVariants() {
+        let reference = makeReference(kind: .playlist)
+
+        XCTAssertEqual(
+            SystemMediaIntegrationService.donationIdentifiers(for: reference),
+            [
+                "ensemble.play.playlist||playlist-1||plex://server.one/library.shuffle.0",
+                "ensemble.play.playlist||playlist-1||plex://server.one/library.shuffle.1"
+            ]
+        )
+    }
+
     func testSiriVocabularyStringsIncludeVideoPlaylistVariants() {
         let items = [
             SiriMediaIndexItem(

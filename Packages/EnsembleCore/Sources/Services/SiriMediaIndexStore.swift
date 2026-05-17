@@ -2,6 +2,8 @@ import EnsembleSiriShared
 import EnsemblePersistence
 import Foundation
 
+public typealias SystemMediaEnabledSourceKeysProvider = @MainActor () -> Set<String>
+
 /// Notification contract for requesting Siri media index rebuilds.
 public enum SiriMediaIndexNotifications {
     public static let rebuildRequested = Notification.Name(
@@ -21,6 +23,27 @@ public enum SiriMediaIndexNotifications {
     }
 }
 
+enum SystemMediaSourceScope {
+    static func allows(_ sourceCompositeKey: String?, within allowedSourceKeys: Set<String>?) -> Bool {
+        guard let allowedSourceKeys else { return true }
+        guard let sourceCompositeKey else { return false }
+        return allowedSourceKeys.contains(sourceCompositeKey)
+    }
+
+    static func playlistSourceKeys(forEnabledLibraryKeys enabledLibrarySourceKeys: Set<String>) -> Set<String> {
+        var sourceKeys = enabledLibrarySourceKeys
+
+        for librarySourceKey in enabledLibrarySourceKeys {
+            guard let serverSourceKey = MediaSourceIdentity.serverSourceKey(from: librarySourceKey) else {
+                continue
+            }
+            sourceKeys.insert(serverSourceKey)
+        }
+
+        return sourceKeys
+    }
+}
+
 /// Persists and refreshes the Siri media index in the shared App Group container.
 @MainActor
 public final class SiriMediaIndexStore {
@@ -29,34 +52,16 @@ public final class SiriMediaIndexStore {
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
-    private let notificationCenter: NotificationCenter
-    private var observerToken: NSObjectProtocol?
+    private let enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider?
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
-        notificationCenter: NotificationCenter = .default
+        enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider? = nil
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
-        self.notificationCenter = notificationCenter
-
-        observerToken = notificationCenter.addObserver(
-            forName: SiriMediaIndexNotifications.rebuildRequested,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
-                await self.rebuildIndex()
-            }
-        }
-    }
-
-    deinit {
-        if let observerToken {
-            notificationCenter.removeObserver(observerToken)
-        }
+        self.enabledSourceKeysProvider = enabledSourceKeysProvider
     }
 
     /// Loads a fresh-enough Siri index from disk.
@@ -76,10 +81,22 @@ public final class SiriMediaIndexStore {
     @discardableResult
     public func rebuildIndex() async -> SiriMediaIndex? {
         do {
-            let artists = Array(try await libraryRepository.fetchArtists().prefix(1500))
-            let albums = Array(try await libraryRepository.fetchAlbums().prefix(1500))
-            let tracks = Array(try await libraryRepository.fetchSiriEligibleTracks().prefix(1000))
-            let playlists = Array(try await playlistRepository.fetchPlaylists().prefix(500))
+            let enabledLibrarySourceKeys = enabledSourceKeysProvider?()
+            let playlistSourceKeys = enabledLibrarySourceKeys.map {
+                SystemMediaSourceScope.playlistSourceKeys(forEnabledLibraryKeys: $0)
+            }
+            let artists = Array(try await libraryRepository.fetchArtists()
+                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
+                .prefix(1500))
+            let albums = Array(try await libraryRepository.fetchAlbums()
+                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
+                .prefix(1500))
+            let tracks = Array(try await libraryRepository.fetchSiriEligibleTracks()
+                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
+                .prefix(1000))
+            let playlists = Array(try await playlistRepository.fetchPlaylists()
+                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: playlistSourceKeys) }
+                .prefix(500))
 
             var items: [SiriMediaIndexItem] = []
             items.reserveCapacity(artists.count + albums.count + tracks.count + playlists.count)

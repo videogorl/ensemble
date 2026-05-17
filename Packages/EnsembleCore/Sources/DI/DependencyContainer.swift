@@ -575,10 +575,14 @@ public final class DependencyContainer: @unchecked Sendable {
         playback: PlaybackBootstrap,
         mutation: MutationBootstrap
     ) -> SiriBootstrap {
+        let enabledSystemMediaSourceKeys: SystemMediaEnabledSourceKeysProvider = { @MainActor in
+            Set(network.accountManager.enabledSources().map(\.compositeKey))
+        }
         let siriMediaIndexStore = MainActor.assumeIsolated {
             SiriMediaIndexStore(
                 libraryRepository: core.libraryRepository,
-                playlistRepository: core.playlistRepository
+                playlistRepository: core.playlistRepository,
+                enabledSourceKeysProvider: enabledSystemMediaSourceKeys
             )
         }
         let siriPlaybackCoordinator = MainActor.assumeIsolated {
@@ -607,7 +611,8 @@ public final class DependencyContainer: @unchecked Sendable {
         let siriMediaUserContextManager = MainActor.assumeIsolated {
             SiriMediaUserContextManager(
                 libraryRepository: core.libraryRepository,
-                playlistRepository: core.playlistRepository
+                playlistRepository: core.playlistRepository,
+                enabledSourceKeysProvider: enabledSystemMediaSourceKeys
             )
         }
         let systemMediaIntegrationService = MainActor.assumeIsolated {
