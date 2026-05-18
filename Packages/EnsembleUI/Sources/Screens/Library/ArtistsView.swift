@@ -685,7 +685,7 @@ public struct ArtistDetailView: View {
                 MediaActionLabel(kind: .pin(isPinned: isPinned))
             }
 
-            if canDownload {
+            if !displayArtist.isMerged && canDownload {
                 Button {
                     Task {
                         await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
@@ -1245,8 +1245,10 @@ public struct ArtistDetailView: View {
             }
         } label: {
             MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
+                .labelStyle(.iconOnly)
         }
         .buttonStyle(.borderless)
+        .accessibilityLabel(isDownloaded ? "Remove Download" : "Download")
     }
 
     private func canDownload(_ artist: Artist) -> Bool {
