@@ -475,7 +475,7 @@ private extension View {
     func macViewportNowPlayingWindowChromeHidden(_ isHidden: Bool) -> some View {
         #if os(macOS)
         self.background(
-            MacWindowToolbarVisibilityBridge(
+            MacWindowNowPlayingChromeBridge(
                 isHidden: isHidden
             )
         )
@@ -486,27 +486,33 @@ private extension View {
 }
 
 #if os(macOS)
-private struct MacWindowToolbarVisibilityBridge: NSViewRepresentable {
+private struct MacWindowNowPlayingChromeBridge: NSViewRepresentable {
     let isHidden: Bool
 
-    func makeNSView(context: Context) -> ToolbarVisibilityProbeView {
-        let view = ToolbarVisibilityProbeView()
+    func makeNSView(context: Context) -> NowPlayingChromeProbeView {
+        let view = NowPlayingChromeProbeView()
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }
 
-    func updateNSView(_ nsView: ToolbarVisibilityProbeView, context: Context) {
+    func updateNSView(_ nsView: NowPlayingChromeProbeView, context: Context) {
         nsView.isToolbarHidden = isHidden
-        nsView.applyToolbarVisibility()
+        nsView.applyWindowChrome()
     }
 
-    final class ToolbarVisibilityProbeView: NSView {
+    final class NowPlayingChromeProbeView: NSView {
         var isToolbarHidden = false
         private weak var appliedWindow: NSWindow?
+        private var didCaptureOriginalChrome = false
+        private var originalTitle: String?
+        private var originalStyleMask: NSWindow.StyleMask?
         private var originalTitleVisibility: NSWindow.TitleVisibility?
         private var originalTitlebarAppearsTransparent: Bool?
+        private var originalTitlebarSeparatorStyle: NSTitlebarSeparatorStyle?
+        private var originalToolbarStyle: NSWindow.ToolbarStyle?
         private var originalToolbarBaselineSeparatorVisibility: Bool?
-        private var originalToolbarItemViewVisibility: [ObjectIdentifier: (view: NSView, isHidden: Bool)] = [:]
+        private var originalToolbarChromeViewVisibility: [ObjectIdentifier: (view: NSView, isHidden: Bool)] = [:]
+        private var isReapplyScheduled = false
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -516,10 +522,10 @@ private struct MacWindowToolbarVisibilityBridge: NSViewRepresentable {
                 self.appliedWindow = nil
             }
 
-            applyToolbarVisibility()
+            applyWindowChrome()
         }
 
-        func applyToolbarVisibility() {
+        func applyWindowChrome() {
             guard let window else {
                 restoreAppliedWindowIfNeeded()
                 return
@@ -531,7 +537,7 @@ private struct MacWindowToolbarVisibilityBridge: NSViewRepresentable {
             }
 
             if isToolbarHidden {
-                hideWindowChrome(on: window)
+                applyNowPlayingChrome(on: window)
             } else {
                 restoreWindowChrome(on: window)
             }
@@ -552,48 +558,200 @@ private struct MacWindowToolbarVisibilityBridge: NSViewRepresentable {
             self.appliedWindow = nil
         }
 
-        private func hideWindowChrome(on window: NSWindow) {
-            if originalTitleVisibility == nil {
-                originalTitleVisibility = window.titleVisibility
-                originalTitlebarAppearsTransparent = window.titlebarAppearsTransparent
-            }
+        private func applyNowPlayingChrome(on window: NSWindow) {
+            captureOriginalChromeIfNeeded(from: window)
+            applyHiddenTitlebarChrome(on: window)
+            setToolbarChromeHidden(true, on: window)
 
+            validateWindowButtons(on: window)
+            scheduleToolbarReapplyIfNeeded(for: window)
+        }
+
+        private func applyHiddenTitlebarChrome(on window: NSWindow) {
+            window.title = ""
+            window.styleMask.insert(.fullSizeContentView)
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
+            window.titlebarSeparatorStyle = .none
+        }
 
-            setToolbarItemsHidden(true, on: window.toolbar)
+        private func captureOriginalChromeIfNeeded(from window: NSWindow) {
+            guard !didCaptureOriginalChrome else { return }
+
+            didCaptureOriginalChrome = true
+            originalTitle = window.title
+            originalStyleMask = window.styleMask
+            originalTitleVisibility = window.titleVisibility
+            originalTitlebarAppearsTransparent = window.titlebarAppearsTransparent
+            originalTitlebarSeparatorStyle = window.titlebarSeparatorStyle
+            originalToolbarStyle = window.toolbarStyle
         }
 
         private func restoreWindowChrome(on window: NSWindow) {
+            guard didCaptureOriginalChrome else { return }
+
+            restoreToolbarItems(on: window.toolbar)
+
+            if let originalTitle {
+                window.title = originalTitle
+            }
+
+            if let originalStyleMask {
+                window.styleMask = originalStyleMask
+            }
+
             if let originalTitleVisibility {
                 window.titleVisibility = originalTitleVisibility
-                self.originalTitleVisibility = nil
             }
 
             if let originalTitlebarAppearsTransparent {
                 window.titlebarAppearsTransparent = originalTitlebarAppearsTransparent
-                self.originalTitlebarAppearsTransparent = nil
             }
 
-            restoreToolbarItems(on: window.toolbar)
+            if let originalTitlebarSeparatorStyle {
+                window.titlebarSeparatorStyle = originalTitlebarSeparatorStyle
+            }
+
+            if let originalToolbarStyle {
+                window.toolbarStyle = originalToolbarStyle
+            }
+
+            didCaptureOriginalChrome = false
+            originalTitle = nil
+            originalStyleMask = nil
+            originalTitleVisibility = nil
+            originalTitlebarAppearsTransparent = nil
+            originalTitlebarSeparatorStyle = nil
+            originalToolbarStyle = nil
+            isReapplyScheduled = false
         }
 
-        private func setToolbarItemsHidden(_ isHidden: Bool, on toolbar: NSToolbar?) {
-            guard let toolbar else { return }
+        private func scheduleToolbarReapplyIfNeeded(for window: NSWindow) {
+            guard !isReapplyScheduled else { return }
+            isReapplyScheduled = true
+
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self else { return }
+                self.isReapplyScheduled = false
+                guard self.isToolbarHidden,
+                      let window,
+                      self.appliedWindow === window else {
+                    return
+                }
+
+                self.applyHiddenTitlebarChrome(on: window)
+                self.setToolbarChromeHidden(true, on: window)
+                self.validateWindowButtons(on: window)
+            }
+        }
+
+        private func setToolbarChromeHidden(_ isHidden: Bool, on window: NSWindow) {
+            guard let toolbar = window.toolbar else { return }
 
             if originalToolbarBaselineSeparatorVisibility == nil {
                 originalToolbarBaselineSeparatorVisibility = toolbar.showsBaselineSeparator
             }
             toolbar.showsBaselineSeparator = !isHidden
 
+            let protectedWindowButtons = protectedWindowButtonIdentifiers(in: window)
+
             toolbar.visibleItems?.forEach { item in
-                guard let itemView = item.view else { return }
-                let identifier = ObjectIdentifier(itemView)
-                if originalToolbarItemViewVisibility[identifier] == nil {
-                    originalToolbarItemViewVisibility[identifier] = (itemView, itemView.isHidden)
+                toolbarChromeViews(for: item).forEach { chromeView in
+                    guard !protectedWindowButtons.contains(ObjectIdentifier(chromeView)) else { return }
+                    setToolbarChromeView(chromeView, hidden: isHidden)
                 }
-                itemView.isHidden = isHidden
             }
+
+            setTitlebarHostChromeHidden(
+                isHidden,
+                in: window,
+                protectedWindowButtons: protectedWindowButtons
+            )
+        }
+
+        private func protectedWindowButtonIdentifiers(in window: NSWindow) -> Set<ObjectIdentifier> {
+            Set(
+                [
+                    window.standardWindowButton(.closeButton),
+                    window.standardWindowButton(.miniaturizeButton),
+                    window.standardWindowButton(.zoomButton)
+                ]
+                .compactMap { $0 }
+                .map(ObjectIdentifier.init)
+            )
+        }
+
+        private func toolbarChromeViews(for item: NSToolbarItem) -> [NSView] {
+            guard let itemView = item.view else { return [] }
+
+            var views = [itemView]
+            var candidateView = itemView.superview
+
+            while let candidate = candidateView {
+                let className = NSStringFromClass(type(of: candidate))
+                let superviewClassName = candidate.superview.map { NSStringFromClass(type(of: $0)) } ?? ""
+
+                if className.contains("ToolbarItem") ||
+                    className.contains("NSToolbarItem") ||
+                    superviewClassName.contains("ToolbarView") {
+                    views.append(candidate)
+                    break
+                }
+
+                candidateView = candidate.superview
+            }
+
+            return views
+        }
+
+        private func setTitlebarHostChromeHidden(
+            _ isHidden: Bool,
+            in window: NSWindow,
+            protectedWindowButtons: Set<ObjectIdentifier>
+        ) {
+            guard let themeFrame = window.contentView?.superview else { return }
+            themeFrame.allDescendants().forEach { view in
+                guard !protectedWindowButtons.contains(ObjectIdentifier(view)),
+                      shouldHideTitlebarHostChrome(view) else {
+                    return
+                }
+
+                setToolbarChromeView(view, hidden: isHidden)
+            }
+        }
+
+        private func shouldHideTitlebarHostChrome(_ view: NSView) -> Bool {
+            guard isInsideTitlebarContainer(view) else { return false }
+
+            let className = NSStringFromClass(type(of: view))
+            let layerClassName = view.layer.map { NSStringFromClass(type(of: $0)) } ?? ""
+
+            return className.contains("NSToolbarView") ||
+                className.contains("NSGlassContainerView") ||
+                className.contains("NSToolbarPlatterView") ||
+                className.contains("NSGlassEffectView") ||
+                className.contains("_NSTitlebarDecorationView") ||
+                className.contains("NSTitlebarContainerBlockingView") ||
+                layerClassName.contains("CABackdropLayer")
+        }
+
+        private func isInsideTitlebarContainer(_ view: NSView) -> Bool {
+            var candidateView = view.superview
+            while let candidate = candidateView {
+                if NSStringFromClass(type(of: candidate)).contains("NSTitlebarContainerView") {
+                    return true
+                }
+                candidateView = candidate.superview
+            }
+            return false
+        }
+
+        private func setToolbarChromeView(_ view: NSView, hidden: Bool) {
+            let identifier = ObjectIdentifier(view)
+            if originalToolbarChromeViewVisibility[identifier] == nil {
+                originalToolbarChromeViewVisibility[identifier] = (view, view.isHidden)
+            }
+            view.isHidden = hidden
         }
 
         private func restoreToolbarItems(on toolbar: NSToolbar?) {
@@ -602,11 +760,34 @@ private struct MacWindowToolbarVisibilityBridge: NSViewRepresentable {
                 self.originalToolbarBaselineSeparatorVisibility = nil
             }
 
-            for (_, visibility) in originalToolbarItemViewVisibility {
+            for (_, visibility) in originalToolbarChromeViewVisibility {
                 visibility.view.isHidden = visibility.isHidden
             }
-            originalToolbarItemViewVisibility.removeAll()
+            originalToolbarChromeViewVisibility.removeAll()
         }
+
+        private func validateWindowButtons(on window: NSWindow) {
+            #if DEBUG
+            let buttonTypes: [NSWindow.ButtonType] = [
+                .closeButton,
+                .miniaturizeButton,
+                .zoomButton
+            ]
+
+            for buttonType in buttonTypes {
+                guard let button = window.standardWindowButton(buttonType), !button.isHidden else {
+                    EnsembleLogger.debug("[NowPlayingChrome] Missing or hidden standard window button: \(buttonType.rawValue)")
+                    continue
+                }
+            }
+            #endif
+        }
+    }
+}
+
+private extension NSView {
+    func allDescendants() -> [NSView] {
+        subviews + subviews.flatMap { $0.allDescendants() }
     }
 }
 #endif
