@@ -2,9 +2,9 @@ import EnsembleCore
 import SwiftUI
 
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #elseif canImport(AppKit)
-import AppKit
+    import AppKit
 #endif
 
 /// View showing favorited/loved tracks (rated 4+ stars)
@@ -32,17 +32,17 @@ public struct FavoritesView: View {
 
     private var backgroundColor: Color {
         #if os(macOS)
-        return EnsembleDesign.Color.windowSurface
+            return EnsembleDesign.Color.windowSurface
         #else
-        return EnsembleDesign.Color.windowSurface
+            return EnsembleDesign.Color.windowSurface
         #endif
     }
-    
-    public init(libraryVM: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
-        self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeFavoritesViewModel())
+
+    public init(libraryVM _: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
+        _viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeFavoritesViewModel())
         self.nowPlayingVM = nowPlayingVM
     }
-    
+
     public var body: some View {
         Group {
             if shouldShowTrackList {
@@ -54,7 +54,7 @@ public struct FavoritesView: View {
         .navigationTitle("Favorites")
         .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter favorites")
         .profileToolbar()
-                .toolbar {
+        .toolbar {
             EnsembleBrowseToolbar(isVisible: !viewModel.tracks.isEmpty) {
                 sortMenu
                 favoritesFilterButton
@@ -103,7 +103,7 @@ public struct FavoritesView: View {
     private var shouldShowTrackList: Bool {
         !hasCompletedInitialLoad || viewModel.isLoading || !viewModel.tracks.isEmpty
     }
-    
+
     private var moreMenu: some View {
         Menu {
             Button {
@@ -146,7 +146,7 @@ public struct FavoritesView: View {
                         Text(option.rawValue)
                         if viewModel.favoritesSortOption == option {
                             Image(systemName: viewModel.filterOptions.sortDirection == .ascending
-                                  ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
+                                ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
                         }
                     }
                 }
@@ -199,7 +199,7 @@ public struct FavoritesView: View {
             }
         }
     }
-    
+
     @ViewBuilder
     private var trackListView: some View {
         let interactionModel = TrackRowInteractionModel(
@@ -222,12 +222,18 @@ public struct FavoritesView: View {
             },
             onGoToAlbum: { track in
                 if let albumId = track.albumRatingKey {
-                    navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
+                    navigationCoordinator.push(
+                        .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                        in: navigationCoordinator.selectedTab
+                    )
                 }
             },
             onGoToArtist: { track in
                 if let artistId = track.artistRatingKey {
-                    navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
+                    navigationCoordinator.push(
+                        .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                        in: navigationCoordinator.selectedTab
+                    )
                 }
             },
             onShareLink: { track in
@@ -246,71 +252,71 @@ public struct FavoritesView: View {
         )
 
         #if os(iOS)
-        // iOS: ScrollView with embedded UITableView (MediaTrackList)
-        ScrollView {
+            // iOS: ScrollView with embedded UITableView (MediaTrackList)
+            ScrollView {
+                VStack(spacing: EnsembleDesign.Spacing.none) {
+                    favoritesHeaderSurface
+
+                    // Track list
+                    let trackCount = viewModel.filteredTracks.count
+                    let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
+
+                    MediaTrackList(
+                        tracks: viewModel.filteredTracks,
+                        showArtwork: true,
+                        showTrackNumbers: false,
+                        groupByDisc: false,
+                        currentTrackId: currentTrackId,
+                        availabilityGeneration: availabilityGeneration,
+                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                        interactionModel: interactionModel,
+                        supplementalMetadataWidth: trackListSupplementalMetadataWidth
+                    ) { _, index in
+                        nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+                    }
+                    .frame(height: height)
+
+                    if let footer = favoritesFooterContent {
+                        footer
+                    }
+                }
+            }
+            .miniPlayerBottomSpacing()
+            .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
+        #else
+            // macOS: AppKit-backed table owns the header and scroll range.
             VStack(spacing: EnsembleDesign.Spacing.none) {
-                favoritesHeaderSurface
-
-                // Track list
-                let trackCount = viewModel.filteredTracks.count
-                let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
-
-                MediaTrackList(
+                SongsTrackListHost(
                     tracks: viewModel.filteredTracks,
-                    showArtwork: true,
-                    showTrackNumbers: false,
-                    groupByDisc: false,
-                    currentTrackId: currentTrackId,
-                    availabilityGeneration: availabilityGeneration,
-                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                    interactionModel: interactionModel,
-                    supplementalMetadataWidth: trackListSupplementalMetadataWidth
+                    configuration: .songs(
+                        currentTrackId: currentTrackId,
+                        availabilityGeneration: availabilityGeneration,
+                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                        bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+                        supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+                        interactionModel: interactionModel
+                    ),
+                    tableHeaderContent: AnyView(favoritesHeaderSurface),
+                    tableFooterContent: favoritesFooterContent
                 ) { _, index in
                     nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
                 }
-                .frame(height: height)
+                .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
 
-                if let footer = favoritesFooterContent {
-                    footer
-                }
+                Spacer(minLength: EnsembleDesign.Spacing.none)
             }
-        }
-        .miniPlayerBottomSpacing()
-        .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
-        #else
-        // macOS: AppKit-backed table owns the header and scroll range.
-        VStack(spacing: EnsembleDesign.Spacing.none) {
-            SongsTrackListHost(
-                tracks: viewModel.filteredTracks,
-                configuration: .songs(
-                    currentTrackId: currentTrackId,
-                    availabilityGeneration: availabilityGeneration,
-                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                    bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
-                    supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-                    interactionModel: interactionModel
-                ),
-                tableHeaderContent: AnyView(favoritesHeaderSurface),
-                tableFooterContent: favoritesFooterContent
-            ) { _, index in
-                nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
-            }
-            .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
-
-            Spacer(minLength: EnsembleDesign.Spacing.none)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         #endif
     }
 
     private var favoritesFooterContent: AnyView? {
-        if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
+        if viewModel.isLoading, viewModel.filteredTracks.isEmpty {
             return AnyView(EnsembleStateScaffold(
                 kind: .loading,
                 title: "Loading favorites…",
                 presentation: .compactFooter
             ))
-        } else if !viewModel.tracks.isEmpty && viewModel.filteredTracks.isEmpty {
+        } else if !viewModel.tracks.isEmpty, viewModel.filteredTracks.isEmpty {
             return AnyView(EnsembleStateScaffold(
                 kind: .empty,
                 title: "No matching favorites",

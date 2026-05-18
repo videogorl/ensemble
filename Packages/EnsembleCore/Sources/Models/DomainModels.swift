@@ -1,24 +1,24 @@
 import Foundation
 
-/// Domain models for UI layer
-///
-/// These models represent the app's business domain and are used throughout the UI.
-/// They are distinct from CoreData models (CD*) and API models (Plex*).
-///
-/// Model Categories:
-/// - Core Media: `Track`, `Album`, `Artist` - Music content
-/// - Collections: `Genre`, `Playlist` - Content organization
-/// - Infrastructure: `Server`, `ServerConnection`, `Library` - Server configuration
-/// - Downloads: `Download`, `DownloadStatus` - Offline support
-/// - Discovery: `Hub`, `HubItem` - Home screen content sections
-/// - Sort Options: Various enums for sorting lists (TrackSortOption, AlbumSortOption, etc.)
-///
-/// Model Conversion:
-/// - API models → Domain models: via PlexAPIClient in sync providers
-/// - CoreData models → Domain models: via ModelMappers
-/// - Domain models → CoreData models: via ModelMappers
-///
-/// All models conform to Sendable for safe async/concurrent usage
+// Domain models for UI layer
+//
+// These models represent the app's business domain and are used throughout the UI.
+// They are distinct from CoreData models (CD*) and API models (Plex*).
+//
+// Model Categories:
+// - Core Media: `Track`, `Album`, `Artist` - Music content
+// - Collections: `Genre`, `Playlist` - Content organization
+// - Infrastructure: `Server`, `ServerConnection`, `Library` - Server configuration
+// - Downloads: `Download`, `DownloadStatus` - Offline support
+// - Discovery: `Hub`, `HubItem` - Home screen content sections
+// - Sort Options: Various enums for sorting lists (TrackSortOption, AlbumSortOption, etc.)
+//
+// Model Conversion:
+// - API models → Domain models: via PlexAPIClient in sync providers
+// - CoreData models → Domain models: via ModelMappers
+// - Domain models → CoreData models: via ModelMappers
+//
+// All models conform to Sendable for safe async/concurrent usage
 
 private func sourceScopedIdentity(ratingKey: String, sourceCompositeKey: String?) -> String {
     guard let sourceCompositeKey, !sourceCompositeKey.isEmpty else {
@@ -32,13 +32,13 @@ private func sourceScopedIdentity(ratingKey: String, sourceCompositeKey: String?
 /// Audio format metadata fetched on demand from the Plex API.
 /// Not persisted in CoreData — only displayed on the Now Playing Info card.
 public struct AudioFileInfo: Sendable, Equatable {
-    public let codec: String?       // e.g. "flac", "mp3", "aac"
-    public let bitrate: Int?        // kbps
-    public let sampleRate: Int?     // Hz, e.g. 44100, 96000
-    public let bitDepth: Int?       // e.g. 16, 24 (nil for lossy codecs)
-    public let fileSize: Int?       // bytes
-    public let channels: Int?       // e.g. 2 for stereo
-    public let container: String?   // e.g. "flac", "mp3"
+    public let codec: String? // e.g. "flac", "mp3", "aac"
+    public let bitrate: Int? // kbps
+    public let sampleRate: Int? // Hz, e.g. 44100, 96000
+    public let bitDepth: Int? // e.g. 16, 24 (nil for lossy codecs)
+    public let fileSize: Int? // bytes
+    public let channels: Int? // e.g. 2 for stereo
+    public let container: String? // e.g. "flac", "mp3"
 
     public init(codec: String?, bitrate: Int?, sampleRate: Int?, bitDepth: Int?, fileSize: Int?, channels: Int?, container: String?) {
         self.codec = codec
@@ -54,22 +54,22 @@ public struct AudioFileInfo: Sendable, Equatable {
 // MARK: - Track
 
 public struct Track: Identifiable, Hashable, Sendable, Codable {
-    public let id: String  // ratingKey
+    public let id: String // ratingKey
     public let key: String
     public let title: String
-    public let artistName: String?  // Track artist (originalTitle, falls back to album artist)
-    public let albumArtistName: String?  // Album artist (grandparentTitle)
+    public let artistName: String? // Track artist (originalTitle, falls back to album artist)
+    public let albumArtistName: String? // Album artist (grandparentTitle)
     public let albumName: String?
     public let albumRatingKey: String?
     public let artistRatingKey: String?
     public let trackNumber: Int
     public let discNumber: Int
-    public let duration: TimeInterval  // Seconds
+    public let duration: TimeInterval // Seconds
     public let thumbPath: String?
-    public let fallbackThumbPath: String?  // Album artwork as fallback
-    public let fallbackRatingKey: String?  // Album ratingKey
+    public let fallbackThumbPath: String? // Album artwork as fallback
+    public let fallbackRatingKey: String? // Album ratingKey
     public let streamKey: String?
-    public let streamId: Int?  // Audio stream ID for fetching loudness timeline data
+    public let streamId: Int? // Audio stream ID for fetching loudness timeline data
     public let localFilePath: String?
     public let dateAdded: Date?
     public let dateModified: Date?
@@ -199,7 +199,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
 // MARK: - Album
 
 public struct Album: Identifiable, Hashable, Sendable, Codable {
-    public let id: String  // ratingKey
+    public let id: String // ratingKey
     public let key: String
     public let title: String
     public let artistName: String?
@@ -265,21 +265,21 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
     }
 
-    // Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
-    // Skips key, artPath, dateAdded, dateModified, sourceCompositeKey, artistRatingKey.
+    /// Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
+    /// Skips key, artPath, dateAdded, dateModified, sourceCompositeKey, artistRatingKey.
     public static func == (lhs: Album, rhs: Album) -> Bool {
         lhs.id == rhs.id &&
-        lhs.title == rhs.title &&
-        lhs.artistName == rhs.artistName &&
-        lhs.albumArtist == rhs.albumArtist &&
-        lhs.year == rhs.year &&
-        lhs.trackCount == rhs.trackCount &&
-        lhs.thumbPath == rhs.thumbPath &&
-        lhs.rating == rhs.rating &&
-        lhs.genres == rhs.genres
+            lhs.title == rhs.title &&
+            lhs.artistName == rhs.artistName &&
+            lhs.albumArtist == rhs.albumArtist &&
+            lhs.year == rhs.year &&
+            lhs.trackCount == rhs.trackCount &&
+            lhs.thumbPath == rhs.thumbPath &&
+            lhs.rating == rhs.rating &&
+            lhs.genres == rhs.genres
     }
 
-    // Hashable must be consistent with custom Equatable — hash only id.
+    /// Hashable must be consistent with custom Equatable — hash only id.
     public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
@@ -295,7 +295,7 @@ private extension String {
 // MARK: - Artist
 
 public struct Artist: Identifiable, Hashable, Sendable, Codable {
-    public let id: String  // ratingKey
+    public let id: String // ratingKey
     public let key: String
     public let name: String
     public let summary: String?
@@ -304,7 +304,7 @@ public struct Artist: Identifiable, Hashable, Sendable, Codable {
     public let dateAdded: Date?
     public let dateModified: Date?
     public let sourceCompositeKey: String?
-    
+
     // Fallback artwork from first album
     public let fallbackThumbPath: String?
     public let fallbackRatingKey: String?
@@ -398,7 +398,7 @@ public struct ArtistDetail: Sendable {
 public struct AlbumDetail: Sendable {
     public let genres: [String]
     public let styles: [String]
-    public let studio: String?       // Record label
+    public let studio: String? // Record label
     public let summary: String?
     public let albumTitle: String
     public let artistName: String?
@@ -476,7 +476,7 @@ public struct Mood: Identifiable, Hashable, Sendable, Codable {
 // MARK: - Playlist
 
 public struct Playlist: Identifiable, Hashable, Sendable, Codable {
-    public let id: String  // ratingKey
+    public let id: String // ratingKey
     public let key: String
     public let title: String
     public let summary: String?
@@ -521,18 +521,18 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
         MediaFormatters.collectionDuration(duration)
     }
 
-    // Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
-    // Skips key, summary, dateAdded, dateModified, lastPlayed, sourceCompositeKey.
+    /// Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
+    /// Skips key, summary, dateAdded, dateModified, lastPlayed, sourceCompositeKey.
     public static func == (lhs: Playlist, rhs: Playlist) -> Bool {
         lhs.id == rhs.id &&
-        lhs.title == rhs.title &&
-        lhs.trackCount == rhs.trackCount &&
-        lhs.duration == rhs.duration &&
-        lhs.compositePath == rhs.compositePath &&
-        lhs.isSmart == rhs.isSmart
+            lhs.title == rhs.title &&
+            lhs.trackCount == rhs.trackCount &&
+            lhs.duration == rhs.duration &&
+            lhs.compositePath == rhs.compositePath &&
+            lhs.isSmart == rhs.isSmart
     }
 
-    // Hashable must be consistent with custom Equatable — hash only id.
+    /// Hashable must be consistent with custom Equatable — hash only id.
     public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
@@ -541,7 +541,7 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
 // MARK: - Server
 
 public struct Server: Identifiable, Hashable, Sendable, Codable {
-    public let id: String  // clientIdentifier
+    public let id: String // clientIdentifier
     public let name: String
     public let url: String
     public let connections: [ServerConnection]
@@ -569,14 +569,14 @@ public struct Server: Identifiable, Hashable, Sendable, Codable {
 }
 
 public struct ServerConnection: Identifiable, Hashable, Sendable, Codable {
-    public let id: String  // uri
+    public let id: String // uri
     public let uri: String
     public let local: Bool
     public let relay: Bool
     public let address: String?
     public let port: Int?
     public let `protocol`: String?
-    
+
     public init(
         uri: String,
         local: Bool,
@@ -585,7 +585,7 @@ public struct ServerConnection: Identifiable, Hashable, Sendable, Codable {
         port: Int? = nil,
         protocol: String? = nil
     ) {
-        self.id = uri
+        id = uri
         self.uri = uri
         self.local = local
         self.relay = relay
@@ -598,7 +598,7 @@ public struct ServerConnection: Identifiable, Hashable, Sendable, Codable {
 // MARK: - Library
 
 public struct Library: Identifiable, Hashable, Sendable, Codable {
-    public let id: String  // key
+    public let id: String // key
     public let key: String
     public let title: String
     public let type: String
@@ -619,7 +619,7 @@ public struct Library: Identifiable, Hashable, Sendable, Codable {
 // MARK: - Download
 
 public struct Download: Identifiable, Sendable {
-    public let id: String  // Track ratingKey
+    public let id: String // Track ratingKey
     public let track: Track
     public let status: DownloadStatus
     public let progress: Float
@@ -661,22 +661,22 @@ public extension String {
     var sortingKey: String {
         let prefixes = ["the ", "a ", "an "]
         let lowercased = self.lowercased()
-        
+
         for prefix in prefixes {
             if lowercased.hasPrefix(prefix) {
-                return String(self.dropFirst(prefix.count))
+                return String(dropFirst(prefix.count))
             }
         }
         return self
     }
-    
+
     /// Returns the first character for indexing, handling "The" prefix and ignoring common punctuation
     var indexingLetter: String {
         let key = sortingKey
-        
+
         // Characters to ignore when determining the indexing letter
         let ignoredCharacters = CharacterSet(charactersIn: "\"'()[]")
-        
+
         // Find the first character that isn't in the ignored set
         var cleanedKey = key
         while let firstChar = cleanedKey.first {
@@ -684,14 +684,14 @@ public extension String {
             guard ignoredCharacters.contains(firstScalar) else { break }
             cleanedKey = String(cleanedKey.dropFirst())
         }
-        
+
         // If we've removed everything, fall back to original key
         if cleanedKey.isEmpty {
             cleanedKey = key
         }
-        
+
         let firstChar = cleanedKey.prefix(1).uppercased()
-        
+
         // Return # for non-alphabetic characters (includes numbers)
         if firstChar.rangeOfCharacter(from: .letters) == nil {
             return "#"
@@ -710,7 +710,8 @@ public extension String {
 
         if let lastScalar = trimmed.unicodeScalars.last,
            CharacterSet.letters.contains(lastScalar),
-           String(lastScalar).caseInsensitiveCompare("s") == .orderedSame {
+           String(lastScalar).caseInsensitiveCompare("s") == .orderedSame
+        {
             return trimmed + "'"
         }
 
@@ -732,11 +733,9 @@ public extension String {
             }
         }
 
-        let sanitized = String(String.UnicodeScalarView(filteredScalars))
+        return String(String.UnicodeScalarView(filteredScalars))
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return sanitized
     }
 }
 
@@ -848,7 +847,7 @@ public struct Hub: Identifiable, Sendable, Equatable, Codable {
     public let title: String
     public let type: String
     public let items: [HubItem]
-    public let context: String?  // Plex hub context (e.g. "hub.music.artist" for artist-scoped hubs)
+    public let context: String? // Plex hub context (e.g. "hub.music.artist" for artist-scoped hubs)
 
     public init(id: String, title: String, type: String, items: [HubItem], context: String? = nil) {
         self.id = id
@@ -879,29 +878,38 @@ public struct Hub: Identifiable, Sendable, Equatable, Codable {
         guard let first = items.first else { return nil }
         return first.album?.artistRatingKey ?? first.track?.artistRatingKey
     }
+
+    /// Source key for the artist represented by `contextArtistId`.
+    public var contextArtistSourceCompositeKey: String? {
+        guard contextArtistId != nil, let first = items.first else { return nil }
+        return first.album?.sourceCompositeKey
+            ?? first.track?.sourceCompositeKey
+            ?? first.artist?.sourceCompositeKey
+            ?? first.sourceCompositeKey
+    }
 }
 
 /// Item within a hub (can be album, track, or playlist)
 public struct HubItem: Identifiable, Sendable, Equatable, Codable {
     public let id: String
-    public let type: String  // "album", "track", "playlist"
+    public let type: String // "album", "track", "playlist"
     public let title: String
-    public let subtitle: String?  // Artist name
+    public let subtitle: String? // Artist name
     public let thumbPath: String?
     public let year: Int?
     public let sourceCompositeKey: String
-    
+
     // Reference to actual domain object
     public let album: Album?
     public let track: Track?
     public let artist: Artist?
     public let playlist: Playlist?
-    
+
     /// Helper to get the date added from the underlying media object
     public var dateAdded: Date? {
         album?.dateAdded ?? track?.dateAdded ?? artist?.dateAdded ?? playlist?.dateAdded
     }
-    
+
     public init(
         id: String,
         type: String,

@@ -1,6 +1,6 @@
 import AVFoundation
-import XCTest
 @testable import EnsembleCore
+import XCTest
 
 final class PlaybackServiceTests: XCTestCase {
     func testAudioPlaybackEngineResolvedPlaybackPositionFallsBackToSeekOffsetWithoutRenderSample() {
@@ -8,7 +8,7 @@ final class PlaybackServiceTests: XCTestCase {
             renderSampleTime: nil,
             playerTimeBaseOffset: 0,
             seekFrameOffset: 3_282_300,
-            sampleRate: 44_100
+            sampleRate: 44100
         )
 
         XCTAssertEqual(time, 74.428571, accuracy: 0.0001)
@@ -208,7 +208,7 @@ final class PlaybackServiceTests: XCTestCase {
             id: "1",
             key: "/library/metadata/1",
             title: "Test Song",
-            duration: 185  // 3:05
+            duration: 185 // 3:05
         )
 
         XCTAssertEqual(track.formattedDuration, "3:05")
@@ -646,7 +646,7 @@ final class PlaybackServiceTests: XCTestCase {
         let now = Date()
         let stalls = [
             now.addingTimeInterval(-10),
-            now.addingTimeInterval(-5)
+            now.addingTimeInterval(-5),
         ]
 
         XCTAssertTrue(
@@ -661,7 +661,7 @@ final class PlaybackServiceTests: XCTestCase {
         let now = Date()
         let stalls = [
             now.addingTimeInterval(-40),
-            now.addingTimeInterval(-35)
+            now.addingTimeInterval(-35),
         ]
 
         XCTAssertFalse(
@@ -707,7 +707,7 @@ final class PlaybackServiceTests: XCTestCase {
 
     func testContiguousBufferedRangeEndReturnsRangeEndWhenPlaybackInsideRange() throws {
         let ranges = [
-            CMTimeRange(start: .zero, duration: CMTime(seconds: 20, preferredTimescale: 600))
+            CMTimeRange(start: .zero, duration: CMTime(seconds: 20, preferredTimescale: 600)),
         ]
 
         let rangeEnd = PlaybackService.contiguousBufferedRangeEnd(
@@ -722,7 +722,7 @@ final class PlaybackServiceTests: XCTestCase {
     func testContiguousBufferedRangeEndReturnsNilWhenPlaybackInGap() {
         let ranges = [
             CMTimeRange(start: .zero, duration: CMTime(seconds: 20, preferredTimescale: 600)),
-            CMTimeRange(start: CMTime(seconds: 40, preferredTimescale: 600), duration: CMTime(seconds: 20, preferredTimescale: 600))
+            CMTimeRange(start: CMTime(seconds: 40, preferredTimescale: 600), duration: CMTime(seconds: 20, preferredTimescale: 600)),
         ]
 
         let rangeEnd = PlaybackService.contiguousBufferedRangeEnd(
@@ -774,11 +774,11 @@ final class PlaybackServiceTests: XCTestCase {
                         platform: "Linux",
                         libraries: [
                             PlexLibraryConfig(id: "lib-1", key: "lib-1", title: "Library One", isEnabled: true),
-                            PlexLibraryConfig(id: "lib-2", key: "lib-2", title: "Library Two", isEnabled: false)
+                            PlexLibraryConfig(id: "lib-2", key: "lib-2", title: "Library Two", isEnabled: false),
                         ]
-                    )
+                    ),
                 ]
-            )
+            ),
         ]
 
         let keys = PlaybackService.enabledSourceCompositeKeys(from: accounts)
@@ -866,7 +866,7 @@ final class PlaybackServiceTests: XCTestCase {
 
     func testEffectiveDurationRejectsAbsurdlyLongItemDuration() {
         // Guard against malformed media reporting 24h+ durations
-        let absurdDuration = 25 * 60 * 60.0  // 25 hours
+        let absurdDuration = 25 * 60 * 60.0 // 25 hours
         let result = PlaybackService.effectiveDuration(metadataDuration: 180, itemDuration: absurdDuration)
         XCTAssertEqual(result, 180)
     }
@@ -901,7 +901,7 @@ final class PlaybackServiceTests: XCTestCase {
         // AVPlayer reporting slightly longer (within 10%) is normal for transcoded
         // streams — allow it so progress bar doesn't complete early.
         let result = PlaybackService.effectiveDuration(metadataDuration: 180, itemDuration: 195)
-        XCTAssertEqual(result, 195)  // 8.3% over, within 10% threshold
+        XCTAssertEqual(result, 195) // 8.3% over, within 10% threshold
     }
 
     func testPruneDuplicateFutureAutoplayItemsRemovesAlternateAlbumVersion() {
@@ -932,7 +932,7 @@ final class PlaybackServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(result.queue.map(\.id), ["current", "manual-teeth", "bang"])
-        XCTAssertEqual(result.removedTrackIds, ["11979"])
+        XCTAssertEqual(result.removedTrackIds, [duplicateAutoplayTeeth.track.playbackIdentity])
         XCTAssertEqual(result.removedItemCount, 1)
     }
 

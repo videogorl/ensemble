@@ -26,7 +26,7 @@ final class PlaybackPrefetchController {
         var indices: [Int] = []
         var nextIndex = currentQueueIndex
 
-        for _ in 0..<depth {
+        for _ in 0 ..< depth {
             nextIndex += 1
             if nextIndex >= queueCount {
                 guard repeatMode == .all else { break }
@@ -72,7 +72,7 @@ final class PlaybackPrefetchController {
             currentQueueIndex: currentQueueIndex,
             repeatMode: repeatMode,
             depth: scheduledTrackIDs.count
-        ).map { queue[$0].track.id }
+        ).map { queue[$0].track.playbackIdentity }
 
         return scheduledTrackIDs != expectedTrackIDs
     }
@@ -152,16 +152,16 @@ final class PlaybackPrefetchController {
         if context.currentQueueIndex >= 0, !context.queue.isEmpty {
             var neighborhood = Set<String>()
             if context.currentQueueIndex < context.queue.count {
-                neighborhood.insert(context.queue[context.currentQueueIndex].track.id)
+                neighborhood.insert(context.queue[context.currentQueueIndex].track.playbackIdentity)
             }
-            for offset in 1...2 {
+            for offset in 1 ... 2 {
                 let nextIdx = context.currentQueueIndex + offset
                 if nextIdx < context.queue.count {
-                    neighborhood.insert(context.queue[nextIdx].track.id)
+                    neighborhood.insert(context.queue[nextIdx].track.playbackIdentity)
                 }
             }
             if context.currentQueueIndex > 0 {
-                neighborhood.insert(context.queue[context.currentQueueIndex - 1].track.id)
+                neighborhood.insert(context.queue[context.currentQueueIndex - 1].track.playbackIdentity)
             }
             keepIds = neighborhood
         }
@@ -177,7 +177,7 @@ final class PlaybackPrefetchController {
         var removedCount = 0
         for file in files {
             let ratingKey = file.prefix(while: { $0 != "_" })
-            if !ratingKey.isEmpty && !keepIds.contains(String(ratingKey)) {
+            if !ratingKey.isEmpty, !keepIds.contains(String(ratingKey)) {
                 try? FileManager.default.removeItem(at: cacheDir.appendingPathComponent(file))
                 removedCount += 1
             }

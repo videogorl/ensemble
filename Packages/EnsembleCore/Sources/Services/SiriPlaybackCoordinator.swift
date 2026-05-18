@@ -1,5 +1,5 @@
-import EnsembleSiriShared
 import EnsemblePersistence
+import EnsembleSiriShared
 import Foundation
 
 /// Resolved playback request used by Siri execution entry points.
@@ -28,13 +28,13 @@ public enum SiriPlaybackCoordinatorError: Error, LocalizedError, Equatable {
 
     public var errorDescription: String? {
         switch self {
-        case .unsupportedPayloadVersion(let version):
+        case let .unsupportedPayloadVersion(version):
             return "Unsupported Siri request version (\(version))."
         case .noEnabledSources:
             return "No enabled music sources are available."
-        case .mediaNotFound(let kind):
+        case let .mediaNotFound(kind):
             return "\(kind.rawValue.capitalized) could not be found."
-        case .noPlayableTracks(let kind):
+        case let .noPlayableTracks(kind):
             return "No playable tracks were found for this \(kind.rawValue)."
         }
     }
@@ -67,7 +67,8 @@ public final class SiriPlaybackCoordinator {
     public func handle(userActivity: NSUserActivity) async -> Bool {
         EnsembleLogger.debug("Siri playback coordinator received activity type: \(userActivity.activityType)")
         guard userActivity.activityType == SiriPlaybackActivityCodec.activityType,
-              let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo) else {
+              let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo)
+        else {
             EnsembleLogger.debug("Siri playback coordinator rejected activity (type/payload mismatch)")
             return false
         }
@@ -316,7 +317,10 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> CDTrack? {
-        if let direct = try await libraryRepository.fetchTrack(ratingKey: request.entityID) {
+        if let direct = try await libraryRepository.fetchTrack(
+            ratingKey: request.entityID,
+            sourceCompositeKey: request.sourceCompositeKey
+        ) {
             return direct
         }
 
@@ -344,7 +348,7 @@ public final class SiriPlaybackCoordinator {
             return resolved
         }
 
-        let fuzzyPool = Array(try await libraryRepository.fetchSiriEligibleTracks().prefix(800))
+        let fuzzyPool = try Array(await libraryRepository.fetchSiriEligibleTracks().prefix(800))
         let fuzzyCandidates = fuzzyCandidates(
             from: fuzzyPool,
             request: request,
@@ -382,7 +386,10 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> CDAlbum? {
-        if let direct = try await libraryRepository.fetchAlbum(ratingKey: request.entityID) {
+        if let direct = try await libraryRepository.fetchAlbum(
+            ratingKey: request.entityID,
+            sourceCompositeKey: request.sourceCompositeKey
+        ) {
             return direct
         }
 
@@ -407,7 +414,7 @@ public final class SiriPlaybackCoordinator {
             return resolved
         }
 
-        let fuzzyPool = Array(try await libraryRepository.fetchAlbums().prefix(800))
+        let fuzzyPool = try Array(await libraryRepository.fetchAlbums().prefix(800))
         let fuzzyMatches = fuzzyCandidates(
             from: fuzzyPool,
             request: request,
@@ -430,7 +437,10 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> CDArtist? {
-        if let direct = try await libraryRepository.fetchArtist(ratingKey: request.entityID) {
+        if let direct = try await libraryRepository.fetchArtist(
+            ratingKey: request.entityID,
+            sourceCompositeKey: request.sourceCompositeKey
+        ) {
             return direct
         }
 
@@ -513,7 +523,7 @@ public final class SiriPlaybackCoordinator {
             return resolved
         }
 
-        let fuzzyPool = Array(try await playlistRepository.fetchPlaylists().prefix(600))
+        let fuzzyPool = try Array(await playlistRepository.fetchPlaylists().prefix(600))
         let fuzzyMatches = fuzzyCandidates(
             from: fuzzyPool,
             request: request,
@@ -559,8 +569,8 @@ public final class SiriPlaybackCoordinator {
 
         return try await playlistRepository.fetchPlaylists().first {
             $0.isSmart &&
-            playlistSearchSourceKeys.contains($0.sourceCompositeKey ?? "") &&
-            Self.favoritesPlaylistNames.contains(normalize($0.title) ?? "")
+                playlistSearchSourceKeys.contains($0.sourceCompositeKey ?? "") &&
+                Self.favoritesPlaylistNames.contains(normalize($0.title) ?? "")
         }
     }
 
@@ -569,11 +579,10 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> [Track] {
-        let tracks = try await libraryRepository.fetchTracks(forAlbum: album.ratingKey)
+        return try await libraryRepository.fetchTracks(forAlbum: album.ratingKey)
             .map(Track.init(from:))
             .filter { sourceMatches(requestSource: request.sourceCompositeKey ?? album.sourceCompositeKey, candidateSource: $0.sourceCompositeKey) }
             .filter { isPlayable(track: $0, enabledSourceKeys: enabledSourceKeys) }
-        return tracks
     }
 
     private func playableTracksForArtist(
@@ -581,11 +590,10 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> [Track] {
-        let tracks = try await libraryRepository.fetchTracks(forArtist: artist.ratingKey)
+        return try await libraryRepository.fetchTracks(forArtist: artist.ratingKey)
             .map(Track.init(from:))
             .filter { sourceMatches(requestSource: request.sourceCompositeKey ?? artist.sourceCompositeKey, candidateSource: $0.sourceCompositeKey) }
             .filter { isPlayable(track: $0, enabledSourceKeys: enabledSourceKeys) }
-        return tracks
     }
 
     private func orderedArtistShuffleTracks(_ tracks: [Track]) -> [Track] {

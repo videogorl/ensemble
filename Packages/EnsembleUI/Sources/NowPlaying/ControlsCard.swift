@@ -1,8 +1,8 @@
+import AVKit
 import EnsembleCore
 import SwiftUI
-import AVKit
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #endif
 
 /// Center card displaying artwork, scrubber, playback controls, and secondary controls
@@ -16,7 +16,7 @@ public struct ControlsCard: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss
-    
+
     // Custom slider state
     @State private var isDraggingSlider = false
     @State private var dragStartY: CGFloat = 0
@@ -30,7 +30,7 @@ public struct ControlsCard: View {
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var showLoadingIndicator = false
-    // Hold the last settled play/pause icon during skip transitions
+    /// Hold the last settled play/pause icon during skip transitions
     @State private var wasPlayingBeforeTransition = false
     // Decoupled from @Published via CurrentValueSubject — avoids firing
     // objectWillChange at ~10Hz which would re-evaluate all 4 NP cards.
@@ -40,7 +40,7 @@ public struct ControlsCard: View {
     @State private var playbackCurrentTime: TimeInterval = 0
     @State private var playbackDuration: TimeInterval = 0
     @State private var lastPlaylistTargetID: String?
-    
+
     private let namespace: Namespace.ID?
     private let animationID: String?
     private let isAlwaysVisible: Bool
@@ -55,7 +55,7 @@ public struct ControlsCard: View {
             isAlwaysVisible: isAlwaysVisible
         )
     }
-    
+
     public init(
         viewModel: NowPlayingViewModel,
         currentPage: Binding<Int>,
@@ -64,14 +64,14 @@ public struct ControlsCard: View {
         isAlwaysVisible: Bool = false
     ) {
         self.viewModel = viewModel
-        self._currentPage = currentPage
-        self._playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
-        self._ratingProjection = ObservedObject(wrappedValue: viewModel.ratingProjection)
+        _currentPage = currentPage
+        _playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
+        _ratingProjection = ObservedObject(wrappedValue: viewModel.ratingProjection)
         self.namespace = namespace
         self.animationID = animationID
         self.isAlwaysVisible = isAlwaysVisible
     }
-    
+
     public var body: some View {
         GeometryReader { geometry in
             if shouldRenderContent {
@@ -94,7 +94,7 @@ public struct ControlsCard: View {
             syncPlaybackSnapshot()
             lastPlaylistTargetID = viewModel.lastPlaylistTarget?.id
         }
-        .onChange(of: playbackProjection.currentTrack?.id) { _ in
+        .onChange(of: playbackProjection.currentTrack?.playbackIdentity) { _ in
             guard isActivePage || isAlwaysVisible else { return }
             Task { @MainActor in await refreshLastPlaylistQuickTarget() }
         }
@@ -140,9 +140,9 @@ public struct ControlsCard: View {
             playbackDuration = duration
         }
     }
-    
+
     // MARK: - Content View
-    
+
     private func contentView(track: Track, geometry: GeometryProxy) -> some View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
             // Dynamic artwork sizing for small screens
@@ -164,8 +164,7 @@ public struct ControlsCard: View {
                 .padding(.top, EnsembleScaffold.NowPlaying.cardBottomPadding)
                 .padding(.bottom, geometry.size.height > EnsembleScaffold.NowPlaying.spaciousHeightThreshold
                     ? EnsembleScaffold.NowPlaying.emptyVerticalPadding
-                    : EnsembleScaffold.NowPlaying.cardBottomPadding
-                )
+                    : EnsembleScaffold.NowPlaying.cardBottomPadding)
 
             // Scrubber/waveform
             progressView(track: track)
@@ -176,15 +175,13 @@ public struct ControlsCard: View {
                 .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
                 .padding(.top, geometry.size.height > EnsembleScaffold.NowPlaying.spaciousHeightThreshold
                     ? EnsembleScaffold.NowPlaying.sectionTopPadding
-                    : EnsembleScaffold.NowPlaying.compactSectionTopPadding
-                )
+                    : EnsembleScaffold.NowPlaying.compactSectionTopPadding)
 
             // Primary playback controls
             controlsView
                 .padding(.top, geometry.size.height > EnsembleScaffold.NowPlaying.spaciousHeightThreshold
                     ? EnsembleDesign.Spacing.xxl
-                    : EnsembleScaffold.NowPlaying.sectionTopPadding
-                )
+                    : EnsembleScaffold.NowPlaying.sectionTopPadding)
 
             Spacer(minLength: EnsembleDesign.Spacing.none)
 
@@ -196,14 +193,14 @@ public struct ControlsCard: View {
             .padding(.bottom, EnsembleScaffold.NowPlaying.cardBottomPadding)
         }
     }
-    
+
     private func emptyStateView(geometry: GeometryProxy) -> some View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
             let maxWidth = geometry.size.width - EnsembleScaffold.NowPlaying.emptyIconSize
             let maxHeight = geometry.size.height * EnsembleScaffold.NowPlaying.artworkMaxHeightRatio
             let artworkSize = min(maxWidth, maxHeight, EnsembleScaffold.NowPlaying.artworkMaxDimension)
             let artworkCornerRadius = ArtworkCornerRadius.square(for: artworkSize)
-            
+
             RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous)
                 .fill(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.emptyArtworkFillOpacity))
                 .overlay(
@@ -215,12 +212,12 @@ public struct ControlsCard: View {
                 .ensembleStandardShadow()
                 .padding(.top, EnsembleScaffold.NowPlaying.emptyVerticalPadding)
                 .padding(.bottom, EnsembleScaffold.NowPlaying.emptyVerticalPadding + EnsembleDesign.Spacing.xl)
-            
+
             VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 Text("Nothing Playing")
                     .font(EnsembleDesign.Typography.sectionTitle)
                     .foregroundColor(EnsembleDesign.Color.primaryText)
-                
+
                 Text("Play music from your library to start listening")
                     .font(EnsembleDesign.Typography.stateMessage)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
@@ -229,14 +226,14 @@ public struct ControlsCard: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.bottom, EnsembleScaffold.NowPlaying.sectionTopPadding)
-            
+
             controlsView
                 .opacity(EnsembleScaffold.NowPlaying.disabledControlsOpacity)
                 .allowsHitTesting(false)
                 .padding(.top, EnsembleDesign.Spacing.xxxl)
-            
+
             Spacer(minLength: EnsembleDesign.Spacing.none)
-            
+
             VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 secondaryControlsView
                     .opacity(EnsembleScaffold.NowPlaying.disabledControlsOpacity)
@@ -246,9 +243,9 @@ public struct ControlsCard: View {
             .padding(.bottom, EnsembleScaffold.NowPlaying.cardBottomPadding)
         }
     }
-    
+
     // MARK: - Track Metadata
-    
+
     private func trackMetadataView(track: Track) -> some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
             if let artist = track.artistName {
@@ -263,14 +260,14 @@ public struct ControlsCard: View {
                 }
                 .chromelessMediaControlButton()
             }
-            
+
             MarqueeText(
                 text: track.title,
                 font: .title2,
                 color: EnsembleDesign.Color.primaryText,
                 fontWeight: .bold
             )
-            
+
             if let album = track.albumName {
                 Button(action: {
                     handleAlbumTap(track: track)
@@ -287,9 +284,9 @@ public struct ControlsCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         // Removed shadow on text container as it can look weird on light mode
     }
-    
+
     // MARK: - Progress View / Scrubber
-    
+
     private func progressView(track: Track) -> some View {
         VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
             GeometryReader { geometry in
@@ -365,7 +362,7 @@ public struct ControlsCard: View {
 
                 if scrubRate != lastScrubRate {
                     #if os(iOS)
-                    UISelectionFeedbackGenerator().selectionChanged()
+                        UISelectionFeedbackGenerator().selectionChanged()
                     #endif
                     lastScrubRate = scrubRate
                 }
@@ -383,7 +380,7 @@ public struct ControlsCard: View {
             }
     }
 
-    // Extracted waveform builder for readability
+    /// Extracted waveform builder for readability
     @ViewBuilder
     private func waveformContent(track: Track, width: CGFloat) -> some View {
         let waveform = WaveformView(
@@ -396,42 +393,42 @@ public struct ControlsCard: View {
         .opacity(EnsembleScaffold.NowPlaying.waveformOpacity)
 
         #if os(iOS)
-        if #available(iOS 16.0, *) {
-            waveform
-                .id(track.id)
-                .transition(.opacity)
-                .animation(.easeInOut, value: track.id)
-        } else {
-            waveform
-        }
+            if #available(iOS 16.0, *) {
+                waveform
+                    .id(track.playbackIdentity)
+                    .transition(.opacity)
+                    .animation(.easeInOut, value: track.playbackIdentity)
+            } else {
+                waveform
+            }
         #else
-        waveform
-            .id(track.id)
-            .transition(.opacity)
-            .animation(.easeInOut, value: track.id)
+            waveform
+                .id(track.playbackIdentity)
+                .transition(.opacity)
+                .animation(.easeInOut, value: track.playbackIdentity)
         #endif
     }
-    
+
     private var scrubIndicator: some View {
         let isMovingUp = currentDragY < dragStartY
         let verticalDistance = abs(currentDragY - dragStartY)
         let isMaxFine = verticalDistance >= EnsembleScaffold.NowPlaying.scrubFineDistance
         let scrubInfo = getScrubInfo()
-        
+
         return HStack(spacing: EnsembleScaffold.NowPlaying.scrubIndicatorSpacing) {
             Image(systemName: isMaxFine ? EnsembleDesign.Icon.scrubFine : (isMovingUp ? EnsembleDesign.Icon.scrubUp : EnsembleDesign.Icon.scrubDown))
                 .font(EnsembleDesign.Typography.statusBadgeIcon)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
-            
+
             Text(scrubInfo.label)
                 .font(EnsembleDesign.Typography.statusBadgeIcon)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
         .transition(.opacity)
     }
-    
+
     // MARK: - Primary Controls
-    
+
     private var controlsView: some View {
         HStack(spacing: EnsembleScaffold.NowPlaying.primaryControlsSpacing) {
             // Previous
@@ -467,7 +464,7 @@ public struct ControlsCard: View {
             .task(id: playbackProjection.playbackState) {
                 await updateLoadingIndicator(for: playbackProjection.playbackState)
             }
-            
+
             // Next
             Button(action: viewModel.next) {
                 Image(systemName: EnsembleDesign.Icon.forward)
@@ -478,9 +475,9 @@ public struct ControlsCard: View {
         .chromelessMediaControlButton()
         // Removed shadow on controls
     }
-    
+
     // MARK: - Secondary Controls
-    
+
     private var secondaryControlsView: some View {
         HStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsSpacing) {
             // AirPlay
@@ -489,14 +486,14 @@ public struct ControlsCard: View {
                     width: EnsembleScaffold.NowPlaying.routePickerSize,
                     height: EnsembleScaffold.NowPlaying.routePickerSize
                 )
-            
+
             // Favorite toggle (heart)
             Button(action: viewModel.toggleRating) {
                 Image(systemName: ratingProjection.currentRating.icon)
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(ratingProjection.currentRating == .none ? EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity) : EnsembleDesign.Color.accent)
             }
-            
+
             // Add to Playlist
             Button {
                 if let currentTrack = playbackProjection.currentTrack {
@@ -510,7 +507,7 @@ public struct ControlsCard: View {
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }
-            
+
             // More menu with navigation, sharing, and quick add
             Menu {
                 if let currentTrack = playbackProjection.currentTrack {
@@ -522,7 +519,7 @@ public struct ControlsCard: View {
                                 MediaActionLabel(kind: .goToAlbum)
                             }
                         }
-                        
+
                         if currentTrack.artistRatingKey != nil {
                             Button {
                                 handleArtistTap(track: currentTrack)
@@ -555,7 +552,8 @@ public struct ControlsCard: View {
                        for: [currentTrack],
                        target: lastPlaylistQuickTarget,
                        nowPlayingVM: viewModel
-                   ) {
+                   )
+                {
                     Button {
                         PlaylistActionPresentationHost.addToRecentPlaylist(
                             [currentTrack],
@@ -579,14 +577,16 @@ public struct ControlsCard: View {
         .chromelessMediaControlMenu()
         // Removed shadow on secondary controls
     }
-    
+
     // MARK: - Helper Methods
-    
+
     /// Navigate to artist detail — store intent, then dismiss.
     /// RootView executes the push from the Now Playing presenter dismissal.
     private func handleArtistTap(track: Track) {
         if let artistId = track.artistRatingKey {
-            navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
+            navigationCoordinator.navigateFromNowPlaying(
+                to: .artist(id: artistId, sourceKey: track.sourceCompositeKey)
+            )
             closeNowPlaying()
         }
     }
@@ -594,7 +594,9 @@ public struct ControlsCard: View {
     /// Navigate to album detail — store intent, then dismiss.
     private func handleAlbumTap(track: Track) {
         if let albumId = track.albumRatingKey {
-            navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
+            navigationCoordinator.navigateFromNowPlaying(
+                to: .album(id: albumId, sourceKey: track.sourceCompositeKey)
+            )
             closeNowPlaying()
         }
     }
@@ -606,7 +608,7 @@ public struct ControlsCard: View {
             dismiss()
         }
     }
-    
+
     @MainActor
     private func syncPlaybackSnapshot() {
         waveformHeights = playbackProjection.waveformHeights
@@ -640,7 +642,7 @@ public struct ControlsCard: View {
             wasPlayingBeforeTransition = (state == .playing)
         }
     }
-    
+
     private func presentPlaylistPicker(with tracks: [Track], title: String) {
         guard !tracks.isEmpty else {
             deps.toastCenter.show(
@@ -656,30 +658,29 @@ public struct ControlsCard: View {
         }
         playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
     }
-    
+
     private func getScrubRate(verticalDistance: CGFloat) -> Double {
         switch verticalDistance {
-        case 0..<EnsembleScaffold.NowPlaying.scrubFullSpeedDistance: return 1.0
-        case EnsembleScaffold.NowPlaying.scrubFullSpeedDistance..<EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance:
+        case 0 ..< EnsembleScaffold.NowPlaying.scrubFullSpeedDistance: return 1.0
+        case EnsembleScaffold.NowPlaying.scrubFullSpeedDistance ..< EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance:
             return EnsembleScaffold.NowPlaying.scrubHalfRate
-        case EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance..<EnsembleScaffold.NowPlaying.scrubFineDistance:
+        case EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance ..< EnsembleScaffold.NowPlaying.scrubFineDistance:
             return EnsembleScaffold.NowPlaying.scrubQuarterRate
         default: return EnsembleScaffold.NowPlaying.scrubFineRate
         }
     }
-    
+
     private func getScrubInfo() -> (label: String, rate: Double) {
         let verticalDistance = abs(currentDragY - dragStartY)
         switch verticalDistance {
-        case 0..<EnsembleScaffold.NowPlaying.scrubFullSpeedDistance:
+        case 0 ..< EnsembleScaffold.NowPlaying.scrubFullSpeedDistance:
             return ("Hi-Speed Scrubbing", 1.0)
-        case EnsembleScaffold.NowPlaying.scrubFullSpeedDistance..<EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance:
+        case EnsembleScaffold.NowPlaying.scrubFullSpeedDistance ..< EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance:
             return ("Half-Speed Scrubbing", EnsembleScaffold.NowPlaying.scrubHalfRate)
-        case EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance..<EnsembleScaffold.NowPlaying.scrubFineDistance:
+        case EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance ..< EnsembleScaffold.NowPlaying.scrubFineDistance:
             return ("Quarter-Speed Scrubbing", EnsembleScaffold.NowPlaying.scrubQuarterRate)
         default:
             return ("Fine Scrubbing", EnsembleScaffold.NowPlaying.scrubFineRate)
         }
     }
-    
 }

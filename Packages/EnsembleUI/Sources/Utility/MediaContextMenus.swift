@@ -256,7 +256,10 @@ struct AlbumActionsContextMenu: View {
             return
         }
 
-        self.navigationCoordinator.push(.artist(id: artistId), in: self.navigationCoordinator.selectedTab)
+        navigationCoordinator.push(
+            .artist(id: artistId, sourceKey: album.sourceCompositeKey),
+            in: navigationCoordinator.selectedTab
+        )
     }
 
     private func withAlbumTracks(_ album: Album, perform action: @escaping ([Track]) -> Void) {
@@ -285,7 +288,8 @@ struct AlbumActionsContextMenu: View {
     private func resolveTracks(for album: Album) async -> [Track] {
         guard let sourceKey = album.sourceCompositeKey else { return [] }
         if let cached = try? await deps.libraryRepository.fetchTracks(forAlbum: album.id, sourceCompositeKey: sourceKey),
-           !cached.isEmpty {
+           !cached.isEmpty
+        {
             return cached.map { Track(from: $0) }
         }
         return (try? await deps.syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)) ?? []
@@ -431,7 +435,8 @@ struct ArtistActionsContextMenu: View {
     private func resolveTracks(for artist: Artist) async -> [Track] {
         guard let sourceKey = artist.sourceCompositeKey else { return [] }
         if let cached = try? await deps.libraryRepository.fetchTracks(forArtist: artist.id, sourceCompositeKey: sourceKey),
-           !cached.isEmpty {
+           !cached.isEmpty
+        {
             return cached.map { Track(from: $0) }
         }
         return (try? await deps.syncCoordinator.getArtistTracks(artistId: artist.id, sourceKey: sourceKey)) ?? []

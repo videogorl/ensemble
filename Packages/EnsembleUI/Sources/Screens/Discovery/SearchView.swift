@@ -32,22 +32,22 @@ public struct SearchView: View {
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
         let container = DependencyContainer.shared
-        self.accountManager = container.accountManager
-        self.syncCoordinator = container.syncCoordinator
-        self._viewModel = StateObject(wrappedValue: viewModel ?? container.makeSearchViewModel())
+        accountManager = container.accountManager
+        syncCoordinator = container.syncCoordinator
+        _viewModel = StateObject(wrappedValue: viewModel ?? container.makeSearchViewModel())
         self.nowPlayingVM = nowPlayingVM
-        self._libraryVM = StateObject(wrappedValue: container.makeLibraryViewModel())
-        self._pinnedVM = StateObject(wrappedValue: container.makePinnedViewModel())
-        self._hasAnySources = State(initialValue: container.accountManager.hasAnySources)
-        self._isSyncing = State(initialValue: container.syncCoordinator.isSyncing)
-        self._hasEnabledLibrariesState = State(
+        _libraryVM = StateObject(wrappedValue: container.makeLibraryViewModel())
+        _pinnedVM = StateObject(wrappedValue: container.makePinnedViewModel())
+        _hasAnySources = State(initialValue: container.accountManager.hasAnySources)
+        _isSyncing = State(initialValue: container.syncCoordinator.isSyncing)
+        _hasEnabledLibrariesState = State(
             initialValue: Self.computeHasEnabledLibraries(in: container.accountManager.plexAccounts)
         )
-        self._isRestoringCloudSources = State(initialValue: container.accountManager.isAwaitingCloudSources)
-        self._activeDownloadTrackIdentities = State(
+        _isRestoringCloudSources = State(initialValue: container.accountManager.isAwaitingCloudSources)
+        _activeDownloadTrackIdentities = State(
             initialValue: container.offlineDownloadService.activeDownloadTrackIdentities
         )
-        self._availabilityGeneration = State(
+        _availabilityGeneration = State(
             initialValue: container.trackAvailabilityResolver.availabilityGeneration
         )
     }
@@ -129,21 +129,21 @@ public struct SearchView: View {
         // leaks stale toolbar/search-controller state into other tabs/destinations.
         let content = baseContent.if(shouldShowSearchChrome) { view in
             #if os(iOS)
-            view
-                .searchable(
-                    text: $viewModel.searchQuery,
-                    placement: .navigationBarDrawer(displayMode: .always),
-                    prompt: "Songs, artists, albums, playlists"
-                )
-                .onSubmit(of: .search) {
-                    viewModel.commitCurrentSearch()
-                }
+                view
+                    .searchable(
+                        text: $viewModel.searchQuery,
+                        placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: "Songs, artists, albums, playlists"
+                    )
+                    .onSubmit(of: .search) {
+                        viewModel.commitCurrentSearch()
+                    }
             #else
-            view
-                .searchable(text: $viewModel.searchQuery, prompt: "Songs, artists, albums, playlists")
-                .onSubmit(of: .search) {
-                    viewModel.commitCurrentSearch()
-                }
+                view
+                    .searchable(text: $viewModel.searchQuery, prompt: "Songs, artists, albums, playlists")
+                    .onSubmit(of: .search) {
+                        viewModel.commitCurrentSearch()
+                    }
             #endif
         }
         if #available(iOS 18.0, macOS 15.0, *) {
@@ -207,143 +207,143 @@ public struct SearchView: View {
             )
         } else {
             ScrollView {
-            VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.exploreSectionSpacing) {
-                // Recent Searches
-                if !viewModel.recentSearches.isEmpty {
-                    VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
-                        HStack {
-                            EnsembleContentSectionHeader("Recent Searches")
-                            
-                            Spacer()
-                            
-                            Button {
-                                viewModel.clearRecentSearches()
-                            } label: {
-                                Text("Clear")
-                                    .font(EnsembleDesign.Typography.stateMessage)
-                                    .foregroundColor(EnsembleDesign.Color.accent)
+                VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.exploreSectionSpacing) {
+                    // Recent Searches
+                    if !viewModel.recentSearches.isEmpty {
+                        VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
+                            HStack {
+                                EnsembleContentSectionHeader("Recent Searches")
+
+                                Spacer()
+
+                                Button {
+                                    viewModel.clearRecentSearches()
+                                } label: {
+                                    Text("Clear")
+                                        .font(EnsembleDesign.Typography.stateMessage)
+                                        .foregroundColor(EnsembleDesign.Color.accent)
+                                }
+                            }
+                            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+
+                            // List for swipeActions support, with scrolling disabled
+                            recentSearchesList
+                                .cornerRadius(EnsembleScaffold.Discovery.recentSearchCornerRadius)
+                                .padding(.horizontal)
+                        }
+                    }
+
+                    // Pinned Items (always show header)
+                    pinnedSection
+
+                    // Recently Played Albums
+                    if !viewModel.recentlyPlayedAlbums.isEmpty {
+                        exploreSection(
+                            title: "Recently Played Albums",
+                            items: viewModel.recentlyPlayedAlbums
+                        ) { album in
+                            if #available(iOS 16.0, macOS 13.0, *) {
+                                NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id, sourceKey: album.sourceCompositeKey)) {
+                                    AlbumCard(album: album)
+                                }
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
+                                        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+                                    }
+                                }
+                            } else {
+                                NavigationLink {
+                                    AlbumDetailLoader(albumId: album.id, albumSourceKey: album.sourceCompositeKey, nowPlayingVM: nowPlayingVM)
+                                } label: {
+                                    AlbumCard(album: album)
+                                }
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
+                                        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+                                    }
+                                }
                             }
                         }
-                        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-                        
-                        // List for swipeActions support, with scrolling disabled
-                        recentSearchesList
-                            .cornerRadius(EnsembleScaffold.Discovery.recentSearchCornerRadius)
+                    }
+
+                    // Recommended
+                    if !recommendedDisplayItems.isEmpty {
+                        VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
+                            EnsembleContentSectionHeader("Recommended for You")
+                                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+
+                            LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
+                                ForEach(recommendedDisplayItems) { item in
+                                    recommendedItemCard(item)
+                                }
+                            }
                             .padding(.horizontal)
+                        }
                     }
-                }
 
-                // Pinned Items (always show header)
-                pinnedSection
+                    // Browse Moods (with loading state)
+                    if viewModel.isLoadingExplore && viewModel.allMoods.isEmpty {
+                        VStack(spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
+                            ProgressView()
+                                .frame(height: EnsembleScaffold.Discovery.loadingPlaceholderHeight)
+                            Text("Loading moods...")
+                                .font(EnsembleDesign.Typography.stateMessage)
+                                .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, EnsembleScaffold.Discovery.loadingVerticalPadding)
+                    } else if !viewModel.allMoods.isEmpty {
+                        VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
+                            EnsembleContentSectionHeader("Moods")
+                                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
-                // Recently Played Albums
-                if !viewModel.recentlyPlayedAlbums.isEmpty {
-                    exploreSection(
-                        title: "Recently Played Albums",
-                        items: viewModel.recentlyPlayedAlbums
-                    ) { album in
-                        if #available(iOS 16.0, macOS 13.0, *) {
-                            NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id)) {
-                                AlbumCard(album: album)
-                            }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                                    playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-                                }
-                            }
-                        } else {
-                            NavigationLink {
-                                AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
-                            } label: {
-                                AlbumCard(album: album)
-                            }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                                    playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                
-                // Recommended
-                if !recommendedDisplayItems.isEmpty {
-                    VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
-                        EnsembleContentSectionHeader("Recommended for You")
-                            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-                        
-                        LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
-                            ForEach(recommendedDisplayItems) { item in
-                                recommendedItemCard(item)
-                            }
-                        }
-                        .padding(.horizontal)
-                    }
-                }
-                
-                // Browse Moods (with loading state)
-                if viewModel.isLoadingExplore && viewModel.allMoods.isEmpty {
-                    VStack(spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
-                        ProgressView()
-                            .frame(height: EnsembleScaffold.Discovery.loadingPlaceholderHeight)
-                        Text("Loading moods...")
-                            .font(EnsembleDesign.Typography.stateMessage)
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, EnsembleScaffold.Discovery.loadingVerticalPadding)
-                } else if !viewModel.allMoods.isEmpty {
-                    VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
-                        EnsembleContentSectionHeader("Moods")
-                            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-                        
-                        LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
-                            ForEach(viewModel.allMoods) { mood in
-                                if #available(iOS 16.0, macOS 13.0, *) {
-                                    NavigationLink(value: NavigationCoordinator.Destination.moodTracks(mood: mood)) {
-                                        GenreCard(genre: Genre(id: mood.id, key: mood.key, title: mood.title))
+                            LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
+                                ForEach(viewModel.allMoods) { mood in
+                                    if #available(iOS 16.0, macOS 13.0, *) {
+                                        NavigationLink(value: NavigationCoordinator.Destination.moodTracks(mood: mood)) {
+                                            GenreCard(genre: Genre(id: mood.id, key: mood.key, title: mood.title))
+                                        }
+                                        .buttonStyle(.plain)
+                                    } else {
+                                        NavigationLink {
+                                            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
+                                        } label: {
+                                            GenreCard(genre: Genre(id: mood.id, key: mood.key, title: mood.title))
+                                        }
+                                        .buttonStyle(.plain)
                                     }
-                                    .buttonStyle(.plain)
-                                } else {
-                                    NavigationLink {
-                                        MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
-                                    } label: {
-                                        GenreCard(genre: Genre(id: mood.id, key: mood.key, title: mood.title))
-                                    }
-                                    .buttonStyle(.plain)
                                 }
                             }
+                            .padding(.horizontal)
                         }
-                        .padding(.horizontal)
+                    }
+
+                    // Empty state if no explore content (excluding pinned since we always show it)
+                    if viewModel.recentlyPlayedAlbums.isEmpty &&
+                        viewModel.recentlyAddedAlbums.isEmpty &&
+                        viewModel.recommendedItems.isEmpty &&
+                        viewModel.allMoods.isEmpty &&
+                        viewModel.recentSearches.isEmpty
+                    {
+                        emptyExploreView
                     }
                 }
-                
-                // Empty state if no explore content (excluding pinned since we always show it)
-                if viewModel.recentlyPlayedAlbums.isEmpty &&
-                   viewModel.recentlyAddedAlbums.isEmpty &&
-                   viewModel.recommendedItems.isEmpty &&
-                   viewModel.allMoods.isEmpty &&
-                   viewModel.recentSearches.isEmpty {
-                    emptyExploreView
-                }
+                .padding(.vertical)
             }
-            .padding(.vertical)
-        }
-        .onAppear {
-            // Reset dragging state when view appears/reappears to prevent stuck transparency
-            pinnedVM.draggingPin = nil
-            pinnedVM.draggingPinId = nil
-        }
-        .refreshable {
-            await viewModel.loadExploreContent()
-        }
-        .onDrop(of: [.text], delegate: PinnedGridBackgroundDropDelegate(viewModel: pinnedVM))
+            .onAppear {
+                // Reset dragging state when view appears/reappears to prevent stuck transparency
+                pinnedVM.draggingPin = nil
+                pinnedVM.draggingPinId = nil
+            }
+            .refreshable {
+                await viewModel.loadExploreContent()
+            }
+            .onDrop(of: [.text], delegate: PinnedGridBackgroundDropDelegate(viewModel: pinnedVM))
         }
     }
-    
+
     /// Recent searches list with swipe-to-delete, sized to fit content without scrolling
     private var recentSearchesList: some View {
         let items = Array(viewModel.recentSearches.prefix(3))
@@ -394,7 +394,7 @@ public struct SearchView: View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
             EnsembleContentSectionHeader(title)
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-            
+
             LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
                 ForEach(items) { item in
                     content(item)
@@ -403,12 +403,12 @@ public struct SearchView: View {
             .padding(.horizontal)
         }
     }
-    
+
     private func recommendedItemCard(_ item: HubItem) -> some View {
         Group {
             if let album = item.album {
                 if #available(iOS 16.0, macOS 13.0, *) {
-                    NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id)) {
+                    NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id, sourceKey: album.sourceCompositeKey)) {
                         AlbumCard(album: album)
                     }
                     .buttonStyle(.plain)
@@ -419,7 +419,7 @@ public struct SearchView: View {
                     }
                 } else {
                     NavigationLink {
-                        AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
+                        AlbumDetailLoader(albumId: album.id, albumSourceKey: album.sourceCompositeKey, nowPlayingVM: nowPlayingVM)
                     } label: {
                         AlbumCard(album: album)
                     }
@@ -432,7 +432,7 @@ public struct SearchView: View {
                 }
             } else if let artist = item.artist {
                 if #available(iOS 16.0, macOS 13.0, *) {
-                    NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
+                    NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id, sourceKey: artist.sourceCompositeKey)) {
                         ArtistCard(artist: artist)
                     }
                     .buttonStyle(.plain)
@@ -441,7 +441,7 @@ public struct SearchView: View {
                     }
                 } else {
                     NavigationLink {
-                        ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
+                        ArtistDetailLoader(artistId: artist.id, artistSourceKey: artist.sourceCompositeKey, nowPlayingVM: nowPlayingVM)
                     } label: {
                         ArtistCard(artist: artist)
                     }
@@ -477,7 +477,7 @@ public struct SearchView: View {
             }
         }
     }
-    
+
     // MARK: - Pinned Section
 
     /// Collapsible pinned items grid — shows 6 by default, all when expanded
@@ -556,8 +556,8 @@ public struct SearchView: View {
     /// Background drop delegate to ensure dragging state is cleared even if dropped outside an item
     private struct PinnedGridBackgroundDropDelegate: DropDelegate {
         let viewModel: PinnedViewModel
-        
-        func dropEntered(info: DropInfo) {
+
+        func dropEntered(info _: DropInfo) {
             // Restore dragging ID if we entered the background while dragging
             if let draggingPin = viewModel.draggingPin {
                 withAnimation(.spring()) {
@@ -565,8 +565,8 @@ public struct SearchView: View {
                 }
             }
         }
-        
-        func performDrop(info: DropInfo) -> Bool {
+
+        func performDrop(info _: DropInfo) -> Bool {
             withAnimation(.spring()) {
                 viewModel.persistOrder()
                 viewModel.draggingPin = nil
@@ -574,19 +574,18 @@ public struct SearchView: View {
             }
             return true
         }
-        
-        func dropUpdated(info: DropInfo) -> DropProposal? {
+
+        func dropUpdated(info _: DropInfo) -> DropProposal? {
             return DropProposal(operation: .move)
         }
 
-        func dropExited(info: DropInfo) {
+        func dropExited(info _: DropInfo) {
             // Safety cleanup
             withAnimation(.spring()) {
                 viewModel.draggingPinId = nil
             }
         }
     }
-
 
     /// Renders the appropriate card and NavigationLink for a resolved pin
     /// Supports drag reordering on iOS 16+
@@ -628,33 +627,33 @@ public struct SearchView: View {
     private struct PinnedDropDelegate: DropDelegate {
         let item: ResolvedPin
         let viewModel: PinnedViewModel
-        
-        func dropEntered(info: DropInfo) {
+
+        func dropEntered(info _: DropInfo) {
             // Restore dragging state if we entered an item while dragging
             if let draggingPin = viewModel.draggingPin {
                 withAnimation(.spring()) {
                     viewModel.draggingPinId = draggingPin.id
                 }
-                
+
                 if draggingPin.id != item.id {
                     viewModel.move(draggingItem: draggingPin, toTarget: item)
                 }
             }
         }
-        
-        func dropExited(info: DropInfo) {
-            // Safety cleanup when leaving an item area. 
+
+        func dropExited(info _: DropInfo) {
+            // Safety cleanup when leaving an item area.
             // If we enter another item or the background, they will restore draggingPinId.
             withAnimation(.spring()) {
                 viewModel.draggingPinId = nil
             }
         }
-        
-        func dropUpdated(info: DropInfo) -> DropProposal? {
+
+        func dropUpdated(info _: DropInfo) -> DropProposal? {
             return DropProposal(operation: .move)
         }
-        
-        func performDrop(info: DropInfo) -> Bool {
+
+        func performDrop(info _: DropInfo) -> Bool {
             withAnimation(.spring()) {
                 viewModel.persistOrder()
                 viewModel.draggingPin = nil
@@ -668,39 +667,39 @@ public struct SearchView: View {
     @ViewBuilder
     private func pinnedItemCardContent(_ pin: ResolvedPin) -> some View {
         switch pin {
-        case .album(let album, _):
+        case let .album(album, _):
             if #available(iOS 16.0, macOS 13.0, *) {
-                NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id)) {
+                NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id, sourceKey: album.sourceCompositeKey)) {
                     AlbumCard(album: album)
                 }
                 .buttonStyle(.plain)
                 .disabled(isEditingPins)
             } else {
                 NavigationLink {
-                    AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
+                    AlbumDetailLoader(albumId: album.id, albumSourceKey: album.sourceCompositeKey, nowPlayingVM: nowPlayingVM)
                 } label: {
                     AlbumCard(album: album)
                 }
                 .buttonStyle(.plain)
                 .disabled(isEditingPins)
             }
-        case .artist(let artist, _):
+        case let .artist(artist, _):
             if #available(iOS 16.0, macOS 13.0, *) {
-                NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
+                NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id, sourceKey: artist.sourceCompositeKey)) {
                     ArtistCard(artist: artist)
                 }
                 .buttonStyle(.plain)
                 .disabled(isEditingPins)
             } else {
                 NavigationLink {
-                    ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
+                    ArtistDetailLoader(artistId: artist.id, artistSourceKey: artist.sourceCompositeKey, nowPlayingVM: nowPlayingVM)
                 } label: {
                     ArtistCard(artist: artist)
                 }
                 .buttonStyle(.plain)
                 .disabled(isEditingPins)
             }
-        case .playlist(let playlist, _):
+        case let .playlist(playlist, _):
             if #available(iOS 16.0, macOS 13.0, *) {
                 NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)) {
                     PlaylistCard(playlist: playlist)
@@ -720,7 +719,7 @@ public struct SearchView: View {
                 .buttonStyle(.plain)
                 .disabled(isEditingPins)
             }
-        case .mergedPlaylist(let dp, _):
+        case let .mergedPlaylist(dp, _):
             // Navigate to merged playlist detail — shows composite artwork and aggregated info
             if #available(iOS 16.0, macOS 13.0, *) {
                 NavigationLink(value: NavigationCoordinator.Destination.mergedPlaylist(title: dp.title, isSmart: dp.isSmart)) {
@@ -779,7 +778,7 @@ public struct SearchView: View {
             .padding(.vertical)
         }
     }
-    
+
     @ViewBuilder
     private func searchResultSection(for section: SearchSection) -> some View {
         switch section {
@@ -791,7 +790,7 @@ public struct SearchView: View {
                     items: Array(viewModel.artistResults.prefix(5))
                 ) { artist in
                     if #available(iOS 16.0, macOS 13.0, *) {
-                        NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
+                        NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id, sourceKey: artist.sourceCompositeKey)) {
                             CompactArtistRow(artist: artist)
                         }
                         .buttonStyle(.plain)
@@ -803,7 +802,7 @@ public struct SearchView: View {
                         }
                     } else {
                         NavigationLink {
-                            ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
+                            ArtistDetailLoader(artistId: artist.id, artistSourceKey: artist.sourceCompositeKey, nowPlayingVM: nowPlayingVM)
                         } label: {
                             CompactArtistRow(artist: artist)
                         }
@@ -817,7 +816,7 @@ public struct SearchView: View {
                     }
                 }
             }
-            
+
         case .albums:
             if !viewModel.albumResults.isEmpty {
                 compactSection(
@@ -826,7 +825,7 @@ public struct SearchView: View {
                     items: Array(viewModel.albumResults.prefix(5))
                 ) { album in
                     if #available(iOS 16.0, macOS 13.0, *) {
-                        NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id)) {
+                        NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id, sourceKey: album.sourceCompositeKey)) {
                             CompactAlbumRow(album: album)
                         }
                         .buttonStyle(.plain)
@@ -840,7 +839,7 @@ public struct SearchView: View {
                         }
                     } else {
                         NavigationLink {
-                            AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
+                            AlbumDetailLoader(albumId: album.id, albumSourceKey: album.sourceCompositeKey, nowPlayingVM: nowPlayingVM)
                         } label: {
                             CompactAlbumRow(album: album)
                         }
@@ -856,7 +855,7 @@ public struct SearchView: View {
                     }
                 }
             }
-            
+
         case .playlists:
             if !viewModel.playlistResults.isEmpty {
                 compactSection(
@@ -895,13 +894,13 @@ public struct SearchView: View {
                     }
                 }
             }
-            
+
         case .songs:
             if !viewModel.trackResults.isEmpty {
                 #if os(iOS)
-                songsResultsSection
+                    songsResultsSection
                 #else
-                songsResultsSection
+                    songsResultsSection
                 #endif
             }
         }
@@ -920,28 +919,28 @@ public struct SearchView: View {
 
             Group {
                 #if os(iOS)
-                MediaTrackList(
-                    tracks: tracks,
-                    showArtwork: true,
-                    showTrackNumbers: false,
-                    groupByDisc: false,
-                    currentTrackId: currentTrackId,
-                    availabilityGeneration: availabilityGeneration,
-                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                    interactionModel: trackInteractionModel
-                ) { track, _ in
-                    playSearchResult(track)
-                }
+                    MediaTrackList(
+                        tracks: tracks,
+                        showArtwork: true,
+                        showTrackNumbers: false,
+                        groupByDisc: false,
+                        currentTrackId: currentTrackId,
+                        availabilityGeneration: availabilityGeneration,
+                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                        interactionModel: trackInteractionModel
+                    ) { track, _ in
+                        playSearchResult(track)
+                    }
                 #else
-                SongsTrackListHost(
-                    tracks: tracks,
-                    currentTrackId: currentTrackId,
-                    availabilityGeneration: availabilityGeneration,
-                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                    interactionModel: trackInteractionModel
-                ) { track, _ in
-                    playSearchResult(track)
-                }
+                    SongsTrackListHost(
+                        tracks: tracks,
+                        currentTrackId: currentTrackId,
+                        availabilityGeneration: availabilityGeneration,
+                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                        interactionModel: trackInteractionModel
+                    ) { track, _ in
+                        playSearchResult(track)
+                    }
                 #endif
             }
             .frame(height: height)
@@ -974,14 +973,14 @@ public struct SearchView: View {
             onGoToAlbum: { track in
                 guard let albumId = track.albumRatingKey else { return }
                 navigationCoordinator.push(
-                    .album(id: albumId),
+                    .album(id: albumId, sourceKey: track.sourceCompositeKey),
                     in: navigationCoordinator.selectedTab
                 )
             },
             onGoToArtist: { track in
                 guard let artistId = track.artistRatingKey else { return }
                 navigationCoordinator.push(
-                    .artist(id: artistId),
+                    .artist(id: artistId, sourceKey: track.sourceCompositeKey),
                     in: navigationCoordinator.selectedTab
                 )
             },
@@ -1020,7 +1019,6 @@ public struct SearchView: View {
         PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
     }
 
-    
     private func compactSection<T: Identifiable, Content: View>(
         title: String,
         count: Int,
@@ -1033,11 +1031,11 @@ public struct SearchView: View {
                     .font(EnsembleDesign.Typography.detailSubtitle.weight(.bold))
             }
             .padding(.horizontal)
-            
+
             VStack(spacing: EnsembleDesign.Spacing.none) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     content(item)
-                    
+
                     if index < items.count - 1 {
                         Divider()
                             .padding(.leading, TrackListLayoutMetrics.artworkLeadingInset)
@@ -1089,9 +1087,9 @@ public struct SearchView: View {
         }
         return .empty(message: "Try a different search term")
     }
-    
+
     // MARK: - Grid Configuration
-    
+
     private var gridColumns: [GridItem] {
         AlbumCardLayoutMetrics.compact.gridColumns
     }
@@ -1103,7 +1101,7 @@ public struct SearchView: View {
             }
         }
     }
-    
+
     private var recommendedDisplayItems: [HubItem] {
         viewModel.recommendedItems.filter { item in
             item.album != nil || item.artist != nil || item.playlist != nil

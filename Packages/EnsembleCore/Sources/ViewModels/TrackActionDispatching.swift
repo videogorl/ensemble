@@ -24,6 +24,6 @@ public protocol TrackActionDispatching: AnyObject {
 
 extension NowPlayingViewModel: TrackActionDispatching {
     public var currentTrackID: String? {
-        currentTrack?.id
+        currentTrack?.playbackIdentity
     }
 }

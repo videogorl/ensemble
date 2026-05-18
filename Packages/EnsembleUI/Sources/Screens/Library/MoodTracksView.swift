@@ -22,7 +22,7 @@ public struct MoodTracksView: View {
     public init(mood: Mood, nowPlayingVM: NowPlayingViewModel) {
         self.mood = mood
         self.nowPlayingVM = nowPlayingVM
-        self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
+        _viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
     }
 
     public var body: some View {
@@ -32,72 +32,72 @@ public struct MoodTracksView: View {
                 .ignoresSafeArea()
 
             #if os(iOS)
-            // UIKit table with header/footer, matching MediaDetailView pattern
-            MediaTrackList(
-                tracks: moodTracks,
-                showArtwork: true,
-                showTrackNumbers: false,
-                showAlbumName: true,
-                currentTrackId: currentTrackId,
-                availabilityGeneration: availabilityGeneration,
-                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                managesOwnScrolling: true,
-                bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
-                tableHeaderContent: AnyView(moodHeader),
-                tableFooterContent: AnyView(moodFooter),
-                interactionModel: trackInteractionModel,
-                supplementalMetadataWidth: trackListSupplementalMetadataWidth
-            ) { _, index in
-                if !nowPlayingVM.isAutoplayEnabled {
-                    nowPlayingVM.toggleAutoplay()
-                }
-                nowPlayingVM.play(tracks: moodTracks, startingAt: index)
-            }
-            .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
-            #else
-            SongsTrackListHost(
-                tracks: moodTracks,
-                configuration: .songs(
+                // UIKit table with header/footer, matching MediaDetailView pattern
+                MediaTrackList(
+                    tracks: moodTracks,
+                    showArtwork: true,
+                    showTrackNumbers: false,
+                    showAlbumName: true,
                     currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
                     activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                    managesOwnScrolling: true,
                     bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
-                    supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-                    interactionModel: trackInteractionModel
-                ),
-                tableHeaderContent: AnyView(moodHeader),
-                tableFooterContent: AnyView(moodFooter)
-            ) { _, index in
-                if !nowPlayingVM.isAutoplayEnabled {
-                    nowPlayingVM.toggleAutoplay()
+                    tableHeaderContent: AnyView(moodHeader),
+                    tableFooterContent: AnyView(moodFooter),
+                    interactionModel: trackInteractionModel,
+                    supplementalMetadataWidth: trackListSupplementalMetadataWidth
+                ) { _, index in
+                    if !nowPlayingVM.isAutoplayEnabled {
+                        nowPlayingVM.toggleAutoplay()
+                    }
+                    nowPlayingVM.play(tracks: moodTracks, startingAt: index)
                 }
-                nowPlayingVM.play(tracks: moodTracks, startingAt: index)
-            }
-            .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
+                .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
+            #else
+                SongsTrackListHost(
+                    tracks: moodTracks,
+                    configuration: .songs(
+                        currentTrackId: currentTrackId,
+                        availabilityGeneration: availabilityGeneration,
+                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                        bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+                        supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+                        interactionModel: trackInteractionModel
+                    ),
+                    tableHeaderContent: AnyView(moodHeader),
+                    tableFooterContent: AnyView(moodFooter)
+                ) { _, index in
+                    if !nowPlayingVM.isAutoplayEnabled {
+                        nowPlayingVM.toggleAutoplay()
+                    }
+                    nowPlayingVM.play(tracks: moodTracks, startingAt: index)
+                }
+                .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
             #endif
         }
         .navigationTitle(mood.title)
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.inline)
         #endif
-        .task {
-            await loadTracks()
-        }
-        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadTrackIdentities) { keys in
-            if keys != activeDownloadTrackIdentities { activeDownloadTrackIdentities = keys }
-        }
-        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
-            if gen != availabilityGeneration { availabilityGeneration = gen }
-        }
-        .onReceive(nowPlayingVM.$currentTrack) { track in
-            let id = track?.playbackIdentity
-            if id != currentTrackId { currentTrackId = id }
-        }
-        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
-            let title = target?.title
-            if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
-        }
-        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+            .task {
+                await loadTracks()
+            }
+            .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadTrackIdentities) { keys in
+                if keys != activeDownloadTrackIdentities { activeDownloadTrackIdentities = keys }
+            }
+            .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
+                if gen != availabilityGeneration { availabilityGeneration = gen }
+            }
+            .onReceive(nowPlayingVM.$currentTrack) { track in
+                let id = track?.playbackIdentity
+                if id != currentTrackId { currentTrackId = id }
+            }
+            .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
+                let title = target?.title
+                if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
+            }
+            .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
     }
 
     // MARK: - Table Header (scrolls with tracks)
@@ -146,7 +146,7 @@ public struct MoodTracksView: View {
         LinearGradient(
             colors: [
                 moodColor.opacity(EnsembleScaffold.MoodDetail.backgroundStrongOpacity),
-                moodColor.opacity(EnsembleScaffold.MoodDetail.backgroundSoftOpacity)
+                moodColor.opacity(EnsembleScaffold.MoodDetail.backgroundSoftOpacity),
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
@@ -200,12 +200,18 @@ public struct MoodTracksView: View {
             },
             onGoToAlbum: { track in
                 if let albumId = track.albumRatingKey {
-                    navigationCoordinator.push(.album(id: albumId), in: navigationCoordinator.selectedTab)
+                    navigationCoordinator.push(
+                        .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                        in: navigationCoordinator.selectedTab
+                    )
                 }
             },
             onGoToArtist: { track in
                 if let artistId = track.artistRatingKey {
-                    navigationCoordinator.push(.artist(id: artistId), in: navigationCoordinator.selectedTab)
+                    navigationCoordinator.push(
+                        .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                        in: navigationCoordinator.selectedTab
+                    )
                 }
             },
             onShareLink: { track in
@@ -263,7 +269,7 @@ public struct MoodTracksView: View {
     /// Generate a deterministic color based on mood name
     private var moodColor: Color {
         let colors: [Color] = [
-            .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .indigo
+            .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .indigo,
         ]
 
         let hash = mood.title.utf8.reduce(0) { ($0 &* EnsembleScaffold.MediaCard.genreHashMultiplier) &+ Int($1) }
@@ -275,7 +281,7 @@ public struct MoodTracksView: View {
         error = nil
 
         var allTracks: [Track] = []
-        var trackMap: [String: Track] = [:]  // For deduplication by ratingKey
+        var trackMap: [String: Track] = [:] // For deduplication by ratingKey
 
         // Fetch mood tracks from all enabled libraries
         let accountManager = DependencyContainer.shared.accountManager

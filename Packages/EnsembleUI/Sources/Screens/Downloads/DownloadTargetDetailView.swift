@@ -18,7 +18,7 @@ public struct DownloadTargetDetailView: View {
     @AppStorage("downloadQuality") private var downloadQuality = "high"
 
     public init(summary: DownloadedItemSummary, nowPlayingVM: NowPlayingViewModel) {
-        self._viewModel = StateObject(
+        _viewModel = StateObject(
             wrappedValue: DependencyContainer.shared.makeDownloadTargetDetailViewModel(summary: summary)
         )
         self.nowPlayingVM = nowPlayingVM
@@ -35,33 +35,33 @@ public struct DownloadTargetDetailView: View {
         }
         .navigationTitle(viewModel.summary.title)
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.inline)
         #endif
-        .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                downloadActionsToolbarItem
+            .toolbar {
+                #if os(iOS)
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        downloadActionsToolbarItem
+                    }
+                #else
+                    EnsembleDetailToolbarLeadingSpacer()
+                    ToolbarItem(placement: .primaryActionIfAvailable) {
+                        downloadActionsToolbarItem
+                    }
+                #endif
             }
-            #else
-            EnsembleDetailToolbarLeadingSpacer()
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                downloadActionsToolbarItem
+            .task {
+                await viewModel.refresh()
+                if let path = viewModel.thumbPath {
+                    await loadArtworkImage(path: path)
+                }
             }
-            #endif
-        }
-        .task {
-            await viewModel.refresh()
-            if let path = viewModel.thumbPath {
-                await loadArtworkImage(path: path)
+            .onChange(of: viewModel.thumbPath) { newPath in
+                guard let newPath, newPath != currentArtworkPath else { return }
+                Task { await loadArtworkImage(path: newPath) }
             }
-        }
-        .onChange(of: viewModel.thumbPath) { newPath in
-            guard let newPath, newPath != currentArtworkPath else { return }
-            Task { await loadArtworkImage(path: newPath) }
-        }
-        .refreshable {
-            await viewModel.refresh()
-        }
+            .refreshable {
+                await viewModel.refresh()
+            }
     }
 
     // MARK: - Header
@@ -222,7 +222,9 @@ public struct DownloadTargetDetailView: View {
                         .onTapGesture {
                             // Play from this track when it's completed
                             guard row.status == .completed else { return }
-                            if let index = viewModel.playableTracks.firstIndex(where: { $0.id == row.trackRatingKey }) {
+                            if let index = viewModel.playableTracks.firstIndex(where: {
+                                $0.id == row.trackRatingKey && $0.sourceCompositeKey == row.sourceCompositeKey
+                            }) {
                                 nowPlayingVM.play(tracks: viewModel.playableTracks, startingAt: index)
                             }
                         }
@@ -243,7 +245,6 @@ public struct DownloadTargetDetailView: View {
 
     // MARK: - Download Actions
 
-    @ViewBuilder
     private var downloadActionsToolbarItem: some View {
         downloadActionsMenu
     }
@@ -291,7 +292,6 @@ public struct DownloadTargetDetailView: View {
         }
     }
 
-    @ViewBuilder
     private var removeDownloadMenuItem: some View {
         Button(role: .destructive) {
             isShowingRemoveDownloadConfirmation = true
@@ -420,9 +420,17 @@ public struct DownloadTargetDetailView: View {
         if let ratingKey = viewModel.summary.ratingKey {
             switch viewModel.summary.kind {
             case .album:
-                AlbumDetailLoader(albumId: ratingKey, nowPlayingVM: nowPlayingVM)
+                AlbumDetailLoader(
+                    albumId: ratingKey,
+                    albumSourceKey: viewModel.summary.sourceCompositeKey,
+                    nowPlayingVM: nowPlayingVM
+                )
             case .artist:
-                ArtistDetailLoader(artistId: ratingKey, nowPlayingVM: nowPlayingVM)
+                ArtistDetailLoader(
+                    artistId: ratingKey,
+                    artistSourceKey: viewModel.summary.sourceCompositeKey,
+                    nowPlayingVM: nowPlayingVM
+                )
             case .playlist:
                 PlaylistDetailLoader(
                     playlistId: ratingKey,
@@ -465,7 +473,6 @@ public struct DownloadTargetDetailView: View {
         case .pending, .completed: return .secondary
         }
     }
-
 }
 
 // TrackDownloadRowView has been extracted to Components/TrackDownloadRowView.swift

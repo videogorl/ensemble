@@ -290,10 +290,10 @@ public final class NowPlayingRatingProjection: ObservableObject {
     @Published public private(set) var currentTrack: Track?
     @Published public private(set) var currentRating: TrackRating = .none
 
-    private var displayRatingsByTrackID: [String: Int] = [:]
+    private var displayRatingsByTrackIdentity: [String: Int] = [:]
 
     public func isTrackFavorited(_ track: Track) -> Bool {
-        (displayRatingsByTrackID[track.id] ?? track.rating) >= 8
+        (displayRatingsByTrackIdentity[track.sourceScopedID] ?? track.rating) >= 8
     }
 
     func updateCurrentTrack(_ track: Track?, displayRating: Int?) {
@@ -311,7 +311,7 @@ public final class NowPlayingRatingProjection: ObservableObject {
         currentRating = rating
     }
 
-    func updateDisplayRatings(_ ratingsByTrackID: [String: Int]) {
-        displayRatingsByTrackID = ratingsByTrackID
+    func updateDisplayRatings(_ ratingsByTrackIdentity: [String: Int]) {
+        displayRatingsByTrackIdentity = ratingsByTrackIdentity
     }
 }

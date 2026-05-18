@@ -40,12 +40,14 @@ public struct PlaylistActionService {
 
         for track in tracks {
             if let trackServerSourceKey = MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey),
-               trackServerSourceKey != serverSourceKey {
+               trackServerSourceKey != serverSourceKey
+            {
                 continue
             }
 
-            guard !seen.contains(track.id) else { continue }
-            seen.insert(track.id)
+            let identity = track.sourceScopedID
+            guard !seen.contains(identity) else { continue }
+            seen.insert(identity)
 
             if track.sourceCompositeKey == nil {
                 filtered.append(track.withSourceCompositeKey(serverSourceKey))

@@ -12,29 +12,29 @@ public enum ResolvedPin: Identifiable {
 
     public var id: String {
         switch self {
-        case .album(_, let pin): return pin.id
-        case .artist(_, let pin): return pin.id
-        case .playlist(_, let pin): return pin.id
-        case .mergedPlaylist(let dp, _): return "merged-pin:\(dp.id)"
+        case let .album(_, pin): return pin.id
+        case let .artist(_, pin): return pin.id
+        case let .playlist(_, pin): return pin.id
+        case let .mergedPlaylist(dp, _): return "merged-pin:\(dp.id)"
         }
     }
 
     public var pinnedItem: PinnedItem {
         switch self {
-        case .album(_, let pin): return pin
-        case .artist(_, let pin): return pin
-        case .playlist(_, let pin): return pin
-        case .mergedPlaylist(_, let pins): return pins[0]
+        case let .album(_, pin): return pin
+        case let .artist(_, pin): return pin
+        case let .playlist(_, pin): return pin
+        case let .mergedPlaylist(_, pins): return pins[0]
         }
     }
 
     /// All pinned item IDs in this resolved pin (1 for single items, N for merged)
     public var allPinnedIds: Set<String> {
         switch self {
-        case .album(_, let pin): return [pin.id]
-        case .artist(_, let pin): return [pin.id]
-        case .playlist(_, let pin): return [pin.id]
-        case .mergedPlaylist(_, let pins): return Set(pins.map(\.id))
+        case let .album(_, pin): return [pin.id]
+        case let .artist(_, pin): return [pin.id]
+        case let .playlist(_, pin): return [pin.id]
+        case let .mergedPlaylist(_, pins): return Set(pins.map(\.id))
         }
     }
 }
@@ -82,8 +82,8 @@ public final class PinnedViewModel: ObservableObject {
         guard !isMoving else { return }
 
         // Safety reset of dragging state
-        self.draggingPinId = nil
-        self.draggingPin = nil
+        draggingPinId = nil
+        draggingPin = nil
 
         isLoading = true
         let pins = pinManager.pinnedItems
@@ -95,19 +95,19 @@ public final class PinnedViewModel: ObservableObject {
         for (index, pin) in pins.enumerated() {
             switch pin.type {
             case .album:
-                if let cd = try? await libraryRepository.fetchAlbum(ratingKey: pin.id) {
+                if let cd = try? await libraryRepository.fetchAlbum(ratingKey: pin.id, sourceCompositeKey: pin.sourceCompositeKey) {
                     results.append((index, .album(Album(from: cd), pin)))
                 } else {
                     results.append((index, nil))
                 }
             case .artist:
-                if let cd = try? await libraryRepository.fetchArtist(ratingKey: pin.id) {
+                if let cd = try? await libraryRepository.fetchArtist(ratingKey: pin.id, sourceCompositeKey: pin.sourceCompositeKey) {
                     results.append((index, .artist(Artist(from: cd), pin)))
                 } else {
                     results.append((index, nil))
                 }
             case .playlist:
-                if let cd = try? await playlistRepository.fetchPlaylist(ratingKey: pin.id) {
+                if let cd = try? await playlistRepository.fetchPlaylist(ratingKey: pin.id, sourceCompositeKey: pin.sourceCompositeKey) {
                     results.append((index, .playlist(Playlist(from: cd), pin)))
                 } else {
                     results.append((index, nil))
@@ -148,7 +148,7 @@ public final class PinnedViewModel: ObservableObject {
 
         for pin in pins {
             switch pin {
-            case .playlist(let playlist, let pinnedItem):
+            case let .playlist(playlist, pinnedItem):
                 let key = GroupKey(title: playlist.title, isSmart: playlist.isSmart)
                 if groupIndex[key] == nil {
                     // First occurrence — reserve a slot in the output
@@ -194,7 +194,8 @@ public final class PinnedViewModel: ObservableObject {
     public func move(draggingItem: ResolvedPin, toTarget target: ResolvedPin) {
         guard let fromIndex = resolvedPins.firstIndex(where: { $0.id == draggingItem.id }),
               let toIndex = resolvedPins.firstIndex(where: { $0.id == target.id }),
-              fromIndex != toIndex else {
+              fromIndex != toIndex
+        else {
             return
         }
 

@@ -21,10 +21,10 @@ public struct InfoCard: View {
 
     public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
         self.viewModel = viewModel
-        self._playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
-        self._lyricsProjection = ObservedObject(wrappedValue: viewModel.lyricsProjection)
-        self._queueProjection = ObservedObject(wrappedValue: viewModel.queueProjection)
-        self._currentPage = currentPage
+        _playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
+        _lyricsProjection = ObservedObject(wrappedValue: viewModel.lyricsProjection)
+        _queueProjection = ObservedObject(wrappedValue: viewModel.queueProjection)
+        _currentPage = currentPage
     }
 
     private var shouldRenderContent: Bool {
@@ -56,9 +56,9 @@ public struct InfoCard: View {
             guard shouldRenderContent else { return }
             await loadMetadataForCurrentTrack()
         }
-        .onChange(of: playbackProjection.currentTrack?.id) { _ in
+        .onChange(of: playbackProjection.currentTrack?.playbackIdentity) { _ in
             guard shouldRenderContent else { return }
-            audioFileInfo = nil  // Clear stale data immediately
+            audioFileInfo = nil // Clear stale data immediately
             Task {
                 await loadMetadataForCurrentTrack()
             }
@@ -147,7 +147,8 @@ public struct InfoCard: View {
             if let track = currentTrack,
                let trackArtist = track.artistName,
                let albumArtist = track.albumArtistName,
-               trackArtist != albumArtist {
+               trackArtist != albumArtist
+            {
                 infoRow(label: "Track Artist", value: trackArtist)
             }
 
@@ -175,7 +176,6 @@ public struct InfoCard: View {
             if let dateAdded = currentTrack?.dateAdded {
                 infoRow(label: "Added", value: formatDate(dateAdded))
             }
-
         }
         .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
     }
@@ -297,7 +297,7 @@ public struct InfoCard: View {
     private var lyricsInfoRow: some View {
         let source = lyricsProjection.lyricsSource
         let detail: String
-        if case .available(let lyrics) = lyricsProjection.lyricsState {
+        if case let .available(lyrics) = lyricsProjection.lyricsState {
             let format = lyrics.isTimed ? "Timed" : "Plain"
             detail = "\(source.displayText) (\(format), \(lyrics.lines.count) lines)"
         } else {
@@ -442,7 +442,7 @@ public struct InfoCard: View {
     /// Format network state for display
     private func formatNetworkState(_ state: NetworkState) -> String {
         switch state {
-        case .online(let type):
+        case let .online(type):
             return type.description
         case .offline:
             return "Offline"
@@ -467,7 +467,8 @@ public struct InfoCard: View {
     private func resolvePlaybackQuality() -> String {
         guard let track = currentTrack else { return "—" }
         guard let localFilePath = track.localFilePath,
-              FileManager.default.fileExists(atPath: localFilePath) else {
+              FileManager.default.fileExists(atPath: localFilePath)
+        else {
             // Prefer the quality stamped on the queue item at queue time
             let quality = queueProjection.currentQueueItem?.streamingQuality ?? streamingQuality
             return "\(formatQuality(quality)) (Streaming)"
@@ -542,7 +543,8 @@ public struct InfoCard: View {
 
         // Find the account and server
         guard let account = deps.accountManager.plexAccounts.first(where: { $0.id == accountId }),
-              let server = account.servers.first(where: { $0.id == serverId }) else {
+              let server = account.servers.first(where: { $0.id == serverId })
+        else {
             return nil
         }
 
@@ -563,7 +565,8 @@ public struct InfoCard: View {
         // Walk accounts → servers → libraries to find matching title
         guard let account = deps.accountManager.plexAccounts.first(where: { $0.id == accountId }),
               let server = account.servers.first(where: { $0.id == serverId }),
-              let library = server.libraries.first(where: { $0.id == libraryId }) else {
+              let library = server.libraries.first(where: { $0.id == libraryId })
+        else {
             return nil
         }
 
@@ -577,7 +580,8 @@ public struct InfoCard: View {
         }
 
         guard let state = deps.serverHealthChecker.serverStates[serverKey],
-              let activeURL = state.activeURL else {
+              let activeURL = state.activeURL
+        else {
             return nil
         }
 
@@ -600,7 +604,7 @@ public struct InfoCard: View {
             "192.168.", "10.", "172.16.", "172.17.", "172.18.",
             "172.19.", "172.20.", "172.21.", "172.22.", "172.23.",
             "172.24.", "172.25.", "172.26.", "172.27.", "172.28.",
-            "172.29.", "172.30.", "172.31.", "localhost", "127.0.0.1"
+            "172.29.", "172.30.", "172.31.", "localhost", "127.0.0.1",
         ]
 
         for pattern in localPatterns {
@@ -615,7 +619,8 @@ public struct InfoCard: View {
     /// Format URL for display (extract host)
     private func formatURLForDisplay(_ url: String) -> String {
         guard let urlComponents = URLComponents(string: url),
-              let host = urlComponents.host else {
+              let host = urlComponents.host
+        else {
             return url
         }
 
@@ -659,7 +664,9 @@ public struct InfoCard: View {
     /// RootView executes the push from the Now Playing presenter dismissal.
     private func handleArtistTap(track: Track) {
         if let artistId = track.artistRatingKey {
-            navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
+            navigationCoordinator.navigateFromNowPlaying(
+                to: .artist(id: artistId, sourceKey: track.sourceCompositeKey)
+            )
             closeNowPlaying()
         }
     }
@@ -667,7 +674,9 @@ public struct InfoCard: View {
     /// Navigate to album detail — store intent, then dismiss.
     private func handleAlbumTap(track: Track) {
         if let albumId = track.albumRatingKey {
-            navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
+            navigationCoordinator.navigateFromNowPlaying(
+                to: .album(id: albumId, sourceKey: track.sourceCompositeKey)
+            )
             closeNowPlaying()
         }
     }
@@ -687,7 +696,7 @@ public struct InfoCard: View {
             LinearGradient(
                 gradient: Gradient(stops: [
                     .init(color: .clear, location: 0),
-                    .init(color: .black, location: EnsembleScaffold.NowPlaying.FadeMask.infoTopOpaqueLocation)
+                    .init(color: .black, location: EnsembleScaffold.NowPlaying.FadeMask.infoTopOpaqueLocation),
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
@@ -701,7 +710,7 @@ public struct InfoCard: View {
             LinearGradient(
                 gradient: Gradient(stops: [
                     .init(color: .black, location: EnsembleScaffold.NowPlaying.FadeMask.infoBottomOpaqueLocation),
-                    .init(color: .clear, location: 1)
+                    .init(color: .clear, location: 1),
                 ]),
                 startPoint: .top,
                 endPoint: .bottom

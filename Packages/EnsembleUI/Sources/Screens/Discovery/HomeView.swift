@@ -12,12 +12,12 @@ public struct HomeView: View {
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    
+
     public init(nowPlayingVM: NowPlayingViewModel) {
-        self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
+        _viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
         self.nowPlayingVM = nowPlayingVM
     }
-    
+
     public var body: some View {
         ZStack(alignment: .top) {
             // Mount the extension-backed background before profile artwork loads
@@ -44,7 +44,7 @@ public struct HomeView: View {
         .profileToolbar()
         .toolbar {
             #if os(macOS)
-            EnsembleToolbarLeadingSpacer()
+                EnsembleToolbarLeadingSpacer()
             #endif
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 Button("Edit") {
@@ -90,7 +90,8 @@ public struct HomeView: View {
 
     private var profileDisplayName: String? {
         guard let rawDisplayName = profileStore.profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawDisplayName.isEmpty else {
+              !rawDisplayName.isEmpty
+        else {
             return nil
         }
 
@@ -106,16 +107,16 @@ public struct HomeView: View {
 
     private var profileBackgroundHeight: CGFloat {
         #if os(macOS)
-        return 500
+            return 500
         #else
-        return 340
+            return 340
         #endif
     }
-    
+
     private var loadingView: some View {
         EnsembleStateScaffold(kind: .loading, title: "Loading…")
     }
-    
+
     @ViewBuilder
     private var emptyView: some View {
         if let errorMessage = viewModel.error {
@@ -175,7 +176,7 @@ public struct HomeView: View {
             }
         }
     }
-    
+
     private var hubsScrollView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.sectionSpacing) {
@@ -214,9 +215,9 @@ public struct HomeView: View {
         }
 
         #if canImport(UIKit)
-        profileBackgroundImage = UIImage(contentsOfFile: url.path)
+            profileBackgroundImage = UIImage(contentsOfFile: url.path)
         #elseif canImport(AppKit)
-        profileBackgroundImage = NSImage(contentsOf: url)
+            profileBackgroundImage = NSImage(contentsOf: url)
         #endif
     }
 }
@@ -253,9 +254,10 @@ struct HubSection: View {
     @ViewBuilder
     private var sectionHeader: some View {
         if let artistId = hub.contextArtistId {
+            let sourceKey = hub.contextArtistSourceCompositeKey
             // Tappable header that navigates to the artist detail view
             if #available(iOS 16.0, macOS 13.0, *) {
-                NavigationLink(value: NavigationCoordinator.Destination.artist(id: artistId)) {
+                NavigationLink(value: NavigationCoordinator.Destination.artist(id: artistId, sourceKey: sourceKey)) {
                     sectionHeaderLabel
                         .contentShape(Rectangle())
                 }
@@ -263,7 +265,7 @@ struct HubSection: View {
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
             } else {
                 NavigationLink {
-                    ArtistDetailLoader(artistId: artistId, nowPlayingVM: nowPlayingVM)
+                    ArtistDetailLoader(artistId: artistId, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
                 } label: {
                     sectionHeaderLabel
                         .contentShape(Rectangle())
@@ -322,7 +324,7 @@ struct HubItemCard: View {
             hubItemContextMenu
         }
     }
-    
+
     private var cardContent: some View {
         VStack(alignment: isArtist ? .center : .leading, spacing: EnsembleScaffold.MediaCard.contentSpacing) {
             // Artwork with circular corners for artists, rounded for others
@@ -338,7 +340,7 @@ struct HubItemCard: View {
             )
             .frame(width: artworkDimension, height: artworkDimension)
             .ensembleCardShadow()
-            
+
             // Text content
             VStack(alignment: isArtist ? .center : .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {
                 Text(item.title)
@@ -346,7 +348,7 @@ struct HubItemCard: View {
                     .lineLimit(2)
                     .foregroundColor(EnsembleDesign.Color.primaryText)
                     .multilineTextAlignment(isArtist ? .center : .leading)
-                
+
                 if let subtitle = item.subtitle {
                     Text(subtitle)
                         .font(EnsembleDesign.Typography.cardSubtitle)
@@ -354,7 +356,7 @@ struct HubItemCard: View {
                         .lineLimit(1)
                         .multilineTextAlignment(isArtist ? .center : .leading)
                 }
-                
+
                 if item.type == "album", let year = item.year {
                     Text(String(year))
                         .font(EnsembleDesign.Typography.cardMetadata)
@@ -364,7 +366,7 @@ struct HubItemCard: View {
             .frame(width: artworkDimension, alignment: isArtist ? .center : .leading)
         }
     }
-    
+
     private var destination: NavigationCoordinator.Destination? {
         switch item.type {
         case "album": return .album(id: item.id, sourceKey: item.sourceCompositeKey)
@@ -373,7 +375,7 @@ struct HubItemCard: View {
         default: return nil
         }
     }
-    
+
     @ViewBuilder
     private var destinationView: some View {
         switch item.type {
@@ -399,7 +401,7 @@ struct HubItemCard: View {
             EmptyView()
         }
     }
-    
+
     private func handleTrackTap() {
         let track = item.track ?? Track(
             id: item.id,
@@ -432,7 +434,6 @@ struct HubItemCard: View {
 
     // MARK: Album Context Menu
 
-    @ViewBuilder
     private var albumContextMenu: some View {
         AlbumActionsContextMenu(
             album: resolvedAlbum,
@@ -452,7 +453,6 @@ struct HubItemCard: View {
 
     // MARK: Artist Context Menu
 
-    @ViewBuilder
     private var artistContextMenu: some View {
         ArtistActionsContextMenu(
             artist: resolvedArtist,
@@ -463,7 +463,6 @@ struct HubItemCard: View {
 
     // MARK: Playlist Context Menu
 
-    @ViewBuilder
     private var playlistContextMenu: some View {
         PlaylistActionsContextMenu(
             playlist: resolvedPlaylist,

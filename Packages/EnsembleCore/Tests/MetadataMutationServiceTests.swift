@@ -1,7 +1,7 @@
-import XCTest
+@testable import EnsembleAPI
 @testable import EnsembleCore
 @testable import EnsemblePersistence
-@testable import EnsembleAPI
+import XCTest
 
 @MainActor
 final class MetadataMutationServiceTests: XCTestCase {
@@ -45,7 +45,7 @@ final class MetadataMutationServiceTests: XCTestCase {
                 OfflineTrackReference(
                     trackRatingKey: harness.track.id,
                     trackSourceCompositeKey: harness.sourceKey
-                )
+                ),
             ]
         )
 
@@ -69,7 +69,7 @@ final class MetadataMutationServiceTests: XCTestCase {
         XCTAssertNil(deletedDownload)
         XCTAssertTrue(remainingTargetKeys.isEmpty)
         XCTAssertEqual(harness.client.deletedIDs, [[harness.track.id]])
-        XCTAssertEqual(harness.removedTrackIDs.ids, [harness.track.id])
+        XCTAssertEqual(harness.removedTrackIDs.ids, [harness.track.sourceScopedID])
     }
 
     func testEditTrackSendsFieldUpdatesAndRefreshesLocalTitle() async throws {
@@ -92,7 +92,7 @@ final class MetadataMutationServiceTests: XCTestCase {
             harness.client.updatedFields,
             [
                 PlexMetadataFieldUpdate(fieldName: "title", value: "New Track Title", isLocked: true),
-                PlexMetadataFieldUpdate(fieldName: "titleSort", value: "Track Title, New", isLocked: false)
+                PlexMetadataFieldUpdate(fieldName: "titleSort", value: "Track Title, New", isLocked: false),
             ]
         )
 

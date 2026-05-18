@@ -1,5 +1,5 @@
-import XCTest
 @testable import EnsembleCore
+import XCTest
 
 final class PlaybackPrefetchControllerTests: XCTestCase {
     func testUpcomingQueueIndicesStopsAtQueueEndWhenRepeatIsOff() {
@@ -107,7 +107,7 @@ final class PlaybackPrefetchControllerTests: XCTestCase {
 
         XCTAssertFalse(
             controller.shouldInvalidateScheduledTracks(
-                scheduledTrackIDs: ["next"],
+                scheduledTrackIDs: [queue[1].track.playbackIdentity],
                 queue: queue,
                 currentQueueIndex: 0,
                 repeatMode: .off
@@ -121,7 +121,35 @@ final class PlaybackPrefetchControllerTests: XCTestCase {
 
         XCTAssertTrue(
             controller.shouldInvalidateScheduledTracks(
-                scheduledTrackIDs: ["next"],
+                scheduledTrackIDs: [makeTrack(id: "next").playbackIdentity],
+                queue: queue,
+                currentQueueIndex: 0,
+                repeatMode: .off
+            )
+        )
+    }
+
+    func testScheduledTrackValidationDistinguishesDuplicateRatingKeys() {
+        let controller = PlaybackPrefetchController()
+        let firstSourceTrack = makeTrack(id: "7551", sourceCompositeKey: "plex:felicity:server:music")
+        let secondSourceTrack = makeTrack(id: "7551", sourceCompositeKey: "plex:felicity-test:server:music")
+        let queue = [
+            QueueItem(track: makeTrack(id: "current")),
+            QueueItem(track: firstSourceTrack),
+            QueueItem(track: secondSourceTrack),
+        ]
+
+        XCTAssertFalse(
+            controller.shouldInvalidateScheduledTracks(
+                scheduledTrackIDs: [firstSourceTrack.playbackIdentity],
+                queue: queue,
+                currentQueueIndex: 0,
+                repeatMode: .off
+            )
+        )
+        XCTAssertTrue(
+            controller.shouldInvalidateScheduledTracks(
+                scheduledTrackIDs: [secondSourceTrack.playbackIdentity],
                 queue: queue,
                 currentQueueIndex: 0,
                 repeatMode: .off
@@ -160,12 +188,15 @@ final class PlaybackPrefetchControllerTests: XCTestCase {
         ids.map { QueueItem(track: makeTrack(id: $0)) }
     }
 
-    private func makeTrack(id: String) -> Track {
+    private func makeTrack(
+        id: String,
+        sourceCompositeKey: String? = "plex:account:server:library"
+    ) -> Track {
         Track(
             id: id,
             key: "/library/metadata/\(id)",
             title: "Track \(id)",
-            sourceCompositeKey: "plex:account:server:library"
+            sourceCompositeKey: sourceCompositeKey
         )
     }
 }

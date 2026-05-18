@@ -23,7 +23,7 @@ public enum MetadataMutationError: LocalizedError, Equatable {
 
     public var errorDescription: String? {
         switch self {
-        case .unavailableOffline(let action):
+        case let .unavailableOffline(action):
             return "\(action) is only available while online."
         case .invalidSource:
             return "This item is missing a valid Plex library source."
@@ -133,7 +133,7 @@ public final class MetadataMutationService {
         }
         try await cleanupTrackArtifacts(track)
         try await libraryRepository.deleteTrack(ratingKey: track.id, sourceCompositeKey: track.sourceCompositeKey)
-        removeDeletedTracksFromPlayback(Set([track.id]))
+        removeDeletedTracksFromPlayback(Set([track.sourceScopedID]))
         postMetadataDidChange()
     }
 
@@ -163,7 +163,7 @@ public final class MetadataMutationService {
         }
         artworkDownloadManager.deleteArtwork(ratingKey: album.id, type: .album)
         try await libraryRepository.deleteAlbum(ratingKey: album.id, sourceCompositeKey: album.sourceCompositeKey)
-        removeDeletedTracksFromPlayback(Set(trackModels.map(\.id)))
+        removeDeletedTracksFromPlayback(Set(trackModels.map(\.sourceScopedID)))
         postMetadataDidChange()
     }
 
@@ -313,7 +313,8 @@ public final class MetadataMutationService {
         }
 
         if case let PlexAPIError.httpError(statusCode) = error,
-           statusCode == 401 || statusCode == 403 {
+           statusCode == 401 || statusCode == 403
+        {
             return MetadataMutationError.insufficientPermissions
         }
 

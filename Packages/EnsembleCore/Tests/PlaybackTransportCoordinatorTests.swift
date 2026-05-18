@@ -1,6 +1,6 @@
-import XCTest
 import EnsembleAPI
 @testable import EnsembleCore
+import XCTest
 
 final class PlaybackTransportCoordinatorTests: XCTestCase {
     private final class LockedCounter: @unchecked Sendable {
@@ -122,7 +122,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
         )
 
         let first = try await coordinator.resolveAudioFile(for: track)
-        coordinator.evict(trackId: track.id, includeDecision: false, cancelTask: true)
+        coordinator.evict(trackId: track.playbackIdentity, includeDecision: false, cancelTask: true)
         let second = try await coordinator.resolveAudioFile(for: track)
 
         XCTAssertNotEqual(first.path, second.path)

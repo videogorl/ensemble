@@ -1,5 +1,5 @@
-import Foundation
 import EnsembleAPI
+import Foundation
 
 /// Owns stream-decision, resolution-task, and progressive-loader state so
 /// PlaybackService can delegate transport concerns without changing its API.
@@ -28,7 +28,8 @@ final class PlaybackTransportCoordinator {
     }
 
     func resolveAudioFile(for track: Track) async throws -> URL {
-        if let existingTask = withLock({ fileResolutionTasks[track.id] }) {
+        let trackIdentity = track.playbackIdentity
+        if let existingTask = withLock({ fileResolutionTasks[trackIdentity] }) {
             return try await existingTask.value
         }
 
@@ -38,14 +39,14 @@ final class PlaybackTransportCoordinator {
             }
             return try await self.resolveAudioFileImpl(for: track)
         }
-        withLock { fileResolutionTasks[track.id] = task }
+        withLock { fileResolutionTasks[trackIdentity] = task }
 
         do {
             let result = try await task.value
-            _ = withLock { fileResolutionTasks.removeValue(forKey: track.id) }
+            _ = withLock { fileResolutionTasks.removeValue(forKey: trackIdentity) }
             return result
         } catch {
-            _ = withLock { fileResolutionTasks.removeValue(forKey: track.id) }
+            _ = withLock { fileResolutionTasks.removeValue(forKey: trackIdentity) }
             throw error
         }
     }
@@ -177,20 +178,21 @@ final class PlaybackTransportCoordinator {
     }
 
     private func streamDecision(for track: Track, quality: StreamingQuality) async throws -> StreamDecision {
-        if let cached = withLock({ cachedStreamDecisions[track.id] }) {
+        let trackIdentity = track.playbackIdentity
+        if let cached = withLock({ cachedStreamDecisions[trackIdentity] }) {
             return cached
         }
 
         do {
             let decision = try await dependencies.makeStreamDecision(track, quality)
-            withLock { cachedStreamDecisions[track.id] = decision }
+            withLock { cachedStreamDecisions[trackIdentity] = decision }
             return decision
         } catch {
             if dependencies.shouldRetryStreamURLRequest(error) {
                 do {
                     try await dependencies.refreshConnection()
                     let retried = try await dependencies.makeStreamDecision(track, quality)
-                    withLock { cachedStreamDecisions[track.id] = retried }
+                    withLock { cachedStreamDecisions[trackIdentity] = retried }
                     return retried
                 } catch {
                     throw dependencies.mapToPlaybackError(error)
@@ -206,12 +208,12 @@ final class PlaybackTransportCoordinator {
         quality: StreamingQuality
     ) async throws -> URL {
         switch resolution {
-        case .downloadedFile(let url):
+        case let .downloadedFile(url):
             return url
-        case .directStream(let url):
+        case let .directStream(url):
             if url.isFileURL { return url }
-            return try await downloadStreamToTempFile(url: url, trackId: track.id)
-        case .progressiveTranscode(let config):
+            return try await downloadStreamToTempFile(url: url, trackId: track.playbackIdentity)
+        case let .progressiveTranscode(config):
             return try await startProgressiveDownload(for: track, config: config, quality: quality)
         }
     }
@@ -221,12 +223,13 @@ final class PlaybackTransportCoordinator {
         config: ProgressiveStreamConfig,
         quality: StreamingQuality
     ) async throws -> URL {
-        if let existing = withLock({ streamLoaders[track.id] }) {
+        let trackIdentity = track.playbackIdentity
+        if let existing = withLock({ streamLoaders[trackIdentity] }) {
             if existing.isDownloadComplete {
                 if let error = existing.completionError { throw error }
                 return existing.localFileURL
             }
-            return try await waitForDownload(loader: existing, trackId: track.id, quality: quality)
+            return try await waitForDownload(loader: existing, trackId: trackIdentity, quality: quality)
         }
 
         let loader = ProgressiveStreamLoader(
@@ -235,14 +238,14 @@ final class PlaybackTransportCoordinator {
             estimatedContentLength: config.estimatedContentLength,
             metadataDuration: config.metadataDuration
         )
-        withLock { streamLoaders[track.id] = loader }
-        return try await waitForDownload(loader: loader, trackId: track.id, quality: quality)
+        withLock { streamLoaders[trackIdentity] = loader }
+        return try await waitForDownload(loader: loader, trackId: trackIdentity, quality: quality)
     }
 
     private func waitForDownload(
         loader: ProgressiveStreamLoader,
-        trackId: String,
-        quality: StreamingQuality
+        trackId _: String,
+        quality _: StreamingQuality
     ) async throws -> URL {
         if loader.isDownloadComplete {
             if let error = loader.completionError { throw error }
@@ -282,10 +285,13 @@ final class PlaybackTransportCoordinator {
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
 
         let ext = url.pathExtension.isEmpty ? "mp3" : url.pathExtension
-        let destURL = cacheDir.appendingPathComponent("\(trackId)_\(UUID().uuidString.prefix(8)).\(ext)")
+        let safeTrackId = trackId.map { character in
+            character.isLetter || character.isNumber ? character : "_"
+        }
+        let destURL = cacheDir.appendingPathComponent("\(String(safeTrackId))_\(UUID().uuidString.prefix(8)).\(ext)")
         let (data, response) = try await URLSession.shared.data(from: url)
 
-        if let httpResponse = response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
+        if let httpResponse = response as? HTTPURLResponse, !(200 ... 299).contains(httpResponse.statusCode) {
             let snippet = String(data: data.prefix(200), encoding: .utf8)
             throw ProgressiveStreamError.httpError(statusCode: httpResponse.statusCode, bodySnippet: snippet)
         }

@@ -95,12 +95,16 @@ public struct MiniPlayer: View {
                     },
                     onGoToAlbum: {
                         if let albumId = track.albumRatingKey {
-                            navigationCoordinator.navigate(to: .album(id: albumId))
+                            navigationCoordinator.navigate(
+                                to: .album(id: albumId, sourceKey: track.sourceCompositeKey)
+                            )
                         }
                     },
                     onGoToArtist: {
                         if let artistId = track.artistRatingKey {
-                            navigationCoordinator.navigate(to: .artist(id: artistId))
+                            navigationCoordinator.navigate(
+                                to: .artist(id: artistId, sourceKey: track.sourceCompositeKey)
+                            )
                         }
                     }
                 )
@@ -162,7 +166,7 @@ private struct MiniPlayerTrackInfo: View {
     var body: some View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
             // Error banner (if playback failed)
-            if case .failed(let errorMessage) = playbackProjection.playbackState {
+            if case let .failed(errorMessage) = playbackProjection.playbackState {
                 HStack(spacing: EnsembleDesign.Spacing.sm) {
                     Image(systemName: EnsembleDesign.Icon.error)
                         .font(EnsembleDesign.Typography.rowSecondary)
@@ -223,7 +227,6 @@ private struct MiniPlayerTrackInfo: View {
         .clipped()
     }
 
-    @ViewBuilder
     private func compactTrackRow(for track: Track) -> some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             trackInfoLane(for: track)
@@ -234,11 +237,10 @@ private struct MiniPlayerTrackInfo: View {
                 playbackProjection: playbackProjection,
                 viewModel: viewModel
             )
-                .layoutPriority(0.4)
+            .layoutPriority(0.4)
         }
     }
 
-    @ViewBuilder
     private func largeScreenTrackRow(for track: Track) -> some View {
         GeometryReader { geometry in
             let laneSpacing = TrackListLayoutMetrics.rowInterItemSpacing
@@ -273,14 +275,13 @@ private struct MiniPlayerTrackInfo: View {
                     showsPreviousButton: showsExpandedControls,
                     showsActionsMenu: showsExpandedControls
                 )
-                    .frame(width: controlLaneWidth, alignment: .trailing)
+                .frame(width: controlLaneWidth, alignment: .trailing)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
         .frame(height: max(artworkDimension, EnsembleScaffold.MiniPlayer.largeRowMinimumHeight))
     }
 
-    @ViewBuilder
     private func trackInfoLane(for track: Track) -> some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Artwork
