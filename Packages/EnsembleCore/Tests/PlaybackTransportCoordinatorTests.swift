@@ -132,4 +132,57 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
         try? FileManager.default.removeItem(at: first)
         try? FileManager.default.removeItem(at: second)
     }
+
+    func testResolveAudioFileCachesStreamDecisionsBySourceScopedIdentity() async throws {
+        let subscriberTrack = Track(
+            id: "7551",
+            key: "/library/metadata/7551",
+            title: "Techno Jeep",
+            duration: 180,
+            sourceCompositeKey: "plex:subscriber:server:music"
+        )
+        let freeAccountTrack = Track(
+            id: "7551",
+            key: "/library/metadata/7551",
+            title: "Techno Jeep",
+            duration: 180,
+            sourceCompositeKey: "plex:free:server:music"
+        )
+
+        let decisionCalls = LockedCounter()
+        let assembleCalls = LockedCounter()
+        let tempDir = FileManager.default.temporaryDirectory
+        let coordinator = PlaybackTransportCoordinator(
+            dependencies: .init(
+                networkState: { .online(.wifi) },
+                preparedLocalPlaybackURL: { URL(fileURLWithPath: $0) },
+                isClearlyInvalidLocalPayload: { _ in false },
+                ensureServerConnection: { _ in },
+                serverFailureMessage: { _ in nil },
+                makeStreamDecision: { track, _ in
+                    _ = decisionCalls.increment()
+                    return .directStream(partKey: "/library/parts/\(track.sourceScopedID)/file.mp3")
+                },
+                assembleStreamResolution: { track, _ in
+                    let sequence = assembleCalls.increment()
+                    let url = tempDir.appendingPathComponent("transport-\(track.sourceScopedID)-\(sequence).mp3")
+                    try Data(repeating: 0x43, count: 512).write(to: url)
+                    return .downloadedFile(url)
+                },
+                refreshConnection: {},
+                shouldRetryStreamURLRequest: { _ in false },
+                mapToPlaybackError: { .unknown($0) }
+            )
+        )
+
+        let subscriberURL = try await coordinator.resolveAudioFile(for: subscriberTrack)
+        let freeURL = try await coordinator.resolveAudioFile(for: freeAccountTrack)
+
+        XCTAssertNotEqual(subscriberURL.path, freeURL.path)
+        XCTAssertEqual(decisionCalls.value, 2)
+        XCTAssertEqual(assembleCalls.value, 2)
+
+        try? FileManager.default.removeItem(at: subscriberURL)
+        try? FileManager.default.removeItem(at: freeURL)
+    }
 }

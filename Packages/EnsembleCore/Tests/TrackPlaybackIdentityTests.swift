@@ -30,7 +30,7 @@ final class TrackPlaybackIdentityTests: XCTestCase {
         XCTAssertEqual(freeAccountTrack.playbackIdentity, "plex:felicity-test:server:1||123")
     }
 
-    func testAlbumAndArtistSourceScopedID() {
+    func testAlbumArtistAndPlaylistSourceScopedID() {
         let album = Album(
             id: "456",
             key: "/library/metadata/456",
@@ -43,8 +43,15 @@ final class TrackPlaybackIdentityTests: XCTestCase {
             name: "Artist",
             sourceCompositeKey: "plex:account:server:1"
         )
+        let playlist = Playlist(
+            id: "321",
+            key: "/playlists/321/items",
+            title: "Playlist",
+            sourceCompositeKey: "plex:account:server"
+        )
 
         XCTAssertEqual(album.sourceScopedID, "plex:account:server:1||456")
         XCTAssertEqual(artist.sourceScopedID, "plex:account:server:1||789")
+        XCTAssertEqual(playlist.sourceScopedID, "plex:account:server||321")
     }
 }

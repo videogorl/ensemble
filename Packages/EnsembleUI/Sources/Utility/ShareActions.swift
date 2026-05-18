@@ -14,7 +14,7 @@ public enum ShareActions {
                     iconSystemName: "link",
                     title: "Finding link…",
                     message: nil,
-                    dedupeKey: "share-link-\(track.id)"
+                    dedupeKey: "share-link-\(track.sourceScopedID)"
                 )
             )
             let payload = await deps.shareService.prepareTrackLinkPayload(track: track)
@@ -31,7 +31,7 @@ public enum ShareActions {
                     iconSystemName: "link",
                     title: "Finding link…",
                     message: nil,
-                    dedupeKey: "share-link-\(album.id)"
+                    dedupeKey: "share-link-\(album.sourceScopedID)"
                 )
             )
             let payload = await deps.shareService.prepareAlbumLinkPayload(album: album)
@@ -53,7 +53,7 @@ public enum ShareActions {
                         iconSystemName: "arrow.down.circle",
                         title: "Preparing audio file…",
                         message: nil,
-                        dedupeKey: "share-file-download-\(track.id)"
+                        dedupeKey: "share-file-download-\(track.sourceScopedID)"
                     )
                 )
             }
@@ -65,7 +65,7 @@ public enum ShareActions {
                         iconSystemName: "exclamationmark.triangle.fill",
                         title: "Couldn't prepare audio file",
                         message: "Check your connection and try again.",
-                        dedupeKey: "share-file-failed-\(track.id)"
+                        dedupeKey: "share-file-failed-\(track.sourceScopedID)"
                     )
                 )
                 return

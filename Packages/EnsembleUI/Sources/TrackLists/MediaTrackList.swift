@@ -1157,7 +1157,7 @@ public struct MediaTrackList: UIViewRepresentable {
                             iconSystemName: "wifi.slash",
                             title: availability.userMessage ?? "Not available offline",
                             message: "Download this track before going offline.",
-                            dedupeKey: "table-offline-track-blocked-\(track.id)"
+                            dedupeKey: "table-offline-track-blocked-\(track.sourceScopedID)"
                         )
                     )
                 }

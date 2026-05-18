@@ -281,7 +281,7 @@ public struct MoodTracksView: View {
         error = nil
 
         var allTracks: [Track] = []
-        var trackMap: [String: Track] = [:] // For deduplication by ratingKey
+        var trackMap: [String: Track] = [:]
 
         // Fetch mood tracks from all enabled libraries
         let accountManager = DependencyContainer.shared.accountManager
@@ -304,9 +304,9 @@ public struct MoodTracksView: View {
                             // Create track with explicit sourceKey including plex: prefix
                             let track = Track(from: plexTrack, sourceKey: sourceKey)
 
-                            // Dedup by ratingKey - keep first occurrence
-                            if trackMap[track.id] == nil {
-                                trackMap[track.id] = track
+                            // Dedup only repeat results from the same source; cross-source duplicates stay distinct.
+                            if trackMap[track.sourceScopedID] == nil {
+                                trackMap[track.sourceScopedID] = track
                                 allTracks.append(track)
                             }
                         }

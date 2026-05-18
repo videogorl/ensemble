@@ -534,7 +534,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     deps.toastCenter.show(
                         deps.metadataMutationWorkflow.editFailureToast(
                             noun: "Track",
-                            itemID: track.id,
+                            itemID: track.sourceScopedID,
                             error: error,
                             scope: .track
                         )
@@ -559,7 +559,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     deps.toastCenter.show(
                         deps.metadataMutationWorkflow.deleteFailureToast(
                             noun: "Track",
-                            itemID: track.id,
+                            itemID: track.sourceScopedID,
                             error: error,
                             scope: .track
                         )
@@ -602,7 +602,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             title: "Removing from Playlist…",
             message: track.title,
             isPersistent: true,
-            dedupeKey: "playlist-track-remove-pending-\(playlistViewModel.playlist.id)-\(track.id)",
+            dedupeKey: "playlist-track-remove-pending-\(playlistViewModel.playlist.id)-\(track.sourceScopedID)",
             showsActivityIndicator: true
         )
         deps.toastCenter.show(pendingToast)
@@ -616,7 +616,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     iconSystemName: didRemove ? EnsembleDesign.Icon.removeFromPlaylist : EnsembleDesign.Icon.error,
                     title: didRemove ? "Removed from Playlist" : "Couldn’t Remove Track",
                     message: didRemove ? nil : playlistViewModel.error,
-                    dedupeKey: "playlist-track-remove-result-\(playlistViewModel.playlist.id)-\(track.id)"
+                    dedupeKey: "playlist-track-remove-result-\(playlistViewModel.playlist.id)-\(track.sourceScopedID)"
                 )
             )
         }
@@ -633,7 +633,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             title: "Removing from Playlist…",
             message: track.title,
             isPersistent: true,
-            dedupeKey: "merged-playlist-track-remove-pending-\(playlistViewModel.displayPlaylist.id)-\(track.id)",
+            dedupeKey: "merged-playlist-track-remove-pending-\(playlistViewModel.displayPlaylist.id)-\(track.sourceScopedID)",
             showsActivityIndicator: true
         )
         deps.toastCenter.show(pendingToast)
@@ -647,7 +647,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     iconSystemName: didRemove ? EnsembleDesign.Icon.removeFromPlaylist : EnsembleDesign.Icon.error,
                     title: didRemove ? "Removed from Playlist" : "Couldn’t Remove Track",
                     message: didRemove ? nil : playlistViewModel.error,
-                    dedupeKey: "merged-playlist-track-remove-result-\(playlistViewModel.displayPlaylist.id)-\(track.id)"
+                    dedupeKey: "merged-playlist-track-remove-result-\(playlistViewModel.displayPlaylist.id)-\(track.sourceScopedID)"
                 )
             )
         }

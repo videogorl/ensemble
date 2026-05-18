@@ -61,7 +61,7 @@ final class MetadataMutationWorkflowTests: XCTestCase {
         XCTAssertEqual(result.successToast.iconSystemName, "checkmark.circle.fill")
         XCTAssertEqual(result.successToast.title, "Track updated")
         XCTAssertEqual(result.successToast.message, "\"New Track\" was saved to Plex.")
-        XCTAssertEqual(result.successToast.dedupeKey, "track-edit-track-1")
+        XCTAssertEqual(result.successToast.dedupeKey, "track-edit-plex:account-1:server-1:library-1||track-1")
     }
 
     func testEditAlbumSupportsDetailDedupeScope() async throws {
@@ -77,7 +77,7 @@ final class MetadataMutationWorkflowTests: XCTestCase {
         XCTAssertEqual(stub.editedAlbumID, "album-1")
         XCTAssertEqual(stub.lastRequest?.title, "New Album")
         XCTAssertEqual(result.successToast.title, "Album updated")
-        XCTAssertEqual(result.successToast.dedupeKey, "album-detail-edit-album-1")
+        XCTAssertEqual(result.successToast.dedupeKey, "album-detail-edit-plex:account-1:server-1:library-1||album-1")
     }
 
     func testEditArtistBuildsArtistToast() async throws {
@@ -89,7 +89,7 @@ final class MetadataMutationWorkflowTests: XCTestCase {
         XCTAssertEqual(stub.editedArtistID, "artist-1")
         XCTAssertEqual(stub.lastRequest?.title, "New Artist")
         XCTAssertEqual(result.successToast.title, "Artist updated")
-        XCTAssertEqual(result.successToast.dedupeKey, "artist-edit-artist-1")
+        XCTAssertEqual(result.successToast.dedupeKey, "artist-edit-plex:account-1:server-1:library-1||artist-1")
     }
 
     func testDeleteTrackBuildsSuccessToast() async throws {
@@ -103,7 +103,7 @@ final class MetadataMutationWorkflowTests: XCTestCase {
         XCTAssertEqual(result.successToast.iconSystemName, "trash.fill")
         XCTAssertEqual(result.successToast.title, "Track deleted")
         XCTAssertEqual(result.successToast.message, "\"Old Track\" was removed from Plex.")
-        XCTAssertEqual(result.successToast.dedupeKey, "track-delete-track-1")
+        XCTAssertEqual(result.successToast.dedupeKey, "track-delete-plex:account-1:server-1:library-1||track-1")
     }
 
     func testDeleteAlbumSupportsDetailDedupeScope() async throws {
@@ -118,7 +118,7 @@ final class MetadataMutationWorkflowTests: XCTestCase {
         XCTAssertEqual(stub.deletedAlbumID, "album-1")
         XCTAssertEqual(result.successToast.title, "Album deleted")
         XCTAssertEqual(result.successToast.message, "\"Old Album\" was removed from Plex.")
-        XCTAssertEqual(result.successToast.dedupeKey, "album-detail-delete-album-1")
+        XCTAssertEqual(result.successToast.dedupeKey, "album-detail-delete-plex:account-1:server-1:library-1||album-1")
     }
 
     func testFailureToastsUseLocalizedErrorAndScope() {

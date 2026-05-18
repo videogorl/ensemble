@@ -272,7 +272,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 .contentShape(Rectangle())
                 .allowsHitTesting(false)
 
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 if !(isPanelPresented && index == centeredIndex) {
                     let relativeIndex = Double(index) - currentIndex
 

@@ -947,10 +947,12 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     private func playlistTrackIndex(for track: Track, displayIndex: Int?) -> Int? {
         if let displayIndex,
            filteredTracks.indices.contains(displayIndex),
-           filteredTracks[displayIndex].id == track.id {
-            let precedingVisibleMatches = filteredTracks[..<displayIndex].filter { $0.id == track.id }.count
+           sameTrackIdentity(filteredTracks[displayIndex], track) {
+            let precedingVisibleMatches = filteredTracks[..<displayIndex]
+                .filter { sameTrackIdentity($0, track) }
+                .count
             var seenMatches = 0
-            for (index, candidate) in tracks.enumerated() where candidate.id == track.id {
+            for (index, candidate) in tracks.enumerated() where sameTrackIdentity(candidate, track) {
                 if seenMatches == precedingVisibleMatches {
                     return index
                 }
@@ -958,7 +960,11 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             }
         }
 
-        return tracks.firstIndex(where: { $0.id == track.id })
+        return tracks.firstIndex(where: { sameTrackIdentity($0, track) })
+    }
+
+    private func sameTrackIdentity(_ lhs: Track, _ rhs: Track) -> Bool {
+        lhs.playbackIdentity == rhs.playbackIdentity
     }
 
     private func applyTrackSnapshot(_ editedTracks: [Track], skipNextLoadAfterLocalEdit: Bool) {

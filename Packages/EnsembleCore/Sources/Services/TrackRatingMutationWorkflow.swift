@@ -43,12 +43,13 @@ public final class TrackRatingMutationWorkflow {
     }
 
     public func beginFavoriteUpdate(track: Track, isFavorite: Bool) -> ToastPayload {
-        ToastPayload(
+        let trackIdentity = track.sourceScopedID
+        return ToastPayload(
             style: .info,
             iconSystemName: Icon.favorite,
             title: isFavorite ? "Adding to Favorites..." : "Removing from Favorites...",
             isPersistent: true,
-            dedupeKey: "favorite-toggle-loading-\(track.id)",
+            dedupeKey: "favorite-toggle-loading-\(trackIdentity)",
             showsActivityIndicator: true
         )
     }
@@ -58,6 +59,7 @@ public final class TrackRatingMutationWorkflow {
         isFavorite: Bool,
         outcome: MutationOutcome
     ) -> TrackRatingMutationWorkflowResult {
+        let trackIdentity = track.sourceScopedID
         if outcome == .queued {
             return TrackRatingMutationWorkflowResult(
                 outcome: outcome,
@@ -66,7 +68,7 @@ public final class TrackRatingMutationWorkflow {
                     iconSystemName: isFavorite ? Icon.favorite : Icon.unfavorite,
                     title: isFavorite ? "Saved — will sync when online" : "Removed — will sync when online",
                     message: track.title,
-                    dedupeKey: "favorite-toggle-queued-\(track.id)-\(isFavorite ? 1 : 0)"
+                    dedupeKey: "favorite-toggle-queued-\(trackIdentity)-\(isFavorite ? 1 : 0)"
                 )
             )
         }
@@ -78,7 +80,7 @@ public final class TrackRatingMutationWorkflow {
                 iconSystemName: isFavorite ? Icon.favorite : Icon.unfavorite,
                 title: isFavorite ? "Added to Favorites" : "Removed from Favorites",
                 message: track.title,
-                dedupeKey: "favorite-toggle-success-\(track.id)-\(isFavorite ? 1 : 0)"
+                dedupeKey: "favorite-toggle-success-\(trackIdentity)-\(isFavorite ? 1 : 0)"
             )
         )
     }
@@ -89,7 +91,7 @@ public final class TrackRatingMutationWorkflow {
             iconSystemName: Icon.failure,
             title: "Could not update favorite",
             message: error.localizedDescription,
-            dedupeKey: "favorite-toggle-error-\(track.id)"
+            dedupeKey: "favorite-toggle-error-\(track.sourceScopedID)"
         )
     }
 
@@ -109,7 +111,7 @@ public final class TrackRatingMutationWorkflow {
                 iconSystemName: Icon.queued,
                 title: "Rating saved — will sync when online",
                 message: track.title,
-                dedupeKey: "rating-toggle-queued-\(track.id)"
+                dedupeKey: "rating-toggle-queued-\(track.sourceScopedID)"
             )
         )
     }
@@ -120,7 +122,7 @@ public final class TrackRatingMutationWorkflow {
             iconSystemName: Icon.failure,
             title: "Could not update rating",
             message: error.localizedDescription,
-            dedupeKey: "rating-toggle-error-\(track.id)"
+            dedupeKey: "rating-toggle-error-\(track.sourceScopedID)"
         )
     }
 }

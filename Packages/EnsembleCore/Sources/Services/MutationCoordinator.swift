@@ -281,7 +281,7 @@ public final class MutationCoordinator: ObservableObject {
 
     /// Enqueue a playlist deletion and purge any now-irrelevant queued mutations for it
     private func enqueuePlaylistDelete(playlist: Playlist, sourceKey: String) async {
-        await purgePlaylistMutations(playlistRatingKey: playlist.id)
+        await purgePlaylistMutations(playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey)
         let payload = PlaylistDeleteMutationPayload(
             playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey
         )
@@ -446,7 +446,7 @@ public final class MutationCoordinator: ObservableObject {
     }
 
     /// Remove any queued playlist mutations (add, rename, remove) for a playlist being deleted
-    private func purgePlaylistMutations(playlistRatingKey: String) async {
+    private func purgePlaylistMutations(playlistRatingKey: String, playlistSourceCompositeKey: String) async {
         let playlistTypes: Set<String> = [
             CDPendingMutation.MutationType.playlistAdd.rawValue,
             CDPendingMutation.MutationType.playlistRemove.rawValue,
@@ -457,7 +457,11 @@ public final class MutationCoordinator: ObservableObject {
             for mutation in pending {
                 guard playlistTypes.contains(mutation.type) else { continue }
                 // Check if this mutation targets the playlist being deleted
-                if matchesPlaylist(mutation: mutation, playlistRatingKey: playlistRatingKey) {
+                if matchesPlaylist(
+                    mutation: mutation,
+                    playlistRatingKey: playlistRatingKey,
+                    playlistSourceCompositeKey: playlistSourceCompositeKey
+                ) {
                     try? await repository.deleteMutation(id: mutation.id)
                     EnsembleLogger.debug("🗑️ MutationCoordinator: Purged \(mutation.type) for deleted playlist \(playlistRatingKey)")
                 }
@@ -468,15 +472,21 @@ public final class MutationCoordinator: ObservableObject {
     }
 
     /// Check if a queued mutation targets a specific playlist by decoding its payload
-    private func matchesPlaylist(mutation: CDPendingMutation, playlistRatingKey: String) -> Bool {
+    private func matchesPlaylist(
+        mutation: CDPendingMutation,
+        playlistRatingKey: String,
+        playlistSourceCompositeKey: String
+    ) -> Bool {
         switch mutation.mutationType {
         case .playlistAdd, .playlistRemove:
             if let payload = try? JSONDecoder().decode(PlaylistMutationPayload.self, from: mutation.payload) {
-                return payload.playlistRatingKey == playlistRatingKey
+                return payload.playlistRatingKey == playlistRatingKey &&
+                    payload.playlistSourceCompositeKey == playlistSourceCompositeKey
             }
         case .playlistRename:
             if let payload = try? JSONDecoder().decode(PlaylistRenameMutationPayload.self, from: mutation.payload) {
-                return payload.playlistRatingKey == playlistRatingKey
+                return payload.playlistRatingKey == playlistRatingKey &&
+                    payload.playlistSourceCompositeKey == playlistSourceCompositeKey
             }
         case .trackRating, .playlistDelete, .scrobble:
             break

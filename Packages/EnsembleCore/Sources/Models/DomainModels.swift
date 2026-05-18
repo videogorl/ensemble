@@ -521,6 +521,11 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
         MediaFormatters.collectionDuration(duration)
     }
 
+    /// Stable UI identity that distinguishes the same Plex playlist rating key across sources.
+    public var sourceScopedID: String {
+        sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
+    }
+
     /// Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
     /// Skips key, summary, dateAdded, dateModified, lastPlayed, sourceCompositeKey.
     public static func == (lhs: Playlist, rhs: Playlist) -> Bool {

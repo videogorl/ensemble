@@ -1203,12 +1203,12 @@ public struct PlaylistDetailView: View {
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 } else {
-                    ForEach(Array(editedTracks.enumerated()), id: \.element.id) { index, track in
+                    ForEach(Array(editedTracks.enumerated()), id: \.offset) { index, track in
                         EnsembleUtilityCardRow {
                             editableTrackCardRow(track, index: index)
                         }
 
-                        if track.id != editedTracks.last?.id {
+                        if index < editedTracks.count - 1 {
                             EnsembleUtilityCardDivider()
                         }
                     }

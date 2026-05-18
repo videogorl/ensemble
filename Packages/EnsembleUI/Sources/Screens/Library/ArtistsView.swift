@@ -490,7 +490,7 @@ private struct DisplayArtistGrid: View {
                     deps.toastCenter.show(
                         deps.metadataMutationWorkflow.editFailureToast(
                             noun: "Artist",
-                            itemID: artist.id,
+                            itemID: artist.sourceScopedID,
                             error: error,
                             scope: .artist
                         )

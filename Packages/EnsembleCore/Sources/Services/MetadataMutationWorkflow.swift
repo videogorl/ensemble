@@ -59,7 +59,7 @@ public final class MetadataMutationWorkflow {
         return MetadataMutationWorkflowResult(
             successToast: editSuccessToast(
                 noun: "Track",
-                itemID: track.id,
+                itemID: track.sourceScopedID,
                 savedTitle: newTitle,
                 scope: scope
             )
@@ -75,7 +75,7 @@ public final class MetadataMutationWorkflow {
         return MetadataMutationWorkflowResult(
             successToast: editSuccessToast(
                 noun: "Album",
-                itemID: album.id,
+                itemID: album.sourceScopedID,
                 savedTitle: newTitle,
                 scope: scope
             )
@@ -91,7 +91,7 @@ public final class MetadataMutationWorkflow {
         return MetadataMutationWorkflowResult(
             successToast: editSuccessToast(
                 noun: "Artist",
-                itemID: artist.id,
+                itemID: artist.sourceScopedID,
                 savedTitle: newTitle,
                 scope: scope
             )
@@ -106,7 +106,7 @@ public final class MetadataMutationWorkflow {
         return MetadataMutationWorkflowResult(
             successToast: deleteSuccessToast(
                 noun: "Track",
-                itemID: track.id,
+                itemID: track.sourceScopedID,
                 itemTitle: track.title,
                 scope: scope
             )
@@ -121,7 +121,7 @@ public final class MetadataMutationWorkflow {
         return MetadataMutationWorkflowResult(
             successToast: deleteSuccessToast(
                 noun: "Album",
-                itemID: album.id,
+                itemID: album.sourceScopedID,
                 itemTitle: album.title,
                 scope: scope
             )

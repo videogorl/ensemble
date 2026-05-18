@@ -127,6 +127,43 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         func countPendingMutations() async throws -> Int { 0 }
     }
 
+    private final class RecordingPendingMutationRepository: PendingMutationRepositoryProtocol, @unchecked Sendable {
+        var pending: [CDPendingMutation]
+        private(set) var deletedIDs: [String] = []
+        private(set) var enqueued: [(type: CDPendingMutation.MutationType, sourceCompositeKey: String?)] = []
+
+        init(pending: [CDPendingMutation]) {
+            self.pending = pending
+        }
+
+        func fetchPendingMutations() async throws -> [CDPendingMutation] { pending }
+        func fetchAllMutations() async throws -> [CDPendingMutation] { pending }
+
+        func enqueueMutation(
+            id _: String,
+            type: CDPendingMutation.MutationType,
+            payload _: Data,
+            sourceCompositeKey: String?
+        ) async throws {
+            enqueued.append((type: type, sourceCompositeKey: sourceCompositeKey))
+        }
+
+        func incrementRetryCount(id _: String) async throws {}
+        func markFailed(id _: String) async throws {}
+        func resetToRetry(id _: String) async throws {}
+
+        func deleteMutation(id: String) async throws {
+            deletedIDs.append(id)
+            pending.removeAll { $0.id == Optional(id) }
+        }
+
+        func deleteAllMutations() async throws {
+            pending.removeAll()
+        }
+
+        func countPendingMutations() async throws -> Int { pending.count }
+    }
+
     private enum MockError: Error {
         case unimplemented
     }
@@ -300,6 +337,29 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         return cdPlaylist
     }
 
+    private func makePendingPlaylistAddMutation(
+        id: String,
+        playlistRatingKey: String,
+        playlistSourceCompositeKey: String,
+        context: NSManagedObjectContext
+    ) throws -> CDPendingMutation {
+        let mutation = CDPendingMutation(context: context)
+        mutation.id = id
+        mutation.type = CDPendingMutation.MutationType.playlistAdd.rawValue
+        mutation.status = CDPendingMutation.MutationStatus.pending.rawValue
+        mutation.createdAt = Date()
+        mutation.payload = try JSONEncoder().encode(
+            PlaylistMutationPayload(
+                playlistRatingKey: playlistRatingKey,
+                playlistSourceCompositeKey: playlistSourceCompositeKey,
+                trackRatingKeys: ["track-1"],
+                trackSourceCompositeKey: "\(playlistSourceCompositeKey):lib-1"
+            )
+        )
+        mutation.sourceCompositeKey = playlistSourceCompositeKey
+        return mutation
+    }
+
     func testDeletePlaylistSuccessReturnsTrue() async {
         let syncCoordinator = makeSyncCoordinator()
         syncCoordinator.playlistDeleteHandlerForTesting = { _, _ in }
@@ -335,6 +395,44 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let didDelete = await viewModel.deletePlaylist()
         XCTAssertFalse(didDelete)
         XCTAssertEqual(viewModel.error, PlaylistMutationError.smartPlaylistReadOnly.localizedDescription)
+    }
+
+    func testOfflinePlaylistDeletePurgesPendingMutationsForMatchingSourceOnly() async throws {
+        let syncCoordinator = makeSyncCoordinator()
+        syncCoordinator.networkMonitor.injectNetworkStateForTesting(.offline, debounced: false)
+        await syncCoordinator.handleAppWillEnterForeground()
+
+        let context = CoreDataStack.inMemory().viewContext
+        let matchingMutation = try makePendingPlaylistAddMutation(
+            id: "matching",
+            playlistRatingKey: "playlist-1",
+            playlistSourceCompositeKey: "plex:account-1:server-1",
+            context: context
+        )
+        let otherSourceMutation = try makePendingPlaylistAddMutation(
+            id: "other-source",
+            playlistRatingKey: "playlist-1",
+            playlistSourceCompositeKey: "plex:account-2:server-2",
+            context: context
+        )
+        let repository = RecordingPendingMutationRepository(
+            pending: [matchingMutation, otherSourceMutation]
+        )
+        let mutationCoordinator = MutationCoordinator(
+            repository: repository,
+            networkMonitor: syncCoordinator.networkMonitor,
+            syncCoordinator: syncCoordinator
+        )
+
+        let outcome = try await mutationCoordinator.deletePlaylist(
+            makePlaylist(id: "playlist-1", sourceCompositeKey: "plex:account-1:server-1")
+        )
+
+        XCTAssertEqual(outcome, .queued)
+        XCTAssertEqual(repository.deletedIDs, ["matching"])
+        XCTAssertEqual(repository.pending.map(\.id), ["other-source"])
+        XCTAssertEqual(repository.enqueued.map(\.type), [.playlistDelete])
+        XCTAssertEqual(repository.enqueued.map(\.sourceCompositeKey), ["plex:account-1:server-1"])
     }
 
     func testPlaylistViewModelPreservesVisiblePlaylistsWhenReloadTemporarilyEmpty() async {
@@ -527,6 +625,38 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(refreshedSourceKey, "plex:account-1:server-1")
         XCTAssertEqual(viewModel.tracks.map(\.id), ["track-2"])
         XCTAssertEqual(viewModel.playlist.trackCount, 1)
+    }
+
+    func testRemoveTrackFromPlaylistWithoutDisplayIndexUsesSourceScopedIdentity() async {
+        let syncCoordinator = makeSyncCoordinator()
+        var replacedTrackIDs: [String] = []
+        syncCoordinator.playlistReplaceContentsHandlerForTesting = { _, _, trackIDs, _ in
+            replacedTrackIDs = trackIDs
+        }
+        syncCoordinator.refreshServerPlaylistsHandlerForTesting = { _ in }
+
+        let viewModel = PlaylistDetailViewModel(
+            playlist: makePlaylist(),
+            playlistRepository: MockPlaylistRepository(),
+            libraryRepository: MockLibraryRepository(),
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
+        )
+        let sharedLibraryTrack = makeTrack(
+            id: "7551",
+            sourceCompositeKey: "plex:account-1:server-1:lib-1"
+        )
+        let testLibraryTrack = makeTrack(
+            id: "7551",
+            sourceCompositeKey: "plex:account-1:server-1:lib-2"
+        )
+        viewModel.applyEditedTracksLocally([sharedLibraryTrack, testLibraryTrack])
+
+        let didRemove = await viewModel.removeTrackFromPlaylist(testLibraryTrack)
+
+        XCTAssertTrue(didRemove)
+        XCTAssertEqual(viewModel.tracks.map(\.sourceScopedID), [sharedLibraryTrack.sourceScopedID])
+        XCTAssertEqual(replacedTrackIDs, ["7551"])
     }
 
     func testRemoveTrackFromSmartPlaylistFailsWithoutReplacingContents() async {

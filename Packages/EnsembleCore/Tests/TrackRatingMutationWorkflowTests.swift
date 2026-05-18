@@ -47,21 +47,25 @@ final class TrackRatingMutationWorkflowTests: XCTestCase {
         XCTAssertEqual(loading.title, "Adding to Favorites...")
         XCTAssertTrue(loading.isPersistent)
         XCTAssertTrue(loading.showsActivityIndicator)
+        XCTAssertEqual(loading.dedupeKey, "favorite-toggle-loading-plex:account:server:library||track-1")
 
         let queued = workflow.finishFavoriteUpdate(track: track, isFavorite: true, outcome: .queued)
         XCTAssertEqual(queued.toast?.style, .info)
         XCTAssertEqual(queued.toast?.title, "Saved — will sync when online")
         XCTAssertEqual(queued.toast?.message, "Wake Up")
+        XCTAssertEqual(queued.toast?.dedupeKey, "favorite-toggle-queued-plex:account:server:library||track-1-1")
 
         let success = workflow.finishFavoriteUpdate(track: track, isFavorite: false, outcome: .completed)
         XCTAssertEqual(success.toast?.style, .success)
         XCTAssertEqual(success.toast?.title, "Removed from Favorites")
         XCTAssertEqual(success.toast?.iconSystemName, "heart.slash.fill")
+        XCTAssertEqual(success.toast?.dedupeKey, "favorite-toggle-success-plex:account:server:library||track-1-0")
 
         let failure = workflow.favoriteFailureToast(track: track, error: TestError.failed)
         XCTAssertEqual(failure.style, .error)
         XCTAssertEqual(failure.title, "Could not update favorite")
         XCTAssertEqual(failure.message, "Request failed")
+        XCTAssertEqual(failure.dedupeKey, "favorite-toggle-error-plex:account:server:library||track-1")
     }
 
     func testRatingUpdateOnlyShowsToastWhenQueuedOrFailed() {
@@ -75,11 +79,13 @@ final class TrackRatingMutationWorkflowTests: XCTestCase {
         XCTAssertEqual(queued.toast?.style, .info)
         XCTAssertEqual(queued.toast?.title, "Rating saved — will sync when online")
         XCTAssertEqual(queued.toast?.message, "Wake Up")
+        XCTAssertEqual(queued.toast?.dedupeKey, "rating-toggle-queued-plex:account:server:library||track-1")
 
         let failure = workflow.ratingFailureToast(track: track, error: TestError.failed)
         XCTAssertEqual(failure.style, .error)
         XCTAssertEqual(failure.title, "Could not update rating")
         XCTAssertEqual(failure.message, "Request failed")
+        XCTAssertEqual(failure.dedupeKey, "rating-toggle-error-plex:account:server:library||track-1")
     }
 
     private func makeTrack(id: String = "track-1", title: String = "Track") -> Track {

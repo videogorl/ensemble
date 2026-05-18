@@ -263,7 +263,7 @@ public struct AlbumGrid: View {
                     deps.toastCenter.show(
                         deps.metadataMutationWorkflow.editFailureToast(
                             noun: "Album",
-                            itemID: album.id,
+                            itemID: album.sourceScopedID,
                             error: error,
                             scope: .album
                         )
@@ -286,7 +286,7 @@ public struct AlbumGrid: View {
                 deps.toastCenter.show(
                     deps.metadataMutationWorkflow.deleteFailureToast(
                         noun: "Album",
-                        itemID: album.id,
+                        itemID: album.sourceScopedID,
                         error: error,
                         scope: .album
                     )

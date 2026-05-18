@@ -163,14 +163,15 @@ final class PlaybackTransportCoordinator {
     }
 
     private func completedLoaderURLIfAvailable(for track: Track) -> URL? {
-        withLock {
-            guard let loader = streamLoaders[track.id], loader.isDownloadComplete else {
+        let trackIdentity = track.playbackIdentity
+        return withLock { () -> URL? in
+            guard let loader = streamLoaders[trackIdentity], loader.isDownloadComplete else {
                 return nil
             }
             if loader.completionError != nil {
-                streamLoaders.removeValue(forKey: track.id)?.cancel()
-                cachedStreamDecisions.removeValue(forKey: track.id)
-                fileResolutionTasks.removeValue(forKey: track.id)
+                streamLoaders.removeValue(forKey: trackIdentity)?.cancel()
+                cachedStreamDecisions.removeValue(forKey: trackIdentity)
+                fileResolutionTasks.removeValue(forKey: trackIdentity)
                 return nil
             }
             return loader.localFileURL

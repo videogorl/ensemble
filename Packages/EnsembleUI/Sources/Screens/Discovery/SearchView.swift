@@ -1033,7 +1033,7 @@ public struct SearchView: View {
             .padding(.horizontal)
 
             VStack(spacing: EnsembleDesign.Spacing.none) {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                     content(item)
 
                     if index < items.count - 1 {

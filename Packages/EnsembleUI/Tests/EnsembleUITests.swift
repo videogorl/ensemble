@@ -340,6 +340,41 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertFalse(resolved.isFavorited)
     }
 
+    func testTrackRowInteractionModelCallbacksReceiveSourceScopedTrack() {
+        let subscriberTrack = Track(
+            id: "7551",
+            key: "/tracks/7551",
+            title: "Techno Jeep",
+            sourceCompositeKey: "plex:subscriber:server:music"
+        )
+        let freeAccountTrack = Track(
+            id: "7551",
+            key: "/tracks/7551",
+            title: "Techno Jeep",
+            sourceCompositeKey: "plex:free:server:music"
+        )
+        var toggledIdentities: [String] = []
+
+        let model = TrackRowInteractionModel(
+            onToggleFavorite: { track in
+                toggledIdentities.append(track.sourceScopedID)
+            },
+            isTrackFavorited: { $0.sourceScopedID == freeAccountTrack.sourceScopedID }
+        )
+
+        let subscriberActions = model.resolve(for: subscriberTrack)
+        let freeAccountActions = model.resolve(for: freeAccountTrack)
+        subscriberActions.onToggleFavorite?()
+        freeAccountActions.onToggleFavorite?()
+
+        XCTAssertFalse(subscriberActions.isFavorited)
+        XCTAssertTrue(freeAccountActions.isFavorited)
+        XCTAssertEqual(toggledIdentities, [
+            subscriberTrack.sourceScopedID,
+            freeAccountTrack.sourceScopedID
+        ])
+    }
+
     func testMediaMenuCatalogTrackLibraryContextIncludesBaseAndEditingActions() {
         let sections = MediaMenuCatalog.sections(
             for: .track,
@@ -491,6 +526,24 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(
             TrackActionPresentation.confirmationToast(for: .playNext, track: track, dedupeNamespace: "test")?.dedupeKey,
             "test-swipe-play-next-track-1"
+        )
+    }
+
+    func testTrackActionPresentationDedupeKeysUseSourceScopedTrackIdentity() {
+        let track = Track(
+            id: "7551",
+            key: "/tracks/7551",
+            title: "Techno Jeep",
+            sourceCompositeKey: "plex:free:server:music"
+        )
+
+        XCTAssertEqual(
+            TrackActionPresentation.confirmationToast(for: .playNext, track: track, dedupeNamespace: "test")?.dedupeKey,
+            "test-swipe-play-next-plex:free:server:music||7551"
+        )
+        XCTAssertEqual(
+            TrackActionPresentation.favoriteLoadingToast(for: track, willFavorite: true, dedupeNamespace: "test").dedupeKey,
+            "test-favorite-toggle-loading-plex:free:server:music||7551"
         )
     }
 
