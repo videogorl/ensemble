@@ -134,6 +134,7 @@ final class ProgressiveStreamLoader: NSObject, @unchecked Sendable {
     init(
         request: URLRequest,
         ratingKey: String,
+        cacheIdentity: String,
         estimatedContentLength: Int64,
         metadataDuration: Double?
     ) {
@@ -146,11 +147,11 @@ final class ProgressiveStreamLoader: NSObject, @unchecked Sendable {
         self.delegateQueue = DispatchQueue(label: "com.ensemble.progressive-stream.\(ratingKey)")
 
         // Create temp file for progressive writing
-        let cacheDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
+        let cacheDir = PlaybackStreamCacheIdentity.streamCacheDirectory
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-        let sessionId = UUID().uuidString.prefix(8)
-        self.fileURL = cacheDir.appendingPathComponent("\(ratingKey)_\(sessionId).mp3")
+        self.fileURL = cacheDir.appendingPathComponent(
+            PlaybackStreamCacheIdentity.fileName(for: cacheIdentity, pathExtension: "mp3")
+        )
 
         super.init()
 

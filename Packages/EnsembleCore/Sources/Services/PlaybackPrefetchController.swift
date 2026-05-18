@@ -143,9 +143,10 @@ final class PlaybackPrefetchController {
         return staleTrackIDs
     }
 
-    func cleanupStreamCacheFiles(using context: PlaybackStreamCacheContext) {
-        let cacheDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
+    func cleanupStreamCacheFiles(
+        using context: PlaybackStreamCacheContext,
+        cacheDir: URL = PlaybackStreamCacheIdentity.streamCacheDirectory
+    ) {
         guard FileManager.default.fileExists(atPath: cacheDir.path) else { return }
 
         var keepIds = Set(context.resolvedFileURLs.keys)
@@ -176,8 +177,7 @@ final class PlaybackPrefetchController {
 
         var removedCount = 0
         for file in files {
-            let ratingKey = file.prefix(while: { $0 != "_" })
-            if !ratingKey.isEmpty, !keepIds.contains(String(ratingKey)) {
+            if !PlaybackStreamCacheIdentity.shouldKeep(fileName: file, keepIdentities: keepIds) {
                 try? FileManager.default.removeItem(at: cacheDir.appendingPathComponent(file))
                 removedCount += 1
             }

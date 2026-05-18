@@ -184,6 +184,64 @@ final class PlaybackPrefetchControllerTests: XCTestCase {
         )
     }
 
+    func testStreamCacheCleanupKeepsSourceScopedCurrentTrackFile() throws {
+        let controller = PlaybackPrefetchController()
+        let current = makeTrack(id: "13685", sourceCompositeKey: "plex:felicity:server:music")
+        let stale = makeTrack(id: "13686", sourceCompositeKey: "plex:felicity:server:music")
+        let cacheDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stream-cleanup-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: cacheDir) }
+
+        let currentFile = cacheDir.appendingPathComponent(
+            PlaybackStreamCacheIdentity.fileName(for: current.playbackIdentity, suffix: "current", pathExtension: "mp3")
+        )
+        let staleFile = cacheDir.appendingPathComponent(
+            PlaybackStreamCacheIdentity.fileName(for: stale.playbackIdentity, suffix: "stale", pathExtension: "mp3")
+        )
+        try Data(repeating: 0x41, count: 16).write(to: currentFile)
+        try Data(repeating: 0x42, count: 16).write(to: staleFile)
+
+        controller.cleanupStreamCacheFiles(
+            using: PlaybackStreamCacheContext(
+                resolvedFileURLs: [current.playbackIdentity: currentFile],
+                queue: [QueueItem(track: current)],
+                currentQueueIndex: 0,
+                scheduledTrackIDs: [],
+                activeLoaderTrackIDs: []
+            ),
+            cacheDir: cacheDir
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: currentFile.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staleFile.path))
+    }
+
+    func testStreamCacheCleanupKeepsLegacyRatingKeyFileForSourceScopedTrack() throws {
+        let controller = PlaybackPrefetchController()
+        let current = makeTrack(id: "13685", sourceCompositeKey: "plex:felicity:server:music")
+        let cacheDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stream-cleanup-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: cacheDir) }
+
+        let legacyFile = cacheDir.appendingPathComponent("13685_legacy.mp3")
+        try Data(repeating: 0x41, count: 16).write(to: legacyFile)
+
+        controller.cleanupStreamCacheFiles(
+            using: PlaybackStreamCacheContext(
+                resolvedFileURLs: [current.playbackIdentity: legacyFile],
+                queue: [QueueItem(track: current)],
+                currentQueueIndex: 0,
+                scheduledTrackIDs: [],
+                activeLoaderTrackIDs: []
+            ),
+            cacheDir: cacheDir
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyFile.path))
+    }
+
     private func makeQueue(_ ids: [String]) -> [QueueItem] {
         ids.map { QueueItem(track: makeTrack(id: $0)) }
     }

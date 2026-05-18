@@ -236,6 +236,7 @@ final class PlaybackTransportCoordinator {
         let loader = ProgressiveStreamLoader(
             request: config.streamRequest,
             ratingKey: config.ratingKey,
+            cacheIdentity: trackIdentity,
             estimatedContentLength: config.estimatedContentLength,
             metadataDuration: config.metadataDuration
         )
@@ -281,15 +282,13 @@ final class PlaybackTransportCoordinator {
     }
 
     private func downloadStreamToTempFile(url: URL, trackId: String) async throws -> URL {
-        let cacheDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
+        let cacheDir = PlaybackStreamCacheIdentity.streamCacheDirectory
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
 
         let ext = url.pathExtension.isEmpty ? "mp3" : url.pathExtension
-        let safeTrackId = trackId.map { character in
-            character.isLetter || character.isNumber ? character : "_"
-        }
-        let destURL = cacheDir.appendingPathComponent("\(String(safeTrackId))_\(UUID().uuidString.prefix(8)).\(ext)")
+        let destURL = cacheDir.appendingPathComponent(
+            PlaybackStreamCacheIdentity.fileName(for: trackId, pathExtension: ext)
+        )
         let (data, response) = try await URLSession.shared.data(from: url)
 
         if let httpResponse = response as? HTTPURLResponse, !(200 ... 299).contains(httpResponse.statusCode) {
