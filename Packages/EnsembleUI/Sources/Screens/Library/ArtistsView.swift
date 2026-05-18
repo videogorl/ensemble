@@ -672,6 +672,7 @@ public struct ArtistDetailView: View {
             for: viewModel.artist.sourceCompositeKey,
             accountManager: dependencies.accountManager
         )
+        let downloadableMergedArtists = mergedDownloadableArtists
         return Menu {
             Button {
                 dependencies.pinMutationWorkflow.togglePin(
@@ -685,7 +686,20 @@ public struct ArtistDetailView: View {
                 MediaActionLabel(kind: .pin(isPinned: isPinned))
             }
 
-            if !displayArtist.isMerged && canDownload {
+            if displayArtist.isMerged, !downloadableMergedArtists.isEmpty {
+                Button {
+                    Task {
+                        for artist in downloadableMergedArtists {
+                            await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
+                                artist,
+                                isEnabled: true
+                            )
+                        }
+                    }
+                } label: {
+                    MediaActionLabel(kind: .downloadAll)
+                }
+            } else if canDownload {
                 Button {
                     Task {
                         await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
@@ -700,6 +714,11 @@ public struct ArtistDetailView: View {
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
         }
+    }
+
+    private var mergedDownloadableArtists: [Artist] {
+        guard displayArtist.isMerged else { return [] }
+        return displayArtist.artists.filter { canDownload($0) }
     }
     
     private func loadArtworkImage() async {
