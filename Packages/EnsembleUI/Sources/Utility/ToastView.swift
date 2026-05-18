@@ -256,6 +256,10 @@ public struct ToastBannerView: View {
     }
 
     private var accentColor: Color {
+        #if os(macOS)
+        return EnsembleDesign.Color.accent
+        #else
         settingsManager.accentColor.color
+        #endif
     }
 }

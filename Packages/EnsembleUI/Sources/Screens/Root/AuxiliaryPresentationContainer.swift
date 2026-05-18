@@ -24,6 +24,8 @@ private struct AuxiliaryDismissToolbarModifier: ViewModifier {
 }
 
 public struct ProfilePresentationContainer: View {
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+
     public init() {}
 
     public var body: some View {
@@ -34,16 +36,19 @@ public struct ProfilePresentationContainer: View {
             ProfileView()
                 .nativeSheetNavigationContainer()
         }
+        .accentColor(settingsManager.accentColor.color)
         #else
         ProfileView()
             .modifier(AuxiliaryDismissToolbarModifier())
             .nativeSheetNavigationContainer()
+            .accentColor(settingsManager.accentColor.color)
         #endif
     }
 }
 
 public struct DownloadsPresentationContainer: View {
     @StateObject private var nowPlayingVM: NowPlayingViewModel
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
 
     public init() {
         _nowPlayingVM = StateObject(wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel())
@@ -57,10 +62,12 @@ public struct DownloadsPresentationContainer: View {
             DownloadsView(nowPlayingVM: nowPlayingVM)
                 .nativeSheetNavigationContainer()
         }
+        .accentColor(settingsManager.accentColor.color)
         #else
         DownloadsView(nowPlayingVM: nowPlayingVM)
             .modifier(AuxiliaryDismissToolbarModifier())
             .nativeSheetNavigationContainer()
+            .accentColor(settingsManager.accentColor.color)
         #endif
     }
 }

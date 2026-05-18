@@ -181,7 +181,7 @@ public struct ProfileView: View {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.addCircle,
                     title: "Add Plex Account",
-                    iconColor: settingsManager.accentColor.color
+                    iconColor: EnsembleDesign.Color.accent
                 )
             }
         } header: {
@@ -499,7 +499,7 @@ public struct ProfileView: View {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.addCircle,
                     title: "Add Plex Account",
-                    iconColor: settingsManager.accentColor.color
+                    iconColor: EnsembleDesign.Color.accent
                 )
             }
         }

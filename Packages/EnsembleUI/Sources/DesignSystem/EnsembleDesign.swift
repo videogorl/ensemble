@@ -96,6 +96,10 @@ public enum EnsembleDesign {
         public static let secondaryText = SwiftUI.Color.secondary
         public static let mutedPrimaryText = SwiftUI.Color.primary.opacity(0.7)
         public static let placeholderText = SwiftUI.Color.secondary
+        /// Ambient app accent resolved by SwiftUI.
+        ///
+        /// On macOS this intentionally follows Apple's accent policy: an explicit
+        /// system accent wins, while Multicolor lets the app-provided accent show.
         public static let accent = SwiftUI.Color.accentColor
         public static let accentSelection = SwiftUI.Color.accentColor.opacity(0.12)
         public static let accentBadge = SwiftUI.Color.accentColor.opacity(0.15)

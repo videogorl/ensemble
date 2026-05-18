@@ -222,6 +222,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 ### Design Tokens And Adaptive Patterns
 - Use `EnsembleDesign` for semantic UI values instead of introducing new raw literals for repeatable roles.
 - Token groups cover spacing, radius, typography, color, icons, breakpoints, effects, and semantic material roles.
+- App-accent surfaces should use `EnsembleDesign.Color.accent` / `Color.accentColor` so macOS follows Apple's accent policy: explicit System Settings accent colors override the app accent, while Multicolor lets the app-provided accent show. Do not pass `SettingsManager.accentColor.color` directly into ambient custom surfaces such as artwork washes, aurora, toast accents, utility row icons, sidebar adornments, or Now Playing chrome; reserve the stored setting for establishing the app accent environment and for actual accent picker swatches.
 - Keep specialized existing helpers where they encode behavior, such as `TrackListLayoutMetrics` for track rows and `ArtworkCornerRadius` for media artwork. These bridge into `EnsembleDesign` instead of being replaced by unrelated literals.
 - Use `EnsembleScaffold` for larger adaptive patterns, such as shared empty/loading/error states.
 - Filter presenters should present `FilterSheet` directly with native `.sheet(...)` on iPhone, iPadOS, and macOS. Do not reintroduce toolbar popovers or a custom filter presentation wrapper unless a current simulator repro proves native sheets are broken.
