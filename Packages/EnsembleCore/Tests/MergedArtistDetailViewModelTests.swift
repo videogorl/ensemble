@@ -167,9 +167,14 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
             ["\(testLibrarySource)||147"]
         ])
         XCTAssertEqual(viewModel.sourceSections.map(\.sourceTitle), [
-            "Subscriber Server - Music · felicity@nysics.com",
-            "Free Server - Music · felicity+test@nysics.com",
-            "Free Server - Music+Test · felicity+test@nysics.com"
+            "Music",
+            "Music",
+            "Music+Test"
+        ])
+        XCTAssertEqual(viewModel.sourceSections.map(\.sourceSubtitle), [
+            "Subscriber Server · felicity@nysics.com",
+            "Free Server · felicity+test@nysics.com",
+            "Free Server · felicity+test@nysics.com"
         ])
         XCTAssertEqual(repository.albumFetches.map { "\($0.artistRatingKey)|\($0.sourceCompositeKey)" }, [
             "11617|\(sharedSubscriberSource)",

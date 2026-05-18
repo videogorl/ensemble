@@ -6,18 +6,21 @@ public struct MergedArtistSourceSection: Identifiable, Equatable, Sendable {
     public let id: String
     public let artist: Artist
     public let sourceTitle: String
+    public let sourceSubtitle: String
     public let albums: [Album]
     public let tracks: [Track]
 
     public init(
         artist: Artist,
         sourceTitle: String,
+        sourceSubtitle: String,
         albums: [Album],
         tracks: [Track]
     ) {
         self.id = artist.sourceScopedID
         self.artist = artist
         self.sourceTitle = sourceTitle
+        self.sourceSubtitle = sourceSubtitle
         self.albums = albums
         self.tracks = tracks
     }
@@ -94,9 +97,11 @@ public final class MergedArtistDetailViewModel: ObservableObject {
             for artist in displayArtist.artists {
                 let albums = try await albums(for: artist)
                 let tracks = try await tracks(for: artist)
+                let sourceDisplay = sourceDisplay(for: artist)
                 sections.append(MergedArtistSourceSection(
                     artist: artist,
-                    sourceTitle: sourceTitle(for: artist),
+                    sourceTitle: sourceDisplay.title,
+                    sourceSubtitle: sourceDisplay.subtitle,
                     albums: albums,
                     tracks: tracks
                 ))
@@ -199,7 +204,10 @@ public final class MergedArtistDetailViewModel: ObservableObject {
         return try await libraryRepository.fetchTracks(forArtist: artist.id).map { Track(from: $0) }
     }
 
-    private func sourceTitle(for artist: Artist) -> String {
-        accountManager.sourceDisplaySubtitle(for: artist.sourceCompositeKey) ?? "Unknown Source"
+    private func sourceDisplay(for artist: Artist) -> (title: String, subtitle: String) {
+        guard let context = accountManager.sourceLibraryContext(for: artist.sourceCompositeKey) else {
+            return ("Unknown Library", "Unknown Source")
+        }
+        return (context.libraryTitle, "\(context.serverName) · \(context.accountName)")
     }
 }

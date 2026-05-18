@@ -1197,7 +1197,7 @@ public struct ArtistDetailView: View {
                         .font(EnsembleDesign.Typography.sectionTitle)
                         .foregroundColor(EnsembleDesign.Color.primaryText)
 
-                    Text(sourceSectionMetadata(albums: albums, favoritedTracks: favoritedTracks, totalTracks: section.tracks))
+                    Text(sourceSectionMetadata(section, albums: albums, favoritedTracks: favoritedTracks, totalTracks: section.tracks))
                         .font(EnsembleDesign.Typography.rowSecondary)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
@@ -1221,6 +1221,7 @@ public struct ArtistDetailView: View {
     }
 
     private func sourceSectionMetadata(
+        _ section: MergedArtistSourceSection,
         albums: [Album],
         favoritedTracks: [Track],
         totalTracks: [Track]
@@ -1228,7 +1229,8 @@ public struct ArtistDetailView: View {
         [
             "\(albums.count) album\(albums.count == 1 ? "" : "s")",
             "\(totalTracks.count) song\(totalTracks.count == 1 ? "" : "s")",
-            "\(favoritedTracks.count) favorited"
+            "\(favoritedTracks.count) favorited",
+            section.sourceSubtitle
         ].joined(separator: " · ")
     }
 
