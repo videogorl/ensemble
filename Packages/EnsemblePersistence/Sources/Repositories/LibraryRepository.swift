@@ -192,6 +192,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func updateAlbumTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws
     func deleteAlbum(ratingKey: String, sourceCompositeKey: String?) async throws
     func fetchAlbums(forArtist artistRatingKey: String) async throws -> [CDAlbum]
+    func fetchAlbums(forArtist artistRatingKey: String, sourceCompositeKey: String) async throws -> [CDAlbum]
     func upsertAlbum(
         ratingKey: String,
         key: String,
@@ -310,6 +311,10 @@ public extension LibraryRepositoryProtocol {
 
     func fetchAlbum(ratingKey: String, sourceCompositeKey: String?) async throws -> CDAlbum? {
         try await fetchAlbum(ratingKey: ratingKey)
+    }
+
+    func fetchAlbums(forArtist artistRatingKey: String, sourceCompositeKey: String) async throws -> [CDAlbum] {
+        try await fetchAlbums(forArtist: artistRatingKey)
     }
 }
 

@@ -77,7 +77,12 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
 
         do {
             // First try to fetch from local repository
-            let cachedTracks = try await libraryRepository.fetchTracks(forAlbum: album.id)
+            let cachedTracks: [CDTrack]
+            if let sourceKey = album.sourceCompositeKey, !sourceKey.isEmpty {
+                cachedTracks = try await libraryRepository.fetchTracks(forAlbum: album.id, sourceCompositeKey: sourceKey)
+            } else {
+                cachedTracks = try await libraryRepository.fetchTracks(forAlbum: album.id)
+            }
 
             if !cachedTracks.isEmpty {
                 let mapped = cachedTracks.map { Track(from: $0) }
@@ -123,11 +128,16 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         guard let artistId = album.artistRatingKey else { return }
 
         do {
-            let cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artistId)
+            let cachedAlbums: [CDAlbum]
+            if let sourceKey = album.sourceCompositeKey, !sourceKey.isEmpty {
+                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artistId, sourceCompositeKey: sourceKey)
+            } else {
+                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artistId)
+            }
             if !cachedAlbums.isEmpty {
                 relatedAlbums = cachedAlbums
                     .map { Album(from: $0) }
-                    .filter { $0.id != album.id }
+                    .filter { $0.sourceScopedID != album.sourceScopedID }
             } else if let sourceKey = album.sourceCompositeKey {
                 // Fallback to API if not found locally
                 EnsembleLogger.debug("AlbumDetailViewModel: Related albums not found locally, fetching from API")

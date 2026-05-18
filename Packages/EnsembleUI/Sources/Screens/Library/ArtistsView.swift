@@ -11,18 +11,18 @@ public struct ArtistsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     private let presentationMode: PresentationMode
-    private let externalSelectedArtist: Binding<Artist?>?
+    private let externalSelectedArtist: Binding<DisplayArtist?>?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedArtistSections: [ArtistSection] = []
-    @State private var localSelectedArtist: Artist?
+    @State private var localSelectedArtist: DisplayArtist?
 
     public init(
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel,
         presentationMode: PresentationMode = .compactRoot,
-        selectedArtist: Binding<Artist?>? = nil
+        selectedArtist: Binding<DisplayArtist?>? = nil
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
@@ -31,7 +31,7 @@ public struct ArtistsView: View {
     }
 
     public var body: some View {
-        let sectionInput = ArtistSectionComputationInput(artists: libraryVM.filteredArtists)
+        let sectionInput = ArtistSectionComputationInput(artists: libraryVM.displayArtists)
 
         Group {
             if libraryVM.isLoading && libraryVM.artists.isEmpty {
@@ -82,11 +82,11 @@ public struct ArtistsView: View {
         }
     }
 
-    private var selectedArtist: Artist? {
+    private var selectedArtist: DisplayArtist? {
         externalSelectedArtist?.wrappedValue ?? localSelectedArtist
     }
 
-    private func setSelectedArtist(_ artist: Artist?) {
+    private func setSelectedArtist(_ artist: DisplayArtist?) {
         if let externalSelectedArtist {
             externalSelectedArtist.wrappedValue = artist
         } else {
@@ -94,7 +94,7 @@ public struct ArtistsView: View {
         }
     }
 
-    private var selectedArtistBinding: Binding<Artist?> {
+    private var selectedArtistBinding: Binding<DisplayArtist?> {
         Binding(
             get: { selectedArtist },
             set: { setSelectedArtist($0) }
@@ -111,9 +111,9 @@ public struct ArtistsView: View {
             sidebar: {
                 artistSelectionList
             },
-            detail: { artist in
-                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
-                    .id(artist.id)
+            detail: { displayArtist in
+                DisplayArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
+                    .id(displayArtist.id)
             },
             placeholder: {
                 LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.artist, title: "Select an Artist")
@@ -168,8 +168,8 @@ public struct ArtistsView: View {
                                     LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                         ForEach(cachedArtistSections) { section in
                                             Section(header: sectionHeader(section.letter)) {
-                                                ForEach(section.artists) { artist in
-                                                    artistSelectionRow(artist)
+                                                ForEach(section.artists) { displayArtist in
+                                                    artistSelectionRow(displayArtist)
                                                 }
                                             }
                                             .id(section.letter)
@@ -178,8 +178,8 @@ public struct ArtistsView: View {
                                     .padding(.vertical)
                                 } else {
                                     LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                        ForEach(libraryVM.filteredArtists) { artist in
-                                            artistSelectionRow(artist)
+                                        ForEach(libraryVM.displayArtists) { displayArtist in
+                                            artistSelectionRow(displayArtist)
                                         }
                                     }
                                     .padding(.vertical)
@@ -204,15 +204,15 @@ public struct ArtistsView: View {
         }
     }
 
-    private func artistSelectionRow(_ artist: Artist) -> some View {
-        ArtistRow(artist: artist) {
-            setSelectedArtist(artist)
+    private func artistSelectionRow(_ displayArtist: DisplayArtist) -> some View {
+        DisplayArtistRow(displayArtist: displayArtist) {
+            setSelectedArtist(displayArtist)
         }
         .padding(.horizontal, EnsembleScaffold.BrowseSelection.horizontalPadding)
         .padding(.vertical, EnsembleScaffold.BrowseSelection.verticalPadding)
-        .browseSelectionBackground(isSelected: selectedArtist?.id == artist.id)
+        .browseSelectionBackground(isSelected: selectedArtist?.id == displayArtist.id)
         .padding(.horizontal, EnsembleScaffold.BrowseSelection.outerHorizontalPadding)
-        .id(artist.id)
+        .id(displayArtist.id)
     }
 
     private var loadingView: some View {
@@ -245,12 +245,12 @@ public struct ArtistsView: View {
 
     private struct ArtistSection: Identifiable, Sendable {
         let letter: String
-        let artists: [Artist]
+        let artists: [DisplayArtist]
         var id: String { letter }
     }
 
     private struct ArtistSectionComputationInput: Equatable, Sendable {
-        let artists: [Artist]
+        let artists: [DisplayArtist]
     }
 
     private func updateArtistSections(for input: ArtistSectionComputationInput) async {
@@ -263,7 +263,7 @@ public struct ArtistsView: View {
         cachedArtistSections = newSections
     }
 
-    nonisolated private static func computeArtistSections(artists: [Artist]) -> [ArtistSection] {
+    nonisolated private static func computeArtistSections(artists: [DisplayArtist]) -> [ArtistSection] {
         let grouped = Dictionary(grouping: artists) { $0.name.indexingLetter }
         return grouped.map { ArtistSection(letter: $0.key, artists: $0.value) }
             .sorted { $0.letter < $1.letter }
@@ -292,7 +292,7 @@ public struct ArtistsView: View {
                                     LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                         ForEach(cachedArtistSections) { section in
                                             Section(header: sectionHeader(section.letter)) {
-                                                ArtistGrid(
+                                                DisplayArtistGrid(
                                                     artists: section.artists,
                                                     nowPlayingVM: nowPlayingVM
                                                 )
@@ -302,8 +302,8 @@ public struct ArtistsView: View {
                                     }
                                     .padding(.vertical)
                                 } else {
-                                    ArtistGrid(
-                                        artists: libraryVM.filteredArtists,
+                                    DisplayArtistGrid(
+                                        artists: libraryVM.displayArtists,
                                         nowPlayingVM: nowPlayingVM
                                     )
                                     .padding(.vertical)
@@ -341,12 +341,157 @@ public struct ArtistsView: View {
     private func shouldShowScrollIndex(width: CGFloat) -> Bool {
         presentationMode == .compactRoot &&
         libraryVM.artistSortOption == .name &&
-        !libraryVM.filteredArtists.isEmpty &&
+        !libraryVM.displayArtists.isEmpty &&
         ScrollIndex.isVisible(forContainerWidth: width)
     }
 
     private func sectionHeader(_ letter: String) -> some View {
         EnsembleBrowseSectionHeader(letter)
+    }
+}
+
+private struct DisplayArtistRow: View {
+    let displayArtist: DisplayArtist
+    let onTap: () -> Void
+
+    var body: some View {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+            ArtworkView(
+                artist: displayArtist.primaryArtist,
+                size: .tiny,
+                cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.tiny.cgSize.width)
+            )
+
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
+                Text(displayArtist.name)
+                    .font(EnsembleDesign.Typography.rowPrimary)
+                    .lineLimit(1)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
+
+                if displayArtist.isMerged {
+                    Text("\(displayArtist.artists.count) sources")
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+            }
+
+            Spacer()
+
+            Image(systemName: EnsembleDesign.Icon.chevronRight)
+                .font(EnsembleDesign.Typography.rowSecondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+    }
+}
+
+private struct DisplayArtistGrid: View {
+    let artists: [DisplayArtist]
+    let nowPlayingVM: NowPlayingViewModel
+    @Environment(\.dependencies) private var deps
+    @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
+
+    private let columns = EnsembleScaffold.MediaCard.personGridColumns
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: EnsembleScaffold.MediaCard.rowSpacing) {
+            ForEach(artists) { displayArtist in
+                NavigationLink {
+                    DisplayArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
+                } label: {
+                    artistCardContent(displayArtist)
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    if !displayArtist.isMerged {
+                        ArtistActionsContextMenu(
+                            artist: displayArtist.primaryArtist,
+                            nowPlayingVM: nowPlayingVM,
+                            onEditMetadata: {
+                                presentArtistMetadataEditor(displayArtist.primaryArtist)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        .padding(.horizontal)
+        .sheet(item: $metadataEditorRequest) { request in
+            TextInputView(
+                title: request.kind.title,
+                message: "Changes are sent directly to Plex and then refreshed locally.",
+                placeholder: request.kind.fieldLabel,
+                initialText: request.currentTitle,
+                actionTitle: "Save",
+                onSubmit: request.onSave
+            )
+        }
+    }
+
+    private func artistCardContent(_ displayArtist: DisplayArtist) -> some View {
+        VStack(spacing: EnsembleScaffold.MediaCard.contentSpacing) {
+            ArtworkView(
+                artist: displayArtist.primaryArtist,
+                size: .thumbnail,
+                cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.thumbnail.cgSize.width)
+            )
+
+            VStack(spacing: EnsembleDesign.Spacing.xs) {
+                Text(displayArtist.name)
+                    .font(EnsembleDesign.Typography.cardTitle)
+                    .lineLimit(1)
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
+
+                if displayArtist.isMerged {
+                    Text("\(displayArtist.artists.count) sources")
+                        .font(EnsembleDesign.Typography.cardSubtitle)
+                        .lineLimit(1)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+            }
+        }
+        .frame(width: ArtworkSize.thumbnail.cgSize.width)
+    }
+
+    private func presentArtistMetadataEditor(_ artist: Artist) {
+        metadataEditorRequest = ContextMenuMetadataEditorRequest(
+            kind: .artist,
+            currentTitle: artist.name
+        ) { newTitle in
+            do {
+                let result = try await deps.metadataMutationWorkflow.editArtist(artist, title: newTitle)
+                await MainActor.run {
+                    deps.toastCenter.show(result.successToast)
+                }
+            } catch {
+                await MainActor.run {
+                    deps.toastCenter.show(
+                        deps.metadataMutationWorkflow.editFailureToast(
+                            noun: "Artist",
+                            itemID: artist.id,
+                            error: error,
+                            scope: .artist
+                        )
+                    )
+                }
+                throw error
+            }
+        }
+    }
+}
+
+private struct DisplayArtistDetailView: View {
+    let displayArtist: DisplayArtist
+    let nowPlayingVM: NowPlayingViewModel
+
+    var body: some View {
+        if displayArtist.isMerged {
+            MergedArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
+        } else {
+            ArtistDetailView(artist: displayArtist.primaryArtist, nowPlayingVM: nowPlayingVM)
+        }
     }
 }
 
@@ -368,7 +513,7 @@ public struct ArtistDetailView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
-    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     // Targeted NVM observation: only re-evaluate for track changes and playlist target
     @State private var currentTrackId: String?
@@ -429,7 +574,7 @@ public struct ArtistDetailView: View {
             }
         }
         .trackListRuntimeObservation(
-            activeDownloadRatingKeys: $activeDownloadRatingKeys,
+            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
             availabilityGeneration: $availabilityGeneration
         )
         .nowPlayingTrackListObservation(
@@ -496,6 +641,10 @@ public struct ArtistDetailView: View {
     private var artistPinMenuButton: some View {
         let isPinned = isArtistPinned
         let isDownloaded = dependencies.offlineDownloadService.isArtistDownloadEnabled(viewModel.artist)
+        let canDownload = DownloadCapabilityPolicy.canAttemptDownload(
+            for: viewModel.artist.sourceCompositeKey,
+            accountManager: dependencies.accountManager
+        )
         return Menu {
             Button {
                 dependencies.pinMutationWorkflow.togglePin(
@@ -509,15 +658,17 @@ public struct ArtistDetailView: View {
                 MediaActionLabel(kind: .pin(isPinned: isPinned))
             }
 
-            Button {
-                Task {
-                    await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
-                        viewModel.artist,
-                        isEnabled: !isDownloaded
-                    )
+            if canDownload {
+                Button {
+                    Task {
+                        await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
+                            viewModel.artist,
+                            isEnabled: !isDownloaded
+                        )
+                    }
+                } label: {
+                    MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
                 }
-            } label: {
-                MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
             }
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
@@ -918,13 +1069,13 @@ public struct ArtistDetailView: View {
                 LazyHStack(spacing: EnsembleDesign.Spacing.lg) {
                     ForEach(artists) { artist in
                         if #available(iOS 16.0, macOS 13.0, *) {
-                            NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
+                            NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id, sourceKey: artist.sourceCompositeKey)) {
                                 similarArtistCard(artist: artist)
                             }
                             .buttonStyle(.plain)
                         } else {
                             NavigationLink {
-                                ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
+                                ArtistDetailLoader(artistId: artist.id, artistSourceKey: artist.sourceCompositeKey, nowPlayingVM: nowPlayingVM)
                             } label: {
                                 similarArtistCard(artist: artist)
                             }
@@ -1033,7 +1184,7 @@ public struct ArtistDetailView: View {
                 groupByDisc: false,
                 currentTrackId: currentTrackId,
                 availabilityGeneration: availabilityGeneration,
-                activeDownloadRatingKeys: activeDownloadRatingKeys,
+                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                 interactionModel: interactionModel,
                 supplementalMetadataWidth: favoritedTrackListWidth,
                 onGoToArtist: nil // Already in artist view
@@ -1047,7 +1198,7 @@ public struct ArtistDetailView: View {
                 configuration: .songs(
                     currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
-                    activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                     supplementalMetadataWidth: favoritedTrackListWidth,
                     interactionModel: interactionModel
                 )
@@ -1064,6 +1215,307 @@ public struct ArtistDetailView: View {
         if abs(favoritedTrackListWidth - newWidth) > 1 {
             favoritedTrackListWidth = newWidth
         }
+    }
+
+    private func presentPlaylistPicker(with tracks: [Track]) {
+        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
+    }
+
+    private func addToRecentPlaylist(_ track: Track) {
+        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
+    }
+
+    private func recentPlaylistTitle(for track: Track) -> String? {
+        PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
+    }
+}
+
+private struct MergedArtistDetailView: View {
+    @StateObject private var viewModel: MergedArtistDetailViewModel
+    let nowPlayingVM: NowPlayingViewModel
+
+    @Environment(\.dependencies) private var dependencies
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
+    @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
+    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
+    @State private var currentTrackId: String?
+    @State private var nvmRecentPlaylistTitle: String?
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var trackListWidths: [String: CGFloat] = [:]
+
+    init(displayArtist: DisplayArtist, nowPlayingVM: NowPlayingViewModel) {
+        self._viewModel = StateObject(
+            wrappedValue: DependencyContainer.shared.makeMergedArtistDetailViewModel(displayArtist: displayArtist)
+        )
+        self.nowPlayingVM = nowPlayingVM
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xl) {
+                header
+
+                if viewModel.isLoading && viewModel.sourceSections.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, EnsembleDesign.Spacing.xl)
+                } else {
+                    ForEach(viewModel.sourceSections) { section in
+                        sourceSection(section)
+                    }
+                }
+            }
+            .padding(.vertical, EnsembleDesign.Spacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .navigationTitle(viewModel.displayArtist.name)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .miniPlayerBottomSpacing()
+        .trackListRuntimeObservation(
+            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
+            availabilityGeneration: $availabilityGeneration
+        )
+        .nowPlayingTrackListObservation(
+            nowPlayingVM: nowPlayingVM,
+            currentTrackId: $currentTrackId,
+            recentPlaylistTitle: $nvmRecentPlaylistTitle
+        )
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .task {
+            await viewModel.load()
+        }
+        .refreshable {
+            await viewModel.refreshFromServer()
+        }
+    }
+
+    private var header: some View {
+        let artworkDimension = headerArtworkDimension
+        let actionWidth = headerActionWidth
+
+        return HStack(alignment: .center, spacing: EnsembleDesign.Spacing.lg) {
+            ArtworkView(
+                artist: viewModel.displayArtist.primaryArtist,
+                size: .medium,
+                cornerRadius: ArtworkCornerRadius.circle(for: artworkDimension),
+                isResponsive: true
+            )
+            .frame(width: artworkDimension, height: artworkDimension)
+            .clipShape(Circle())
+            .ensembleArtworkShadow()
+
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
+                Text(viewModel.displayArtist.name)
+                    .font(EnsembleDesign.Typography.screenTitle)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
+
+                Text(headerMetadata)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+
+                MediaDetailSurface<EmptyView>.AdaptivePlaybackActionRow(
+                    availableWidth: actionWidth,
+                    isDisabled: viewModel.tracks.isEmpty,
+                    includesExtraActions: true,
+                    play: {
+                        nowPlayingVM.play(tracks: viewModel.tracks)
+                    },
+                    shuffle: {
+                        nowPlayingVM.shufflePlay(tracks: viewModel.tracks)
+                    }
+                ) {
+                    Button {
+                        nowPlayingVM.enableRadio(tracks: viewModel.tracks)
+                    } label: {
+                        MediaDetailSurface<EmptyView>.IconActionLabel(systemImage: EnsembleDesign.Icon.radio)
+                    }
+                    #if os(macOS)
+                    .help("Artist Radio")
+                    #endif
+                }
+                .frame(maxWidth: actionWidth, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
+
+            Spacer(minLength: EnsembleDesign.Spacing.none)
+        }
+        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
+    }
+
+    private var usesCompactHeader: Bool {
+        #if os(iOS)
+        horizontalSizeClass == .compact
+        #else
+        false
+        #endif
+    }
+
+    private var headerArtworkDimension: CGFloat {
+        usesCompactHeader ? 160 : EnsembleScaffold.ArtistDetail.wideArtworkDimension
+    }
+
+    private var headerActionWidth: CGFloat {
+        usesCompactHeader ? 180 : EnsembleScaffold.ArtistDetail.wideActionMaxWidth
+    }
+
+    private var headerMetadata: String {
+        var parts = [
+            "\(viewModel.sourceSections.count) source\(viewModel.sourceSections.count == 1 ? "" : "s")"
+        ]
+        if !viewModel.tracks.isEmpty {
+            parts.append("\(viewModel.tracks.count) songs")
+            parts.append(viewModel.totalDuration)
+        }
+        return parts.joined(separator: " \u{00B7} ")
+    }
+
+    private func sourceSection(_ section: MergedArtistSourceSection) -> some View {
+        let tracks = viewModel.filteredTracks(for: section)
+        let width = trackListWidths[section.id] ?? 0
+
+        return VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.lg) {
+            HStack(alignment: .firstTextBaseline, spacing: EnsembleDesign.Spacing.md) {
+                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
+                    Text(section.sourceTitle)
+                        .font(EnsembleDesign.Typography.sectionTitle)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
+
+                    Text("\(section.albums.count) album\(section.albums.count == 1 ? "" : "s") · \(section.tracks.count) song\(section.tracks.count == 1 ? "" : "s")")
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+
+                Spacer()
+
+                if canDownload(section.artist) {
+                    sourceDownloadButton(for: section.artist)
+                }
+            }
+            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+
+            if !section.albums.isEmpty {
+                AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
+            }
+
+            if !tracks.isEmpty {
+                sectionTrackList(tracks: tracks, width: width)
+                    .measuredWidth(onChange: { newWidth in
+                        if abs((trackListWidths[section.id] ?? 0) - newWidth) > 1 {
+                            trackListWidths[section.id] = newWidth
+                        }
+                    })
+            }
+        }
+    }
+
+    private func sourceDownloadButton(for artist: Artist) -> some View {
+        let isDownloaded = dependencies.offlineDownloadService.isArtistDownloadEnabled(artist)
+        return Button {
+            Task {
+                await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
+                    artist,
+                    isEnabled: !isDownloaded
+                )
+            }
+        } label: {
+            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
+        }
+        .buttonStyle(.borderless)
+    }
+
+    private func sectionTrackList(
+        tracks: [Track],
+        width: CGFloat
+    ) -> some View {
+        let interactionModel = TrackRowInteractionModel(
+            onPlayNext: { track in
+                nowPlayingVM.playNext(track)
+            },
+            onPlayLast: { track in
+                nowPlayingVM.playLast(track)
+            },
+            onAddToPlaylist: { track in
+                presentPlaylistPicker(with: [track])
+            },
+            onAddToRecentPlaylist: { track in
+                addToRecentPlaylist(track)
+            },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
+            onGoToAlbum: { track in
+                if let albumId = track.albumRatingKey {
+                    navigationCoordinator.push(
+                        .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                        in: navigationCoordinator.selectedTab
+                    )
+                }
+            },
+            onShareLink: { track in
+                ShareActions.shareTrackLink(track, deps: dependencies)
+            },
+            onShareFile: { track in
+                ShareActions.shareTrackFile(track, deps: dependencies)
+            },
+            isTrackFavorited: { track in
+                nowPlayingVM.isTrackFavorited(track)
+            },
+            canAddToRecentPlaylist: { track in
+                recentPlaylistTitle(for: track) != nil
+            },
+            recentPlaylistTitle: nvmRecentPlaylistTitle
+        )
+
+        #if os(iOS)
+        return AnyView(
+            MediaTrackList(
+                tracks: tracks,
+                showArtwork: true,
+                showTrackNumbers: false,
+                groupByDisc: false,
+                currentTrackId: currentTrackId,
+                availabilityGeneration: availabilityGeneration,
+                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                interactionModel: interactionModel,
+                supplementalMetadataWidth: width,
+                onGoToArtist: nil
+            ) { _, index in
+                nowPlayingVM.play(tracks: tracks, startingAt: index)
+            }
+            .frame(height: CGFloat(tracks.count) * TrackListLayoutMetrics.defaultRowHeight)
+        )
+        #else
+        return AnyView(
+            SongsTrackListHost(
+                tracks: tracks,
+                configuration: .songs(
+                    currentTrackId: currentTrackId,
+                    availabilityGeneration: availabilityGeneration,
+                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                    supplementalMetadataWidth: width,
+                    interactionModel: interactionModel
+                )
+            ) { _, index in
+                nowPlayingVM.play(tracks: tracks, startingAt: index)
+            }
+            .frame(height: CGFloat(tracks.count) * TrackListLayoutMetrics.defaultRowHeight)
+        )
+        #endif
+    }
+
+    private func canDownload(_ artist: Artist) -> Bool {
+        DownloadCapabilityPolicy.canAttemptDownload(
+            for: artist.sourceCompositeKey,
+            accountManager: dependencies.accountManager
+        )
     }
 
     private func presentPlaylistPicker(with tracks: [Track]) {

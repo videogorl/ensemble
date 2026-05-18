@@ -20,6 +20,13 @@ import Foundation
 ///
 /// All models conform to Sendable for safe async/concurrent usage
 
+private func sourceScopedIdentity(ratingKey: String, sourceCompositeKey: String?) -> String {
+    guard let sourceCompositeKey, !sourceCompositeKey.isEmpty else {
+        return ratingKey
+    }
+    return "\(sourceCompositeKey)||\(ratingKey)"
+}
+
 // MARK: - Audio File Info
 
 /// Audio format metadata fetched on demand from the Plex API.
@@ -139,13 +146,15 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         MediaFormatters.trackClock(duration)
     }
 
+    /// Stable UI identity that distinguishes the same Plex rating key across sources.
+    public var sourceScopedID: String {
+        sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
+    }
+
     /// UI playback identity for row highlighting and other local current-track checks.
     /// Plex rating keys are only unique within a server/library, so include source scope when present.
     public var playbackIdentity: String {
-        guard let sourceCompositeKey, !sourceCompositeKey.isEmpty else {
-            return id
-        }
-        return "\(sourceCompositeKey)||\(id)"
+        sourceScopedID
     }
 
     private static func normalizedTrackTitle(
@@ -251,6 +260,11 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         )
     }
 
+    /// Stable UI identity that distinguishes the same Plex rating key across sources.
+    public var sourceScopedID: String {
+        sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
+    }
+
     // Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
     // Skips key, artPath, dateAdded, dateModified, sourceCompositeKey, artistRatingKey.
     public static func == (lhs: Album, rhs: Album) -> Bool {
@@ -329,6 +343,11 @@ public struct Artist: Identifiable, Hashable, Sendable, Codable {
             key: "/library/metadata/\(id)",
             name: name
         )
+    }
+
+    /// Stable UI identity that distinguishes the same Plex rating key across sources.
+    public var sourceScopedID: String {
+        sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
     }
 }
 

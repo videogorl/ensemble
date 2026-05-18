@@ -10,6 +10,7 @@ public struct LibraryDownloadSummary: Identifiable {
     public let sourceCompositeKey: String
     public let serverName: String
     public let libraryName: String
+    public let canDownload: Bool
     /// Whether a library-level download target exists
     public let isEnabled: Bool
     public let downloadedTrackCount: Int
@@ -169,6 +170,11 @@ public final class DownloadsViewModel: ObservableObject {
 
     /// Toggle library-level download on or off
     public func setLibraryEnabled(sourceCompositeKey: String, title: String, isEnabled: Bool) async {
+        guard DownloadCapabilityPolicy.canAttemptDownload(for: sourceCompositeKey, accountManager: accountManager) else {
+            EnsembleLogger.debug("DownloadsViewModel: rejected library download toggle for unavailable source \(sourceCompositeKey)")
+            return
+        }
+
         libraryTogglesInProgress.insert(sourceCompositeKey)
         await downloadMutationWorkflow.setLibraryDownloadEnabled(
             sourceCompositeKey: sourceCompositeKey,
@@ -233,6 +239,10 @@ public final class DownloadsViewModel: ObservableObject {
                         sourceCompositeKey: sourceCompositeKey,
                         serverName: server.name,
                         libraryName: library.title,
+                        canDownload: DownloadCapabilityPolicy.canAttemptDownload(
+                            for: sourceCompositeKey,
+                            accountManager: accountManager
+                        ),
                         isEnabled: isEnabled,
                         downloadedTrackCount: completedDownloads.count,
                         totalTrackCount: totalTrackCount,
@@ -314,9 +324,9 @@ public final class DownloadsViewModel: ObservableObject {
         guard let ratingKey = item.ratingKey, let sourceKey = item.sourceCompositeKey else { return nil }
         switch item.kind {
         case .album:
-            return (try? await libraryRepository.fetchAlbum(ratingKey: ratingKey))?.thumbPath
+            return (try? await libraryRepository.fetchAlbum(ratingKey: ratingKey, sourceCompositeKey: sourceKey))?.thumbPath
         case .artist:
-            return (try? await libraryRepository.fetchArtist(ratingKey: ratingKey))?.thumbPath
+            return (try? await libraryRepository.fetchArtist(ratingKey: ratingKey, sourceCompositeKey: sourceKey))?.thumbPath
         case .playlist:
             return (try? await playlistRepository.fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceKey))?.compositePath
         case .library, .favorites:

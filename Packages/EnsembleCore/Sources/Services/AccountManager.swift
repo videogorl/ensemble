@@ -649,6 +649,51 @@ public final class AccountManager: ObservableObject {
         return sources
     }
 
+    public struct SourceLibraryContext: Sendable, Equatable {
+        public let accountId: String
+        public let accountName: String
+        public let serverId: String
+        public let serverName: String
+        public let libraryId: String
+        public let libraryTitle: String
+        public let allowSync: Bool?
+
+        public var displayName: String {
+            "\(serverName) - \(libraryTitle)"
+        }
+
+        public var displaySubtitle: String {
+            "\(displayName) · \(accountName)"
+        }
+    }
+
+    /// Resolves the configured account/server/library tuple for a sourceCompositeKey.
+    public func sourceLibraryContext(for sourceCompositeKey: String?) -> SourceLibraryContext? {
+        guard
+            let sourceCompositeKey,
+            let source = MusicSourceIdentifier(compositeKey: sourceCompositeKey),
+            let account = plexAccounts.first(where: { $0.id == source.accountId }),
+            let server = account.servers.first(where: { $0.id == source.serverId }),
+            let library = server.libraries.first(where: { $0.key == source.libraryId })
+        else {
+            return nil
+        }
+
+        return SourceLibraryContext(
+            accountId: account.id,
+            accountName: account.accountIdentifier,
+            serverId: server.id,
+            serverName: server.name,
+            libraryId: library.key,
+            libraryTitle: library.title,
+            allowSync: library.allowSync
+        )
+    }
+
+    public func sourceDisplaySubtitle(for sourceCompositeKey: String?) -> String? {
+        sourceLibraryContext(for: sourceCompositeKey)?.displaySubtitle
+    }
+
     /// Resolves a server name from a sourceCompositeKey (format: "plex:accountId:serverId:libraryId").
     /// Returns the server's friendly name, or nil if not found.
     public func serverName(for sourceCompositeKey: String) -> String? {

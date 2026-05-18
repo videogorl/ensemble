@@ -20,7 +20,7 @@ public struct SongsView: View {
     @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
     // Targeted observation: only re-evaluate when these specific values change,
     // not when any of offlineDownloadService's 5+ @Published props update
-    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
 
     private var backgroundColor: Color {
@@ -134,8 +134,8 @@ public struct SongsView: View {
         .if(!isStageFlowActive) { view in
             view.toolbarMaterialBackground()
         }
-        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
-            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
+        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadTrackIdentities) { keys in
+            if keys != activeDownloadTrackIdentities { activeDownloadTrackIdentities = keys }
         }
         .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
             if gen != availabilityGeneration { availabilityGeneration = gen }
@@ -242,7 +242,7 @@ public struct SongsView: View {
                         sections: largeScreenTrackSections,
                         currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
                         availabilityGeneration: availabilityGeneration,
-                        activeDownloadRatingKeys: activeDownloadRatingKeys,
+                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                         bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
                         supplementalMetadataWidth: width,
                         showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
@@ -303,7 +303,7 @@ public struct SongsView: View {
             sections: largeScreenTrackSections,
             currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
             availabilityGeneration: availabilityGeneration,
-            activeDownloadRatingKeys: activeDownloadRatingKeys,
+            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             bottomContentInset: largeScreenSongListBottomInset,
             supplementalMetadataWidth: width,
             showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
@@ -319,7 +319,7 @@ public struct SongsView: View {
             tracks: libraryVM.filteredTracks,
             currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
             availabilityGeneration: availabilityGeneration,
-            activeDownloadRatingKeys: activeDownloadRatingKeys,
+            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             bottomContentInset: largeScreenSongListBottomInset,
             supplementalMetadataWidth: width,
             interactionModel: largeScreenTrackInteractionModel,
@@ -419,7 +419,7 @@ public struct SongsView: View {
                 groupByDisc: false,
                 currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
                 availabilityGeneration: availabilityGeneration,
-                activeDownloadRatingKeys: activeDownloadRatingKeys,
+                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                 onPlayNext: { track in
                     nowPlayingVM.playNext(track)
                 },
@@ -481,7 +481,7 @@ public struct SongsView: View {
             groupByDisc: false,
             currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
             availabilityGeneration: availabilityGeneration,
-            activeDownloadRatingKeys: activeDownloadRatingKeys,
+            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             managesOwnScrolling: true,
             bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
             tableSectionHeaderContent: AnyView(songsGenreChipBar),
@@ -533,7 +533,7 @@ public struct SongsView: View {
             tracks: libraryVM.filteredTracks,
             currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
             availabilityGeneration: availabilityGeneration,
-            activeDownloadRatingKeys: activeDownloadRatingKeys,
+            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
             supplementalMetadataWidth: width,
             interactionModel: largeScreenTrackInteractionModel

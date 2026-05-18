@@ -498,10 +498,10 @@ No unresolved critical issues currently documented.
 ### MediaTrackList Singleton Observer Cascade (N×3 Subscriptions)
 - **Resolved (March 11, 2026)**
 - **Previous:** `MediaTrackList` directly observed 3 singletons as `@ObservedObject` (networkMonitor, offlineDownloadService, trackAvailabilityResolver). When SongsView rendered 26 alphabetic sections, this created 78 independent subscriptions (26×3). Every publish triggered `updateUIView` on ALL instances → reconfigured ALL visible cells.
-- **Fix:** Removed the 3 `@ObservedObject` declarations from MediaTrackList. Parent views observe the singletons once and pass `availabilityGeneration: UInt` and `activeDownloadRatingKeys: Set<String>` as value parameters. Network state read from DependencyContainer at updateUIView time (not observed).
+- **Fix:** Removed the 3 `@ObservedObject` declarations from MediaTrackList. Parent views observe the singletons once and pass `availabilityGeneration: UInt` and `activeDownloadTrackIdentities: Set<String>` as value parameters. Network state read from DependencyContainer at updateUIView time (not observed).
 - **Key files:** `MediaTrackList.swift`, `SongsView.swift`, `MediaDetailView.swift`, `FavoritesView.swift`, `SearchView.swift`, `ArtistsView.swift`, `StageFlowTrackPanel.swift`
 
-### Per-Track activeDownloadRatingKeys Refresh During Bulk Downloads
+### Per-Track activeDownloadTrackIdentities Refresh During Bulk Downloads
 - **Resolved (March 11, 2026)**
 - **Previous:** Each track completion called `refreshActiveDownloadRatingKeys()` via `refreshTargetsForTrack()`, firing the @Published property per-track and causing N UI updates during bulk downloads.
 - **Fix:** Removed redundant per-track call. The debounced `scheduleDownloadChangeNotification()` (1-3s window) already handles this, batching spinner updates.

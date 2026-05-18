@@ -22,7 +22,7 @@ final class OfflineDownloadNotificationBridgeTests: XCTestCase {
         let bridge = OfflineDownloadNotificationBridge(
             dependencies: .init(
                 fetchPendingDownloadCount: { 0 },
-                refreshActiveDownloadRatingKeys: { await recorder.append("active") },
+                refreshActiveDownloadTrackIdentities: { await recorder.append("active") },
                 refreshViewContext: { recorder.append("refresh") },
                 postDownloadsDidChange: { recorder.append("post") },
                 showCompletionToast: { recorder.append("toast") }
@@ -42,7 +42,7 @@ final class OfflineDownloadNotificationBridgeTests: XCTestCase {
         let bridge = OfflineDownloadNotificationBridge(
             dependencies: .init(
                 fetchPendingDownloadCount: { 5 },
-                refreshActiveDownloadRatingKeys: { await recorder.append("active") },
+                refreshActiveDownloadTrackIdentities: { await recorder.append("active") },
                 refreshViewContext: { recorder.append("refresh") },
                 postDownloadsDidChange: { recorder.append("post") },
                 showCompletionToast: { recorder.append("toast") }
@@ -63,7 +63,7 @@ final class OfflineDownloadNotificationBridgeTests: XCTestCase {
         let bridge = OfflineDownloadNotificationBridge(
             dependencies: .init(
                 fetchPendingDownloadCount: { 0 },
-                refreshActiveDownloadRatingKeys: { await recorder.append("active") },
+                refreshActiveDownloadTrackIdentities: { await recorder.append("active") },
                 refreshViewContext: { recorder.append("refresh") },
                 postDownloadsDidChange: { recorder.append("post") },
                 showCompletionToast: { recorder.append("toast") }

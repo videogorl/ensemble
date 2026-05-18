@@ -72,7 +72,7 @@ struct StageFlowTrackPanel: View {
     @State private var isLoading = true
     @State private var error: Error?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
-    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     @State private var currentTrackId: String?
     @State private var recentPlaylistTitle: String?
@@ -95,7 +95,7 @@ struct StageFlowTrackPanel: View {
                     groupByDisc: false,
                     currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
-                    activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                     managesOwnScrolling: true,
                     bottomContentInset: 4,
                     rowHeight: 58,
@@ -143,7 +143,7 @@ struct StageFlowTrackPanel: View {
                         bottomContentInset: 4,
                         currentTrackId: currentTrackId,
                         availabilityGeneration: availabilityGeneration,
-                        activeDownloadRatingKeys: activeDownloadRatingKeys,
+                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                         interactionModel: trackInteractionModel
                     )
                 ) { _, index in
@@ -156,9 +156,9 @@ struct StageFlowTrackPanel: View {
         .padding(.leading, EnsembleDesign.Spacing.md)
         .padding(.trailing, EnsembleDesign.Spacing.md)
         .padding(.vertical, EnsembleDesign.Spacing.sm)
-        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
-            if keys != activeDownloadRatingKeys {
-                activeDownloadRatingKeys = keys
+        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadTrackIdentities) { keys in
+            if keys != activeDownloadTrackIdentities {
+                activeDownloadTrackIdentities = keys
             }
         }
         .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { generation in

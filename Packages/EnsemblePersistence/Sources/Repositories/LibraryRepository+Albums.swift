@@ -145,6 +145,28 @@ extension LibraryRepository {
         }
     }
 
+    public func fetchAlbums(forArtist artistRatingKey: String, sourceCompositeKey: String) async throws -> [CDAlbum] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDAlbum.fetchRequest()
+                request.predicate = NSPredicate(
+                    format: "artist.ratingKey == %@ AND sourceCompositeKey == %@",
+                    artistRatingKey,
+                    sourceCompositeKey
+                )
+                request.sortDescriptors = [NSSortDescriptor(key: "year", ascending: false)]
+                request.relationshipKeyPathsForPrefetching = ["artist"]
+                do {
+                    let albums = try context.fetch(request)
+                    continuation.resume(returning: albums)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func upsertAlbum(
         ratingKey: String,
         key: String,

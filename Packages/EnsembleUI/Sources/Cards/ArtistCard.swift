@@ -94,7 +94,7 @@ public struct ArtistGrid: View {
         LazyVGrid(columns: columns, spacing: EnsembleScaffold.MediaCard.rowSpacing) {
             ForEach(artists) { artist in
                 if #available(iOS 16.0, macOS 13.0, *) {
-                    NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
+                    NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id, sourceKey: artist.sourceCompositeKey)) {
                         artistCardContent(artist)
                     }
                     .buttonStyle(.plain)
@@ -110,7 +110,7 @@ public struct ArtistGrid: View {
                 } else {
                     // iOS 15 fallback: using legacy NavigationLink for nested navigation support
                     NavigationLink {
-                        ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
+                        ArtistDetailLoader(artistId: artist.id, artistSourceKey: artist.sourceCompositeKey, nowPlayingVM: nowPlayingVM)
                     } label: {
                         artistCardContent(artist)
                     }

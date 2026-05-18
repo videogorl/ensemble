@@ -96,7 +96,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
-    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
 
     public init(
@@ -172,7 +172,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         // Native track lists manage their own bottom inset so rows can scroll
         // behind the floating mini player without shrinking the table host.
         .trackListRuntimeObservation(
-            activeDownloadRatingKeys: $activeDownloadRatingKeys,
+            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
             availabilityGeneration: $availabilityGeneration
         )
         .onReceive(pinManager.$pinnedItems) { pinnedItems in
@@ -394,7 +394,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     MediaActionLabel(kind: .pin(isPinned: isPinned))
                 }
 
-                if let sourceKey {
+                if
+                    let sourceKey,
+                    DownloadCapabilityPolicy.canAttemptDownload(for: sourceKey, accountManager: deps.accountManager)
+                {
                     switch mediaType {
                     case .album:
                         let album = Album(
@@ -959,7 +962,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             groupByDisc: groupByDisc,
             currentTrackId: currentTrackId,
             availabilityGeneration: availabilityGeneration,
-            activeDownloadRatingKeys: activeDownloadRatingKeys,
+            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             managesOwnScrolling: true,
             bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
             tableHeaderContent: AnyView(tableHeaderForTrackList),
@@ -988,7 +991,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                 currentTrackId: currentTrackId,
                 availabilityGeneration: availabilityGeneration,
-                activeDownloadRatingKeys: activeDownloadRatingKeys,
+                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                 interactionModel: trackInteractionModel
             ),
             tableHeaderContent: AnyView(tableHeaderForTrackList),

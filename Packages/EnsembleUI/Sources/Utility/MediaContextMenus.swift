@@ -146,6 +146,10 @@ struct AlbumActionsContextMenu: View {
 
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
+        let canDownload = DownloadCapabilityPolicy.canAttemptDownload(
+            for: album.sourceCompositeKey,
+            accountManager: deps.accountManager
+        )
         let isPinned = pinManager.isPinned(id: album.id)
         let recentTarget = nowPlayingVM.lastPlaylistTarget
         let recentPlaylistTitle = recentTarget.flatMap { target in
@@ -172,7 +176,7 @@ struct AlbumActionsContextMenu: View {
                     canShareLink: true,
                     canShareAudioFile: false,
                     canFavorite: false,
-                    canDownload: true,
+                    canDownload: canDownload,
                     canPin: true,
                     canEditMetadata: onEditMetadata != nil,
                     canDelete: onDelete != nil,
@@ -279,11 +283,11 @@ struct AlbumActionsContextMenu: View {
     }
 
     private func resolveTracks(for album: Album) async -> [Track] {
-        if let cached = try? await deps.libraryRepository.fetchTracks(forAlbum: album.id),
+        guard let sourceKey = album.sourceCompositeKey else { return [] }
+        if let cached = try? await deps.libraryRepository.fetchTracks(forAlbum: album.id, sourceCompositeKey: sourceKey),
            !cached.isEmpty {
             return cached.map { Track(from: $0) }
         }
-        guard let sourceKey = album.sourceCompositeKey else { return [] }
         return (try? await deps.syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)) ?? []
     }
 
@@ -331,6 +335,10 @@ struct ArtistActionsContextMenu: View {
 
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
+        let canDownload = DownloadCapabilityPolicy.canAttemptDownload(
+            for: artist.sourceCompositeKey,
+            accountManager: deps.accountManager
+        )
         let isPinned = pinManager.isPinned(id: artist.id)
 
         SwiftUIMediaMenuRenderer(
@@ -345,7 +353,7 @@ struct ArtistActionsContextMenu: View {
                     canShareLink: false,
                     canShareAudioFile: false,
                     canFavorite: false,
-                    canDownload: true,
+                    canDownload: canDownload,
                     canPin: true,
                     canEditMetadata: onEditMetadata != nil,
                     canDelete: false,
@@ -421,11 +429,11 @@ struct ArtistActionsContextMenu: View {
     }
 
     private func resolveTracks(for artist: Artist) async -> [Track] {
-        if let cached = try? await deps.libraryRepository.fetchTracks(forArtist: artist.id),
+        guard let sourceKey = artist.sourceCompositeKey else { return [] }
+        if let cached = try? await deps.libraryRepository.fetchTracks(forArtist: artist.id, sourceCompositeKey: sourceKey),
            !cached.isEmpty {
             return cached.map { Track(from: $0) }
         }
-        guard let sourceKey = artist.sourceCompositeKey else { return [] }
         return (try? await deps.syncCoordinator.getArtistTracks(artistId: artist.id, sourceKey: sourceKey)) ?? []
     }
 }
@@ -445,6 +453,10 @@ struct PlaylistActionsContextMenu: View {
 
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
+        let canDownload = DownloadCapabilityPolicy.canAttemptDownload(
+            for: playlist.sourceCompositeKey,
+            accountManager: deps.accountManager
+        )
         let isPinned = pinManager.isPinned(id: playlist.id)
 
         SwiftUIMediaMenuRenderer(
@@ -459,7 +471,7 @@ struct PlaylistActionsContextMenu: View {
                     canShareLink: false,
                     canShareAudioFile: false,
                     canFavorite: false,
-                    canDownload: true,
+                    canDownload: canDownload,
                     canPin: true,
                     canEditMetadata: false,
                     canDelete: onDelete != nil,
@@ -565,10 +577,16 @@ struct MergedPlaylistActionsContextMenu: View {
     @Environment(\.dependencies) private var deps
 
     var body: some View {
+        let downloadablePlaylists = displayPlaylist.playlists.filter {
+            DownloadCapabilityPolicy.canAttemptDownload(
+                for: $0.sourceCompositeKey,
+                accountManager: deps.accountManager
+            )
+        }
         let isDownloaded = isAnyConstituentDownloaded
         let downloadAll: (() -> Void)? = isDownloaded ? nil : {
             Task {
-                for playlist in displayPlaylist.playlists {
+                for playlist in downloadablePlaylists {
                     await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(playlist, isEnabled: true)
                 }
             }
@@ -593,7 +611,7 @@ struct MergedPlaylistActionsContextMenu: View {
                     canShareLink: false,
                     canShareAudioFile: false,
                     canFavorite: false,
-                    canDownload: true,
+                    canDownload: !downloadablePlaylists.isEmpty,
                     canPin: false,
                     canEditMetadata: false,
                     canDelete: onDelete != nil,

@@ -6,7 +6,7 @@ import Foundation
 final class OfflineDownloadNotificationBridge {
     struct Dependencies {
         let fetchPendingDownloadCount: @Sendable () async -> Int
-        let refreshActiveDownloadRatingKeys: @Sendable () async -> Void
+        let refreshActiveDownloadTrackIdentities: @Sendable () async -> Void
         let refreshViewContext: @MainActor () -> Void
         let postDownloadsDidChange: @MainActor () -> Void
         let showCompletionToast: @MainActor () -> Void
@@ -41,7 +41,7 @@ final class OfflineDownloadNotificationBridge {
             guard !Task.isCancelled else { return }
 
             dependencies.refreshViewContext()
-            await dependencies.refreshActiveDownloadRatingKeys()
+            await dependencies.refreshActiveDownloadTrackIdentities()
             dependencies.postDownloadsDidChange()
             self?.pendingNotificationTask = nil
         }

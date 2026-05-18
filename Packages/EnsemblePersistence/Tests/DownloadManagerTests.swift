@@ -66,6 +66,92 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertNotNil(remainingB)
     }
 
+    func testBatchCreateDownloadsKeepsSameRatingKeyAcrossSourcesSeparate() async throws {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let downloadManager = DownloadManager(coreDataStack: stack)
+
+        try await seedTrack(ratingKey: "7551", sourceCompositeKey: sourceA, repository: libraryRepository)
+        try await seedTrack(ratingKey: "7551", sourceCompositeKey: sourceB, repository: libraryRepository)
+
+        let created = try await downloadManager.batchCreateDownloads(
+            references: [
+                OfflineTrackReference(trackRatingKey: "7551", trackSourceCompositeKey: sourceA),
+                OfflineTrackReference(trackRatingKey: "7551", trackSourceCompositeKey: sourceB)
+            ],
+            quality: "low"
+        )
+        let duplicateCreateCount = try await downloadManager.batchCreateDownloads(
+            references: [
+                OfflineTrackReference(trackRatingKey: "7551", trackSourceCompositeKey: sourceA),
+                OfflineTrackReference(trackRatingKey: "7551", trackSourceCompositeKey: sourceB)
+            ],
+            quality: "low"
+        )
+
+        let downloadA = try await downloadManager.fetchDownload(forTrackRatingKey: "7551", sourceCompositeKey: sourceA)
+        let downloadB = try await downloadManager.fetchDownload(forTrackRatingKey: "7551", sourceCompositeKey: sourceB)
+
+        XCTAssertEqual(created, 2)
+        XCTAssertEqual(duplicateCreateCount, 0)
+        XCTAssertEqual(downloadA?.track?.sourceCompositeKey, sourceA)
+        XCTAssertEqual(downloadB?.track?.sourceCompositeKey, sourceB)
+        XCTAssertNotEqual(downloadA?.objectID, downloadB?.objectID)
+    }
+
+    func testDeletingCompletedDuplicateSourcePreservesOtherDownloadAndLocalPath() async throws {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let downloadManager = DownloadManager(coreDataStack: stack)
+        let suffix = UUID().uuidString
+        let filenameA = "duplicate-a-\(suffix).mp3"
+        let filenameB = "duplicate-b-\(suffix).mp3"
+        let fileURLA = DownloadManager.downloadsDirectory.appendingPathComponent(filenameA)
+        let fileURLB = DownloadManager.downloadsDirectory.appendingPathComponent(filenameB)
+        defer {
+            try? FileManager.default.removeItem(at: fileURLA)
+            try? FileManager.default.removeItem(at: fileURLB)
+        }
+
+        try Data([0x01]).write(to: fileURLA)
+        try Data([0x02]).write(to: fileURLB)
+        try await seedTrack(ratingKey: "7551", sourceCompositeKey: sourceA, repository: libraryRepository)
+        try await seedTrack(ratingKey: "7551", sourceCompositeKey: sourceB, repository: libraryRepository)
+        let downloadA = try await downloadManager.createDownload(
+            forTrackRatingKey: "7551",
+            sourceCompositeKey: sourceA,
+            quality: "low"
+        )
+        let downloadB = try await downloadManager.createDownload(
+            forTrackRatingKey: "7551",
+            sourceCompositeKey: sourceB,
+            quality: "low"
+        )
+        try await downloadManager.completeDownload(
+            downloadA.objectID,
+            filePath: filenameA,
+            fileSize: 1,
+            quality: "low"
+        )
+        try await downloadManager.completeDownload(
+            downloadB.objectID,
+            filePath: filenameB,
+            fileSize: 1,
+            quality: "low"
+        )
+
+        try await downloadManager.deleteDownload(forTrackRatingKey: "7551", sourceCompositeKey: sourceA)
+
+        let removedA = try await downloadManager.fetchDownload(forTrackRatingKey: "7551", sourceCompositeKey: sourceA)
+        let remainingB = try await downloadManager.fetchDownload(forTrackRatingKey: "7551", sourceCompositeKey: sourceB)
+        let trackB = try await libraryRepository.fetchTrack(ratingKey: "7551", sourceCompositeKey: sourceB)
+
+        XCTAssertNil(removedA)
+        XCTAssertEqual(remainingB?.filePath, filenameB)
+        XCTAssertEqual(trackB?.localFilePath, filenameB)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURLB.path))
+    }
+
     func testRequeueDownloadResetsTransientStateButPreservesCompletedFile() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)

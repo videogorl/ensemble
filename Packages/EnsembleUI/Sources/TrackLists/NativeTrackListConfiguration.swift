@@ -18,7 +18,7 @@ public struct NativeTrackListConfiguration {
     public var supplementalMetadataWidth: CGFloat?
     public var currentTrackId: String?
     public var availabilityGeneration: UInt64
-    public var activeDownloadRatingKeys: Set<String>
+    public var activeDownloadTrackIdentities: Set<String>
     public var interactionModel: TrackRowInteractionModel
 
     public init(
@@ -33,7 +33,7 @@ public struct NativeTrackListConfiguration {
         supplementalMetadataWidth: CGFloat? = nil,
         currentTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
-        activeDownloadRatingKeys: Set<String> = [],
+        activeDownloadTrackIdentities: Set<String> = [],
         interactionModel: TrackRowInteractionModel = TrackRowInteractionModel()
     ) {
         self.showArtwork = showArtwork
@@ -47,14 +47,14 @@ public struct NativeTrackListConfiguration {
         self.supplementalMetadataWidth = supplementalMetadataWidth
         self.currentTrackId = currentTrackId
         self.availabilityGeneration = availabilityGeneration
-        self.activeDownloadRatingKeys = activeDownloadRatingKeys
+        self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         self.interactionModel = interactionModel
     }
 
     public static func songs(
         currentTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
-        activeDownloadRatingKeys: Set<String> = [],
+        activeDownloadTrackIdentities: Set<String> = [],
         bottomContentInset: CGFloat = 0,
         tableHeaderExtraHeight: CGFloat = 0,
         supplementalMetadataWidth: CGFloat? = nil,
@@ -72,7 +72,7 @@ public struct NativeTrackListConfiguration {
             supplementalMetadataWidth: supplementalMetadataWidth,
             currentTrackId: currentTrackId,
             availabilityGeneration: availabilityGeneration,
-            activeDownloadRatingKeys: activeDownloadRatingKeys,
+            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             interactionModel: interactionModel
         )
     }

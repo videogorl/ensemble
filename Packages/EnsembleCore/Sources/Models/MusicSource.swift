@@ -28,6 +28,14 @@ public struct MusicSourceIdentifier: Hashable, Codable, Sendable, Identifiable {
         self.serverId = serverId
         self.libraryId = libraryId
     }
+
+    public init?(compositeKey: String) {
+        let parts = compositeKey.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 4, let type = MusicSourceType(rawValue: parts[0]) else {
+            return nil
+        }
+        self.init(type: type, accountId: parts[1], serverId: parts[2], libraryId: parts[3])
+    }
 }
 
 // MARK: - Music Source Status

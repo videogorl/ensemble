@@ -13,7 +13,7 @@ public struct MoodTracksView: View {
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
 
     // Targeted observation state (pattern from MediaDetailView)
-    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     @State private var currentTrackId: String?
     @State private var nvmRecentPlaylistTitle: String?
@@ -40,7 +40,7 @@ public struct MoodTracksView: View {
                 showAlbumName: true,
                 currentTrackId: currentTrackId,
                 availabilityGeneration: availabilityGeneration,
-                activeDownloadRatingKeys: activeDownloadRatingKeys,
+                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                 managesOwnScrolling: true,
                 bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
                 tableHeaderContent: AnyView(moodHeader),
@@ -60,7 +60,7 @@ public struct MoodTracksView: View {
                 configuration: .songs(
                     currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
-                    activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                     bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
                     supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                     interactionModel: trackInteractionModel
@@ -83,8 +83,8 @@ public struct MoodTracksView: View {
         .task {
             await loadTracks()
         }
-        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
-            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
+        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadTrackIdentities) { keys in
+            if keys != activeDownloadTrackIdentities { activeDownloadTrackIdentities = keys }
         }
         .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
             if gen != availabilityGeneration { availabilityGeneration = gen }

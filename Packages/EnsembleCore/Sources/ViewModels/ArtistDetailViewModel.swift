@@ -52,7 +52,12 @@ public final class ArtistDetailViewModel: ObservableObject {
         error = nil
 
         do {
-            let cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artist.id)
+            let cachedAlbums: [CDAlbum]
+            if let sourceKey = artist.sourceCompositeKey, !sourceKey.isEmpty {
+                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artist.id, sourceCompositeKey: sourceKey)
+            } else {
+                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artist.id)
+            }
             if !cachedAlbums.isEmpty {
                 albums = cachedAlbums.map { Album(from: $0) }
             } else if let sourceKey = artist.sourceCompositeKey {
@@ -70,7 +75,12 @@ public final class ArtistDetailViewModel: ObservableObject {
 
     public func loadTracks() async {
         do {
-            let cachedTracks = try await libraryRepository.fetchTracks(forArtist: artist.id)
+            let cachedTracks: [CDTrack]
+            if let sourceKey = artist.sourceCompositeKey, !sourceKey.isEmpty {
+                cachedTracks = try await libraryRepository.fetchTracks(forArtist: artist.id, sourceCompositeKey: sourceKey)
+            } else {
+                cachedTracks = try await libraryRepository.fetchTracks(forArtist: artist.id)
+            }
             if !cachedTracks.isEmpty {
                 tracks = cachedTracks.map { Track(from: $0) }
             } else if let sourceKey = artist.sourceCompositeKey {

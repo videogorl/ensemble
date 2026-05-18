@@ -502,7 +502,7 @@ public struct MediaTrackList: UIViewRepresentable {
     let availabilityGeneration: UInt64
     /// Set of ratingKeys currently downloading — parent observes OfflineDownloadService once
     /// instead of N instances each subscribing to the singleton.
-    let activeDownloadRatingKeys: Set<String>
+    let activeDownloadTrackIdentities: Set<String>
     /// When true, the UITableView manages its own scrolling and cell recycling.
     /// When false (default), scroll is disabled and parent ScrollView handles scrolling.
     /// Use true for large track lists (>200 tracks) embedded in a detail view.
@@ -540,7 +540,7 @@ public struct MediaTrackList: UIViewRepresentable {
         groupByDisc: Bool = false,
         currentTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
-        activeDownloadRatingKeys: Set<String> = [],
+        activeDownloadTrackIdentities: Set<String> = [],
         managesOwnScrolling: Bool = false,
         bottomContentInset: CGFloat = 0,
         rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
@@ -572,7 +572,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.groupByDisc = groupByDisc
         self.currentTrackId = currentTrackId
         self.availabilityGeneration = availabilityGeneration
-        self.activeDownloadRatingKeys = activeDownloadRatingKeys
+        self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         self.managesOwnScrolling = managesOwnScrolling
         self.bottomContentInset = bottomContentInset
         self.rowHeight = rowHeight
@@ -749,7 +749,7 @@ public struct MediaTrackList: UIViewRepresentable {
         // Read network state from DependencyContainer (not observed — parent drives re-renders)
         let isOffline = !dependencies.networkMonitor.isConnected
         let offlineStateChanged = context.coordinator.isOffline != isOffline
-        let activeDownloadsChanged = context.coordinator.activeDownloadRatingKeys != activeDownloadRatingKeys
+        let activeDownloadsChanged = context.coordinator.activeDownloadTrackIdentities != activeDownloadTrackIdentities
         let availabilityChanged = context.coordinator.lastAvailabilityGeneration != availabilityGeneration
         let supplementalMetadataWidthChanged = context.coordinator.supplementalMetadataWidth != supplementalMetadataWidth
 
@@ -781,7 +781,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.settingsManager = dependencies.settingsManager
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
         context.coordinator.isOffline = isOffline
-        context.coordinator.activeDownloadRatingKeys = activeDownloadRatingKeys
+        context.coordinator.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         context.coordinator.rowHeight = rowHeight
         context.coordinator.lastAvailabilityGeneration = availabilityGeneration
 
@@ -875,7 +875,7 @@ public struct MediaTrackList: UIViewRepresentable {
                         showAlbumName: showAlbumName,
                         isPlaying: isPlaying,
                         isUnavailableOffline: context.coordinator.trackAvailabilityResolver.availability(for: track).shouldDim,
-                        isActivelyDownloading: context.coordinator.activeDownloadRatingKeys.contains(track.id),
+                        isActivelyDownloading: context.coordinator.activeDownloadTrackIdentities.contains(track.sourceScopedID),
                         isFavorited: context.coordinator.isTrackFavorited?(track) ?? (track.rating >= 8),
                         supplementalMetadataWidth: context.coordinator.supplementalMetadataWidth,
                         menu: context.coordinator.makeContextMenu(
@@ -921,7 +921,7 @@ public struct MediaTrackList: UIViewRepresentable {
             settingsManager: dependencies.settingsManager,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
             isOffline: !dependencies.networkMonitor.isConnected,
-            activeDownloadRatingKeys: activeDownloadRatingKeys,
+            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             rowHeight: rowHeight
         )
         return coordinator
@@ -968,7 +968,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var settingsManager: SettingsManager
         var trackAvailabilityResolver: TrackAvailabilityResolver
         var isOffline: Bool
-        var activeDownloadRatingKeys: Set<String>
+        var activeDownloadTrackIdentities: Set<String>
         var rowHeight: CGFloat
         var lastAvailabilityGeneration: UInt64 = 0
         /// Retains the UIHostingController used for the table header view
@@ -1017,7 +1017,7 @@ public struct MediaTrackList: UIViewRepresentable {
             settingsManager: SettingsManager,
             trackAvailabilityResolver: TrackAvailabilityResolver,
             isOffline: Bool,
-            activeDownloadRatingKeys: Set<String> = [],
+            activeDownloadTrackIdentities: Set<String> = [],
             rowHeight: CGFloat
         ) {
             self.tracks = tracks
@@ -1048,7 +1048,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.settingsManager = settingsManager
             self.trackAvailabilityResolver = trackAvailabilityResolver
             self.isOffline = isOffline
-            self.activeDownloadRatingKeys = activeDownloadRatingKeys
+            self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
             self.rowHeight = rowHeight
         }
         
@@ -1091,7 +1091,7 @@ public struct MediaTrackList: UIViewRepresentable {
                 showAlbumName: showAlbumName,
                 isPlaying: isPlaying,
                 isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
-                isActivelyDownloading: activeDownloadRatingKeys.contains(track.id),
+                isActivelyDownloading: activeDownloadTrackIdentities.contains(track.sourceScopedID),
                 isFavorited: isTrackFavorited?(track) ?? (track.rating >= 8),
                 supplementalMetadataWidth: supplementalMetadataWidth,
                 menu: makeContextMenu(for: track, at: indexPath, resolvedActions: interactionModel.resolve(for: track)),

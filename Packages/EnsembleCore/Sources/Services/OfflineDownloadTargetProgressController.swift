@@ -4,7 +4,7 @@ import Foundation
 @MainActor
 struct OfflineDownloadProgressState {
     let snapshots: [OfflineDownloadTargetSnapshot]
-    let activeDownloadRatingKeys: Set<String>
+    let activeDownloadTrackIdentities: Set<String>
 }
 
 @MainActor
@@ -72,7 +72,7 @@ final class OfflineDownloadTargetProgressController {
             }
 
             var snapshots = try await makeTargetSnapshots()
-            let activeKeys = try await activeDownloadRatingKeys()
+            let activeKeys = try await activeDownloadTrackIdentities()
 
             // Self-heal orphaned targets after publishing stale-but-useful counts.
             // This keeps the service free of target membership repair details.
@@ -82,7 +82,7 @@ final class OfflineDownloadTargetProgressController {
 
             return OfflineDownloadProgressState(
                 snapshots: snapshots,
-                activeDownloadRatingKeys: activeKeys
+                activeDownloadTrackIdentities: activeKeys
             )
         } catch {
             EnsembleLogger.debug("Failed refreshing offline target progress: \(error.localizedDescription)")
@@ -90,11 +90,11 @@ final class OfflineDownloadTargetProgressController {
         }
     }
 
-    func refreshActiveDownloadRatingKeys() async -> Set<String>? {
+    func refreshActiveDownloadTrackIdentities() async -> Set<String>? {
         do {
-            return try await activeDownloadRatingKeys()
+            return try await activeDownloadTrackIdentities()
         } catch {
-            EnsembleLogger.debug("Failed refreshing active download ratingKeys: \(error.localizedDescription)")
+            EnsembleLogger.debug("Failed refreshing active download track identities: \(error.localizedDescription)")
             return nil
         }
     }
@@ -264,9 +264,15 @@ final class OfflineDownloadTargetProgressController {
         }
     }
 
-    private func activeDownloadRatingKeys() async throws -> Set<String> {
+    private func activeDownloadTrackIdentities() async throws -> Set<String> {
         let pending = try await dependencies.downloadManager.fetchPendingDownloads()
-        return Set(pending.compactMap { $0.track?.ratingKey })
+        return Set(pending.compactMap { download -> String? in
+            guard let track = download.track else { return nil }
+            guard let sourceCompositeKey = track.sourceCompositeKey, !sourceCompositeKey.isEmpty else {
+                return track.ratingKey
+            }
+            return "\(sourceCompositeKey)||\(track.ratingKey)"
+        })
     }
 
     private static func defaultDisplayName(for target: CDOfflineDownloadTarget) -> String {

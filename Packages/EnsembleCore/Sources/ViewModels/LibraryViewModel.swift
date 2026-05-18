@@ -38,6 +38,7 @@ public final class LibraryViewModel: ObservableObject {
     // Cached computed collections — updated by Combine pipelines, not on every render
     @Published public private(set) var filteredTracks: [Track] = []
     @Published public private(set) var filteredArtists: [Artist] = []
+    @Published public private(set) var displayArtists: [DisplayArtist] = []
     @Published public private(set) var filteredAlbums: [Album] = []
     @Published public private(set) var filteredGenres: [Genre] = []
     @Published public private(set) var trackSections: [TrackSection] = []
@@ -191,7 +192,7 @@ public final class LibraryViewModel: ObservableObject {
             }
             .removeDuplicates { old, new in
                 guard old.0.count == new.0.count, old.1.count == new.1.count else { return false }
-                return zip(old.0, new.0).allSatisfy { $0.id == $1.id }
+                return zip(old.0, new.0).allSatisfy { $0.sourceScopedID == $1.sourceScopedID }
             }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] filtered, sections in
@@ -203,16 +204,21 @@ public final class LibraryViewModel: ObservableObject {
         // Artists — include albums for genre filtering (artist genres derived from album genres)
         Publishers.CombineLatest4($artists, $artistSortOption, $artistsFilterOptions, $albums)
             .debounce(for: .milliseconds(300), scheduler: Self.computeQueue)
-            .map { artists, sortOption, filterOptions, albums -> [Artist] in
+            .map { artists, sortOption, filterOptions, albums -> ([Artist], [DisplayArtist]) in
                 let sorted = LibraryViewModel.sortArtists(artists, by: sortOption, direction: filterOptions.sortDirection)
-                return LibraryViewModel.filterArtists(sorted, with: filterOptions, albums: albums)
+                let filtered = LibraryViewModel.filterArtists(sorted, with: filterOptions, albums: albums)
+                return (filtered, DisplayArtist.group(filtered))
             }
             .removeDuplicates { old, new in
-                guard old.count == new.count else { return false }
-                return zip(old, new).allSatisfy { $0.id == $1.id }
+                guard old.0.count == new.0.count, old.1.count == new.1.count else { return false }
+                return zip(old.0, new.0).allSatisfy { $0.sourceScopedID == $1.sourceScopedID }
+                    && zip(old.1, new.1).allSatisfy { $0.id == $1.id }
             }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.filteredArtists = $0 }
+            .sink { [weak self] filtered, display in
+                self?.filteredArtists = filtered
+                self?.displayArtists = display
+            }
             .store(in: &cancellables)
 
         // Albums — debounce 300ms to reduce main-thread layout storms during search
@@ -226,7 +232,7 @@ public final class LibraryViewModel: ObservableObject {
             }
             .removeDuplicates { old, new in
                 guard old.count == new.count else { return false }
-                return zip(old, new).allSatisfy { $0.id == $1.id }
+                return zip(old, new).allSatisfy { $0.sourceScopedID == $1.sourceScopedID }
             }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.filteredAlbums = $0 }
@@ -470,6 +476,7 @@ public final class LibraryViewModel: ObservableObject {
         if !tracks.isEmpty { tracks = [] }
         if !genres.isEmpty { genres = [] }
         if !filteredArtists.isEmpty { filteredArtists = [] }
+        if !displayArtists.isEmpty { displayArtists = [] }
         if !filteredAlbums.isEmpty { filteredAlbums = [] }
         if !filteredTracks.isEmpty { filteredTracks = [] }
         if !filteredGenres.isEmpty { filteredGenres = [] }
@@ -619,16 +626,16 @@ public final class LibraryViewModel: ObservableObject {
         let newTracks = Self.filterTracksForVisibility(allTracks, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
         let newGenres = Self.filterGenresForVisibility(allGenres, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
 
-        if !Self.idsEqual(artists, newArtists) { artists = newArtists }
-        if !Self.idsEqual(albums, newAlbums) { albums = newAlbums }
-        if !Self.idsEqual(tracks, newTracks) { tracks = newTracks }
-        if !Self.idsEqual(genres, newGenres) { genres = newGenres }
+        if !Self.idsEqual(artists, newArtists, identifier: \.sourceScopedID) { artists = newArtists }
+        if !Self.idsEqual(albums, newAlbums, identifier: \.sourceScopedID) { albums = newAlbums }
+        if !Self.idsEqual(tracks, newTracks, identifier: \.sourceScopedID) { tracks = newTracks }
+        if !Self.idsEqual(genres, newGenres, identifier: \.id) { genres = newGenres }
     }
 
     /// Fast ID-based equality check — avoids full Equatable comparison
-    private static func idsEqual<T: Identifiable>(_ a: [T], _ b: [T]) -> Bool where T.ID == String {
+    private static func idsEqual<T>(_ a: [T], _ b: [T], identifier: (T) -> String) -> Bool {
         guard a.count == b.count else { return false }
-        return zip(a, b).allSatisfy { $0.id == $1.id }
+        return zip(a, b).allSatisfy { identifier($0) == identifier($1) }
     }
 
     internal static func filterTracksForVisibility(

@@ -210,7 +210,7 @@ public struct DownloadsView: View {
                     )
                 )
                 .labelsHidden()
-                .disabled(viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
+                .disabled(!library.canDownload || viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
             }
         }
     }
@@ -314,7 +314,7 @@ public struct DownloadsView: View {
                     )
                 )
                 .labelsHidden()
-                .disabled(viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
+                .disabled(!library.canDownload || viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
 
                 // Manual chevron since the hidden NavigationLink won't render one
                 Image(systemName: EnsembleDesign.Icon.chevronRight)
@@ -355,6 +355,13 @@ public struct DownloadsView: View {
                         .font(EnsembleDesign.Typography.rowSecondary)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
+
+                    if !library.canDownload {
+                        Text("Downloads unavailable")
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                            .lineLimit(1)
+                    }
                 }
             }
 

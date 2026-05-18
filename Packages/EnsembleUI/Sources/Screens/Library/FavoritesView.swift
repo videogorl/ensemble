@@ -23,7 +23,7 @@ public struct FavoritesView: View {
     @State private var currentTrackId: String?
     @State private var nvmRecentPlaylistTitle: String?
     // Targeted observation: only re-evaluate when these specific values change
-    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
     @State private var hasCompletedInitialLoad = false
@@ -81,8 +81,8 @@ public struct FavoritesView: View {
         .onReceive(DependencyContainer.shared.accountManager.$isAwaitingCloudSources) { awaiting in
             if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
         }
-        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
-            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
+        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadTrackIdentities) { keys in
+            if keys != activeDownloadTrackIdentities { activeDownloadTrackIdentities = keys }
         }
         .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
             if gen != availabilityGeneration { availabilityGeneration = gen }
@@ -262,7 +262,7 @@ public struct FavoritesView: View {
                     groupByDisc: false,
                     currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
-                    activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                     interactionModel: interactionModel,
                     supplementalMetadataWidth: trackListSupplementalMetadataWidth
                 ) { _, index in
@@ -285,7 +285,7 @@ public struct FavoritesView: View {
                 configuration: .songs(
                     currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
-                    activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                     bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
                     supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                     interactionModel: interactionModel

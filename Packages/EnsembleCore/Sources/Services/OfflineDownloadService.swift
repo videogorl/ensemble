@@ -113,8 +113,8 @@ public final class OfflineDownloadService: ObservableObject {
     @Published public private(set) var queueStatusReason: QueueStatusReason = .idle
     /// Per-target removal progress — keyed by target key, shown in DownloadsView during cleanup
     @Published public private(set) var removalInProgress: [String: RemovalProgress] = [:]
-    /// Track ratingKeys currently pending or actively downloading, used by track-list rows to show spinners.
-    @Published public private(set) var activeDownloadRatingKeys: Set<String> = []
+    /// Track source-scoped identities currently pending or actively downloading, used by track-list rows to show spinners.
+    @Published public private(set) var activeDownloadTrackIdentities: Set<String> = []
     internal private(set) var lastHealingSummary: OfflineDownloadHealingSummary = .notRun
 
     private let downloadManager: DownloadManagerProtocol
@@ -168,8 +168,8 @@ public final class OfflineDownloadService: ObservableObject {
                 guard let self else { return 0 }
                 return (try? await self.downloadManager.fetchPendingDownloads().count) ?? 0
             },
-            refreshActiveDownloadRatingKeys: { [weak self] in
-                await self?.refreshActiveDownloadRatingKeys()
+            refreshActiveDownloadTrackIdentities: { [weak self] in
+                await self?.refreshActiveDownloadTrackIdentities()
             },
             refreshViewContext: {
                 CoreDataStack.shared.refreshViewContext()
@@ -874,7 +874,7 @@ public final class OfflineDownloadService: ObservableObject {
         let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
         let activeOrPendingCount = max(
             pendingCount,
-            activeDownloadRatingKeys.count,
+            activeDownloadTrackIdentities.count,
             queueCoordinator.hasActiveTask || isQueueRunning ? 1 : 0
         )
         backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: activeOrPendingCount)
@@ -1252,7 +1252,7 @@ public final class OfflineDownloadService: ObservableObject {
 
     internal var shouldDeferForegroundHealthRefresh: Bool {
         currentDownloadWorkMode == .interactivePlayback
-            && (queueCoordinator.hasActiveTask || isQueueRunning || !activeDownloadRatingKeys.isEmpty || fullProgressRefreshTask != nil)
+            && (queueCoordinator.hasActiveTask || isQueueRunning || !activeDownloadTrackIdentities.isEmpty || fullProgressRefreshTask != nil)
     }
 
     /// Maps current network state to a user-facing queue pause reason
@@ -1295,7 +1295,7 @@ public final class OfflineDownloadService: ObservableObject {
     /// Refreshes only the targets that contain the given track.
     /// Much cheaper than refreshAllTargetProgresses() during bulk downloads — O(owning targets)
     /// instead of O(all targets × tracks per target).
-    /// Note: activeDownloadRatingKeys is NOT refreshed here — the debounced
+    /// Note: activeDownloadTrackIdentities is NOT refreshed here — the debounced
     /// scheduleDownloadChangeNotification() handles that to batch spinner updates
     /// instead of firing per-track during bulk downloads.
     private func refreshTargetsForTrack(ratingKey: String, sourceCompositeKey: String) async {
@@ -1314,17 +1314,17 @@ public final class OfflineDownloadService: ObservableObject {
     private func refreshAllTargetProgresses() async {
         if let state = await targetProgressController.refreshAllTargetProgresses() {
             targets = state.snapshots
-            if state.activeDownloadRatingKeys != activeDownloadRatingKeys {
-                activeDownloadRatingKeys = state.activeDownloadRatingKeys
+            if state.activeDownloadTrackIdentities != activeDownloadTrackIdentities {
+                activeDownloadTrackIdentities = state.activeDownloadTrackIdentities
             }
         }
     }
 
-    /// Recomputes the set of track ratingKeys that are pending or actively downloading.
-    private func refreshActiveDownloadRatingKeys() async {
-        if let keys = await targetProgressController.refreshActiveDownloadRatingKeys() {
-            if keys != activeDownloadRatingKeys {
-                activeDownloadRatingKeys = keys
+    /// Recomputes the set of track source-scoped identities that are pending or actively downloading.
+    private func refreshActiveDownloadTrackIdentities() async {
+        if let keys = await targetProgressController.refreshActiveDownloadTrackIdentities() {
+            if keys != activeDownloadTrackIdentities {
+                activeDownloadTrackIdentities = keys
             }
         }
     }

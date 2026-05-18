@@ -6,7 +6,7 @@ import SwiftUI
 /// redraw visible rows for download and availability changes.
 @MainActor
 struct TrackListRuntimeObservationModifier: ViewModifier {
-    @Binding var activeDownloadRatingKeys: Set<String>
+    @Binding var activeDownloadTrackIdentities: Set<String>
     @Binding var availabilityGeneration: UInt64
 
     private let offlineDownloadService = DependencyContainer.shared.offlineDownloadService
@@ -14,9 +14,9 @@ struct TrackListRuntimeObservationModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onReceive(offlineDownloadService.$activeDownloadRatingKeys) { keys in
-                if keys != activeDownloadRatingKeys {
-                    activeDownloadRatingKeys = keys
+            .onReceive(offlineDownloadService.$activeDownloadTrackIdentities) { keys in
+                if keys != activeDownloadTrackIdentities {
+                    activeDownloadTrackIdentities = keys
                 }
             }
             .onReceive(trackAvailabilityResolver.$availabilityGeneration) { generation in
@@ -81,12 +81,12 @@ private enum LastPlaylistProjection {
 extension View {
     @MainActor
     func trackListRuntimeObservation(
-        activeDownloadRatingKeys: Binding<Set<String>>,
+        activeDownloadTrackIdentities: Binding<Set<String>>,
         availabilityGeneration: Binding<UInt64>
     ) -> some View {
         modifier(
             TrackListRuntimeObservationModifier(
-                activeDownloadRatingKeys: activeDownloadRatingKeys,
+                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                 availabilityGeneration: availabilityGeneration
             )
         )

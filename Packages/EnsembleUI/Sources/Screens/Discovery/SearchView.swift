@@ -22,7 +22,7 @@ public struct SearchView: View {
     @State private var currentTrackId: String?
     @State private var nvmRecentPlaylistTitle: String?
     // Targeted observation: only re-evaluate when these specific values change
-    @State private var activeDownloadRatingKeys: Set<String>
+    @State private var activeDownloadTrackIdentities: Set<String>
     @State private var availabilityGeneration: UInt64
     @State private var isSearchTabActive = false
     @State private var isSearchPathEmpty = true
@@ -44,8 +44,8 @@ public struct SearchView: View {
             initialValue: Self.computeHasEnabledLibraries(in: container.accountManager.plexAccounts)
         )
         self._isRestoringCloudSources = State(initialValue: container.accountManager.isAwaitingCloudSources)
-        self._activeDownloadRatingKeys = State(
-            initialValue: container.offlineDownloadService.activeDownloadRatingKeys
+        self._activeDownloadTrackIdentities = State(
+            initialValue: container.offlineDownloadService.activeDownloadTrackIdentities
         )
         self._availabilityGeneration = State(
             initialValue: container.trackAvailabilityResolver.availabilityGeneration
@@ -93,7 +93,7 @@ public struct SearchView: View {
             if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
         }
         .trackListRuntimeObservation(
-            activeDownloadRatingKeys: $activeDownloadRatingKeys,
+            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
             availabilityGeneration: $availabilityGeneration
         )
         .onReceive(navigationCoordinator.$selectedTab) { tab in
@@ -927,7 +927,7 @@ public struct SearchView: View {
                     groupByDisc: false,
                     currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
-                    activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                     interactionModel: trackInteractionModel
                 ) { track, _ in
                     playSearchResult(track)
@@ -937,7 +937,7 @@ public struct SearchView: View {
                     tracks: tracks,
                     currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
-                    activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                     interactionModel: trackInteractionModel
                 ) { track, _ in
                     playSearchResult(track)

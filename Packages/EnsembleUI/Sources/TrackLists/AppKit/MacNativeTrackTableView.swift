@@ -14,7 +14,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     let tableFooterContent: AnyView?
     let currentTrackId: String?
     let availabilityGeneration: UInt64
-    let activeDownloadRatingKeys: Set<String>
+    let activeDownloadTrackIdentities: Set<String>
     let bottomContentInset: CGFloat
     let tableHeaderExtraHeight: CGFloat
     let supplementalMetadataWidth: CGFloat?
@@ -95,7 +95,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         context.coordinator.tableFooterContent = tableFooterContent
         context.coordinator.currentTrackId = currentTrackId
         context.coordinator.availabilityGeneration = availabilityGeneration
-        context.coordinator.activeDownloadRatingKeys = activeDownloadRatingKeys
+        context.coordinator.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         context.coordinator.bottomContentInset = bottomContentInset
         context.coordinator.tableHeaderExtraHeight = tableHeaderExtraHeight
         context.coordinator.supplementalMetadataWidth = supplementalMetadataWidth
@@ -138,7 +138,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             tableFooterContent: tableFooterContent,
             currentTrackId: currentTrackId,
             availabilityGeneration: availabilityGeneration,
-            activeDownloadRatingKeys: activeDownloadRatingKeys,
+            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             bottomContentInset: bottomContentInset,
             tableHeaderExtraHeight: tableHeaderExtraHeight,
             supplementalMetadataWidth: supplementalMetadataWidth,
@@ -163,7 +163,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         var tableFooterContent: AnyView?
         var currentTrackId: String?
         var availabilityGeneration: UInt64
-        var activeDownloadRatingKeys: Set<String>
+        var activeDownloadTrackIdentities: Set<String>
         var bottomContentInset: CGFloat
         var tableHeaderExtraHeight: CGFloat
         var supplementalMetadataWidth: CGFloat?
@@ -188,7 +188,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             tableFooterContent: AnyView?,
             currentTrackId: String?,
             availabilityGeneration: UInt64,
-            activeDownloadRatingKeys: Set<String>,
+            activeDownloadTrackIdentities: Set<String>,
             bottomContentInset: CGFloat,
             tableHeaderExtraHeight: CGFloat,
             supplementalMetadataWidth: CGFloat?,
@@ -209,7 +209,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             self.tableFooterContent = tableFooterContent
             self.currentTrackId = currentTrackId
             self.availabilityGeneration = availabilityGeneration
-            self.activeDownloadRatingKeys = activeDownloadRatingKeys
+            self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
             self.bottomContentInset = bottomContentInset
             self.tableHeaderExtraHeight = tableHeaderExtraHeight
             self.supplementalMetadataWidth = supplementalMetadataWidth
@@ -359,7 +359,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 showAlbumName: showAlbumName,
                 isPlaying: track.playbackIdentity == currentTrackId,
                 isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
-                isActivelyDownloading: activeDownloadRatingKeys.contains(track.id),
+                isActivelyDownloading: activeDownloadTrackIdentities.contains(track.sourceScopedID),
                 isFavorited: resolvedActions.isFavorited,
                 supplementalMetadataWidth: supplementalMetadataWidth,
                 artworkLoader: artworkLoader,

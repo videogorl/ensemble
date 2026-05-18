@@ -431,7 +431,7 @@ Dynamic home screen powered by Plex's hub system:
   - enqueuing missing track downloads
   - reconciling after sync/playlist updates
   - reference-counted cleanup of shared tracks when targets are removed
-  - publishing `@Published activeDownloadRatingKeys: Set<String>` for UI download spinners in native track-list rows such as `MediaTrackList`
+  - publishing `@Published activeDownloadTrackIdentities: Set<String>` for UI download spinners in native track-list rows such as `MediaTrackList`
 - `DownloadManager` stores download quality and uses source-aware lookup/delete (`ratingKey + sourceCompositeKey`) to prevent collisions.
 - Queue policy is Wi-Fi/wired only; active downloads pause on cellular/offline and resume when allowed.
 - Recovery policy runs through `OfflineDownloadService.recoverInterruptedDownloads`: launch and the immediate foreground callback within the launch grace window do a quick pending/paused status repair and defer file scans; later foreground/wake/background URLSession events run full healing before progress refresh. macOS sleep and BG continued-processing expiration pause active bookkeeping without failing downloads.

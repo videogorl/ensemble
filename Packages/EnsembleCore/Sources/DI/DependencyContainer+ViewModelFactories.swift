@@ -57,6 +57,16 @@ public extension DependencyContainer {
     }
 
     @MainActor
+    func makeMergedArtistDetailViewModel(displayArtist: DisplayArtist) -> MergedArtistDetailViewModel {
+        MergedArtistDetailViewModel(
+            displayArtist: displayArtist,
+            libraryRepository: libraryRepository,
+            syncCoordinator: syncCoordinator,
+            accountManager: accountManager
+        )
+    }
+
+    @MainActor
     func makeAlbumDetailViewModel(album: Album, initialTracks: [Track]? = nil) -> AlbumDetailViewModel {
         AlbumDetailViewModel(
             album: album,

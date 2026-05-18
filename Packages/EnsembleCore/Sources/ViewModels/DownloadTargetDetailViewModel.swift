@@ -165,10 +165,10 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
         let sourceKey = summary.sourceCompositeKey
         switch summary.kind {
         case .album:
-            let album = try? await libraryRepository.fetchAlbum(ratingKey: ratingKey)
+            let album = try? await libraryRepository.fetchAlbum(ratingKey: ratingKey, sourceCompositeKey: sourceKey)
             thumbPath = album?.thumbPath
         case .artist:
-            let artist = try? await libraryRepository.fetchArtist(ratingKey: ratingKey)
+            let artist = try? await libraryRepository.fetchArtist(ratingKey: ratingKey, sourceCompositeKey: sourceKey)
             thumbPath = artist?.thumbPath
         case .playlist:
             let playlist = try? await playlistRepository.fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceKey)
