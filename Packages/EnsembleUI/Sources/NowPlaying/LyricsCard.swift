@@ -640,6 +640,7 @@ private struct ChordLyricsLineView: View {
                     if !row.chords.trimmingCharacters(in: .whitespaces).isEmpty {
                         Text(row.chords)
                             .font(.system(size: chordFontSize, weight: .semibold, design: .monospaced))
+                            .foregroundColor(EnsembleDesign.Color.accent)
                             .lineLimit(1)
                     }
                     if !row.lyric.isEmpty {
