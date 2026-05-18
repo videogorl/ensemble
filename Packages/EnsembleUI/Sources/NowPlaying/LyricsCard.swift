@@ -629,6 +629,7 @@ private struct ChordLyricsLineView: View {
     private let characterWidth: CGFloat = 8.3
     private let chordFontSize: CGFloat = 13
     private let lyricFontSize: CGFloat = 13
+    private let chordOnlyPlaceholder = "🎵🎵🎵"
 
     var body: some View {
         GeometryReader { geometry in
@@ -644,6 +645,10 @@ private struct ChordLyricsLineView: View {
                     if !row.lyric.isEmpty {
                         Text(row.lyric)
                             .font(.system(size: lyricFontSize, weight: .medium, design: .monospaced))
+                            .lineLimit(1)
+                    } else if !row.chords.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Text(chordOnlyPlaceholder)
+                            .font(.system(size: lyricFontSize, weight: .medium, design: .default))
                             .lineLimit(1)
                     }
                 }
@@ -691,7 +696,7 @@ private enum ChordLineSegments {
         let chordLength = line.chords.map { max(0, $0.offsetFromLyricStart) + $0.symbol.count }.max() ?? 0
         let maxLength = max(chordLength, line.text.count)
         let estimatedRows = max(1, Int(ceil(Double(maxLength) / 36.0)))
-        let rowHeight: CGFloat = line.text.isEmpty ? 16 : 34
+        let rowHeight: CGFloat = line.text.isEmpty && line.chords.isEmpty ? 16 : 34
         return CGFloat(estimatedRows) * rowHeight
     }
 
