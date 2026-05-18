@@ -487,11 +487,7 @@ private struct DisplayArtistDetailView: View {
     let nowPlayingVM: NowPlayingViewModel
 
     var body: some View {
-        if displayArtist.isMerged {
-            MergedArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
-        } else {
-            ArtistDetailView(artist: displayArtist.primaryArtist, nowPlayingVM: nowPlayingVM)
-        }
+        ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
     }
 }
 
@@ -507,6 +503,8 @@ private struct ArtistHeroToolbarBackgroundPreferenceKey: PreferenceKey {
 
 public struct ArtistDetailView: View {
     @StateObject private var viewModel: ArtistDetailViewModel
+    @StateObject private var mergedViewModel: MergedArtistDetailViewModel
+    private let displayArtist: DisplayArtist
     let nowPlayingVM: NowPlayingViewModel
 
     @Environment(\.dependencies) private var dependencies
@@ -525,14 +523,28 @@ public struct ArtistDetailView: View {
     @State private var showToolbarTitle = false
     @State private var showToolbarBackground = false
     @State private var artistHeaderWidth: CGFloat = 0
+    @State private var artistHeaderActionWidth: CGFloat = 0
     @State private var favoritedTrackListWidth: CGFloat = 0
+    @State private var sourceFavoritedTrackListWidths: [String: CGFloat] = [:]
     @Environment(\.openURL) private var openURL
 
     public init(
         artist: Artist,
         nowPlayingVM: NowPlayingViewModel
     ) {
+        self.init(displayArtist: .single(artist), nowPlayingVM: nowPlayingVM)
+    }
+
+    public init(
+        displayArtist: DisplayArtist,
+        nowPlayingVM: NowPlayingViewModel
+    ) {
+        let artist = displayArtist.primaryArtist
+        self.displayArtist = displayArtist
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeArtistDetailViewModel(artist: artist))
+        self._mergedViewModel = StateObject(
+            wrappedValue: DependencyContainer.shared.makeMergedArtistDetailViewModel(displayArtist: displayArtist)
+        )
         self.nowPlayingVM = nowPlayingVM
         let pinnedIDs = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.id))
         self._isArtistPinned = State(initialValue: pinnedIDs.contains(artist.id))
@@ -589,6 +601,9 @@ public struct ArtistDetailView: View {
             await viewModel.loadAlbums()
             await viewModel.loadTracks()
             await viewModel.loadArtistDetail()
+            if displayArtist.isMerged {
+                await mergedViewModel.load()
+            }
             await loadArtworkImage()
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
@@ -599,19 +614,29 @@ public struct ArtistDetailView: View {
             VStack(spacing: EnsembleDesign.Spacing.none) {
                 artistHeader
 
-                // Albums Section
-                if viewModel.isLoading && viewModel.albums.isEmpty {
-                    ProgressView()
-                        .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
-                } else if !viewModel.albums.isEmpty {
-                    albumsSection
-                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
-                }
+                if displayArtist.isMerged {
+                    if mergedViewModel.isLoading && mergedViewModel.sourceSections.isEmpty {
+                        ProgressView()
+                            .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
+                    } else if !mergedViewModel.sourceSections.isEmpty {
+                        mergedSourceSections
+                            .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                    }
+                } else {
+                    // Albums Section
+                    if viewModel.isLoading && viewModel.albums.isEmpty {
+                        ProgressView()
+                            .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
+                    } else if !viewModel.albums.isEmpty {
+                        albumsSection
+                            .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                    }
 
-                // Favorited Tracks (4+ stars)
-                if !viewModel.favoritedTracks.isEmpty {
-                    favoritedTracksSection
-                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                    // Favorited Tracks (4+ stars)
+                    if !viewModel.favoritedTracks.isEmpty {
+                        favoritedTracksSection
+                            .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                    }
                 }
 
                 // About section (quick facts + bio + Wikipedia)
@@ -627,6 +652,8 @@ public struct ArtistDetailView: View {
                         .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
                 }
             }
+            .frame(maxWidth: .infinity)
+            .background(MeasuredWidthReader(onChange: updateArtistHeaderWidth))
         }
     }
 
@@ -695,6 +722,22 @@ public struct ArtistDetailView: View {
         }
     }
 
+    private var detailAlbums: [Album] {
+        displayArtist.isMerged ? mergedViewModel.filteredAlbums : viewModel.filteredAlbums
+    }
+
+    private var detailTracks: [Track] {
+        displayArtist.isMerged ? mergedViewModel.filteredTracks : viewModel.filteredTracks
+    }
+
+    private var detailTrackCount: Int {
+        displayArtist.isMerged ? mergedViewModel.trackCount : viewModel.trackCount
+    }
+
+    private var detailFavoritedTracks: [Track] {
+        displayArtist.isMerged ? mergedViewModel.favoritedTracks : viewModel.favoritedTracks
+    }
+
     // MARK: - Hero Banner
 
     private var artistHeader: some View {
@@ -705,7 +748,6 @@ public struct ArtistDetailView: View {
                 compactArtistHeader
             }
         }
-        .measuredWidth(onChange: updateArtistHeaderWidth)
     }
 
     private var usesWideArtistHeader: Bool {
@@ -750,6 +792,7 @@ public struct ArtistDetailView: View {
                     .padding(.top, EnsembleScaffold.DetailSurface.actionTopPadding)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background(MeasuredWidthReader(onChange: updateArtistHeaderActionWidth))
         }
         .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
         .padding(.top, EnsembleScaffold.ArtistDetail.wideHeaderTopPadding)
@@ -758,14 +801,20 @@ public struct ArtistDetailView: View {
 
     private var artistStatsLine: some View {
         HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
-            if !viewModel.filteredAlbums.isEmpty {
-                Text("\(viewModel.filteredAlbums.count) album\(viewModel.filteredAlbums.count == 1 ? "" : "s")")
+            if displayArtist.isMerged {
+                Text("\(displayArtist.artists.count) sources")
             }
-            if !viewModel.filteredAlbums.isEmpty && !viewModel.filteredTracks.isEmpty {
+            if !detailAlbums.isEmpty {
+                if displayArtist.isMerged {
+                    Text("•")
+                }
+                Text("\(detailAlbums.count) album\(detailAlbums.count == 1 ? "" : "s")")
+            }
+            if !detailAlbums.isEmpty && !detailTracks.isEmpty {
                 Text("•")
             }
-            if !viewModel.filteredTracks.isEmpty {
-                Text("\(viewModel.trackCount) song\(viewModel.trackCount == 1 ? "" : "s")")
+            if !detailTracks.isEmpty {
+                Text("\(detailTrackCount) song\(detailTrackCount == 1 ? "" : "s")")
             }
         }
         .font(EnsembleDesign.Typography.detailSubtitle)
@@ -794,6 +843,12 @@ public struct ArtistDetailView: View {
     private func updateArtistHeaderWidth(_ newWidth: CGFloat) {
         if abs(artistHeaderWidth - newWidth) > 1 {
             artistHeaderWidth = newWidth
+        }
+    }
+
+    private func updateArtistHeaderActionWidth(_ newWidth: CGFloat) {
+        if abs(artistHeaderActionWidth - newWidth) > 1 {
+            artistHeaderActionWidth = newWidth
         }
     }
 
@@ -849,16 +904,22 @@ public struct ArtistDetailView: View {
                         .font(EnsembleDesign.Typography.screenTitle)
                         .background(TitleOffsetTracker(coordinateSpace: "artistDetailScroll"))
 
-                    if !viewModel.filteredAlbums.isEmpty || !viewModel.filteredTracks.isEmpty {
+                    if !detailAlbums.isEmpty || !detailTracks.isEmpty {
                         HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
-                            if !viewModel.filteredAlbums.isEmpty {
-                                Text("\(viewModel.filteredAlbums.count) album\(viewModel.filteredAlbums.count == 1 ? "" : "s")")
+                            if displayArtist.isMerged {
+                                Text("\(displayArtist.artists.count) sources")
                             }
-                            if !viewModel.filteredAlbums.isEmpty && !viewModel.filteredTracks.isEmpty {
+                            if !detailAlbums.isEmpty {
+                                if displayArtist.isMerged {
+                                    Text("•")
+                                }
+                                Text("\(detailAlbums.count) album\(detailAlbums.count == 1 ? "" : "s")")
+                            }
+                            if !detailAlbums.isEmpty && !detailTracks.isEmpty {
                                 Text("•")
                             }
-                            if !viewModel.filteredTracks.isEmpty {
-                                Text("\(viewModel.trackCount) song\(viewModel.trackCount == 1 ? "" : "s")")
+                            if !detailTracks.isEmpty {
+                                Text("\(detailTrackCount) song\(detailTrackCount == 1 ? "" : "s")")
                             }
                         }
                         .font(EnsembleDesign.Typography.stateMessage)
@@ -892,17 +953,17 @@ public struct ArtistDetailView: View {
         MediaDetailSurface<EmptyView>.PlaybackActionRow(
             horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding,
             bottomPadding: EnsembleDesign.Spacing.lg,
-            isDisabled: viewModel.filteredTracks.isEmpty,
+            isDisabled: detailTracks.isEmpty,
             play: {
-                nowPlayingVM.play(tracks: viewModel.filteredTracks)
+                nowPlayingVM.play(tracks: detailTracks)
             },
             shuffle: {
-                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
+                nowPlayingVM.shufflePlay(tracks: detailTracks)
             }
         ) {
             // Radio button - queue all shuffled, enable sonically similar
             Button {
-                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
+                nowPlayingVM.enableRadio(tracks: detailTracks)
             } label: {
                 MediaDetailSurface<EmptyView>.IconActionLabel(systemImage: EnsembleDesign.Icon.radio)
             }
@@ -914,18 +975,18 @@ public struct ArtistDetailView: View {
 
     private var wideActionButtons: some View {
         MediaDetailSurface<EmptyView>.AdaptivePlaybackActionRow(
-            availableWidth: EnsembleScaffold.ArtistDetail.wideActionMaxWidth,
-            isDisabled: viewModel.filteredTracks.isEmpty,
+            availableWidth: max(artistHeaderActionWidth, 1),
+            isDisabled: detailTracks.isEmpty,
             includesExtraActions: true,
             play: {
-                nowPlayingVM.play(tracks: viewModel.filteredTracks)
+                nowPlayingVM.play(tracks: detailTracks)
             },
             shuffle: {
-                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
+                nowPlayingVM.shufflePlay(tracks: detailTracks)
             }
         ) {
             Button {
-                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
+                nowPlayingVM.enableRadio(tracks: detailTracks)
             } label: {
                 MediaDetailSurface<EmptyView>.IconActionLabel(systemImage: EnsembleDesign.Icon.radio)
             }
@@ -1113,7 +1174,112 @@ public struct ArtistDetailView: View {
             EnsembleContentSectionHeader("Albums")
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
-            AlbumGrid(albums: viewModel.filteredAlbums, nowPlayingVM: nowPlayingVM)
+            AlbumGrid(albums: detailAlbums, nowPlayingVM: nowPlayingVM)
+        }
+    }
+
+    private var mergedSourceSections: some View {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.sectionTopPadding) {
+            ForEach(mergedViewModel.sourceSections) { section in
+                mergedSourceSection(section)
+            }
+        }
+    }
+
+    private func mergedSourceSection(_ section: MergedArtistSourceSection) -> some View {
+        let albums = mergedViewModel.filteredAlbums(for: section)
+        let favoritedTracks = mergedViewModel.favoritedTracks(for: section)
+
+        return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
+            HStack(alignment: .firstTextBaseline, spacing: EnsembleDesign.Spacing.md) {
+                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
+                    Text(section.sourceTitle)
+                        .font(EnsembleDesign.Typography.sectionTitle)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
+
+                    Text(sourceSectionMetadata(albums: albums, favoritedTracks: favoritedTracks, totalTracks: section.tracks))
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+
+                Spacer()
+
+                if canDownload(section.artist) {
+                    sourceDownloadButton(for: section.artist)
+                }
+            }
+            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+
+            if !albums.isEmpty {
+                AlbumGrid(albums: albums, nowPlayingVM: nowPlayingVM)
+            }
+
+            if !favoritedTracks.isEmpty {
+                sourceFavoritedTracksSection(section: section, tracks: favoritedTracks)
+            }
+        }
+    }
+
+    private func sourceSectionMetadata(
+        albums: [Album],
+        favoritedTracks: [Track],
+        totalTracks: [Track]
+    ) -> String {
+        [
+            "\(albums.count) album\(albums.count == 1 ? "" : "s")",
+            "\(totalTracks.count) song\(totalTracks.count == 1 ? "" : "s")",
+            "\(favoritedTracks.count) favorited"
+        ].joined(separator: " · ")
+    }
+
+    private func sourceDownloadButton(for artist: Artist) -> some View {
+        let isDownloaded = dependencies.offlineDownloadService.isArtistDownloadEnabled(artist)
+        return Button {
+            Task {
+                await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
+                    artist,
+                    isEnabled: !isDownloaded
+                )
+            }
+        } label: {
+            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
+        }
+        .buttonStyle(.borderless)
+    }
+
+    private func canDownload(_ artist: Artist) -> Bool {
+        DownloadCapabilityPolicy.canAttemptDownload(
+            for: artist.sourceCompositeKey,
+            accountManager: dependencies.accountManager
+        )
+    }
+
+    private func sourceFavoritedTracksSection(
+        section: MergedArtistSourceSection,
+        tracks: [Track]
+    ) -> some View {
+        let width = sourceFavoritedTrackListWidths[section.id] ?? 0
+
+        return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
+            EnsembleContentSectionHeader("Favorited Tracks")
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+
+            MediaDetailSurface<EmptyView>.CompactPlaybackActionRow(
+                isDisabled: tracks.isEmpty,
+                play: {
+                    nowPlayingVM.play(tracks: tracks)
+                },
+                shuffle: {
+                    nowPlayingVM.shufflePlay(tracks: tracks)
+                }
+            )
+
+            favoriteTrackList(tracks: tracks, supplementalMetadataWidth: width)
+        }
+        .measuredWidth { newWidth in
+            if abs((sourceFavoritedTrackListWidths[section.id] ?? 0) - newWidth) > 1 {
+                sourceFavoritedTrackListWidths[section.id] = newWidth
+            }
         }
     }
 
@@ -1125,15 +1291,24 @@ public struct ArtistDetailView: View {
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
             MediaDetailSurface<EmptyView>.CompactPlaybackActionRow(
-                isDisabled: viewModel.favoritedTracks.isEmpty,
+                isDisabled: detailFavoritedTracks.isEmpty,
                 play: {
-                    nowPlayingVM.play(tracks: viewModel.favoritedTracks)
+                    nowPlayingVM.play(tracks: detailFavoritedTracks)
                 },
                 shuffle: {
-                    nowPlayingVM.shufflePlay(tracks: viewModel.favoritedTracks)
+                    nowPlayingVM.shufflePlay(tracks: detailFavoritedTracks)
                 }
             )
 
+            favoriteTrackList(tracks: detailFavoritedTracks, supplementalMetadataWidth: favoritedTrackListWidth)
+        }
+        .measuredWidth(onChange: updateFavoritedTrackListWidth)
+    }
+
+    private func favoriteTrackList(
+        tracks: [Track],
+        supplementalMetadataWidth: CGFloat
+    ) -> some View {
             let interactionModel = TrackRowInteractionModel(
                 onPlayNext: { track in
                     nowPlayingVM.playNext(track)
@@ -1154,7 +1329,7 @@ public struct ArtistDetailView: View {
                 },
                 onGoToAlbum: { track in
                     if let albumId = track.albumRatingKey {
-                        self.navigationCoordinator.push(.album(id: albumId), in: self.navigationCoordinator.selectedTab)
+                        self.navigationCoordinator.push(.album(id: albumId, sourceKey: track.sourceCompositeKey), in: self.navigationCoordinator.selectedTab)
                     }
                 },
                 onShareLink: { track in
@@ -1174,11 +1349,11 @@ public struct ArtistDetailView: View {
 
             // Track list (UIKit table for consistent swipe actions and row height)
             #if os(iOS)
-            let trackCount = viewModel.favoritedTracks.count
+            let trackCount = tracks.count
             let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
 
-            MediaTrackList(
-                tracks: viewModel.favoritedTracks,
+            return MediaTrackList(
+                tracks: tracks,
                 showArtwork: true,
                 showTrackNumbers: false,
                 groupByDisc: false,
@@ -1186,336 +1361,33 @@ public struct ArtistDetailView: View {
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                 interactionModel: interactionModel,
-                supplementalMetadataWidth: favoritedTrackListWidth,
+                supplementalMetadataWidth: supplementalMetadataWidth,
                 onGoToArtist: nil // Already in artist view
             ) { track, index in
-                nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
+                nowPlayingVM.play(tracks: tracks, startingAt: index)
             }
             .frame(height: height)
             #else
-            SongsTrackListHost(
-                tracks: viewModel.favoritedTracks,
+            return SongsTrackListHost(
+                tracks: tracks,
                 configuration: .songs(
                     currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
                     activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                    supplementalMetadataWidth: favoritedTrackListWidth,
+                    supplementalMetadataWidth: supplementalMetadataWidth,
                     interactionModel: interactionModel
                 )
             ) { _, index in
-                nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
+                nowPlayingVM.play(tracks: tracks, startingAt: index)
             }
-            .frame(height: CGFloat(viewModel.favoritedTracks.count) * TrackListLayoutMetrics.defaultRowHeight)
+            .frame(height: CGFloat(tracks.count) * TrackListLayoutMetrics.defaultRowHeight)
             #endif
-        }
-        .measuredWidth(onChange: updateFavoritedTrackListWidth)
     }
 
     private func updateFavoritedTrackListWidth(_ newWidth: CGFloat) {
         if abs(favoritedTrackListWidth - newWidth) > 1 {
             favoritedTrackListWidth = newWidth
         }
-    }
-
-    private func presentPlaylistPicker(with tracks: [Track]) {
-        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
-    }
-
-    private func addToRecentPlaylist(_ track: Track) {
-        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
-    }
-
-    private func recentPlaylistTitle(for track: Track) -> String? {
-        PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
-    }
-}
-
-private struct MergedArtistDetailView: View {
-    @StateObject private var viewModel: MergedArtistDetailViewModel
-    let nowPlayingVM: NowPlayingViewModel
-
-    @Environment(\.dependencies) private var dependencies
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    #endif
-    @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
-    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
-    @State private var currentTrackId: String?
-    @State private var nvmRecentPlaylistTitle: String?
-    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
-    @State private var trackListWidths: [String: CGFloat] = [:]
-
-    init(displayArtist: DisplayArtist, nowPlayingVM: NowPlayingViewModel) {
-        self._viewModel = StateObject(
-            wrappedValue: DependencyContainer.shared.makeMergedArtistDetailViewModel(displayArtist: displayArtist)
-        )
-        self.nowPlayingVM = nowPlayingVM
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xl) {
-                header
-
-                if viewModel.isLoading && viewModel.sourceSections.isEmpty {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, EnsembleDesign.Spacing.xl)
-                } else {
-                    ForEach(viewModel.sourceSections) { section in
-                        sourceSection(section)
-                    }
-                }
-            }
-            .padding(.vertical, EnsembleDesign.Spacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .navigationTitle(viewModel.displayArtist.name)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .miniPlayerBottomSpacing()
-        .trackListRuntimeObservation(
-            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
-            availabilityGeneration: $availabilityGeneration
-        )
-        .nowPlayingTrackListObservation(
-            nowPlayingVM: nowPlayingVM,
-            currentTrackId: $currentTrackId,
-            recentPlaylistTitle: $nvmRecentPlaylistTitle
-        )
-        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
-        .task {
-            await viewModel.load()
-        }
-        .refreshable {
-            await viewModel.refreshFromServer()
-        }
-    }
-
-    private var header: some View {
-        let artworkDimension = headerArtworkDimension
-        let actionWidth = headerActionWidth
-
-        return HStack(alignment: .center, spacing: EnsembleDesign.Spacing.lg) {
-            ArtworkView(
-                artist: viewModel.displayArtist.primaryArtist,
-                size: .medium,
-                cornerRadius: ArtworkCornerRadius.circle(for: artworkDimension),
-                isResponsive: true
-            )
-            .frame(width: artworkDimension, height: artworkDimension)
-            .clipShape(Circle())
-            .ensembleArtworkShadow()
-
-            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
-                Text(viewModel.displayArtist.name)
-                    .font(EnsembleDesign.Typography.screenTitle)
-                    .foregroundColor(EnsembleDesign.Color.primaryText)
-
-                Text(headerMetadata)
-                    .font(EnsembleDesign.Typography.detailSubtitle)
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-
-                MediaDetailSurface<EmptyView>.AdaptivePlaybackActionRow(
-                    availableWidth: actionWidth,
-                    isDisabled: viewModel.tracks.isEmpty,
-                    includesExtraActions: true,
-                    play: {
-                        nowPlayingVM.play(tracks: viewModel.tracks)
-                    },
-                    shuffle: {
-                        nowPlayingVM.shufflePlay(tracks: viewModel.tracks)
-                    }
-                ) {
-                    Button {
-                        nowPlayingVM.enableRadio(tracks: viewModel.tracks)
-                    } label: {
-                        MediaDetailSurface<EmptyView>.IconActionLabel(systemImage: EnsembleDesign.Icon.radio)
-                    }
-                    #if os(macOS)
-                    .help("Artist Radio")
-                    #endif
-                }
-                .frame(maxWidth: actionWidth, alignment: .leading)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .layoutPriority(1)
-
-            Spacer(minLength: EnsembleDesign.Spacing.none)
-        }
-        .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
-    }
-
-    private var usesCompactHeader: Bool {
-        #if os(iOS)
-        horizontalSizeClass == .compact
-        #else
-        false
-        #endif
-    }
-
-    private var headerArtworkDimension: CGFloat {
-        usesCompactHeader ? 160 : EnsembleScaffold.ArtistDetail.wideArtworkDimension
-    }
-
-    private var headerActionWidth: CGFloat {
-        usesCompactHeader ? 180 : EnsembleScaffold.ArtistDetail.wideActionMaxWidth
-    }
-
-    private var headerMetadata: String {
-        var parts = [
-            "\(viewModel.sourceSections.count) source\(viewModel.sourceSections.count == 1 ? "" : "s")"
-        ]
-        if !viewModel.tracks.isEmpty {
-            parts.append("\(viewModel.tracks.count) songs")
-            parts.append(viewModel.totalDuration)
-        }
-        return parts.joined(separator: " \u{00B7} ")
-    }
-
-    private func sourceSection(_ section: MergedArtistSourceSection) -> some View {
-        let tracks = viewModel.filteredTracks(for: section)
-        let width = trackListWidths[section.id] ?? 0
-
-        return VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.lg) {
-            HStack(alignment: .firstTextBaseline, spacing: EnsembleDesign.Spacing.md) {
-                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                    Text(section.sourceTitle)
-                        .font(EnsembleDesign.Typography.sectionTitle)
-                        .foregroundColor(EnsembleDesign.Color.primaryText)
-
-                    Text("\(section.albums.count) album\(section.albums.count == 1 ? "" : "s") · \(section.tracks.count) song\(section.tracks.count == 1 ? "" : "s")")
-                        .font(EnsembleDesign.Typography.rowSecondary)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                }
-
-                Spacer()
-
-                if canDownload(section.artist) {
-                    sourceDownloadButton(for: section.artist)
-                }
-            }
-            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-
-            if !section.albums.isEmpty {
-                AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
-            }
-
-            if !tracks.isEmpty {
-                sectionTrackList(tracks: tracks, width: width)
-                    .measuredWidth(onChange: { newWidth in
-                        if abs((trackListWidths[section.id] ?? 0) - newWidth) > 1 {
-                            trackListWidths[section.id] = newWidth
-                        }
-                    })
-            }
-        }
-    }
-
-    private func sourceDownloadButton(for artist: Artist) -> some View {
-        let isDownloaded = dependencies.offlineDownloadService.isArtistDownloadEnabled(artist)
-        return Button {
-            Task {
-                await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
-                    artist,
-                    isEnabled: !isDownloaded
-                )
-            }
-        } label: {
-            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
-        }
-        .buttonStyle(.borderless)
-    }
-
-    private func sectionTrackList(
-        tracks: [Track],
-        width: CGFloat
-    ) -> some View {
-        let interactionModel = TrackRowInteractionModel(
-            onPlayNext: { track in
-                nowPlayingVM.playNext(track)
-            },
-            onPlayLast: { track in
-                nowPlayingVM.playLast(track)
-            },
-            onAddToPlaylist: { track in
-                presentPlaylistPicker(with: [track])
-            },
-            onAddToRecentPlaylist: { track in
-                addToRecentPlaylist(track)
-            },
-            onToggleFavorite: { track in
-                Task {
-                    await nowPlayingVM.toggleTrackFavorite(track)
-                }
-            },
-            onGoToAlbum: { track in
-                if let albumId = track.albumRatingKey {
-                    navigationCoordinator.push(
-                        .album(id: albumId, sourceKey: track.sourceCompositeKey),
-                        in: navigationCoordinator.selectedTab
-                    )
-                }
-            },
-            onShareLink: { track in
-                ShareActions.shareTrackLink(track, deps: dependencies)
-            },
-            onShareFile: { track in
-                ShareActions.shareTrackFile(track, deps: dependencies)
-            },
-            isTrackFavorited: { track in
-                nowPlayingVM.isTrackFavorited(track)
-            },
-            canAddToRecentPlaylist: { track in
-                recentPlaylistTitle(for: track) != nil
-            },
-            recentPlaylistTitle: nvmRecentPlaylistTitle
-        )
-
-        #if os(iOS)
-        return AnyView(
-            MediaTrackList(
-                tracks: tracks,
-                showArtwork: true,
-                showTrackNumbers: false,
-                groupByDisc: false,
-                currentTrackId: currentTrackId,
-                availabilityGeneration: availabilityGeneration,
-                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                interactionModel: interactionModel,
-                supplementalMetadataWidth: width,
-                onGoToArtist: nil
-            ) { _, index in
-                nowPlayingVM.play(tracks: tracks, startingAt: index)
-            }
-            .frame(height: CGFloat(tracks.count) * TrackListLayoutMetrics.defaultRowHeight)
-        )
-        #else
-        return AnyView(
-            SongsTrackListHost(
-                tracks: tracks,
-                configuration: .songs(
-                    currentTrackId: currentTrackId,
-                    availabilityGeneration: availabilityGeneration,
-                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                    supplementalMetadataWidth: width,
-                    interactionModel: interactionModel
-                )
-            ) { _, index in
-                nowPlayingVM.play(tracks: tracks, startingAt: index)
-            }
-            .frame(height: CGFloat(tracks.count) * TrackListLayoutMetrics.defaultRowHeight)
-        )
-        #endif
-    }
-
-    private func canDownload(_ artist: Artist) -> Bool {
-        DownloadCapabilityPolicy.canAttemptDownload(
-            for: artist.sourceCompositeKey,
-            accountManager: dependencies.accountManager
-        )
     }
 
     private func presentPlaylistPicker(with tracks: [Track]) {

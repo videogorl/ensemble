@@ -183,6 +183,51 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
         ])
     }
 
+    func testFavoritedTracksStaySourceScopedForMergedArtistSections() async throws {
+        let sharedSubscriberSource = "plex:subscriber:server:3"
+        let sharedFreeSource = "plex:free:server:3"
+        let artists = [
+            Artist(id: "11617", key: "/library/metadata/11617", name: "AJR", sourceCompositeKey: sharedSubscriberSource),
+            Artist(id: "11617", key: "/library/metadata/11617", name: "AJR", sourceCompositeKey: sharedFreeSource)
+        ]
+        let displayArtist = DisplayArtist.group(artists).first!
+        let repository = LibraryRepositorySpy()
+        repository.albumsByArtistSource[LibraryRepositorySpy.key("11617", sharedSubscriberSource)] = [
+            makeAlbum(ratingKey: "200", title: "The Maybe Man", sourceCompositeKey: sharedSubscriberSource)
+        ]
+        repository.albumsByArtistSource[LibraryRepositorySpy.key("11617", sharedFreeSource)] = [
+            makeAlbum(ratingKey: "200", title: "The Maybe Man", sourceCompositeKey: sharedFreeSource)
+        ]
+        repository.tracksByArtistSource[LibraryRepositorySpy.key("11617", sharedSubscriberSource)] = [
+            makeTrack(ratingKey: "7551", title: "Maybe Man", sourceCompositeKey: sharedSubscriberSource, rating: 10),
+            makeTrack(ratingKey: "7552", title: "Ordinaryish People", sourceCompositeKey: sharedSubscriberSource, rating: 6)
+        ]
+        repository.tracksByArtistSource[LibraryRepositorySpy.key("11617", sharedFreeSource)] = [
+            makeTrack(ratingKey: "7551", title: "Maybe Man", sourceCompositeKey: sharedFreeSource, rating: 8)
+        ]
+
+        let accountManager = makeAccountManager()
+        let viewModel = MergedArtistDetailViewModel(
+            displayArtist: displayArtist,
+            libraryRepository: repository,
+            syncCoordinator: makeSyncCoordinator(accountManager: accountManager, libraryRepository: repository),
+            accountManager: accountManager
+        )
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.favoritedTracks.map(\.sourceScopedID), [
+            "\(sharedSubscriberSource)||7551",
+            "\(sharedFreeSource)||7551"
+        ])
+        XCTAssertEqual(viewModel.favoritedTracks(for: viewModel.sourceSections[0]).map(\.sourceScopedID), [
+            "\(sharedSubscriberSource)||7551"
+        ])
+        XCTAssertEqual(viewModel.favoritedTracks(for: viewModel.sourceSections[1]).map(\.sourceScopedID), [
+            "\(sharedFreeSource)||7551"
+        ])
+    }
+
     private func makeAlbum(ratingKey: String, title: String, sourceCompositeKey: String) -> CDAlbum {
         let album = CDAlbum(context: context)
         album.ratingKey = ratingKey
@@ -194,7 +239,12 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
         return album
     }
 
-    private func makeTrack(ratingKey: String, title: String, sourceCompositeKey: String) -> CDTrack {
+    private func makeTrack(
+        ratingKey: String,
+        title: String,
+        sourceCompositeKey: String,
+        rating: Int16 = 0
+    ) -> CDTrack {
         let track = CDTrack(context: context)
         track.ratingKey = ratingKey
         track.key = "/library/metadata/\(ratingKey)"
@@ -202,6 +252,7 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
         track.artistName = "AJR"
         track.albumName = "The Maybe Man"
         track.duration = 180_000
+        track.rating = rating
         track.sourceCompositeKey = sourceCompositeKey
         return track
     }

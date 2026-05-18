@@ -130,8 +130,24 @@ public final class MergedArtistDetailViewModel: ObservableObject {
         sourceSections.flatMap(\.tracks)
     }
 
+    public var albums: [Album] {
+        sourceSections.flatMap(\.albums)
+    }
+
+    public var filteredAlbums: [Album] {
+        MediaFilterEngine.filterAlbums(albums, with: filterOptions, configuration: .artistDetail)
+    }
+
     public var filteredTracks: [Track] {
         MediaFilterEngine.filterTracks(tracks, with: filterOptions, configuration: .artistDetail)
+    }
+
+    public var trackCount: Int {
+        filteredTracks.count
+    }
+
+    public var favoritedTracks: [Track] {
+        tracks.filter { $0.rating >= 8 }
     }
 
     public var availableGenres: [String] {
@@ -149,6 +165,14 @@ public final class MergedArtistDetailViewModel: ObservableObject {
 
     public func filteredTracks(for section: MergedArtistSourceSection) -> [Track] {
         MediaFilterEngine.filterTracks(section.tracks, with: filterOptions, configuration: .artistDetail)
+    }
+
+    public func filteredAlbums(for section: MergedArtistSourceSection) -> [Album] {
+        MediaFilterEngine.filterAlbums(section.albums, with: filterOptions, configuration: .artistDetail)
+    }
+
+    public func favoritedTracks(for section: MergedArtistSourceSection) -> [Track] {
+        section.tracks.filter { $0.rating >= 8 }
     }
 
     private func albums(for artist: Artist) async throws -> [Album] {
