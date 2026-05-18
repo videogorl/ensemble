@@ -621,7 +621,7 @@ public struct AlbumDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         #else
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: EnsembleDesign.Spacing.lg) {
+            HStack(spacing: AlbumCardLayoutMetrics.shelf.gridSpacing) {
                 ForEach(albums) { scrollAlbum in
                     albumCardLink(for: scrollAlbum)
                 }

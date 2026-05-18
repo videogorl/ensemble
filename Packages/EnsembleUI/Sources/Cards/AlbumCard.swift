@@ -19,7 +19,14 @@ public enum AlbumCardLayoutMetrics {
         }
     }
 
-    public var gridSpacing: CGFloat { EnsembleScaffold.MediaCard.gridSpacing }
+    public var gridSpacing: CGFloat {
+        switch self {
+        case .shelf:
+            return EnsembleScaffold.MediaCard.albumShelfSpacing
+        case .compact, .prominent:
+            return EnsembleScaffold.MediaCard.gridSpacing
+        }
+    }
     public var rowSpacing: CGFloat { EnsembleScaffold.MediaCard.albumGridRowSpacing }
 
     public var columnMinimum: CGFloat {

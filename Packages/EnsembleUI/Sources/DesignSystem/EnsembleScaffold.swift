@@ -24,7 +24,8 @@ public enum EnsembleScaffold {
         public static let contentSpacing = EnsembleDesign.Spacing.sm
         public static let gridSpacing = EnsembleDesign.Spacing.cardGridGap
         public static let rowSpacing = EnsembleDesign.Spacing.cardRowGap
-        public static let albumGridRowSpacing = EnsembleDesign.Spacing.md
+        public static let albumGridRowSpacing = rowSpacing
+        public static let albumShelfSpacing = rowSpacing
         public static let hubArtworkDimension: CGFloat = 140
         public static let hubShadowY = EnsembleDesign.Effect.shadowY
         public static let horizontalScrollMetadataHeight: CGFloat = 78
