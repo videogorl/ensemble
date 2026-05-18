@@ -640,7 +640,7 @@ public actor PlexAPIClient {
     public func getRawLyricsContent(streamKey: String) async throws -> String? {
         let query = ["format": "lrc"]
         do {
-            let data = try await serverRequest(path: streamKey, query: query)
+            let data = try await serverRequest(path: streamKey, query: query, accept: "text/plain")
             EnsembleLogger.debug("Lyrics: raw content fetch succeeded for \(streamKey) (\(data.count) bytes)")
             return String(data: data, encoding: .utf8)
         } catch {
@@ -767,10 +767,14 @@ public actor PlexAPIClient {
 
     // MARK: - Private Methods
 
-    func serverRequest(path: String, query: [String: String] = [:]) async throws -> Data {
+    func serverRequest(
+        path: String,
+        query: [String: String] = [:],
+        accept: String = "application/json"
+    ) async throws -> Data {
         // Try with current URL first
         do {
-            return try await performServerRequest(url: currentServerURL, path: path, query: query)
+            return try await performServerRequest(url: currentServerURL, path: path, query: query, accept: accept)
         } catch {
             // Log the actual error for debugging
             EnsembleLogger.debug("❌ Request failed: \(error)")
@@ -783,7 +787,7 @@ public actor PlexAPIClient {
                 EnsembleLogger.debug("⚠️ Attempting failover to alternative URLs...")
                 _ = try await attemptFailover()
                 // Retry with new URL
-                return try await performServerRequest(url: currentServerURL, path: path, query: query)
+                return try await performServerRequest(url: currentServerURL, path: path, query: query, accept: accept)
             }
             throw error
         }
@@ -799,12 +803,17 @@ public actor PlexAPIClient {
         )
     }
 
-    func performServerRequest(url: String, path: String, query: [String: String] = [:]) async throws -> Data {
+    func performServerRequest(
+        url: String,
+        path: String,
+        query: [String: String] = [:],
+        accept: String = "application/json"
+    ) async throws -> Data {
         let request = try PlexRequestBuilder(
             baseURL: url,
             token: serverConnection.token,
             headerContext: requestHeaderContext
-        ).makeRequest(method: "GET", path: path, query: query)
+        ).makeRequest(method: "GET", path: path, query: query, accept: accept)
 
         // Log request for debugging (only show host and path, not full URL with token)
         let isHTTPS = url.lowercased().hasPrefix("https://")
@@ -890,13 +899,14 @@ public actor PlexAPIClient {
         url: String,
         method: String,
         path: String,
-        query: [String: String] = [:]
+        query: [String: String] = [:],
+        accept: String = "application/json"
     ) throws -> URLRequest {
         try PlexRequestBuilder(
             baseURL: url,
             token: serverConnection.token,
             headerContext: requestHeaderContext
-        ).makeRequest(method: method, path: path, query: query)
+        ).makeRequest(method: method, path: path, query: query, accept: accept)
     }
 
     internal func makeResourcesRequest(token: String) throws -> URLRequest {
