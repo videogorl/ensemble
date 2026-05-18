@@ -201,10 +201,12 @@ public struct LyricsCard: View {
     private func lyricsScrollView(lyrics: ParsedLyrics) -> some View {
         ScrollViewReader { proxy in
             observedLyricsScrollView {
-                LazyVStack(spacing: lyrics.isTimed
-                    ? EnsembleScaffold.NowPlaying.lyricTimedLineSpacing
-                    : EnsembleScaffold.NowPlaying.lyricPlainLineSpacing
-                ) {
+                let lineSpacing: CGFloat = viewModel.isDisplayingChordLyrics
+                    ? 16
+                    : (lyrics.isTimed
+                        ? EnsembleScaffold.NowPlaying.lyricTimedLineSpacing
+                        : EnsembleScaffold.NowPlaying.lyricPlainLineSpacing)
+                LazyVStack(spacing: lineSpacing) {
                     // Top spacer so first line can scroll to center
                     Spacer()
                         .frame(height: EnsembleScaffold.NowPlaying.lyricTopSpacerHeight)
@@ -624,27 +626,30 @@ private struct ChordLyricsLineView: View {
     let opacity: Double
     let blur: CGFloat
 
-    private let characterWidth: CGFloat = 9.5
+    private let characterWidth: CGFloat = 8.3
+    private let chordFontSize: CGFloat = 13
+    private let lyricFontSize: CGFloat = 13
 
     var body: some View {
         GeometryReader { geometry in
             let maxColumns = max(8, Int(geometry.size.width / characterWidth))
             let rows = ChordLineSegments.rows(for: line, maxColumns: maxColumns)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 1) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                     if !row.chords.trimmingCharacters(in: .whitespaces).isEmpty {
                         Text(row.chords)
-                            .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                            .font(.system(size: chordFontSize, weight: .semibold, design: .monospaced))
+                            .lineLimit(1)
                     }
                     if !row.lyric.isEmpty {
                         Text(row.lyric)
-                            .font(.system(size: 17, weight: .medium, design: .monospaced))
+                            .font(.system(size: lyricFontSize, weight: .medium, design: .monospaced))
+                            .lineLimit(1)
                     }
                 }
             }
             .foregroundColor(EnsembleDesign.Color.primaryText)
             .opacity(opacity)
-            .scaleEffect(isActive && isTimed ? EnsembleScaffold.NowPlaying.lyricActiveScale : 1.0, anchor: .leading)
             .blur(radius: blur)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -669,20 +674,117 @@ private enum ChordLineSegments {
         let maxLength = max(chordLine.count, lyric.count)
         guard maxLength > 0 else { return [] }
 
-        return stride(from: 0, to: maxLength, by: width).map { start in
-            Row(
-                chords: slice(chordLine, start: start, length: width).trimmingTrailingWhitespace(),
-                lyric: slice(lyric, start: start, length: width).trimmingTrailingWhitespace()
-            )
+        var rows: [Row] = []
+        var start = 0
+        while start < maxLength {
+            let length = preferredSegmentLength(chordLine: chordLine, lyric: lyric, start: start, maxColumns: width)
+            rows.append(Row(
+                chords: slice(chordLine, start: start, length: length).trimmingTrailingWhitespace(),
+                lyric: slice(lyric, start: start, length: length).trimmingTrailingWhitespace()
+            ))
+            start += max(1, length)
         }
+        return rows
     }
 
     static func estimatedHeight(for line: LyricsLine) -> CGFloat {
         let chordLength = line.chords.map { max(0, $0.offsetFromLyricStart) + $0.symbol.count }.max() ?? 0
         let maxLength = max(chordLength, line.text.count)
-        let estimatedRows = max(1, Int(ceil(Double(maxLength) / 32.0)))
-        let rowHeight: CGFloat = line.text.isEmpty ? 24 : 46
+        let estimatedRows = max(1, Int(ceil(Double(maxLength) / 36.0)))
+        let rowHeight: CGFloat = line.text.isEmpty ? 16 : 34
         return CGFloat(estimatedRows) * rowHeight
+    }
+
+    private static func preferredSegmentLength(
+        chordLine: String,
+        lyric: String,
+        start: Int,
+        maxColumns: Int
+    ) -> Int {
+        let remaining = max(chordLine.count, lyric.count) - start
+        guard remaining > maxColumns else { return remaining }
+
+        if hasVisibleContent(in: lyric, start: start),
+           let lyricBreak = lastLyricBreakPreservingChords(chordLine: chordLine, lyric: lyric, start: start, maxColumns: maxColumns) {
+            return max(1, lyricBreak - start)
+        }
+
+        if let chordBreak = lastWhitespaceBreak(in: chordLine, start: start, maxColumns: maxColumns),
+           isLyricSafeBoundary(in: lyric, boundary: chordBreak) {
+            return max(1, chordBreak - start)
+        }
+
+        if hasVisibleContent(in: lyric, start: start),
+           let lyricBreak = lastWhitespaceBreak(in: lyric, start: start, maxColumns: maxColumns) {
+            return max(1, lyricBreak - start)
+        }
+
+        return maxColumns
+    }
+
+    private static func hasVisibleContent(in value: String, start: Int) -> Bool {
+        guard start < value.count else { return false }
+        let characters = Array(value)
+        return characters[start...].contains { !$0.isWhitespace }
+    }
+
+    private static func lastLyricBreakPreservingChords(
+        chordLine: String,
+        lyric: String,
+        start: Int,
+        maxColumns: Int
+    ) -> Int? {
+        guard start < lyric.count else { return nil }
+        let characters = Array(lyric)
+        let end = min(characters.count, start + maxColumns)
+        guard end > start else { return nil }
+        let minimumBreak = start + max(8, maxColumns / 2)
+
+        for index in stride(from: end - 1, through: start, by: -1) {
+            guard index >= minimumBreak,
+                  characters[index].isWhitespace,
+                  isChordSafeBoundary(in: chordLine, boundary: index + 1) else {
+                continue
+            }
+            return index + 1
+        }
+
+        let extendedEnd = min(characters.count, start + maxColumns + 8)
+        guard extendedEnd > end else { return nil }
+        for index in end..<extendedEnd {
+            guard characters[index].isWhitespace,
+                  isChordSafeBoundary(in: chordLine, boundary: index + 1) else {
+                continue
+            }
+            return index + 1
+        }
+        return nil
+    }
+
+    private static func isChordSafeBoundary(in value: String, boundary: Int) -> Bool {
+        guard boundary > 0, boundary < value.count else { return true }
+        let characters = Array(value)
+        return characters[boundary - 1].isWhitespace || characters[boundary].isWhitespace
+    }
+
+    private static func isLyricSafeBoundary(in value: String, boundary: Int) -> Bool {
+        guard boundary > 0, boundary < value.count else { return true }
+        let characters = Array(value)
+        return characters[boundary - 1].isWhitespace || characters[boundary].isWhitespace
+    }
+
+    private static func lastWhitespaceBreak(in value: String, start: Int, maxColumns: Int) -> Int? {
+        guard start < value.count else { return nil }
+        let characters = Array(value)
+        let end = min(characters.count, start + maxColumns)
+        guard end > start else { return nil }
+        let minimumBreak = start + max(8, maxColumns / 2)
+
+        for index in stride(from: end - 1, through: start, by: -1) {
+            guard index >= minimumBreak, characters[index].isWhitespace else { continue }
+            return index + 1
+        }
+        return nil
     }
 
     private static func chordDisplayLine(for chords: [ParsedChord]) -> String {
