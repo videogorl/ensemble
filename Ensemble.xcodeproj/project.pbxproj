@@ -25,6 +25,7 @@
 		E0001071 /* SystemMedia.intentdefinition in Resources */ = {isa = PBXBuildFile; fileRef = E0001070 /* SystemMedia.intentdefinition */; };
 		E0001072 /* SystemMedia.intentdefinition in Resources */ = {isa = PBXBuildFile; fileRef = E0001070 /* SystemMedia.intentdefinition */; };
 		E0001005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E0001004 /* Assets.xcassets */; };
+		E0F100010000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = E0F100030000000000000003 /* PrivacyInfo.xcprivacy */; };
 		E0001007 /* IntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001010 /* IntentHandler.swift */; };
 		E0001024 /* SiriExtensionLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001023 /* SiriExtensionLogger.swift */; };
 		E0001008 /* PlayMediaIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001011 /* PlayMediaIntentHandler.swift */; };
@@ -38,6 +39,7 @@
 		E0002009 /* WatchSessionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002008 /* WatchSessionModel.swift */; };
 		E0002003 /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002002 /* WatchRootView.swift */; };
 		E0002005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E0002004 /* Assets.xcassets */; };
+		E0F100020000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = E0F100040000000000000004 /* PrivacyInfo.xcprivacy */; };
 		E0002011 /* WatchCompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002010 /* WatchCompanionModels.swift */; };
 		E0002012 /* WatchCompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002010 /* WatchCompanionModels.swift */; };
 		E0003001 /* EnsembleUI in Frameworks */ = {isa = PBXBuildFile; productRef = E0003000 /* EnsembleUI */; };
@@ -111,6 +113,7 @@
 		E0001033 /* AppIntentVocabulary.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = en.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
 		E0001070 /* SystemMedia.intentdefinition */ = {isa = PBXFileReference; lastKnownFileType = file.intentdefinition; path = SystemMedia.intentdefinition; sourceTree = "<group>"; };
 		E0001004 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		E0F100030000000000000003 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		E0001006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		E0001010 /* IntentHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntentHandler.swift; sourceTree = "<group>"; };
 		E0001023 /* SiriExtensionLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriExtensionLogger.swift; sourceTree = "<group>"; };
@@ -126,6 +129,7 @@
 		E0002008 /* WatchSessionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionModel.swift; sourceTree = "<group>"; };
 		E0002002 /* WatchRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchRootView.swift; sourceTree = "<group>"; };
 		E0002004 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		E0F100040000000000000004 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		E0002006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		E0002010 /* WatchCompanionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchCompanionModels.swift; sourceTree = "<group>"; };
 		E0004000 /* EnsembleAPI */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleAPI; path = Packages/EnsembleAPI; sourceTree = "<group>"; };
@@ -271,6 +275,7 @@
 				E0001033 /* AppIntentVocabulary.plist */,
 				E0001070 /* SystemMedia.intentdefinition */,
 				E0001004 /* Assets.xcassets */,
+				E0F100030000000000000003 /* PrivacyInfo.xcprivacy */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -304,6 +309,7 @@
 			isa = PBXGroup;
 			children = (
 				E0002004 /* Assets.xcassets */,
+				E0F100040000000000000004 /* PrivacyInfo.xcprivacy */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -433,6 +439,7 @@
 				E0001035 /* AppIntentVocabulary.plist in Resources */,
 				E0001071 /* SystemMedia.intentdefinition in Resources */,
 				E0001005 /* Assets.xcassets in Resources */,
+				E0F100010000000000000001 /* PrivacyInfo.xcprivacy in Resources */,
 				9926CB082F43A106004A19A3 /* AppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -442,6 +449,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E0002005 /* Assets.xcassets in Resources */,
+				E0F100020000000000000002 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
