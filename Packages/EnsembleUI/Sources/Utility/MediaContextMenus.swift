@@ -150,7 +150,7 @@ struct AlbumActionsContextMenu: View {
             for: album.sourceCompositeKey,
             accountManager: deps.accountManager
         )
-        let isPinned = pinManager.isPinned(id: album.id)
+        let isPinned = pinManager.isPinned(id: album.id, sourceKey: album.sourceCompositeKey ?? "")
         let recentTarget = nowPlayingVM.lastPlaylistTarget
         let recentPlaylistTitle = recentTarget.flatMap { target in
             nowPlayingVM.compatibleTrackCount([album.sourceProbeTrack], forServerSourceKey: target.sourceCompositeKey) > 0
@@ -343,7 +343,7 @@ struct ArtistActionsContextMenu: View {
             for: artist.sourceCompositeKey,
             accountManager: deps.accountManager
         )
-        let isPinned = pinManager.isPinned(id: artist.id)
+        let isPinned = pinManager.isPinned(id: artist.id, sourceKey: artist.sourceCompositeKey ?? "")
 
         SwiftUIMediaMenuRenderer(
             sections: MediaMenuCatalog.sections(
@@ -462,7 +462,7 @@ struct PlaylistActionsContextMenu: View {
             for: playlist.sourceCompositeKey,
             accountManager: deps.accountManager
         )
-        let isPinned = pinManager.isPinned(id: playlist.id)
+        let isPinned = pinManager.isPinned(id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "")
 
         SwiftUIMediaMenuRenderer(
             sections: MediaMenuCatalog.sections(

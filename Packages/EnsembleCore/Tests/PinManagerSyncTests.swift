@@ -8,9 +8,7 @@ final class PinManagerSyncTests: XCTestCase {
         let manager = PinManager()
 
         // Clear any leftover pins
-        while !manager.pinnedItems.isEmpty {
-            manager.unpin(id: manager.pinnedItems[0].id)
-        }
+        clear(manager)
 
         // Add local pins
         manager.pin(id: "local1", sourceKey: "src1", type: .album, title: "Local Album")
@@ -35,9 +33,7 @@ final class PinManagerSyncTests: XCTestCase {
         let manager = PinManager()
 
         // Clear
-        while !manager.pinnedItems.isEmpty {
-            manager.unpin(id: manager.pinnedItems[0].id)
-        }
+        clear(manager)
 
         manager.pin(id: "a1", sourceKey: "src1", type: .album, title: "Album One")
         manager.pin(id: "a2", sourceKey: "src2", type: .artist, title: "Artist Two")
@@ -57,9 +53,7 @@ final class PinManagerSyncTests: XCTestCase {
     func testApplyEmptyRemotePinsClearsLocalPins() {
         let manager = PinManager()
 
-        while !manager.pinnedItems.isEmpty {
-            manager.unpin(id: manager.pinnedItems[0].id)
-        }
+        clear(manager)
 
         manager.pin(id: "local1", sourceKey: "src1", type: .album, title: "Local")
 
@@ -72,13 +66,36 @@ final class PinManagerSyncTests: XCTestCase {
     func testUpdateTitleChangesPinnedDisplayName() {
         let manager = PinManager()
 
-        while !manager.pinnedItems.isEmpty {
-            manager.unpin(id: manager.pinnedItems[0].id)
-        }
+        clear(manager)
 
         manager.pin(id: "playlist-1", sourceKey: "src1", type: .playlist, title: "Old Title")
-        manager.updateTitle(id: "playlist-1", title: "New Title")
+        manager.updateTitle(id: "playlist-1", sourceKey: "src1", title: "New Title")
 
         XCTAssertEqual(manager.pinnedItems.first?.title, "New Title")
+    }
+
+    @MainActor
+    func testSameRatingKeyPinsFromDifferentSourcesRemainDistinct() {
+        let manager = PinManager()
+        clear(manager)
+
+        manager.pin(id: "shared-album", sourceKey: "src1", type: .album, title: "Shared Album")
+        manager.pin(id: "shared-album", sourceKey: "src2", type: .album, title: "Shared Album")
+
+        XCTAssertEqual(manager.pinnedItems.count, 2)
+        XCTAssertTrue(manager.isPinned(id: "shared-album", sourceKey: "src1"))
+        XCTAssertTrue(manager.isPinned(id: "shared-album", sourceKey: "src2"))
+
+        manager.unpin(id: "shared-album", sourceKey: "src1")
+
+        XCTAssertFalse(manager.isPinned(id: "shared-album", sourceKey: "src1"))
+        XCTAssertTrue(manager.isPinned(id: "shared-album", sourceKey: "src2"))
+    }
+
+    @MainActor
+    private func clear(_ manager: PinManager) {
+        while !manager.pinnedItems.isEmpty {
+            manager.unpin(identity: manager.pinnedItems[0].sourceScopedID)
+        }
     }
 }

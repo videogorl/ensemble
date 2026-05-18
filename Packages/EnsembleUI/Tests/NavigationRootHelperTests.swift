@@ -38,7 +38,7 @@ final class NavigationRootHelperTests: XCTestCase {
     }
 
     func testSidebarSelectionFallsBackForAuxiliaryViewDestinations() {
-        let fallback = SidebarSelection.pin(id: "album", type: .album)
+        let fallback = SidebarSelection.pin(id: "album", sourceKey: "server/library", type: .album)
 
         XCTAssertEqual(SidebarSelection.selection(for: .view(.downloads), fallback: fallback), fallback)
         XCTAssertEqual(SidebarSelection.selection(for: .view(.settings), fallback: nil), .library(.home))
@@ -48,7 +48,7 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(SidebarSelection.library(.artists).correspondingTab, .artists)
         XCTAssertEqual(SidebarSelection.playlist(id: "playlist", sourceKey: nil).correspondingTab, .playlists)
         XCTAssertEqual(SidebarSelection.mergedPlaylist(title: "Mix", isSmart: false).correspondingTab, .playlists)
-        XCTAssertNil(SidebarSelection.pin(id: "artist", type: .artist).correspondingTab)
+        XCTAssertNil(SidebarSelection.pin(id: "artist", sourceKey: "server/library", type: .artist).correspondingTab)
     }
 
     func testStageFlowPolicyResolvesVisibleStageFlowTabs() {

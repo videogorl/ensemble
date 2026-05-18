@@ -12,9 +12,9 @@ public enum ResolvedPin: Identifiable {
 
     public var id: String {
         switch self {
-        case let .album(_, pin): return pin.id
-        case let .artist(_, pin): return pin.id
-        case let .playlist(_, pin): return pin.id
+        case let .album(_, pin): return pin.sourceScopedID
+        case let .artist(_, pin): return pin.sourceScopedID
+        case let .playlist(_, pin): return pin.sourceScopedID
         case let .mergedPlaylist(dp, _): return "merged-pin:\(dp.id)"
         }
     }
@@ -28,13 +28,23 @@ public enum ResolvedPin: Identifiable {
         }
     }
 
-    /// All pinned item IDs in this resolved pin (1 for single items, N for merged)
-    public var allPinnedIds: Set<String> {
+    /// All pinned item identities in this resolved pin (1 for single items, N for merged)
+    public var allPinnedIdentities: Set<String> {
         switch self {
-        case let .album(_, pin): return [pin.id]
-        case let .artist(_, pin): return [pin.id]
-        case let .playlist(_, pin): return [pin.id]
-        case let .mergedPlaylist(_, pins): return Set(pins.map(\.id))
+        case let .album(_, pin): return [pin.sourceScopedID]
+        case let .artist(_, pin): return [pin.sourceScopedID]
+        case let .playlist(_, pin): return [pin.sourceScopedID]
+        case let .mergedPlaylist(_, pins): return Set(pins.map(\.sourceScopedID))
+        }
+    }
+
+    /// Source-scoped identities in persistence order for reorder writes.
+    public var reorderIdentities: [String] {
+        switch self {
+        case let .album(_, pin): return [pin.sourceScopedID]
+        case let .artist(_, pin): return [pin.sourceScopedID]
+        case let .playlist(_, pin): return [pin.sourceScopedID]
+        case let .mergedPlaylist(_, pins): return pins.map(\.sourceScopedID)
         }
     }
 }
@@ -185,8 +195,8 @@ public final class PinnedViewModel: ObservableObject {
         isMoving = true
         resolvedPins.move(fromOffsets: source, toOffset: destination)
         // Persist the new order to PinManager
-        let ids = resolvedPins.map { $0.pinnedItem.id }
-        pinMutationWorkflow.reorder(ids: ids)
+        let identities = resolvedPins.flatMap(\.reorderIdentities)
+        pinMutationWorkflow.reorder(identities: identities)
         isMoving = false
     }
 
@@ -207,23 +217,23 @@ public final class PinnedViewModel: ObservableObject {
     /// Persist the current resolved order to the PinManager
     public func persistOrder() {
         isMoving = true
-        let ids = resolvedPins.map { $0.pinnedItem.id }
-        pinMutationWorkflow.reorder(ids: ids)
+        let identities = resolvedPins.flatMap(\.reorderIdentities)
+        pinMutationWorkflow.reorder(identities: identities)
         isMoving = false
     }
 
-    /// Unpin an item by its ID
-    public func unpin(id: String) {
-        pinMutationWorkflow.unpin(id: id)
+    /// Unpin an item by its persisted rating key and source key.
+    public func unpin(id: String, sourceKey: String) {
+        pinMutationWorkflow.unpin(id: id, sourceKey: sourceKey)
     }
 
-    /// Unpin all items in a resolved pin (handles merged playlists with multiple IDs)
+    /// Unpin all items in a resolved pin (handles merged playlists with multiple identities)
     public func unpinAll(_ pin: ResolvedPin) {
-        let ids = pin.allPinnedIds
-        if ids.count > 1 {
-            pinMutationWorkflow.unpinAll(ids: ids)
-        } else if let id = ids.first {
-            pinMutationWorkflow.unpin(id: id)
+        let identities = pin.allPinnedIdentities
+        if identities.count > 1 {
+            pinMutationWorkflow.unpinAll(identities: identities)
+        } else if let identity = identities.first {
+            pinMutationWorkflow.unpinAll(identities: [identity])
         }
     }
 }

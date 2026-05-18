@@ -25,13 +25,13 @@ public final class PinMutationWorkflow {
         pinManager.pinnedItems
     }
 
-    public func isPinned(id: String) -> Bool {
-        pinManager.isPinned(id: id)
+    public func isPinned(id: String, sourceKey: String) -> Bool {
+        pinManager.isPinned(id: id, sourceKey: sourceKey)
     }
 
     @discardableResult
     public func pin(id: String, sourceKey: String, type: PinnedItemType, title: String) -> PinMutationWorkflowResult {
-        guard !pinManager.isPinned(id: id) else {
+        guard !pinManager.isPinned(id: id, sourceKey: sourceKey) else {
             return PinMutationWorkflowResult(changed: false)
         }
 
@@ -40,12 +40,12 @@ public final class PinMutationWorkflow {
     }
 
     @discardableResult
-    public func unpin(id: String) -> PinMutationWorkflowResult {
-        guard pinManager.isPinned(id: id) else {
+    public func unpin(id: String, sourceKey: String) -> PinMutationWorkflowResult {
+        guard pinManager.isPinned(id: id, sourceKey: sourceKey) else {
             return PinMutationWorkflowResult(changed: false)
         }
 
-        pinManager.unpin(id: id)
+        pinManager.unpin(id: id, sourceKey: sourceKey)
         return PinMutationWorkflowResult(changed: true)
     }
 
@@ -57,9 +57,9 @@ public final class PinMutationWorkflow {
         title: String,
         isPinned: Bool? = nil
     ) -> PinMutationWorkflowResult {
-        let currentlyPinned = isPinned ?? pinManager.isPinned(id: id)
+        let currentlyPinned = isPinned ?? pinManager.isPinned(id: id, sourceKey: sourceKey)
         if currentlyPinned {
-            return unpin(id: id)
+            return unpin(id: id, sourceKey: sourceKey)
         }
 
         return pin(id: id, sourceKey: sourceKey, type: type, title: title)
@@ -75,21 +75,21 @@ public final class PinMutationWorkflow {
     }
 
     @discardableResult
-    public func unpinAll(ids: Set<String>) -> PinMutationWorkflowResult {
+    public func unpinAll(identities: Set<String>) -> PinMutationWorkflowResult {
         let before = pinManager.pinnedItems
-        pinManager.unpinAll(ids: ids)
+        pinManager.unpinAll(identities: identities)
         return PinMutationWorkflowResult(changed: before != pinManager.pinnedItems)
     }
 
-    public func areAllPinned(ids: Set<String>) -> Bool {
-        pinManager.areAllPinned(ids: ids)
+    public func areAllPinned(identities: Set<String>) -> Bool {
+        pinManager.areAllPinned(identities: identities)
     }
 
-    public func updateTitle(id: String, title: String) {
-        pinManager.updateTitle(id: id, title: title)
+    public func updateTitle(id: String, sourceKey: String, title: String) {
+        pinManager.updateTitle(id: id, sourceKey: sourceKey, title: title)
     }
 
-    public func reorder(ids: [String]) {
-        pinManager.reorder(ids: ids)
+    public func reorder(identities: [String]) {
+        pinManager.reorder(identities: identities)
     }
 }

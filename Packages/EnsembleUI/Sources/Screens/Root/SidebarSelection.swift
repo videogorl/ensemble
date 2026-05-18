@@ -4,7 +4,7 @@ public enum SidebarSelection: Hashable {
     case library(TabItem)
     case playlist(id: String, sourceKey: String?)
     case mergedPlaylist(title: String, isSmart: Bool)
-    case pin(id: String, type: PinnedItemType)
+    case pin(id: String, sourceKey: String?, type: PinnedItemType)
 
     /// Map sidebar section to the corresponding TabItem for NavigationCoordinator sync.
     /// Returns nil for pinned items which don't map to a standard tab.

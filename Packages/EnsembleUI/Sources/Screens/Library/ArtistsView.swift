@@ -566,8 +566,8 @@ public struct ArtistDetailView: View {
             wrappedValue: DependencyContainer.shared.makeMergedArtistDetailViewModel(displayArtist: displayArtist)
         )
         self.nowPlayingVM = nowPlayingVM
-        let pinnedIDs = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.id))
-        self._isArtistPinned = State(initialValue: pinnedIDs.contains(artist.id))
+        let pinnedIdentities = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.sourceScopedID))
+        self._isArtistPinned = State(initialValue: pinnedIdentities.contains(artist.sourceScopedID))
     }
 
     public var body: some View {
@@ -678,7 +678,7 @@ public struct ArtistDetailView: View {
     }
 
     private func updateArtistPinState(pinnedItems: [PinnedItem]) {
-        let latest = pinnedItems.contains { $0.id == viewModel.artist.id }
+        let latest = pinnedItems.contains { $0.sourceScopedID == viewModel.artist.sourceScopedID }
         if latest != isArtistPinned {
             isArtistPinned = latest
         }

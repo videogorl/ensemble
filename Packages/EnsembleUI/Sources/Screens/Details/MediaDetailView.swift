@@ -75,7 +75,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// When nil, the default single-item pin behavior is used.
     let customPinAction: ((Bool) -> Void)?
     /// Custom pin state check for merged playlists.
-    /// When nil, checks the header's ratingKey in the current pinned ID snapshot.
+    /// When nil, checks the header's source-scoped identity in the current pinned identity snapshot.
     let customIsPinned: ((Set<String>) -> Bool)?
 
     @State private var artworkImage: PlatformImage?
@@ -133,11 +133,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.customIsPinned = customIsPinned
 
         let initialPinState: Bool
-        let initialPinnedIDs = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.id))
+        let initialPinnedIdentities = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.sourceScopedID))
         if let customIsPinned {
-            initialPinState = customIsPinned(initialPinnedIDs)
+            initialPinState = customIsPinned(initialPinnedIdentities)
         } else if let ratingKey = headerData.ratingKey {
-            initialPinState = initialPinnedIDs.contains(ratingKey)
+            let sourceScopedID = PinnedItem.sourceScopedID(id: ratingKey, sourceKey: headerData.sourceKey)
+            initialPinState = initialPinnedIdentities.contains(sourceScopedID)
         } else {
             initialPinState = false
         }
@@ -244,14 +245,15 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func updatePinStateForHeader(pinnedItems: [PinnedItem]) {
-        let pinnedIDs = Set(pinnedItems.map(\.id))
+        let pinnedIdentities = Set(pinnedItems.map(\.sourceScopedID))
         guard let ratingKey = headerData.ratingKey else {
-            let latest = customIsPinned?(pinnedIDs) ?? false
+            let latest = customIsPinned?(pinnedIdentities) ?? false
             if latest != isPinnedForHeader { isPinnedForHeader = latest }
             return
         }
 
-        let latest = customIsPinned?(pinnedIDs) ?? pinnedIDs.contains(ratingKey)
+        let sourceScopedID = PinnedItem.sourceScopedID(id: ratingKey, sourceKey: headerData.sourceKey)
+        let latest = customIsPinned?(pinnedIdentities) ?? pinnedIdentities.contains(sourceScopedID)
         if latest != isPinnedForHeader {
             isPinnedForHeader = latest
         }

@@ -71,16 +71,16 @@ public struct MergedPlaylistDetailView: View {
             customPinAction: { isPinned in
                 let dp = viewModel.displayPlaylist
                 if isPinned {
-                    deps.pinMutationWorkflow.unpinAll(ids: Set(dp.playlists.map(\.id)))
+                    deps.pinMutationWorkflow.unpinAll(identities: Set(dp.playlists.map(\.sourceScopedID)))
                 } else {
                     deps.pinMutationWorkflow.pinAll(items: dp.playlists.map { playlist in
                         (id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "", type: .playlist, title: dp.title)
                     })
                 }
             },
-            customIsPinned: { pinnedIDs in
-                let ids = Set(viewModel.displayPlaylist.playlists.map(\.id))
-                return ids.allSatisfy { pinnedIDs.contains($0) }
+            customIsPinned: { pinnedIdentities in
+                let identities = Set(viewModel.displayPlaylist.playlists.map(\.sourceScopedID))
+                return identities.allSatisfy { pinnedIdentities.contains($0) }
             }
         )
         .alert("Rename Playlist", isPresented: $showRenamePrompt) {

@@ -24,6 +24,28 @@ public struct PinnedItem: Codable, Identifiable, Equatable, Sendable {
         self.title = title
         self.pinnedDate = pinnedDate
     }
+
+    /// Stable identity for local UI and mutation policy.
+    public var sourceScopedID: String {
+        Self.sourceScopedID(id: id, sourceKey: sourceCompositeKey)
+    }
+
+    public static func sourceScopedID(id: String, sourceKey: String?) -> String {
+        guard let sourceKey = normalizedSourceKey(sourceKey) else {
+            return id
+        }
+        return "\(sourceKey)||\(id)"
+    }
+
+    public static func normalizedSourceKey(_ sourceKey: String?) -> String? {
+        let trimmed = sourceKey?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    func matches(id: String, sourceKey: String?) -> Bool {
+        self.id == id &&
+            Self.normalizedSourceKey(sourceCompositeKey) == Self.normalizedSourceKey(sourceKey)
+    }
 }
 
 // MARK: - Pin Manager
@@ -47,21 +69,25 @@ public final class PinManager: ObservableObject {
 
     /// Pin an item for quick access
     public func pin(id: String, sourceKey: String, type: PinnedItemType, title: String) {
-        guard !isPinned(id: id) else { return }
+        guard !isPinned(id: id, sourceKey: sourceKey) else { return }
         let item = PinnedItem(id: id, sourceCompositeKey: sourceKey, type: type, title: title)
         pinnedItems.append(item)
         savePins()
     }
 
     /// Remove a pinned item
-    public func unpin(id: String) {
-        pinnedItems.removeAll { $0.id == id }
-        savePins()
+    public func unpin(id: String, sourceKey: String) {
+        removePins { $0.matches(id: id, sourceKey: sourceKey) }
+    }
+
+    /// Remove a pinned item by its source-scoped identity.
+    public func unpin(identity: String) {
+        removePins { $0.sourceScopedID == identity }
     }
 
     /// Update a pinned item's display title after the underlying media is renamed.
-    public func updateTitle(id: String, title: String) {
-        guard let index = pinnedItems.firstIndex(where: { $0.id == id }) else { return }
+    public func updateTitle(id: String, sourceKey: String, title: String) {
+        guard let index = pinnedItems.firstIndex(where: { $0.matches(id: id, sourceKey: sourceKey) }) else { return }
         guard pinnedItems[index].title != title else { return }
 
         let item = pinnedItems[index]
@@ -76,15 +102,15 @@ public final class PinManager: ObservableObject {
     }
 
     /// Check if an item is currently pinned
-    public func isPinned(id: String) -> Bool {
-        pinnedItems.contains { $0.id == id }
+    public func isPinned(id: String, sourceKey: String) -> Bool {
+        pinnedItems.contains { $0.matches(id: id, sourceKey: sourceKey) }
     }
 
     /// Pin multiple items at once (for merged playlists — pins all constituents)
     public func pinAll(items: [(id: String, sourceKey: String, type: PinnedItemType, title: String)]) {
         var didChange = false
         for item in items {
-            guard !isPinned(id: item.id) else { continue }
+            guard !isPinned(id: item.id, sourceKey: item.sourceKey) else { continue }
             pinnedItems.append(PinnedItem(id: item.id, sourceCompositeKey: item.sourceKey, type: item.type, title: item.title))
             didChange = true
         }
@@ -92,15 +118,15 @@ public final class PinManager: ObservableObject {
     }
 
     /// Remove multiple pinned items at once (for merged playlists — unpins all constituents)
-    public func unpinAll(ids: Set<String>) {
-        let before = pinnedItems.count
-        pinnedItems.removeAll { ids.contains($0.id) }
-        if pinnedItems.count != before { savePins() }
+    public func unpinAll(identities: Set<String>) {
+        removePins { identities.contains($0.sourceScopedID) }
     }
 
     /// Check if all items in a set are pinned (for merged playlist pin state)
-    public func areAllPinned(ids: Set<String>) -> Bool {
-        ids.allSatisfy { isPinned(id: $0) }
+    public func areAllPinned(identities: Set<String>) -> Bool {
+        identities.allSatisfy { identity in
+            pinnedItems.contains { $0.sourceScopedID == identity }
+        }
     }
 
     /// Reorder pinned items (for drag-and-drop)
@@ -109,12 +135,15 @@ public final class PinManager: ObservableObject {
         savePins()
     }
 
-    /// Reorder pinned items by ID array (for reordering resolved pins)
-    public func reorder(ids: [String]) {
-        let idOrder = Dictionary(uniqueKeysWithValues: ids.enumerated().map { ($1, $0) })
+    /// Reorder pinned items by source-scoped identity array (for reordering resolved pins)
+    public func reorder(identities: [String]) {
+        var idOrder: [String: Int] = [:]
+        for (index, identity) in identities.enumerated() where idOrder[identity] == nil {
+            idOrder[identity] = index
+        }
         pinnedItems.sort { (a, b) in
-            let aIndex = idOrder[a.id] ?? Int.max
-            let bIndex = idOrder[b.id] ?? Int.max
+            let aIndex = idOrder[a.sourceScopedID] ?? Int.max
+            let bIndex = idOrder[b.sourceScopedID] ?? Int.max
             return aIndex < bIndex
         }
         savePins()
@@ -154,5 +183,13 @@ public final class PinManager: ObservableObject {
     /// Export current pins as JSON Data for KVS push
     public func exportPinsData() -> Data? {
         try? JSONEncoder().encode(pinnedItems)
+    }
+
+    private func removePins(matching shouldRemove: (PinnedItem) -> Bool) {
+        let before = pinnedItems.count
+        pinnedItems.removeAll(where: shouldRemove)
+        if pinnedItems.count != before {
+            savePins()
+        }
     }
 }

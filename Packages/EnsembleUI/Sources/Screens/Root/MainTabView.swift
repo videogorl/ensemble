@@ -731,8 +731,10 @@ public struct SidebarView: View {
         return "Untitled Playlist"
     }
 
-    private func handlePinnedSelectionRemoval(ids: Set<String>, fallback: SidebarSelection) {
-        guard case .pin(let selectedID, _) = selection, ids.contains(selectedID) else { return }
+    private func handlePinnedSelectionRemoval(identities: Set<String>, fallback: SidebarSelection) {
+        guard case .pin(let selectedID, let selectedSourceKey, _) = selection else { return }
+        let selectedIdentity = PinnedItem.sourceScopedID(id: selectedID, sourceKey: selectedSourceKey)
+        guard identities.contains(selectedIdentity) else { return }
         selection = fallback
     }
 
@@ -760,8 +762,8 @@ public struct SidebarView: View {
                     playlistsVM.applyOptimisticDelete(for: playlist)
                 }
 
-                handlePinnedSelectionRemoval(ids: [playlist.id], fallback: .library(.playlists))
-                deps.pinMutationWorkflow.unpin(id: playlist.id)
+                handlePinnedSelectionRemoval(identities: [playlist.sourceScopedID], fallback: .library(.playlists))
+                deps.pinMutationWorkflow.unpin(id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "")
                 deps.toastCenter.dismiss(id: deletingToast.id)
                 deps.toastCenter.show(result.successToast)
             } catch {
@@ -800,7 +802,11 @@ public struct SidebarView: View {
                         for: playlist.id,
                         expectedTitle: start.trimmedTitle
                     )
-                    deps.pinMutationWorkflow.updateTitle(id: playlist.id, title: start.trimmedTitle)
+                    deps.pinMutationWorkflow.updateTitle(
+                        id: playlist.id,
+                        sourceKey: playlist.sourceCompositeKey ?? "",
+                        title: start.trimmedTitle
+                    )
                 }
 
                 deps.toastCenter.dismiss(id: renamingToast.id)
@@ -818,6 +824,12 @@ public struct SidebarView: View {
                 )
             }
         }
+    }
+
+    private var mergedPlaylistRenameMessage: String {
+        let count = mergedPlaylistPendingRename?.playlists.count ?? 0
+        let serverLabel = count == 1 ? "server" : "servers"
+        return "This will rename on \(count) \(serverLabel)."
     }
 
     public var body: some View {
@@ -881,8 +893,7 @@ public struct SidebarView: View {
             }
             .disabled(mergedPlaylistPendingRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } message: {
-            let count = mergedPlaylistPendingRename?.playlists.count ?? 0
-            Text("This will rename on \(count) server\(count == 1 ? "" : "s").")
+            Text(mergedPlaylistRenameMessage)
         }
         .alert("Delete Playlist?", isPresented: Binding(
             get: { playlistPendingDelete != nil },
@@ -910,7 +921,7 @@ public struct SidebarView: View {
                 guard let displayPlaylist = mergedPlaylistPendingDelete else { return }
                 mergedPlaylistPendingDelete = nil
                 handlePinnedSelectionRemoval(
-                    ids: Set(displayPlaylist.playlists.map(\.id)),
+                    identities: Set(displayPlaylist.playlists.map(\.sourceScopedID)),
                     fallback: .library(.playlists)
                 )
                 for playlist in displayPlaylist.playlists {
@@ -1069,8 +1080,8 @@ public struct SidebarView: View {
                 playlistDetailNavigationStack(playlistID: id, sourceKey: sourceKey)
             case .mergedPlaylist(let title, let isSmart):
                 mergedPlaylistDetailNavigationStack(title: title, isSmart: isSmart)
-            case .pin(let id, let type):
-                pinnedDetailNavigationStack(id: id, type: type)
+            case .pin(let id, let sourceKey, let type):
+                pinnedDetailNavigationStack(id: id, sourceKey: sourceKey, type: type)
             case .none:
                 // Fallback when nothing is selected — show Home
                 sidebarNavigationStack(for: .home)
@@ -1145,11 +1156,11 @@ public struct SidebarView: View {
     }
 
     @ViewBuilder
-    private func pinnedDetailNavigationStack(id: String, type: PinnedItemType) -> some View {
+    private func pinnedDetailNavigationStack(id: String, sourceKey: String?, type: PinnedItemType) -> some View {
         detailColumnNavigationHost {
             NavigationStack(path: $pinnedDetailPath) {
                 detailChromeRegistrationHost {
-                    pinnedDetailRootView(id: id, type: type)
+                    pinnedDetailRootView(id: id, sourceKey: sourceKey, type: type)
                 }
                 .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                     detailChromeRegistrationHost(
@@ -1160,12 +1171,11 @@ public struct SidebarView: View {
                 }
             }
         }
-        .id("pin-\(id)-\(type)")
+        .id("pin-\(PinnedItem.sourceScopedID(id: id, sourceKey: sourceKey))-\(type)")
     }
 
     @ViewBuilder
-    private func pinnedDetailRootView(id: String, type: PinnedItemType) -> some View {
-        let sourceKey = pinnedSourceKey(for: id)
+    private func pinnedDetailRootView(id: String, sourceKey: String?, type: PinnedItemType) -> some View {
         switch type {
         case .album:
             AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
@@ -1174,12 +1184,6 @@ public struct SidebarView: View {
         case .playlist:
             PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         }
-    }
-
-    private func pinnedSourceKey(for id: String) -> String? {
-        let sourceKey = pinManager.pinnedItems.first(where: { $0.id == id })?.sourceCompositeKey
-        let trimmed = sourceKey?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     @ViewBuilder
@@ -1306,7 +1310,7 @@ public struct SidebarView: View {
                     .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
-            .tag(SidebarSelection.pin(id: pinnedItem.id, type: pinnedItem.type))
+            .tag(SidebarSelection.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
             .contextMenu {
                 ArtistActionsContextMenu(
                     artist: artist,
@@ -1314,8 +1318,8 @@ public struct SidebarView: View {
                     toastNamespace: "sidebar-artist-menu",
                     customPinAction: { isPinned in
                         if isPinned {
-                            handlePinnedSelectionRemoval(ids: [pinnedItem.id], fallback: .library(.artists))
-                            deps.pinMutationWorkflow.unpin(id: pinnedItem.id)
+                            handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.artists))
+                            deps.pinMutationWorkflow.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
                         } else {
                             deps.pinMutationWorkflow.pin(
                                 id: artist.id,
@@ -1336,7 +1340,7 @@ public struct SidebarView: View {
                     .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
-            .tag(SidebarSelection.pin(id: pinnedItem.id, type: pinnedItem.type))
+            .tag(SidebarSelection.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
             .contextMenu {
                 AlbumActionsContextMenu(
                     album: album,
@@ -1349,14 +1353,14 @@ public struct SidebarView: View {
                         navigateFromPinnedMenu(
                             to: .artist(
                                 id: artistID,
-                                sourceKey: album.sourceCompositeKey ?? pinnedSourceKey(for: pinnedItem.id)
+                                sourceKey: album.sourceCompositeKey ?? pinnedItem.sourceCompositeKey
                             )
                         )
                     },
                     customPinAction: { isPinned in
                         if isPinned {
-                            handlePinnedSelectionRemoval(ids: [pinnedItem.id], fallback: .library(.albums))
-                            deps.pinMutationWorkflow.unpin(id: pinnedItem.id)
+                            handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.albums))
+                            deps.pinMutationWorkflow.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
                         } else {
                             deps.pinMutationWorkflow.pin(
                                 id: album.id,
@@ -1377,7 +1381,7 @@ public struct SidebarView: View {
                     .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
-            .tag(SidebarSelection.pin(id: pinnedItem.id, type: pinnedItem.type))
+            .tag(SidebarSelection.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
             .contextMenu {
                 PlaylistActionsContextMenu(
                     playlist: playlist,
@@ -1395,8 +1399,8 @@ public struct SidebarView: View {
                     },
                     customPinAction: { isPinned in
                         if isPinned {
-                            handlePinnedSelectionRemoval(ids: [pinnedItem.id], fallback: .library(.playlists))
-                            deps.pinMutationWorkflow.unpin(id: pinnedItem.id)
+                            handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.playlists))
+                            deps.pinMutationWorkflow.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
                         } else {
                             deps.pinMutationWorkflow.pin(
                                 id: playlist.id,
@@ -1424,7 +1428,11 @@ public struct SidebarView: View {
                 .frame(width: artworkDimension, height: artworkDimension)
                 .clipShape(RoundedRectangle(cornerRadius: ArtworkCornerRadius.square(for: artworkDimension), style: .continuous))
             }
-            .tag(SidebarSelection.pin(id: pinnedItems[0].id, type: pinnedItems[0].type))
+            .tag(SidebarSelection.pin(
+                id: pinnedItems[0].id,
+                sourceKey: pinnedItems[0].sourceCompositeKey,
+                type: pinnedItems[0].type
+            ))
             .contextMenu {
                 MergedPlaylistActionsContextMenu(
                     displayPlaylist: displayPlaylist,
@@ -1440,10 +1448,10 @@ public struct SidebarView: View {
                     },
                     onUnpinAll: {
                         handlePinnedSelectionRemoval(
-                            ids: Set(pinnedItems.map(\.id)),
+                            identities: Set(pinnedItems.map(\.sourceScopedID)),
                             fallback: .library(.playlists)
                         )
-                        deps.pinMutationWorkflow.unpinAll(ids: Set(pinnedItems.map(\.id)))
+                        deps.pinMutationWorkflow.unpinAll(identities: Set(pinnedItems.map(\.sourceScopedID)))
                     }
                 )
             }
