@@ -397,23 +397,7 @@ private struct DisplayArtistGrid: View {
     var body: some View {
         LazyVGrid(columns: columns, spacing: EnsembleScaffold.MediaCard.rowSpacing) {
             ForEach(artists) { displayArtist in
-                NavigationLink {
-                    DisplayArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
-                } label: {
-                    artistCardContent(displayArtist)
-                }
-                .buttonStyle(.plain)
-                .contextMenu {
-                    if !displayArtist.isMerged {
-                        ArtistActionsContextMenu(
-                            artist: displayArtist.primaryArtist,
-                            nowPlayingVM: nowPlayingVM,
-                            onEditMetadata: {
-                                presentArtistMetadataEditor(displayArtist.primaryArtist)
-                            }
-                        )
-                    }
-                }
+                artistCardLink(displayArtist)
             }
         }
         .padding(.horizontal)
@@ -425,6 +409,42 @@ private struct DisplayArtistGrid: View {
                 initialText: request.currentTitle,
                 actionTitle: "Save",
                 onSubmit: request.onSave
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func artistCardLink(_ displayArtist: DisplayArtist) -> some View {
+        if #available(iOS 16.0, macOS 13.0, *) {
+            NavigationLink(value: NavigationCoordinator.Destination.displayArtist(id: displayArtist.id)) {
+                artistCardContent(displayArtist)
+            }
+            .buttonStyle(.plain)
+            .contextMenu {
+                artistContextMenu(for: displayArtist)
+            }
+        } else {
+            NavigationLink {
+                DisplayArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
+            } label: {
+                artistCardContent(displayArtist)
+            }
+            .buttonStyle(.plain)
+            .contextMenu {
+                artistContextMenu(for: displayArtist)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func artistContextMenu(for displayArtist: DisplayArtist) -> some View {
+        if !displayArtist.isMerged {
+            ArtistActionsContextMenu(
+                artist: displayArtist.primaryArtist,
+                nowPlayingVM: nowPlayingVM,
+                onEditMetadata: {
+                    presentArtistMetadataEditor(displayArtist.primaryArtist)
+                }
             )
         }
     }

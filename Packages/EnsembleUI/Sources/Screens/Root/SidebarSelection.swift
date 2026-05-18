@@ -24,7 +24,7 @@ public enum SidebarSelection: Hashable {
         fallback: SidebarSelection?
     ) -> SidebarSelection {
         switch destination {
-        case .artist:
+        case .displayArtist, .artist:
             return .library(.artists)
         case .album:
             return .library(.albums)

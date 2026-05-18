@@ -5,6 +5,10 @@ import EnsembleCore
 final class NavigationRootHelperTests: XCTestCase {
     func testSidebarSelectionMappingForDestinations() {
         XCTAssertEqual(
+            SidebarSelection.selection(for: .displayArtist(id: "merged:ajr"), fallback: nil),
+            .library(.artists)
+        )
+        XCTAssertEqual(
             SidebarSelection.selection(for: .artist(id: "artist", sourceKey: "server/library"), fallback: nil),
             .library(.artists)
         )

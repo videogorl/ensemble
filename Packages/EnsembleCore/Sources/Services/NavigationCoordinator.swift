@@ -36,6 +36,7 @@ public final class NavigationCoordinator: ObservableObject {
 
     /// Represents a navigation destination using IDs for hashability and deep linking
     public enum Destination: Hashable {
+        case displayArtist(id: String)
         case artist(id: String, sourceKey: String? = nil)
         case album(id: String, sourceKey: String? = nil)
         case playlist(id: String, sourceKey: String?)
@@ -88,6 +89,8 @@ public final class NavigationCoordinator: ObservableObject {
 
     public nonisolated static func targetTab(for destination: Destination) -> TabItem {
         switch destination {
+        case .displayArtist:
+            return .artists
         case .artist:
             return .artists
         case .album:

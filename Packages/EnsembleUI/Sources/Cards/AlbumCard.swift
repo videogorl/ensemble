@@ -157,7 +157,12 @@ public struct AlbumGrid: View {
         LazyVGrid(columns: layout.gridColumns, spacing: layout.rowSpacing) {
             ForEach(albums) { album in
                 if #available(iOS 16.0, macOS 13.0, *) {
-                    NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id)) {
+                    NavigationLink(
+                        value: NavigationCoordinator.Destination.album(
+                            id: album.id,
+                            sourceKey: album.sourceCompositeKey
+                        )
+                    ) {
                         AlbumCard(album: album, layout: layout)
                     }
                     .buttonStyle(.plain)
@@ -179,7 +184,11 @@ public struct AlbumGrid: View {
                 } else {
                     // iOS 15 fallback
                     NavigationLink {
-                        AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
+                        AlbumDetailLoader(
+                            albumId: album.id,
+                            albumSourceKey: album.sourceCompositeKey,
+                            nowPlayingVM: nowPlayingVM
+                        )
                     } label: {
                         AlbumCard(album: album, layout: layout)
                     }

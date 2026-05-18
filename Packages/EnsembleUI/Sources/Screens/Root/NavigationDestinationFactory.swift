@@ -51,6 +51,12 @@ struct NavigationDestinationFactory {
         searchVM: SearchViewModel
     ) -> some View {
         switch destination {
+        case .displayArtist(let id):
+            if let displayArtist = displayArtist(for: id, libraryVM: libraryVM) {
+                ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
+            } else {
+                EnsembleStateScaffold(kind: .empty, title: "Artist not found")
+            }
         case .artist(let id, let sourceKey):
             ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .album(let id, let sourceKey):
@@ -69,5 +75,14 @@ struct NavigationDestinationFactory {
                 searchVM: searchVM
             )
         }
+    }
+
+    @MainActor
+    private static func displayArtist(for id: String, libraryVM: LibraryViewModel) -> DisplayArtist? {
+        if let displayArtist = libraryVM.displayArtists.first(where: { $0.id == id }) {
+            return displayArtist
+        }
+
+        return DisplayArtist.group(libraryVM.artists).first { $0.id == id }
     }
 }
