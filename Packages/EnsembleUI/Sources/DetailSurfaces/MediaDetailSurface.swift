@@ -47,6 +47,9 @@ struct MediaDetailSurface<Content: View>: View {
 
     var body: some View {
         ZStack(alignment: .top) {
+            EnsembleDesign.Color.windowSurface
+                .ignoresSafeArea()
+
             ArtworkDetailBackground(
                 image: artworkImage,
                 height: backgroundHeight,
