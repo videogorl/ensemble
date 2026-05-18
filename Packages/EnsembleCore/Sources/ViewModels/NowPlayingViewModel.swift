@@ -183,6 +183,9 @@ public final class NowPlayingViewModel: ObservableObject {
     // Instrumental mode (vocal attenuation)
     @Published public private(set) var isInstrumentalModeActive: Bool = false
     public let isInstrumentalModeSupported: Bool = InstrumentalModeCapability.isSupported
+    @Published public private(set) var hasChordLyrics: Bool = false
+    @Published public private(set) var isChordModeEnabled: Bool = false
+    @Published public private(set) var isDisplayingChordLyrics: Bool = false
 
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
@@ -196,6 +199,7 @@ public final class NowPlayingViewModel: ObservableObject {
     private let trackAvailabilityResolver: TrackAvailabilityResolver
     private let lyricsService: LyricsService
     private var cancellables = Set<AnyCancellable>()
+    private var currentQueueIdentity: [String]?
 
     public let playbackProjection = NowPlayingPlaybackProjection()
     public let queueProjection = NowPlayingQueueProjection()
@@ -386,6 +390,7 @@ public final class NowPlayingViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] queue in
                 guard let self else { return }
+                self.resetChordModeIfQueueRebuilt(queue)
                 self.queueProjection.updateQueue(queue)
                 self.queueProjection.updateQueueSections(self.playbackService.queueSections)
             }
@@ -594,6 +599,14 @@ public final class NowPlayingViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$lyricsSource)
 
+        lyricsService.$hasChordLyricsForCurrentTrack
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$hasChordLyrics)
+
+        lyricsService.$isDisplayingChordLyrics
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isDisplayingChordLyrics)
+
         $lyricsState
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
@@ -633,6 +646,27 @@ public final class NowPlayingViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isActive in
                 self?.lyricsProjection.updateInstrumentalModeActive(isActive)
+            }
+            .store(in: &cancellables)
+
+        $hasChordLyrics
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] hasChords in
+                self?.lyricsProjection.updateHasChordLyrics(hasChords)
+            }
+            .store(in: &cancellables)
+
+        $isChordModeEnabled
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isEnabled in
+                self?.lyricsProjection.updateChordModeEnabled(isEnabled)
+            }
+            .store(in: &cancellables)
+
+        $isDisplayingChordLyrics
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isDisplaying in
+                self?.lyricsProjection.updateDisplayingChordLyrics(isDisplaying)
             }
             .store(in: &cancellables)
 
@@ -741,12 +775,27 @@ public final class NowPlayingViewModel: ObservableObject {
         lyricsService.retryLyrics(for: currentTrack)
     }
 
+    public func toggleChordMode() {
+        isChordModeEnabled.toggle()
+        lyricsService.setChordModeEnabled(isChordModeEnabled)
+    }
+
+    private func resetChordModeIfQueueRebuilt(_ queue: [QueueItem]) {
+        let identity = queue.map(\.id)
+        defer { currentQueueIdentity = identity }
+
+        guard let currentQueueIdentity, currentQueueIdentity != identity else { return }
+        guard isChordModeEnabled else { return }
+        isChordModeEnabled = false
+        lyricsService.setChordModeEnabled(false)
+    }
+
     /// Pre-compute which line indices have instrumental gaps after them.
     /// Also determines intro/outro gap presence. Called when lyrics change.
     /// Uses the lyrics' adaptive threshold so songs with naturally long phrase
     /// spacing don't get false instrumental dots.
     private func computeInstrumentalGapPositions(lyrics: ParsedLyrics) {
-        guard lyrics.isTimed else {
+        guard lyrics.isTimed, !lyrics.containsChords else {
             instrumentalGapAfterIndices = []
             hasIntroInstrumentalGap = false
             hasOutroInstrumentalGap = false

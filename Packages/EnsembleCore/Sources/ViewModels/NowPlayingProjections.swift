@@ -206,6 +206,9 @@ public final class NowPlayingLyricsProjection: ObservableObject {
     @Published public private(set) var hasIntroInstrumentalGap = false
     @Published public private(set) var hasOutroInstrumentalGap = false
     @Published public private(set) var isInstrumentalModeActive = false
+    @Published public private(set) var hasChordLyrics = false
+    @Published public private(set) var isChordModeEnabled = false
+    @Published public private(set) var isDisplayingChordLyrics = false
     public let isInstrumentalModeSupported: Bool
 
     private let currentLineIndexSubject = CurrentValueSubject<Int?, Never>(nil)
@@ -282,6 +285,21 @@ public final class NowPlayingLyricsProjection: ObservableObject {
     func updateInstrumentalModeActive(_ isActive: Bool) {
         guard isInstrumentalModeActive != isActive else { return }
         isInstrumentalModeActive = isActive
+    }
+
+    func updateHasChordLyrics(_ hasChords: Bool) {
+        guard hasChordLyrics != hasChords else { return }
+        hasChordLyrics = hasChords
+    }
+
+    func updateChordModeEnabled(_ isEnabled: Bool) {
+        guard isChordModeEnabled != isEnabled else { return }
+        isChordModeEnabled = isEnabled
+    }
+
+    func updateDisplayingChordLyrics(_ isDisplaying: Bool) {
+        guard isDisplayingChordLyrics != isDisplaying else { return }
+        isDisplayingChordLyrics = isDisplaying
     }
 }
 

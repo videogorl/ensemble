@@ -1043,4 +1043,106 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         XCTAssertEqual(viewModel.lyricsProjection.currentLyricsLineIndex, 0)
         XCTAssertEqual(viewModel.lyricsProjection.lyricsScrollTargetIndex, 0)
     }
+
+    func testChordModeFallsBackAndResumesWhileQueueStateStaysEnabled() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playback = viewModelTuple.playbackService
+        let lyricsService = viewModelTuple.lyricsService
+        playback.setCurrentTrack(Track(id: "1", key: "/library/metadata/1", title: "Chord Test"))
+        await waitForProjectionPropagation()
+
+        let normalLyrics = ParsedLyrics(lines: [
+            LyricsLine(timestamp: 0, text: "Normal lyric"),
+        ], isTimed: true)
+        let chordLyrics = ParsedLyrics(lines: [
+            LyricsLine(timestamp: 0, text: "Chord lyric", chords: [
+                ParsedChord(symbol: "C", column: 10, offsetFromLyricStart: 0),
+            ]),
+        ], isTimed: true)
+
+        lyricsService.setLyricsBundleForTesting(
+            normal: .available(normalLyrics),
+            chords: .available(chordLyrics)
+        )
+        await waitForProjectionPropagation()
+
+        XCTAssertTrue(viewModel.hasChordLyrics)
+        XCTAssertFalse(viewModel.isChordModeEnabled)
+        XCTAssertFalse(viewModel.isDisplayingChordLyrics)
+        XCTAssertEqual(viewModel.lyricsState, .available(normalLyrics))
+
+        viewModel.toggleChordMode()
+        await waitForProjectionPropagation()
+
+        XCTAssertTrue(viewModel.isChordModeEnabled)
+        XCTAssertTrue(viewModel.isDisplayingChordLyrics)
+        XCTAssertEqual(viewModel.lyricsState, .available(chordLyrics))
+
+        lyricsService.setLyricsBundleForTesting(
+            normal: .available(normalLyrics),
+            chords: .notAvailable,
+            chordModeEnabled: true
+        )
+        await waitForProjectionPropagation()
+
+        XCTAssertTrue(viewModel.isChordModeEnabled)
+        XCTAssertFalse(viewModel.isDisplayingChordLyrics)
+        XCTAssertEqual(viewModel.lyricsState, .available(normalLyrics))
+
+        lyricsService.setLyricsBundleForTesting(
+            normal: .available(normalLyrics),
+            chords: .available(chordLyrics),
+            chordModeEnabled: true
+        )
+        await waitForProjectionPropagation()
+
+        XCTAssertTrue(viewModel.isChordModeEnabled)
+        XCTAssertTrue(viewModel.isDisplayingChordLyrics)
+        XCTAssertEqual(viewModel.lyricsState, .available(chordLyrics))
+    }
+
+    func testChordModeResetsWhenQueueIdentitySequenceChanges() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playback = viewModelTuple.playbackService
+        let lyricsService = viewModelTuple.lyricsService
+        let first = Track(id: "1", key: "/library/metadata/1", title: "First")
+        let second = Track(id: "2", key: "/library/metadata/2", title: "Second")
+        let chordLyrics = ParsedLyrics(lines: [
+            LyricsLine(timestamp: 0, text: "Chord lyric", chords: [
+                ParsedChord(symbol: "C", column: 10, offsetFromLyricStart: 0),
+            ]),
+        ], isTimed: true)
+
+        playback.setQueue([
+            QueueItem(id: "queue-1", track: first),
+            QueueItem(id: "queue-2", track: second),
+        ], currentIndex: 0)
+        lyricsService.setLyricsBundleForTesting(
+            normal: .notAvailable,
+            chords: .available(chordLyrics)
+        )
+        await waitForProjectionPropagation()
+
+        viewModel.toggleChordMode()
+        await waitForProjectionPropagation()
+        XCTAssertTrue(viewModel.isChordModeEnabled)
+
+        playback.setQueue([
+            QueueItem(id: "queue-1", track: first),
+            QueueItem(id: "queue-2", track: second),
+        ], currentIndex: 1)
+        await waitForProjectionPropagation()
+        XCTAssertTrue(viewModel.isChordModeEnabled)
+
+        playback.setQueue([
+            QueueItem(id: "queue-3", track: first),
+            QueueItem(id: "queue-4", track: second),
+        ], currentIndex: 0)
+        await waitForProjectionPropagation()
+
+        XCTAssertFalse(viewModel.isChordModeEnabled)
+        XCTAssertFalse(viewModel.isDisplayingChordLyrics)
+    }
 }

@@ -13,6 +13,7 @@ Load this reference for platform navigation, native UI ownership, persistent sur
 - Shared media menu and swipe action policy lives in `MediaMenuCatalog` and native table/menu renderers. Parent views should add only local handlers.
 - Detail screens with artwork-backed washes should use shared detail surface and toolbar-bleed owners so media details, download details, and artist details do not drift.
 - Loading, empty, and error states should use shared state scaffolds rather than rebuilding decision trees per screen.
+- The Lyrics panel may expose chord streams with the `music.pages` control beside instrumental mode when the current track has a chord stream. Chord rendering is fully monospace, treats whitespace as source data, renders chord rows paired above lyric rows, wraps chord and lyric text on shared character-column boundaries, and highlights the current plus next timed row so musicians can prepare for upcoming changes.
 - Watch is an independent lightweight Plex client plus optional iPhone remote, not a full `EnsembleCore`/`EnsembleUI` client. Downloads are outside the current standalone watch scope.
 
 ## Owners
@@ -36,4 +37,5 @@ Load this reference for platform navigation, native UI ownership, persistent sur
 
 - Use simulator/macOS validation for navigation, modal presentation, keyboard, toolbar, safe-area, split-view, or root chrome changes.
 - Use screenshot or accessibility evidence for substantial visible UI behavior changes.
+- Validate Lyrics chord UI changes for button visibility, monospace alignment, paired wrapping, chord-only timed rows, and current-plus-next highlighting.
 - Use performance checks when changing persistent root/list observation, Feed refresh UI, Downloads queue UI, or high-frequency visual surfaces.

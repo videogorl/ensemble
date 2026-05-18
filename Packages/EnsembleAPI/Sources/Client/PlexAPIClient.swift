@@ -634,6 +634,21 @@ public actor PlexAPIClient {
         }
     }
 
+    /// Fetch lyrics without XML/JSON transformation. Local sidecar chord files need
+    /// their source whitespace preserved, and Plex's structured lyric response can
+    /// strip the chord rows we need for alignment.
+    public func getRawLyricsContent(streamKey: String) async throws -> String? {
+        let query = ["format": "lrc"]
+        do {
+            let data = try await serverRequest(path: streamKey, query: query)
+            EnsembleLogger.debug("Lyrics: raw content fetch succeeded for \(streamKey) (\(data.count) bytes)")
+            return String(data: data, encoding: .utf8)
+        } catch {
+            EnsembleLogger.debug("Lyrics: raw content fetch failed for \(streamKey): \(error.localizedDescription)")
+            throw error
+        }
+    }
+
     /// Get artist radio station as a playlist
     /// Returns nil if artist radio not available or Plex Pass not active
     /// - Parameter artistKey: The artist's rating key

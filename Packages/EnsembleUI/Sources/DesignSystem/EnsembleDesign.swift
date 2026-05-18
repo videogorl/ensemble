@@ -246,6 +246,7 @@ public enum EnsembleDesign {
         public static let saveQueue = "square.and.arrow.down"
         public static let instrumentalOn = "mic.slash.circle"
         public static let instrumentalOff = "mic.circle"
+        public static let chords = "music.pages"
         public static let lyricsUnavailable = "text.quote"
         public static let scrubFine = "minus"
         public static let scrubUp = "chevron.compact.up"
