@@ -474,17 +474,11 @@ private extension View {
     @ViewBuilder
     func macViewportNowPlayingWindowChromeHidden(_ isHidden: Bool) -> some View {
         #if os(macOS)
-        if #available(macOS 15.0, *) {
-            self.toolbarVisibility(isHidden ? .hidden : .visible, for: .windowToolbar)
-        } else if #available(macOS 13.0, *) {
-            self.toolbar(isHidden ? .hidden : .visible, for: .windowToolbar)
-        } else {
-            self.background(
-                MacWindowToolbarVisibilityBridge(
-                    isHidden: isHidden
-                )
+        self.background(
+            MacWindowToolbarVisibilityBridge(
+                isHidden: isHidden
             )
-        }
+        )
         #else
         self
         #endif
@@ -512,7 +506,6 @@ private struct MacWindowToolbarVisibilityBridge: NSViewRepresentable {
         private var originalTitleVisibility: NSWindow.TitleVisibility?
         private var originalTitlebarAppearsTransparent: Bool?
         private var originalToolbarBaselineSeparatorVisibility: Bool?
-        private var originalStandardButtonVisibility: [NSWindow.ButtonType: Bool] = [:]
         private var originalToolbarItemViewVisibility: [ObjectIdentifier: (view: NSView, isHidden: Bool)] = [:]
 
         override func viewDidMoveToWindow() {
@@ -568,7 +561,6 @@ private struct MacWindowToolbarVisibilityBridge: NSViewRepresentable {
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
 
-            setStandardWindowButtonsHidden(true, on: window)
             setToolbarItemsHidden(true, on: window.toolbar)
         }
 
@@ -583,27 +575,7 @@ private struct MacWindowToolbarVisibilityBridge: NSViewRepresentable {
                 self.originalTitlebarAppearsTransparent = nil
             }
 
-            restoreStandardWindowButtons(on: window)
             restoreToolbarItems(on: window.toolbar)
-        }
-
-        private func setStandardWindowButtonsHidden(_ isHidden: Bool, on window: NSWindow) {
-            let buttonTypes: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
-
-            for buttonType in buttonTypes {
-                guard let button = window.standardWindowButton(buttonType) else { continue }
-                if originalStandardButtonVisibility[buttonType] == nil {
-                    originalStandardButtonVisibility[buttonType] = button.isHidden
-                }
-                button.isHidden = isHidden
-            }
-        }
-
-        private func restoreStandardWindowButtons(on window: NSWindow) {
-            for (buttonType, isHidden) in originalStandardButtonVisibility {
-                window.standardWindowButton(buttonType)?.isHidden = isHidden
-            }
-            originalStandardButtonVisibility.removeAll()
         }
 
         private func setToolbarItemsHidden(_ isHidden: Bool, on toolbar: NSToolbar?) {
