@@ -498,21 +498,21 @@ private struct ServerFeatureBadges: View {
 
     var body: some View {
         HStack(spacing: EnsembleScaffold.UtilityRow.detailTextSpacing) {
-            if section.hasPlexPass {
+            if section.plexPassSupport.isSupported {
                 EnsembleUtilityIcon(
                     EnsembleDesign.Icon.ticket,
                     font: EnsembleDesign.Typography.statusBadgeIcon,
                     width: EnsembleScaffold.UtilityRow.inlineIconWidth
                 )
             }
-            if section.capabilities?.hasLyrics == true {
+            if section.lyricsSupport.isSupported {
                 EnsembleUtilityIcon(
                     EnsembleDesign.Icon.lyrics,
                     font: EnsembleDesign.Typography.statusBadgeIcon,
                     width: EnsembleScaffold.UtilityRow.inlineIconWidth
                 )
             }
-            if section.capabilities?.hasRadio == true {
+            if section.radioSupport.isSupported {
                 EnsembleUtilityIcon(
                     EnsembleDesign.Icon.infinity,
                     font: EnsembleDesign.Typography.statusBadgeIcon,

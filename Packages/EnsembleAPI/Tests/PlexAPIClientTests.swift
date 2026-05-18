@@ -129,6 +129,29 @@ final class PlexAPIClientTests: XCTestCase {
         XCTAssertNotNil(device.bestConnection)
     }
 
+    func testServerCapabilitiesExposeTriStateFeatureSupport() {
+        let unknown = PlexServerCapabilities()
+        XCTAssertEqual(unknown.lyricsSupport, .unknown)
+        XCTAssertEqual(unknown.radioSupport, .unknown)
+        XCTAssertEqual(unknown.plexPassSupport, .unknown)
+
+        let unsupported = PlexServerCapabilities(
+            myPlexSubscription: false,
+            ownerFeatures: "collections,home"
+        )
+        XCTAssertEqual(unsupported.lyricsSupport, .unsupported)
+        XCTAssertEqual(unsupported.radioSupport, .unsupported)
+        XCTAssertEqual(unsupported.plexPassSupport, .unsupported)
+
+        let supported = PlexServerCapabilities(
+            myPlexSubscription: nil,
+            ownerFeatures: "lyrics,shared-radio,pass"
+        )
+        XCTAssertEqual(supported.lyricsSupport, .supported)
+        XCTAssertEqual(supported.radioSupport, .supported)
+        XCTAssertEqual(supported.plexPassSupport, .supported)
+    }
+
     func testDeletePlaylistBuildsDeleteRequest() async throws {
         let keychain = TestKeychain()
         let client = PlexAPIClient(
