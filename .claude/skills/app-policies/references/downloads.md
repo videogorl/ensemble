@@ -14,7 +14,7 @@ Load this reference for offline download targets, download queue behavior, trans
 - Some Plex servers reject offline transcode even when original downloads work. Mark unsupported servers, avoid repeated failing transcode attempts, and allow original-quality fallback for those servers.
 - Quality refresh requeues completed downloads only when stored quality differs from the current download quality and the server supports the requested mode.
 - Full target progress recomputation is coalesced during playback/background load. Per-track completion may refresh owning targets for UI accuracy without rebuilding every target on each queue event.
-- Offline lyric sidecar work includes chord streams. Chord caches are stream-specific and separate from normal lyrics, persist raw sidecar content for offline playback, revalidate against Plex stream metadata when online, and treat local chord caches as soft with a 24-hour expiry.
+- Offline lyric sidecar work includes chord streams. Chord caches are stream-specific and separate from normal lyrics, persist raw sidecar content for offline playback, and revalidate against Plex stream metadata when online. When online, chord streams should try to fetch fresh raw sidecar content before using memory or disk cache; disk cache is a fallback for raw fetch failures and offline playback. Treat online local chord caches as soft with a 24-hour expiry.
 
 ## Owners
 

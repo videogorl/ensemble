@@ -502,10 +502,28 @@ public final class LyricsService: ObservableObject {
     private func fetchLyrics(for track: Track) async -> LyricsBundle {
         EnsembleLogger.debug("Lyrics: starting fetch for track \(track.id) (\(track.title))")
 
-        // Skip server fetch when offline — avoids triggering connection probes we know will fail
+        // Skip server fetch when offline, but allow downloaded/cached lyric sidecars
+        // to support playback without current Plex stream metadata.
         if syncCoordinator.isOffline {
+            let normal = Self.loadOfflineCachedState(for: track, mode: .lyrics)
+            let chords = Self.loadOfflineCachedState(for: track, mode: .chords)
+            if normal != nil || chords != nil {
+                EnsembleLogger.debug("Lyrics: offline, loaded cached sidecar state for track \(track.id)")
+                return LyricsBundle(
+                    normalState: normal?.0 ?? .notAvailable,
+                    normalSource: normal?.1 ?? .noApiClient,
+                    chordState: chords?.0 ?? .notAvailable,
+                    chordSource: chords?.1 ?? .noApiClient
+                )
+            }
+
             EnsembleLogger.debug("Lyrics: offline, no cached lyrics for track \(track.id)")
-            return LyricsBundle(normalState: .notAvailable, normalSource: .noApiClient, chordState: .notAvailable, chordSource: .noApiClient)
+            return LyricsBundle(
+                normalState: .notAvailable,
+                normalSource: .noApiClient,
+                chordState: .notAvailable,
+                chordSource: .noApiClient
+            )
         }
 
         // 2. Fetch track metadata to discover lyrics streams
@@ -599,23 +617,16 @@ public final class LyricsService: ObservableObject {
             let signature = Self.streamSignature(for: track, stream: stream)
             let key = Self.cacheKey(for: track, stream: stream, mode: .chords)
 
-            if let cached = loadCachedState(key: key) {
-                return (cached, .memoryCache)
-            }
-            if let cachedContent = loadFromPersistentCache(key: key, signature: signature, mode: .chords),
-               let parsed = Self.parseChordContent(cachedContent), parsed.containsChords {
-                let state = LyricsState.available(parsed)
-                setCached(state, forKey: key)
-                EnsembleLogger.debug("Lyrics: loaded chord lyrics from persistent cache (\(parsed.lines.count) lines)")
-                return (state, .persistentCache)
-            }
-
             do {
                 guard let content = try await apiClient.getRawLyricsContent(streamKey: streamKey) else {
+                    if let cached = cachedChordState(forKey: key, signature: signature) {
+                        return cached
+                    }
                     continue
                 }
                 guard !Task.isCancelled else { return (.notAvailable, .cancelled) }
                 guard let parsed = Self.parseChordContent(content), parsed.containsChords else {
+                    EnsembleLogger.debug("Lyrics: fetched chord stream \(stream.id) but content did not parse as chords")
                     continue
                 }
                 let state = LyricsState.available(parsed)
@@ -624,11 +635,31 @@ public final class LyricsService: ObservableObject {
                 return (state, .server)
             } catch {
                 if Task.isCancelled { return (.notAvailable, .cancelled) }
+                if let cached = cachedChordState(forKey: key, signature: signature) {
+                    return cached
+                }
                 continue
             }
         }
 
         return (.notAvailable, .parseFailed)
+    }
+
+    private func cachedChordState(
+        forKey key: String,
+        signature: LyricsStreamSignature
+    ) -> (LyricsState, LyricsSource)? {
+        if let cached = loadCachedState(key: key) {
+            return (cached, .memoryCache)
+        }
+        if let cachedContent = loadFromPersistentCache(key: key, signature: signature, mode: .chords),
+           let parsed = Self.parseChordContent(cachedContent), parsed.containsChords {
+            let state = LyricsState.available(parsed)
+            setCached(state, forKey: key)
+            EnsembleLogger.debug("Lyrics: loaded chord lyrics from persistent cache after fresh fetch failed (\(parsed.lines.count) lines)")
+            return (state, .persistentCache)
+        }
+        return nil
     }
 
     /// Parse lyrics content, trying LRC first then falling back to plain text
@@ -760,6 +791,41 @@ public final class LyricsService: ObservableObject {
 
     private nonisolated static func safeFilename(_ key: String) -> String {
         key.replacingOccurrences(of: "[^a-zA-Z0-9_-]", with: "_", options: .regularExpression)
+    }
+
+    private nonisolated static func loadOfflineCachedState(
+        for track: Track,
+        mode: LyricsMode
+    ) -> (LyricsState, LyricsSource)? {
+        let sourceKey = track.sourceCompositeKey ?? "local"
+        let prefix = safeFilename("\(track.id):\(sourceKey):\(mode.rawValue):")
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: lyricsCacheDir.path) else {
+            return nil
+        }
+
+        let decoder = JSONDecoder()
+        let entries = files.compactMap { file -> PersistentLyricsCacheEntry? in
+            guard file.hasPrefix(prefix) else { return nil }
+            let url = lyricsCacheDir.appendingPathComponent(file)
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            return try? decoder.decode(PersistentLyricsCacheEntry.self, from: data)
+        }
+        .sorted { $0.savedAt > $1.savedAt }
+
+        for entry in entries {
+            switch mode {
+            case .lyrics:
+                if let parsed = parseContent(entry.content, codec: entry.signature.codec), !parsed.lines.isEmpty {
+                    return (.available(parsed), .persistentCache)
+                }
+            case .chords:
+                if let parsed = parseChordContent(entry.content), parsed.containsChords {
+                    return (.available(parsed), .persistentCache)
+                }
+            }
+        }
+
+        return nil
     }
 
     private func loadFromPersistentCache(key: String, signature: LyricsStreamSignature, mode: LyricsMode) -> String? {
