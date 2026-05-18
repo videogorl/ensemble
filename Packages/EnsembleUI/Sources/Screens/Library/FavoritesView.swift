@@ -62,7 +62,7 @@ public struct FavoritesView: View {
             }
         }
         .onReceive(nowPlayingVM.$currentTrack) { track in
-            let id = track?.id
+            let id = track?.playbackIdentity
             if id != currentTrackId { currentTrackId = id }
         }
         .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in

@@ -167,7 +167,7 @@ struct StageFlowTrackPanel: View {
             }
         }
         .onReceive(nowPlayingVM.$currentTrack) { track in
-            let trackID = track?.id
+            let trackID = track?.playbackIdentity
             if trackID != currentTrackId {
                 currentTrackId = trackID
             }

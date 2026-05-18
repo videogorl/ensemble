@@ -206,7 +206,7 @@ struct GenreDetailContentView: View {
         SongsTrackListHost(
             tracks: tracks,
             configuration: .songs(
-                currentTrackId: nowPlayingVM.currentTrack?.id,
+                currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
                 bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
                 supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                 interactionModel: TrackRowInteractionModel()
@@ -229,7 +229,7 @@ struct GenreDetailContentView: View {
                 SongsTrackListHost(
                     tracks: tracks,
                     configuration: .songs(
-                        currentTrackId: nowPlayingVM.currentTrack?.id,
+                        currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
                         supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                         interactionModel: TrackRowInteractionModel()
                     )

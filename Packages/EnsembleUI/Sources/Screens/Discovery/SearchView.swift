@@ -1003,7 +1003,7 @@ public struct SearchView: View {
 
     private func playSearchResult(_ track: Track) {
         handleSearchResultNavigation()
-        if let index = viewModel.trackResults.firstIndex(where: { $0.id == track.id }) {
+        if let index = viewModel.trackResults.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) {
             nowPlayingVM.play(tracks: viewModel.trackResults, startingAt: index)
         }
     }

@@ -240,7 +240,7 @@ public struct SongsView: View {
 
                     SongsTrackListHost(
                         sections: largeScreenTrackSections,
-                        currentTrackId: nowPlayingVM.currentTrack?.id,
+                        currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
                         availabilityGeneration: availabilityGeneration,
                         activeDownloadRatingKeys: activeDownloadRatingKeys,
                         bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
@@ -301,7 +301,7 @@ public struct SongsView: View {
     private func largeScreenIndexedSongList(width: CGFloat) -> some View {
         SongsTrackListHost(
             sections: largeScreenTrackSections,
-            currentTrackId: nowPlayingVM.currentTrack?.id,
+            currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,
             bottomContentInset: largeScreenSongListBottomInset,
@@ -317,7 +317,7 @@ public struct SongsView: View {
     private func largeScreenFlatSongList(width: CGFloat) -> some View {
         SongsTrackListHost(
             tracks: libraryVM.filteredTracks,
-            currentTrackId: nowPlayingVM.currentTrack?.id,
+            currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,
             bottomContentInset: largeScreenSongListBottomInset,
@@ -392,7 +392,7 @@ public struct SongsView: View {
     }
 
     private func playTrack(_ track: Track) {
-        if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+        if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) {
             nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
         }
     }
@@ -417,7 +417,7 @@ public struct SongsView: View {
                 showArtwork: true,
                 showTrackNumbers: false,
                 groupByDisc: false,
-                currentTrackId: nowPlayingVM.currentTrack?.id,
+                currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadRatingKeys: activeDownloadRatingKeys,
                 onPlayNext: { track in
@@ -461,7 +461,7 @@ public struct SongsView: View {
                 },
                 recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
             ) { track, _ in
-                if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+                if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) {
                     nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
                 }
             }
@@ -479,7 +479,7 @@ public struct SongsView: View {
             showArtwork: true,
             showTrackNumbers: false,
             groupByDisc: false,
-            currentTrackId: nowPlayingVM.currentTrack?.id,
+            currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,
             managesOwnScrolling: true,
@@ -531,7 +531,7 @@ public struct SongsView: View {
         #else
         SongsTrackListHost(
             tracks: libraryVM.filteredTracks,
-            currentTrackId: nowPlayingVM.currentTrack?.id,
+            currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,
             bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,

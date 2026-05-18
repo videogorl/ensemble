@@ -357,7 +357,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 showArtwork: showArtwork,
                 showTrackNumber: showTrackNumbers,
                 showAlbumName: showAlbumName,
-                isPlaying: track.id == currentTrackId,
+                isPlaying: track.playbackIdentity == currentTrackId,
                 isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
                 isActivelyDownloading: activeDownloadRatingKeys.contains(track.id),
                 isFavorited: resolvedActions.isFavorited,
@@ -685,13 +685,14 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         durationField.isHidden = isPlaying
         alphaValue = isUnavailableOffline ? 0.45 : 1
 
+        let playbackIdentity = track.playbackIdentity
         if !showArtwork {
             artworkLoadTask?.cancel()
             artworkLoadTask = nil
-            currentTrackID = track.id
+            currentTrackID = playbackIdentity
             artworkImageView.image = nil
-        } else if currentTrackID != track.id {
-            currentTrackID = track.id
+        } else if currentTrackID != playbackIdentity {
+            currentTrackID = playbackIdentity
             artworkImageView.image = nil
             loadArtwork(for: track, artworkLoader: artworkLoader)
         }
@@ -884,7 +885,7 @@ private final class MacNativeTrackTableCell: NSTableCellView {
                 fallbackRatingKey: track.fallbackRatingKey,
                 size: ArtworkSize.thumbnail.rawValue
             ) else {
-                if currentTrackID == track.id {
+                if currentTrackID == track.playbackIdentity {
                     artworkImageView.image = nil
                 }
                 return
@@ -892,14 +893,14 @@ private final class MacNativeTrackTableCell: NSTableCellView {
 
             let request = ImageRequest(url: url)
             if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                if currentTrackID == track.id {
+                if currentTrackID == track.playbackIdentity {
                     artworkImageView.image = cachedImage.image
                 }
                 return
             }
 
             if let image = try? await ImagePipeline.shared.image(for: request),
-               currentTrackID == track.id {
+               currentTrackID == track.playbackIdentity {
                 artworkImageView.image = image
             }
         }

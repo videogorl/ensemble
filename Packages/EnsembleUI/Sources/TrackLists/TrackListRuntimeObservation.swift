@@ -39,7 +39,7 @@ private struct NowPlayingTrackListObservationModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onReceive(nowPlayingVM.$currentTrack.map { $0?.id }.removeDuplicates()) { id in
+            .onReceive(nowPlayingVM.$currentTrack.map { $0?.playbackIdentity }.removeDuplicates()) { id in
                 if id != currentTrackId {
                     currentTrackId = id
                 }

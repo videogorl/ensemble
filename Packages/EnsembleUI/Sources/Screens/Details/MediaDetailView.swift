@@ -999,12 +999,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
             onRemoveFromPlaylist: playlistTrackRemovalHandler.map { handler in
                 { track, _ in
-                    let displayIndex = viewModel.filteredTracks.firstIndex { $0.id == track.id } ?? 0
+                    let displayIndex = viewModel.filteredTracks.firstIndex { $0.playbackIdentity == track.playbackIdentity } ?? 0
                     handler(track, displayIndex)
                 }
             }
         ) { track, _ in
-            if let index = viewModel.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+            if let index = viewModel.filteredTracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
             }
         }

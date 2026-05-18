@@ -139,6 +139,15 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         MediaFormatters.trackClock(duration)
     }
 
+    /// UI playback identity for row highlighting and other local current-track checks.
+    /// Plex rating keys are only unique within a server/library, so include source scope when present.
+    public var playbackIdentity: String {
+        guard let sourceCompositeKey, !sourceCompositeKey.isEmpty else {
+            return id
+        }
+        return "\(sourceCompositeKey)||\(id)"
+    }
+
     private static func normalizedTrackTitle(
         rawTitle: String,
         localFilePath: String?,

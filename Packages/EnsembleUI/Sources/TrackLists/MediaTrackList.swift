@@ -330,8 +330,9 @@ public class TrackTableViewCell: UITableViewCell {
         // Load artwork if needed
         if showArtwork {
             // Only load artwork if track changed
-            if currentTrackID != track.id {
-                currentTrackID = track.id
+            let playbackIdentity = track.playbackIdentity
+            if currentTrackID != playbackIdentity {
+                currentTrackID = playbackIdentity
                 artworkImageView.backgroundColor = UIColor.systemGray5
                 
                 // Cancel any previous artwork load task
@@ -347,7 +348,7 @@ public class TrackTableViewCell: UITableViewCell {
                     size: ArtworkSize.thumbnail.rawValue
                 ) else {
                     // No artwork available - clear any stale image from cell reuse
-                    if self.currentTrackID == track.id {
+                    if self.currentTrackID == playbackIdentity {
                         self.artworkImageView.image = nil
                     }
                     return
@@ -358,7 +359,7 @@ public class TrackTableViewCell: UITableViewCell {
                 // Check cache first for instant display
                 if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
                     // Only update if still showing same track
-                    if self.currentTrackID == track.id {
+                    if self.currentTrackID == playbackIdentity {
                         self.artworkImageView.image = cachedImage.image
                     }
                     return
@@ -367,7 +368,7 @@ public class TrackTableViewCell: UITableViewCell {
                 // Load asynchronously if not cached
                 if let image = try? await ImagePipeline.shared.image(for: request) {
                     // Only update if still showing same track
-                    if self.currentTrackID == track.id {
+                    if self.currentTrackID == playbackIdentity {
                         self.artworkImageView.image = image
                     }
                 }
@@ -866,7 +867,7 @@ public struct MediaTrackList: UIViewRepresentable {
                    indexPath.section < newGroupedTracks.count,
                    indexPath.row < newGroupedTracks[indexPath.section].tracks.count {
                     let track = newGroupedTracks[indexPath.section].tracks[indexPath.row]
-                    let isPlaying = track.id == currentTrackId
+                    let isPlaying = track.playbackIdentity == currentTrackId
                     trackCell.configure(
                         with: track,
                         showArtwork: showArtwork,
@@ -1082,7 +1083,7 @@ public struct MediaTrackList: UIViewRepresentable {
             let cell = tableView.dequeueReusableCell(withIdentifier: "TrackCell", for: indexPath) as! TrackTableViewCell
             cell.backgroundColor = .clear
             guard let track = track(at: indexPath) else { return cell }
-            let isPlaying = track.id == currentTrackId
+            let isPlaying = track.playbackIdentity == currentTrackId
             cell.configure(
                 with: track,
                 showArtwork: showArtwork,

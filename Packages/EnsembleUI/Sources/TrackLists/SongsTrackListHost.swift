@@ -218,7 +218,7 @@ public struct SongsTrackListHost: View {
                 interactionModel: configuration.interactionModel,
                 supplementalMetadataWidth: configuration.supplementalMetadataWidth
             ) { track, _ in
-                onTrackTap(track, allTracks.firstIndex(where: { $0.id == track.id }) ?? 0)
+                onTrackTap(track, allTracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) ?? 0)
             }
             .frame(height: height)
         }
