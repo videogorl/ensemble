@@ -17,6 +17,7 @@ Load the smallest relevant set of skills before non-trivial work:
 | Skill | Load when... |
 |---|---|
 | `project-structure` | Locating files, adding files, or checking package ownership |
+| `app-policies` | Changing app behavior, playback, queue, offline/connectivity, downloads, sync/refresh, mutations, platform UI behavior, or verification expectations |
 | `architecture` | Designing features, adding services, or touching multiple packages |
 | `code-style` | Writing Swift or changing coding conventions |
 | `ui-conventions` | Building or modifying SwiftUI, navigation, loading, or error UI |
@@ -27,6 +28,12 @@ Load the smallest relevant set of skills before non-trivial work:
 | `plex-api` | Implementing or debugging Plex API, streaming, playback tracking, playlists, hubs, search, or sync endpoints |
 
 Add another skill when the task crosses that boundary. Do not load every skill by default; long skills and references should stay out of context unless they are relevant.
+
+## Policy-First Workflow
+
+Before changing durable app behavior, load `app-policies` and the relevant policy reference(s). Follow the existing policy unless the task explicitly requires a behavior change. If implementation creates, removes, or clarifies behavior, update the relevant `app-policies` reference in the same logical change before handing work back.
+
+Use policy docs for behavior contracts, not historical notes. Keep `architecture` for package/service ownership, `ui-conventions` for UI implementation conventions, `testing` for verification execution, `known-issues` for active limitations, and `plex-api` for PMS endpoint details.
 
 ## Workflow
 
@@ -57,6 +64,7 @@ Update docs only when the change creates information future agents or users need
 
 | Change | Update |
 |---|---|
+| Durable app behavior policy, including playback, queue, offline/connectivity, downloads, sync/refresh, mutations, platform UI behavior, or verification expectations | `app-policies` skill |
 | New service, subsystem, package boundary, or major ownership rule | `architecture` skill |
 | New file or moved ownership boundary | `project-structure` skill |
 | New recipe, call convention, or implementation pattern | `common-tasks` skill |

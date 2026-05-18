@@ -21,7 +21,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 | `Ensemble.xcodeproj` | Project file, not the primary entry point. |
 | `CLAUDE.md` | Canonical agent operating contract. |
 | `AGENTS.md` | Symlink to `CLAUDE.md` for agents that discover AGENTS.md by convention. |
-| `.claude/skills/` | Project-specific agent skills. |
+| `.claude/skills/` | Project-specific agent skills, including `app-policies` for canonical app behavior policy. |
 | `.claude/hooks/` | Claude hook scripts. |
 | `docs/investigations/` | Historical audits, resolved incidents, and closeout notes. |
 | `docs/reference/` | Long-form reference material that should not be loaded by default. |

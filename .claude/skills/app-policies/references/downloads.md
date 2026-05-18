@@ -1,0 +1,38 @@
+# Downloads Policy
+
+Load this reference for offline download targets, download queue behavior, transfer retry/fallback, background execution, quality refresh, progress publication, or download UI status.
+
+## Policies
+
+- `OfflineDownloadService` is the target and queue source of truth. Platform lifecycle events route through offline coordinators and then into the service.
+- Downloads are target-based. Library, album, artist, playlist, and favorites targets resolve memberships, enqueue missing tracks, and clean up shared tracks by reference count.
+- Download lookup, persistence, and deletion must be source-aware: use `ratingKey + sourceCompositeKey` so libraries and servers do not collide.
+- Queue policy is Wi-Fi/wired only by default. Active downloads pause on cellular or offline network state unless settings explicitly allow the path.
+- User pause, Low Power Mode, app backgrounding, and iOS continued-processing windows all feed the same scheduler. The queue should pause aggressively on constrained devices without losing resumability.
+- Background execution is an accelerator, not the source of truth. Persistent queue state must resume under normal foreground/background opportunities when OS background execution is rejected, cancelled, or expired.
+- Launch recovery is lightweight: repair stale `.downloading` records and publish target shells first, then defer file healing, truncation scans, cleanup, and full progress recomputation.
+- Some Plex servers reject offline transcode even when original downloads work. Mark unsupported servers, avoid repeated failing transcode attempts, and allow original-quality fallback for those servers.
+- Quality refresh requeues completed downloads only when stored quality differs from the current download quality and the server supports the requested mode.
+- Full target progress recomputation is coalesced during playback/background load. Per-track completion may refresh owning targets for UI accuracy without rebuilding every target on each queue event.
+
+## Owners
+
+- `OfflineDownloadService` owns targets, queue facade state, progress publication, recovery entry points, and download source of truth.
+- `DownloadQueueCoordinator` owns queue task lifecycle, worker fan-out, background wake handling, and wind-down/restart decisions.
+- `DownloadRetryPolicy` owns transfer retry accounting and direct-original fallback gating.
+- `DownloadTransferExecutor` owns download-queue vs direct-original transfer execution, validation, completion recovery, and post-processing.
+- `DownloadTargetReconciler`, `OfflineDownloadCleanupCoordinator`, and `OfflineDownloadTargetProgressController` own membership reconciliation, orphan cleanup, and progress refresh.
+- `OfflineBackgroundExecutionCoordinator` owns OS background execution windows and URLSession completion-handler handoff.
+
+## Implementation Hooks
+
+- Route user-facing target toggles, removals, remove-all, pause, and resume through `DownloadMutationWorkflow` when views or view models initiate them.
+- Use debounced `downloadsDidChange` fan-out through `OfflineDownloadNotificationBridge`; avoid per-track publish storms during bulk downloads.
+- Keep FFT, artwork, and lyrics sidecar work background priority and serialized where needed so downloads do not starve playback or low-RAM devices.
+- Do not instantiate download workers when there are no pending downloads.
+
+## Verification
+
+- Run focused `EnsembleCore` download tests after policy changes: queue coordinator, retry policy, service policy, transfer executor, target reconciler, cleanup, progress controller, and view model tests as applicable.
+- Use simulator or device evidence for user-visible Downloads queue behavior, especially pause/resume, network transitions, quality refresh, or background recovery.
+- Use performance gates when changing Downloads queue behavior or high-frequency progress publication.

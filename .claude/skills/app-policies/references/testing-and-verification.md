@@ -1,0 +1,36 @@
+# Testing And Verification Policy
+
+Load this reference when choosing verification for policy-changing work or changing what counts as done. The `testing` skill remains the canonical execution guide for commands and coverage expectations.
+
+## Policies
+
+- Non-trivial behavior changes require affected package tests. User-visible behavior changes also require simulator validation unless a blocker is documented.
+- Policy changes should be verified in the same logical change as implementation changes.
+- Performance-sensitive SwiftUI, playback, download, Feed launch/refresh, root chrome, and observation changes require targeted tests plus runtime or performance evidence.
+- Plex streaming or playback transport changes require live PMS endpoint checks with `.env` credentials before code changes and targeted playback verification afterward.
+- CoreData model changes require recompiling the SwiftPM model bundle and running persistence plus dependent package tests.
+- Skill or agent workflow changes require skill validation and static discoverability checks.
+- If verification is skipped, blocked, or narrowed, document the exact blocker and residual risk in the final handoff.
+
+## Owners
+
+- `testing` skill owns canonical verification commands, scope selection, and definition of done.
+- `simulator-test` skill owns simulator launch, UI driving, screenshots, and log capture.
+- `plex-api` skill owns live Plex endpoint probes and endpoint-specific requirements.
+- `app-policies` owns policy-aware expectations and documentation verification.
+
+## Implementation Hooks
+
+- Select the smallest verification set that covers the changed behavior and package ownership.
+- Run package tests for changed Swift packages before full app tests unless the change crosses app-level integration boundaries.
+- Prefer simulator proof for visible UI/playback/refresh/download behavior instead of relying only on unit tests.
+- Use `scripts/capture_performance_gate.sh` when changing observation, root chrome, Feed launch/refresh, or Downloads queue behavior.
+- Use `scripts/check_core_warning_budget.sh` for relevant `EnsembleCore` refactors.
+
+## Verification
+
+- For policy-skill edits, run:
+  - `/Users/felicity/.claude/skills/.system/skill-creator/scripts/quick_validate.py .claude/skills/app-policies`
+  - `rg "app-policies|Policy-First|offline|downloads|queue|refresh" CLAUDE.md .claude/skills/app-policies`
+- Confirm every policy reference is linked from `SKILL.md`.
+- No Swift build is required for documentation-only policy changes unless Swift code also changes.
