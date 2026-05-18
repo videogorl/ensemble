@@ -35,6 +35,7 @@ public struct DownloadedItemSummary: Identifiable, Equatable {
     public let completedTrackCount: Int
     public let totalTrackCount: Int
     public let downloadedBytes: Int64
+    public let sourceDisplayText: String?
     /// Resolved artwork path for display — populated asynchronously from library/playlist repositories
     public var thumbPath: String?
 }
@@ -85,9 +86,10 @@ public final class DownloadsViewModel: ObservableObject {
         // Without this, every publish creates items with thumbPath=nil which always
         // differs from existing items that have resolved paths, causing artwork flashing.
         offlineDownloadService.$targets
-            .sink { [weak self] snapshots in
+            .combineLatest(accountManager.$plexAccounts)
+            .sink { [weak self] snapshots, _ in
                 guard let self else { return }
-                var mapped = Self.mapItems(from: snapshots)
+                var mapped = Self.mapItems(from: snapshots, accountManager: self.accountManager)
 
                 // Carry forward thumbPaths from existing items to avoid nil→resolved flicker
                 let existingThumbs = Dictionary(
@@ -279,7 +281,10 @@ public final class DownloadsViewModel: ObservableObject {
 
     // MARK: - Private
 
-    private static func mapItems(from snapshots: [OfflineDownloadTargetSnapshot]) -> [DownloadedItemSummary] {
+    static func mapItems(
+        from snapshots: [OfflineDownloadTargetSnapshot],
+        accountManager: AccountManager
+    ) -> [DownloadedItemSummary] {
         snapshots
             .filter { $0.kind != .library }
             .map {
@@ -295,6 +300,7 @@ public final class DownloadsViewModel: ObservableObject {
                     completedTrackCount: $0.completedTrackCount,
                     totalTrackCount: $0.totalTrackCount,
                     downloadedBytes: $0.downloadedBytes,
+                    sourceDisplayText: sourceDisplayText(for: $0, accountManager: accountManager),
                     thumbPath: nil
                 )
             }
@@ -304,8 +310,20 @@ public final class DownloadsViewModel: ObservableObject {
                 if lhsPriority != rhsPriority {
                     return lhsPriority < rhsPriority
                 }
-                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                let titleOrder = lhs.title.localizedCaseInsensitiveCompare(rhs.title)
+                if titleOrder != .orderedSame {
+                    return titleOrder == .orderedAscending
+                }
+                return (lhs.sourceDisplayText ?? "").localizedCaseInsensitiveCompare(rhs.sourceDisplayText ?? "") == .orderedAscending
             }
+    }
+
+    private static func sourceDisplayText(
+        for snapshot: OfflineDownloadTargetSnapshot,
+        accountManager: AccountManager
+    ) -> String? {
+        guard snapshot.kind == .artist else { return nil }
+        return accountManager.sourceLibraryContext(for: snapshot.sourceCompositeKey)?.displaySubtitle
     }
 
     /// Resolves artwork thumb paths for all items from library/playlist repositories and updates the published list.

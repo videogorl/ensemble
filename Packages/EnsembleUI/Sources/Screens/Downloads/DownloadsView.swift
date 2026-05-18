@@ -502,6 +502,13 @@ private struct DownloadedItemRow: View {
                         .font(EnsembleDesign.Typography.rowSecondary)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
+
+                    if let sourceDisplayText = item.sourceDisplayText {
+                        Text(sourceDisplayText)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                            .lineLimit(1)
+                    }
                 }
 
                 Spacer()
