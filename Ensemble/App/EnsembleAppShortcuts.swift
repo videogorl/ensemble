@@ -357,6 +357,33 @@ struct PlayEnsembleArtistIntent: AppIntent {
     }
 }
 
+/// AppIntent fallback for shuffled artist playback when SiriKit drops the media item slot.
+@available(iOS 16.0, *)
+struct ShuffleEnsembleArtistIntent: AppIntent {
+    static var title: LocalizedStringResource = "Shuffle Artist in Ensemble"
+    static var description = IntentDescription("Shuffles music by a specific artist from your Ensemble library.")
+    static var openAppWhenRun: Bool = true
+
+    @Parameter(title: "Artist")
+    var artist: EnsembleArtistEntity
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        SiriAppShortcutLogger.logger.info(
+            "SIRI_SHORTCUT: perform shuffle artist title='\(artist.title, privacy: .private)' id='\(artist.id, privacy: .private)'"
+        )
+        let parsedID = parseCompositeEntityID(artist.id)
+        try await SiriShortcutPlaybackExecutor.play(
+            kind: .artist,
+            ratingKey: parsedID.ratingKey,
+            sourceCompositeKey: parsedID.sourceCompositeKey,
+            displayName: artist.title,
+            shuffle: true
+        )
+        return .result(dialog: IntentDialog("Shuffling \(artist.title) in Ensemble."))
+    }
+}
+
 /// AppIntent fallback for album playback when SiriKit media-domain routing misses the app.
 @available(iOS 16.0, *)
 struct PlayEnsembleAlbumIntent: AppIntent {
@@ -468,6 +495,20 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
             ],
             shortTitle: "Play Artist",
             systemImageName: "music.mic"
+        )
+
+        AppShortcut(
+            intent: ShuffleEnsembleArtistIntent(),
+            phrases: [
+                "Shuffle artist \(\.$artist) on \(.applicationName)",
+                "Shuffle the artist \(\.$artist) on \(.applicationName)",
+                "Shuffle \(\.$artist) on \(.applicationName)",
+                "Shuffle \(\.$artist) artist on \(.applicationName)",
+                "In \(.applicationName), shuffle the artist \(\.$artist)",
+                "In \(.applicationName), shuffle artist \(\.$artist)"
+            ],
+            shortTitle: "Shuffle Artist",
+            systemImageName: "shuffle"
         )
 
         AppShortcut(

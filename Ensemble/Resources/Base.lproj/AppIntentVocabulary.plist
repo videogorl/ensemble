@@ -12,6 +12,8 @@
 				<string>Play this album in Ensemble</string>
 				<string>Shuffle my playlist in Ensemble</string>
 				<string>Shuffle the playlist in Ensemble</string>
+				<string>Shuffle this artist in Ensemble</string>
+				<string>Shuffle the artist in Ensemble</string>
 			</array>
 			<key>IntentName</key>
 			<string>INPlayMediaIntent</string>
