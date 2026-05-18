@@ -17,6 +17,7 @@ final class SyncExecutionController {
         let removeDuplicatePlaylists: () async -> Void
         let publishProgress: (MusicSourceIdentifier, Double) -> Void
         let processReparentedTracks: () async -> Void
+        let processArtworkInvalidations: () async -> Void
         let cacheArtworkForSource: (MusicSourceIdentifier, MusicSourceSyncProvider) async -> Void
         let cacheAlbumArtwork: (MusicSourceIdentifier, MusicSourceSyncProvider) async -> Void
         let cacheArtistArtwork: (MusicSourceIdentifier, MusicSourceSyncProvider) async -> Void
@@ -310,6 +311,7 @@ final class SyncExecutionController {
             )
 
             await dependencies.processReparentedTracks()
+            await dependencies.processArtworkInvalidations()
 
             if cacheArtworkAfterLibrarySync {
                 await dependencies.cacheArtworkForSource(source, provider)
@@ -323,6 +325,11 @@ final class SyncExecutionController {
                 progressBase: playlistProgressBase,
                 progressWeight: playlistProgressWeight
             )
+            await dependencies.processArtworkInvalidations()
+
+            if cacheArtworkAfterLibrarySync, playlistResult != nil {
+                await dependencies.cachePlaylistArtwork(source, provider)
+            }
 
             let syncedAt = Date()
             let resolvedConnectionState = await dependencies.connectionStateAfterSuccessfulSync(
@@ -389,6 +396,7 @@ final class SyncExecutionController {
             )
 
             await dependencies.processReparentedTracks()
+            await dependencies.processArtworkInvalidations()
 
             let playlistPhaseStart = CFAbsoluteTimeGetCurrent()
             let playlistResult = try await syncPlaylistsIfNeeded(
@@ -405,6 +413,8 @@ final class SyncExecutionController {
                     "⏱️ SyncCoordinator: playlist phase took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistPhaseStart))s"
                 )
             }
+
+            await dependencies.processArtworkInvalidations()
 
             if cacheArtworkAfterSync {
                 await dependencies.cacheAlbumArtwork(source, provider)

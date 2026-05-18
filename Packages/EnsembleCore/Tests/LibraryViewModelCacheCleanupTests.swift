@@ -33,6 +33,25 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         }
     }
 
+    private final class RecordingArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
+        private(set) var clearArtworkCacheCallCount = 0
+
+        func getLocalArtworkPath(for album: CDAlbum) async throws -> String? { nil }
+        func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { nil }
+        func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { nil }
+        func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws {}
+        func deleteArtwork(ratingKey: String, type: ArtworkType) {}
+        func deleteArtwork(forRatingKeys ratingKeys: Set<String>) {}
+
+        func clearArtworkCache() async throws {
+            clearArtworkCacheCallCount += 1
+        }
+
+        func getArtworkCacheSize() async throws -> Int64 {
+            0
+        }
+    }
+
     func testLoadLibraryPurgesAllCachedLibraryDataWhenNoAccountsExist() async throws {
         let harness = makeHarness()
         try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: "plex:account-1:server-1:lib-1")
@@ -49,18 +68,25 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         try await waitForDeferredOfflineCleanup(harness: harness)
     }
 
-    func testLoadLibraryPurgesAllCachedLibraryDataWhenNoLibrariesAreEnabled() async throws {
+    func testLoadLibraryPreservesCachedLibraryDataWhenConfiguredAccountHasNoEnabledLibraries() async throws {
         let harness = makeHarness()
+        let sourceKey = "plex:account-1:server-1:lib-1"
         harness.accountManager.addPlexAccount(
             makeAccount(libraries: [("lib-1", "Library One", false)])
         )
-        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: "plex:account-1:server-1:lib-1")
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
 
         let viewModel = makeViewModel(harness: harness)
         await viewModel.loadLibrary()
 
         XCTAssertTrue(viewModel.tracks.isEmpty)
-        try await waitForDeferredCleanup(repository: harness.libraryRepository)
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+
+        let sourceKeys = Set(try await harness.libraryRepository.fetchMusicSources().map(\.compositeKey))
+        XCTAssertEqual(sourceKeys, [sourceKey])
+
+        let trackSourceKeys = Set(try await harness.libraryRepository.fetchTracks().compactMap(\.sourceCompositeKey))
+        XCTAssertEqual(trackSourceKeys, [sourceKey])
     }
 
     func testLoadLibraryPurgesCachedSourcesThatAreNoLongerEnabled() async throws {
@@ -165,6 +191,36 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         try await waitForDeferredOfflineCleanup(harness: harness)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarURL.path))
+    }
+
+    func testCacheManagerClearArtworkCachesPreservesLibraryAndDownloadState() async throws {
+        let harness = makeHarness()
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
+        try await seedOfflineDownload(harness: harness, sourceKey: sourceKey, trackRatingKey: "track-lib-1")
+        let artworkDownloadManager = RecordingArtworkDownloadManager()
+        let cacheManager = CacheManager(
+            libraryRepository: harness.libraryRepository,
+            artworkDownloadManager: artworkDownloadManager,
+            downloadManager: harness.downloadManager,
+            lyricsService: LyricsService(syncCoordinator: harness.syncCoordinator)
+        )
+
+        let before = try await cacheManager.cleanupSnapshot()
+        XCTAssertEqual(before.libraryItemCount, 1)
+        XCTAssertEqual(before.sourceCount, 1)
+        XCTAssertEqual(before.downloadRecordCount, 1)
+
+        try await cacheManager.clearArtworkCaches()
+
+        let after = try await cacheManager.cleanupSnapshot()
+        XCTAssertEqual(after.libraryItemCount, before.libraryItemCount)
+        XCTAssertEqual(after.sourceCount, before.sourceCount)
+        XCTAssertEqual(after.downloadRecordCount, before.downloadRecordCount)
+        XCTAssertEqual(after.completedDownloadCount, before.completedDownloadCount)
+        let targets = try await harness.targetRepository.fetchTargets()
+        XCTAssertEqual(targets.count, 1)
+        XCTAssertEqual(artworkDownloadManager.clearArtworkCacheCallCount, 1)
     }
 
     private struct Harness {

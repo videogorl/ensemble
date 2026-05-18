@@ -1,5 +1,6 @@
 import EnsemblePersistence
 import Foundation
+import Nuke
 
 /// Types of cache that can be managed
 public enum CacheType: String, CaseIterable {
@@ -61,6 +62,10 @@ public final class CacheManager: ObservableObject {
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let downloadManager: DownloadManagerProtocol
     private let lyricsService: LyricsService
+    private let nukeCacheDirectoryNames = [
+        "com.ensemble.artwork",
+        "com.github.kean.Nuke"
+    ]
     public var sourceCacheCleanupService: SourceCacheCleaning?
 
     public init(
@@ -153,6 +158,19 @@ public final class CacheManager: ObservableObject {
         await refreshCacheInfo()
         let after = try await cleanupSnapshot()
         EnsembleLogger.info("CacheManager: cleared \(type.rawValue) (after: \(after.logDescription))")
+    }
+
+    /// Clear artwork-only caches without deleting library metadata, downloads, lyrics, or account state.
+    public func clearArtworkCaches() async throws {
+        let before = try await cleanupSnapshot()
+        EnsembleLogger.info("CacheManager: clearing artwork caches (before: \(before.logDescription))")
+
+        try await artworkDownloadManager.clearArtworkCache()
+        try await clearNukeImageCache()
+        await refreshCacheInfo()
+
+        let after = try await cleanupSnapshot()
+        EnsembleLogger.info("CacheManager: cleared artwork caches (after: \(after.logDescription))")
     }
     
     /// Clear all caches
@@ -249,23 +267,24 @@ public final class CacheManager: ObservableObject {
     }
     
     private func getNukeImageCacheSize() async throws -> Int64 {
-        // Nuke stores cache in Library/Caches/com.github.kean.Nuke
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let nukeCacheDir = cacheDir.appendingPathComponent("com.github.kean.Nuke")
-        
-        guard FileManager.default.fileExists(atPath: nukeCacheDir.path) else { return 0 }
-        
-        let contents = try FileManager.default.contentsOfDirectory(
-            at: nukeCacheDir,
-            includingPropertiesForKeys: [.fileSizeKey],
-            options: [.skipsHiddenFiles]
-        )
-        
         var totalSize: Int64 = 0
-        for url in contents {
-            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-            if let size = attributes[.size] as? Int64 {
-                totalSize += size
+
+        for directoryName in nukeCacheDirectoryNames {
+            let nukeCacheDir = cacheDir.appendingPathComponent(directoryName)
+            guard FileManager.default.fileExists(atPath: nukeCacheDir.path) else { continue }
+
+            let contents = try FileManager.default.contentsOfDirectory(
+                at: nukeCacheDir,
+                includingPropertiesForKeys: [.fileSizeKey],
+                options: [.skipsHiddenFiles]
+            )
+
+            for url in contents {
+                let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+                if let size = attributes[.size] as? Int64 {
+                    totalSize += size
+                }
             }
         }
         
@@ -287,12 +306,15 @@ public final class CacheManager: ObservableObject {
     }
     
     private func clearNukeImageCache() async throws {
-        // Clear Nuke's disk cache
+        ImagePipeline.shared.cache.removeAll()
+
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let nukeCacheDir = cacheDir.appendingPathComponent("com.github.kean.Nuke")
-        
-        if FileManager.default.fileExists(atPath: nukeCacheDir.path) {
-            try FileManager.default.removeItem(at: nukeCacheDir)
+
+        for directoryName in nukeCacheDirectoryNames {
+            let nukeCacheDir = cacheDir.appendingPathComponent(directoryName)
+            if FileManager.default.fileExists(atPath: nukeCacheDir.path) {
+                try FileManager.default.removeItem(at: nukeCacheDir)
+            }
         }
     }
     

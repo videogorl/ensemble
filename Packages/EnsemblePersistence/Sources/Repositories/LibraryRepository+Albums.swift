@@ -176,6 +176,19 @@ extension LibraryRepository {
                     let existing = try context.fetch(request).first
                     let album = existing ?? CDAlbum(context: context)
 
+                    if let existing {
+                        self.recordArtworkInvalidationIfNeeded(
+                            ratingKey: ratingKey,
+                            type: .album,
+                            oldThumbPath: existing.thumbPath,
+                            oldArtPath: existing.artPath,
+                            oldDateModified: existing.dateModified,
+                            newThumbPath: thumbPath,
+                            newArtPath: artPath,
+                            newDateModified: dateModified
+                        )
+                    }
+
                     album.ratingKey = ratingKey
                     album.key = key
                     album.title = title

@@ -122,6 +122,24 @@ public struct TrackReparentInfo: Sendable {
     }
 }
 
+public enum ArtworkInvalidationReason: String, Sendable, Hashable {
+    case pathChanged
+    case metadataModified
+}
+
+/// Describes artwork that should be evicted after sync metadata changes.
+public struct ArtworkInvalidationInfo: Sendable, Hashable {
+    public let ratingKey: String
+    public let type: ArtworkType
+    public let reason: ArtworkInvalidationReason
+
+    public init(ratingKey: String, type: ArtworkType, reason: ArtworkInvalidationReason) {
+        self.ratingKey = ratingKey
+        self.type = type
+        self.reason = reason
+    }
+}
+
 /// Summarizes how much persisted album/track genre metadata exists for a source.
 /// Used to detect restored stores that have the genre catalog but not the per-item genre fields.
 public struct GenreCoverageStats: Sendable, Equatable {
@@ -280,6 +298,9 @@ public protocol LibraryRepositoryProtocol: Sendable {
     /// Returns and clears any track reparent events accumulated during upsert operations.
     /// Called after sync to trigger artwork invalidation for tracks whose album changed.
     func drainTrackReparentInfo() -> [TrackReparentInfo]
+
+    /// Returns and clears artwork invalidations accumulated during artist/album upserts.
+    func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo]
 }
 
 public extension LibraryRepositoryProtocol {
@@ -299,6 +320,7 @@ public extension LibraryRepositoryProtocol {
     func updateTrackTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws {}
     func deleteTrack(ratingKey: String, sourceCompositeKey: String?) async throws {}
     func fetchGenreCoverageStats(forSource sourceKey: String) async throws -> GenreCoverageStats? { nil }
+    func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] { [] }
 }
 
 public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
@@ -308,6 +330,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
     // Protected by reparentLock; drained by SyncCoordinator after sync.
     private var pendingReparentInfo: [TrackReparentInfo] = []
     private let reparentLock = NSLock()
+    private var pendingArtworkInvalidationInfo: [ArtworkInvalidationInfo] = []
+    private let artworkInvalidationLock = NSLock()
 
     public init(coreDataStack: CoreDataStack = .shared) {
         self.coreDataStack = coreDataStack
@@ -325,6 +349,61 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         reparentLock.lock()
         defer { reparentLock.unlock() }
         pendingReparentInfo.append(info)
+    }
+
+    public func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] {
+        artworkInvalidationLock.lock()
+        defer { artworkInvalidationLock.unlock() }
+        let info = pendingArtworkInvalidationInfo
+        pendingArtworkInvalidationInfo = []
+        return info
+    }
+
+    func recordArtworkInvalidation(_ info: ArtworkInvalidationInfo) {
+        artworkInvalidationLock.lock()
+        defer { artworkInvalidationLock.unlock() }
+        guard !pendingArtworkInvalidationInfo.contains(where: {
+            $0.ratingKey == info.ratingKey && $0.type == info.type
+        }) else {
+            return
+        }
+        pendingArtworkInvalidationInfo.append(info)
+    }
+
+    func recordArtworkInvalidationIfNeeded(
+        ratingKey: String,
+        type: ArtworkType,
+        oldThumbPath: String?,
+        oldArtPath: String?,
+        oldDateModified: Date?,
+        newThumbPath: String?,
+        newArtPath: String?,
+        newDateModified: Date?
+    ) {
+        if oldThumbPath != newThumbPath || oldArtPath != newArtPath {
+            recordArtworkInvalidation(ArtworkInvalidationInfo(
+                ratingKey: ratingKey,
+                type: type,
+                reason: .pathChanged
+            ))
+            return
+        }
+
+        let hasArtworkPath = !(newThumbPath ?? oldThumbPath ?? newArtPath ?? oldArtPath ?? "").isEmpty
+        guard hasArtworkPath,
+              Self.dateModifiedSeconds(oldDateModified) != Self.dateModifiedSeconds(newDateModified) else {
+            return
+        }
+
+        recordArtworkInvalidation(ArtworkInvalidationInfo(
+            ratingKey: ratingKey,
+            type: type,
+            reason: .metadataModified
+        ))
+    }
+
+    private static func dateModifiedSeconds(_ date: Date?) -> Int? {
+        date.map { Int($0.timeIntervalSince1970) }
     }
 
     // MARK: - Context Refresh

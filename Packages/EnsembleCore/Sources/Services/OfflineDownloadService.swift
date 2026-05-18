@@ -1169,16 +1169,14 @@ public final class OfflineDownloadService: ObservableObject {
         guard let thumbPath, !thumbPath.isEmpty else { return }
 
         // Skip if already cached
-        let typeString: String
-        switch type {
-        case .album: typeString = "album"
-        case .artist: typeString = "artist"
-        case .playlist: typeString = "playlist"
-        case .track: typeString = "track"
+        if let cachedPath = try? await artworkDownloadManager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: type,
+            sourcePath: thumbPath,
+            dateModifiedSeconds: nil
+        ), FileManager.default.fileExists(atPath: cachedPath) {
+            return
         }
-        let cachedPath = ArtworkDownloadManager.artworkDirectory
-            .appendingPathComponent("\(ratingKey)_\(typeString).jpg").path
-        if FileManager.default.fileExists(atPath: cachedPath) { return }
 
         do {
             guard let artworkURL = try await syncCoordinator.getArtworkURL(
@@ -1189,12 +1187,16 @@ public final class OfflineDownloadService: ObservableObject {
 
             try await artworkDownloadManager.downloadAndCacheArtwork(
                 from: artworkURL,
-                ratingKey: ratingKey,
-                type: type
+                identity: ArtworkIdentity(
+                    ratingKey: ratingKey,
+                    type: type,
+                    sourcePath: thumbPath,
+                    dateModifiedSeconds: nil
+                )
             )
-            EnsembleLogger.debug("🖼️ Cached \(typeString) artwork for download target: \(ratingKey)")
+            EnsembleLogger.debug("🖼️ Cached \(type.rawValue) artwork for download target: \(ratingKey)")
         } catch {
-            EnsembleLogger.debug("⚠️ Failed caching \(typeString) artwork for target \(ratingKey): \(error.localizedDescription)")
+            EnsembleLogger.debug("⚠️ Failed caching \(type.rawValue) artwork for target \(ratingKey): \(error.localizedDescription)")
         }
     }
 

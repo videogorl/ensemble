@@ -191,6 +191,7 @@ final class CoreSpotlightSystemIndex: SystemSpotlightIndexing {
 #if !os(macOS)
 protocol SystemMediaIntentDonating: AnyObject {
     func donate(_ interaction: INInteraction) async throws
+    func deleteInteractions(withIdentifiers identifiers: [String]) async throws
 }
 
 protocol SystemMediaArtworkProviding: AnyObject {
@@ -205,6 +206,19 @@ final class LiveSystemMediaIntentDonor: SystemMediaIntentDonating {
     func donate(_ interaction: INInteraction) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             interaction.donate { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
+    func deleteInteractions(withIdentifiers identifiers: [String]) async throws {
+        guard !identifiers.isEmpty else { return }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            INInteraction.delete(with: identifiers) { error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else {
@@ -312,6 +326,8 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     private let siriMediaIndexStore: SiriMediaIndexStore
     private let mediaUserContextManager: SiriMediaUserContextManagerProtocol
     private let spotlightIndex: SystemSpotlightIndexing
+    private let notificationCenter: NotificationCenter
+    private var rebuildObserverToken: NSObjectProtocol?
 
     #if !os(macOS)
     private let intentDonor: SystemMediaIntentDonating
@@ -347,11 +363,14 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     init(
         siriMediaIndexStore: SiriMediaIndexStore,
         mediaUserContextManager: SiriMediaUserContextManagerProtocol,
-        spotlightIndex: SystemSpotlightIndexing
+        spotlightIndex: SystemSpotlightIndexing,
+        notificationCenter: NotificationCenter = .default
     ) {
         self.siriMediaIndexStore = siriMediaIndexStore
         self.mediaUserContextManager = mediaUserContextManager
         self.spotlightIndex = spotlightIndex
+        self.notificationCenter = notificationCenter
+        installRebuildObserver()
     }
     #else
     init(
@@ -360,7 +379,8 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         spotlightIndex: SystemSpotlightIndexing,
         intentDonor: SystemMediaIntentDonating,
         artworkProvider: SystemMediaArtworkProviding,
-        vocabularyRegistrar: SystemMediaVocabularyRegistering
+        vocabularyRegistrar: SystemMediaVocabularyRegistering,
+        notificationCenter: NotificationCenter = .default
     ) {
         self.siriMediaIndexStore = siriMediaIndexStore
         self.mediaUserContextManager = mediaUserContextManager
@@ -368,8 +388,29 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         self.intentDonor = intentDonor
         self.artworkProvider = artworkProvider
         self.vocabularyRegistrar = vocabularyRegistrar
+        self.notificationCenter = notificationCenter
+        installRebuildObserver()
     }
     #endif
+
+    deinit {
+        if let rebuildObserverToken {
+            notificationCenter.removeObserver(rebuildObserverToken)
+        }
+    }
+
+    private func installRebuildObserver() {
+        rebuildObserverToken = notificationCenter.addObserver(
+            forName: SiriMediaIndexNotifications.rebuildRequested,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.refreshSpotlightIndex()
+            }
+        }
+    }
 
     public func donatePlaybackStart(
         reference: SystemMediaReference,
@@ -405,16 +446,17 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     }
 
     public func refreshSpotlightIndex() async {
-        let index: SiriMediaIndex?
-        if let existingIndex = siriMediaIndexStore.loadIndexUnbounded(),
-           existingIndex.schemaVersion >= SiriMediaIndex.currentSchemaVersion {
-            index = existingIndex
-        } else {
-            index = await siriMediaIndexStore.rebuildIndex()
-        }
+        let previousIndex = siriMediaIndexStore.loadIndexUnbounded()
+        let rebuiltIndex = await siriMediaIndexStore.rebuildIndex()
+        let index = rebuiltIndex ?? previousIndex
         guard let index else {
             EnsembleLogger.debug("[SystemMedia] Spotlight refresh skipped; no media index")
             return
+        }
+
+        if let rebuiltIndex {
+            let staleReferences = Self.staleSystemMediaReferences(previous: previousIndex, current: rebuiltIndex)
+            await deleteUnavailableSystemMedia(staleReferences)
         }
 
         refreshSiriVocabulary(from: index)
@@ -436,14 +478,27 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     }
 
     public func deleteUnavailableSystemMedia(_ references: [SystemMediaReference]) async {
-        guard !references.isEmpty, spotlightIndex.isIndexingAvailable else { return }
-        let identifiers = references.map(Self.spotlightIdentifier(for:))
-        do {
-            try await spotlightIndex.deleteSearchableItems(withIdentifiers: identifiers)
-            EnsembleLogger.debug("[SystemMedia] Spotlight deleted \(identifiers.count) unavailable media items")
-        } catch {
-            EnsembleLogger.debug("[SystemMedia] Spotlight item deletion failed: \(error.localizedDescription)")
+        guard !references.isEmpty else { return }
+
+        let identifiers = Array(Set(references.map(Self.spotlightIdentifier(for:)))).sorted()
+        if spotlightIndex.isIndexingAvailable {
+            do {
+                try await spotlightIndex.deleteSearchableItems(withIdentifiers: identifiers)
+                EnsembleLogger.debug("[SystemMedia] Spotlight deleted \(identifiers.count) unavailable media items")
+            } catch {
+                EnsembleLogger.debug("[SystemMedia] Spotlight item deletion failed: \(error.localizedDescription)")
+            }
         }
+
+        #if !os(macOS)
+        let donationIdentifiers = Array(Set(references.flatMap(Self.donationIdentifiers(for:)))).sorted()
+        do {
+            try await intentDonor.deleteInteractions(withIdentifiers: donationIdentifiers)
+            EnsembleLogger.debug("[SystemMedia] Deleted \(donationIdentifiers.count) unavailable Siri media donations")
+        } catch {
+            EnsembleLogger.debug("[SystemMedia] Siri media donation deletion failed: \(error.localizedDescription)")
+        }
+        #endif
     }
 
     public func updateMediaUserContext() async {
@@ -527,8 +582,28 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         "ensemble.play.\(reference.sourceScopedIdentifier).shuffle.\(shuffle ? "1" : "0")"
     }
 
+    static func donationIdentifiers(for reference: SystemMediaReference) -> [String] {
+        [
+            donationIdentifier(reference: reference, shuffle: false),
+            donationIdentifier(reference: reference, shuffle: true)
+        ]
+    }
+
     static func donationGroupIdentifier(for reference: SystemMediaReference) -> String {
         "ensemble.play.\(reference.kind.rawValue)"
+    }
+
+    static func staleSystemMediaReferences(previous: SiriMediaIndex?, current: SiriMediaIndex) -> [SystemMediaReference] {
+        guard let previous else { return [] }
+        let currentIdentifiers = Set(current.items.map { spotlightIdentifier(for: $0.reference) })
+
+        return previous.items.compactMap { item in
+            let reference = item.reference
+            guard !currentIdentifiers.contains(spotlightIdentifier(for: reference)) else {
+                return nil
+            }
+            return reference
+        }
     }
 
     #if !os(macOS)

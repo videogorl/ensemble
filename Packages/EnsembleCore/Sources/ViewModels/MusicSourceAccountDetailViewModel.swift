@@ -10,6 +10,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         public let serverPlatform: String?
         public let capabilities: PlexServerCapabilities?
         public let hasPlexPass: Bool
+        public let plexPassSupport: PlexFeatureSupport
+        public let lyricsSupport: PlexFeatureSupport
+        public let radioSupport: PlexFeatureSupport
         public let libraries: [LibraryRow]
 
         public init(
@@ -18,13 +21,19 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
             serverPlatform: String?,
             capabilities: PlexServerCapabilities? = nil,
             hasPlexPass: Bool = false,
+            plexPassSupport: PlexFeatureSupport? = nil,
+            lyricsSupport: PlexFeatureSupport? = nil,
+            radioSupport: PlexFeatureSupport? = nil,
             libraries: [LibraryRow]
         ) {
             self.id = id
             self.serverName = serverName
             self.serverPlatform = serverPlatform
             self.capabilities = capabilities
-            self.hasPlexPass = hasPlexPass
+            self.plexPassSupport = plexPassSupport ?? (hasPlexPass ? .supported : capabilities?.plexPassSupport ?? .unknown)
+            self.lyricsSupport = lyricsSupport ?? capabilities?.lyricsSupport ?? .unknown
+            self.radioSupport = radioSupport ?? capabilities?.radioSupport ?? .unknown
+            self.hasPlexPass = self.plexPassSupport.isSupported
             self.libraries = libraries
         }
     }
@@ -380,7 +389,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                     token: discoveredServer.token,
                     owned: discoveredServer.owned,
                     platform: discoveredServer.platform,
-                    capabilities: discoveredServer.capabilities,
+                    capabilities: discoveredServer.capabilities ?? existingServer?.capabilities,
                     libraries: resolvedLibraries
                 )
             )
@@ -473,12 +482,18 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                 )
             }
 
+            let serverPlexPassSupport: PlexFeatureSupport = accountHasPlexPass
+                ? .supported
+                : (server.capabilities?.plexPassSupport ?? .unknown)
+
             return ServerSection(
                 id: server.id,
                 serverName: server.name,
                 serverPlatform: server.platform,
                 capabilities: server.capabilities,
-                hasPlexPass: accountHasPlexPass || (server.capabilities?.hasPlexPass ?? false),
+                plexPassSupport: serverPlexPassSupport,
+                lyricsSupport: server.capabilities?.lyricsSupport ?? .unknown,
+                radioSupport: server.capabilities?.radioSupport ?? .unknown,
                 libraries: libraries
             )
         }

@@ -234,7 +234,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // requested size, eliminating the cache-lottery mismatch between ArtworkView (300px),
         // PlaybackService (600px), and NowPlayingViewModel (600px) when offline.
         // Nuke applies per-caller resize processors on the local file.
-        if let localURL = localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath) {
+        if let localURL = await localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath) {
             let localCacheKey = "\(sourceKey ?? ""):\(finalPath):\(actualRatingKey ?? ""):local"
             if await urlCache.get(localCacheKey) == nil {
                 await urlCache.set(localCacheKey, url: localURL, ttl: Self.asyncArtworkURLCacheTTL)
@@ -279,7 +279,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
 
         // Network URL resolution failed — fall back to local cache if available
-        if let localURL = localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath) {
+        if let localURL = await localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath) {
             #if DEBUG
             await loadStats.recordLocalFallback()
             #endif
@@ -305,14 +305,16 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     /// Falls back to extracting the ratingKey from the artwork path when the
     /// passed ratingKey doesn't match a cached file (e.g., track ratingKey vs.
     /// album ratingKey embedded in the inherited parentThumb path).
-    private func localCachedArtworkURL(ratingKey: String?, path: String? = nil) -> URL? {
-        let artworkDir = ArtworkDownloadManager.artworkDirectory
-
+    private func localCachedArtworkURL(ratingKey: String?, path: String? = nil) async -> URL? {
         // Try the passed ratingKey first
         if let key = ratingKey {
-            for suffix in ["album", "artist", "playlist"] {
-                let filePath = artworkDir.appendingPathComponent("\(key)_\(suffix).jpg").path
-                if FileManager.default.fileExists(atPath: filePath) {
+            for type in [ArtworkType.album, .artist, .playlist] {
+                if let filePath = try? await artworkDownloadManager.getLocalArtworkPath(
+                    ratingKey: key,
+                    type: type,
+                    sourcePath: path,
+                    dateModifiedSeconds: nil
+                ) {
                     return URL(fileURLWithPath: filePath)
                 }
             }
@@ -322,9 +324,13 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // Tracks inherit their album's thumbPath (`parentThumb`), so the path
         // contains the album ratingKey while the passed ratingKey is the track's.
         if let path, let pathKey = Self.extractRatingKey(from: path), pathKey != ratingKey {
-            for suffix in ["album", "artist", "playlist"] {
-                let filePath = artworkDir.appendingPathComponent("\(pathKey)_\(suffix).jpg").path
-                if FileManager.default.fileExists(atPath: filePath) {
+            for type in [ArtworkType.album, .artist, .playlist] {
+                if let filePath = try? await artworkDownloadManager.getLocalArtworkPath(
+                    ratingKey: pathKey,
+                    type: type,
+                    sourcePath: path,
+                    dateModifiedSeconds: nil
+                ) {
                     return URL(fileURLWithPath: filePath)
                 }
             }
@@ -363,8 +369,12 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             do {
                 try await artworkDownloadManager.downloadAndCacheArtwork(
                     from: artworkURL,
-                    ratingKey: ratingKey,
-                    type: ArtworkType.album
+                    identity: ArtworkIdentity(
+                        ratingKey: ratingKey,
+                        type: .album,
+                        sourcePath: thumbPath,
+                        dateModified: album.dateModified
+                    )
                 )
                 downloadedCount += 1
             } catch {
@@ -404,8 +414,12 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             do {
                 try await artworkDownloadManager.downloadAndCacheArtwork(
                     from: artworkURL,
-                    ratingKey: ratingKey,
-                    type: ArtworkType.artist
+                    identity: ArtworkIdentity(
+                        ratingKey: ratingKey,
+                        type: .artist,
+                        sourcePath: thumbPath,
+                        dateModified: artist.dateModified
+                    )
                 )
                 downloadedCount += 1
             } catch {
@@ -445,8 +459,12 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             do {
                 try await artworkDownloadManager.downloadAndCacheArtwork(
                     from: artworkURL,
-                    ratingKey: ratingKey,
-                    type: .playlist
+                    identity: ArtworkIdentity(
+                        ratingKey: ratingKey,
+                        type: .playlist,
+                        sourcePath: thumbPath,
+                        dateModified: playlist.dateModified
+                    )
                 )
                 downloadedCount += 1
             } catch {

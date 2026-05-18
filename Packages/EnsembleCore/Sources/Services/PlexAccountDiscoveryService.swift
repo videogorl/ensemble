@@ -25,21 +25,24 @@ public struct PlexAccountDiscoveryResult: Sendable, Equatable {
     public let subscription: PlexSubscription?
     public let servers: [PlexServerConfig]
     public let serverLibraryErrors: [String: String]
+    public let serverCapabilityErrors: [String: String]
 
     public init(
         identity: PlexAccountIdentity,
         subscription: PlexSubscription? = nil,
         servers: [PlexServerConfig],
-        serverLibraryErrors: [String: String]
+        serverLibraryErrors: [String: String],
+        serverCapabilityErrors: [String: String] = [:]
     ) {
         self.identity = identity
         self.subscription = subscription
         self.servers = servers
         self.serverLibraryErrors = serverLibraryErrors
+        self.serverCapabilityErrors = serverCapabilityErrors
     }
 
     public var hasPartialFailures: Bool {
-        !serverLibraryErrors.isEmpty
+        !serverLibraryErrors.isEmpty || !serverCapabilityErrors.isEmpty
     }
 }
 
@@ -216,8 +219,9 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
 
         var discoveredServers: [PlexServerConfig] = []
         var serverLibraryErrors: [String: String] = [:]
+        var serverCapabilityErrors: [String: String] = [:]
 
-        try await withThrowingTaskGroup(of: (PlexServerConfig, String?).self) { group in
+        try await withThrowingTaskGroup(of: (PlexServerConfig, libraryError: String?, capabilityError: String?).self) { group in
             for device in devices {
                 group.addTask {
                     let orderedConnections = device.orderedConnections(
@@ -238,28 +242,33 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                         )
                     }
 
+                    let capabilities: PlexServerCapabilities?
+                    let capabilityError: String?
+                    do {
+                        let fetchedCapabilities = try await self.client.getServerCapabilities(
+                            for: device,
+                            token: authToken,
+                            allowInsecurePolicy: allowInsecurePolicy
+                        )
+                        capabilities = fetchedCapabilities
+                        capabilityError = nil
+                        EnsembleLogger.debug(
+                            "[\(device.name)] capabilities: plexPass=\(fetchedCapabilities.plexPassSupport.rawValue), lyrics=\(fetchedCapabilities.lyricsSupport.rawValue), radio=\(fetchedCapabilities.radioSupport.rawValue), ownerFeatures=\(fetchedCapabilities.ownerFeatures ?? "nil")"
+                        )
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        capabilities = nil
+                        capabilityError = error.localizedDescription
+                        EnsembleLogger.debug("[\(device.name)] capabilities fetch failed: \(error.localizedDescription)")
+                    }
+
                     do {
                         let sections = try await self.client.getMusicLibrarySections(
                             for: device,
                             token: authToken,
                             allowInsecurePolicy: allowInsecurePolicy
                         )
-
-                        // Fetch capabilities alongside sections — informational only, don't fail the server
-                        let capabilities: PlexServerCapabilities?
-                        do {
-                            capabilities = try await self.client.getServerCapabilities(
-                                for: device,
-                                token: authToken,
-                                allowInsecurePolicy: allowInsecurePolicy
-                            )
-                            EnsembleLogger.debug(
-                                "[\(device.name)] capabilities: plexPass=\(capabilities?.hasPlexPass ?? false), lyrics=\(capabilities?.hasLyrics ?? false), radio=\(capabilities?.hasRadio ?? false), ownerFeatures=\(capabilities?.ownerFeatures ?? "nil")"
-                            )
-                        } catch {
-                            capabilities = nil
-                            EnsembleLogger.debug("[\(device.name)] capabilities fetch failed: \(error.localizedDescription)")
-                        }
 
                         let libraries = sections
                             .filter(\.isMusicLibrary)
@@ -285,7 +294,8 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                                 capabilities: capabilities,
                                 libraries: libraries
                             ),
-                            nil
+                            nil,
+                            capabilityError
                         )
                     } catch is CancellationError {
                         // Navigation/task cancellation should abort discovery rather than surface
@@ -302,18 +312,23 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                                 token: device.accessToken ?? authToken,
                                 owned: device.owned,
                                 platform: device.platform,
+                                capabilities: capabilities,
                                 libraries: []
                             ),
-                            message
+                            message,
+                            capabilityError
                         )
                     }
                 }
             }
 
-            for try await (serverConfig, maybeError) in group {
+            for try await (serverConfig, maybeError, maybeCapabilityError) in group {
                 discoveredServers.append(serverConfig)
                 if let error = maybeError {
                     serverLibraryErrors[serverConfig.id] = error
+                }
+                if let error = maybeCapabilityError {
+                    serverCapabilityErrors[serverConfig.id] = error
                 }
             }
         }
@@ -333,7 +348,8 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
             identity: identity,
             subscription: user.subscription,
             servers: discoveredServers,
-            serverLibraryErrors: serverLibraryErrors
+            serverLibraryErrors: serverLibraryErrors,
+            serverCapabilityErrors: serverCapabilityErrors
         )
     }
 }

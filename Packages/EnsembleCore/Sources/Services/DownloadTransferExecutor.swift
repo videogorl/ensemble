@@ -319,10 +319,12 @@ final class DownloadTransferExecutor {
             let dedupeKey = "\(candidate.ratingKey)|\(candidate.path)"
             guard seen.insert(dedupeKey).inserted else { continue }
 
-            let cachedArtworkPath = ArtworkDownloadManager.artworkDirectory
-                .appendingPathComponent("\(candidate.ratingKey)_album.jpg")
-                .path
-            if FileManager.default.fileExists(atPath: cachedArtworkPath) {
+            if let cachedArtworkPath = try? await dependencies.artworkDownloadManager.getLocalArtworkPath(
+                ratingKey: candidate.ratingKey,
+                type: .album,
+                sourcePath: candidate.path,
+                dateModifiedSeconds: nil
+            ), FileManager.default.fileExists(atPath: cachedArtworkPath) {
                 continue
             }
 
@@ -337,8 +339,12 @@ final class DownloadTransferExecutor {
 
                 try await dependencies.artworkDownloadManager.downloadAndCacheArtwork(
                     from: artworkURL,
-                    ratingKey: candidate.ratingKey,
-                    type: .album
+                    identity: ArtworkIdentity(
+                        ratingKey: candidate.ratingKey,
+                        type: .album,
+                        sourcePath: candidate.path,
+                        dateModifiedSeconds: nil
+                    )
                 )
 
                 EnsembleLogger.debug(

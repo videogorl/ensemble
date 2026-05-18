@@ -712,6 +712,17 @@ public struct PlexSubscription: Codable, Sendable, Equatable {
 
 // MARK: - Server Capabilities (from GET / root endpoint)
 
+/// Feature availability as reported by Plex server capability metadata.
+public enum PlexFeatureSupport: String, Codable, Sendable, Equatable {
+    case supported
+    case unsupported
+    case unknown
+
+    public var isSupported: Bool {
+        self == .supported
+    }
+}
+
 /// Decoded from the `MediaContainer` attributes of a Plex server's root endpoint (`GET /`).
 /// Contains server-level feature flags like Plex Pass status, lyrics, radio, and transcoding support.
 public struct PlexServerCapabilities: Codable, Sendable, Equatable {
@@ -743,9 +754,39 @@ public struct PlexServerCapabilities: Codable, Sendable, Equatable {
         Set((ownerFeatures ?? "").split(separator: ",").map(String.init))
     }
 
-    public var hasLyrics: Bool { ownerFeatureSet.contains("lyrics") }
-    public var hasRadio: Bool { ownerFeatureSet.contains("radio") || ownerFeatureSet.contains("shared-radio") }
-    public var hasPlexPass: Bool { myPlexSubscription == true || ownerFeatureSet.contains("pass") }
+    public var lyricsSupport: PlexFeatureSupport {
+        ownerFeatureSupport(anyOf: ["lyrics"])
+    }
+
+    public var radioSupport: PlexFeatureSupport {
+        ownerFeatureSupport(anyOf: ["radio", "shared-radio"])
+    }
+
+    public var plexPassSupport: PlexFeatureSupport {
+        if myPlexSubscription == true {
+            return .supported
+        }
+
+        let ownerSupport = ownerFeatureSupport(anyOf: ["pass"])
+        if ownerSupport == .supported {
+            return .supported
+        }
+
+        if myPlexSubscription == false {
+            return .unsupported
+        }
+
+        return ownerSupport
+    }
+
+    public var hasLyrics: Bool { lyricsSupport.isSupported }
+    public var hasRadio: Bool { radioSupport.isSupported }
+    public var hasPlexPass: Bool { plexPassSupport.isSupported }
+
+    private func ownerFeatureSupport(anyOf features: Set<String>) -> PlexFeatureSupport {
+        guard ownerFeatures != nil else { return .unknown }
+        return features.contains(where: ownerFeatureSet.contains) ? .supported : .unsupported
+    }
 }
 
 // MARK: - Hubs (Home Screen Content)

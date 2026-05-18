@@ -575,10 +575,14 @@ public final class DependencyContainer: @unchecked Sendable {
         playback: PlaybackBootstrap,
         mutation: MutationBootstrap
     ) -> SiriBootstrap {
+        let enabledSystemMediaSourceKeys: SystemMediaEnabledSourceKeysProvider = { @MainActor in
+            Set(network.accountManager.enabledSources().map(\.compositeKey))
+        }
         let siriMediaIndexStore = MainActor.assumeIsolated {
             SiriMediaIndexStore(
                 libraryRepository: core.libraryRepository,
-                playlistRepository: core.playlistRepository
+                playlistRepository: core.playlistRepository,
+                enabledSourceKeysProvider: enabledSystemMediaSourceKeys
             )
         }
         let siriPlaybackCoordinator = MainActor.assumeIsolated {
@@ -607,7 +611,8 @@ public final class DependencyContainer: @unchecked Sendable {
         let siriMediaUserContextManager = MainActor.assumeIsolated {
             SiriMediaUserContextManager(
                 libraryRepository: core.libraryRepository,
-                playlistRepository: core.playlistRepository
+                playlistRepository: core.playlistRepository,
+                enabledSourceKeysProvider: enabledSystemMediaSourceKeys
             )
         }
         let systemMediaIntegrationService = MainActor.assumeIsolated {
@@ -828,6 +833,12 @@ public final class DependencyContainer: @unchecked Sendable {
                 await artworkLoader.invalidateArtwork(ratingKey: info.trackRatingKey, type: .album)
             }
         }
+        syncCoordinator.onArtworkMetadataChanged = { [weak self] invalidations in
+            guard let artworkLoader = self?.artworkLoader as? ArtworkLoader else { return }
+            for info in invalidations {
+                await artworkLoader.invalidateArtwork(ratingKey: info.ratingKey, type: info.type)
+            }
+        }
         syncCoordinator.sourceCacheCleanupService = sourceCacheCleanupService
     }
 
@@ -994,6 +1005,7 @@ public final class DependencyContainer: @unchecked Sendable {
                                 authToken: credential.authToken,
                                 servers: result.servers
                             )
+                            config = acctMgr.applyingCredentialLibrarySelection(to: config, credential: credential)
                             if syncToggles.isFeatureEnabled(.libraries) {
                                 config = acctMgr.applyingSyncedLibraryFlags(to: config)
                             }
@@ -1047,11 +1059,6 @@ public final class DependencyContainer: @unchecked Sendable {
                     detail: "Pulled library selection from iCloud."
                 )
 
-                let disabledSourcesToCleanup = Array(Set(result.disabledSources + acctMgr.disabledSources()))
-                if !disabledSourcesToCleanup.isEmpty {
-                    await self.syncCoordinator.cleanupRemovedSourcesIfPresent(disabledSourcesToCleanup)
-                }
-
                 if !acctMgr.hasAnySources && !syncToggles.hasCompletedFirstConnect {
                     self.scheduleSyncBootstrap(reason: "remote-library-flags", feature: .sources)
                 }
@@ -1059,6 +1066,11 @@ public final class DependencyContainer: @unchecked Sendable {
                 guard result.hasChanges else { return }
 
                 self.syncCoordinator.refreshProviders()
+
+                let disabledSourcesToCleanup = Array(Set(result.disabledSources))
+                if !disabledSourcesToCleanup.isEmpty {
+                    await self.syncCoordinator.cleanupRemovedSourcesIfPresent(disabledSourcesToCleanup)
+                }
 
                 for server in result.serversNeedingPlaylistCleanup {
                     await self.syncCoordinator.cleanupServerPlaylists(
