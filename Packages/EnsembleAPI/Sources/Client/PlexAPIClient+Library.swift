@@ -208,7 +208,13 @@ extension PlexAPIClient {
 
     /// Get tracks in an album
     public func getAlbumTracks(albumKey: String) async throws -> [PlexTrack] {
-        let data = try await serverRequest(path: "/library/metadata/\(albumKey)/children")
+        let data = try await serverRequest(
+            path: "/library/metadata/\(albumKey)/children",
+            query: [
+                "includeMedia": "1",
+                "includeElements": "Media"
+            ]
+        )
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexTrack>.self,
             from: data

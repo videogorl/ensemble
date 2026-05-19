@@ -1,3 +1,4 @@
+import EnsembleAPI
 import Foundation
 
 /// View model for the library Get Info panel.
@@ -10,6 +11,7 @@ public final class LibraryItemInfoViewModel: ObservableObject {
 
     @Published public private(set) var sourceContext = SourceContext(serverName: nil, libraryName: nil)
     @Published public private(set) var originalFileInfo: AudioFileInfo?
+    @Published public private(set) var originalFilePaths: [String] = []
     @Published public private(set) var aggregateDuration: TimeInterval?
     @Published public private(set) var isLoading = false
 
@@ -47,10 +49,22 @@ public final class LibraryItemInfoViewModel: ObservableObject {
         async let duration = loadAggregateDuration()
 
         let resolvedFileInfo = await fileInfo
+        let resolvedFilePaths: [String]
+        switch request {
+        case .track:
+            resolvedFilePaths = resolvedFileInfo?.filePath.map { [$0] } ?? []
+        case .album:
+            resolvedFilePaths = await loadAlbumOriginalFilePaths()
+        case .playlist:
+            resolvedFilePaths = []
+        }
         let resolvedDuration = await duration
 
         if originalFileInfo != resolvedFileInfo {
             originalFileInfo = resolvedFileInfo
+        }
+        if originalFilePaths != resolvedFilePaths {
+            originalFilePaths = resolvedFilePaths
         }
         if aggregateDuration != resolvedDuration {
             aggregateDuration = resolvedDuration
@@ -70,6 +84,23 @@ public final class LibraryItemInfoViewModel: ObservableObject {
         } catch {
             EnsembleLogger.debug("Failed to fetch Get Info file metadata: \(error)")
             return nil
+        }
+    }
+
+    private func loadAlbumOriginalFilePaths() async -> [String] {
+        guard case .album(let album) = request,
+              let sourceKey = album.sourceCompositeKey,
+              let apiClient = syncCoordinator.apiClient(for: sourceKey)
+        else {
+            return []
+        }
+
+        do {
+            let tracks = try await apiClient.getAlbumTracks(albumKey: album.id)
+            return Self.filePaths(from: tracks)
+        } catch {
+            EnsembleLogger.debug("Failed to fetch Get Info album file paths: \(error)")
+            return []
         }
     }
 
@@ -103,6 +134,23 @@ public final class LibraryItemInfoViewModel: ObservableObject {
 
     static func persistedTrackDurationSeconds(_ durationMilliseconds: Int64) -> TimeInterval {
         TimeInterval(durationMilliseconds) / 1000.0
+    }
+
+    static func filePaths(from tracks: [PlexTrack]) -> [String] {
+        var seen: Set<String> = []
+        var paths: [String] = []
+
+        for track in tracks {
+            guard let path = track.media?.first?.part?.first?.file,
+                  !path.isEmpty,
+                  seen.insert(path).inserted
+            else {
+                continue
+            }
+            paths.append(path)
+        }
+
+        return paths
     }
 
     private static func resolveSourceContext(

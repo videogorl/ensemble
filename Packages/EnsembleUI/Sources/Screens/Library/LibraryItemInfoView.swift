@@ -103,28 +103,47 @@ public struct LibraryItemInfoView: View {
 
     @ViewBuilder
     private var fileSection: some View {
-        if case .track = viewModel.request,
-           let info = viewModel.originalFileInfo {
-            infoSection(title: "File") {
-                if let codec = info.codec {
-                    infoRow(label: "Format", value: formatCodecName(codec))
-                }
-                if let bitrate = info.bitrate {
-                    infoRow(label: "Bitrate", value: "\(bitrate) kbps")
-                }
-                if let sampleRate = info.sampleRate {
-                    infoRow(label: "Sample Rate", value: formatSampleRate(sampleRate))
-                }
-                if let bitDepth = info.bitDepth {
-                    infoRow(label: "Bit Depth", value: "\(bitDepth)-bit")
-                }
-                if let channels = info.channels {
-                    infoRow(label: "Channels", value: String(channels))
-                }
-                if let fileSize = info.fileSize {
-                    infoRow(label: "Size", value: MediaFormatters.fileBytes(Int64(fileSize)))
+        switch viewModel.request {
+        case .track:
+            if let info = viewModel.originalFileInfo {
+                infoSection(title: "File") {
+                    if let codec = info.codec {
+                        infoRow(label: "Format", value: formatCodecName(codec))
+                    }
+                    if let bitrate = info.bitrate {
+                        infoRow(label: "Bitrate", value: "\(bitrate) kbps")
+                    }
+                    if let sampleRate = info.sampleRate {
+                        infoRow(label: "Sample Rate", value: formatSampleRate(sampleRate))
+                    }
+                    if let bitDepth = info.bitDepth {
+                        infoRow(label: "Bit Depth", value: "\(bitDepth)-bit")
+                    }
+                    if let channels = info.channels {
+                        infoRow(label: "Channels", value: String(channels))
+                    }
+                    if let fileSize = info.fileSize {
+                        infoRow(label: "Size", value: MediaFormatters.fileBytes(Int64(fileSize)))
+                    }
+                    if !settingsManager.demoModeEnabled {
+                        optionalRow(label: "Path", value: info.filePath)
+                    }
                 }
             }
+
+        case .album:
+            if !settingsManager.demoModeEnabled,
+               !viewModel.originalFilePaths.isEmpty {
+                infoSection(title: "Files") {
+                    infoRow(
+                        label: viewModel.originalFilePaths.count == 1 ? "Path" : "Paths",
+                        value: viewModel.originalFilePaths.joined(separator: "\n")
+                    )
+                }
+            }
+
+        case .playlist:
+            EmptyView()
         }
     }
 

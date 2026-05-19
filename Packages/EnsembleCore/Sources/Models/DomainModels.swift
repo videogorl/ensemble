@@ -30,8 +30,9 @@ private func sourceScopedIdentity(ratingKey: String, sourceCompositeKey: String?
 // MARK: - Audio File Info
 
 /// Audio format metadata fetched on demand from the Plex API.
-/// Not persisted in CoreData — only displayed on the Now Playing Info card.
+/// Not persisted in CoreData — displayed on transient info surfaces.
 public struct AudioFileInfo: Sendable, Equatable {
+    public let filePath: String?
     public let codec: String? // e.g. "flac", "mp3", "aac"
     public let bitrate: Int? // kbps
     public let sampleRate: Int? // Hz, e.g. 44100, 96000
@@ -40,7 +41,8 @@ public struct AudioFileInfo: Sendable, Equatable {
     public let channels: Int? // e.g. 2 for stereo
     public let container: String? // e.g. "flac", "mp3"
 
-    public init(codec: String?, bitrate: Int?, sampleRate: Int?, bitDepth: Int?, fileSize: Int?, channels: Int?, container: String?) {
+    public init(filePath: String? = nil, codec: String?, bitrate: Int?, sampleRate: Int?, bitDepth: Int?, fileSize: Int?, channels: Int?, container: String?) {
+        self.filePath = filePath
         self.codec = codec
         self.bitrate = bitrate
         self.sampleRate = sampleRate

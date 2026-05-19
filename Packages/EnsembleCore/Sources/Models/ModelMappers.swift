@@ -12,6 +12,7 @@ public extension AudioFileInfo {
         let audioStream = part?.stream?.first(where: { $0.streamType == 2 })
 
         self.init(
+            filePath: part?.file,
             codec: audioStream?.codec ?? media.audioCodec,
             bitrate: audioStream?.bitrate ?? media.bitrate,
             sampleRate: audioStream?.samplingRate,
