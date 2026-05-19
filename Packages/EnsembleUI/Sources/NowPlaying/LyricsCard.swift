@@ -98,6 +98,21 @@ public struct LyricsCard: View {
 
             Spacer()
 
+            if viewModel.hasChordLyrics {
+                Button {
+                    viewModel.toggleChordMode()
+                } label: {
+                    Image(systemName: EnsembleDesign.Icon.chords)
+                        .font(EnsembleDesign.Typography.detailSubtitle)
+                        .foregroundColor(viewModel.isChordModeEnabled
+                            ? EnsembleDesign.Color.accent
+                            : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
+                }
+                .accessibilityLabel(viewModel.isChordModeEnabled
+                    ? "Disable chord mode"
+                    : "Enable chord mode")
+            }
+
             // Instrumental mode toggle (A13+ / iOS 16+ only)
             if viewModel.isInstrumentalModeSupported {
                 Button {
@@ -186,17 +201,19 @@ public struct LyricsCard: View {
     private func lyricsScrollView(lyrics: ParsedLyrics) -> some View {
         ScrollViewReader { proxy in
             observedLyricsScrollView {
-                LazyVStack(spacing: lyrics.isTimed
-                    ? EnsembleScaffold.NowPlaying.lyricTimedLineSpacing
-                    : EnsembleScaffold.NowPlaying.lyricPlainLineSpacing
-                ) {
+                let lineSpacing: CGFloat = viewModel.isDisplayingChordLyrics
+                    ? 16
+                    : (lyrics.isTimed
+                        ? EnsembleScaffold.NowPlaying.lyricTimedLineSpacing
+                        : EnsembleScaffold.NowPlaying.lyricPlainLineSpacing)
+                LazyVStack(spacing: lineSpacing) {
                     // Top spacer so first line can scroll to center
                     Spacer()
                         .frame(height: EnsembleScaffold.NowPlaying.lyricTopSpacerHeight)
 
                     // Intro dot — always present for timed lyrics, tap to seek to beginning.
                     // Time-synced when there's a real intro gap, otherwise just past/future.
-                    if lyrics.isTimed {
+                    if lyrics.isTimed, !viewModel.isDisplayingChordLyrics {
                         let introBlur = lineBlurRadius(index: 0, isTimed: true)
                         instrumentalIndicator(progress: introProgress)
                             .blur(radius: introBlur)
@@ -215,6 +232,7 @@ public struct LyricsCard: View {
                             index: index,
                             isTimed: lyrics.isTimed,
                             isActive: currentLyricsLineIndex == index,
+                            isNextActive: isNextChordLine(index: index),
                             isPast: isPastLine(index: index)
                         )
                         .onTapGesture {
@@ -231,6 +249,7 @@ public struct LyricsCard: View {
 
                         // Instrumental gap indicator as its own item (same spacing as lyrics)
                         if lyrics.isTimed,
+                           !viewModel.isDisplayingChordLyrics,
                            viewModel.instrumentalGapAfterIndices.contains(index) {
                             let isActiveGap = instrumentalProgress != nil
                                 && currentLyricsLineIndex == nil
@@ -254,7 +273,7 @@ public struct LyricsCard: View {
 
                     // Outro dot — always present for timed lyrics, tap to seek to end.
                     // Time-synced when there's a real outro gap, otherwise just past/future.
-                    if lyrics.isTimed {
+                    if lyrics.isTimed, !viewModel.isDisplayingChordLyrics {
                         let lastIndex = lyrics.lines.count - 1
                         let outroBlur = lineBlurRadius(index: lastIndex + 1, isTimed: true)
                         instrumentalIndicator(progress: outroProgress(lastIndex: lastIndex))
@@ -283,7 +302,7 @@ public struct LyricsCard: View {
                 if let index = lyricsScrollTargetIndex {
                     scrollTarget = index
                 } else {
-                    scrollTarget = "intro-instrumental"
+                    scrollTarget = viewModel.isDisplayingChordLyrics ? 0 : "intro-instrumental"
                 }
                 lastScrollIndex = lyricsScrollTargetIndex
                 proxy.scrollTo(scrollTarget, anchor: .center)
@@ -298,7 +317,7 @@ public struct LyricsCard: View {
                 if let newIndex {
                     scrollTarget = newIndex
                 } else {
-                    scrollTarget = "intro-instrumental" // Always present for timed lyrics
+                    scrollTarget = viewModel.isDisplayingChordLyrics ? 0 : "intro-instrumental"
                 }
 
                 let isLargeJump: Bool
@@ -324,7 +343,7 @@ public struct LyricsCard: View {
                 if let index = lyricsScrollTargetIndex {
                     scrollTarget = index
                 } else {
-                    scrollTarget = "intro-instrumental"
+                    scrollTarget = viewModel.isDisplayingChordLyrics ? 0 : "intro-instrumental"
                 }
                 withAnimation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration)) {
                     proxy.scrollTo(scrollTarget, anchor: .center)
@@ -382,24 +401,36 @@ public struct LyricsCard: View {
 
     // MARK: - Line View
 
+    @ViewBuilder
     private func lyricsLineView(
         line: LyricsLine,
         index: Int,
         isTimed: Bool,
         isActive: Bool,
+        isNextActive: Bool,
         isPast: Bool
     ) -> some View {
         let blur = lineBlurRadius(index: index, isTimed: isTimed)
-        let opacity = lineOpacity(isTimed: isTimed, isActive: isActive, isPast: isPast)
-        // Use Equatable wrapper so SwiftUI skips re-rendering lines whose params
-        // haven't changed — reduces N re-renders per tick to ~2 (old + new active line)
-        return EquatableView(content: LyricsLineView(
-            text: line.text,
-            isActive: isActive,
-            isTimed: isTimed,
-            opacity: opacity,
-            blur: blur
-        ))
+        let opacity = lineOpacity(isTimed: isTimed, isActive: isActive, isNextActive: isNextActive, isPast: isPast)
+        if viewModel.isDisplayingChordLyrics {
+            ChordLyricsLineView(
+                line: line,
+                isActive: isActive,
+                isNextActive: isNextActive,
+                isTimed: isTimed,
+                opacity: opacity
+            )
+        } else {
+            // Use Equatable wrapper so SwiftUI skips re-rendering lines whose params
+            // haven't changed — reduces N re-renders per tick to ~2 (old + new active line)
+            EquatableView(content: LyricsLineView(
+                text: line.text,
+                isActive: isActive,
+                isTimed: isTimed,
+                opacity: opacity,
+                blur: blur
+            ))
+        }
     }
 
     // MARK: - Instrumental Indicator
@@ -491,11 +522,21 @@ public struct LyricsCard: View {
     }
 
     /// Determine opacity for a lyrics line
-    private func lineOpacity(isTimed: Bool, isActive: Bool, isPast: Bool) -> Double {
+    private func lineOpacity(isTimed: Bool, isActive: Bool, isNextActive: Bool = false, isPast: Bool) -> Double {
         guard isTimed else { return EnsembleScaffold.NowPlaying.lyricPlainOpacity }
         if isActive { return 1.0 }
+        if isNextActive { return 0.78 }
         if isPast { return EnsembleScaffold.NowPlaying.lyricPastOpacity }
         return EnsembleScaffold.NowPlaying.lyricFutureOpacity
+    }
+
+    private func isNextChordLine(index: Int) -> Bool {
+        guard viewModel.isDisplayingChordLyrics,
+              let currentLyricsLineIndex,
+              index == currentLyricsLineIndex + 1 else {
+            return false
+        }
+        return true
     }
 
     /// Progressive blur based on distance from the active line (which is centered in viewport).
@@ -575,6 +616,236 @@ public struct LyricsCard: View {
 }
 
 // MARK: - Equatable Lyrics Line
+
+private struct ChordLyricsLineView: View {
+    let line: LyricsLine
+    let isActive: Bool
+    let isNextActive: Bool
+    let isTimed: Bool
+    let opacity: Double
+
+    private let characterWidth: CGFloat = 8.3
+    private let chordFontSize: CGFloat = 13
+    private let lyricFontSize: CGFloat = 13
+    private let chordOnlyPlaceholder = "🎵🎵🎵"
+
+    var body: some View {
+        GeometryReader { geometry in
+            let maxColumns = max(8, Int(geometry.size.width / characterWidth))
+            let rows = ChordLineSegments.rows(for: line, maxColumns: maxColumns)
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    if row.hasVisibleChords {
+                        Text(row.chords)
+                            .font(.system(size: chordFontSize, weight: .semibold, design: .monospaced))
+                            .foregroundColor(EnsembleDesign.Color.accent)
+                            .lineLimit(1)
+                    }
+                    if row.hasVisibleLyric {
+                        Text(row.lyric)
+                            .font(.system(size: lyricFontSize, weight: .medium, design: .monospaced))
+                            .lineLimit(1)
+                    } else if row.hasVisibleChords {
+                        Text(chordOnlyPlaceholder)
+                            .font(.system(size: lyricFontSize, weight: .medium, design: .default))
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .foregroundColor(EnsembleDesign.Color.primaryText)
+            .opacity(opacity)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(.easeInOut(duration: EnsembleDesign.Animation.quickDuration), value: isActive)
+            .animation(.easeInOut(duration: EnsembleDesign.Animation.quickDuration), value: isNextActive)
+        }
+        .frame(minHeight: ChordLineSegments.estimatedHeight(for: line))
+    }
+}
+
+enum ChordLineSegments {
+    struct Row: Equatable {
+        let chords: String
+        let lyric: String
+
+        var hasVisibleChords: Bool {
+            !chords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        var hasVisibleLyric: Bool {
+            !lyric.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    static func rows(for line: LyricsLine, maxColumns: Int) -> [Row] {
+        let chordLine = chordDisplayLine(for: line.chords)
+        let lyricLines = line.text.components(separatedBy: "\n")
+        var resultRows: [Row] = []
+        for (index, lyric) in lyricLines.enumerated() {
+            resultRows.append(contentsOf: rows(
+                chordLine: index == 0 ? chordLine : "",
+                lyric: lyric,
+                maxColumns: maxColumns
+            ))
+        }
+        return resultRows
+    }
+
+    static func estimatedHeight(for line: LyricsLine) -> CGFloat {
+        let chordLength = line.chords.map { max(0, $0.offsetFromLyricStart) + $0.symbol.count }.max() ?? 0
+        let lyricLines = line.text.components(separatedBy: "\n")
+        let estimatedRows = lyricLines.enumerated().reduce(0) { partialResult, element in
+            let (index, lyric) = element
+            let maxLength = index == 0 ? max(chordLength, lyric.count) : lyric.count
+            return partialResult + max(1, Int(ceil(Double(maxLength) / 36.0)))
+        }
+        let rowHeight: CGFloat = line.text.isEmpty && line.chords.isEmpty ? 16 : 34
+        return CGFloat(max(1, estimatedRows)) * rowHeight
+    }
+
+    private static func rows(chordLine: String, lyric: String, maxColumns: Int) -> [Row] {
+        let width = max(1, maxColumns)
+        let maxLength = max(chordLine.count, lyric.count)
+        guard maxLength > 0 else { return [] }
+
+        var rows: [Row] = []
+        var start = 0
+        while start < maxLength {
+            let length = preferredSegmentLength(chordLine: chordLine, lyric: lyric, start: start, maxColumns: width)
+            rows.append(Row(
+                chords: slice(chordLine, start: start, length: length).trimmingTrailingWhitespace(),
+                lyric: slice(lyric, start: start, length: length).trimmingTrailingWhitespace()
+            ))
+            start += max(1, length)
+        }
+        return rows
+    }
+
+    private static func preferredSegmentLength(
+        chordLine: String,
+        lyric: String,
+        start: Int,
+        maxColumns: Int
+    ) -> Int {
+        let remaining = max(chordLine.count, lyric.count) - start
+        guard remaining > maxColumns else { return remaining }
+
+        if hasVisibleContent(in: lyric, start: start),
+           let lyricBreak = lastLyricBreakPreservingChords(chordLine: chordLine, lyric: lyric, start: start, maxColumns: maxColumns) {
+            return max(1, lyricBreak - start)
+        }
+
+        if let chordBreak = lastWhitespaceBreak(in: chordLine, start: start, maxColumns: maxColumns),
+           isLyricSafeBoundary(in: lyric, boundary: chordBreak) {
+            return max(1, chordBreak - start)
+        }
+
+        if hasVisibleContent(in: lyric, start: start),
+           let lyricBreak = lastWhitespaceBreak(in: lyric, start: start, maxColumns: maxColumns) {
+            return max(1, lyricBreak - start)
+        }
+
+        return maxColumns
+    }
+
+    private static func hasVisibleContent(in value: String, start: Int) -> Bool {
+        guard start < value.count else { return false }
+        let characters = Array(value)
+        return characters[start...].contains { !$0.isWhitespace }
+    }
+
+    private static func lastLyricBreakPreservingChords(
+        chordLine: String,
+        lyric: String,
+        start: Int,
+        maxColumns: Int
+    ) -> Int? {
+        guard start < lyric.count else { return nil }
+        let characters = Array(lyric)
+        let end = min(characters.count, start + maxColumns)
+        guard end > start else { return nil }
+        let minimumBreak = start + max(8, maxColumns / 2)
+
+        for index in stride(from: end - 1, through: start, by: -1) {
+            guard index >= minimumBreak,
+                  characters[index].isWhitespace,
+                  isChordSafeBoundary(in: chordLine, boundary: index + 1) else {
+                continue
+            }
+            return index + 1
+        }
+
+        let extendedEnd = min(characters.count, start + maxColumns + 8)
+        guard extendedEnd > end else { return nil }
+        for index in end..<extendedEnd {
+            guard characters[index].isWhitespace,
+                  isChordSafeBoundary(in: chordLine, boundary: index + 1) else {
+                continue
+            }
+            return index + 1
+        }
+        return nil
+    }
+
+    private static func isChordSafeBoundary(in value: String, boundary: Int) -> Bool {
+        guard boundary > 0, boundary < value.count else { return true }
+        let characters = Array(value)
+        return characters[boundary - 1].isWhitespace || characters[boundary].isWhitespace
+    }
+
+    private static func isLyricSafeBoundary(in value: String, boundary: Int) -> Bool {
+        guard boundary > 0, boundary < value.count else { return true }
+        let characters = Array(value)
+        return characters[boundary - 1].isWhitespace || characters[boundary].isWhitespace
+    }
+
+    private static func lastWhitespaceBreak(in value: String, start: Int, maxColumns: Int) -> Int? {
+        guard start < value.count else { return nil }
+        let characters = Array(value)
+        let end = min(characters.count, start + maxColumns)
+        guard end > start else { return nil }
+        let minimumBreak = start + max(8, maxColumns / 2)
+
+        for index in stride(from: end - 1, through: start, by: -1) {
+            guard index >= minimumBreak, characters[index].isWhitespace else { continue }
+            return index + 1
+        }
+        return nil
+    }
+
+    private static func chordDisplayLine(for chords: [ParsedChord]) -> String {
+        guard !chords.isEmpty else { return "" }
+        let maxColumn = chords.map { max(0, $0.offsetFromLyricStart) + $0.symbol.count }.max() ?? 0
+        var characters = Array(repeating: Character(" "), count: maxColumn)
+
+        for chord in chords.sorted(by: { $0.offsetFromLyricStart < $1.offsetFromLyricStart }) {
+            let start = max(0, chord.offsetFromLyricStart)
+            let symbolCharacters = Array(chord.symbol)
+            if characters.count < start + symbolCharacters.count {
+                characters.append(contentsOf: Array(repeating: Character(" "), count: start + symbolCharacters.count - characters.count))
+            }
+            for (offset, character) in symbolCharacters.enumerated() {
+                characters[start + offset] = character
+            }
+        }
+
+        return String(characters)
+    }
+
+    private static func slice(_ value: String, start: Int, length: Int) -> String {
+        guard start < value.count else { return "" }
+        let characters = Array(value)
+        let end = min(characters.count, start + length)
+        return String(characters[start..<end])
+    }
+}
+
+private extension String {
+    func trimmingTrailingWhitespace() -> String {
+        guard let lastNonWhitespace = lastIndex(where: { !$0.isWhitespace }) else { return "" }
+        return String(self[...lastNonWhitespace])
+    }
+}
 
 private struct LyricsLineView: View, Equatable {
     let text: String

@@ -14,6 +14,7 @@ Load this reference for playback start behavior, queue state, shuffle/repeat/aut
 - Device-offline queues are filtered to downloaded tracks. Device-online queues skip non-downloaded tracks from unavailable servers.
 - Direct file streams and universal transcode can both be valid. Do not disable either broadly without live endpoint proof and a scoped failing path.
 - Timeline and scrobble reporting must remain source-exact; do not fall back across Plex source boundaries.
+- Lyrics chord mode is queue-scoped UI state. Enabling chord mode applies to the current queue until the queue item identity sequence changes; queue rebuilds reset it to off. When enabled, tracks without chord streams fall back to normal lyrics while preserving the queue-scoped enabled state so later chord-capable tracks resume chord display automatically.
 
 ## Owners
 
@@ -34,5 +35,6 @@ Load this reference for playback start behavior, queue state, shuffle/repeat/aut
 ## Verification
 
 - Add or update queue tests for shuffle, repeat, autoplay, history, queue restoration, and download-state refresh changes.
+- Add or update Now Playing tests when queue-scoped UI state such as Lyrics chord mode must persist across track advance and reset on queue rebuild.
 - Add playback transport/recovery tests for local-file validation, offline fallback, endpoint selection, and retry classification changes.
 - Use simulator validation for user-visible playback, Now Playing, remote command, or unavailable-track behavior.

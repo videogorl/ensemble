@@ -383,10 +383,20 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
 
     /// Returns the best available lyrics stream (prefers timed LRC over plain TXT)
     public var lyricsStream: PlexStream? {
-        guard let streams = media?.first?.part?.first?.stream else { return nil }
-        let lyricsStreams = streams.filter { $0.streamType == 4 }
+        let lyricsStreams = lyricsStreams.filter { !$0.isLikelyChordStream }
         // Prefer timed (LRC) over plain text
         return lyricsStreams.first(where: { $0.timed == 1 }) ?? lyricsStreams.first
+    }
+
+    /// All Plex lyric streams exposed for this track.
+    public var lyricsStreams: [PlexStream] {
+        guard let streams = media?.first?.part?.first?.stream else { return [] }
+        return streams.filter { $0.streamType == 4 }
+    }
+
+    /// Local-media lyric streams that may contain UG-style chord rows.
+    public var chordCandidateStreams: [PlexStream] {
+        lyricsStreams.filter(\.isLocalMediaLyricsStream)
     }
 
     public init(from decoder: Decoder) throws {
@@ -535,6 +545,7 @@ public struct PlexStream: Codable, Sendable {
     public let format: String?  // "lrc" or "txt" for lyrics streams
     public let timed: Int?  // 1 for time-synced lyrics (LRC)
     public let provider: String?  // Lyrics provider (e.g. "com.plexapp.agents.lyricfind")
+    public let file: String?  // Sidecar path when PMS exposes local lyric files
     public let minLines: Int?  // Minimum number of lines in lyrics
 
     enum CodingKeys: String, CodingKey {
@@ -552,6 +563,7 @@ public struct PlexStream: Codable, Sendable {
         case format
         case timed
         case provider
+        case file
         case minLines
     }
 
@@ -564,6 +576,7 @@ public struct PlexStream: Codable, Sendable {
         key = try container.decodeIfPresent(String.self, forKey: .key)
         format = try container.decodeIfPresent(String.self, forKey: .format)
         provider = try container.decodeIfPresent(String.self, forKey: .provider)
+        file = try container.decodeIfPresent(String.self, forKey: .file)
 
         // Plex returns many integer fields as strings — use decodeIntOrString for safety
         bitrate = PlexStream.decodeIntOrString(container: container, forKey: .bitrate)
@@ -577,6 +590,22 @@ public struct PlexStream: Codable, Sendable {
         loudness = try PlexStream.decodeDoubleOrString(container: container, forKey: .loudness)
         lra = try PlexStream.decodeDoubleOrString(container: container, forKey: .lra)
         peak = try PlexStream.decodeDoubleOrString(container: container, forKey: .peak)
+    }
+
+    public var isLocalMediaLyricsStream: Bool {
+        guard streamType == 4 else { return false }
+        let providerValue = provider?.lowercased() ?? ""
+        if providerValue.contains("localmedia") || providerValue.contains("local") {
+            return true
+        }
+        let fileValue = file?.lowercased() ?? ""
+        return fileValue.hasSuffix(".lrc") || fileValue.hasSuffix(".txt")
+    }
+
+    public var isLikelyChordStream: Bool {
+        guard isLocalMediaLyricsStream else { return false }
+        let fileValue = file?.lowercased() ?? ""
+        return fileValue.contains(".chord.") || fileValue.hasSuffix(".chords.lrc")
     }
     
     /// Plex sometimes returns integer fields as strings (e.g. timed="1", minLines="3")

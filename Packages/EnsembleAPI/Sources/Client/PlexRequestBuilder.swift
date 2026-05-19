@@ -33,7 +33,8 @@ struct PlexRequestBuilder: Sendable {
         method: String,
         path: String,
         query: [String: String] = [:],
-        includeTokenInQuery: Bool = true
+        includeTokenInQuery: Bool = true,
+        accept: String = "application/json"
     ) throws -> URLRequest {
         guard var components = URLComponents(string: baseURL) else {
             throw PlexAPIError.invalidURL
@@ -52,7 +53,7 @@ struct PlexRequestBuilder: Sendable {
 
         var request = URLRequest(url: requestURL)
         request.httpMethod = method
-        headerContext.apply(to: &request, token: token)
+        headerContext.apply(to: &request, token: token, accept: accept)
         return request
     }
 }
