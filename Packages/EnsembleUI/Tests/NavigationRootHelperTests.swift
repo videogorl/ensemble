@@ -166,6 +166,19 @@ final class NavigationRootHelperTests: XCTestCase {
         )
     }
 
+    func testInitialSelectionPolicySelectsFirstVisibleTabOnFreshLaunch() {
+        let barTabs: [TabItem] = [.albums, .home, .artists, .playlists]
+
+        XCTAssertEqual(
+            MainTabInitialSelectionPolicy.initialResolution(
+                selectedTab: .home,
+                selectedPath: [],
+                barTabs: barTabs
+            ),
+            .select(.albums)
+        )
+    }
+
     func testInitialSelectionPolicyRoutesHiddenExternalPathThroughMore() {
         let barTabs: [TabItem] = [.home, .artists, .playlists, .search]
 

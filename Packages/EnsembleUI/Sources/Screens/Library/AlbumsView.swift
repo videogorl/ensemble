@@ -614,7 +614,7 @@ public struct AlbumDetailView: View {
             alignment: .leading,
             spacing: AlbumCardLayoutMetrics.shelf.rowSpacing
         ) {
-            ForEach(albums) { scrollAlbum in
+            ForEach(albums, id: \.sourceScopedID) { scrollAlbum in
                 albumCardLink(for: scrollAlbum)
             }
         }
@@ -622,7 +622,7 @@ public struct AlbumDetailView: View {
         #else
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: AlbumCardLayoutMetrics.shelf.gridSpacing) {
-                ForEach(albums) { scrollAlbum in
+                ForEach(albums, id: \.sourceScopedID) { scrollAlbum in
                     albumCardLink(for: scrollAlbum)
                 }
             }

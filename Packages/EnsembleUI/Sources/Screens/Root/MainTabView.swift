@@ -452,6 +452,13 @@ enum MainTabInitialSelectionPolicy {
         selectedPath: [NavigationCoordinator.Destination],
         barTabs: [TabItem]
     ) -> Resolution {
+        if selectedTab == .home,
+           selectedPath.isEmpty,
+           let firstTab = barTabs.first,
+           firstTab != .home {
+            return .select(firstTab)
+        }
+
         if barTabs.contains(selectedTab) || selectedTab == .settings {
             return .preserve
         }

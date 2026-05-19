@@ -162,7 +162,7 @@ public struct AlbumGrid: View {
 
     public var body: some View {
         LazyVGrid(columns: layout.gridColumns, spacing: layout.rowSpacing) {
-            ForEach(albums) { album in
+            ForEach(albums, id: \.sourceScopedID) { album in
                 if #available(iOS 16.0, macOS 13.0, *) {
                     NavigationLink(
                         value: NavigationCoordinator.Destination.album(
