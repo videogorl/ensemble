@@ -418,8 +418,7 @@ public struct LyricsCard: View {
                 isActive: isActive,
                 isNextActive: isNextActive,
                 isTimed: isTimed,
-                opacity: opacity,
-                blur: blur
+                opacity: opacity
             )
         } else {
             // Use Equatable wrapper so SwiftUI skips re-rendering lines whose params
@@ -624,7 +623,6 @@ private struct ChordLyricsLineView: View {
     let isNextActive: Bool
     let isTimed: Bool
     let opacity: Double
-    let blur: CGFloat
 
     private let characterWidth: CGFloat = 8.3
     private let chordFontSize: CGFloat = 13
@@ -656,12 +654,10 @@ private struct ChordLyricsLineView: View {
             }
             .foregroundColor(EnsembleDesign.Color.primaryText)
             .opacity(opacity)
-            .blur(radius: blur)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .animation(.easeInOut(duration: EnsembleDesign.Animation.quickDuration), value: isActive)
             .animation(.easeInOut(duration: EnsembleDesign.Animation.quickDuration), value: isNextActive)
-            .animation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration), value: blur)
         }
         .frame(minHeight: ChordLineSegments.estimatedHeight(for: line))
     }
