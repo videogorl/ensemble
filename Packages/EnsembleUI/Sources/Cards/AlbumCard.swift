@@ -123,7 +123,7 @@ public struct AlbumCard: View {
                     .frame(maxHeight: .infinity, alignment: .topLeading)
             } else {
                 cardContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
         .onDrag {
