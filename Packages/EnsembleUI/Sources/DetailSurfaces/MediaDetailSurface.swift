@@ -27,6 +27,7 @@ struct MediaDetailSurface<Content: View>: View {
     let darkLegibilityOpacity: Double
     let lightLegibilityOpacity: Double
     let contentBleedsUnderTopChrome: Bool
+    let contentBleedsUnderBottomChrome: Bool
     @ViewBuilder private let content: () -> Content
 
     init(
@@ -35,6 +36,7 @@ struct MediaDetailSurface<Content: View>: View {
         darkLegibilityOpacity: Double = EnsembleScaffold.DetailSurface.darkLegibilityOverlayOpacity,
         lightLegibilityOpacity: Double = EnsembleScaffold.DetailSurface.lightLegibilityOverlayOpacity,
         contentBleedsUnderTopChrome: Bool = false,
+        contentBleedsUnderBottomChrome: Bool = false,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.artworkImage = artworkImage
@@ -42,6 +44,7 @@ struct MediaDetailSurface<Content: View>: View {
         self.darkLegibilityOpacity = darkLegibilityOpacity
         self.lightLegibilityOpacity = lightLegibilityOpacity
         self.contentBleedsUnderTopChrome = contentBleedsUnderTopChrome
+        self.contentBleedsUnderBottomChrome = contentBleedsUnderBottomChrome
         self.content = content
     }
 
@@ -59,13 +62,20 @@ struct MediaDetailSurface<Content: View>: View {
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
 
-            if contentBleedsUnderTopChrome {
+            if !contentBleedEdges.isEmpty {
                 content()
-                    .ignoresSafeArea(.container, edges: .top)
+                    .ignoresSafeArea(.container, edges: contentBleedEdges)
             } else {
                 content()
             }
         }
+    }
+
+    private var contentBleedEdges: Edge.Set {
+        var edges: Edge.Set = []
+        if contentBleedsUnderTopChrome { edges.insert(.top) }
+        if contentBleedsUnderBottomChrome { edges.insert(.bottom) }
+        return edges
     }
 }
 

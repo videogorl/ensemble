@@ -663,7 +663,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var baseContent: some View {
         MediaDetailSurface(
             artworkImage: artworkImage,
-            contentBleedsUnderTopChrome: true
+            contentBleedsUnderTopChrome: true,
+            contentBleedsUnderBottomChrome: true
         ) {
             #if os(iOS)
             // Always use MediaTrackList (UITableView), even with 0 tracks.
