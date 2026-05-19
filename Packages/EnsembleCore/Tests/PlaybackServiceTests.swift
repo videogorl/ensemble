@@ -72,6 +72,19 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertFalse(AudioPlaybackEngine.smartMixFormatsMatch(nil, stereo!))
     }
 
+    func testSmartMixPrimaryHandoffPreparationStartsNearTransitionEnd() {
+        XCTAssertFalse(AudioPlaybackEngine.shouldPrepareSmartMixPrimaryHandoff(
+            elapsed: 9.70,
+            transitionDuration: 10,
+            handoffDuration: 0.25
+        ))
+        XCTAssertTrue(AudioPlaybackEngine.shouldPrepareSmartMixPrimaryHandoff(
+            elapsed: 9.75,
+            transitionDuration: 10,
+            handoffDuration: 0.25
+        ))
+    }
+
     func testRouteRecoveryPrefersObservedPositionWhenLiveTimeDropsToZero() {
         let time = AudioPlaybackEngine.resolvedRouteRecoveryPosition(
             livePosition: 0,
