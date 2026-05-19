@@ -317,6 +317,7 @@ public struct MainTabView: View {
             }
         }
         .environment(\.isStageFlowActive, isStageFlowActive)
+        .tabBarVisibility(isHidden: rootChromeSuppressed)
         .overlay(alignment: .bottom) {
             if showsPhoneAuroraOverlay &&
                 selectedRootTab == tab &&
@@ -374,6 +375,21 @@ public struct MainTabView: View {
         return isMoreRoot || barTabs.contains(tab)
         #else
         return false
+        #endif
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func tabBarVisibility(isHidden: Bool) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            self.toolbar(isHidden ? .hidden : .visible, for: .tabBar)
+        } else {
+            self
+        }
+        #else
+        self
         #endif
     }
 }
