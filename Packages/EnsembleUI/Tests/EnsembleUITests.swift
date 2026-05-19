@@ -25,6 +25,13 @@ final class EnsembleUITests: XCTestCase {
         ])
     }
 
+    func testChordLineSegmentWhitespaceOnlyLyricIsPlaceholderEligible() {
+        let row = ChordLineSegments.Row(chords: "C", lyric: "   ")
+
+        XCTAssertTrue(row.hasVisibleChords)
+        XCTAssertFalse(row.hasVisibleLyric)
+    }
+
     func testMediaDragPayloadPreservesTrackIdentity() throws {
         let track = Track(
             id: "track-1",

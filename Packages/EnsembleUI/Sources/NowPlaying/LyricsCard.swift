@@ -637,17 +637,17 @@ private struct ChordLyricsLineView: View {
             let rows = ChordLineSegments.rows(for: line, maxColumns: maxColumns)
             VStack(alignment: .leading, spacing: 1) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                    if !row.chords.trimmingCharacters(in: .whitespaces).isEmpty {
+                    if row.hasVisibleChords {
                         Text(row.chords)
                             .font(.system(size: chordFontSize, weight: .semibold, design: .monospaced))
                             .foregroundColor(EnsembleDesign.Color.accent)
                             .lineLimit(1)
                     }
-                    if !row.lyric.isEmpty {
+                    if row.hasVisibleLyric {
                         Text(row.lyric)
                             .font(.system(size: lyricFontSize, weight: .medium, design: .monospaced))
                             .lineLimit(1)
-                    } else if !row.chords.trimmingCharacters(in: .whitespaces).isEmpty {
+                    } else if row.hasVisibleChords {
                         Text(chordOnlyPlaceholder)
                             .font(.system(size: lyricFontSize, weight: .medium, design: .default))
                             .lineLimit(1)
@@ -671,6 +671,14 @@ enum ChordLineSegments {
     struct Row: Equatable {
         let chords: String
         let lyric: String
+
+        var hasVisibleChords: Bool {
+            !chords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        var hasVisibleLyric: Bool {
+            !lyric.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
 
     static func rows(for line: LyricsLine, maxColumns: Int) -> [Row] {
