@@ -271,7 +271,11 @@ public struct RootView: View {
             #if canImport(UIKit)
             .onReceive(Self.softwareKeyboardVisibilityPublisher) { newValue in
                 if newValue != isSoftwareKeyboardVisible {
-                    isSoftwareKeyboardVisible = newValue
+                    var transaction = Transaction(animation: nil)
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        isSoftwareKeyboardVisible = newValue
+                    }
                 }
             }
             #endif
@@ -295,7 +299,7 @@ public struct RootView: View {
         Publishers.Merge(
             NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)
                 .map { _ in true },
-            NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)
+            NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)
                 .map { _ in false }
         )
         .removeDuplicates()
