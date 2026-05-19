@@ -7,6 +7,7 @@ Load this reference for platform navigation, native UI ownership, persistent sur
 - Root shells own platform navigation: tab shell on iPhone, split/sidebar shell on iPadOS and macOS where supported.
 - Navigation coordinators are scene/window-scoped. Do not route user-driven navigation through shared singleton state that mirrors iPad/macOS windows.
 - Keep native platform owners for behavior SwiftUI does not expose: native track tables, AirPlay picker, Metal aurora, global toast window, native share/menu hosts, iOS 15 tab/mini-player bridges, and macOS menu/window behavior.
+- On iOS and iPadOS, the root mini player should hide while the software keyboard is visible. Root chrome owners should suppress the mini-player overlay and its reserved clearance instead of letting the mini player ride above the keyboard.
 - Treat new safe-area compensation, delayed layout tasks, custom scroll detectors, root-chrome mutation, toolbar proxies, or broad UIKit/AppKit appearance changes as suspect until a current simulator/macOS repro proves native behavior is broken.
 - Persistent list/detail surfaces should observe focused projections or local state snapshots, not broad high-frequency singleton objects.
 - Library browse screens that have already displayed cached content should not publish transient empty lists or swap to blank loading states during refresh.

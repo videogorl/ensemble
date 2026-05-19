@@ -12,6 +12,17 @@ enum RootChromeCoordinateSpace {
     static let name = "RootChromeCoordinateSpace"
 }
 
+private struct SoftwareKeyboardVisibleKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var isSoftwareKeyboardVisible: Bool {
+        get { self[SoftwareKeyboardVisibleKey.self] }
+        set { self[SoftwareKeyboardVisibleKey.self] = newValue }
+    }
+}
+
 struct RootChromeRegistration {
     let bounds: Anchor<CGRect>?
     let bottomPadding: CGFloat
@@ -143,6 +154,7 @@ public struct RootView: View {
     @State private var isNowPlayingPresented = false
     @State private var sidebarSelection: SidebarSelection? = .library(.home)
     @State private var isLowPowerMode = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
+    @State private var isSoftwareKeyboardVisible = false
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
 
@@ -217,7 +229,7 @@ public struct RootView: View {
             }
             .coordinateSpace(name: RootChromeCoordinateSpace.name)
             .overlayPreferenceValue(RootChromeRegistrationPreferenceKey.self) { registration in
-                if !isNowPlayingPresented {
+                if !isNowPlayingPresented && !isSoftwareKeyboardVisible {
                     RootMiniPlayerOverlay(
                         nowPlayingVM: nowPlayingVM,
                         layout: resolvedRootChromeLayout(from: registration, in: proxy),
@@ -231,6 +243,7 @@ public struct RootView: View {
             }
             .environment(\.isViewportNowPlayingPresented, isNowPlayingPresented)
             .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
+            .environment(\.isSoftwareKeyboardVisible, isSoftwareKeyboardVisible)
             .environmentObject(navigationCoordinator)
             .accentColor(settingsManager.accentColor.color)
             .onAppear {
@@ -255,6 +268,13 @@ public struct RootView: View {
             .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
                 isLowPowerMode = newValue
             }
+            #if canImport(UIKit)
+            .onReceive(Self.softwareKeyboardVisibilityPublisher) { newValue in
+                if newValue != isSoftwareKeyboardVisible {
+                    isSoftwareKeyboardVisible = newValue
+                }
+            }
+            #endif
             .modifier(NowPlayingPresentationModifier(rootView: self))
             .task {
                 let deps = DependencyContainer.shared
@@ -269,6 +289,19 @@ public struct RootView: View {
         .macRootWindowMinimumFrame()
         .macViewportNowPlayingWindowChromeHidden(isNowPlayingPresented)
     }
+
+    #if canImport(UIKit)
+    private static var softwareKeyboardVisibilityPublisher: AnyPublisher<Bool, Never> {
+        Publishers.Merge(
+            NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)
+                .map { _ in true },
+            NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)
+                .map { _ in false }
+        )
+        .removeDuplicates()
+        .eraseToAnyPublisher()
+    }
+    #endif
 
     private func updateAppearance() {
         #if canImport(UIKit)

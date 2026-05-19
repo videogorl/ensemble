@@ -19,6 +19,7 @@ public struct MainTabView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @Environment(\.isSoftwareKeyboardVisible) private var isSoftwareKeyboardVisible
     @State private var didSetInitialTab = false
     // Extracted observation state — avoids full root invalidation from singleton publishers
     @State private var networkState: NetworkState = DependencyContainer.shared.networkMonitor.networkState
@@ -89,6 +90,7 @@ public struct MainTabView: View {
             let activeStageFlowRootTab = activeStageFlowRootTab
             let rootStageFlowActive = isStageFlowActive(for: geometry.size, activeTab: activeStageFlowRootTab)
             let rootChromeSuppressed = rootStageFlowActive
+            let miniPlayerSuppressed = rootChromeSuppressed || isSoftwareKeyboardVisible
 
             let rootView = VStack(spacing: EnsembleDesign.Spacing.none) {
                 tabBarVisibility(
@@ -125,7 +127,7 @@ public struct MainTabView: View {
                 // The 70pt covers the mini player height + spacing above the tab bar.
                 .miniPlayerContainerInset(
                     TrackListLayoutMetrics.miniPlayerContainerInset,
-                    isVisible: !isShowingNowPlaying && !rootChromeSuppressed
+                    isVisible: !isShowingNowPlaying && !miniPlayerSuppressed
                 )
                 .zIndex(0)
             .task {
@@ -158,7 +160,7 @@ public struct MainTabView: View {
                 .background(
                     RootChromeFrameRegistrationView(
                         bottomPadding: miniPlayerBottomLift,
-                        showsMiniPlayer: !isShowingNowPlaying && !rootChromeSuppressed,
+                        showsMiniPlayer: !isShowingNowPlaying && !miniPlayerSuppressed,
                         priority: 0
                     )
                 )
@@ -472,6 +474,7 @@ public struct SidebarView: View {
     private let pinManager = DependencyContainer.shared.pinManager
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
+    @Environment(\.isSoftwareKeyboardVisible) private var isSoftwareKeyboardVisible
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
     #endif
@@ -1015,7 +1018,7 @@ public struct SidebarView: View {
         .safeAreaInset(edge: .bottom) {
             Color.clear
                 .frame(
-                    height: isShowingNowPlaying
+                    height: isShowingNowPlaying || isSoftwareKeyboardVisible
                         ? 0
                         : TrackListLayoutMetrics.miniPlayerContainerInset
                 )
@@ -1215,7 +1218,7 @@ public struct SidebarView: View {
                     bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
                         safeAreaBottom: proxy.safeAreaInsets.bottom
                     ),
-                    showsMiniPlayer: !isShowingNowPlaying,
+                    showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
                     priority: priority
                 )
             )
