@@ -741,6 +741,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 } label: {
                     Text(subtitle)
                         .font(EnsembleDesign.Typography.detailSubtitle)
+                        .foregroundColor(EnsembleDesign.Color.accent)
                         .multilineTextAlignment(alignment)
                         .lineLimit(2)
                 }
