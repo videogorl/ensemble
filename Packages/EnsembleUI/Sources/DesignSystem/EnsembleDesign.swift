@@ -250,13 +250,31 @@ public enum EnsembleDesign {
         public static let saveQueue = "square.and.arrow.down"
         public static let instrumentalOn = "mic.slash.circle"
         public static let instrumentalOff = "mic.circle"
-        public static let chords = "music.pages"
+        public static var chords: String {
+            chordIconName(modernSymbolSetAvailable: isModernChordSymbolAvailable)
+        }
         public static let lyricsUnavailable = "text.quote"
         public static let scrubFine = "minus"
         public static let scrubUp = "chevron.compact.up"
         public static let scrubDown = "chevron.compact.down"
         public static let trackActions = more
         public static let trackActionsCircle = moreCircle
+
+        static func chordIconName(modernSymbolSetAvailable: Bool) -> String {
+            modernSymbolSetAvailable ? "music.pages" : "music.note.list"
+        }
+
+        private static var isModernChordSymbolAvailable: Bool {
+            #if os(iOS)
+            if #available(iOS 16.0, *) { return true }
+            return false
+            #elseif os(macOS)
+            if #available(macOS 13.0, *) { return true }
+            return false
+            #else
+            return false
+            #endif
+        }
     }
 
     public enum Breakpoint {

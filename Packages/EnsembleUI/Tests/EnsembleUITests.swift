@@ -7,6 +7,17 @@ import AppKit
 #endif
 
 final class EnsembleUITests: XCTestCase {
+    func testChordIconFallsBackForOlderSymbolSets() {
+        XCTAssertEqual(
+            EnsembleDesign.Icon.chordIconName(modernSymbolSetAvailable: false),
+            "music.note.list"
+        )
+        XCTAssertEqual(
+            EnsembleDesign.Icon.chordIconName(modernSymbolSetAvailable: true),
+            "music.pages"
+        )
+    }
+
     func testChordLineSegmentsPreserveManualReturnsBeforeWrapping() {
         let line = LyricsLine(
             timestamp: 12,
