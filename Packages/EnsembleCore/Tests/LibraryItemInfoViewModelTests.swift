@@ -37,6 +37,26 @@ final class LibraryItemInfoViewModelTests: XCTestCase {
         )
     }
 
+    func testAlbumFolderPathUsesTrackParentDirectory() throws {
+        let first = try decodePlexTrack(ratingKey: "1", filePath: "/music/A/Album/01 Kiwi.flac")
+        let second = try decodePlexTrack(ratingKey: "2", filePath: "/music/A/Album/02 Grape.flac")
+
+        XCTAssertEqual(
+            LibraryItemInfoViewModel.albumFolderPath(from: [first, second]),
+            "/music/A/Album"
+        )
+    }
+
+    func testAlbumFolderPathUsesCommonParentForDiscSubfolders() throws {
+        let first = try decodePlexTrack(ratingKey: "1", filePath: "/music/A/Album/Disc 1/01 Kiwi.flac")
+        let second = try decodePlexTrack(ratingKey: "2", filePath: "/music/A/Album/Disc 2/01 Grape.flac")
+
+        XCTAssertEqual(
+            LibraryItemInfoViewModel.albumFolderPath(from: [first, second]),
+            "/music/A/Album"
+        )
+    }
+
     private func decodePlexTrack(ratingKey: String, filePath: String) throws -> PlexTrack {
         let escapedPath = filePath
             .replacingOccurrences(of: "\\", with: "\\\\")

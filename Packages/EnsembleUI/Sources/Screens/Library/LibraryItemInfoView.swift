@@ -133,12 +133,9 @@ public struct LibraryItemInfoView: View {
 
         case .album:
             if !settingsManager.demoModeEnabled,
-               !viewModel.originalFilePaths.isEmpty {
-                infoSection(title: "Files") {
-                    infoRow(
-                        label: viewModel.originalFilePaths.count == 1 ? "Path" : "Paths",
-                        value: viewModel.originalFilePaths.joined(separator: "\n")
-                    )
+               let folderPath = viewModel.originalFolderPath {
+                infoSection(title: "File") {
+                    infoRow(label: "Path", value: folderPath)
                 }
             }
 

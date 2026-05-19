@@ -11,7 +11,7 @@ public final class LibraryItemInfoViewModel: ObservableObject {
 
     @Published public private(set) var sourceContext = SourceContext(serverName: nil, libraryName: nil)
     @Published public private(set) var originalFileInfo: AudioFileInfo?
-    @Published public private(set) var originalFilePaths: [String] = []
+    @Published public private(set) var originalFolderPath: String?
     @Published public private(set) var aggregateDuration: TimeInterval?
     @Published public private(set) var isLoading = false
 
@@ -49,22 +49,22 @@ public final class LibraryItemInfoViewModel: ObservableObject {
         async let duration = loadAggregateDuration()
 
         let resolvedFileInfo = await fileInfo
-        let resolvedFilePaths: [String]
+        let resolvedFolderPath: String?
         switch request {
         case .track:
-            resolvedFilePaths = resolvedFileInfo?.filePath.map { [$0] } ?? []
+            resolvedFolderPath = nil
         case .album:
-            resolvedFilePaths = await loadAlbumOriginalFilePaths()
+            resolvedFolderPath = await loadAlbumOriginalFolderPath()
         case .playlist:
-            resolvedFilePaths = []
+            resolvedFolderPath = nil
         }
         let resolvedDuration = await duration
 
         if originalFileInfo != resolvedFileInfo {
             originalFileInfo = resolvedFileInfo
         }
-        if originalFilePaths != resolvedFilePaths {
-            originalFilePaths = resolvedFilePaths
+        if originalFolderPath != resolvedFolderPath {
+            originalFolderPath = resolvedFolderPath
         }
         if aggregateDuration != resolvedDuration {
             aggregateDuration = resolvedDuration
@@ -87,20 +87,20 @@ public final class LibraryItemInfoViewModel: ObservableObject {
         }
     }
 
-    private func loadAlbumOriginalFilePaths() async -> [String] {
+    private func loadAlbumOriginalFolderPath() async -> String? {
         guard case .album(let album) = request,
               let sourceKey = album.sourceCompositeKey,
               let apiClient = syncCoordinator.apiClient(for: sourceKey)
         else {
-            return []
+            return nil
         }
 
         do {
             let tracks = try await apiClient.getAlbumTracks(albumKey: album.id)
-            return Self.filePaths(from: tracks)
+            return Self.albumFolderPath(from: tracks)
         } catch {
-            EnsembleLogger.debug("Failed to fetch Get Info album file paths: \(error)")
-            return []
+            EnsembleLogger.debug("Failed to fetch Get Info album folder path: \(error)")
+            return nil
         }
     }
 
@@ -151,6 +151,26 @@ public final class LibraryItemInfoViewModel: ObservableObject {
         }
 
         return paths
+    }
+
+    static func albumFolderPath(from tracks: [PlexTrack]) -> String? {
+        let directoryComponents = filePaths(from: tracks)
+            .map { URL(fileURLWithPath: $0).deletingLastPathComponent().pathComponents }
+
+        guard var commonComponents = directoryComponents.first else { return nil }
+
+        for components in directoryComponents.dropFirst() {
+            commonComponents = Array(
+                zip(commonComponents, components)
+                    .prefix { $0 == $1 }
+                    .map(\.0)
+            )
+            if commonComponents.isEmpty {
+                return nil
+            }
+        }
+
+        return NSString.path(withComponents: commonComponents)
     }
 
     private static func resolveSourceContext(
