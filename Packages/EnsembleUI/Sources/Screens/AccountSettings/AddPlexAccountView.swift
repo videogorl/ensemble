@@ -8,6 +8,7 @@ import AppKit
 
 public struct AddPlexAccountView: View {
     @StateObject private var viewModel: AddPlexAccountViewModel
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.dependencies) private var deps
@@ -271,7 +272,7 @@ public struct AddPlexAccountView: View {
                                     .font(EnsembleDesign.Typography.stateMessage)
                                     .foregroundColor(EnsembleDesign.Color.accent)
 
-                                Text(server.name)
+                                Text(displayServerName(server.name))
                                     .font(EnsembleDesign.Typography.actionLabel)
 
                                 if let platform = server.platform {
@@ -332,6 +333,10 @@ public struct AddPlexAccountView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(value, forType: .string)
         #endif
+    }
+
+    private func displayServerName(_ serverName: String) -> String {
+        DemoModeRedaction.serverName(serverName, isEnabled: settingsManager.demoModeEnabled)
     }
 }
 

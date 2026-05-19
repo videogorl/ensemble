@@ -49,6 +49,11 @@ public enum TrackRating: Equatable {
 public struct PlaylistServerOption: Identifiable, Equatable {
     public let id: String // server-level source key: plex:account:server
     public let name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
 }
 
 public struct LastPlaylistTarget: Equatable, Sendable, Codable {

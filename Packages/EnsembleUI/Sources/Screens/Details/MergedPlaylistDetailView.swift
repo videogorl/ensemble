@@ -5,6 +5,7 @@ import SwiftUI
 /// playlists across servers, with source server chips and edit/delete-all flows.
 public struct MergedPlaylistDetailView: View {
     @StateObject private var viewModel: MergedPlaylistDetailViewModel
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     let nowPlayingVM: NowPlayingViewModel
 
     @State private var showRenamePrompt = false
@@ -192,7 +193,7 @@ public struct MergedPlaylistDetailView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: EnsembleScaffold.Chip.rowSpacing) {
                 ForEach(viewModel.sourceServerNames, id: \.sourceKey) { source in
-                    Text(source.name)
+                    Text(displayServerName(source.name))
                         .font(EnsembleDesign.Typography.cardSubtitle)
                         .foregroundColor(EnsembleDesign.Color.accent)
                         .padding(.horizontal, EnsembleScaffold.Chip.horizontalPadding)
@@ -255,7 +256,11 @@ public struct MergedPlaylistDetailView: View {
 
     private func serverName(for playlist: Playlist) -> String {
         guard let sourceKey = playlist.sourceCompositeKey else { return "Unknown Server" }
-        return DependencyContainer.shared.accountManager.serverName(for: sourceKey) ?? "Unknown Server"
+        return displayServerName(DependencyContainer.shared.accountManager.serverName(for: sourceKey) ?? "Unknown Server")
+    }
+
+    private func displayServerName(_ serverName: String) -> String {
+        DemoModeRedaction.serverName(serverName, isEnabled: settingsManager.demoModeEnabled)
     }
 
     private func presentPendingEditTarget() {

@@ -100,6 +100,7 @@ public struct PlaylistsView: View {
     // Cached merge-aware playlist list — avoids recomputing grouping on every body evaluation
     @State private var cachedDisplayedPlaylists: [DisplayPlaylist] = []
     @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
@@ -340,7 +341,7 @@ public struct PlaylistsView: View {
             // field focus does not rebuild the sheet host.
             .sheet(isPresented: $showCreatePlaylistPush) {
                 CreatePlaylistView(
-                    serverOptions: nowPlayingVM.playlistServerOptions(),
+                    serverOptions: playlistServerOptionsForDisplay(),
                     isMergeEnabled: viewModel.isMergeEnabled
                 ) { name, serverKeys in
                     createPlaylistOnServers(named: name, serverSourceKeys: serverKeys)
@@ -632,7 +633,7 @@ public struct PlaylistsView: View {
         if dp.isMerged { return .merged }
         if viewModel.hasNameCollision(dp.title) {
             let name = accountManager.serverName(for: dp.primaryPlaylist.sourceCompositeKey ?? "") ?? "Unknown"
-            return .serverName(name)
+            return .serverName(DemoModeRedaction.serverName(name, isEnabled: settingsManager.demoModeEnabled))
         }
         return nil
     }
@@ -642,6 +643,15 @@ public struct PlaylistsView: View {
             account.servers.contains { server in
                 server.libraries.contains(where: \.isEnabled)
             }
+        }
+    }
+
+    private func playlistServerOptionsForDisplay() -> [PlaylistServerOption] {
+        nowPlayingVM.playlistServerOptions().map { option in
+            PlaylistServerOption(
+                id: option.id,
+                name: DemoModeRedaction.serverName(option.name, isEnabled: settingsManager.demoModeEnabled)
+            )
         }
     }
 
