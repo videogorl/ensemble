@@ -227,7 +227,7 @@ public enum EnsembleDesign {
         public static let shareAudioFile = "square.and.arrow.up"
         public static let shareLink = "link"
         public static let shuffle = "shuffle"
-        public static let smartMix = "shuffle.circle"
+        public static let smartMix = "sensor.radiowaves.left.and.right"
         public static let smartPlaylist = "gearshape.fill"
         public static let sort = "arrow.up.arrow.down"
         public static let speakerPlayingCompact = "speaker.wave.2.fill"

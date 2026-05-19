@@ -108,7 +108,7 @@ On iPad and AirPlay external display, the layout switches to a shared **side-by-
 | Recommendations exhausted | indicator | "End of recommendations" text when autoplay depleted | `recommendationsExhausted` |
 | Shuffle button | control | Toggle shuffle mode (accent when active) | `shuffle` |
 | Repeat button | control | Cycle repeat mode (off/all/one, accent when active) | `repeat`, `repeat.1` |
-| SmartMix button | control | Toggle per-device silence-aware DJ-style overlap between adjacent tracks | `shuffle.circle`, `isSmartMixEnabled` |
+| SmartMix button | control | Toggle per-device silence-aware DJ-style overlap between adjacent tracks | `sensor.radiowaves.left.and.right`, `isSmartMixEnabled` |
 | Autoplay button | control | Toggle autoplay with cross-through when offline | `play.circle.fill`, `play.circle` |
 | Secondary controls region | region | Bottom row with shuffle/repeat/SmartMix/autoplay | `secondaryControlsView` |
 | Page indicator | indicator | Below secondary controls on Queue card | `PageIndicator` |
