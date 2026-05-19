@@ -229,8 +229,8 @@ enum LRCParser {
     /// Parse UG-style chord rows paired with the following lyric row.
     static func parseChordLRC(_ text: String) -> ParsedLyrics {
         var lines: [LyricsLine] = []
-        var pendingChordRows: [String] = []
-        var hasSeenTimestamp = false
+        var pendingChordRow: String?
+        var untimestampedRows: [String] = []
 
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .newlines)
@@ -244,11 +244,10 @@ enum LRCParser {
             }
 
             if let timestamped = parseTimestampLinePreservingText(line) {
-                hasSeenTimestamp = true
-                let chords = pendingChordRows.flatMap {
+                let chords = pendingChordRow.map {
                     parseChordRow($0, timestampPrefixWidth: timestamped.prefixWidth)
-                }
-                pendingChordRows.removeAll()
+                } ?? []
+                pendingChordRow = nil
 
                 if !timestamped.text.isEmpty || !chords.isEmpty {
                     lines.append(LyricsLine(timestamp: timestamped.timestamp, text: timestamped.text, chords: chords))
@@ -256,30 +255,15 @@ enum LRCParser {
                 continue
             }
 
-            if isChordRow(line) {
-                pendingChordRows.append(line)
-                continue
-            }
-
-            let lyricText = line.trimmingCharacters(in: .whitespaces)
-            if pendingChordRows.isEmpty, hasSeenTimestamp, let lastLine = lines.last, lastLine.timestamp != nil {
-                let separator = lastLine.text.isEmpty ? "" : "\n"
-                lines[lines.count - 1] = LyricsLine(
-                    timestamp: lastLine.timestamp,
-                    text: lastLine.text + separator + lyricText,
-                    chords: lastLine.chords
-                )
-                continue
-            }
-
-            let chords = pendingChordRows.flatMap {
-                parseChordRow($0, timestampPrefixWidth: 0)
-            }
-            pendingChordRows.removeAll()
-            lines.append(LyricsLine(timestamp: nil, text: lyricText, chords: chords))
+            pendingChordRow = line
+            untimestampedRows.append(line)
         }
 
-        return ParsedLyrics(lines: lines, isTimed: lines.contains { $0.timestamp != nil })
+        if lines.contains(where: { $0.timestamp != nil }) {
+            return ParsedLyrics(lines: lines, isTimed: true)
+        }
+
+        return ParsedLyrics(lines: parseUntimedChordPairs(untimestampedRows), isTimed: false)
     }
 
     // Check if a line is a metadata tag (e.g. [au:Author], [by:Creator])
@@ -333,14 +317,28 @@ enum LRCParser {
         return (timestamp, text, prefixWidth)
     }
 
-    private static func isChordRow(_ line: String) -> Bool {
-        guard let regex = try? NSRegularExpression(pattern: chordPattern) else { return false }
-        let range = NSRange(line.startIndex..., in: line)
-        let matches = regex.matches(in: line, range: range)
-        guard !matches.isEmpty else { return false }
-        let nonWhitespaceCount = line.filter { !$0.isWhitespace }.count
-        let chordChars = matches.reduce(0) { $0 + $1.range.length }
-        return chordChars >= max(1, nonWhitespaceCount - 2)
+    private static func parseUntimedChordPairs(_ rows: [String]) -> [LyricsLine] {
+        var lines: [LyricsLine] = []
+        var index = 0
+
+        while index < rows.count {
+            if index + 1 < rows.count {
+                let chords = parseChordRow(rows[index], timestampPrefixWidth: 0)
+                let lyricText = rows[index + 1].trimmingCharacters(in: .whitespaces)
+                if !lyricText.isEmpty || !chords.isEmpty {
+                    lines.append(LyricsLine(timestamp: nil, text: lyricText, chords: chords))
+                }
+                index += 2
+            } else {
+                let lyricText = rows[index].trimmingCharacters(in: .whitespaces)
+                if !lyricText.isEmpty {
+                    lines.append(LyricsLine(timestamp: nil, text: lyricText))
+                }
+                index += 1
+            }
+        }
+
+        return lines
     }
 
     private static func parseChordRow(_ row: String, timestampPrefixWidth: Int) -> [ParsedChord] {

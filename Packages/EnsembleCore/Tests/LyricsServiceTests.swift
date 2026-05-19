@@ -170,7 +170,7 @@ final class LRCParserTests: XCTestCase {
         XCTAssertEqual(result.lines[0].chords.map(\.symbol), ["Cmaj7", "Bb", "(C)", "A/2"])
     }
 
-    func testConsecutiveChordRowsShareNextTimestampedLine() {
+    func testOnlyImmediatePrecedingUntimestampedRowAttachesToTimestampedLine() {
         let lrc = """
                   C       G
                       Am      F
@@ -182,7 +182,7 @@ final class LRCParserTests: XCTestCase {
         XCTAssertEqual(result.lines.count, 1)
         XCTAssertEqual(result.lines[0].timestamp!, 12.34, accuracy: 0.01)
         XCTAssertEqual(result.lines[0].text, "First line")
-        XCTAssertEqual(result.lines[0].chords.map(\.symbol), ["C", "G", "Am", "F"])
+        XCTAssertEqual(result.lines[0].chords.map(\.symbol), ["Am", "F"])
     }
 
     func testParsesCompoundChordExtensionsBeforeNextTimestampedLine() {
@@ -203,10 +203,10 @@ final class LRCParserTests: XCTestCase {
         XCTAssertEqual(result.lines[1].chords.map(\.symbol), ["F#m", "C#7/G#", "F#m/A", "F#7/A#", "Bm7add11", "Cdim7", "C#"])
     }
 
-    func testTimedLyricContinuationsPreserveReturnsOnPreviousTimestamp() {
+    func testUntimestampedRowAfterTimestampAttachesToNextTimestampedLine() {
         let lrc = """
         [00:12.34]First line
-        second physical lyric line
+        C       G
         [00:20.00]Next timestamp
         """
 
@@ -214,9 +214,11 @@ final class LRCParserTests: XCTestCase {
 
         XCTAssertEqual(result.lines.count, 2)
         XCTAssertEqual(result.lines[0].timestamp!, 12.34, accuracy: 0.01)
-        XCTAssertEqual(result.lines[0].text, "First line\nsecond physical lyric line")
+        XCTAssertEqual(result.lines[0].text, "First line")
+        XCTAssertTrue(result.lines[0].chords.isEmpty)
         XCTAssertEqual(result.lines[1].timestamp, 20)
         XCTAssertEqual(result.lines[1].text, "Next timestamp")
+        XCTAssertEqual(result.lines[1].chords.map(\.symbol), ["C", "G"])
     }
 
     func testActiveLineIndexReturnsOriginalIndexWhenUntimedRowsAreMixedIn() {
