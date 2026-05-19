@@ -72,14 +72,10 @@ public enum TrackListLayoutMetrics {
 
     public static func rootMiniPlayerBottomLift(safeAreaBottom: CGFloat) -> CGFloat {
         #if os(iOS)
-        if #available(iOS 16.0, *) {
-            return miniPlayerBottomLiftBase
-        }
-
-        // iOS 15 gets bottom clearance from the tab controller's native safe
-        // area plus the mini-player inset bridge. Anchor the overlay from the
-        // live safe edge so it does not float above the older tab bar shell.
-        return min(max(safeAreaBottom + 8, 24), miniPlayerBottomLiftBase)
+        // The root mini player is overlaid outside the TabView's native safe
+        // area negotiation. Keep it above the tab bar on iOS 15 devices that
+        // report a zero bottom safe area, such as iPhone 6s.
+        return miniPlayerBottomLiftBase
         #else
         return miniPlayerBottomLiftBase
         #endif
