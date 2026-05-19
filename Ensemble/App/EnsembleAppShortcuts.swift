@@ -365,28 +365,36 @@ struct PlayEnsembleArtistIntent: AppIntent {
 struct ShuffleEnsembleArtistIntent: AppIntent {
     static var title: LocalizedStringResource = "Shuffle Artist in Ensemble"
     static var description = IntentDescription("Shuffles music by a specific artist from your Ensemble library.")
+    static var isDiscoverable: Bool = false
     static var openAppWhenRun: Bool = true
     static var parameterSummary: some ParameterSummary {
-        Summary("Shuffle the artist \(\.$artist)")
+        Summary("Shuffle the artist \(\.$artistName)")
     }
 
     @Parameter(title: "Artist")
-    var artist: EnsembleArtistEntity
+    var artistName: String
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
+        let matches = SiriIndexLookup.findItems(kind: .artist, matching: artistName, limit: 3)
+        guard let artist = matches.first else {
+            SiriAppShortcutLogger.logger.info(
+                "SIRI_SHORTCUT: perform shuffle artist raw='\(artistName, privacy: .private)' resolved=0"
+            )
+            return .result(dialog: IntentDialog("I couldn't find \(artistName) in Ensemble."))
+        }
+
         SiriAppShortcutLogger.logger.info(
-            "SIRI_SHORTCUT: perform shuffle artist title='\(artist.title, privacy: .private)' id='\(artist.id, privacy: .private)'"
+            "SIRI_SHORTCUT: perform shuffle artist raw='\(artistName, privacy: .private)' title='\(artist.displayName, privacy: .private)' id='\(artist.id, privacy: .private)' matches=\(matches.count, privacy: .public)"
         )
-        let parsedID = parseCompositeEntityID(artist.id)
         try await SiriShortcutPlaybackExecutor.play(
             kind: .artist,
-            ratingKey: parsedID.ratingKey,
-            sourceCompositeKey: parsedID.sourceCompositeKey,
-            displayName: artist.title,
+            ratingKey: artist.id,
+            sourceCompositeKey: artist.sourceCompositeKey,
+            displayName: artist.displayName,
             shuffle: true
         )
-        return .result(dialog: IntentDialog("Shuffling \(artist.title) in Ensemble."))
+        return .result(dialog: IntentDialog("Shuffling \(artist.displayName) in Ensemble."))
     }
 }
 
@@ -421,6 +429,7 @@ struct PlayEnsembleAlbumIntent: AppIntent {
 struct PlayEnsemblePlaylistIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Playlist in Ensemble"
     static var description = IntentDescription("Plays a specific playlist from your Ensemble library.")
+    static var isDiscoverable: Bool = false
     static var openAppWhenRun: Bool = true
 
     @Parameter(title: "Playlist")
@@ -447,6 +456,7 @@ struct PlayEnsemblePlaylistIntent: AppIntent {
 struct ShuffleEnsemblePlaylistIntent: AppIntent {
     static var title: LocalizedStringResource = "Shuffle Playlist in Ensemble"
     static var description = IntentDescription("Shuffles a specific playlist from your Ensemble library.")
+    static var isDiscoverable: Bool = false
     static var openAppWhenRun: Bool = true
 
     @Parameter(title: "Playlist")
@@ -505,48 +515,6 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
             systemImageName: "music.mic"
         )
 
-        AppShortcut(
-            intent: ShuffleEnsembleArtistIntent(),
-            phrases: [
-                "Shuffle artist \(\.$artist) on \(.applicationName)",
-                "Shuffle the artist \(\.$artist) on \(.applicationName)",
-                "Shuffle artist \(\.$artist) in \(.applicationName)",
-                "Shuffle the artist \(\.$artist) in \(.applicationName)",
-                "Shuffle \(\.$artist) on \(.applicationName)",
-                "Shuffle \(\.$artist) artist on \(.applicationName)",
-                "Shuffle music by \(\.$artist) on \(.applicationName)",
-                "Shuffle songs by \(\.$artist) on \(.applicationName)",
-                "In \(.applicationName), shuffle the artist \(\.$artist)",
-                "In \(.applicationName), shuffle artist \(\.$artist)",
-                "In \(.applicationName), shuffle music by \(\.$artist)"
-            ],
-            shortTitle: "Shuffle Artist",
-            systemImageName: "shuffle"
-        )
-
-        AppShortcut(
-            intent: PlayEnsemblePlaylistIntent(),
-            phrases: [
-                "Play playlist \(\.$playlist) on \(.applicationName)",
-                "In \(.applicationName), play playlist \(\.$playlist)"
-            ],
-            shortTitle: "Play Playlist",
-            systemImageName: "music.note.list"
-        )
-
-        AppShortcut(
-            intent: ShuffleEnsemblePlaylistIntent(),
-            phrases: [
-                "Shuffle playlist \(\.$playlist) on \(.applicationName)",
-                "Shuffle the playlist \(\.$playlist) on \(.applicationName)",
-                "Shuffle \(\.$playlist) on \(.applicationName)",
-                "Shuffle \(\.$playlist) playlist on \(.applicationName)",
-                "In \(.applicationName), shuffle the playlist \(\.$playlist)",
-                "In \(.applicationName), shuffle playlist \(\.$playlist)"
-            ],
-            shortTitle: "Shuffle Playlist",
-            systemImageName: "shuffle"
-        )
     }
 }
 #endif

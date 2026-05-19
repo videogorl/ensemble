@@ -38,6 +38,11 @@ extension AppDelegate {
         // needs accounts loaded before RootView.task has a chance to run.
         DependencyContainer.shared.accountManager.loadAccounts()
 
+        if #available(iOS 16.0, *) {
+            EnsembleAppShortcutsProvider.updateAppShortcutParameters()
+            AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata at launch")
+        }
+
         // Pre-populate server health states with .unknown immediately after accounts load.
         // This ensures TrackAvailabilityResolver treats tracks from unchecked servers as
         // unavailable (dimmed) until health checks confirm reachability, preventing the

@@ -624,7 +624,36 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
             resumePlayback: nil,
             playbackQueueLocation: .unknown,
             playbackSpeed: nil,
-            mediaSearch: nil
+            mediaSearch: makeMediaSearch(reference: reference)
+        )
+    }
+
+    private static func makeMediaSearch(reference: SystemMediaReference) -> INMediaSearch {
+        let mediaName: String?
+        let artistName: String?
+        switch reference.kind {
+        case .artist:
+            mediaName = nil
+            artistName = reference.displayName
+        case .track:
+            mediaName = reference.displayName
+            artistName = reference.artistName ?? reference.secondaryText
+        case .album, .playlist:
+            mediaName = reference.displayName
+            artistName = reference.artistName
+        }
+
+        return INMediaSearch(
+            mediaType: mediaSearchType(for: reference.kind),
+            sortOrder: .unknown,
+            mediaName: mediaName,
+            artistName: artistName,
+            albumName: reference.kind == .album ? reference.displayName : nil,
+            genreNames: nil,
+            moodNames: nil,
+            releaseDate: nil,
+            reference: .unknown,
+            mediaIdentifier: reference.sourceScopedIdentifier
         )
     }
 
@@ -658,6 +687,19 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
             return .album
         case .artist:
             return .artist
+        case .playlist:
+            return .playlist
+        }
+    }
+
+    private static func mediaSearchType(for kind: SiriMediaKind) -> INMediaItemType {
+        switch kind {
+        case .track:
+            return .song
+        case .album:
+            return .album
+        case .artist:
+            return .music
         case .playlist:
             return .playlist
         }
