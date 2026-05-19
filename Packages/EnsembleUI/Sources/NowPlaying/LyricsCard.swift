@@ -667,7 +667,7 @@ private struct ChordLyricsLineView: View {
     }
 }
 
-private enum ChordLineSegments {
+enum ChordLineSegments {
     struct Row: Equatable {
         let chords: String
         let lyric: String
@@ -675,7 +675,31 @@ private enum ChordLineSegments {
 
     static func rows(for line: LyricsLine, maxColumns: Int) -> [Row] {
         let chordLine = chordDisplayLine(for: line.chords)
-        let lyric = line.text
+        let lyricLines = line.text.components(separatedBy: "\n")
+        var resultRows: [Row] = []
+        for (index, lyric) in lyricLines.enumerated() {
+            resultRows.append(contentsOf: rows(
+                chordLine: index == 0 ? chordLine : "",
+                lyric: lyric,
+                maxColumns: maxColumns
+            ))
+        }
+        return resultRows
+    }
+
+    static func estimatedHeight(for line: LyricsLine) -> CGFloat {
+        let chordLength = line.chords.map { max(0, $0.offsetFromLyricStart) + $0.symbol.count }.max() ?? 0
+        let lyricLines = line.text.components(separatedBy: "\n")
+        let estimatedRows = lyricLines.enumerated().reduce(0) { partialResult, element in
+            let (index, lyric) = element
+            let maxLength = index == 0 ? max(chordLength, lyric.count) : lyric.count
+            return partialResult + max(1, Int(ceil(Double(maxLength) / 36.0)))
+        }
+        let rowHeight: CGFloat = line.text.isEmpty && line.chords.isEmpty ? 16 : 34
+        return CGFloat(max(1, estimatedRows)) * rowHeight
+    }
+
+    private static func rows(chordLine: String, lyric: String, maxColumns: Int) -> [Row] {
         let width = max(1, maxColumns)
         let maxLength = max(chordLine.count, lyric.count)
         guard maxLength > 0 else { return [] }
@@ -691,14 +715,6 @@ private enum ChordLineSegments {
             start += max(1, length)
         }
         return rows
-    }
-
-    static func estimatedHeight(for line: LyricsLine) -> CGFloat {
-        let chordLength = line.chords.map { max(0, $0.offsetFromLyricStart) + $0.symbol.count }.max() ?? 0
-        let maxLength = max(chordLength, line.text.count)
-        let estimatedRows = max(1, Int(ceil(Double(maxLength) / 36.0)))
-        let rowHeight: CGFloat = line.text.isEmpty && line.chords.isEmpty ? 16 : 34
-        return CGFloat(estimatedRows) * rowHeight
     }
 
     private static func preferredSegmentLength(

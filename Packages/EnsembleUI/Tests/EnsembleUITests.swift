@@ -7,6 +7,24 @@ import AppKit
 #endif
 
 final class EnsembleUITests: XCTestCase {
+    func testChordLineSegmentsPreserveManualReturnsBeforeWrapping() {
+        let line = LyricsLine(
+            timestamp: 12,
+            text: "First lyric line\nsecond physical lyric line",
+            chords: [
+                ParsedChord(symbol: "C", column: 0, offsetFromLyricStart: 0),
+                ParsedChord(symbol: "G", column: 6, offsetFromLyricStart: 6)
+            ]
+        )
+
+        let rows = ChordLineSegments.rows(for: line, maxColumns: 80)
+
+        XCTAssertEqual(rows, [
+            ChordLineSegments.Row(chords: "C     G", lyric: "First lyric line"),
+            ChordLineSegments.Row(chords: "", lyric: "second physical lyric line")
+        ])
+    }
+
     func testMediaDragPayloadPreservesTrackIdentity() throws {
         let track = Track(
             id: "track-1",

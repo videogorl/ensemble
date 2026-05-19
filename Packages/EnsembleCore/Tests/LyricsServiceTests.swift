@@ -185,7 +185,7 @@ final class LRCParserTests: XCTestCase {
         XCTAssertEqual(result.lines[0].chords.map(\.symbol), ["C", "G", "Am", "F"])
     }
 
-    func testTimedLyricContinuationsStayOnPreviousTimestamp() {
+    func testTimedLyricContinuationsPreserveReturnsOnPreviousTimestamp() {
         let lrc = """
         [00:12.34]First line
         second physical lyric line
@@ -196,7 +196,7 @@ final class LRCParserTests: XCTestCase {
 
         XCTAssertEqual(result.lines.count, 2)
         XCTAssertEqual(result.lines[0].timestamp!, 12.34, accuracy: 0.01)
-        XCTAssertEqual(result.lines[0].text, "First line second physical lyric line")
+        XCTAssertEqual(result.lines[0].text, "First line\nsecond physical lyric line")
         XCTAssertEqual(result.lines[1].timestamp, 20)
         XCTAssertEqual(result.lines[1].text, "Next timestamp")
     }

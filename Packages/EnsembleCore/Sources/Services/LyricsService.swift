@@ -263,7 +263,7 @@ enum LRCParser {
 
             let lyricText = line.trimmingCharacters(in: .whitespaces)
             if pendingChordRows.isEmpty, hasSeenTimestamp, let lastLine = lines.last, lastLine.timestamp != nil {
-                let separator = lastLine.text.isEmpty ? "" : " "
+                let separator = lastLine.text.isEmpty ? "" : "\n"
                 lines[lines.count - 1] = LyricsLine(
                     timestamp: lastLine.timestamp,
                     text: lastLine.text + separator + lyricText,
