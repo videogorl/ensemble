@@ -58,6 +58,9 @@ public struct MiniPlayer: View {
                 pillContent
                     .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
                     .glassEffect(in: .rect(cornerRadius: pillCornerRadius))
+                    .ifLet(namespace, animationID) { view, ns, id in
+                        view.glassEffectID("mini-player-glass-\(id)", in: ns)
+                    }
             } else {
                 // iOS 15–25 fallback: handcrafted material stack approximating glass.
                 pillContent

@@ -91,6 +91,7 @@ private struct RootMiniPlayerOverlay: View {
     let namespace: Namespace.ID
     let animationID: String
     let presentNowPlaying: () -> Void
+    @State private var appearanceOpacity = 0.0
 
     private var isPhoneLayout: Bool {
         #if os(iOS)
@@ -130,6 +131,13 @@ private struct RootMiniPlayerOverlay: View {
             }
             .accentColor(accentColor)
             .frame(width: miniPlayerWidth)
+            .opacity(appearanceOpacity)
+            .onAppear {
+                appearanceOpacity = 0
+                withAnimation(appearanceAnimation) {
+                    appearanceOpacity = 1
+                }
+            }
             .padding(.bottom, layout.bottomPadding)
             .frame(
                 width: layout.frame.width,
@@ -140,6 +148,15 @@ private struct RootMiniPlayerOverlay: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .transition(.identity)
         }
+    }
+
+    private var appearanceAnimation: Animation {
+        #if canImport(UIKit)
+        if #available(iOS 26.0, *) {
+            return .smooth(duration: 0.24)
+        }
+        #endif
+        return .easeInOut(duration: 0.18)
     }
 }
 
