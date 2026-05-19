@@ -753,13 +753,86 @@ public struct ArtistDetailView: View {
         ) {
             let request = ImageRequest(url: url)
             if let uiImage = try? await ImagePipeline.shared.image(for: request) {
+                let heroImage = Self.artistHeroImage(from: uiImage)
                 await MainActor.run {
                     withAnimation(.easeInOut(duration: 0.5)) {
-                        self.artworkImage = uiImage
+                        self.artworkImage = heroImage
                     }
                 }
             }
         }
+    }
+
+    private static func artistHeroImage(from image: PlatformImage) -> PlatformImage {
+        #if os(iOS)
+        guard let cgImage = image.cgImage else {
+            return image
+        }
+        let heroImage = transparentTrimmedImage(cgImage) ?? cgImage
+        return UIImage(cgImage: heroImage, scale: 1, orientation: image.imageOrientation)
+        #else
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return image
+        }
+        let heroImage = transparentTrimmedImage(cgImage) ?? cgImage
+        return NSImage(cgImage: heroImage, size: NSSize(width: heroImage.width, height: heroImage.height))
+        #endif
+    }
+
+    private static func transparentTrimmedImage(_ image: CGImage) -> CGImage? {
+        let width = image.width
+        let height = image.height
+        guard width > 0, height > 0 else { return nil }
+
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        var minX = width
+        var minY = height
+        var maxX = -1
+        var maxY = -1
+        let alphaThreshold: UInt8 = 8
+
+        for y in 0..<height {
+            for x in 0..<width {
+                let alphaIndex = y * bytesPerRow + x * bytesPerPixel + 3
+                if pixels[alphaIndex] > alphaThreshold {
+                    minX = min(minX, x)
+                    minY = min(minY, y)
+                    maxX = max(maxX, x)
+                    maxY = max(maxY, y)
+                }
+            }
+        }
+
+        guard maxX >= minX, maxY >= minY else { return nil }
+
+        let cropRect = CGRect(
+            x: minX,
+            y: minY,
+            width: maxX - minX + 1,
+            height: maxY - minY + 1
+        )
+
+        guard cropRect.width < CGFloat(width) || cropRect.height < CGFloat(height) else {
+            return nil
+        }
+
+        return image.cropping(to: cropRect)
     }
 
     private var detailAlbums: [Album] {
@@ -893,89 +966,95 @@ public struct ArtistDetailView: View {
     }
 
     private var heroBanner: some View {
-        GeometryReader { geometry in
-            let bannerHeight = geometry.size.height
-            // Detect overscroll: when the banner's top in global coords is > 0,
-            // the user is pulling down past the top edge
-            let globalMinY = geometry.frame(in: .global).minY
-            let overscroll = max(globalMinY, 0)
-            let artworkHeight = bannerHeight + geometry.safeAreaInsets.top + overscroll
-            let isHeroPastToolbar = Self.isHeroPastToolbar(geometry)
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .overlay {
+                GeometryReader { geometry in
+                    let bannerHeight = geometry.size.height
+                    // Detect overscroll: when the banner's top in global coords is > 0,
+                    // the user is pulling down past the top edge
+                    let globalMinY = geometry.frame(in: .global).minY
+                    let overscroll = max(globalMinY, 0)
+                    let artworkHeight = bannerHeight + geometry.safeAreaInsets.top + overscroll
+                    let isHeroPastToolbar = Self.isHeroPastToolbar(geometry)
 
-            ZStack(alignment: .bottom) {
-                // Artist artwork — uses artworkImage directly instead of ArtworkView
-                // to avoid ArtworkView's internal 800x800 maxWidth/maxHeight constraints
-                // which prevent the image from covering the full banner width on macOS.
-                Group {
-                    if let img = artworkImage {
-                        #if os(macOS)
-                        Image(nsImage: img)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                        #else
-                        Image(uiImage: img)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                        #endif
-                    } else {
-                        EnsembleScaffold.ArtistDetail.placeholderArtworkColor
-                    }
-                }
-                .frame(width: geometry.size.width, height: artworkHeight)
-                .clipped()
-                .mask(
-                    LinearGradient(
-                        gradient: Gradient(stops: [
-                            .init(color: .white, location: 0),
-                            .init(color: .white, location: 0.5),
-                            .init(color: .clear, location: 1.0)
-                        ]),
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                // Shift up to cover the safe area + overscroll gap
-                .offset(y: -(geometry.safeAreaInsets.top + overscroll))
-
-                // Artist info overlay — offset counteracts overscroll so
-                // the text stays visually pinned instead of drifting down
-                VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.metadataSpacing) {
-                    Text(viewModel.artist.name)
-                        .font(EnsembleDesign.Typography.screenTitle)
-                        .background(TitleOffsetTracker(coordinateSpace: "artistDetailScroll"))
-
-                    if !detailAlbums.isEmpty || !detailTracks.isEmpty {
-                        HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
-                            if displayArtist.isMerged {
-                                Text("\(displayArtist.artists.count) sources")
-                            }
-                            if !detailAlbums.isEmpty {
-                                if displayArtist.isMerged {
-                                    Text("•")
-                                }
-                                Text("\(detailAlbums.count) album\(detailAlbums.count == 1 ? "" : "s")")
-                            }
-                            if !detailAlbums.isEmpty && !detailTracks.isEmpty {
-                                Text("•")
-                            }
-                            if !detailTracks.isEmpty {
-                                Text("\(detailTrackCount) song\(detailTrackCount == 1 ? "" : "s")")
+                    ZStack(alignment: .bottom) {
+                        // Artist artwork — uses artworkImage directly instead of ArtworkView
+                        // to avoid ArtworkView's internal 800x800 maxWidth/maxHeight constraints
+                        // which prevent the image from covering the full banner width on macOS.
+                        Group {
+                            if let img = artworkImage {
+                                #if os(macOS)
+                                Image(nsImage: img)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: geometry.size.width, height: artworkHeight)
+                                #else
+                                Image(uiImage: img)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: geometry.size.width, height: artworkHeight)
+                                #endif
+                            } else {
+                                EnsembleScaffold.ArtistDetail.placeholderArtworkColor
+                                    .frame(width: geometry.size.width, height: artworkHeight)
                             }
                         }
-                        .font(EnsembleDesign.Typography.stateMessage)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .clipped()
+                        .mask(
+                            LinearGradient(
+                                gradient: Gradient(stops: [
+                                    .init(color: .white, location: 0),
+                                    .init(color: .white, location: 0.5),
+                                    .init(color: .clear, location: 1.0)
+                                ]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        // Shift up to cover the safe area + overscroll gap
+                        .offset(y: -(geometry.safeAreaInsets.top + overscroll))
+
+                        // Artist info overlay — offset counteracts overscroll so
+                        // the text stays visually pinned instead of drifting down
+                        VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.metadataSpacing) {
+                            Text(viewModel.artist.name)
+                                .font(EnsembleDesign.Typography.screenTitle)
+                                .background(TitleOffsetTracker(coordinateSpace: "artistDetailScroll"))
+
+                            if !detailAlbums.isEmpty || !detailTracks.isEmpty {
+                                HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
+                                    if displayArtist.isMerged {
+                                        Text("\(displayArtist.artists.count) sources")
+                                    }
+                                    if !detailAlbums.isEmpty {
+                                        if displayArtist.isMerged {
+                                            Text("•")
+                                        }
+                                        Text("\(detailAlbums.count) album\(detailAlbums.count == 1 ? "" : "s")")
+                                    }
+                                    if !detailAlbums.isEmpty && !detailTracks.isEmpty {
+                                        Text("•")
+                                    }
+                                    if !detailTracks.isEmpty {
+                                        Text("\(detailTrackCount) song\(detailTrackCount == 1 ? "" : "s")")
+                                    }
+                                }
+                                .font(EnsembleDesign.Typography.stateMessage)
+                                .foregroundColor(EnsembleDesign.Color.secondaryText)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        .offset(y: -overscroll)
                     }
+                    .preference(
+                        key: ArtistHeroToolbarBackgroundPreferenceKey.self,
+                        value: isHeroPastToolbar
+                    )
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-                .offset(y: -overscroll)
             }
-            .preference(
-                key: ArtistHeroToolbarBackgroundPreferenceKey.self,
-                value: isHeroPastToolbar
-            )
-        }
-        .aspectRatio(1, contentMode: .fit)
     }
 
     private static func isHeroPastToolbar(_ geometry: GeometryProxy) -> Bool {
