@@ -33,7 +33,15 @@ public struct MainTabView: View {
     }
 
     private var selectedRootTab: TabItem {
-        MainTabInitialSelectionPolicy.rootTab(
+        if !didSetInitialTab {
+            return MainTabInitialSelectionPolicy.initialRootTab(
+                selectedTab: navigationCoordinator.selectedTab,
+                selectedPath: navigationCoordinator.pathSnapshot(for: navigationCoordinator.selectedTab),
+                barTabs: barTabs
+            )
+        }
+
+        return MainTabInitialSelectionPolicy.rootTab(
             selectedTab: navigationCoordinator.selectedTab,
             barTabs: barTabs
         )
@@ -136,9 +144,9 @@ public struct MainTabView: View {
                 // tabs so .home isn't in the bar — causing navigateFromNowPlaying
                 // to target the wrong tab until a manual tab switch.
                 if !didSetInitialTab {
-                    didSetInitialTab = true
                     syncVisibleTabs()
                     reconcileInitialTabSelection()
+                    didSetInitialTab = true
                 }
                 await libraryVM.refresh()
             }
@@ -445,6 +453,21 @@ enum MainTabInitialSelectionPolicy {
             return selectedTab
         }
         return barTabs.first ?? .home
+    }
+
+    static func initialRootTab(
+        selectedTab: TabItem,
+        selectedPath: [NavigationCoordinator.Destination],
+        barTabs: [TabItem]
+    ) -> TabItem {
+        if selectedTab == .home,
+           selectedPath.isEmpty,
+           let firstTab = barTabs.first,
+           firstTab != .home {
+            return firstTab
+        }
+
+        return rootTab(selectedTab: selectedTab, barTabs: barTabs)
     }
 
     static func initialResolution(

@@ -170,12 +170,42 @@ final class NavigationRootHelperTests: XCTestCase {
         let barTabs: [TabItem] = [.albums, .home, .artists, .playlists]
 
         XCTAssertEqual(
+            MainTabInitialSelectionPolicy.initialRootTab(
+                selectedTab: .home,
+                selectedPath: [],
+                barTabs: barTabs
+            ),
+            .albums
+        )
+        XCTAssertEqual(
             MainTabInitialSelectionPolicy.initialResolution(
                 selectedTab: .home,
                 selectedPath: [],
                 barTabs: barTabs
             ),
             .select(.albums)
+        )
+    }
+
+    func testInitialSelectionPolicyPreservesHomeWhenItHasALaunchPath() {
+        let barTabs: [TabItem] = [.albums, .home, .artists, .playlists]
+        let path: [NavigationCoordinator.Destination] = [.album(id: "album", sourceKey: "server/library")]
+
+        XCTAssertEqual(
+            MainTabInitialSelectionPolicy.initialRootTab(
+                selectedTab: .home,
+                selectedPath: path,
+                barTabs: barTabs
+            ),
+            .home
+        )
+        XCTAssertEqual(
+            MainTabInitialSelectionPolicy.initialResolution(
+                selectedTab: .home,
+                selectedPath: path,
+                barTabs: barTabs
+            ),
+            .preserve
         )
     }
 
