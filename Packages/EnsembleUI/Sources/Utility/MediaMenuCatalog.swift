@@ -302,9 +302,6 @@ enum MediaMenuCatalog {
         if availability.canGoToArtist {
             navigationActions.append(.goToArtist)
         }
-        if availability.canGetInfo {
-            navigationActions.append(.getInfo)
-        }
         sections.append(section(.navigation, navigationActions))
 
         var shareActions: [MediaMenuActionID] = []
@@ -328,12 +325,15 @@ enum MediaMenuCatalog {
             sections.append(section(.destructive, [.removeFromQueue], role: .destructive))
         }
 
-        if context.allowsTrackEditing {
+        if context.allowsTrackEditing || availability.canGetInfo {
             var managementActions: [MediaMenuActionID] = []
-            if availability.canEditMetadata {
+            if availability.canGetInfo {
+                managementActions.append(.getInfo)
+            }
+            if context.allowsTrackEditing, availability.canEditMetadata {
                 managementActions.append(.editMetadata)
             }
-            if availability.canDelete {
+            if context.allowsTrackEditing, availability.canDelete {
                 managementActions.append(.deleteTrack)
             }
             sections.append(section(.management, managementActions, destructive: [.deleteTrack]))
@@ -361,9 +361,6 @@ enum MediaMenuCatalog {
         if availability.canGoToArtist {
             navigationActions.append(.goToArtist)
         }
-        if availability.canGetInfo {
-            navigationActions.append(.getInfo)
-        }
         sections.append(section(.navigation, navigationActions))
 
         if availability.canShareLink {
@@ -379,12 +376,15 @@ enum MediaMenuCatalog {
         }
         sections.append(section(.offline, offlinePinning))
 
-        if context.allowsPlaylistManagement || context.allowsTrackEditing {
+        if context.allowsPlaylistManagement || context.allowsTrackEditing || availability.canGetInfo {
             var management: [MediaMenuActionID] = []
-            if availability.canEditMetadata {
+            if availability.canGetInfo {
+                management.append(.getInfo)
+            }
+            if (context.allowsPlaylistManagement || context.allowsTrackEditing), availability.canEditMetadata {
                 management.append(.editMetadata)
             }
-            if availability.canDelete {
+            if (context.allowsPlaylistManagement || context.allowsTrackEditing), availability.canDelete {
                 management.append(.deleteAlbum)
             }
             sections.append(section(.management, management, destructive: [.deleteAlbum]))
@@ -439,19 +439,18 @@ enum MediaMenuCatalog {
         }
         sections.append(section(.offline, offlinePinning))
 
-        if availability.canGetInfo {
-            sections.append(section(.navigation, [.getInfo]))
-        }
-
-        if context.allowsPlaylistManagement, !isSmart {
+        if availability.canGetInfo || (context.allowsPlaylistManagement && !isSmart) {
             var management: [MediaMenuActionID] = []
-            if availability.canRename {
+            if availability.canGetInfo {
+                management.append(.getInfo)
+            }
+            if context.allowsPlaylistManagement, !isSmart, availability.canRename {
                 management.append(.rename)
             }
-            if availability.canEditPlaylist {
+            if context.allowsPlaylistManagement, !isSmart, availability.canEditPlaylist {
                 management.append(.editPlaylist)
             }
-            if availability.canDelete {
+            if context.allowsPlaylistManagement, !isSmart, availability.canDelete {
                 management.append(.deletePlaylist)
             }
             sections.append(section(.management, management, destructive: [.deletePlaylist]))

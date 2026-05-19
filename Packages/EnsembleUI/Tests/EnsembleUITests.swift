@@ -423,9 +423,9 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(sections.ids, [.playback, .playlist, .navigation, .sharing, .management])
         XCTAssertEqual(sections.actions(in: .playback), [.playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .playlist), [.addToRecentPlaylist, .addToPlaylist, .favorite])
-        XCTAssertEqual(sections.actions(in: .navigation), [.goToAlbum, .goToArtist, .getInfo])
+        XCTAssertEqual(sections.actions(in: .navigation), [.goToAlbum, .goToArtist])
         XCTAssertEqual(sections.actions(in: .sharing), [.shareLink, .shareAudioFile])
-        XCTAssertEqual(sections.actions(in: .management), [.editMetadata, .deleteTrack])
+        XCTAssertEqual(sections.actions(in: .management), [.getInfo, .editMetadata, .deleteTrack])
         XCTAssertEqual(sections.role(for: .deleteTrack), .destructive)
     }
 
@@ -437,7 +437,7 @@ final class EnsembleUITests: XCTestCase {
         )
 
         XCTAssertEqual(sections.actions(in: .transport), [.toggleShuffle, .repeatAll, .repeatOne])
-        XCTAssertNil(sections.first { $0.id == .management })
+        XCTAssertEqual(sections.actions(in: .management), [.getInfo])
         XCTAssertEqual(sections.role(for: .deleteTrack), nil)
     }
 
@@ -470,7 +470,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(sections.actions(in: .destructive), [.removeFromPlaylist])
         XCTAssertEqual(sections.role(for: .removeFromPlaylist), .destructive)
         XCTAssertEqual(sections.actions(in: .playback), [.playNext, .playLast])
-        XCTAssertEqual(sections.actions(in: .management), [.editMetadata, .deleteTrack])
+        XCTAssertEqual(sections.actions(in: .management), [.getInfo, .editMetadata, .deleteTrack])
     }
 
     func testMediaMenuCatalogAlbumLibraryContextIncludesSharedActions() {
@@ -483,9 +483,9 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(sections.ids, [.playback, .playlist, .navigation, .sharing, .offline, .management])
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .radio, .playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .playlist), [.addToRecentPlaylist, .addToPlaylist])
-        XCTAssertEqual(sections.actions(in: .navigation), [.goToArtist, .getInfo])
+        XCTAssertEqual(sections.actions(in: .navigation), [.goToArtist])
         XCTAssertEqual(sections.actions(in: .offline), [.download, .pin])
-        XCTAssertEqual(sections.actions(in: .management), [.editMetadata, .deleteAlbum])
+        XCTAssertEqual(sections.actions(in: .management), [.getInfo, .editMetadata, .deleteAlbum])
         XCTAssertEqual(sections.role(for: .deleteAlbum), .destructive)
     }
 
@@ -509,11 +509,10 @@ final class EnsembleUITests: XCTestCase {
             availability: .full
         )
 
-        XCTAssertEqual(sections.ids, [.playback, .offline, .navigation])
+        XCTAssertEqual(sections.ids, [.playback, .offline, .management])
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .offline), [.download, .pin])
-        XCTAssertEqual(sections.actions(in: .navigation), [.getInfo])
-        XCTAssertNil(sections.first { $0.id == .management })
+        XCTAssertEqual(sections.actions(in: .management), [.getInfo])
     }
 
     func testMediaMenuCatalogLibraryPlaylistManagementExcludesSmartPlaylists() {
@@ -528,9 +527,9 @@ final class EnsembleUITests: XCTestCase {
             availability: .full
         )
 
-        XCTAssertEqual(regular.actions(in: .management), [.rename, .editPlaylist, .deletePlaylist])
+        XCTAssertEqual(regular.actions(in: .management), [.getInfo, .rename, .editPlaylist, .deletePlaylist])
         XCTAssertEqual(regular.role(for: .deletePlaylist), .destructive)
-        XCTAssertNil(smart.first { $0.id == .management })
+        XCTAssertEqual(smart.actions(in: .management), [.getInfo])
     }
 
     func testMediaMenuCatalogPinnedMergedPlaylistAddsUnpinAll() {
