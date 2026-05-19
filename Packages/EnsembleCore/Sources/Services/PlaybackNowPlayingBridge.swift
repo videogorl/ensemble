@@ -475,10 +475,6 @@ final class PlaybackNowPlayingBridge {
             info[MPNowPlayingInfoPropertyPlaybackQueueCount] = state.queueCount
         }
 
-        if effectiveDuration > 0 {
-            info[MPNowPlayingInfoPropertyPlaybackProgress] = min(max(state.currentTime / effectiveDuration, 0), 1)
-        }
-
         if let artist = track.artistName {
             info[MPMediaItemPropertyArtist] = artist
         }

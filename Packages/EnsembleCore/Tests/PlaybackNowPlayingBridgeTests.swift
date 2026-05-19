@@ -33,6 +33,7 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         XCTAssertEqual(info[MPNowPlayingInfoPropertyExternalUserProfileIdentifier] as? String, "plex://server/library")
         XCTAssertEqual(info[MPNowPlayingInfoPropertyServiceIdentifier] as? String, "Ensemble")
         XCTAssertEqual(info[MPNowPlayingInfoPropertyMediaType] as? UInt, MPNowPlayingInfoMediaType.audio.rawValue)
+        XCTAssertNil(info[MPNowPlayingInfoPropertyPlaybackProgress])
     }
 
     func testBridgeUpdatesCenterAndCommandState() {
