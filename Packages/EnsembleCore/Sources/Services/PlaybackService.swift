@@ -1396,6 +1396,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 if self.shouldIgnoreObservedTimeAfterAutomaticAdvance(time, now: now) {
                     return
                 }
+                if let engine = self.audioEngine,
+                   engine.hasPromotedSmartMixTransition,
+                   let incomingTrackId = engine.smartMixIncomingTrackId,
+                   self.currentTrack?.playbackIdentity != incomingTrackId {
+                    self.handleSmartMixPromotion(trackId: incomingTrackId)
+                }
                 self.updatePlaybackTimes(rawTime: time)
                 self.reconcileEngineTrackStateIfNeeded()
                 self.scheduleGaplessIfNeeded()
@@ -1557,7 +1563,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard Self.shouldReconcileEngineTrack(
             currentTrackID: currentTrack?.playbackIdentity,
             engineTrackID: engineTrackID,
-            isSkipTransitionInProgress: isSkipTransitionInProgress
+            isSkipTransitionInProgress: isSkipTransitionInProgress,
+            isSmartMixTransitionActive: audioEngine?.isSmartMixTransitionActive == true
         ) else {
             return
         }
@@ -1955,9 +1962,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     static func shouldReconcileEngineTrack(
         currentTrackID: String?,
         engineTrackID: String?,
-        isSkipTransitionInProgress: Bool
+        isSkipTransitionInProgress: Bool,
+        isSmartMixTransitionActive: Bool = false
     ) -> Bool {
-        guard !isSkipTransitionInProgress, let engineTrackID else { return false }
+        guard !isSkipTransitionInProgress, !isSmartMixTransitionActive, let engineTrackID else { return false }
         return currentTrackID != engineTrackID
     }
 

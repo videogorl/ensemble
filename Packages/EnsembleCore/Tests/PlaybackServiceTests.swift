@@ -485,6 +485,17 @@ final class PlaybackServiceTests: XCTestCase {
         )
     }
 
+    func testEngineTrackReconciliationSkipsDuringSmartMixTransition() {
+        XCTAssertFalse(
+            PlaybackService.shouldReconcileEngineTrack(
+                currentTrackID: "8877",
+                engineTrackID: "8878",
+                isSkipTransitionInProgress: false,
+                isSmartMixTransitionActive: true
+            )
+        )
+    }
+
     func testAutomaticAdvanceIsSuppressedDuringInterruption() {
         var coordinator = PlaybackHandoffCoordinator()
         _ = coordinator.handle(.interruptionBegan(now: Date()), playbackState: .playing)
