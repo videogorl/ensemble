@@ -135,6 +135,7 @@ public final class NowPlayingQueueProjection: ObservableObject {
     @Published public private(set) var queueSections: QueueSections = .empty
     @Published public private(set) var showHistory = false
     @Published public private(set) var isAutoplayEnabled = false
+    @Published public private(set) var isSmartMixEnabled = false
     @Published public private(set) var recommendationsExhausted = false
 
     public var currentQueueItem: QueueItem? {
@@ -170,6 +171,11 @@ public final class NowPlayingQueueProjection: ObservableObject {
     func updateAutoplayEnabled(_ isEnabled: Bool) {
         guard isAutoplayEnabled != isEnabled else { return }
         isAutoplayEnabled = isEnabled
+    }
+
+    func updateSmartMixEnabled(_ isEnabled: Bool) {
+        guard isSmartMixEnabled != isEnabled else { return }
+        isSmartMixEnabled = isEnabled
     }
 
     func updateRecommendationsExhausted(_ isExhausted: Bool) {

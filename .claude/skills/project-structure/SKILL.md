@@ -56,6 +56,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 
 - New ViewModel: `Packages/EnsembleCore/Sources/ViewModels/`
 - New Core service: `Packages/EnsembleCore/Sources/Services/`
+- New playback planner/analysis service: `Packages/EnsembleCore/Sources/Services/`
 - New shared Siri/system media identity or resolver logic: `Packages/EnsembleSiriShared/Sources/`
 - New SiriKit intent definition resource: `Ensemble/Resources/*.intentdefinition`, then add it to the app and relevant extension target resources in `Ensemble.xcodeproj`.
 - New UI screen/component: `Packages/EnsembleUI/Sources/Screens/`, `.../Components/`, `.../NowPlaying/`, or an existing feature folder.

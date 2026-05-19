@@ -27,6 +27,8 @@ public final class AudioPlaybackEngine {
 
     private let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
+    private let smartMixPlayerNode = AVAudioPlayerNode()
+    private let deckMixer = AVAudioMixerNode()
 
     // MARK: - Isolation Effect (lazy, toggleable)
 
@@ -87,6 +89,30 @@ public final class AudioPlaybackEngine {
     /// Each entry tracks the file, track ID, generation, and encoder delay trim info.
     private var scheduledFiles: [(file: AVAudioFile, trackId: String, generation: UInt64, contentStartFrame: AVAudioFramePosition, contentFrameCount: AVAudioFrameCount)] = []
 
+    // MARK: - SmartMix
+
+    private struct SmartMixEngineTransition {
+        let file: AVAudioFile
+        let trackId: String
+        let contentStartFrame: AVAudioFramePosition
+        let contentFrameCount: AVAudioFrameCount
+        let sampleRate: Double
+        let duration: TimeInterval
+        let incomingStartTime: TimeInterval
+        let transitionDuration: TimeInterval
+        let skipThreshold: TimeInterval
+        let generation: UInt64
+        let startedAtWallTime: TimeInterval
+        var promoted = false
+
+        var midpoint: TimeInterval {
+            transitionDuration / 2
+        }
+    }
+
+    private var smartMixTransition: SmartMixEngineTransition?
+    private var smartMixFadeTimer: DispatchSourceTimer?
+
     // MARK: - Time Tracking
 
     /// Current playback time, updated at ~10Hz via DispatchSourceTimer.
@@ -135,6 +161,8 @@ public final class AudioPlaybackEngine {
     var onPlaybackComplete: (() -> Void)?
     /// Fires when a gapless transition advances to the next scheduled track
     var onTrackAdvance: ((_ newTrackId: String) -> Void)?
+    /// Fires when SmartMix crosses the transition midpoint and app metadata should promote.
+    var onSmartMixPromote: ((_ newTrackId: String) -> Void)?
     /// Fires on unrecoverable engine errors (route change failure, etc.)
     /// Parameters: (error, trackId or nil). When trackId is non-nil, the error
     /// originated from a gapless-scheduled track (not the currently playing one).
@@ -149,11 +177,15 @@ public final class AudioPlaybackEngine {
         guard !isSetUp else { return }
 
         engine.attach(playerNode)
+        engine.attach(smartMixPlayerNode)
+        engine.attach(deckMixer)
 
-        // Connect playerNode directly to mixer (no effects yet)
+        // Connect deck mixer directly to mixer (no effects yet)
         let mainMixer = engine.mainMixerNode
         let outputFormat = mainMixer.outputFormat(forBus: 0)
-        engine.connect(playerNode, to: mainMixer, format: outputFormat)
+        engine.connect(playerNode, to: deckMixer, format: outputFormat)
+        engine.connect(smartMixPlayerNode, to: deckMixer, format: outputFormat)
+        engine.connect(deckMixer, to: mainMixer, format: outputFormat)
 
         // Register for route change notifications (AirPlay, headphone plug/unplug)
         configChangeObserver = NotificationCenter.default.addObserver(
@@ -179,20 +211,25 @@ public final class AudioPlaybackEngine {
         let mainMixer = engine.mainMixerNode
         let connectFormat = format ?? mainMixer.outputFormat(forBus: 0)
 
-        // Disconnect existing connections from playerNode
+        // Disconnect existing connections from deck sources
         engine.disconnectNodeOutput(playerNode)
+        engine.disconnectNodeOutput(smartMixPlayerNode)
+        engine.disconnectNodeOutput(deckMixer)
         if let effect = isolationEffect {
             engine.disconnectNodeOutput(effect)
         }
 
+        engine.connect(playerNode, to: deckMixer, format: connectFormat)
+        engine.connect(smartMixPlayerNode, to: deckMixer, format: connectFormat)
+
         if let effect = isolationEffect {
-            // playerNode -> isolation -> mixer
+            // deckMixer -> isolation -> mixer
             // Effect stays in chain permanently; wetDryMix=0 acts as passthrough
-            engine.connect(playerNode, to: effect, format: connectFormat)
+            engine.connect(deckMixer, to: effect, format: connectFormat)
             engine.connect(effect, to: mainMixer, format: connectFormat)
         } else {
-            // No isolation effect created (or unavailable) — direct path
-            engine.connect(playerNode, to: mainMixer, format: connectFormat)
+            // No isolation effect created (or unavailable) — direct deck path
+            engine.connect(deckMixer, to: mainMixer, format: connectFormat)
         }
     }
 
@@ -231,6 +268,9 @@ public final class AudioPlaybackEngine {
     /// Handle AVAudioEngine configuration changes (route switches like AirPlay, headphones).
     /// The engine stops itself on route change -- we must rebuild and reschedule.
     private func handleConfigurationChange() {
+        if smartMixTransition != nil {
+            cancelSmartMixTransition(continueIncoming: hasPromotedSmartMixTransition)
+        }
         let livePosition = currentTime()
         let position = Self.resolvedRouteRecoveryPosition(
             livePosition: livePosition,
@@ -689,6 +729,7 @@ public final class AudioPlaybackEngine {
     /// Schedules the full file so it's ready for `resume()` without a separate `play(from:)` call.
     /// (`play(from:)` and `seek(to:)` call `playerNode.stop()` first, which clears this schedule.)
     func load(fileURL: URL, trackId: String) throws {
+        cancelSmartMixTransition()
         let file = try AVAudioFile(forReading: fileURL)
         currentFile = file
         currentTrackId = trackId
@@ -773,6 +814,27 @@ public final class AudioPlaybackEngine {
         scheduledFiles.map(\.trackId)
     }
 
+    var isSmartMixTransitionActive: Bool {
+        smartMixTransition != nil
+    }
+
+    var smartMixIncomingTrackId: String? {
+        smartMixTransition?.trackId
+    }
+
+    var smartMixTransitionElapsed: TimeInterval {
+        guard let transition = smartMixTransition else { return 0 }
+        return max(0, CACurrentMediaTime() - transition.startedAtWallTime)
+    }
+
+    var smartMixSkipThreshold: TimeInterval {
+        smartMixTransition?.skipThreshold ?? 0
+    }
+
+    var hasPromotedSmartMixTransition: Bool {
+        smartMixTransition?.promoted == true
+    }
+
     /// Schedule the next file for gapless playback. Uses AVAudioPlayerNode's FIFO queue --
     /// the segment plays immediately after the current segment finishes, with zero gap.
     /// Reads the file's packet table to trim encoder delay/padding for seamless transitions.
@@ -808,6 +870,219 @@ public final class AudioPlaybackEngine {
         EnsembleLogger.debug("[AudioEngine] Scheduled next: \(fileURL.lastPathComponent), trackId=\(trackId), frames=\(contentFrames)/\(file.length), duration=\(String(format: "%.1f", scheduledDuration))s, queueDepth=\(scheduledFiles.count)\(trimInfo)")
     }
 
+    func scheduleSmartMixNext(fileURL: URL, trackId: String, plan: SmartMixPlan) throws {
+        guard smartMixTransition == nil else { return }
+        guard currentFile != nil, wasPlaying else {
+            try scheduleNext(fileURL: fileURL, trackId: trackId)
+            return
+        }
+
+        let file = try AVAudioFile(forReading: fileURL)
+        let incomingRate = file.processingFormat.sampleRate
+        let (contentStart, contentFrames) = Self.readContentBounds(for: fileURL, fileLength: file.length)
+        let incomingStartFrame = contentStart + AVAudioFramePosition(plan.incomingStartTime * incomingRate)
+        let contentEnd = contentStart + AVAudioFramePosition(contentFrames)
+        guard incomingStartFrame < contentEnd else {
+            try scheduleNext(fileURL: fileURL, trackId: trackId)
+            return
+        }
+
+        smartMixFadeTimer?.cancel()
+        smartMixFadeTimer = nil
+        scheduledFiles.removeAll()
+        scheduleGeneration &+= 1
+        let myGeneration = scheduleGeneration
+
+        engine.disconnectNodeOutput(smartMixPlayerNode)
+        engine.connect(smartMixPlayerNode, to: deckMixer, format: file.processingFormat)
+        smartMixPlayerNode.stop()
+        smartMixPlayerNode.volume = 0
+        playerNode.volume = 1
+
+        let frameCount = AVAudioFrameCount(contentEnd - incomingStartFrame)
+        smartMixPlayerNode.scheduleSegment(
+            file,
+            startingFrame: incomingStartFrame,
+            frameCount: frameCount,
+            at: nil
+        ) { [weak self] in
+            DispatchQueue.main.async {
+                self?.handleSmartMixIncomingComplete(generation: myGeneration)
+            }
+        }
+
+        if !engine.isRunning {
+            try engine.start()
+            applyIsolationParameters()
+        }
+
+        smartMixPlayerNode.play()
+        smartMixTransition = SmartMixEngineTransition(
+            file: file,
+            trackId: trackId,
+            contentStartFrame: contentStart,
+            contentFrameCount: contentFrames,
+            sampleRate: incomingRate,
+            duration: Double(contentFrames) / incomingRate,
+            incomingStartTime: plan.incomingStartTime,
+            transitionDuration: plan.transitionDuration,
+            skipThreshold: plan.skipToIncomingThreshold,
+            generation: myGeneration,
+            startedAtWallTime: CACurrentMediaTime()
+        )
+        startSmartMixFadeTimer()
+
+        EnsembleLogger.debug(
+            "[AudioEngine] SmartMix started trackId=\(trackId)"
+            + " transition=\(String(format: "%.1f", plan.transitionDuration))s"
+            + " incomingStart=\(String(format: "%.1f", plan.incomingStartTime))s"
+        )
+    }
+
+    func acceptSmartMixIncomingTrack() {
+        guard smartMixTransition != nil else { return }
+        promoteSmartMixIfNeeded()
+        finishSmartMixTransition(continueAt: currentSmartMixIncomingTime())
+    }
+
+    func cancelSmartMixTransition(continueIncoming: Bool = false) {
+        guard smartMixTransition != nil else { return }
+        if continueIncoming {
+            promoteSmartMixIfNeeded()
+            finishSmartMixTransition(continueAt: currentSmartMixIncomingTime())
+            return
+        }
+
+        smartMixFadeTimer?.cancel()
+        smartMixFadeTimer = nil
+        smartMixPlayerNode.stop()
+        smartMixPlayerNode.volume = 0
+        playerNode.volume = 1
+        smartMixTransition = nil
+        EnsembleLogger.debug("[AudioEngine] SmartMix cancelled")
+    }
+
+    private func startSmartMixFadeTimer() {
+        smartMixFadeTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: timeUpdateQueue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(50))
+        timer.setEventHandler { [weak self] in
+            DispatchQueue.main.async {
+                self?.updateSmartMixFade()
+            }
+        }
+        timer.resume()
+        smartMixFadeTimer = timer
+    }
+
+    private func updateSmartMixFade() {
+        guard let transition = smartMixTransition else { return }
+        let elapsed = smartMixTransitionElapsed
+        let progress = min(max(elapsed / max(transition.transitionDuration, 0.001), 0), 1)
+        playerNode.volume = Float(cos(progress * .pi / 2))
+        smartMixPlayerNode.volume = Float(sin(progress * .pi / 2))
+
+        if elapsed >= transition.midpoint {
+            promoteSmartMixIfNeeded()
+        }
+
+        if elapsed >= transition.transitionDuration {
+            finishSmartMixTransition(continueAt: currentSmartMixIncomingTime())
+        }
+    }
+
+    private func promoteSmartMixIfNeeded() {
+        guard var transition = smartMixTransition, !transition.promoted else { return }
+        transition.promoted = true
+        smartMixTransition = transition
+        currentTrackId = transition.trackId
+        currentFile = transition.file
+        currentContentStartFrame = transition.contentStartFrame
+        currentContentFrameCount = transition.contentFrameCount
+        sampleRate = transition.sampleRate
+        fileDuration = transition.duration
+        seekFrameOffset = AVAudioFramePosition(currentSmartMixIncomingTime() * transition.sampleRate)
+        playerTimeBaseOffset = 0
+        captureWallTimeBase(position: currentSmartMixIncomingTime())
+        currentTimeSubject.send(currentSmartMixIncomingTime())
+        onSmartMixPromote?(transition.trackId)
+        EnsembleLogger.debug("[AudioEngine] SmartMix promoted trackId=\(transition.trackId)")
+    }
+
+    private func finishSmartMixTransition(continueAt position: TimeInterval) {
+        guard let transition = smartMixTransition else { return }
+        smartMixFadeTimer?.cancel()
+        smartMixFadeTimer = nil
+
+        scheduleGeneration &+= 1
+        let myGeneration = scheduleGeneration
+        let clampedPosition = min(max(0, position), max(0, transition.duration - 0.05))
+        let startFrame = transition.contentStartFrame + AVAudioFramePosition(clampedPosition * transition.sampleRate)
+        let contentEnd = transition.contentStartFrame + AVAudioFramePosition(transition.contentFrameCount)
+
+        playerNode.stop()
+        smartMixPlayerNode.stop()
+        playerNode.volume = 1
+        smartMixPlayerNode.volume = 0
+        smartMixTransition = nil
+
+        currentFile = transition.file
+        currentTrackId = transition.trackId
+        currentContentStartFrame = transition.contentStartFrame
+        currentContentFrameCount = transition.contentFrameCount
+        sampleRate = transition.sampleRate
+        fileDuration = transition.duration
+        seekFrameOffset = AVAudioFramePosition(clampedPosition * transition.sampleRate)
+        playerTimeBaseOffset = 0
+        scheduledFiles.removeAll()
+
+        buildGraph(format: transition.file.processingFormat)
+        applyIsolationParameters()
+
+        guard startFrame < contentEnd else {
+            handleSegmentComplete(generation: myGeneration)
+            return
+        }
+
+        playerNode.scheduleSegment(
+            transition.file,
+            startingFrame: startFrame,
+            frameCount: AVAudioFrameCount(contentEnd - startFrame),
+            at: nil
+        ) { [weak self] in
+            DispatchQueue.main.async {
+                self?.handleSegmentComplete(generation: myGeneration)
+            }
+        }
+
+        do {
+            if !engine.isRunning {
+                try engine.start()
+                applyIsolationParameters()
+            }
+            playerNode.play()
+            wasPlaying = true
+            startTimeUpdates(from: clampedPosition)
+            currentTimeSubject.send(clampedPosition)
+        } catch {
+            onError?(error, transition.trackId)
+        }
+
+        EnsembleLogger.debug("[AudioEngine] SmartMix stabilized trackId=\(transition.trackId) at \(String(format: "%.1f", clampedPosition))s")
+    }
+
+    private func currentSmartMixIncomingTime() -> TimeInterval {
+        guard let transition = smartMixTransition else { return currentTimeSubject.value }
+        let elapsed = max(0, CACurrentMediaTime() - transition.startedAtWallTime)
+        return min(transition.incomingStartTime + elapsed, transition.duration)
+    }
+
+    private func handleSmartMixIncomingComplete(generation: UInt64) {
+        guard let transition = smartMixTransition, transition.generation == generation else { return }
+        promoteSmartMixIfNeeded()
+        finishSmartMixTransition(continueAt: transition.duration)
+    }
+
     /// Remove a single scheduled track by ID (e.g. when a gapless-scheduled file fails to decode).
     /// Only removes it from the tracking array — the playerNode's FIFO segment cannot be surgically
     /// removed, but its completion callback will find no matching entry and be ignored.
@@ -827,6 +1102,7 @@ public final class AudioPlaybackEngine {
     /// primary segment's completion handler to be silently ignored (stale generation),
     /// leaving the UI one track behind the audio.
     func clearScheduledFiles() {
+        cancelSmartMixTransition()
         let hadScheduledFiles = !scheduledFiles.isEmpty
         scheduledFiles.removeAll()
 
@@ -908,6 +1184,7 @@ public final class AudioPlaybackEngine {
 
     /// Schedule and start playback from the given time offset (in user-visible seconds).
     func play(from time: TimeInterval = 0) throws {
+        cancelSmartMixTransition()
         guard let file = currentFile else {
             throw AudioPlaybackEngineError.noFileLoaded
         }
@@ -966,8 +1243,10 @@ public final class AudioPlaybackEngine {
     /// `engine.stop()` does NOT detach nodes or reset the player node's paused position.
     /// On resume, `engine.start()` + `playerNode.play()` picks up where we left off.
     func pause() {
+        cancelSmartMixTransition(continueIncoming: hasPromotedSmartMixTransition)
         let position = snapshotPlaybackPositionBeforeStopping()
         playerNode.pause()
+        smartMixPlayerNode.pause()
         wasPlaying = false
         stopTimeUpdates()
         if engine.isRunning {
@@ -994,6 +1273,9 @@ public final class AudioPlaybackEngine {
             preferredSnapshot: observedPosition > 0 ? observedPosition : nil
         )
         playerNode.play()
+        if smartMixTransition != nil {
+            smartMixPlayerNode.play()
+        }
         wasPlaying = true
         startTimeUpdates(from: resumePosition)
         currentTimeSubject.send(resumePosition)
@@ -1002,9 +1284,11 @@ public final class AudioPlaybackEngine {
 
     /// Stop playback, reset position, and stop the engine.
     func stop() {
+        cancelSmartMixTransition()
         scheduleGeneration &+= 1
         stopTimeUpdates()
         playerNode.stop()
+        smartMixPlayerNode.stop()
         if engine.isRunning {
             engine.stop()
         }
@@ -1021,6 +1305,7 @@ public final class AudioPlaybackEngine {
 
     /// Seek to a new position within the current file (in user-visible seconds).
     func seek(to time: TimeInterval) throws {
+        cancelSmartMixTransition(continueIncoming: hasPromotedSmartMixTransition)
         guard let file = currentFile else { return }
         pendingRouteRecoveryPosition = nil
 
@@ -1078,6 +1363,9 @@ public final class AudioPlaybackEngine {
 
     /// Compute current playback time from player node render position.
     func currentTime() -> TimeInterval {
+        if smartMixTransition?.promoted == true {
+            return currentSmartMixIncomingTime()
+        }
         guard let renderClockPosition = currentRenderClockPosition() else {
             return Self.resolvedPlaybackPosition(
                 renderSampleTime: nil,
@@ -1496,7 +1784,9 @@ public final class AudioPlaybackEngine {
             NotificationCenter.default.removeObserver(observer)
         }
         stopTimeUpdates()
+        smartMixFadeTimer?.cancel()
         playerNode.stop()
+        smartMixPlayerNode.stop()
         engine.stop()
     }
 }

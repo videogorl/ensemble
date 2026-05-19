@@ -420,6 +420,13 @@ public struct QueueCard: View {
                     .foregroundColor(playbackProjection.repeatMode.isActive ? EnsembleDesign.Color.accent : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }
 
+            // SmartMix
+            Button(action: viewModel.toggleSmartMix) {
+                Image(systemName: EnsembleDesign.Icon.smartMix)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
+                    .foregroundColor(smartMixColor)
+            }
+
             // Autoplay — dimmed and non-interactive when offline (no network for recommendations)
             Button(action: viewModel.toggleAutoplay) {
                 Image(systemName: autoplayIcon)
@@ -439,6 +446,12 @@ public struct QueueCard: View {
 
     private var autoplayColor: Color {
         queueProjection.isAutoplayEnabled
+            ? EnsembleDesign.Color.accent
+            : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity)
+    }
+
+    private var smartMixColor: Color {
+        queueProjection.isSmartMixEnabled
             ? EnsembleDesign.Color.accent
             : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity)
     }
