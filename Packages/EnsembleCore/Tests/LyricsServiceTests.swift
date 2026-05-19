@@ -185,6 +185,24 @@ final class LRCParserTests: XCTestCase {
         XCTAssertEqual(result.lines[0].chords.map(\.symbol), ["C", "G", "Am", "F"])
     }
 
+    func testParsesCompoundChordExtensionsBeforeNextTimestampedLine() {
+        let lrc = """
+          D                Bm7                       F#m    C#/E#  F#m C#/E#
+        [00:32.15]He was perfect except for the fact that he was an engineer
+             F#m  C#7/G#  F#m/A   F#7/A#  Bm7add11     Cdim7  C#
+        [00:38.59]And mothers       prefer        doctors and law       ayers
+        """
+
+        let result = LRCParser.parseChordLRC(lrc)
+
+        XCTAssertEqual(result.lines.count, 2)
+        XCTAssertEqual(result.lines[0].text, "He was perfect except for the fact that he was an engineer")
+        XCTAssertEqual(result.lines[0].chords.map(\.symbol), ["D", "Bm7", "F#m", "C#/E#", "F#m", "C#/E#"])
+        XCTAssertEqual(result.lines[1].text, "And mothers       prefer        doctors and law       ayers")
+        XCTAssertEqual(result.lines[1].timestamp!, 38.59, accuracy: 0.01)
+        XCTAssertEqual(result.lines[1].chords.map(\.symbol), ["F#m", "C#7/G#", "F#m/A", "F#7/A#", "Bm7add11", "Cdim7", "C#"])
+    }
+
     func testTimedLyricContinuationsPreserveReturnsOnPreviousTimestamp() {
         let lrc = """
         [00:12.34]First line

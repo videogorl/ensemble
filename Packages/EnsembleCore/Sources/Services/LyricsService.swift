@@ -190,7 +190,7 @@ public enum LyricsState: Equatable, Sendable {
 enum LRCParser {
     // Matches [MM:SS.XX] or [MM:SS.XXX] timestamp tags
     private static let timestampPattern = #"^\s*\[(\d{1,2}):(\d{2})\.(\d{2,3})\](.*)"#
-    private static let chordPattern = #"(?<![A-Za-z0-9])\(?[A-G](?:#|b)?(?:maj|min|m|dim|aug|sus|add|dom)?\d*(?:/[A-G](?:#|b)?|/\d+)?\)?(?![A-Za-z0-9])"#
+    private static let chordPattern = #"(?<![A-Za-z0-9])\(?[A-G](?:#|b)?(?:(?:maj|min|dim|aug|sus|add|dom|m|\d+))*?(?:/[A-G](?:#|b)?|/\d+)?\)?(?![A-Za-z0-9])"#
 
     /// Parse LRC format text into lyrics lines
     static func parseLRC(_ text: String) -> ParsedLyrics {
