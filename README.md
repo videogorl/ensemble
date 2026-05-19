@@ -38,7 +38,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Playback Tracking** — Automatic timeline reporting (every 10s) and scrobbling (at 90% completion) to Plex for accurate play counts and listening history
 - **Waveform Visualization** — Real-time audio waveforms using Plex sonic analysis data (via `/library/streams/{streamId}/levels`) with intelligent deterministic fallback generation
 - **Route-Aware Lyrics + Aurora Sync** — Automatically compensates AirPlay and Bluetooth output delay for lyric highlighting and the Aurora visualization
-- **SmartMix** — Optional Queue card playback mode that trims detected silence and overlaps adjacent tracks with DJ-style equal-power fades while falling back to gapless playback when analysis is unavailable
+- **SmartMix** — Optional Queue card playback mode that trims detected silence, overlaps adjacent tracks with DJ-style equal-power fades, subtly filters the outgoing track, and tempo-matches close incoming tracks when analysis confidence is high
 - **Smart Navigation** — Navigate from Now Playing to artist/album details with automatic tab fallback logic
 - **Siri Voice Playback (In-App-First + Fallback)** — “Play track/album/artist/playlist ... on Ensemble” resolves in SiriKit and executes playback in-app via `handleInApp`; album/playlist App Shortcuts fallback phrases are also registered when SiriKit media-domain routing misses
 - **AirPlay Support** — Stream to AirPlay devices with native picker
@@ -60,7 +60,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Library Visibility Profile Selector** — Add UI to switch and edit visibility presets without changing sync enablement
 - **Advanced Queue Management** — Reordering, playback history, queue persistence
 - **CarPlay Support** — Native CarPlay interface for safe driving
-- **Audio Enhancements** — SmartMix, crossfade, gapless playback, equalizer
+- **Audio Enhancements** — Equalizer and advanced mix controls
 - **Smart Features** — Smart playlists, listening statistics, recommendations
 
 ## Requirements
@@ -278,8 +278,9 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [ ] Apple Music support
 - [ ] CarPlay
 - [ ] Lyrics
-- [x] SmartMix V1 silence-aware overlap
-- [ ] Tempo-matched SmartMix and advanced crossfade controls
+- [x] SmartMix silence-aware overlap
+- [x] Tempo-matched SmartMix with subtle outgoing high-pass
+- [ ] Advanced crossfade controls
 - [ ] macOS menu bar controls
 
 ## Contributing

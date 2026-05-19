@@ -25,6 +25,43 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(time, 27.5, accuracy: 0.0001)
     }
 
+    func testSmartMixIncomingPositionUsesTempoRate() {
+        let position = AudioPlaybackEngine.smartMixIncomingPosition(
+            incomingStartTime: 10,
+            elapsed: 5,
+            incomingPlaybackRate: 0.98,
+            duration: 180
+        )
+
+        XCTAssertEqual(position, 14.9, accuracy: 0.0001)
+    }
+
+    func testSmartMixIncomingPositionClampsToDuration() {
+        let position = AudioPlaybackEngine.smartMixIncomingPosition(
+            incomingStartTime: 175,
+            elapsed: 10,
+            incomingPlaybackRate: 1.04,
+            duration: 180
+        )
+
+        XCTAssertEqual(position, 180, accuracy: 0.0001)
+    }
+
+    func testSmartMixHighPassFrequencyRampsAfterStartProgress() {
+        let sweep = SmartMixHighPassSweep(startFrequency: 80, endFrequency: 700, startProgress: 0.35)
+
+        XCTAssertEqual(
+            AudioPlaybackEngine.smartMixHighPassFrequency(progress: 0.2, sweep: sweep, sampleRate: 44100),
+            80,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            AudioPlaybackEngine.smartMixHighPassFrequency(progress: 1, sweep: sweep, sampleRate: 44100),
+            700,
+            accuracy: 0.001
+        )
+    }
+
     func testRouteRecoveryPrefersObservedPositionWhenLiveTimeDropsToZero() {
         let time = AudioPlaybackEngine.resolvedRouteRecoveryPosition(
             livePosition: 0,

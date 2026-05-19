@@ -108,7 +108,7 @@ On iPad and AirPlay external display, the layout switches to a shared **side-by-
 | Recommendations exhausted | indicator | "End of recommendations" text when autoplay depleted | `recommendationsExhausted` |
 | Shuffle button | control | Toggle shuffle mode (accent when active) | `shuffle` |
 | Repeat button | control | Cycle repeat mode (off/all/one, accent when active) | `repeat`, `repeat.1` |
-| SmartMix button | control | Toggle per-device silence-aware DJ-style overlap between adjacent tracks | `sensor.radiowaves.left.and.right`, `isSmartMixEnabled` |
+| SmartMix button | control | Toggle per-device silence-aware, tempo-assisted DJ-style overlap between adjacent tracks | `sensor.radiowaves.left.and.right`, `isSmartMixEnabled` |
 | Autoplay button | control | Toggle autoplay with cross-through when offline | `play.circle.fill`, `play.circle` |
 | Secondary controls region | region | Bottom row with shuffle/repeat/SmartMix/autoplay | `secondaryControlsView` |
 | Page indicator | indicator | Below secondary controls on Queue card | `PageIndicator` |
@@ -591,7 +591,7 @@ Generic detail view used by Album, Playlist, merged playlist, and similar media-
 | Color option | control | Tappable color circle for accent selection | `Circle()` |
 | Playback section | region | Section with playback-related settings | `Section("Playback")` |
 | Autoplay toggle | control | Switch to enable/disable autoplay | `Toggle`, `isAutoplayEnabled` |
-| SmartMix | feature | Per-device Now Playing Queue card mode that trims silence and overlaps adjacent tracks with equal-power fades; V1 does not change tempo | `isSmartMixEnabled`, `SmartMixPlanner` |
+| SmartMix | feature | Per-device Now Playing Queue card mode that trims silence, overlaps adjacent tracks with equal-power fades, subtly filters the outgoing track, and tempo-matches close incoming tracks when confidence is high | `isSmartMixEnabled`, `SmartMixPlanner` |
 | Audio quality link | control | Navigation to audio quality settings | `Audio Quality` |
 | Connection security link | control | Navigation to connection policy settings | `Connection Security` |
 | Track swipe actions link | control | Navigation to swipe action customization | `Track Swipe Actions` |
