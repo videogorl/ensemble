@@ -1,4 +1,5 @@
 import EnsembleCore
+import EnsemblePersistence
 import EnsembleSiriShared
 import EnsembleUI
 import CoreSpotlight
@@ -16,6 +17,9 @@ import BackgroundTasks
 struct EnsembleApp: App {
     #if os(iOS)
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    #endif
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(MacDockMenuAppDelegate.self) private var macDockMenuDelegate
     #endif
 
     @Environment(\.scenePhase) private var scenePhase
@@ -560,6 +564,386 @@ private enum MacPlaybackShortcut {
         }
 
         return false
+    }
+}
+
+private final class MacDockPinAction: NSObject {
+    let id: String
+    let sourceKey: String?
+    let type: PinnedItemType
+
+    init(pin: PinnedItem) {
+        id = pin.id
+        sourceKey = pin.sourceCompositeKey
+        type = pin.type
+    }
+
+    var destination: NavigationCoordinator.Destination {
+        switch type {
+        case .album:
+            return .album(id: id, sourceKey: sourceKey)
+        case .artist:
+            return .artist(id: id, sourceKey: sourceKey)
+        case .playlist:
+            return .playlist(id: id, sourceKey: sourceKey)
+        }
+    }
+}
+
+@MainActor
+private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
+    private enum RepeatActionTag {
+        static let off = 0
+        static let all = 1
+        static let one = 2
+    }
+
+    private let maxPinnedItems = 8
+
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        buildDockMenu()
+    }
+
+    private func buildDockMenu() -> NSMenu {
+        let menu = NSMenu()
+        addPinnedItems(to: menu)
+        addNowPlayingItems(to: menu)
+        return menu
+    }
+
+    private func addPinnedItems(to menu: NSMenu) {
+        let pins = Array(DependencyContainer.shared.pinManager.pinnedItems.prefix(maxPinnedItems))
+        guard !pins.isEmpty else { return }
+
+        for pin in pins {
+            let item = NSMenuItem(
+                title: pin.title,
+                action: #selector(openPinnedItem(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = MacDockPinAction(pin: pin)
+            item.toolTip = "\(pin.type.displayName): \(pin.title)"
+            item.image = fallbackImage(for: pin.type)
+            menu.addItem(item)
+            updateArtwork(for: pin, menuItem: item)
+        }
+
+        menu.addItem(.separator())
+    }
+
+    private func addNowPlayingItems(to menu: NSMenu) {
+        let dependencies = DependencyContainer.shared
+        let playbackService = dependencies.playbackService
+        let currentTrack = playbackService.currentTrack
+        let hasCurrentTrack = currentTrack != nil
+
+        let nowPlayingTitle = currentTrack.map(Self.nowPlayingTitle(for:)) ?? "Nothing Playing"
+        let nowPlayingItem = NSMenuItem(title: nowPlayingTitle, action: nil, keyEquivalent: "")
+        nowPlayingItem.isEnabled = false
+        nowPlayingItem.image = symbolImage(named: "music.note")
+        menu.addItem(nowPlayingItem)
+
+        let isFavorited = currentTrack.map { track in
+            if let viewModel = dependencies.activeNowPlayingViewModel {
+                return viewModel.isTrackFavorited(track)
+            }
+            return track.rating >= 8
+        } ?? false
+
+        let favoriteItem = NSMenuItem(
+            title: isFavorited ? "Unfavorite" : "Favorite",
+            action: #selector(toggleFavorite(_:)),
+            keyEquivalent: ""
+        )
+        favoriteItem.target = self
+        favoriteItem.isEnabled = hasCurrentTrack
+        favoriteItem.image = symbolImage(named: isFavorited ? "heart.fill" : "heart")
+        menu.addItem(favoriteItem)
+
+        menu.addItem(.separator())
+
+        let shuffleItem = NSMenuItem(
+            title: playbackService.isShuffleEnabled ? "Shuffle On" : "Shuffle Off",
+            action: #selector(toggleShuffle(_:)),
+            keyEquivalent: ""
+        )
+        shuffleItem.target = self
+        shuffleItem.isEnabled = hasCurrentTrack
+        shuffleItem.state = playbackService.isShuffleEnabled ? .on : .off
+        shuffleItem.image = symbolImage(named: "shuffle")
+        menu.addItem(shuffleItem)
+
+        addRepeatItem(title: "Repeat Off", mode: .off, tag: RepeatActionTag.off, to: menu)
+        addRepeatItem(title: "Repeat All", mode: .all, tag: RepeatActionTag.all, to: menu)
+        addRepeatItem(title: "Repeat One", mode: .one, tag: RepeatActionTag.one, to: menu)
+
+        let autoplayItem = NSMenuItem(
+            title: playbackService.isAutoplayEnabled ? "Autoplay On" : "Autoplay Off",
+            action: #selector(toggleAutoplay(_:)),
+            keyEquivalent: ""
+        )
+        autoplayItem.target = self
+        autoplayItem.isEnabled = hasCurrentTrack
+        autoplayItem.state = playbackService.isAutoplayEnabled ? .on : .off
+        autoplayItem.image = symbolImage(named: "infinity")
+        menu.addItem(autoplayItem)
+
+        menu.addItem(.separator())
+
+        let playbackTitle = playbackService.playbackState == .playing ? "Pause" : "Play"
+        let playPauseItem = NSMenuItem(
+            title: playbackTitle,
+            action: #selector(togglePlayPause(_:)),
+            keyEquivalent: ""
+        )
+        playPauseItem.target = self
+        playPauseItem.isEnabled = hasCurrentTrack
+        playPauseItem.image = symbolImage(named: playbackService.playbackState == .playing ? "pause.fill" : "play.fill")
+        menu.addItem(playPauseItem)
+
+        let previousItem = NSMenuItem(
+            title: "Previous Track",
+            action: #selector(previousTrack(_:)),
+            keyEquivalent: ""
+        )
+        previousItem.target = self
+        previousItem.isEnabled = hasCurrentTrack
+        previousItem.image = symbolImage(named: "backward.end.fill")
+        menu.addItem(previousItem)
+
+        let nextItem = NSMenuItem(
+            title: "Next Track",
+            action: #selector(nextTrack(_:)),
+            keyEquivalent: ""
+        )
+        nextItem.target = self
+        nextItem.isEnabled = canSkipForward()
+        nextItem.image = symbolImage(named: "forward.end.fill")
+        menu.addItem(nextItem)
+    }
+
+    private func addRepeatItem(title: String, mode: RepeatMode, tag: Int, to menu: NSMenu) {
+        let playbackService = DependencyContainer.shared.playbackService
+        let item = NSMenuItem(
+            title: title,
+            action: #selector(setRepeatMode(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        item.tag = tag
+        item.state = playbackService.repeatMode == mode ? .on : .off
+        item.isEnabled = playbackService.currentTrack != nil
+        item.image = symbolImage(named: mode == .one ? "repeat.1" : "repeat")
+        menu.addItem(item)
+    }
+
+    @objc private func openPinnedItem(_ sender: NSMenuItem) {
+        guard let action = sender.representedObject as? MacDockPinAction else { return }
+        NavigationCoordinator.routeExternalSearchInActiveScene(to: action.destination)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func toggleFavorite(_ sender: NSMenuItem) {
+        let dependencies = DependencyContainer.shared
+        guard let track = dependencies.playbackService.currentTrack else { return }
+        let viewModel = dependencies.activeNowPlayingViewModel ?? dependencies.makeNowPlayingViewModel()
+
+        Task { @MainActor in
+            await viewModel.toggleTrackFavorite(track)
+        }
+    }
+
+    @objc private func toggleShuffle(_ sender: NSMenuItem) {
+        DependencyContainer.shared.playbackService.toggleShuffle()
+    }
+
+    @objc private func setRepeatMode(_ sender: NSMenuItem) {
+        let targetMode: RepeatMode
+        switch sender.tag {
+        case RepeatActionTag.all:
+            targetMode = .all
+        case RepeatActionTag.one:
+            targetMode = .one
+        default:
+            targetMode = .off
+        }
+
+        let playbackService = DependencyContainer.shared.playbackService
+        var attempts = 0
+        while playbackService.repeatMode != targetMode,
+              attempts < RepeatMode.allCases.count {
+            playbackService.cycleRepeatMode()
+            attempts += 1
+        }
+    }
+
+    @objc private func toggleAutoplay(_ sender: NSMenuItem) {
+        DependencyContainer.shared.playbackService.toggleAutoplay()
+    }
+
+    @objc private func togglePlayPause(_ sender: NSMenuItem) {
+        let dependencies = DependencyContainer.shared
+        if let viewModel = dependencies.activeNowPlayingViewModel {
+            viewModel.togglePlayPause()
+            return
+        }
+
+        let service = dependencies.playbackService
+        switch service.playbackState {
+        case .playing:
+            service.pause()
+        case .paused:
+            service.resume()
+        case .failed:
+            Task { @MainActor in
+                await service.retryCurrentTrack()
+            }
+        default:
+            service.resume()
+        }
+    }
+
+    @objc private func previousTrack(_ sender: NSMenuItem) {
+        DependencyContainer.shared.playbackService.previous()
+    }
+
+    @objc private func nextTrack(_ sender: NSMenuItem) {
+        DependencyContainer.shared.playbackService.next()
+    }
+
+    private func updateArtwork(for pin: PinnedItem, menuItem: NSMenuItem) {
+        Task {
+            guard let artworkImage = await artworkImage(for: pin) else { return }
+            await MainActor.run {
+                menuItem.image = artworkImage
+            }
+        }
+    }
+
+    private func artworkImage(for pin: PinnedItem) async -> NSImage? {
+        let dependencies = DependencyContainer.shared
+        let descriptor: ArtworkDescriptor?
+
+        switch pin.type {
+        case .album:
+            if let cdAlbum = try? await dependencies.libraryRepository.fetchAlbum(
+                ratingKey: pin.id,
+                sourceCompositeKey: pin.sourceCompositeKey
+            ) {
+                let album = Album(from: cdAlbum)
+                descriptor = ArtworkDescriptor(
+                    path: album.thumbPath,
+                    ratingKey: album.id,
+                    fallbackPath: nil,
+                    fallbackRatingKey: nil
+                )
+            } else {
+                descriptor = nil
+            }
+        case .artist:
+            if let cdArtist = try? await dependencies.libraryRepository.fetchArtist(
+                ratingKey: pin.id,
+                sourceCompositeKey: pin.sourceCompositeKey
+            ) {
+                let artist = Artist(from: cdArtist)
+                descriptor = ArtworkDescriptor(
+                    path: artist.thumbPath,
+                    ratingKey: artist.id,
+                    fallbackPath: artist.fallbackThumbPath,
+                    fallbackRatingKey: artist.fallbackRatingKey
+                )
+            } else {
+                descriptor = nil
+            }
+        case .playlist:
+            if let cdPlaylist = try? await dependencies.playlistRepository.fetchPlaylist(
+                ratingKey: pin.id,
+                sourceCompositeKey: pin.sourceCompositeKey
+            ) {
+                let playlist = Playlist(from: cdPlaylist)
+                descriptor = ArtworkDescriptor(
+                    path: playlist.compositePath,
+                    ratingKey: playlist.id,
+                    fallbackPath: nil,
+                    fallbackRatingKey: nil
+                )
+            } else {
+                descriptor = nil
+            }
+        }
+
+        guard let descriptor,
+              let url = await dependencies.artworkLoader.artworkURLAsync(
+                  for: descriptor.path,
+                  sourceKey: pin.sourceCompositeKey,
+                  ratingKey: descriptor.ratingKey,
+                  fallbackPath: descriptor.fallbackPath,
+                  fallbackRatingKey: descriptor.fallbackRatingKey,
+                  size: 64
+              ),
+              url.isFileURL,
+              let image = NSImage(contentsOf: url)
+        else {
+            return nil
+        }
+
+        image.size = NSSize(width: 18, height: 18)
+        return image
+    }
+
+    private func canSkipForward() -> Bool {
+        let playbackService = DependencyContainer.shared.playbackService
+        guard playbackService.currentTrack != nil else { return false }
+        if playbackService.repeatMode == .all, playbackService.queue.count > 1 {
+            return true
+        }
+        return playbackService.currentQueueIndex + 1 < playbackService.queue.count
+    }
+
+    private static func nowPlayingTitle(for track: Track) -> String {
+        let artist = track.artistName ?? track.albumArtistName ?? "Unknown Artist"
+        return "\(artist) - \(track.title)"
+    }
+
+    private func fallbackImage(for type: PinnedItemType) -> NSImage? {
+        switch type {
+        case .album:
+            return symbolImage(named: "square.stack")
+        case .artist:
+            return symbolImage(named: "music.mic")
+        case .playlist:
+            return symbolImage(named: "music.note.list")
+        }
+    }
+
+    private func symbolImage(named name: String) -> NSImage? {
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil) else {
+            return nil
+        }
+        image.isTemplate = true
+        image.size = NSSize(width: 18, height: 18)
+        return image
+    }
+
+    private struct ArtworkDescriptor {
+        let path: String?
+        let ratingKey: String?
+        let fallbackPath: String?
+        let fallbackRatingKey: String?
+    }
+}
+
+private extension PinnedItemType {
+    var displayName: String {
+        switch self {
+        case .album:
+            return "Album"
+        case .artist:
+            return "Artist"
+        case .playlist:
+            return "Playlist"
+        }
     }
 }
 #endif

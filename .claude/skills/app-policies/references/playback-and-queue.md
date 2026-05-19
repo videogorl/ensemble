@@ -10,6 +10,7 @@ Load this reference for playback start behavior, queue state, shuffle/repeat/aut
 - Queue navigation records history before advancing, restarts the current track when Previous is invoked after the configured restart threshold, and wraps only when repeat-all is enabled.
 - Autoplay is a separate queue section. It should not be treated as manually queued content or shuffled into the main future queue.
 - Playback start paths must pass `PlaybackStartContext`. Only direct app UI starts donate to system media; Siri, App Shortcuts, remote commands, autoplay, restoration, and background recovery are non-donating.
+- macOS Dock menu playback controls are user commands for the existing queue/playback state. They must dispatch through `PlaybackService`/active Now Playing owners and must not add system-media donations or mutate `MPRemoteCommandCenter` directly.
 - Playback should prefer valid local files/downloads when present. Corrupt or invalid local files fail locally while online paths may recover by streaming or refreshing.
 - Device-offline queues are filtered to downloaded tracks. Device-online queues skip non-downloaded tracks from unavailable servers.
 - Direct file streams and universal transcode can both be valid. Do not disable either broadly without live endpoint proof and a scoped failing path.
