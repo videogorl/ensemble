@@ -3,6 +3,8 @@ import SwiftUI
 
 /// File and library metadata panel for tracks, albums, and playlists.
 public struct LibraryItemInfoView: View {
+    private static let headerArtworkSide: CGFloat = 124
+
     @StateObject private var viewModel: LibraryItemInfoViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Environment(\.dismiss) private var dismiss
@@ -46,8 +48,10 @@ public struct LibraryItemInfoView: View {
             ArtworkView(
                 path: viewModel.request.artworkPath,
                 sourceKey: viewModel.request.sourceCompositeKey,
-                size: .small
+                size: .card,
+                isResponsive: true
             )
+            .frame(width: Self.headerArtworkSide, height: Self.headerArtworkSide)
 
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
                 Text(viewModel.request.title)
