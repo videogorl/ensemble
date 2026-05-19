@@ -30,6 +30,7 @@ public struct LibraryItemInfoView: View {
         .background(EnsembleDesign.Color.windowSurface)
         .navigationTitle("Get Info")
         #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Done") {
