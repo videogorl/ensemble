@@ -62,6 +62,16 @@ final class PlaybackServiceTests: XCTestCase {
         )
     }
 
+    func testSmartMixFormatsMatchOnlyForEquivalentDeckFormats() {
+        let stereo = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)
+        let stereoCopy = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)
+        let mono = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)
+
+        XCTAssertTrue(AudioPlaybackEngine.smartMixFormatsMatch(stereo, stereoCopy!))
+        XCTAssertFalse(AudioPlaybackEngine.smartMixFormatsMatch(stereo, mono!))
+        XCTAssertFalse(AudioPlaybackEngine.smartMixFormatsMatch(nil, stereo!))
+    }
+
     func testRouteRecoveryPrefersObservedPositionWhenLiveTimeDropsToZero() {
         let time = AudioPlaybackEngine.resolvedRouteRecoveryPosition(
             livePosition: 0,
