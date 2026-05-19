@@ -337,6 +337,9 @@ struct PlayEnsembleArtistIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Artist in Ensemble"
     static var description = IntentDescription("Plays music by a specific artist from your Ensemble library.")
     static var openAppWhenRun: Bool = true
+    static var parameterSummary: some ParameterSummary {
+        Summary("Play artist \(\.$artist)")
+    }
 
     @Parameter(title: "Artist")
     var artist: EnsembleArtistEntity
@@ -363,6 +366,9 @@ struct ShuffleEnsembleArtistIntent: AppIntent {
     static var title: LocalizedStringResource = "Shuffle Artist in Ensemble"
     static var description = IntentDescription("Shuffles music by a specific artist from your Ensemble library.")
     static var openAppWhenRun: Bool = true
+    static var parameterSummary: some ParameterSummary {
+        Summary("Shuffle the artist \(\.$artist)")
+    }
 
     @Parameter(title: "Artist")
     var artist: EnsembleArtistEntity
@@ -491,6 +497,8 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
             intent: PlayEnsembleArtistIntent(),
             phrases: [
                 "Play artist \(\.$artist) on \(.applicationName)",
+                "Play the artist \(\.$artist) on \(.applicationName)",
+                "Play music by \(\.$artist) on \(.applicationName)",
                 "In \(.applicationName), play artist \(\.$artist)"
             ],
             shortTitle: "Play Artist",
@@ -502,10 +510,15 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
             phrases: [
                 "Shuffle artist \(\.$artist) on \(.applicationName)",
                 "Shuffle the artist \(\.$artist) on \(.applicationName)",
+                "Shuffle artist \(\.$artist) in \(.applicationName)",
+                "Shuffle the artist \(\.$artist) in \(.applicationName)",
                 "Shuffle \(\.$artist) on \(.applicationName)",
                 "Shuffle \(\.$artist) artist on \(.applicationName)",
+                "Shuffle music by \(\.$artist) on \(.applicationName)",
+                "Shuffle songs by \(\.$artist) on \(.applicationName)",
                 "In \(.applicationName), shuffle the artist \(\.$artist)",
-                "In \(.applicationName), shuffle artist \(\.$artist)"
+                "In \(.applicationName), shuffle artist \(\.$artist)",
+                "In \(.applicationName), shuffle music by \(\.$artist)"
             ],
             shortTitle: "Shuffle Artist",
             systemImageName: "shuffle"
