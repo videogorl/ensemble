@@ -83,7 +83,9 @@ public final class LibraryItemInfoViewModel: ObservableObject {
                 forAlbum: album.id,
                 sourceCompositeKey: sourceKey
             )
-            let duration = tracks?.reduce(TimeInterval(0)) { $0 + TimeInterval($1.duration) } ?? 0
+            let duration = tracks?.reduce(TimeInterval(0)) {
+                $0 + Self.persistedTrackDurationSeconds($1.duration)
+            } ?? 0
             return duration > 0 ? duration : nil
         case .playlist(let playlist):
             guard let cdPlaylist = try? await playlistRepository.fetchPlaylist(
@@ -92,9 +94,15 @@ public final class LibraryItemInfoViewModel: ObservableObject {
             ) else {
                 return playlist.duration > 0 ? playlist.duration : nil
             }
-            let duration = cdPlaylist.tracksArray.reduce(TimeInterval(0)) { $0 + TimeInterval($1.duration) }
+            let duration = cdPlaylist.tracksArray.reduce(TimeInterval(0)) {
+                $0 + Self.persistedTrackDurationSeconds($1.duration)
+            }
             return duration > 0 ? duration : (playlist.duration > 0 ? playlist.duration : nil)
         }
+    }
+
+    static func persistedTrackDurationSeconds(_ durationMilliseconds: Int64) -> TimeInterval {
+        TimeInterval(durationMilliseconds) / 1000.0
     }
 
     private static func resolveSourceContext(
