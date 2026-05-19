@@ -156,7 +156,7 @@ private struct EditTabsView: View {
     var body: some View {
         List {
             Section {
-                ForEach(settingsManager.enabledTabs) { tab in
+                ForEach(settingsManager.enabledTabs, id: \.tabEditorEnabledID) { tab in
                     Button {
                         removeTabFromBar(tab)
                     } label: {
@@ -177,7 +177,7 @@ private struct EditTabsView: View {
                     Text("All items are in the tab bar")
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 } else {
-                    ForEach(availableTabs) { tab in
+                    ForEach(availableTabs, id: \.tabEditorAvailableID) { tab in
                         Button {
                             addTabToBar(tab)
                         } label: {
@@ -274,6 +274,11 @@ private struct EditTabsView: View {
             settingsManager.enabledTabs = current
         }
     }
+}
+
+private extension TabItem {
+    var tabEditorEnabledID: String { "enabled-\(rawValue)" }
+    var tabEditorAvailableID: String { "available-\(rawValue)" }
 }
 
 private extension View {
