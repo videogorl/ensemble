@@ -524,6 +524,7 @@ private struct ArtistHeroToolbarBackgroundPreferenceKey: PreferenceKey {
 public struct ArtistDetailView: View {
     @StateObject private var viewModel: ArtistDetailViewModel
     @StateObject private var mergedViewModel: MergedArtistDetailViewModel
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     private let displayArtist: DisplayArtist
     let nowPlayingVM: NowPlayingViewModel
 
@@ -1269,8 +1270,13 @@ public struct ArtistDetailView: View {
             "\(albums.count) album\(albums.count == 1 ? "" : "s")",
             "\(totalTracks.count) song\(totalTracks.count == 1 ? "" : "s")",
             "\(favoritedTracks.count) favorited",
-            section.sourceSubtitle
+            displaySourceSubtitle(section.sourceSubtitle)
         ].joined(separator: " · ")
+    }
+
+    private func displaySourceSubtitle(_ sourceSubtitle: String) -> String {
+        guard settingsManager.demoModeEnabled else { return sourceSubtitle }
+        return "\(DemoModeRedaction.serverName) · \(DemoModeRedaction.accountIdentifier)"
     }
 
     private func sourceDownloadButton(for artist: Artist) -> some View {

@@ -6,6 +6,7 @@ import XCTest
 final class SettingsManagerConnectionPolicyTests: XCTestCase {
     private let accentColorKey = "accentColor"
     private let auroraVisualizationKey = "auroraVisualizationEnabled"
+    private let demoModeKey = "demoModeEnabled"
     private let defaultsKey = "allowInsecureConnectionsPolicy"
     private let enabledTabsKey = "enabledTabs"
     private let songsTableColumnsKey = "songsTableColumns"
@@ -16,6 +17,7 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
         super.setUp()
         UserDefaults.standard.removeObject(forKey: accentColorKey)
         UserDefaults.standard.removeObject(forKey: auroraVisualizationKey)
+        UserDefaults.standard.removeObject(forKey: demoModeKey)
         UserDefaults.standard.removeObject(forKey: defaultsKey)
         UserDefaults.standard.removeObject(forKey: enabledTabsKey)
         UserDefaults.standard.removeObject(forKey: songsTableColumnsKey)
@@ -27,6 +29,7 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
         cancellables.removeAll()
         UserDefaults.standard.removeObject(forKey: accentColorKey)
         UserDefaults.standard.removeObject(forKey: auroraVisualizationKey)
+        UserDefaults.standard.removeObject(forKey: demoModeKey)
         UserDefaults.standard.removeObject(forKey: defaultsKey)
         UserDefaults.standard.removeObject(forKey: enabledTabsKey)
         UserDefaults.standard.removeObject(forKey: songsTableColumnsKey)
@@ -38,6 +41,60 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
         let manager = SettingsManager()
         XCTAssertEqual(manager.allowInsecureConnectionsPolicy, .defaultForEnsemble)
         XCTAssertEqual(manager.allowInsecureConnectionsPolicy, .sameNetwork)
+    }
+
+    func testDemoModeDefaultsToDisabled() {
+        let manager = SettingsManager()
+        XCTAssertFalse(manager.demoModeEnabled)
+    }
+
+    #if DEBUG
+    func testDemoModePersistsAcrossManagerInstancesInDebugBuilds() {
+        let first = SettingsManager()
+        first.demoModeEnabled = true
+
+        let second = SettingsManager()
+        XCTAssertTrue(second.demoModeEnabled)
+    }
+    #endif
+
+    func testDemoModeRedactionKeepsOriginalValuesWhenDisabled() {
+        XCTAssertEqual(
+            DemoModeRedaction.accountIdentifier("person@example.com", isEnabled: false),
+            "person@example.com"
+        )
+        XCTAssertEqual(
+            DemoModeRedaction.serverName("Living Room Server", isEnabled: false),
+            "Living Room Server"
+        )
+        XCTAssertEqual(
+            DemoModeRedaction.connectionInfo("example.plex.direct (Remote)", isEnabled: false),
+            "example.plex.direct (Remote)"
+        )
+    }
+
+    func testDemoModeRedactionUsesStablePlaceholdersWhenEnabled() {
+        XCTAssertEqual(
+            DemoModeRedaction.accountIdentifier("person@example.com", isEnabled: true),
+            "Plex Account"
+        )
+        XCTAssertEqual(
+            DemoModeRedaction.serverName("Living Room Server", isEnabled: true),
+            "Plex Server"
+        )
+        XCTAssertEqual(
+            DemoModeRedaction.connectionInfo("example.plex.direct (Remote)", isEnabled: true),
+            "Hidden in Demo Mode"
+        )
+        XCTAssertEqual(
+            DemoModeRedaction.sourceDisplaySubtitle(
+                serverName: "Living Room Server",
+                libraryTitle: "Music",
+                accountName: "person@example.com",
+                isEnabled: true
+            ),
+            "Plex Server - Music · Plex Account"
+        )
     }
 
     func testPolicyPersistsAcrossManagerInstances() {

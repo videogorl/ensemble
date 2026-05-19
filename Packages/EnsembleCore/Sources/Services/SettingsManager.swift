@@ -212,6 +212,42 @@ public enum TabItem: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Shared display redaction for development demo screenshots and recordings.
+public enum DemoModeRedaction {
+    public static let accountIdentifier = "Plex Account"
+    public static let serverName = "Plex Server"
+    public static let connectionInfo = "Hidden in Demo Mode"
+
+    public static func accountIdentifier(_ value: String, isEnabled: Bool) -> String {
+        isEnabled ? accountIdentifier : value
+    }
+
+    public static func serverName(_ value: String, isEnabled: Bool) -> String {
+        isEnabled ? serverName : value
+    }
+
+    public static func connectionInfo(_ value: String, isEnabled: Bool) -> String {
+        isEnabled ? connectionInfo : value
+    }
+
+    public static func sourceDisplayName(
+        serverName: String,
+        libraryTitle: String,
+        isEnabled: Bool
+    ) -> String {
+        "\(Self.serverName(serverName, isEnabled: isEnabled)) - \(libraryTitle)"
+    }
+
+    public static func sourceDisplaySubtitle(
+        serverName: String,
+        libraryTitle: String,
+        accountName: String,
+        isEnabled: Bool
+    ) -> String {
+        "\(sourceDisplayName(serverName: serverName, libraryTitle: libraryTitle, isEnabled: isEnabled)) · \(accountIdentifier(accountName, isEnabled: isEnabled))"
+    }
+}
+
 @MainActor
 public final class SettingsManager: ObservableObject {
     @AppStorage("accentColor") public var accentColorName: String = "blue"
@@ -222,6 +258,14 @@ public final class SettingsManager: ObservableObject {
     @AppStorage("auroraVisualizationEnabled") public var auroraVisualizationEnabled: Bool = true
     @AppStorage("scrobblingEnabled") public var scrobblingEnabled: Bool = true
     @AppStorage("playlistMergeEnabled") public var playlistMergeEnabled: Bool = true
+    #if DEBUG
+    @AppStorage("demoModeEnabled") public var demoModeEnabled: Bool = false
+    #else
+    public var demoModeEnabled: Bool {
+        get { false }
+        set {}
+    }
+    #endif
 
     public init() {
         // Register defaults so UserDefaults.standard.bool(forKey:) returns true
@@ -229,7 +273,8 @@ public final class SettingsManager: ObservableObject {
         UserDefaults.standard.register(defaults: [
             "auroraVisualizationEnabled": true,
             "scrobblingEnabled": true,
-            "playlistMergeEnabled": true
+            "playlistMergeEnabled": true,
+            "demoModeEnabled": false
         ])
         if enabledTabsData.isEmpty {
             // Default tabs

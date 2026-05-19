@@ -3,6 +3,7 @@ import SwiftUI
 
 public struct DownloadsView: View {
     @StateObject private var viewModel: DownloadsViewModel
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     let nowPlayingVM: NowPlayingViewModel
 
     public init(nowPlayingVM: NowPlayingViewModel) {
@@ -182,7 +183,7 @@ public struct DownloadsView: View {
                 NavigationLink {
                     LibraryDownloadDetailView(
                         sourceCompositeKey: library.sourceCompositeKey,
-                        title: "\(library.serverName): \(library.libraryName)",
+                        title: displayLibraryTitle(for: library),
                         nowPlayingVM: nowPlayingVM
                     )
                 } label: {
@@ -224,14 +225,14 @@ public struct DownloadsView: View {
                         destinationView(for: item)
                     } label: {
                         HStack {
-                            DownloadedItemRow(item: item)
+                            DownloadedItemRow(item: item, demoModeEnabled: settingsManager.demoModeEnabled)
                             Spacer()
                             macChevron
                         }
                     }
                     .buttonStyle(.plain)
                 } else {
-                    DownloadedItemRow(item: item)
+                    DownloadedItemRow(item: item, demoModeEnabled: settingsManager.demoModeEnabled)
                 }
 
                 Button(role: .destructive) {
@@ -286,7 +287,7 @@ public struct DownloadsView: View {
             NavigationLink {
                 LibraryDownloadDetailView(
                     sourceCompositeKey: library.sourceCompositeKey,
-                    title: "\(library.serverName): \(library.libraryName)",
+                    title: displayLibraryTitle(for: library),
                     nowPlayingVM: nowPlayingVM
                 )
             } label: {
@@ -340,7 +341,7 @@ public struct DownloadsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: EnsembleDesign.Radius.compactControl, style: .continuous))
 
                 VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
-                    Text("\(library.serverName): \(library.libraryName)")
+                    Text(displayLibraryTitle(for: library))
                         .font(EnsembleDesign.Typography.rowPrimary)
                         .lineLimit(1)
 
@@ -402,6 +403,14 @@ public struct DownloadsView: View {
         return "~\(estimatedSize) estimated"
     }
 
+    private func displayLibraryTitle(for library: LibraryDownloadSummary) -> String {
+        let serverName = DemoModeRedaction.serverName(
+            library.serverName,
+            isEnabled: settingsManager.demoModeEnabled
+        )
+        return "\(serverName): \(library.libraryName)"
+    }
+
     // MARK: - Target Rows
 
     @ViewBuilder
@@ -410,10 +419,10 @@ public struct DownloadsView: View {
             NavigationLink {
                 destinationView(for: item)
             } label: {
-                DownloadedItemRow(item: item)
+                DownloadedItemRow(item: item, demoModeEnabled: settingsManager.demoModeEnabled)
             }
         } else {
-            DownloadedItemRow(item: item)
+            DownloadedItemRow(item: item, demoModeEnabled: settingsManager.demoModeEnabled)
         }
     }
 
@@ -474,6 +483,7 @@ public struct DownloadsView: View {
 
 private struct DownloadedItemRow: View {
     let item: DownloadedItemSummary
+    let demoModeEnabled: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
@@ -503,7 +513,7 @@ private struct DownloadedItemRow: View {
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
 
-                    if let sourceDisplayText = item.sourceDisplayText {
+                    if let sourceDisplayText {
                         Text(sourceDisplayText)
                             .font(EnsembleDesign.Typography.rowSecondary)
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
@@ -524,6 +534,18 @@ private struct DownloadedItemRow: View {
             }
         }
         .padding(.vertical, EnsembleScaffold.UtilityRow.halfRowVerticalPadding)
+    }
+
+    private var sourceDisplayText: String? {
+        guard let context = DependencyContainer.shared.accountManager.sourceLibraryContext(for: item.sourceCompositeKey) else {
+            return item.sourceDisplayText
+        }
+        return DemoModeRedaction.sourceDisplaySubtitle(
+            serverName: context.serverName,
+            libraryTitle: context.libraryTitle,
+            accountName: context.accountName,
+            isEnabled: demoModeEnabled
+        )
     }
 
     private var metadataText: String {

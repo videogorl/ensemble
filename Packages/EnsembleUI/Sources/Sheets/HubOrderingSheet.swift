@@ -7,6 +7,7 @@ import SwiftUI
 /// rather than specific instances that will change.
 public struct HubOrderingSheet: View {
     @ObservedObject var viewModel: HomeViewModel
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @State private var reorderedHubs: [Hub] = []
 
     public init(viewModel: HomeViewModel) {
@@ -78,7 +79,7 @@ public struct HubOrderingSheet: View {
         if viewModel.currentSourceName.isEmpty {
             return "Drag to reorder sections"
         } else {
-            return "Drag to reorder sections\n\(viewModel.currentSourceName)"
+            return "Drag to reorder sections\n\(displaySourceName(viewModel.currentSourceName))"
         }
     }
 
@@ -89,7 +90,7 @@ public struct HubOrderingSheet: View {
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
 
             if !viewModel.currentSourceName.isEmpty {
-                Text(viewModel.currentSourceName)
+                Text(displaySourceName(viewModel.currentSourceName))
                     .font(EnsembleDesign.Typography.rowSecondary)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
@@ -106,6 +107,15 @@ public struct HubOrderingSheet: View {
         #else
         return EnsembleDesign.Color.secondaryText.opacity(EnsembleScaffold.FilterSheet.subtleSectionBackgroundOpacity)
         #endif
+    }
+
+    private func displaySourceName(_ sourceName: String) -> String {
+        guard settingsManager.demoModeEnabled else { return sourceName }
+        return sourceName.replacingOccurrences(
+            of: #"(?<=\(on ).+(?=\))"#,
+            with: DemoModeRedaction.serverName,
+            options: .regularExpression
+        )
     }
 
     private var hubList: some View {

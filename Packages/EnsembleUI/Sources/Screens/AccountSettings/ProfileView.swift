@@ -69,7 +69,7 @@ public struct ProfileView: View {
                 }
             } message: {
                 if let account = accountToDelete {
-                    Text("Remove Plex account \(account.accountIdentifier)? Libraries from this account will be removed from local cache.")
+                    Text("Remove Plex account \(displayAccountIdentifier(for: account))? Libraries from this account will be removed from local cache.")
                 }
             }
             .alert("Clear Artwork Cache", isPresented: $showingClearArtworkCacheAlert) {
@@ -160,7 +160,7 @@ public struct ProfileView: View {
                 } label: {
                     MusicSourceAccountRow(
                         sourceName: "Plex",
-                        accountIdentifier: preferredAccountSubtitle(for: account)
+                        accountIdentifier: displayAccountIdentifier(for: account)
                     )
                 }
             }
@@ -358,6 +358,15 @@ public struct ProfileView: View {
             }
 
             #if DEBUG
+            Toggle(isOn: $settingsManager.demoModeEnabled) {
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.secureConnection,
+                    title: "Demo mode",
+                    subtitle: "Hides account and server details in the UI",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
+            }
+
             Toggle(isOn: $debugSimulateOffline) {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.offline,
@@ -468,7 +477,7 @@ public struct ProfileView: View {
                             HStack {
                                 MusicSourceAccountRow(
                                     sourceName: "Plex",
-                                    accountIdentifier: preferredAccountSubtitle(for: account)
+                                    accountIdentifier: displayAccountIdentifier(for: account)
                                 )
                                 Spacer()
                                 macChevron
@@ -672,6 +681,19 @@ public struct ProfileView: View {
             }
 
             #if DEBUG
+            EnsembleUtilityCardDivider()
+
+            EnsembleUtilityCardRow {
+                Toggle(isOn: $settingsManager.demoModeEnabled) {
+                    EnsembleUtilityRowLabel(
+                        iconSystemName: EnsembleDesign.Icon.secureConnection,
+                        title: "Demo mode",
+                        subtitle: "Hides account and server details in the UI",
+                        iconColor: EnsembleDesign.Color.primaryText
+                    )
+                }
+            }
+
             EnsembleUtilityCardDivider()
 
             EnsembleUtilityCardRow {
@@ -884,5 +906,12 @@ public struct ProfileView: View {
         }
 
         return "Plex Account"
+    }
+
+    private func displayAccountIdentifier(for account: PlexAccountConfig) -> String {
+        DemoModeRedaction.accountIdentifier(
+            preferredAccountSubtitle(for: account),
+            isEnabled: settingsManager.demoModeEnabled
+        )
     }
 }

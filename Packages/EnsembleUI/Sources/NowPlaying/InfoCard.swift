@@ -8,6 +8,7 @@ public struct InfoCard: View {
     @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
     @ObservedObject private var lyricsProjection: NowPlayingLyricsProjection
     @ObservedObject private var queueProjection: NowPlayingQueueProjection
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Binding var currentPage: Int
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
@@ -253,7 +254,7 @@ public struct InfoCard: View {
 
             // Server name
             if let serverName = resolveServerName() {
-                infoRow(label: "Server", value: serverName)
+                infoRow(label: "Server", value: displayServerName(serverName))
             }
 
             // Library name
@@ -263,7 +264,7 @@ public struct InfoCard: View {
 
             // Connection URL and type
             if let connectionInfo = resolveConnectionInfo() {
-                infoRow(label: "Connection", value: connectionInfo)
+                infoRow(label: "Connection", value: displayConnectionInfo(connectionInfo))
             }
 
             // Connection status
@@ -549,6 +550,14 @@ public struct InfoCard: View {
         }
 
         return server.name
+    }
+
+    private func displayServerName(_ serverName: String) -> String {
+        DemoModeRedaction.serverName(serverName, isEnabled: settingsManager.demoModeEnabled)
+    }
+
+    private func displayConnectionInfo(_ connectionInfo: String) -> String {
+        DemoModeRedaction.connectionInfo(connectionInfo, isEnabled: settingsManager.demoModeEnabled)
     }
 
     /// Resolve library name from the track's sourceCompositeKey

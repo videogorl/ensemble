@@ -4,6 +4,7 @@ import SwiftUI
 /// Account-level source detail screen for managing server libraries and sync operations.
 public struct MusicSourceAccountDetailView: View {
     @StateObject private var viewModel: MusicSourceAccountDetailViewModel
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Environment(\.dismiss) private var dismiss
     @State private var showingRemoveSourceAlert = false
 
@@ -14,7 +15,7 @@ public struct MusicSourceAccountDetailView: View {
     }
 
     public var body: some View {
-        EnsembleAdaptiveUtilityScaffold(title: viewModel.accountIdentifier) {
+        EnsembleAdaptiveUtilityScaffold(title: displayAccountIdentifier) {
             List {
                 accountListSections
             }
@@ -157,7 +158,7 @@ public struct MusicSourceAccountDetailView: View {
 
     private func serverHeader(_ server: MusicSourceAccountDetailViewModel.ServerSection) -> some View {
         HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
-            Text(server.serverName)
+            Text(displayServerName(server.serverName))
             if let platform = server.serverPlatform {
                 Text("(\(platform))")
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
@@ -331,6 +332,17 @@ public struct MusicSourceAccountDetailView: View {
             iconFont: EnsembleDesign.Typography.statusBadgeIcon,
             spacing: EnsembleScaffold.UtilityRow.rowSpacing
         )
+    }
+
+    private var displayAccountIdentifier: String {
+        DemoModeRedaction.accountIdentifier(
+            viewModel.accountIdentifier,
+            isEnabled: settingsManager.demoModeEnabled
+        )
+    }
+
+    private func displayServerName(_ serverName: String) -> String {
+        DemoModeRedaction.serverName(serverName, isEnabled: settingsManager.demoModeEnabled)
     }
 }
 
