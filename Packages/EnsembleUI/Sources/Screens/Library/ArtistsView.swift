@@ -1,6 +1,9 @@
 import EnsembleCore
 import SwiftUI
 import Nuke
+#if canImport(UIKit)
+import UIKit
+#endif
 
 public struct ArtistsView: View {
     public enum PresentationMode {
@@ -965,96 +968,105 @@ public struct ArtistDetailView: View {
         }
     }
 
+    private var compactHeroHeight: CGFloat {
+        if artistHeaderWidth > 0 {
+            return artistHeaderWidth
+        }
+
+        #if os(iOS)
+        return UIScreen.main.bounds.width
+        #else
+        return EnsembleScaffold.ArtistDetail.wideHeaderThreshold
+        #endif
+    }
+
     private var heroBanner: some View {
-        Color.clear
-            .aspectRatio(1, contentMode: .fit)
-            .frame(maxWidth: .infinity)
-            .overlay {
-                GeometryReader { geometry in
-                    let bannerHeight = geometry.size.height
-                    // Detect overscroll: when the banner's top in global coords is > 0,
-                    // the user is pulling down past the top edge
-                    let globalMinY = geometry.frame(in: .global).minY
-                    let overscroll = max(globalMinY, 0)
-                    let artworkHeight = bannerHeight + geometry.safeAreaInsets.top + overscroll
-                    let isHeroPastToolbar = Self.isHeroPastToolbar(geometry)
+        GeometryReader { geometry in
+            let bannerHeight = geometry.size.height
+            // Detect overscroll: when the banner's top in global coords is > 0,
+            // the user is pulling down past the top edge
+            let globalMinY = geometry.frame(in: .global).minY
+            let overscroll = max(globalMinY, 0)
+            let artworkHeight = bannerHeight + geometry.safeAreaInsets.top + overscroll
+            let isHeroPastToolbar = Self.isHeroPastToolbar(geometry)
 
-                    ZStack(alignment: .bottom) {
-                        // Artist artwork — uses artworkImage directly instead of ArtworkView
-                        // to avoid ArtworkView's internal 800x800 maxWidth/maxHeight constraints
-                        // which prevent the image from covering the full banner width on macOS.
-                        Group {
-                            if let img = artworkImage {
-                                #if os(macOS)
-                                Image(nsImage: img)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: geometry.size.width, height: artworkHeight)
-                                #else
-                                Image(uiImage: img)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: geometry.size.width, height: artworkHeight)
-                                #endif
-                            } else {
-                                EnsembleScaffold.ArtistDetail.placeholderArtworkColor
-                                    .frame(width: geometry.size.width, height: artworkHeight)
-                            }
-                        }
-                        .clipped()
-                        .mask(
-                            LinearGradient(
-                                gradient: Gradient(stops: [
-                                    .init(color: .white, location: 0),
-                                    .init(color: .white, location: 0.5),
-                                    .init(color: .clear, location: 1.0)
-                                ]),
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        // Shift up to cover the safe area + overscroll gap
-                        .offset(y: -(geometry.safeAreaInsets.top + overscroll))
-
-                        // Artist info overlay — offset counteracts overscroll so
-                        // the text stays visually pinned instead of drifting down
-                        VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.metadataSpacing) {
-                            Text(viewModel.artist.name)
-                                .font(EnsembleDesign.Typography.screenTitle)
-                                .background(TitleOffsetTracker(coordinateSpace: "artistDetailScroll"))
-
-                            if !detailAlbums.isEmpty || !detailTracks.isEmpty {
-                                HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
-                                    if displayArtist.isMerged {
-                                        Text("\(displayArtist.artists.count) sources")
-                                    }
-                                    if !detailAlbums.isEmpty {
-                                        if displayArtist.isMerged {
-                                            Text("•")
-                                        }
-                                        Text("\(detailAlbums.count) album\(detailAlbums.count == 1 ? "" : "s")")
-                                    }
-                                    if !detailAlbums.isEmpty && !detailTracks.isEmpty {
-                                        Text("•")
-                                    }
-                                    if !detailTracks.isEmpty {
-                                        Text("\(detailTrackCount) song\(detailTrackCount == 1 ? "" : "s")")
-                                    }
-                                }
-                                .font(EnsembleDesign.Typography.stateMessage)
-                                .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                        .offset(y: -overscroll)
+            ZStack(alignment: .bottom) {
+                // Artist artwork — uses artworkImage directly instead of ArtworkView
+                // to avoid ArtworkView's internal 800x800 maxWidth/maxHeight constraints
+                // which prevent the image from covering the full banner width on macOS.
+                Group {
+                    if let img = artworkImage {
+                        #if os(macOS)
+                        Image(nsImage: img)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: geometry.size.width, height: artworkHeight)
+                        #else
+                        Image(uiImage: img)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: geometry.size.width, height: artworkHeight)
+                        #endif
+                    } else {
+                        EnsembleScaffold.ArtistDetail.placeholderArtworkColor
+                            .frame(width: geometry.size.width, height: artworkHeight)
                     }
-                    .preference(
-                        key: ArtistHeroToolbarBackgroundPreferenceKey.self,
-                        value: isHeroPastToolbar
-                    )
                 }
+                .clipped()
+                .mask(
+                    LinearGradient(
+                        gradient: Gradient(stops: [
+                            .init(color: .white, location: 0),
+                            .init(color: .white, location: 0.68),
+                            .init(color: .clear, location: 0.96)
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                // Shift up to cover the safe area + overscroll gap
+                .offset(y: -(geometry.safeAreaInsets.top + overscroll))
+
+                // Artist info overlay — offset counteracts overscroll so
+                // the text stays visually pinned instead of drifting down
+                VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.metadataSpacing) {
+                    Text(viewModel.artist.name)
+                        .font(EnsembleDesign.Typography.screenTitle)
+                        .background(TitleOffsetTracker(coordinateSpace: "artistDetailScroll"))
+
+                    if !detailAlbums.isEmpty || !detailTracks.isEmpty {
+                        HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
+                            if displayArtist.isMerged {
+                                Text("\(displayArtist.artists.count) sources")
+                            }
+                            if !detailAlbums.isEmpty {
+                                if displayArtist.isMerged {
+                                    Text("•")
+                                }
+                                Text("\(detailAlbums.count) album\(detailAlbums.count == 1 ? "" : "s")")
+                            }
+                            if !detailAlbums.isEmpty && !detailTracks.isEmpty {
+                                Text("•")
+                            }
+                            if !detailTracks.isEmpty {
+                                Text("\(detailTrackCount) song\(detailTrackCount == 1 ? "" : "s")")
+                            }
+                        }
+                        .font(EnsembleDesign.Typography.stateMessage)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+                .offset(y: -overscroll)
             }
+            .preference(
+                key: ArtistHeroToolbarBackgroundPreferenceKey.self,
+                value: isHeroPastToolbar
+            )
+        }
+        .frame(height: compactHeroHeight)
+        .frame(maxWidth: .infinity)
     }
 
     private static func isHeroPastToolbar(_ geometry: GeometryProxy) -> Bool {
