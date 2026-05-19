@@ -11,6 +11,7 @@ public struct HomeView: View {
     // Targeted singleton observation: only fires when sync state changes (for empty state)
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     public init(nowPlayingVM: NowPlayingViewModel) {
@@ -59,6 +60,7 @@ public struct HomeView: View {
             HubOrderingSheet(viewModel: viewModel)
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
         .artworkBackedToolbarBleed()
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
@@ -181,7 +183,12 @@ public struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.sectionSpacing) {
                 ForEach(viewModel.hubs) { hub in
-                    HubSection(hub: hub, nowPlayingVM: nowPlayingVM, playlistActionRequest: $playlistActionRequest)
+                    HubSection(
+                        hub: hub,
+                        nowPlayingVM: nowPlayingVM,
+                        playlistActionRequest: $playlistActionRequest,
+                        libraryItemInfoRequest: $libraryItemInfoRequest
+                    )
                 }
             }
             .padding(.vertical)
@@ -229,6 +236,7 @@ struct HubSection: View {
     let hub: Hub
     let nowPlayingVM: NowPlayingViewModel
     @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
+    @Binding var libraryItemInfoRequest: LibraryItemInfoRequest?
 
     var body: some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
@@ -242,7 +250,8 @@ struct HubSection: View {
                         HubItemCard(
                             item: item,
                             nowPlayingVM: nowPlayingVM,
-                            playlistActionRequest: $playlistActionRequest
+                            playlistActionRequest: $playlistActionRequest,
+                            libraryItemInfoRequest: $libraryItemInfoRequest
                         )
                     }
                 }
@@ -293,6 +302,7 @@ struct HubItemCard: View {
     let nowPlayingVM: NowPlayingViewModel
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
+    @Binding var libraryItemInfoRequest: LibraryItemInfoRequest?
 
     private let artworkDimension = EnsembleScaffold.MediaCard.hubArtworkDimension
 
@@ -447,6 +457,9 @@ struct HubItemCard: View {
                     .artist(id: artistId, sourceKey: item.sourceCompositeKey),
                     in: navigationCoordinator.selectedTab
                 )
+            },
+            onGetInfo: {
+                libraryItemInfoRequest = .album(resolvedAlbum)
             }
         )
     }
@@ -467,7 +480,10 @@ struct HubItemCard: View {
         PlaylistActionsContextMenu(
             playlist: resolvedPlaylist,
             nowPlayingVM: nowPlayingVM,
-            toastNamespace: "hub-playlist-menu"
+            toastNamespace: "hub-playlist-menu",
+            onGetInfo: {
+                libraryItemInfoRequest = .playlist(resolvedPlaylist)
+            }
         )
     }
 
@@ -498,6 +514,9 @@ struct HubItemCard: View {
                         in: navigationCoordinator.selectedTab
                     )
                 }
+            },
+            onGetInfo: {
+                libraryItemInfoRequest = .track(track)
             }
         )
     }

@@ -48,6 +48,17 @@ public extension DependencyContainer {
     }
 
     @MainActor
+    func makeLibraryItemInfoViewModel(request: LibraryItemInfoRequest) -> LibraryItemInfoViewModel {
+        LibraryItemInfoViewModel(
+            request: request,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            accountManager: accountManager
+        )
+    }
+
+    @MainActor
     func makeArtistDetailViewModel(artist: Artist) -> ArtistDetailViewModel {
         ArtistDetailViewModel(
             artist: artist,

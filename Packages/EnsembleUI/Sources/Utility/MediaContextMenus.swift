@@ -10,6 +10,7 @@ struct TrackActionsContextMenu: View {
     var onAddToPlaylist: (() -> Void)? = nil
     var onGoToAlbum: (() -> Void)? = nil
     var onGoToArtist: (() -> Void)? = nil
+    var onGetInfo: (() -> Void)? = nil
     var onRemoveFromQueue: (() -> Void)? = nil
     var onRemoveFromPlaylist: (() -> Void)? = nil
     var onEditMetadata: (() -> Void)? = nil
@@ -39,6 +40,7 @@ struct TrackActionsContextMenu: View {
                     canAddToRecentPlaylist: recentTitle != nil,
                     canGoToAlbum: track.albumRatingKey != nil,
                     canGoToArtist: track.artistRatingKey != nil,
+                    canGetInfo: onGetInfo != nil,
                     canShareLink: true,
                     canShareAudioFile: true,
                     canFavorite: true,
@@ -106,6 +108,7 @@ struct TrackActionsContextMenu: View {
                         )
                     }
                 },
+                getInfo: onGetInfo,
                 editMetadata: onEditMetadata,
                 favorite: {
                     Task {
@@ -136,6 +139,7 @@ struct AlbumActionsContextMenu: View {
     let presentPlaylistPicker: ([Track], String) -> Void
     var toastNamespace: String = "album-menu"
     var navigateToArtist: ((String) -> Void)? = nil
+    var onGetInfo: (() -> Void)? = nil
     var onEditMetadata: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
     var customPinAction: ((Bool) -> Void)? = nil
@@ -173,6 +177,7 @@ struct AlbumActionsContextMenu: View {
                     canAddToRecentPlaylist: addToRecentPlaylist != nil,
                     canGoToAlbum: false,
                     canGoToArtist: goToArtist != nil,
+                    canGetInfo: onGetInfo != nil,
                     canShareLink: true,
                     canShareAudioFile: false,
                     canFavorite: false,
@@ -223,6 +228,7 @@ struct AlbumActionsContextMenu: View {
                     }
                 },
                 goToArtist: goToArtist,
+                getInfo: onGetInfo,
                 editMetadata: onEditMetadata,
                 download: {
                     Task {
@@ -448,6 +454,7 @@ struct PlaylistActionsContextMenu: View {
     let playlist: Playlist
     let nowPlayingVM: NowPlayingViewModel
     var toastNamespace: String = "playlist-menu"
+    var onGetInfo: (() -> Void)? = nil
     var onRename: (() -> Void)? = nil
     var onEdit: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
@@ -473,6 +480,7 @@ struct PlaylistActionsContextMenu: View {
                     canAddToRecentPlaylist: false,
                     canGoToAlbum: false,
                     canGoToArtist: false,
+                    canGetInfo: onGetInfo != nil,
                     canShareLink: false,
                     canShareAudioFile: false,
                     canFavorite: false,
@@ -510,6 +518,7 @@ struct PlaylistActionsContextMenu: View {
                         nowPlayingVM.playLast(tracks)
                     }
                 },
+                getInfo: onGetInfo,
                 rename: onRename,
                 editPlaylist: onEdit,
                 download: {

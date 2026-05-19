@@ -91,6 +91,7 @@ public struct PlaylistsView: View {
     @State private var deletingToastIDsByPlaylistID: [String: UUID] = [:]
     @State private var creatingPlaylistToastID: UUID?
     @State private var playlistForEditSheet: Playlist?
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var displayPlaylistPendingDelete: DisplayPlaylist?
     @State private var showCreatePlaylistPush = false
     @State private var renamePushPlaylist: Playlist?
@@ -284,6 +285,7 @@ public struct PlaylistsView: View {
                 )
                 .nativeSheetNavigationContainer()
             }
+            .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
             #if os(iOS)
             .navigationBarHidden(isStageFlowActive)
             .if(isStageFlowActive) { view in
@@ -546,6 +548,9 @@ public struct PlaylistsView: View {
                                 PlaylistActionsContextMenu(
                                     playlist: dp.primaryPlaylist,
                                     nowPlayingVM: nowPlayingVM,
+                                    onGetInfo: {
+                                        libraryItemInfoRequest = .playlist(dp.primaryPlaylist)
+                                    },
                                     onRename: {
                                         presentRenameAlert(for: dp.primaryPlaylist)
                                     },

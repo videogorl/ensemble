@@ -535,6 +535,7 @@ public struct SidebarView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var compactColumnPreference: CompactColumnPreference = .sidebar
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var playlistForEditSheet: Playlist?
     @State private var playlistPendingRename: Playlist?
     @State private var playlistPendingRenameTitle = ""
@@ -897,6 +898,7 @@ public struct SidebarView: View {
         #endif
         .addAccountPresentationSheet()
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
         .sheet(item: $playlistForEditSheet) { playlist in
             PlaylistDetailView(
                 playlist: playlist,
@@ -1406,6 +1408,9 @@ public struct SidebarView: View {
                             )
                         )
                     },
+                    onGetInfo: {
+                        libraryItemInfoRequest = .album(album)
+                    },
                     customPinAction: { isPinned in
                         if isPinned {
                             handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.albums))
@@ -1436,6 +1441,9 @@ public struct SidebarView: View {
                     playlist: playlist,
                     nowPlayingVM: nowPlayingVM,
                     toastNamespace: "sidebar-playlist-menu",
+                    onGetInfo: {
+                        libraryItemInfoRequest = .playlist(playlist)
+                    },
                     onRename: {
                         playlistPendingRenameTitle = playlist.title
                         playlistPendingRename = playlist

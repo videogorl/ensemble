@@ -17,6 +17,7 @@ struct MediaActionLabel: View {
         case addToRecentPlaylist(String)
         case goToAlbum
         case goToArtist
+        case getInfo
         case editMetadata
         case rename
         case editPlaylist
@@ -69,6 +70,8 @@ struct MediaActionLabel: View {
             return "Go to Album"
         case .goToArtist:
             return "Go to Artist"
+        case .getInfo:
+            return "Get Info…"
         case .editMetadata:
             return "Edit Metadata…"
         case .rename:
@@ -132,6 +135,8 @@ struct MediaActionLabel: View {
             return EnsembleDesign.Icon.album
         case .goToArtist:
             return EnsembleDesign.Icon.artist
+        case .getInfo:
+            return EnsembleDesign.Icon.info
         case .editMetadata, .rename, .renameAll:
             return EnsembleDesign.Icon.edit
         case .editPlaylist:

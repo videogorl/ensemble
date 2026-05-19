@@ -11,6 +11,7 @@ public struct SearchView: View {
     @State private var isPinnedExpanded = false
     @State private var isEditingPins = false
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     // Targeted singleton observation for empty/no-results states
     private let accountManager: AccountManager
     private let syncCoordinator: SyncCoordinator
@@ -117,6 +118,7 @@ public struct SearchView: View {
             }
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
         .onAppear {
             isSearchTabActive = navigationCoordinator.selectedTab == .search
             isSearchPathEmpty = navigationCoordinator.searchPath.isEmpty
@@ -249,9 +251,16 @@ public struct SearchView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .contextMenu {
-                                    AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                                        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-                                    }
+                                    AlbumActionsContextMenu(
+                                        album: album,
+                                        nowPlayingVM: nowPlayingVM,
+                                        presentPlaylistPicker: { tracks, title in
+                                            playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+                                        },
+                                        onGetInfo: {
+                                            libraryItemInfoRequest = .album(album)
+                                        }
+                                    )
                                 }
                             } else {
                                 NavigationLink {
@@ -261,9 +270,16 @@ public struct SearchView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .contextMenu {
-                                    AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                                        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-                                    }
+                                    AlbumActionsContextMenu(
+                                        album: album,
+                                        nowPlayingVM: nowPlayingVM,
+                                        presentPlaylistPicker: { tracks, title in
+                                            playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+                                        },
+                                        onGetInfo: {
+                                            libraryItemInfoRequest = .album(album)
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -415,9 +431,16 @@ public struct SearchView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                            playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-                        }
+                        AlbumActionsContextMenu(
+                            album: album,
+                            nowPlayingVM: nowPlayingVM,
+                            presentPlaylistPicker: { tracks, title in
+                                playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+                            },
+                            onGetInfo: {
+                                libraryItemInfoRequest = .album(album)
+                            }
+                        )
                     }
                 } else {
                     NavigationLink {
@@ -427,9 +450,16 @@ public struct SearchView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                            playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-                        }
+                        AlbumActionsContextMenu(
+                            album: album,
+                            nowPlayingVM: nowPlayingVM,
+                            presentPlaylistPicker: { tracks, title in
+                                playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+                            },
+                            onGetInfo: {
+                                libraryItemInfoRequest = .album(album)
+                            }
+                        )
                     }
                 }
             } else if let artist = item.artist {
@@ -459,7 +489,13 @@ public struct SearchView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        PlaylistActionsContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM)
+                        PlaylistActionsContextMenu(
+                            playlist: playlist,
+                            nowPlayingVM: nowPlayingVM,
+                            onGetInfo: {
+                                libraryItemInfoRequest = .playlist(playlist)
+                            }
+                        )
                     }
                 } else {
                     NavigationLink {
@@ -473,7 +509,13 @@ public struct SearchView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        PlaylistActionsContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM)
+                        PlaylistActionsContextMenu(
+                            playlist: playlist,
+                            nowPlayingVM: nowPlayingVM,
+                            onGetInfo: {
+                                libraryItemInfoRequest = .playlist(playlist)
+                            }
+                        )
                     }
                 }
             }
@@ -835,9 +877,16 @@ public struct SearchView: View {
                             handleSearchResultNavigation()
                         })
                         .contextMenu {
-                            AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                                playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-                            }
+                            AlbumActionsContextMenu(
+                                album: album,
+                                nowPlayingVM: nowPlayingVM,
+                                presentPlaylistPicker: { tracks, title in
+                                    playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+                                },
+                                onGetInfo: {
+                                    libraryItemInfoRequest = .album(album)
+                                }
+                            )
                         }
                     } else {
                         NavigationLink {
@@ -850,9 +899,16 @@ public struct SearchView: View {
                             handleSearchResultNavigation()
                         })
                         .contextMenu {
-                            AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM) { tracks, title in
-                                playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-                            }
+                            AlbumActionsContextMenu(
+                                album: album,
+                                nowPlayingVM: nowPlayingVM,
+                                presentPlaylistPicker: { tracks, title in
+                                    playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+                                },
+                                onGetInfo: {
+                                    libraryItemInfoRequest = .album(album)
+                                }
+                            )
                         }
                     }
                 }
@@ -874,7 +930,13 @@ public struct SearchView: View {
                             handleSearchResultNavigation()
                         })
                         .contextMenu {
-                            PlaylistActionsContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM)
+                            PlaylistActionsContextMenu(
+                                playlist: playlist,
+                                nowPlayingVM: nowPlayingVM,
+                                onGetInfo: {
+                                    libraryItemInfoRequest = .playlist(playlist)
+                                }
+                            )
                         }
                     } else {
                         NavigationLink {
@@ -891,7 +953,13 @@ public struct SearchView: View {
                             handleSearchResultNavigation()
                         })
                         .contextMenu {
-                            PlaylistActionsContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM)
+                            PlaylistActionsContextMenu(
+                                playlist: playlist,
+                                nowPlayingVM: nowPlayingVM,
+                                onGetInfo: {
+                                    libraryItemInfoRequest = .playlist(playlist)
+                                }
+                            )
                         }
                     }
                 }
@@ -985,6 +1053,9 @@ public struct SearchView: View {
                     .artist(id: artistId, sourceKey: track.sourceCompositeKey),
                     in: navigationCoordinator.selectedTab
                 )
+            },
+            onGetInfo: { track in
+                libraryItemInfoRequest = .track(track)
             },
             onShareLink: { track in
                 ShareActions.shareTrackLink(track, deps: deps)

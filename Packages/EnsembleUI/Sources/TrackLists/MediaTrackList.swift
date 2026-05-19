@@ -487,6 +487,7 @@ public struct MediaTrackList: UIViewRepresentable {
     let onToggleFavorite: ((Track) -> Void)?
     let onGoToAlbum: ((Track) -> Void)?
     let onGoToArtist: ((Track) -> Void)?
+    let onGetInfo: ((Track) -> Void)?
     let onShareLink: ((Track) -> Void)?
     let onShareFile: ((Track) -> Void)?
     let onRemoveFromPlaylist: ((Track, Int) -> Void)?
@@ -557,6 +558,7 @@ public struct MediaTrackList: UIViewRepresentable {
         onToggleFavorite: ((Track) -> Void)? = nil,
         onGoToAlbum: ((Track) -> Void)? = nil,
         onGoToArtist: ((Track) -> Void)? = nil,
+        onGetInfo: ((Track) -> Void)? = nil,
         onShareLink: ((Track) -> Void)? = nil,
         onShareFile: ((Track) -> Void)? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
@@ -588,6 +590,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.onToggleFavorite = onToggleFavorite
         self.onGoToAlbum = onGoToAlbum
         self.onGoToArtist = onGoToArtist
+        self.onGetInfo = onGetInfo
         self.onShareLink = onShareLink
         self.onShareFile = onShareFile
         self.onRemoveFromPlaylist = onRemoveFromPlaylist
@@ -602,6 +605,7 @@ public struct MediaTrackList: UIViewRepresentable {
             onToggleFavorite: onToggleFavorite,
             onGoToAlbum: onGoToAlbum,
             onGoToArtist: onGoToArtist,
+            onGetInfo: onGetInfo,
             onShareLink: onShareLink,
             onShareFile: onShareFile,
             isTrackFavorited: isTrackFavorited,
@@ -768,6 +772,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.onToggleFavorite = onToggleFavorite
         context.coordinator.onGoToAlbum = onGoToAlbum
         context.coordinator.onGoToArtist = onGoToArtist
+        context.coordinator.onGetInfo = onGetInfo
         context.coordinator.onShareLink = onShareLink
         context.coordinator.onShareFile = onShareFile
         context.coordinator.onRemoveFromPlaylist = onRemoveFromPlaylist
@@ -907,6 +912,7 @@ public struct MediaTrackList: UIViewRepresentable {
             onToggleFavorite: onToggleFavorite,
             onGoToAlbum: onGoToAlbum,
             onGoToArtist: onGoToArtist,
+            onGetInfo: onGetInfo,
             onShareLink: onShareLink,
             onShareFile: onShareFile,
             onRemoveFromPlaylist: onRemoveFromPlaylist,
@@ -954,6 +960,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var onToggleFavorite: ((Track) -> Void)?
         var onGoToAlbum: ((Track) -> Void)?
         var onGoToArtist: ((Track) -> Void)?
+        var onGetInfo: ((Track) -> Void)?
         var onShareLink: ((Track) -> Void)?
         var onShareFile: ((Track) -> Void)?
         var onRemoveFromPlaylist: ((Track, Int) -> Void)?
@@ -1003,6 +1010,7 @@ public struct MediaTrackList: UIViewRepresentable {
             onToggleFavorite: ((Track) -> Void)?,
             onGoToAlbum: ((Track) -> Void)?,
             onGoToArtist: ((Track) -> Void)?,
+            onGetInfo: ((Track) -> Void)?,
             onShareLink: ((Track) -> Void)?,
             onShareFile: ((Track) -> Void)?,
             onRemoveFromPlaylist: ((Track, Int) -> Void)?,
@@ -1034,6 +1042,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.onToggleFavorite = onToggleFavorite
             self.onGoToAlbum = onGoToAlbum
             self.onGoToArtist = onGoToArtist
+            self.onGetInfo = onGetInfo
             self.onShareLink = onShareLink
             self.onShareFile = onShareFile
             self.onRemoveFromPlaylist = onRemoveFromPlaylist

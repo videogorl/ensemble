@@ -12,6 +12,7 @@ Load this reference for platform navigation, native UI ownership, persistent sur
 - Persistent list/detail surfaces should observe focused projections or local state snapshots, not broad high-frequency singleton objects.
 - Library browse screens that have already displayed cached content should not publish transient empty lists or swap to blank loading states during refresh.
 - Shared media menu and swipe action policy lives in `MediaMenuCatalog` and native table/menu renderers. Parent views should add only local handlers.
+- Library track, album, and single-playlist context menus expose `Get Info…` through `MediaMenuCatalog`. iOS/iPadOS present it as a sheet; macOS presents one reusable native window whose content updates for the latest selected item. The panel shows file/library metadata only and must not include live Now Playing rows such as current playback file, queue quality, lyrics, network, or active connection status.
 - The macOS Dock menu is an AppKit bridge owned by the app target. It shows pinned albums/artists/playlists first, then Now Playing controls, and dispatches to existing navigation, playback, and mutation owners instead of creating alternate UI business logic.
 - Detail screens with artwork-backed washes should use shared detail surface and toolbar-bleed owners so media details, download details, and artist details do not drift.
 - Loading, empty, and error states should use shared state scaffolds rather than rebuilding decision trees per screen.

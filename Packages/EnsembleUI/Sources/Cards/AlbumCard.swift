@@ -143,6 +143,7 @@ public struct AlbumGrid: View {
 
     @Environment(\.dependencies) private var deps
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
     @State private var pendingAlbumDeletion: Album?
 
@@ -180,6 +181,9 @@ public struct AlbumGrid: View {
                             presentPlaylistPicker: { tracks, title in
                                 playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
                             },
+                            onGetInfo: {
+                                libraryItemInfoRequest = .album(album)
+                            },
                             onEditMetadata: {
                                 presentAlbumMetadataEditor(album)
                             },
@@ -207,6 +211,9 @@ public struct AlbumGrid: View {
                             presentPlaylistPicker: { tracks, title in
                                 playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
                             },
+                            onGetInfo: {
+                                libraryItemInfoRequest = .album(album)
+                            },
                             onEditMetadata: {
                                 presentAlbumMetadataEditor(album)
                             },
@@ -220,6 +227,7 @@ public struct AlbumGrid: View {
         }
         .padding(.horizontal, horizontalPadding)
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
         .sheet(item: $metadataEditorRequest) { request in
             TextInputView(
                 title: request.kind.title,

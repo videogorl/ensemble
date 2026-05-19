@@ -83,6 +83,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var showFilterSheet = false
     @State private var showToolbarTitle = false
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
     @State private var trackPendingDeletion: Track?
@@ -180,6 +181,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             updatePinStateForHeader(pinnedItems: pinnedItems)
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(filterOptions: $viewModel.filterOptions)
         }
@@ -332,6 +334,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     }
 
                     Button {
+                        libraryItemInfoRequest = .album(album)
+                    } label: {
+                        MediaActionLabel(kind: .getInfo)
+                    }
+
+                    Button {
                         if let customAction = customPinAction {
                             customAction(isPinned)
                         } else {
@@ -380,9 +388,39 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     }
                 }
             } else {
-                Button {
-                    if let customAction = customPinAction {
-                        customAction(isPinned)
+                    Button {
+                        switch mediaType {
+                        case .album:
+                            let album = Album(
+                                id: ratingKey,
+                                key: headerData.ratingKey ?? ratingKey,
+                                title: headerData.title,
+                                artistName: headerData.subtitle,
+                                sourceCompositeKey: sourceKey
+                            )
+                            libraryItemInfoRequest = .album(album)
+                        case .playlist:
+                            let playlist = Playlist(
+                                id: ratingKey,
+                                key: headerData.ratingKey ?? ratingKey,
+                                title: headerData.title,
+                                isSmart: false,
+                                trackCount: 0,
+                                duration: 0,
+                                sourceCompositeKey: sourceKey
+                            )
+                            libraryItemInfoRequest = .playlist(playlist)
+                        case .artist:
+                            break
+                        }
+                    } label: {
+                        MediaActionLabel(kind: .getInfo)
+                    }
+                    .disabled(mediaType == .artist)
+
+                    Button {
+                        if let customAction = customPinAction {
+                            customAction(isPinned)
                     } else {
                         deps.pinMutationWorkflow.togglePin(
                             id: ratingKey,
@@ -474,6 +512,21 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
 
                 Divider()
+
+                Button {
+                    let playlist = Playlist(
+                        id: ratingKey,
+                        key: headerData.ratingKey ?? ratingKey,
+                        title: headerData.title,
+                        isSmart: false,
+                        trackCount: 0,
+                        duration: 0,
+                        sourceCompositeKey: sourceKey
+                    )
+                    libraryItemInfoRequest = .playlist(playlist)
+                } label: {
+                    MediaActionLabel(kind: .getInfo)
+                }
 
                 Button {
                     playlistMenuActions.onRename()
@@ -930,6 +983,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         in: navigationCoordinator.selectedTab
                     )
                 }
+            },
+            onGetInfo: { track in
+                libraryItemInfoRequest = .track(track)
             },
             onEditMetadata: { track in
                 presentTrackMetadataEditor(track)

@@ -65,6 +65,7 @@ enum MediaMenuActionID: String, Equatable, Hashable {
     case addToPlaylist
     case goToAlbum
     case goToArtist
+    case getInfo
     case editMetadata
     case rename
     case renameAll
@@ -135,6 +136,7 @@ struct MediaMenuHandlers {
     var addToPlaylist: (() -> Void)?
     var goToAlbum: (() -> Void)?
     var goToArtist: (() -> Void)?
+    var getInfo: (() -> Void)?
     var editMetadata: (() -> Void)?
     var rename: (() -> Void)?
     var renameAll: (() -> Void)?
@@ -168,6 +170,7 @@ struct MediaMenuHandlers {
         case .addToPlaylist: return addToPlaylist
         case .goToAlbum: return goToAlbum
         case .goToArtist: return goToArtist
+        case .getInfo: return getInfo
         case .editMetadata: return editMetadata
         case .rename: return rename
         case .renameAll: return renameAll
@@ -197,6 +200,7 @@ struct MediaMenuAvailability: Equatable {
     var canAddToRecentPlaylist = true
     var canGoToAlbum = false
     var canGoToArtist = false
+    var canGetInfo = true
     var canShareLink = true
     var canShareAudioFile = false
     var canFavorite = true
@@ -214,6 +218,7 @@ struct MediaMenuAvailability: Equatable {
         canAddToRecentPlaylist: true,
         canGoToAlbum: true,
         canGoToArtist: true,
+        canGetInfo: true,
         canShareLink: true,
         canShareAudioFile: true,
         canFavorite: true,
@@ -297,6 +302,9 @@ enum MediaMenuCatalog {
         if availability.canGoToArtist {
             navigationActions.append(.goToArtist)
         }
+        if availability.canGetInfo {
+            navigationActions.append(.getInfo)
+        }
         sections.append(section(.navigation, navigationActions))
 
         var shareActions: [MediaMenuActionID] = []
@@ -349,9 +357,14 @@ enum MediaMenuCatalog {
         playlistActions.append(.addToPlaylist)
         sections.append(section(.playlist, playlistActions))
 
+        var navigationActions: [MediaMenuActionID] = []
         if availability.canGoToArtist {
-            sections.append(section(.navigation, [.goToArtist]))
+            navigationActions.append(.goToArtist)
         }
+        if availability.canGetInfo {
+            navigationActions.append(.getInfo)
+        }
+        sections.append(section(.navigation, navigationActions))
 
         if availability.canShareLink {
             sections.append(section(.sharing, [.shareLink]))
@@ -425,6 +438,10 @@ enum MediaMenuCatalog {
             offlinePinning.append(.pin)
         }
         sections.append(section(.offline, offlinePinning))
+
+        if availability.canGetInfo {
+            sections.append(section(.navigation, [.getInfo]))
+        }
 
         if context.allowsPlaylistManagement, !isSmart {
             var management: [MediaMenuActionID] = []
@@ -526,6 +543,8 @@ extension MediaMenuActionDescriptor {
             return MediaMenuLabel(title: "Go to Album", systemImage: EnsembleDesign.Icon.album)
         case .goToArtist:
             return MediaMenuLabel(title: "Go to Artist", systemImage: EnsembleDesign.Icon.artist)
+        case .getInfo:
+            return MediaMenuLabel(title: "Get Info…", systemImage: EnsembleDesign.Icon.info)
         case .editMetadata:
             return MediaMenuLabel(title: "Edit Metadata…", systemImage: EnsembleDesign.Icon.edit)
         case .rename:
@@ -590,6 +609,7 @@ extension MediaMenuActionDescriptor {
         case .addToPlaylist: return .addToPlaylist
         case .goToAlbum: return .goToAlbum
         case .goToArtist: return .goToArtist
+        case .getInfo: return .getInfo
         case .editMetadata: return .editMetadata
         case .rename: return .rename
         case .renameAll: return .renameAll

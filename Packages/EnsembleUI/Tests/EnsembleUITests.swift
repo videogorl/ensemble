@@ -423,7 +423,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(sections.ids, [.playback, .playlist, .navigation, .sharing, .management])
         XCTAssertEqual(sections.actions(in: .playback), [.playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .playlist), [.addToRecentPlaylist, .addToPlaylist, .favorite])
-        XCTAssertEqual(sections.actions(in: .navigation), [.goToAlbum, .goToArtist])
+        XCTAssertEqual(sections.actions(in: .navigation), [.goToAlbum, .goToArtist, .getInfo])
         XCTAssertEqual(sections.actions(in: .sharing), [.shareLink, .shareAudioFile])
         XCTAssertEqual(sections.actions(in: .management), [.editMetadata, .deleteTrack])
         XCTAssertEqual(sections.role(for: .deleteTrack), .destructive)
@@ -483,7 +483,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(sections.ids, [.playback, .playlist, .navigation, .sharing, .offline, .management])
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .radio, .playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .playlist), [.addToRecentPlaylist, .addToPlaylist])
-        XCTAssertEqual(sections.actions(in: .navigation), [.goToArtist])
+        XCTAssertEqual(sections.actions(in: .navigation), [.goToArtist, .getInfo])
         XCTAssertEqual(sections.actions(in: .offline), [.download, .pin])
         XCTAssertEqual(sections.actions(in: .management), [.editMetadata, .deleteAlbum])
         XCTAssertEqual(sections.role(for: .deleteAlbum), .destructive)
@@ -509,9 +509,10 @@ final class EnsembleUITests: XCTestCase {
             availability: .full
         )
 
-        XCTAssertEqual(sections.ids, [.playback, .offline])
+        XCTAssertEqual(sections.ids, [.playback, .offline, .navigation])
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .offline), [.download, .pin])
+        XCTAssertEqual(sections.actions(in: .navigation), [.getInfo])
         XCTAssertNil(sections.first { $0.id == .management })
     }
 

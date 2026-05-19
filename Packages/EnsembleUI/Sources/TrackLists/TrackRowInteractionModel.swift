@@ -11,6 +11,7 @@ public struct TrackRowInteractionModel {
         public let onToggleFavorite: (() -> Void)?
         public let onGoToAlbum: (() -> Void)?
         public let onGoToArtist: (() -> Void)?
+        public let onGetInfo: (() -> Void)?
         public let onEditMetadata: (() -> Void)?
         public let onShareLink: (() -> Void)?
         public let onShareFile: (() -> Void)?
@@ -26,6 +27,7 @@ public struct TrackRowInteractionModel {
             onToggleFavorite != nil ||
             onGoToAlbum != nil ||
             onGoToArtist != nil ||
+            onGetInfo != nil ||
             onEditMetadata != nil ||
             onShareLink != nil ||
             onShareFile != nil ||
@@ -40,6 +42,7 @@ public struct TrackRowInteractionModel {
     public let onToggleFavorite: ((Track) -> Void)?
     public let onGoToAlbum: ((Track) -> Void)?
     public let onGoToArtist: ((Track) -> Void)?
+    public let onGetInfo: ((Track) -> Void)?
     public let onEditMetadata: ((Track) -> Void)?
     public let onShareLink: ((Track) -> Void)?
     public let onShareFile: ((Track) -> Void)?
@@ -56,6 +59,7 @@ public struct TrackRowInteractionModel {
         onToggleFavorite: ((Track) -> Void)? = nil,
         onGoToAlbum: ((Track) -> Void)? = nil,
         onGoToArtist: ((Track) -> Void)? = nil,
+        onGetInfo: ((Track) -> Void)? = nil,
         onEditMetadata: ((Track) -> Void)? = nil,
         onShareLink: ((Track) -> Void)? = nil,
         onShareFile: ((Track) -> Void)? = nil,
@@ -71,6 +75,7 @@ public struct TrackRowInteractionModel {
         self.onToggleFavorite = onToggleFavorite
         self.onGoToAlbum = onGoToAlbum
         self.onGoToArtist = onGoToArtist
+        self.onGetInfo = onGetInfo
         self.onEditMetadata = onEditMetadata
         self.onShareLink = onShareLink
         self.onShareFile = onShareFile
@@ -91,6 +96,7 @@ public struct TrackRowInteractionModel {
             onToggleFavorite: onToggleFavorite.map { callback in { callback(track) } },
             onGoToAlbum: onGoToAlbum.map { callback in { callback(track) } },
             onGoToArtist: onGoToArtist.map { callback in { callback(track) } },
+            onGetInfo: onGetInfo.map { callback in { callback(track) } },
             onEditMetadata: onEditMetadata.map { callback in { callback(track) } },
             onShareLink: onShareLink.map { callback in { callback(track) } },
             onShareFile: onShareFile.map { callback in { callback(track) } },

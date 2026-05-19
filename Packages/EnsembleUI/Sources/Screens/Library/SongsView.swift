@@ -17,6 +17,7 @@ public struct SongsView: View {
     @State private var showFilterSheet = false
     @State private var selectedAlbum: SongsStageFlowAlbum?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
     // Targeted observation: only re-evaluate when these specific values change,
     // not when any of offlineDownloadService's 5+ @Published props update
@@ -268,6 +269,7 @@ public struct SongsView: View {
             }
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
     }
 
     private var songsGenreChipBar: some View {
@@ -294,6 +296,7 @@ public struct SongsView: View {
             }
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
     }
 
     private func largeScreenIndexedSongList(width: CGFloat) -> some View {
@@ -378,6 +381,9 @@ public struct SongsView: View {
                     )
                 }
             },
+            onGetInfo: { track in
+                libraryItemInfoRequest = .track(track)
+            },
             onShareLink: { track in
                 ShareActions.shareTrackLink(track, deps: deps)
             },
@@ -456,6 +462,9 @@ public struct SongsView: View {
                             )
                         }
                     },
+                    onGetInfo: { track in
+                        libraryItemInfoRequest = .track(track)
+                    },
                     onShareLink: { track in
                         ShareActions.shareTrackLink(track, deps: deps)
                     },
@@ -526,6 +535,9 @@ public struct SongsView: View {
                             in: navigationCoordinator.selectedTab
                         )
                     }
+                },
+                onGetInfo: { track in
+                    libraryItemInfoRequest = .track(track)
                 },
                 onShareLink: { track in
                     ShareActions.shareTrackLink(track, deps: deps)
