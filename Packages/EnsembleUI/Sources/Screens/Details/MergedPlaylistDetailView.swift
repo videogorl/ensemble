@@ -213,7 +213,7 @@ public struct MergedPlaylistDetailView: View {
     /// Sheet listing each constituent playlist with server name — tap to edit individually
     private var editPickerSheet: some View {
         List {
-            ForEach(viewModel.displayPlaylist.playlists, id: \.id) { playlist in
+            ForEach(viewModel.displayPlaylist.playlists, id: \.sourceScopedID) { playlist in
                 Button {
                     pendingEditTarget = playlist
                     showEditPicker = false

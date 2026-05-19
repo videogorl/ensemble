@@ -240,7 +240,8 @@ public struct SearchView: View {
                     if !viewModel.recentlyPlayedAlbums.isEmpty {
                         exploreSection(
                             title: "Recently Played Albums",
-                            items: viewModel.recentlyPlayedAlbums
+                            items: viewModel.recentlyPlayedAlbums,
+                            id: \.sourceScopedID
                         ) { album in
                             if #available(iOS 16.0, macOS 13.0, *) {
                                 NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id, sourceKey: album.sourceCompositeKey)) {
@@ -275,7 +276,7 @@ public struct SearchView: View {
                                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
                             LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
-                                ForEach(recommendedDisplayItems) { item in
+                                ForEach(recommendedDisplayItems, id: \.sourceScopedID) { item in
                                     recommendedItemCard(item)
                                 }
                             }
@@ -386,9 +387,10 @@ public struct SearchView: View {
         }
     }
 
-    private func exploreSection<T: Identifiable, Content: View>(
+    private func exploreSection<T: Identifiable, ID: Hashable, Content: View>(
         title: String,
         items: [T],
+        id: KeyPath<T, ID>,
         @ViewBuilder content: @escaping (T) -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
@@ -396,7 +398,7 @@ public struct SearchView: View {
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
             LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
-                ForEach(items) { item in
+                ForEach(items, id: id) { item in
                     content(item)
                 }
             }

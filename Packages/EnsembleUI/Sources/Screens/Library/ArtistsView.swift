@@ -1259,7 +1259,7 @@ public struct ArtistDetailView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: EnsembleDesign.Spacing.lg) {
-                    ForEach(artists) { artist in
+                    ForEach(artists, id: \.sourceScopedID) { artist in
                         if #available(iOS 16.0, macOS 13.0, *) {
                             NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id, sourceKey: artist.sourceCompositeKey)) {
                                 similarArtistCard(artist: artist)

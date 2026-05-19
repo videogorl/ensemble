@@ -119,7 +119,7 @@ public struct PlaylistPickerSheet: View {
                     Text("No playlists found.")
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 } else {
-                    ForEach(filteredPlaylists) { playlist in
+                    ForEach(filteredPlaylists, id: \.sourceScopedID) { playlist in
                         playlistRow(for: playlist)
                     }
                 }

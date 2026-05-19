@@ -238,7 +238,7 @@ struct HubSection: View {
             // Horizontal scroll of items
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: EnsembleScaffold.Discovery.gridSpacing) {
-                    ForEach(hub.items) { item in
+                    ForEach(hub.items, id: \.sourceScopedID) { item in
                         HubItemCard(
                             item: item,
                             nowPlayingVM: nowPlayingVM,

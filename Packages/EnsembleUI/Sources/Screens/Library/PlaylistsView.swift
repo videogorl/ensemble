@@ -1195,7 +1195,7 @@ public struct PlaylistDetailView: View {
     private var inlinePlaylistEditor: some View {
         EnsembleAdaptiveUtilityScaffold(title: viewModel.playlist.title) {
             List {
-                ForEach(editedTracks, id: \.id) { track in
+                ForEach(Array(editedTracks.enumerated()), id: \.offset) { _, track in
                     editableTrackSummary(track)
                 }
                 .onMove { source, destination in

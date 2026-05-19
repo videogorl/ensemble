@@ -910,6 +910,11 @@ public struct HubItem: Identifiable, Sendable, Equatable, Codable {
     public let artist: Artist?
     public let playlist: Playlist?
 
+    /// Stable UI identity that distinguishes the same Plex item across sources.
+    public var sourceScopedID: String {
+        sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
+    }
+
     /// Helper to get the date added from the underlying media object
     public var dateAdded: Date? {
         album?.dateAdded ?? track?.dateAdded ?? artist?.dateAdded ?? playlist?.dateAdded
