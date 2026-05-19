@@ -31,7 +31,7 @@ struct NowPlayingBackdrop: View {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
                     consumer: consumer,
-                    accentColor: EnsembleDesign.Color.accent,
+                    accentColor: settingsManager.accentColor.color,
                     isLowPowerMode: powerStateMonitor.isLowPowerMode,
                     activeContentMaxWidth: activeContentMaxWidth
                 )
