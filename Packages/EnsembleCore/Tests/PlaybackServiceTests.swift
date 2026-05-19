@@ -25,6 +25,12 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(time, 27.5, accuracy: 0.0001)
     }
 
+    func testInstrumentalModeUsesLargeRenderSlicesForIsolationHeadroom() {
+        XCTAssertEqual(AudioPlaybackEngine.instrumentalIsolationMaxFramesToRender, 8192)
+        XCTAssertGreaterThan(AudioPlaybackEngine.instrumentalIsolationPreferredIOBufferDuration, 0.12)
+        XCTAssertLessThan(AudioPlaybackEngine.standardPreferredIOBufferDuration, 0.03)
+    }
+
     func testSmartMixIncomingPositionUsesTempoRate() {
         let position = AudioPlaybackEngine.smartMixIncomingPosition(
             incomingStartTime: 10,

@@ -47,6 +47,9 @@ public final class AudioPlaybackEngine {
     private let kNeuralNetPlistPath: AudioUnitPropertyID = 30000
     private let kNeuralNetModelBasePath: AudioUnitPropertyID = 40000
     private let kDeverbPresetPathOverride: AudioUnitPropertyID = 50000
+    static let instrumentalIsolationMaxFramesToRender: UInt32 = 8192
+    static let instrumentalIsolationPreferredIOBufferDuration: TimeInterval = 0.128
+    static let standardPreferredIOBufferDuration: TimeInterval = 0.023
 
     // MARK: - Playback State
 
@@ -478,11 +481,11 @@ public final class AudioPlaybackEngine {
 
         engine.attach(effect)
 
-        // Allow the AU to render up to 4096 frames per callback (matches the larger
-        // IO buffer we request when isolation is active). Without this, the engine may
-        // split large buffers into multiple smaller render passes, adding overhead that
-        // makes deadline misses more likely under system load.
-        effect.auAudioUnit.maximumFramesToRender = 4096
+        // Allow the AU to render larger buffers per callback. AUSoundIsolation is a
+        // neural-network effect; if AVAudioEngine must split a large hardware buffer
+        // into several smaller AU render calls, deadline misses become much more
+        // likely on device.
+        effect.auAudioUnit.maximumFramesToRender = Self.instrumentalIsolationMaxFramesToRender
 
         isolationNodeCreated = true
 
@@ -511,8 +514,8 @@ public final class AudioPlaybackEngine {
         AudioUnitSetProperty(au, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 0, &asbd, formatSize)
 
         // Increase max frames per slice to give the neural network more headroom per render call.
-        // Default is 1156; 4096 reduces render call frequency and helps prevent overload dropouts.
-        var maxFrames: UInt32 = 4096
+        // Default is 1156; larger slices reduce render call frequency and help prevent dropouts.
+        var maxFrames = Self.instrumentalIsolationMaxFramesToRender
         AudioUnitSetProperty(au, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0,
                              &maxFrames, UInt32(MemoryLayout<UInt32>.size))
 

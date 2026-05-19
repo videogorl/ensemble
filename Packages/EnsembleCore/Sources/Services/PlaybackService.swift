@@ -3271,11 +3271,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         do {
             // Set IO buffer preference BEFORE toggling isolation. wireIsolationIntoGraph()
             // stops and restarts the engine, and the restart picks up the new buffer size.
-            // 93ms (~4096 frames at 44.1kHz) gives AUSoundIsolation enough headroom to
-            // complete its neural network pass even when CPU is busy with SwiftUI layout.
+            // A larger buffer gives AUSoundIsolation enough headroom to complete its
+            // neural-network pass even when CPU is busy with SwiftUI layout.
             #if !os(macOS)
                 let session = AVAudioSession.sharedInstance()
-                let preferredDuration: TimeInterval = enabled ? 0.093 : 0.023
+                let preferredDuration: TimeInterval = enabled
+                    ? AudioPlaybackEngine.instrumentalIsolationPreferredIOBufferDuration
+                    : AudioPlaybackEngine.standardPreferredIOBufferDuration
                 try? session.setPreferredIOBufferDuration(preferredDuration)
             #endif
 
