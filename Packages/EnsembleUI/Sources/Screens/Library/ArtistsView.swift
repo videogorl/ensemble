@@ -338,7 +338,6 @@ public struct ArtistsView: View {
             selectedGenres: $libraryVM.artistsFilterOptions.selectedGenres,
             excludedGenres: $libraryVM.artistsFilterOptions.excludedGenres
         )
-        .background(EnsembleDesign.Color.windowSurface)
     }
 
     private func shouldShowScrollIndex(width: CGFloat) -> Bool {

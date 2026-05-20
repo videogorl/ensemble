@@ -186,9 +186,9 @@ private struct GenreChip: View {
 
     private var backgroundColor: Color {
         switch state {
-        case .neutral: return .clear
+        case .neutral: return EnsembleDesign.Color.windowSurface
         case .included: return EnsembleDesign.Color.accent
-        case .excluded: return .clear
+        case .excluded: return EnsembleDesign.Color.windowSurface
         }
     }
 

@@ -292,7 +292,6 @@ public struct AlbumsView: View {
             selectedGenres: $libraryVM.albumsFilterOptions.selectedGenres,
             excludedGenres: $libraryVM.albumsFilterOptions.excludedGenres
         )
-        .background(EnsembleDesign.Color.windowSurface)
     }
 
     private func sectionHeader(_ letter: String) -> some View {
