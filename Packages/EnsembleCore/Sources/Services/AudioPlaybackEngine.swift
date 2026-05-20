@@ -1124,14 +1124,6 @@ public final class AudioPlaybackEngine {
             promoteSmartMixIfNeeded()
         }
 
-        if Self.shouldPrepareSmartMixPrimaryHandoff(
-            elapsed: elapsed,
-            transitionDuration: transition.transitionDuration,
-            handoffDuration: Self.smartMixStabilizationDuration
-        ) {
-            _ = prepareSmartMixPrimaryHandoff()
-        }
-
         if elapsed >= transition.transitionDuration {
             finishSmartMixTransition(continueAt: currentSmartMixIncomingTime())
         }
@@ -1190,13 +1182,18 @@ public final class AudioPlaybackEngine {
         let contentEnd = transition.contentStartFrame + AVAudioFramePosition(transition.contentFrameCount)
         guard startFrame < contentEnd else { return false }
 
+        playerNode.volume = 0
+        smartMixPlayerNode.volume = 1
+        resetOutgoingHighPass()
+
         scheduleGeneration &+= 1
         let myGeneration = scheduleGeneration
 
+        playerNode.stop()
+        playerTimeBaseOffset = 0
+        seekFrameOffset = AVAudioFramePosition(startPosition * transition.sampleRate)
         scheduledFiles.removeAll()
 
-        // Append B to the primary deck FIFO so A can finish naturally. Stopping the
-        // active primary node during the overlap can produce a small audible skip.
         playerNode.scheduleSegment(
             transition.file,
             startingFrame: startFrame,
@@ -1213,9 +1210,7 @@ public final class AudioPlaybackEngine {
                 try engine.start()
                 applyIsolationParameters()
             }
-            if !playerNode.isPlaying {
-                playerNode.play()
-            }
+            playerNode.play()
         } catch {
             scheduleGeneration &+= 1
             playerNode.stop()
@@ -1273,12 +1268,7 @@ public final class AudioPlaybackEngine {
         scheduledFiles.removeAll()
         let handoffStartPosition = transition.primaryHandoffStartPosition ?? clampedPosition
         seekFrameOffset = AVAudioFramePosition(handoffStartPosition * transition.sampleRate)
-        if let nodeTime = playerNode.lastRenderTime,
-           let playerTime = playerNode.playerTime(forNodeTime: nodeTime) {
-            playerTimeBaseOffset = playerTime.sampleTime
-        } else {
-            playerTimeBaseOffset = 0
-        }
+        playerTimeBaseOffset = 0
         playerNode.volume = 0
         smartMixPlayerNode.volume = 1
         resetOutgoingHighPass()
