@@ -216,9 +216,12 @@ public struct SongsView: View {
                             ScrollView {
                                 LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
                                     Section(header: songsGenreChipBar) {
-                                        indexedTrackListContent
+                                        ForEach(libraryVM.trackSections) { section in
+                                            indexedSection(section: section)
+                                        }
                                     }
                                 }
+                                .padding(.vertical)
                             }
                             .miniPlayerBottomSpacing()
 
@@ -410,27 +413,13 @@ public struct SongsView: View {
         }
     }
 
-    private var indexedTrackListContent: some View {
-        LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-            ForEach(libraryVM.trackSections) { section in
-                indexedSection(section: section)
-            }
-        }
-        .padding(.vertical)
-    }
-
     private func indexedSection(section: LibraryViewModel.TrackSection) -> some View {
-        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-            Color.clear
-                .frame(height: 0)
-                .id(section.letter)
-
-            Section(header: sectionHeader(section.letter)) {
-                ForEach(section.tracks, id: \.sourceScopedID) { track in
-                    compactSwiftUITrackRow(track)
-                }
+        Section(header: sectionHeader(section.letter)) {
+            ForEach(section.tracks, id: \.sourceScopedID) { track in
+                compactSwiftUITrackRow(track)
             }
         }
+        .id(section.letter)
     }
 
     private var compactSwiftUITrackList: some View {
