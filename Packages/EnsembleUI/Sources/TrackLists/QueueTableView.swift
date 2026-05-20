@@ -107,7 +107,7 @@ public class QueueItemCell: UITableViewCell {
             autoplayIndicator.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueGeneratedBadgeDimension),
             widthConstraint,
             
-            contextMenuButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.detailHorizontalPadding),
+            contextMenuButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.rowTightAccessoryGap),
             contextMenuButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             contextMenuButton.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueDragHandleDimension),
             contextMenuButton.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueDragHandleDimension)
