@@ -322,7 +322,7 @@ public struct QueueTableView: UIViewRepresentable {
             top: 0,
             left: TrackListLayoutMetrics.detailHorizontalPadding,
             bottom: 0,
-            right: TrackListLayoutMetrics.detailHorizontalPadding
+            right: TrackListLayoutMetrics.queueDragHandleDimension
         )
         tableView.separatorColor = TrackListLayoutMetrics.nativeSeparatorColor
         tableView.backgroundColor = .clear
